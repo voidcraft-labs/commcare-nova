@@ -104,7 +104,7 @@ export function BuilderAccessBoundary() {
 			aria-labelledby="builder-access-heading"
 		>
 			<div className="w-full max-w-lg rounded-2xl border border-nova-border bg-nova-surface p-6 text-center shadow-lg sm:p-8">
-				<p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-nova-text-muted">
+				<p className="mb-2 text-xs font-medium text-nova-text-muted">
 					Project access
 				</p>
 				<h1
@@ -119,7 +119,6 @@ export function BuilderAccessBoundary() {
 				{phase === "upgradeRequired" ? (
 					<Button
 						type="button"
-						size="xl"
 						className="mt-6"
 						onClick={() => window.location.reload()}
 					>
@@ -129,7 +128,6 @@ export function BuilderAccessBoundary() {
 				{phase === "revoked" ? (
 					<Button
 						type="button"
-						size="xl"
 						variant="outline"
 						className="mt-6"
 						onClick={() => window.location.assign("/")}

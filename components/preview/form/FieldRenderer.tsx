@@ -13,13 +13,13 @@ import { SelectOneField } from "./fields/SelectOneField";
 import { TextField } from "./fields/TextField";
 
 interface FieldRendererProps {
-	/** Domain field entity — discriminated union narrowed by `kind` below. */
+	/** Domain field entity: discriminated union narrowed by `kind` below. */
 	field: Field;
 	state: FieldState;
 	/** ID of the already-rendered visible question label, when present. */
 	labelledBy?: string;
 	/**
-	 * Concrete engine path — carries the repeat index, so a capture
+	 * Concrete engine path: carries the repeat index, so a capture
 	 * question's replace targets exactly one instance.
 	 *
 	 * Optional because the EDIT-mode row renderer passes none: edit-mode
@@ -51,7 +51,7 @@ interface FieldRendererProps {
  * kind-specific widget.
  *
  * Structural kinds (`group`, `repeat`) and authoring-only kinds
- * (`hidden`) never reach this component — the caller checks for them
+ * (`hidden`) never reach this component: the caller checks for them
  * and renders its own affordance. They appear here as explicit cases
  * returning `null` so the `default` branch stays an exhaustiveness
  * check rather than a silent escape hatch: every `FieldKind` is
@@ -165,14 +165,14 @@ export function FieldRenderer({
 					onBlur={onBlur}
 				/>
 			);
-		// Barcode is NOT a capture — its answer is the scanned text, not an
-		// attachment — and it has no preview affordance yet, so it keeps the
+		// Barcode is NOT a capture, its answer is the scanned text, not an
+		// attachment, and it has no preview affordance yet, so it keeps the
 		// placeholder card. The capture kinds are absent from this switch
 		// because the narrowing above already took them; TypeScript proves
 		// that, so a new capture kind needs no change here at all.
 		case "barcode":
 			return <MediaField field={field} />;
-		// Structural + authoring-only kinds — caller renders them directly
+		// Structural + authoring-only kinds: caller renders them directly
 		// (group/repeat via GroupField/RepeatField, hidden via HiddenField
 		// in edit mode or dropped entirely in interactive mode). Listed
 		// here so the exhaustiveness check below stays tight.

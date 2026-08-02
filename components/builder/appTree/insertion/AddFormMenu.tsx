@@ -3,7 +3,7 @@
 // The "+ add form" menu opened from a form insertion point inside a module.
 // Lists the four form types; case-managing types (registration / follow-up /
 // close) require the module to have a case type, so on a typeless (survey)
-// module they render disabled with the reason — "disabled, never hidden", the
+// module they render disabled with the reason: "disabled, never hidden", the
 // builder's valid-by-construction rule. Selecting a type dispatches the atomic
 // `createForm` scaffold (form + a default first field) and navigates to it.
 
@@ -35,8 +35,8 @@ import {
 } from "./TreeInsertionAffordance";
 
 /** Menu-only one-line description per form type (label + icon + the
- *  needs-a-case-type gate all come from the domain — `formTypeLabels`,
- *  `formTypeIcons`, `CASE_FORM_TYPES` — so this surface can't drift from them). */
+ *  needs-a-case-type gate all come from the domain: `formTypeLabels`,
+ *  `formTypeIcons`, `CASE_FORM_TYPES`, so this surface can't drift from them). */
 const FORM_TYPE_DESC: Record<FormType, string> = {
 	registration: "Creates a new case",
 	followup: "Updates a case",
@@ -73,7 +73,7 @@ export function AddFormMenu({
 		if (outcome.ok) openForm(moduleUuid, outcome.uuid);
 	};
 
-	// A view-only Project member can't add forms — drop the "+" strip.
+	// A view-only Project member can't add forms: drop the "+" strip.
 	if (!canEdit) return null;
 
 	return (
@@ -82,13 +82,16 @@ export function AddFormMenu({
 				<DropdownMenuTrigger
 					ref={ref}
 					className={`${INSERTION_TRIGGER_CLS} ${prominent ? "h-11" : "h-2"}`}
+					/* A seam rests as a thin line and expands to the 44px
+					 * floor as it reveals; the marker says so out loud. */
+					data-insertion-affordance={prominent ? "persistent" : "seam"}
 					style={insertionTriggerStyle(revealed, prominent)}
 					tabIndex={prominent ? 0 : -1}
 					aria-hidden={prominent ? undefined : true}
 					aria-label="Add form"
 				>
 					{/* Indented to the form rows' depth (FormCard is pl-5) so the
-					 *  affordance reads as INSIDE the module — the strip directly
+					 *  affordance reads as INSIDE the module: the strip directly
 					 *  below it is the full-width "+ Module" one. */}
 					<TreeInsertionLine
 						revealed={prominent || revealed}
@@ -104,7 +107,7 @@ export function AddFormMenu({
 					preferredMinWidth={220}
 				>
 					{FORM_TYPES.map((type) => {
-						// Case-managing types need a case type; survey never does —
+						// Case-managing types need a case type; survey never does:
 						// the domain's CASE_FORM_TYPES is the single source of that gate.
 						const disabled = CASE_FORM_TYPES.has(type) && !hasCaseType;
 						return (

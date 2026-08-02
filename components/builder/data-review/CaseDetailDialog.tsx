@@ -1,5 +1,5 @@
 /**
- * CaseDetailDialog — the whole case behind a review card, as a
+ * CaseDetailDialog: the whole case behind a review card, as a
  * scrollable vertical table (one property per row). Opened from the
  * data review screen so a decision about one waiting value can be made
  * while looking at everything else the case holds. Read-only: the
@@ -32,7 +32,7 @@ import { DATA_TYPE_LABELS } from "./dataReviewModel";
 import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 
 /**
- * A stored value as the person who typed it knows it — select values
+ * A stored value as the person who typed it knows it: select values
  * resolve to their option labels, multi-select arrays read as their
  * comma-separated selections.
  */
@@ -54,7 +54,7 @@ function displayCaseValue(
 	return optionLabel(String(raw));
 }
 
-/** The property chip for one table row — declared properties carry
+/** The property chip for one table row: declared properties carry
  * their current type as the icon; a saved key the schema no longer
  * declares keeps the case family's database mark. `case_name` is text
  * by definition, declared or not. */
@@ -70,7 +70,7 @@ function rowChip(id: string, decl: CaseProperty | undefined) {
 	);
 }
 
-/** Placeholder table while the case row loads — the same column
+/** Placeholder table while the case row loads: the same column
  * geometry as the loaded table (a chip-shaped block in the w-40
  * name column, a value line beside it) so the swap doesn't jump. */
 function LoadingTable() {
@@ -116,7 +116,7 @@ export function CaseDetailDialog({
 		caseId,
 		ancestorDepth: 0,
 		// This dialog exists to inspect a case the review HOLDS out of
-		// the running app — the one read that must see held rows.
+		// the running app: the one read that must see held rows.
 		includeHeld: true,
 	});
 
@@ -124,7 +124,7 @@ export function CaseDetailDialog({
 
 	// Declared properties in catalog order, then any saved keys the
 	// schema no longer declares (renamed/retired properties keep their
-	// data) — the table shows everything the case holds, not just what
+	// data): the table shows everything the case holds, not just what
 	// the current schema names.
 	const rows: Array<{
 		key: string;
@@ -204,7 +204,7 @@ export function CaseDetailDialog({
 							<Button
 								type="button"
 								variant="outline"
-								className="mt-3 min-h-11"
+								className="mt-3"
 								onClick={() => void reload()}
 							>
 								<Icon icon={tablerRefresh} />

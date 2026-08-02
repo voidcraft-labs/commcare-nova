@@ -15,7 +15,7 @@ updates a case, or closes a case, and they happen in the order you put them in.
 
 Open a form, choose the settings gear, and pick **Edit case changes**. The
 screen lists every change the form makes, and the settings row above it tells
-you the count without opening anything — a form that changes no cases says so.
+you the count without opening anything: a form that changes no cases says so.
 
 The screen has its own address, so you can link a teammate straight to it, and
 the **Preview** control runs the form the changes belong to.
@@ -24,7 +24,7 @@ the **Preview** control runs the form the changes belong to.
 
 Each row says what the change does in plain words:
 
-> **Create a new referral case** — once for each “Beds” entry, saves 3
+> **Create a new referral case**: once for each “Beds” entry, saves 3
 > properties, links it to another case
 
 That list is the answer to “what does submitting this form do?”, which is the
@@ -35,11 +35,11 @@ when an earlier one does, its row says so at rest, without you having to open it
 
 Choose **Add a change** and say what it does:
 
-- **Create a case** — then choose the kind of case. Nova creates it complete,
+- **Create a case**: then choose the kind of case. Nova creates it complete,
   with a name you can edit, so you never land on a half-built change.
-- **Update the case this form opened** — saves values onto the case someone
+- **Update the case this form opened**: saves values onto the case someone
   already picked.
-- **Close the case this form opened** — finishes it. A close can still save
+- **Close the case this form opened**: finishes it. A close can still save
   final values.
 
 The last two are only offered when the module picks a case before opening its
@@ -47,7 +47,7 @@ forms. When it does not, the choice says so rather than disappearing.
 
 ## Order matters, and some orders are refused
 
-A later change can act on the case an earlier one created — that is how one
+A later change can act on the case an earlier one created: that is how one
 submission registers a client and then files a referral against them. Because of
 that, order is not free.
 
@@ -70,11 +70,11 @@ Both reasons read the same whether you drag or use the keyboard.
 Choose a row to open it. The middle of the screen holds everything the change
 works out when the form is submitted:
 
-- **When this runs** — leave it out and the change happens on every submission.
+- **When this runs**: leave it out and the change happens on every submission.
 - **The case's name**, **who owns it**, and (for an update) **a new name**.
-- **What it saves** — the values that land on the case, each with its own
+- **What it saves**: the values that land on the case, each with its own
   optional condition so a value can be saved only sometimes.
-- **Connections to other cases** — see below.
+- **Connections to other cases**: see below.
 
 The panel beside it holds the choices: what the change does, the kind of case,
 which case, how often it happens, and removing it.
@@ -93,7 +93,7 @@ the table's rows; the complete change remains editable.
 ## How often a change happens
 
 A change normally happens once per submission. Set **How often** to a repeating
-section and it happens once for every entry someone adds — one case per bed, one
+section and it happens once for every entry someone adds, one case per bed, one
 update per visit.
 
 That choice decides which answers the change can use. A change that happens once
@@ -104,15 +104,15 @@ why when it cannot offer one.
 ## Identity: a distinct case, or a keyed one
 
 A create normally makes a distinct case every time. If the same submission
-should reach the same case when it is sent again — a record keyed on a
-registration number someone types — set **Identity** to that answer instead.
+should reach the same case when it is sent again, a record keyed on a
+registration number someone types, set **Identity** to that answer instead.
 
 ## Connections to other cases
 
 A connection says how the case relates to another one:
 
-- **Belongs to that case** — ordinary parent-and-child.
-- **Uses that case as its host** — a host connection distinct from ordinary
+- **Belongs to that case**: ordinary parent-and-child.
+- **Uses that case as its host**: a host connection distinct from ordinary
   parent-and-child. Closing the host does not close this case.
 
 Set the connection's target to **Remove this connection** to break an existing
@@ -134,8 +134,8 @@ be resolved.
 ## Removing a change
 
 Removing is offered only when nothing depends on the change. When something
-does, the panel names each one and the exact place holding the reference — the
-value it saves, the case it changes, when it runs — so you know what to edit
+does, the panel names each one and the exact place holding the reference: the
+value it saves, the case it changes, or when it runs. That way you know what to edit
 first.
 
 ## Ask Nova or an MCP agent
@@ -149,7 +149,7 @@ Change ids and connection names use letters, numbers, and underscores and start
 with a letter or underscore; saved property names use the same characters and
 start with a letter.
 
-A request that adds several changes can connect them in one atomic call — for
+A request that adds several changes can connect them in one atomic call, for
 example, create a referral and then update that new referral. If any change is
 invalid or the order cannot be preserved on submission, none of the call is
 saved and the response says what to adjust.

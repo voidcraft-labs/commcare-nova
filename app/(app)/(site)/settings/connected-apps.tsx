@@ -37,7 +37,7 @@ type RowStatus =
 	| { type: "revoking" }
 	| { type: "error"; message: string };
 
-/** Row data joined with its UI status — single source of truth in state. */
+/** Row data joined with its UI status: single source of truth in state. */
 interface RowData extends AuthorizedClient {
 	status: RowStatus;
 }
@@ -116,7 +116,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 	);
 
 	return (
-		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+		<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
 			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
@@ -128,7 +128,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 					/>
 				</div>
 				<div className="min-w-0">
-					<h2 className="text-base font-display font-semibold text-nova-text">
+					<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 						Connected applications
 					</h2>
 					<p className="text-xs text-nova-text-muted">
@@ -150,12 +150,12 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 			{/* ── Card body ─────────────────────────────────────────── */}
 			{/*
 			 *  The `<ul>` stays mounted unconditionally and the empty
-			 *  state renders as a sibling — gating the whole list on
+			 *  state renders as a sibling: gating the whole list on
 			 *  `rows.length === 0` would unmount AnimatePresence the
 			 *  same render the last row needs to play its exit, killing
 			 *  the collapse animation. Two AnimatePresences in parallel:
 			 *  inner drives per-row exits, outer fades the empty state
-			 *  in as `rows.length` crosses zero — both happening at
+			 *  in as `rows.length` crosses zero: both happening at
 			 *  the same time so it reads as one transition.
 			 */}
 			<div className="p-6">
@@ -345,7 +345,7 @@ function RowActions({
 		);
 	}
 
-	/* `idle` and `error` share the same Revoke button — the error
+	/* `idle` and `error` share the same Revoke button: the error
 	 * message is shown above the actions, so re-showing the plain
 	 * Revoke button makes retry obvious. */
 	return (
@@ -372,8 +372,8 @@ function EmptyState() {
 			/>
 			<p className="text-sm text-nova-text">No connected applications</p>
 			<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
-				Apps appear here after you authorize them via OAuth — for example, when
-				you connect a coding agent.
+				Apps appear here after you authorize them via OAuth, for example when
+				you connect a coding agent
 			</p>
 		</div>
 	);

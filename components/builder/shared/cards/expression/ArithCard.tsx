@@ -1,6 +1,6 @@
 // components/builder/shared/cards/expression/ArithCard.tsx
 //
-// Renders the `arith` ValueExpression — five-op binary numeric
+// Renders the `arith` ValueExpression: five-op binary numeric
 // arithmetic (`+` / `-` / `*` / `div` / `mod`). The `op` discriminator
 // stays inline at the operator slot so authors flip between the five
 // operations without a kind swap.
@@ -42,7 +42,7 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** Both operands must resolve to a numeric type — module-const for a
+/** Both operands must resolve to a numeric type: module-const for a
  *  stable filter identity across renders. */
 const OPERAND_CONSTRAINT = arithOperandConstraint();
 
@@ -54,8 +54,8 @@ const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
 	mod: { symbol: "%", label: "Remainder" },
 };
 
-/** Default `arith` — `0 + 0`. Both operands are int literals so the
- *  type checker accepts the seed clean. The op defaults to `+` —
+/** Default `arith`: `0 + 0`. Both operands are int literals so the
+ *  type checker accepts the seed clean. The op defaults to `+`:
  *  the most common arithmetic operation; authors flip via the
  *  inline op menu. */
 export function arithDefault(
@@ -72,7 +72,7 @@ interface ArithCardProps {
 
 export function ArithCard({ value, onChange, path }: ArithCardProps) {
 	// Per-slot errors render via each `ExpressionPicker` shell's
-	// `CardShell` footer — the picker mounted at `[..., "left"]`
+	// `CardShell` footer: the picker mounted at `[..., "left"]`
 	// looks up errors at the same path the type checker emits to,
 	// so a parallel `<InlineError>` here would render the same
 	// message twice.
@@ -128,9 +128,8 @@ function OpMenu({ op, setOp }: OpMenuProps) {
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						size="xl"
-						className="group min-w-12 border-white/[0.06] bg-nova-deep/50 px-3 text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 @max-md:justify-self-start"
+						variant="field"
+						className="group min-w-12 @max-md:justify-self-start"
 					/>
 				}
 			>

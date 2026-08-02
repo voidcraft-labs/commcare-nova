@@ -6,7 +6,7 @@ import { PreviewMarkdown } from "@/lib/markdown";
 
 /**
  * The validation message shown when a field is invalid. `media` is the field's
- * `validate_msg_media` — CommCare lets the validation message carry its own
+ * `validate_msg_media`: CommCare lets the validation message carry its own
  * image/audio/video, shown alongside the message text. The error only renders
  * in preview (edit mode is frozen and never touches a field), so the media is
  * interactive.

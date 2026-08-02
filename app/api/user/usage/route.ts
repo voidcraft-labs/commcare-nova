@@ -1,5 +1,5 @@
 /**
- * GET /api/user/usage — current month's credit summary for the authenticated user.
+ * GET /api/user/usage: current month's credit summary for the authenticated user.
  *
  * Returns the full credit picture: how many credits the user has been granted
  * this month (allowance + any admin bonus), how many they have spent (consumed),

@@ -1,11 +1,11 @@
 /**
- * ThreadList — the conversations view of the chat rail.
+ * ThreadList: the conversations view of the chat rail.
  *
  * First-class thread rows: every conversation about this app, most recently
  * active first, clickable back into. Replaces the conversation region while
  * open (ChatSidebar owns the open/close state and the header's back
- * affordance). A row shows what a person needs to pick a conversation —
- * its opening request, how old it is, how much was said — and two live
+ * affordance). A row shows what a person needs to pick a conversation:
+ * its opening request, how old it is, how much was said, and two live
  * signals: the violet dot marks the open conversation, and the pulsing active
  * badge marks one with a run streaming right now (its row resumes the
  * stream on open).
@@ -18,6 +18,7 @@ import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import type { ThreadMeta } from "@/lib/db/types";
+import { SELECTED_TINT_CLS } from "@/lib/styles";
 import { formatRelativeDate } from "@/lib/utils/format";
 
 interface ThreadListProps {
@@ -66,11 +67,7 @@ export function ThreadList({
 							disabled={disabled || openingThreadId !== null}
 							aria-current={active ? "true" : undefined}
 							aria-busy={opening || undefined}
-							className={`relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 focus-visible:ring-inset ${
-								active
-									? "bg-nova-violet/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet"
-									: "not-disabled:hover:bg-nova-surface/40"
-							}`}
+							className={`nova-focusable-inset relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 ${active ? `${SELECTED_TINT_CLS} before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet` : "not-disabled:hover:bg-nova-surface/40"}`}
 						>
 							<div className="flex items-start gap-2">
 								<Icon
@@ -93,7 +90,7 @@ export function ThreadList({
 								) : live ? (
 									<span className="shrink-0 flex items-center gap-1.5 mt-0.5">
 										<span className="relative flex size-2">
-											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-ping motion-reduce:hidden" />
+											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-breathe" />
 											<span className="relative inline-flex size-2 rounded-full bg-nova-emerald" />
 										</span>
 										<span className="text-xs font-medium text-nova-text-muted">

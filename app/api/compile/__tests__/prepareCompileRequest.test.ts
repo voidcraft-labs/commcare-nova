@@ -1,9 +1,9 @@
 /**
- * `prepareCompileRequest` — the shared front half of the two export routes
+ * `prepareCompileRequest`: the shared front half of the two export routes
  * (`/api/compile` + `/api/compile/json`). The route tests cover its boundary-
  * gate and success paths end-to-end; this file covers the failure boundaries
- * neither route test reaches — `appId is required` and the boundary-rejection
- * envelope — because a regression in any now breaks BOTH endpoints at once
+ * neither route test reaches: `appId is required` and the boundary-rejection
+ * envelope: because a regression in any now breaks BOTH endpoints at once
  * (that's the whole reason the preamble was extracted into one place).
  *
  * The client sends only `{ appId }`; the blueprint loads server-side via
@@ -146,10 +146,10 @@ describe("prepareCompileRequest", () => {
 		expect(compileErr).toBeInstanceOf(ApiError);
 		expect((compileErr as ApiError).status).toBe(422);
 		expect((compileErr as ApiError).message).toBe(
-			"This app isn't ready to compile — fix the issues below, then try again.",
+			"This app isn't ready to compile. Fix the issues below, then try again.",
 		);
 		// One detail line per finding, rendered in the CONCISE builder
-		// voice (`userFacingError`) — not the verbose validator message the
+		// voice (`userFacingError`), not the verbose validator message the
 		// SA reads. Each line names the finding's entity, no wire detail.
 		expect((compileErr as ApiError).details).toEqual([
 			'"Reg" doesn\'t have any fields yet. Add at least one.',
@@ -170,7 +170,7 @@ describe("prepareCompileRequest", () => {
 			mode: "hq-json",
 		}).catch((e) => e);
 		expect((exportErr as ApiError).message).toBe(
-			"This app isn't ready to export — fix the issues below, then try again.",
+			"This app isn't ready to export. Fix the issues below, then try again.",
 		);
 
 		// The gate short-circuits before manifest resolution either way.
@@ -188,7 +188,7 @@ describe("prepareCompileRequest", () => {
 		expect(result.doc.fieldParent).toBeDefined();
 		expect(result.assets.size).toBe(0);
 		// `compiledAtSeq` is the `mutation_seq` off the SAME loaded snapshot as
-		// the blueprint — each export names the exact document version it emitted.
+		// the blueprint: each export names the exact document version it emitted.
 		expect(result.compiledAtSeq).toBe(7);
 		expect(result.mode).toBe("ccz");
 		expect(prepareExportBoundary).toHaveBeenCalledWith(

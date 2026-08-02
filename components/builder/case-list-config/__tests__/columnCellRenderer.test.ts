@@ -205,7 +205,7 @@ describe("case-list Preview cell formatting", () => {
 			// 03:00 UTC on July 19 is 20:00 on July 18 in America/Los_Angeles.
 			// Device `date(@last_visit)` truncates in the device-local zone
 			// (commcare-core `DateUtils.roundDate`), so the visit and `today`
-			// share one local day and the interval is 0 — reading the
+			// share one local day and the interval is 0: reading the
 			// instant's UTC day instead would render -1.
 			const localEvening = new Date("2026-07-19T04:00:00.000Z");
 			expect(
@@ -454,7 +454,7 @@ describe("case-list Preview cell formatting", () => {
 	it("preserves calculated missing, invalid-date, and structured fallbacks", () => {
 		const missing = renderToStaticMarkup(renderCalculatedCell(null));
 		expect(missing).toContain('aria-hidden="true"');
-		expect(missing).toContain("—");
+		expect(missing).toContain("–");
 		expect(missing).toContain("No value");
 		expect(
 			renderToStaticMarkup(renderCalculatedCell(new Date(Number.NaN))),

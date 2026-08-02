@@ -44,7 +44,7 @@ export function EditableDropdown({
 
 	return (
 		<div>
-			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+			<span className="text-xs text-nova-text-muted mb-1 flex items-center gap-1.5">
 				{label}
 				<AnimatePresence>
 					{saved && (

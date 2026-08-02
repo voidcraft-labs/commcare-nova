@@ -6,9 +6,9 @@
  * violet selection highlight, type-colored icons per reference type).
  *
  * Supports two stages:
- *   1. Namespace stage — shows #form/, #user/, and one option per readable
+ *   1. Namespace stage: shows #form/, #user/, and one option per readable
  *      case type (#mother/, …), supplied by the caller
- *   2. Reference stage — shows filtered references from ReferenceProvider
+ *   2. Reference stage: shows filtered references from ReferenceProvider
  */
 
 "use client";

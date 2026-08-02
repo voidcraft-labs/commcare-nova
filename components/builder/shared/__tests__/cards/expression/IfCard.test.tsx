@@ -60,7 +60,7 @@ describe("IfCard — cross-family Predicate cond", () => {
 			/>,
 		);
 		// The cond's comparison mounts inside the outer If card as a
-		// sentence row — its verb chip reads "is more than".
+		// sentence row, its verb chip reads "is more than".
 		expect(container.textContent).toMatch(/is more than/i);
 		// Both then/else are text-typed; the editor reports valid.
 		expect(onValidityChange).toHaveBeenCalledWith(true);

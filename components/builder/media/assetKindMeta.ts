@@ -1,6 +1,6 @@
 // components/builder/media/assetKindMeta.ts
 //
-// Per-kind presentation metadata shared across the media UI — the
+// Per-kind presentation metadata shared across the media UI, the
 // icon, the human label, the `accept` string for the native file
 // input, and a human-readable `extLabel` (the extensions to SHOW the
 // user, e.g. "PNG, JPG"). The `accept` is derived from the domain MIME
@@ -30,7 +30,7 @@ export interface AssetKindMeta {
 	readonly icon: IconifyIcon;
 	/** Capitalized singular label, e.g. "Image". */
 	readonly label: string;
-	/** `accept` attribute for the file input — the kind's MIME list. */
+	/** `accept` attribute for the file input: the kind's MIME list. */
 	readonly accept: string;
 	/** User-facing extension list, e.g. "PNG, JPG, GIF, WebP". */
 	readonly extLabel: string;

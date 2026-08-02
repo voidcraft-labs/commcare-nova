@@ -1,22 +1,22 @@
 /**
- * useRowDnd — shared drag + drop registration for virtualized form rows.
+ * useRowDnd: shared drag + drop registration for virtualized form rows.
  *
  * Every row in the edit-mode form participates in drag-and-drop in one of
  * two flavors:
  *
- *   - **Draggable + drop target** (`FieldRow`, `GroupOpenRow`) — the
+ *   - **Draggable + drop target** (`FieldRow`, `GroupOpenRow`), the
  *     row's own DOM element is the drag source AND a drop target for
  *     other rows. Fields + groups can be picked up, and other items
  *     can be dropped onto them.
- *   - **Drop-only** (`EmptyContainerRow`) — not draggable, only a drop
+ *   - **Drop-only** (`EmptyContainerRow`), not draggable, only a drop
  *     target for the empty group/repeat's "sole child" landing zone.
  *
  * The rules are identical across both flavors:
  *   - Only accept sources whose data matches our own `draggable-field`
  *     tag (`isDraggableFieldData`).
- *   - Reject a self-drop — a draggable row can't be a drop target for
+ *   - Reject a self-drop: a draggable row can't be a drop target for
  *     itself.
- *   - Reject cycle-creating drops — dragging a group onto its own
+ *   - Reject cycle-creating drops: dragging a group onto its own
  *     descendant would reparent the group under itself. We read the
  *     doc's `fieldOrder` imperatively in `canDrop` and consult
  *     `isUuidInSubtree`.
@@ -26,7 +26,7 @@
  * Custom native drag preview: when a caller provides `renderPreview`, the
  * hook registers `onGenerateDragPreview` and tells the browser to use an
  * offscreen portal-rendered element as the drag image. Without this, the
- * browser snapshots the source row itself — which (a) can look chaotic
+ * browser snapshots the source row itself, which (a) can look chaotic
  * for a large row and (b) triggers `ResizeObserver` on
  * `virtualizer.measureElement`, making the row's neighbors "smoosh" as
  * the source momentarily reports a smaller rendered size. Providing a
@@ -34,7 +34,7 @@
  * it stays at its original layout position + size.
  *
  * Keeping this logic in one hook means every row enforces the rules the
- * same way. The alternative — inlining the rules in each row component —
+ * same way. The alternative: inlining the rules in each row component:
  * made `canDrop` look identical across three files and invited drift
  * when new drop kinds are added.
  */
@@ -88,7 +88,7 @@ export interface UseRowDndOptions {
 
 	/**
 	 * The container uuid under which the dragged source would land if
-	 * dropped here. Used for cycle detection — if the source is that
+	 * dropped here. Used for cycle detection: if the source is that
 	 * container (self-drop into self, already caught above) or an ancestor
 	 * of it, the drop is rejected.
 	 *
@@ -109,7 +109,7 @@ export interface UseRowDndOptions {
 	readonly buildDropData: GetDropData;
 
 	/**
-	 * Enable closest-edge tracking — only relevant for row-between drop
+	 * Enable closest-edge tracking: only relevant for row-between drop
 	 * targets (field rows). When true, the hook listens to `onDrag`,
 	 * extracts the closest edge from `self.data`, and exposes it as
 	 * `dropEdge`. Callers render an edge indicator based on this state.
@@ -120,7 +120,7 @@ export interface UseRowDndOptions {
 	 * Render the contents of the custom drag preview. When provided (and
 	 * the row is draggable), the hook tells the browser to use an
 	 * offscreen container as the drag image rather than snapshotting the
-	 * row itself. Ignored when `draggableUuid` is `null` — a non-draggable
+	 * row itself. Ignored when `draggableUuid` is `null`: a non-draggable
 	 * row has no drag to preview.
 	 */
 	readonly renderPreview?: () => ReactNode;
@@ -139,7 +139,7 @@ export interface UseRowDndReturn {
 	 *  `null` otherwise, or when the hit resolved away from the allowed
 	 *  edges. */
 	readonly dropEdge: Edge | null;
-	/** JSX node the caller MUST render somewhere in its return — usually
+	/** JSX node the caller MUST render somewhere in its return: usually
 	 *  at the end of the root fragment. `null` outside of an active drag.
 	 *  Internally a `createPortal` into a library-owned container at
 	 *  document.body, so it never affects the row's layout. */
@@ -168,7 +168,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 	});
 
 	// Latest `renderPreview` held in a ref so the draggable effect doesn't
-	// re-register every time the caller's callback identity changes —
+	// re-register every time the caller's callback identity changes:
 	// the `onGenerateDragPreview` closure reads the current ref value at
 	// drag start, which is all we need.
 	const renderPreviewRef = useRef(renderPreview);
@@ -182,7 +182,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 
 		// View-only Project members register no drag source, so no row can be
 		// picked up (and the reorder monitor never fires).
-		// Drag source — only when this row is itself draggable.
+		// Drag source: only when this row is itself draggable.
 		if (draggableUuid !== null && canEdit) {
 			cleanups.push(
 				draggable({
@@ -193,7 +193,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 						// browser an offscreen container to snapshot; React
 						// fills the container via the `createPortal` in the
 						// returned JSX. If not, fall through to the browser's
-						// default (snapshot the source element) — but note
+						// default (snapshot the source element), but note
 						// this reintroduces the measure-observer smoosh.
 						const render = renderPreviewRef.current;
 						if (!render) return;
@@ -216,7 +216,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 			);
 		}
 
-		// Drop target — every row accepts drops from our own drag sources.
+		// Drop target: every row accepts drops from our own drag sources.
 		cleanups.push(
 			dropTargetForElements({
 				element: el,
@@ -246,7 +246,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 				},
 				// `onDrag` fires for every mouse-move while the cursor is
 				// over the element. Only subscribe when the caller actually
-				// wants edge tracking — this keeps the adapter lightweight
+				// wants edge tracking: this keeps the adapter lightweight
 				// for drop targets that don't have top/bottom semantics.
 				...(trackEdge && {
 					onDrag: ({ self }) => {

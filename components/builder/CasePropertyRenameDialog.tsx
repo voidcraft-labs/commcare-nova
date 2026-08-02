@@ -405,7 +405,7 @@ export function CasePropertyRenameDialog({
 					<DialogTitle
 						ref={titleRef}
 						tabIndex={-1}
-						className="outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75"
+						className="nova-focusable outline-none"
 					>
 						{stage === "overview"
 							? "Case properties"
@@ -425,7 +425,7 @@ export function CasePropertyRenameDialog({
 				<DialogBody>
 					{(saving || preflightState.kind === "checking") && (
 						<p role="status" aria-live="polite" className="sr-only">
-							{saving ? "Saving case-property rename…" : "Checking impact…"}
+							{saving ? "Saving case-property rename" : "Checking impact"}
 						</p>
 					)}
 
@@ -476,7 +476,7 @@ export function CasePropertyRenameDialog({
 														<Button
 															type="button"
 															variant="outline"
-															className="min-h-11 shrink-0"
+															className="shrink-0"
 															onClick={() => addSource(caseType.name, property)}
 														>
 															<Icon icon={tablerEdit} />
@@ -622,8 +622,8 @@ export function CasePropertyRenameDialog({
 											<Button
 												type="button"
 												variant="ghost"
-												size="icon-lg"
-												className="min-h-11 min-w-11 self-end text-nova-text-muted"
+												size="icon"
+												className="min-w-11 self-end"
 												aria-label={`Remove rename for ${row.property}`}
 												onClick={() =>
 													setRows((current) =>

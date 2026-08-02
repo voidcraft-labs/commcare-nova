@@ -14,7 +14,7 @@ import {
 } from "@/lib/styles";
 import { FormSettingsPanel } from "./FormSettingsPanel";
 
-/** Trigger prop shape — the same `{ moduleUuid, formUuid }` pair the
+/** Trigger prop shape: the same `{ moduleUuid, formUuid }` pair the
  *  panel itself consumes, carried through to `FormSettingsPanel`. */
 interface FormSettingsButtonProps {
 	moduleUuid: Uuid;
@@ -22,7 +22,7 @@ interface FormSettingsButtonProps {
 }
 
 /**
- * Popover trigger that mounts the form-settings panel — the public mount
+ * Popover trigger that mounts the form-settings panel: the public mount
  * point rendered by `FormScreen`'s header. Shows the settings cog plus a
  * small Connect logomark badge when the form has an active ConnectConfig
  * so users can see at a glance which forms have been wired into a
@@ -62,7 +62,7 @@ export function FormSettingsButton({
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>
 			<Popover.Trigger
-				className="ml-auto flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
+				className="nova-focusable ml-auto flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06]"
 				aria-label="Form settings"
 			>
 				<Icon icon={tablerSettings} width="18" height="18" />

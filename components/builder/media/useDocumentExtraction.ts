@@ -5,7 +5,7 @@
 // runs server-side (POST /api/media/[id]/extract); this kicks it off when a
 // document has no current extract and tracks the resulting status.
 //
-// Non-documents (images / audio / video) have no extract — the hook reports
+// Non-documents (images / audio / video) have no extract: the hook reports
 // `null` and does nothing for them. A `ready` document is left alone (already
 // read). Anything else (never extracted, a prior failure, a stale version) is
 // (re)triggered once on mount; `retry` re-runs a failed one on demand.
@@ -24,11 +24,11 @@ import { type ExtractMeta, triggerAssetExtraction } from "./mediaClient";
 /** How often to re-check an extraction another request owns (saw a 202). */
 const POLL_INTERVAL_MS = 4000;
 /** Cap the poll loop so a job that never converges (abandoned mid-extraction)
- *  stops spinning rather than polling forever — ~5 min, past the route's
+ *  stops spinning rather than polling forever: ~5 min, past the route's
  *  `maxDuration`. The chat's lazy backstop re-reads the document on send. */
 const MAX_POLLS = 75;
 
-/** The minimal asset shape the hook reads — id, kind, and the persisted extract
+/** The minimal asset shape the hook reads: id, kind, and the persisted extract
  *  status (absent until extraction has run). Both `MediaAssetView` and a freshly
  *  uploaded asset satisfy it. */
 export interface ExtractableAsset {
@@ -40,7 +40,7 @@ export interface ExtractableAsset {
 export interface DocumentExtraction {
 	/** `null` for a non-document (no extract concept); otherwise the live status. */
 	status: MediaExtractStatus | null;
-	/** Re-run extraction — wired to the "failed" badge's retry affordance. */
+	/** Re-run extraction: wired to the "failed" badge's retry affordance. */
 	retry: () => void;
 }
 
@@ -49,7 +49,7 @@ export function useDocumentExtraction(
 	/** Called once when extraction reaches a TERMINAL state (`ready` with the fresh
 	 *  title/summary, or `failed`), with that metadata. Lets the owner of a STAGED
 	 *  snapshot (the composer's picked assets, the library list) reconcile it the
-	 *  instant extraction settles — so the preview shows the title/summary without a
+	 *  instant extraction settles, so the preview shows the title/summary without a
 	 *  re-fetch, and a "still reading?" signal derived from the snapshot can clear
 	 *  on failure too (not just success). */
 	onExtracted?: (extract: ExtractMeta) => void,
@@ -117,7 +117,7 @@ export function useDocumentExtraction(
 	/**
 	 * POST the extract route and reflect the result. The route runs extraction
 	 * to completion for the first caller (resolving `ready`/`failed`), but a
-	 * concurrent caller gets `extracting` (202) — so when WE see `extracting`,
+	 * concurrent caller gets `extracting` (202), so when WE see `extracting`,
 	 * another request owns the job and we must POLL to observe its terminal
 	 * state, or this instance is stuck on "Reading…" forever. Polling re-POSTs
 	 * (cheap: the route short-circuits an in-flight extraction with 202 and a
@@ -155,7 +155,7 @@ export function useDocumentExtraction(
 	}, [enabled, poll]);
 
 	// Decide the once-per-mount action for a document. `ready`/`failed` are
-	// TERMINAL stored states — show them and do nothing (a failed doc must NOT
+	// TERMINAL stored states: show them and do nothing (a failed doc must NOT
 	// silently re-run the model on every file-manager open; the badge's Retry is
 	// the only re-run path). An `extracting` stored state means a job is already
 	// in flight server-side, so converge on it via the poll WITHOUT starting a

@@ -1,8 +1,8 @@
 /**
- * AppTreeRail — the structure sidebar's collapsed state: a slim icon
+ * AppTreeRail: the structure sidebar's collapsed state: a slim icon
  * rail instead of nothing. Every top-level destination stays one
- * click away — module screens, each case-typed module's Case List &
- * Search workspace, and every form — so collapsing the tree trades
+ * click away: module screens, each case-typed module's Case List &
+ * Search workspace, and every form, so collapsing the tree trades
  * width for labels, never for reach.
  *
  * Rows mirror the expanded tree's order: module tile, then its
@@ -32,6 +32,7 @@ import {
 	useNavigate,
 } from "@/lib/routing/hooks";
 import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
+import { selectableIconCls } from "@/lib/styles";
 
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
@@ -45,11 +46,10 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Expand structure sidebar"
 						data-builder-sidebar-toggle="expand-structure"
-						className="size-11 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 					>
 						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
 					</Button>
@@ -110,7 +110,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	const onSelect = useAppTreeSelection();
 	const loc = useLocation();
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
-	/* Exact-module selection (not the descendant-inclusive predicate) —
+	/* Exact-module selection (not the descendant-inclusive predicate):
 	 * the rail highlights the precise destination, so a form screen
 	 * lights its form icon, not the parent module's. */
 	const isModuleScreen = loc.kind === "module" && loc.moduleUuid === moduleUuid;
@@ -176,7 +176,7 @@ function RailFormButton({
 				<ProjectMediaImage
 					assetId={form.icon}
 					alt=""
-					className="size-5 rounded object-cover"
+					className="size-5 rounded-sm object-cover"
 				/>
 			) : (
 				<Icon icon={formTypeIcons[form.type]} width="15" height="15" />
@@ -198,20 +198,14 @@ function RailButton({
 }) {
 	return (
 		<SimpleTooltip content={label} side="right">
-			<Button
+			<button
 				type="button"
-				variant="ghost"
-				size="icon-lg"
 				onClick={onClick}
 				aria-label={label}
-				className={`size-11 ${
-					active
-						? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-						: "text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05]"
-				}`}
+				className={selectableIconCls(active)}
 			>
 				{children}
-			</Button>
+			</button>
 		</SimpleTooltip>
 	);
 }

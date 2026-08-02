@@ -8,25 +8,25 @@
 // behavior's name, so the two surfaces can never describe the same
 // behavior differently.
 //
-// The descriptions are exact behavioral claims, not vibes — each states
+// The descriptions are exact behavioral claims, not vibes: each states
 // what CommCare's search actually does with the typed value (mirrored by
 // the case store's Postgres compiler and CommCare HQ's Elasticsearch
 // layer):
-//   - fuzzy: per-word — a word matches if it equals a word of the value
+//   - fuzzy: per-word, a word matches if it equals a word of the value
 //     (ignoring case), or sits within 1 edit (words of 3–5 letters) /
 //     2 edits (6+) of one sharing its first two letters. It does NOT
 //     match partial words: "bo" never finds "bob".
 //   - starts-with: prefix of the whole value, case-sensitive.
-//   - phonetic: Soundex per word — same spoken shape, any spelling.
+//   - phonetic: Soundex per word, same spoken shape, any spelling.
 //   - fuzzy-date: the typed date plus its digit-permutation set
 //     (swapped day/month, reversed digit pairs).
 
 import type { MatchMode } from "@/lib/domain/predicate";
 
 export interface MatchModeVocabularyEntry {
-	/** Standalone choice name, sentence case — the Match picker's label. */
+	/** Standalone choice name, sentence case: the Match picker's label. */
 	readonly pickerLabel: string;
-	/** Mid-sentence verb framing — reads as "subject verb value" in the
+	/** Mid-sentence verb framing: reads as "subject verb value" in the
 	 *  condition verb menu. `starts-with` deliberately uses a different
 	 *  stem per framing: the standalone choice is named "Begins with"
 	 *  while the sentence verb reads "starts with" (the same verb the

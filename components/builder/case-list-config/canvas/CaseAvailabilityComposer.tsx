@@ -152,7 +152,7 @@ export function CaseAvailabilityComposer({
 		caseTypes,
 		currentCaseType,
 		knownInputs: inputDecls,
-		// Cases available runs against every Results row — the ordinary
+		// Cases available runs against every Results row: the ordinary
 		// per-case scope where property reads are meaningful.
 		caseDataScope: "per-case",
 	} as const;
@@ -178,10 +178,9 @@ export function CaseAvailabilityComposer({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={onReturnToSearchField}
 						aria-label={`Back to ${dependencyReview.inputLabel} search field`}
-						className="shrink-0 border-white/[0.09] px-4 text-[14px]"
+						className="shrink-0"
 					>
 						Back to field
 					</Button>
@@ -191,7 +190,7 @@ export function CaseAvailabilityComposer({
 				data-case-availability-composer
 				aria-label="Case availability"
 				tabIndex={-1}
-				className={`overflow-hidden rounded-2xl border bg-nova-surface/20 outline-none focus-visible:ring-2 focus-visible:ring-nova-violet/65 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep ${
+				className={`nova-focusable overflow-hidden rounded-2xl border bg-nova-surface/20 outline-none ${
 					filterBroken || excludedOwnerIdsBroken
 						? "border-nova-rose/35"
 						: "border-white/[0.08]"
@@ -321,7 +320,7 @@ export function CaseAvailabilityComposer({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{hasAssignedCaseRule
 								? "Remove these conditions?"
 								: "Show all cases in Results?"}
@@ -550,7 +549,6 @@ function MatchCount({
 						ref={retryButtonRef}
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={() => {
 							retryFocusPhaseRef.current = "requested";
 							// The status container survives unavailable -> loading. Move

@@ -1,6 +1,6 @@
 // components/builder/media/useAttachBudget.ts
 //
-// The browser slots' pre-dispatch export-ceiling check — the client
+// The browser slots' pre-dispatch export-ceiling check: the client
 // twin of the SA/MCP attach verdict's budget arm. Both run the SAME
 // arithmetic and speak the SAME rejection prose
 // (`lib/media/exportBudget.ts`), so an honest user hears "this would
@@ -8,7 +8,7 @@
 // export door.
 //
 // Trust model (documented in full where the math lives): this check is
-// the honest-user UX guarantee, not the enforcement — the export
+// the honest-user UX guarantee, not the enforcement: the export
 // boundary re-loads fresh rows server-side and refuses an over-budget
 // app regardless of anything a client did. That's why the check FAILS
 // OPEN when it can't resolve a referenced asset's metadata (a transient
@@ -20,7 +20,7 @@
 // page the pickers load, every upload confirm, and this hook's own
 // fetches), and the candidate asset the slot is about to attach. Ids
 // the registry doesn't know are loaded through the library route's
-// resolve mode before judging — so the check is complete even for refs
+// resolve mode before judging, so the check is complete even for refs
 // attached in earlier sessions or by the SA.
 
 "use client";
@@ -37,7 +37,7 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { fetchAssetsByIds, type MediaAssetView } from "./mediaClient";
 
-/** Outcome of the budget check — mirrors the server verdict's shape so
+/** Outcome of the budget check: mirrors the server verdict's shape so
  *  call sites read the same way on both surfaces. */
 export type AttachBudgetVerdict = { ok: true } | { ok: false; error: string };
 
@@ -84,7 +84,7 @@ export function useAttachBudgetGuard(): (
 				);
 			};
 			if (start.accessPhase !== "authorized") return accessChanged();
-			// The candidate's own row is known-good metadata — record it so
+			// The candidate's own row is known-good metadata: record it so
 			// a later check (or a re-attach) needs no fetch for it.
 			session.getState().recordAssetMeta([candidate]);
 
@@ -116,7 +116,7 @@ export function useAttachBudgetGuard(): (
 						return accessChanged();
 					}
 					// Fail OPEN: an unresolvable ref can only make this courtesy
-					// check miss, and the export boundary is the authority —
+					// check miss, and the export boundary is the authority:
 					// refusing a legitimate attach over a transient fetch would
 					// be the worse failure.
 				} finally {

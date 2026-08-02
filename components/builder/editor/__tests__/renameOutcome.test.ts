@@ -1,9 +1,9 @@
 /**
- * renameOutcome — pure classification tests.
+ * renameOutcome: pure classification tests.
  *
  * The header's id input runs through `useCommitField`, which calls the
  * outcome classifier with the typed id and the shared identifier
- * verdict (`renameFieldIdVerdict` — computed by the header before any
+ * verdict (`renameFieldIdVerdict`: computed by the header before any
  * dispatch). The classifier returns the discriminated outcome and the
  * header turns it into setShaking + setIdNotice calls (a rejection),
  * a dispatch (success), or a clean exit (noop).
@@ -41,7 +41,7 @@ describe("classifyRenameOutcome", () => {
 	});
 
 	it("returns rejected carrying the verdict's CONCISE userMessage", () => {
-		// This is the builder rename popover — the classifier surfaces the
+		// This is the builder rename popover: the classifier surfaces the
 		// verdict's concise `userMessage` (not the SA-facing verbose
 		// `message`), embedding the offending id, untouched.
 		expect(
@@ -61,7 +61,7 @@ describe("classifyRenameOutcome", () => {
 
 	it("noop supersedes a rejection when the id is empty", () => {
 		// Belt-and-suspenders pin: an empty id exits as noop even if a
-		// caller hands a failing verdict alongside it — nothing was
+		// caller hands a failing verdict alongside it: nothing was
 		// typed, so nothing should shake.
 		const outcome = classifyRenameOutcome({
 			newId: "",

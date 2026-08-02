@@ -924,7 +924,7 @@ export function createReconciler(
 			});
 			deps.onSaveError?.(
 				outcome.kind === "canonicality"
-					? `auto-save mutation canonicality rejected — mutation=${outcome.details.mutationIndex ?? "root"} pointer=${outcome.details.pointer} reason=${outcome.details.reason}`
+					? `auto-save mutation canonicality rejected. Mutation=${outcome.details.mutationIndex ?? "root"} pointer=${outcome.details.pointer} reason=${outcome.details.reason}`
 					: "auto-save batch id collision",
 			);
 			return;
@@ -955,9 +955,7 @@ export function createReconciler(
 			for (const watch of [...unboundHumanBatchWatches]) {
 				settleWatch(watch, { kind: "tooLarge" });
 			}
-			deps.onSaveError?.(
-				`auto-save PUT too large — ${outcome.detail ?? "413"}`,
-			);
+			deps.onSaveError?.(`auto-save PUT too large: ${outcome.detail ?? "413"}`);
 			maybeRunDeferredReload();
 			return;
 		}
@@ -969,7 +967,7 @@ export function createReconciler(
 		// channel (deduped per-app)
 		// so an app-wide save outage isn't invisible.
 		batch.observe?.({ kind: "error" });
-		deps.onSaveError?.(`auto-save PUT failed — ${outcome.detail ?? "network"}`);
+		deps.onSaveError?.(`auto-save PUT failed: ${outcome.detail ?? "network"}`);
 		scheduleRetryLoop();
 		// A reload deferred behind this PUT must still run even though the PUT
 		// FAILED — otherwise it strands until a later re-send happens to 200.
@@ -1150,7 +1148,7 @@ export function createReconciler(
 				deps.markAccessReconnecting?.();
 				reloadPending = true;
 				deps.onSaveError?.(
-					`reconciler reload GET failed — ${
+					`reconciler reload GET failed: ${
 						err instanceof Error ? err.message : String(err)
 					}`,
 				);

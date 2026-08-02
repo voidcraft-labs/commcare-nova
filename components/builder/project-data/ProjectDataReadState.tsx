@@ -9,7 +9,7 @@
  *
  * A failure names what the server said. `lib/lookup`'s failures are already
  * written person-to-person, so this surface passes the message through rather
- * than replacing it with a generic apology — the one substitution is the
+ * than replacing it with a generic apology: the one substitution is the
  * signed-out case, where the recovery is a reload rather than a retry.
  */
 "use client";
@@ -72,7 +72,7 @@ export function ProjectDataFailure({
 				<Button
 					type="button"
 					variant="outline"
-					className="mt-3 min-h-11"
+					className="mt-3"
 					onClick={onRetry}
 				>
 					<Icon icon={tablerRefresh} aria-hidden="true" />

@@ -3,7 +3,7 @@
 // Registry-shape tests for the predicate card editor. Two
 // invariants pinned here:
 //
-//   1. Exhaustivity over the Predicate union — every Predicate
+//   1. Exhaustivity over the Predicate union: every Predicate
 //      kind appears as a key in `predicateCardSchemas`. The
 //      mapped-type `Record<Predicate["kind"], ...>` enforces this
 //      at the type layer; the runtime guard verifies the keys at
@@ -91,8 +91,8 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 		// The mapped-type `Record<Predicate["kind"], ...>` enforces
 		// this at compile time, but the runtime guard catches an
 		// `as` cast bypassing the type system. The check reads
-		// each entry's `kind` field and confirms the key matches
-		// — drift between key + entry would be an authoring bug.
+		// each entry's `kind` field and confirms the key matches:
+		// drift between key + entry would be an authoring bug.
 		for (const kind of Object.keys(
 			predicateCardSchemas,
 		) as Predicate["kind"][]) {
@@ -143,18 +143,18 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 describe("predicateCardSchemas — defaultValue parses through the schema", () => {
 	// Iterate every kind; assert the factory's output round-trips
 	// through `predicateSchema.parse`. This is the smoke test for
-	// "the registry's defaults are kind-valid AST" — semantic
+	// "the registry's defaults are kind-valid AST": semantic
 	// validity (does a property name resolve, are types
 	// compatible?) is the type checker's job and has its own tests.
 	for (const kind of Object.keys(predicateCardSchemas) as Predicate["kind"][]) {
 		it(`${kind}: default value parses through predicateSchema`, () => {
 			const entry = predicateCardSchemas[kind];
 			const value = entry.defaultValue(ctx);
-			// Parse round-trip — the schema's tuple-with-rest /
+			// Parse round-trip: the schema's tuple-with-rest /
 			// non-empty / refinement guards all run here.
 			expect(() => predicateSchema.parse(value)).not.toThrow();
 			// The constructed kind matches the registry's key
-			// (modulo reductions — `notDefault` etc. can route through
+			// (modulo reductions: `notDefault` etc. can route through
 			// reductions that change the outer kind, but each
 			// production registry default should produce its own kind).
 			expect(value.kind).toBe(kind);
@@ -249,7 +249,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 		expect(predicateCardSchemas.lt.applicable(noOrdered)).toBe(false);
 		expect(predicateCardSchemas.gte.applicable(noOrdered)).toBe(false);
 		expect(predicateCardSchemas.lte.applicable(noOrdered)).toBe(false);
-		// `eq` / `neq` aren't gated on ordered types — they apply
+		// `eq` / `neq` aren't gated on ordered types: they apply
 		// to any property with a value-equality semantic.
 		expect(predicateCardSchemas.eq.applicable(noOrdered)).toBe(true);
 		expect(predicateCardSchemas.neq.applicable(noOrdered)).toBe(true);
@@ -377,7 +377,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 describe("predicateCardSchemas — global scope (no case selected)", () => {
 	// A `"global"` slot (a search input's starting value, the
 	// search-button display condition) resolves once, before any case is
-	// selected — the commit gate rejects every case-property /
+	// selected: the commit gate rejects every case-property /
 	// relationship read there, so the registry must not offer them.
 	const globalCtx: PredicateEditContext = { ...ctx, caseDataScope: "global" };
 
@@ -418,7 +418,7 @@ describe("predicateCardSchemas — global scope (no case selected)", () => {
 				`${kind} must stay available in a global slot`,
 			).toBe(true);
 			const seed = predicateCardSchemas[kind].defaultValue(globalCtx);
-			// Every global seed must type-check AND read no case data —
+			// Every global seed must type-check AND read no case data:
 			// otherwise the first dispatch bounces off the commit gate.
 			let readsCaseData = false;
 			walkTerms(seed, (term) => {
@@ -435,7 +435,7 @@ describe("predicateCardSchemas — global scope (no case selected)", () => {
 	});
 
 	it("stays available even when the case-type schema is empty", () => {
-		// The session values exist regardless of the catalog — a module
+		// The session values exist regardless of the catalog: a module
 		// whose case type has no properties still authors a global rule.
 		const emptyGlobal: PredicateEditContext = {
 			caseTypes: [{ name: "patient", properties: [] }],

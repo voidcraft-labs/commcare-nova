@@ -1,8 +1,8 @@
 /**
  * One Project data table: its identity, what it holds, and its rows.
  *
- * The grid is a SCAN surface, not a spreadsheet. Cells are typed — a date
- * column needs `DatePicker`, a time column `TimeField` — and those are
+ * The grid is a SCAN surface, not a spreadsheet. Cells are typed, a date
+ * column needs `DatePicker`, a time column `TimeField`, and those are
  * popovers that cannot live inside a virtualized cell, nor can a 44px touch
  * target survive a dense one. So the grid reads and selects, one row opens in
  * the inspector rail where every control is correctly typed and full size,
@@ -43,8 +43,8 @@ import { TableActions } from "./TableActions";
 export function ProjectDataTableScreen() {
 	const workspace = useProjectDataWorkspace();
 	const navigate = useNavigate();
-	/* The controller owns the read AND the open table's identity — it derives
-	 * both from the URL — so the canvas and the rail share one fetch and one
+	/* The controller owns the read AND the open table's identity, it derives
+	 * both from the URL, so the canvas and the rail share one fetch and one
 	 * selection. Taking a `tableId` prop here would be a second source for the
 	 * same fact. The fallback keeps this screen renderable in isolation. */
 	const state = workspace?.table ?? { kind: "idle" as const };
@@ -56,7 +56,7 @@ export function ProjectDataTableScreen() {
 			variant="ghost"
 			onClick={() => navigate.openProjectData()}
 			data-project-data-focus-fallback
-			className="-ml-2 min-h-11 gap-2 text-[13px] text-nova-text-muted hover:text-nova-text"
+			className="-ml-2 gap-2"
 		>
 			<Icon icon={tablerArrowLeft} width="16" height="16" aria-hidden="true" />
 			All data tables
@@ -74,7 +74,7 @@ export function ProjectDataTableScreen() {
 
 	if (state.kind === "failed") {
 		/* A table that has been deleted, and one that belongs to a project you
-		 * cannot see, resolve identically by design — telling them apart would
+		 * cannot see, resolve identically by design: telling them apart would
 		 * confirm that a resource exists somewhere you have no access to. The
 		 * copy therefore describes the situation rather than guessing a cause. */
 		const missing = state.failure.code === "not_found";
@@ -99,13 +99,13 @@ export function ProjectDataTableScreen() {
 						</p>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							It may have been deleted, or it may belong to a different project.
-							Go back to see the tables this project has.
+							Go back to see the tables this Project has.
 						</p>
 						{workspace !== null && workspace.pendingDraftCount > 0 && (
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								onClick={workspace.openPendingDraft}
 							>
 								Review{" "}
@@ -138,13 +138,13 @@ export function ProjectDataTableScreen() {
 			{backToList}
 			<h1
 				id="project-data-table-heading"
-				className="mt-2 font-display text-2xl font-semibold tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mt-2 font-display text-2xl font-semibold tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{table.name}
 			</h1>
 			<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
 				{formatLookupCount(table.columns.length, "column")} ·{" "}
-				{formatLookupCount(table.rowCount, "row")} of{" "}
+				{table.rowCount.toLocaleString()} of{" "}
 				{formatLookupCount(capacity.rowLimit, "row")} ·{" "}
 				{formatLookupBytes(table.dataBytes)} of{" "}
 				{formatLookupBytes(capacity.byteLimit)}
@@ -167,7 +167,7 @@ export function ProjectDataTableScreen() {
 					<Button
 						type="button"
 						variant="ghost"
-						className="min-h-11"
+						className=""
 						onClick={workspace.openPendingDraft}
 					>
 						Review row work
@@ -206,7 +206,7 @@ export function ProjectDataTableScreen() {
 /**
  * How a row is named to a screen reader on its Open control.
  *
- * The first column's value, because that is what a person calls the row — a
+ * The first column's value, because that is what a person calls the row, a
  * row number would be honest but useless, and the stored id means nothing to
  * anyone. Falls back to the position when the first cell is empty.
  */
@@ -226,7 +226,7 @@ function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
  * belongs in the DOM at once, and the two ways out are virtualization or
  * paging: virtualization costs the native element (a CSS grid wearing ARIA
  * roles, with `aria-rowindex` bookkeeping that has to stay honest as the
- * window moves), while paging keeps `<table>`/`<th>`/`<td>` — real row and
+ * window moves), while paging keeps `<table>`/`<th>`/`<td>`, real row and
  * column headers, real header association, and screen-reader table navigation
  * that works without a single role attribute. The running case list already
  * pages at 50 for the same reason, so the two surfaces behave alike.
@@ -278,7 +278,7 @@ function TableGrid({
 
 	/* A narrowed or refreshed result set can leave the reader past the end.
 	 * Clamping during render (rather than in an effect) keeps the page shown
-	 * and the page counted identical in the same commit — an effect would
+	 * and the page counted identical in the same commit: an effect would
 	 * paint one frame of an empty page first. */
 	const pageCount = Math.max(1, Math.ceil(matches.length / ROWS_PER_PAGE));
 	const currentPage = Math.min(page, pageCount - 1);
@@ -410,7 +410,7 @@ function TableGrid({
 												/* A missing cell is not an empty one. The dash is
 												 * decoration, so the accessible name says which. */
 												<span className="text-nova-text-muted">
-													<span aria-hidden="true">—</span>
+													<span aria-hidden="true">–</span>
 													<span className="sr-only">No value</span>
 												</span>
 											) : (
@@ -433,7 +433,7 @@ function TableGrid({
 										variant="ghost"
 										data-project-data-row-open={row.id}
 										onClick={() => onSelectRow(row.id)}
-										className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
+										className="whitespace-nowrap text-[13px] text-nova-violet-bright"
 									>
 										Open
 										<span className="sr-only"> row {rowLabel(table, row)}</span>
@@ -453,7 +453,7 @@ function TableGrid({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={currentPage === 0}
 						onClick={() => setPage(currentPage - 1)}
 					>
@@ -472,7 +472,7 @@ function TableGrid({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={currentPage >= pageCount - 1}
 						onClick={() => setPage(currentPage + 1)}
 					>

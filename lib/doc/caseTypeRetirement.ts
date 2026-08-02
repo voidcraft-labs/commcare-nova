@@ -243,7 +243,7 @@ function blockedRetirementMessage(
 ): string {
 	const lines = references.map((r) => `  • ${r}`).join("\n");
 	return (
-		`${action} would retire its case type "${caseType}" — no other module manages it — ` +
+		`${action} would retire its case type "${caseType}", no other module manages it, ` +
 		`but ${references.length === 1 ? "something still references" : `${references.length} things still reference`} "${caseType}":\n` +
 		`${lines}\n` +
 		`Remove or retarget ${references.length === 1 ? "that reference" : "those references"} first, or keep a module that manages "${caseType}".`

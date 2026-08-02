@@ -2,7 +2,7 @@
 //
 // Thin singleton wrapper around the official Google Maps JS API loader.
 // `setOptions` runs once (lazily, on first use) and `importLibrary` loads
-// each Maps library on demand and dedupes the underlying script — so the
+// each Maps library on demand and dedupes the underlying script, so the
 // Maps JS API is fetched a single time no matter how many geopoint fields
 // mount their own map. The browser key is the referrer-restricted public
 // key (`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`); that exposure is the documented
@@ -16,7 +16,7 @@ const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
 let configured = false;
 
-/** True when the picker is fully configured — both the browser key AND the
+/** True when the picker is fully configured: both the browser key AND the
  *  vector Map ID are required (the map runs a WebGL vector basemap + the modern
  *  `AdvancedMarkerElement`, which needs a Map ID; there is no classic-marker
  *  fallback). The picker degrades to manual coordinate entry when either is

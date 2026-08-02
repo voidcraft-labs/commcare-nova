@@ -14,7 +14,7 @@
 // call site.
 
 /**
- * Source-side payload — identifies which clause is being dragged
+ * Source-side payload: identifies which clause is being dragged
  * inside which logical group. The `nodeKey` field is the parent
  * `and` / `or` group's stable per-mount id (`useId()`); it
  * scopes the drop to that group's clause list so a clause can
@@ -29,7 +29,7 @@ export interface ClauseDragData {
 }
 
 /**
- * Drop-target payload — identifies a row clause's slot inside a
+ * Drop-target payload: identifies a row clause's slot inside a
  * group. Same `nodeKey` scoping as the source side; the monitor
  * pairs source + target by exact-match and rejects cross-group
  * drops.
@@ -64,7 +64,7 @@ export function asDragPayload<T extends { readonly kind: string }>(
 /**
  * Narrow a generic-record source data bag back into our typed
  * `ClauseDragData`. Returns `undefined` when the payload's `kind`
- * doesn't match — defensive against a concurrently-registered
+ * doesn't match: defensive against a concurrently-registered
  * unrelated drag source landing in the same monitor's
  * `source.data`. Mirrors `readDropTargetData` in the form-list
  * dragData module.
@@ -118,10 +118,10 @@ export function readClauseDropData(
 // Generic list-reorder surface used by every list-shaped editor that
 // reorders inside ONE container. Today's call sites:
 //
-//   - `concat.parts` — variadic text concatenation
-//   - `coalesce.values` — variadic fallback chain
-//   - `switch.cases` — multi-case dispatch
-//   - `sort` — case-list sort-key list
+//   - `concat.parts`: variadic text concatenation
+//   - `coalesce.values`: variadic fallback chain
+//   - `switch.cases`: multi-case dispatch
+//   - `sort`: case-list sort-key list
 //
 // Each surface reorders inside its own container; cross-container drops
 // never apply (a `concat` part can't move into a `coalesce` slot at the
@@ -137,7 +137,7 @@ export function readClauseDropData(
 // nodeKey. Same pattern the predicate-clause payload above uses with
 // its own discriminator.
 
-/** Source-side payload — identifies which item is being dragged in
+/** Source-side payload: identifies which item is being dragged in
  *  which container. The container kind plus the container's stable
  *  nodeKey scopes the drop to the matching container's item list. */
 export interface ListItemDragData {
@@ -152,7 +152,7 @@ export interface ListItemDragData {
 	readonly nodeKey: string;
 }
 
-/** Drop-target payload — symmetric with the source; identifies a
+/** Drop-target payload: symmetric with the source; identifies a
  *  target slot in the same container's item list. */
 export interface ListItemDropData {
 	readonly kind: "list-item-drop";

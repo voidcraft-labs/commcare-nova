@@ -45,8 +45,8 @@ import { assertNever } from "@/lib/utils/assertNever";
 /**
  * The per-form Connect enable dialog (form settings) plus the shared
  * building blocks the app-wide `ConnectManagerDialog` reuses. Enabling
- * Connect commits as ONE gated batch — `setConnectType` plus each
- * participating form's connect block — and the commit gate rejects a flip
+ * Connect commits as ONE gated batch: `setConnectType` plus each
+ * participating form's connect block, and the commit gate rejects a flip
  * that leaves the app with no participating form. Participation is per form:
  * a connect block opts the form INTO Connect; a form left without one stays
  * auxiliary and needs nothing. Nothing is pre-filled: a block's name and
@@ -58,14 +58,14 @@ import { assertNever } from "@/lib/utils/assertNever";
  * refills it on blur, so a slot is never left blank and the editor never has
  * to explain what blank means:
  *   - The XPath slots (`user_score`, `entity_id`, `entity_name`) use the real
- *     expression editor (`XPathField` — live lint, condition parsing, hashtag
+ *     expression editor (`XPathField`: live lint, condition parsing, hashtag
  *     chips), seeded with their actual wire default; a blank commit snaps back
  *     to that default, and an unchanged default drops to absent at commit so
  *     the single wire-emit default applies.
  *   - The identifiers sit behind an "Advanced" disclosure, seeded when the
  *     sub-config turns on with the value the commit would derive (never a
  *     placeholder); clearing one and leaving the field snaps it back to that
- *     derived id on blur — the same blur-commit the XPath slots do.
+ *     derived id on blur: the same blur-commit the XPath slots do.
  *
  * The dialog mounts through a portal (the media picker's pattern) so it
  * escapes the app-settings popover's transformed positioner.
@@ -116,7 +116,7 @@ export const EMPTY_DRAFT: BlockDraft = {
 	// The XPath buffers start at the ACTUAL wire default (not blank) so the
 	// editor shows the user exactly what runs; a buffer left at the default is
 	// dropped on commit (`draftToConfig`), so the slot stays absent and the
-	// wire-emit fallback — the single source of the default — still applies.
+	// wire-emit fallback: the single source of the default, still applies.
 	userScoreText: DEFAULT_ASSESSMENT_USER_SCORE,
 	deliverOn: false,
 	deliverName: "",
@@ -134,7 +134,7 @@ type SubConfigKind = "learn_module" | "assessment" | "deliver_unit" | "task";
 
 /** Seed a draft from an existing block (the manager's per-form starting
  *  point). `printExpr` lowers a stored XPath AST to its text so the buffers
- *  show what's there — required so an existing `user_score` / entity
+ *  show what's there: required so an existing `user_score` / entity
  *  expression isn't silently dropped on the next commit. */
 export function configToDraft(
 	config: ConnectConfig,
@@ -244,7 +244,7 @@ function idBaseName(
 		: moduleName;
 }
 
-/** Per-form id helpers — derive a blank slot's id, validate a typed one —
+/** Per-form id helpers: derive a blank slot's id, validate a typed one:
  *  bound to a "taken" id universe. The app-wide manager passes its
  *  DRAFT-derived universe (so sibling in-flight drafts AND the mode actually
  *  being edited are in scope); the per-form dialog passes the live-doc
@@ -336,7 +336,7 @@ export function assignDraftConnectIds(
 /** An XPath buffer counts as an OVERRIDE only when it's non-empty AND
  *  differs from the wire default. Otherwise the slot is left absent so the
  *  single wire-emit default applies (and a blank never trips
- *  `CONNECT_EMPTY_XPATH`) — the editor shows the default as a starting point
+ *  `CONNECT_EMPTY_XPATH`): the editor shows the default as a starting point
  *  the user can replace, not a value Nova pins into the doc. */
 function xpathOverride(
 	text: string,
@@ -432,7 +432,7 @@ export function draftToConfig(
 
 // ── Field + card primitives ───────────────────────────────────────────────
 
-/** One polished, controlled field — the single input style for every
+/** One polished, controlled field: the single input style for every
  *  Connect draft surface (this dialog, the manager, and the form-settings
  *  sub-toggles). Blur-commit lives in `InlineField`; this one is pure
  *  controlled state, validated live and committed by its owner on apply. */
@@ -452,7 +452,7 @@ export function DraftField({
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
-	/** Fired when the field loses focus — the commit moment for fields that
+	/** Fired when the field loses focus: the commit moment for fields that
 	 *  refill a default on blank (the id slots), mirroring the XPath editor's
 	 *  blur-commit. */
 	onBlur?: () => void;
@@ -470,7 +470,7 @@ export function DraftField({
 }) {
 	const fieldId = useId();
 	const error = validate?.(value) ?? null;
-	// Escape exits the FIELD (blur), never the surrounding dialog — see hook.
+	// Escape exits the FIELD (blur), never the surrounding dialog, see hook.
 	const stopEscape = useStopEscape();
 
 	// Tones match the form-settings `InlineField` exactly so the two share one
@@ -479,13 +479,13 @@ export function DraftField({
 		"w-full text-xs rounded-md border px-2 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted";
 	const tone = error
 		? "border-nova-rose/60 bg-nova-surface shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
-		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]";
+		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(150,120,242,0.1)]";
 	const text = mono ? "font-mono text-nova-violet-bright" : "text-nova-text";
 	return (
 		<div>
 			<label
 				htmlFor={fieldId}
-				className="mb-0.5 flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted"
+				className="mb-0.5 flex items-center gap-0.5 text-xs text-nova-text-muted"
 			>
 				{label}
 				{required && <span className="text-nova-rose">*</span>}
@@ -535,7 +535,7 @@ export function DraftField({
 	);
 }
 
-/** A collapsible "Advanced" section — holds the rarely-touched id + XPath
+/** A collapsible "Advanced" section: holds the rarely-touched id + XPath
  *  fields so a sub-config card opens to just its essentials. */
 function AdvancedDisclosure({ children }: { children: ReactNode }) {
 	const [open, setOpen] = useState(false);
@@ -544,7 +544,7 @@ function AdvancedDisclosure({ children }: { children: ReactNode }) {
 			<button
 				type="button"
 				onClick={() => setOpen((o) => !o)}
-				className="flex cursor-pointer items-center gap-1 text-[10px] uppercase tracking-wider text-nova-text-muted transition-colors hover:text-nova-text-secondary"
+				className="flex cursor-pointer items-center gap-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text-secondary"
 			>
 				<Icon
 					icon={tablerChevronRight}
@@ -572,10 +572,10 @@ function SubConfigCard({
 	return (
 		<div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
 			<div className="flex items-center justify-between px-3 py-2.5">
-				<span className="text-[11px] font-medium uppercase tracking-wider text-nova-text-secondary">
+				<span className="text-xs font-medium text-nova-text-secondary">
 					{title}
 				</span>
-				<Switch checked={checked} onCheckedChange={onCheckedChange} size="sm" />
+				<Switch checked={checked} onCheckedChange={onCheckedChange} />
 			</div>
 			{checked && children && (
 				<div className="space-y-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2.5">
@@ -586,12 +586,12 @@ function SubConfigCard({
 	);
 }
 
-/** A Connect XPath slot, rendered with the real expression editor — live
+/** A Connect XPath slot, rendered with the real expression editor, live
  *  validation, condition parsing, and hashtag/chip autocomplete (the same
  *  CodeMirror field the rest of the builder uses). The buffer starts at the
  *  wire default so the user sees exactly what runs and can replace it; the
  *  editor commits on blur, and a blank commit snaps back to `defaultText`
- *  rather than persisting empty — the slot is never left blank, the same
+ *  rather than persisting empty: the slot is never left blank, the same
  *  reset the id fields do (and either way an unchanged default drops to absent
  *  at commit, so the single wire-emit default applies). */
 function ConnectXPathField({
@@ -620,7 +620,7 @@ function ConnectXPathField({
 	);
 }
 
-/** The learn / deliver sub-config pair for one form's draft — the single
+/** The learn / deliver sub-config pair for one form's draft, the single
  *  per-form editor, shared by the dialog and the manager. `validateId`
  *  surfaces an explicit id's format / uniqueness reason inline; the XPath
  *  slots use the real editor scoped to `formUuid` for chips + lint. */
@@ -638,7 +638,7 @@ export function FormSubConfigs({
 	validateId: IdValidator;
 	/** The id a blank slot would autofill to, scoped by the parent (the
 	 *  manager's in-flight drafts, or the per-form dialog's live doc). Used to
-	 *  seed an id field on turn-on and to refill it on a blank blur — never a
+	 *  seed an id field on turn-on and to refill it on a blank blur, never a
 	 *  placeholder; what's shown is what the commit will store. */
 	derivedId: (kind: SubConfigKind) => string;
 	formUuid: string;
@@ -704,7 +704,7 @@ export function FormSubConfigs({
 	// Blur-commit for an id field: a blank buffer snaps back to the derived
 	// default so the slot is never left empty (the user who wants the auto id
 	// just clears it and leaves; one who wants their own types it). The commit
-	// path autofills a blank id regardless — this only keeps the field honest.
+	// path autofills a blank id regardless: this only keeps the field honest.
 	const blurResetId = (kind: SubConfigKind) => () => {
 		switch (kind) {
 			case "learn_module":
@@ -746,7 +746,7 @@ export function FormSubConfigs({
 						required
 					/>
 					<DraftField
-						label="Time Estimate"
+						label="Time estimate"
 						value={draft.learnTimeEstimate}
 						onChange={(v) => onPatch({ learnTimeEstimate: v })}
 						suffix="min"
@@ -769,7 +769,7 @@ export function FormSubConfigs({
 					onCheckedChange={() => toggleSub("assessment")}
 				>
 					<ConnectXPathField
-						label="User Score"
+						label="User score"
 						value={draft.userScoreText}
 						defaultText={DEFAULT_ASSESSMENT_USER_SCORE}
 						onChange={(v) => onPatch({ userScoreText: v })}
@@ -808,7 +808,7 @@ export function FormSubConfigs({
 						getLintContext={getLintContext}
 					/>
 					<ConnectXPathField
-						label="Entity Name"
+						label="Entity name"
 						value={draft.entityNameText}
 						defaultText={DEFAULT_DELIVER_ENTITY_NAME}
 						onChange={(v) => onPatch({ entityNameText: v })}
@@ -862,7 +862,7 @@ export function FormSubConfigs({
 	return <CurrentFormScope formUuid={formUuid}>{body}</CurrentFormScope>;
 }
 
-/** Shared footer rejection block — the gate's findings, rendered inline so
+/** Shared footer rejection block: the gate's findings, rendered inline so
  *  a bounce explains itself without relying on the toast. */
 export function RejectionNoticeBlock({
 	messages,
@@ -1018,13 +1018,15 @@ function ConnectEnableBody({
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-2">
-					<DialogTitle className="font-display">Set up Connect</DialogTitle>
-					<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
+					<DialogTitle className="font-display tracking-tighter">
+						Set up Connect
+					</DialogTitle>
+					<span className="flex h-[18px] items-center rounded-full border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
 						{mode === "learn" ? "Learn" : "Deliver"}
 					</span>
 				</div>
 				<DialogClose
-					render={<Button variant="ghost" size="icon-sm" />}
+					render={<Button variant="ghost" size="icon" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
@@ -1036,7 +1038,7 @@ function ConnectEnableBody({
 					<p className="text-xs leading-relaxed text-nova-text-secondary">
 						{single
 							? "Turn on a section below and fill it in to add this form to Connect."
-							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out — you can add them later from each form's settings."}
+							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out, you can add them later from each form's settings."}
 					</p>
 					{restoredFormCount > 0 && (
 						<p className="text-[11px] text-nova-text-muted">
@@ -1073,20 +1075,10 @@ function ConnectEnableBody({
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={onCancel}
-						>
+						<Button type="button" variant="outline" onClick={onCancel}>
 							Cancel
 						</Button>
-						<Button
-							type="button"
-							size="sm"
-							onClick={confirm}
-							disabled={!canConfirm}
-						>
+						<Button type="button" onClick={confirm} disabled={!canConfirm}>
 							Enable Connect
 						</Button>
 					</div>

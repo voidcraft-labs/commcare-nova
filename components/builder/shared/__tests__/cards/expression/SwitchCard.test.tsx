@@ -2,7 +2,7 @@
 //
 // components/builder/shared/__tests__/cards/expression/SwitchCard.test.tsx
 //
-// Switch card tests — drag-orderable cases + non-empty invariant.
+// Switch card tests: drag-orderable cases + non-empty invariant.
 // The card's drag surface targets `cases` (one per row); the `on`
 // and `fallback` slots stay structurally fixed.
 
@@ -93,7 +93,7 @@ describe("SwitchCard — drag handle wiring", () => {
 describe("SwitchCard — case removal contract", () => {
 	it("the schema requires non-empty cases", () => {
 		// Constructing `switchExpr(on, [], fallback)` would require an
-		// empty tuple at the type layer — TypeScript rejects it. The
+		// empty tuple at the type layer: TypeScript rejects it. The
 		// editor's `removeCase` callback refuses the last-row removal
 		// at runtime; this test covers the schema layer instead.
 		const value = switchExpr(
@@ -239,7 +239,7 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 	// `literal(...)` builder drops any qualifier on the source AST.
 	// Mounting a switch whose `when` carries `dateLiteral(...)`,
 	// focusing then blurring without typing, MUST leave the AST
-	// reference-stable — no spurious `onChange` and no qualifier
+	// reference-stable: no spurious `onChange` and no qualifier
 	// loss.
 
 	it("focus + blur without typing leaves the dateLiteral when AST untouched", () => {
@@ -275,7 +275,7 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 			"Value to match",
 		) as HTMLInputElement;
 		expect(whenInput.value).toBe("2024-01-01");
-		// Focus then blur without typing — the no-op gate must
+		// Focus then blur without typing: the no-op gate must
 		// short-circuit the commit.
 		whenInput.focus();
 		fireEvent.blur(whenInput);

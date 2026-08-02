@@ -1,15 +1,15 @@
 // components/builder/media/AssetPreviewDialog.tsx
 //
 // Previews one stored asset. For a document it has two tabs, "What Nova reads"
-// first — the requirements extract the Solutions Architect actually sees (and the
+// first: the requirements extract the Solutions Architect actually sees (and the
 // only view office/text docs get, since the "Document" tab just offers a download
-// of the raw file) — so a user can confirm what made it into the extract and never
+// of the raw file), so a user can confirm what made it into the extract and never
 // hit the "but it's right there in the doc!" surprise. For an image / audio / video
 // it just shows the media (those reach the model directly, so there's no extract
 // to compare).
 //
 // Raw-document rendering is native-where-it's-free + safe: a PDF renders in an
-// <iframe> (the browser's out-of-process viewer — a malicious PDF can't reach
+// <iframe> (the browser's out-of-process viewer: a malicious PDF can't reach
 // this page), images/audio/video use the native elements, and office/text files
 // have no in-browser preview, so they offer a download of the original rather
 // than pretending to render it in-app. The bytes are served by the
@@ -69,7 +69,7 @@ interface UploadedAssetPreviewTarget {
 	kind: AssetKind;
 	filename: string;
 	/** A document's extracted title + summary, shown in the preview header so
-	 *  they're present the instant the dialog opens — carried in-band by the
+	 *  they're present the instant the dialog opens: carried in-band by the
 	 *  caller (the composer's asset view, the message ref), never re-fetched.
 	 *  Absent for media kinds and documents not yet extracted. */
 	title?: string;
@@ -137,7 +137,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	const documentTarget = isDocumentPreviewTarget(target) ? target : null;
 
 	// Fill the header from the snapshot when it has the title/summary (composer +
-	// library snapshots are reconciled, so they do — instant, no fetch). A message
+	// library snapshots are reconciled, so they do: instant, no fetch). A message
 	// attachment SENT before extraction finished froze its ref empty; for that
 	// case alone, fetch the header metadata so the preview is still correct.
 	const [fetched, setFetched] = useState<{
@@ -173,7 +173,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					 *  drops to a small subline aligned under it. Without an extracted
 					 *  title (media, or a not-yet-extracted doc) the filename IS the
 					 *  title, and the subline is omitted so nothing repeats. */}
-					<DialogTitle className="flex min-w-0 items-center gap-2 font-display">
+					<DialogTitle className="flex min-w-0 items-center gap-2 font-display tracking-tighter">
 						<Icon
 							icon={ASSET_KIND_META[target.kind].icon}
 							className="size-4 shrink-0 text-nova-text-muted"
@@ -188,21 +188,14 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 						</p>
 					)}
 				</div>
-				<DialogClose
-					render={
-						<Button
-							variant="ghost"
-							className="h-11 shrink-0 px-3 text-nova-text-secondary"
-						/>
-					}
-				>
+				<DialogClose render={<Button variant="ghost" className="shrink-0" />}>
 					<Icon icon={tablerX} className="size-4" />
 					Close
 				</DialogClose>
 			</header>
 
-			{/* The summary gets its own zone below the header — document-level
-			 *  orientation that reads against either tab — so the title row stays a
+			{/* The summary gets its own zone below the header: document-level
+			 *  orientation that reads against either tab, so the title row stays a
 			 *  tight identity line instead of carrying a multi-line blurb. */}
 			{summary && (
 				<div className="shrink-0 border-b border-nova-border px-4 py-3">
@@ -218,7 +211,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					className="min-h-0 flex-1 gap-0 overflow-hidden p-5 pt-3"
 				>
 					<TabsList variant="line" className="mb-3 h-12 shrink-0">
-						{/* "What Nova reads" leads — it's what the SA actually sees, and
+						{/* "What Nova reads" leads: it's what the SA actually sees, and
 						 *  the only view office/text docs have (the Document tab just
 						 *  offers a download). The explainer sits beside the tab it
 						 *  describes, not in the picker header. */}
@@ -293,8 +286,8 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
 		case "pdf":
 			// The browser's native PDF viewer renders out-of-process; the proxy's
 			// `sandbox` CSP sandboxes the document as defense-in-depth. (An <iframe>
-			// won't reliably fire onError for an HTTP 404 — it renders the browser's
-			// own error page instead — so a deleted PDF shows that rather than the
+			// won't reliably fire onError for an HTTP 404: it renders the browser's
+			// own error page instead, so a deleted PDF shows that rather than the
 			// tile; not misleading, just less polished than the image case.)
 			return (
 				<ProjectMediaFrame
@@ -305,7 +298,7 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
 				/>
 			);
 		default:
-			// docx / xlsx / text — no in-app office renderer (by design). These have
+			// docx / xlsx / text: no in-app office renderer (by design). These have
 			// no in-browser preview, so we don't pretend: offer a download of the
 			// original rather than implying it'll display.
 			return <DownloadOriginal src={src} name={name} kind={target.kind} />;
@@ -340,11 +333,7 @@ function DownloadOriginal({
 				<span className="text-nova-text">What Nova reads</span> to see what Nova
 				extracted.
 			</p>
-			<Button
-				nativeButton={false}
-				render={<a href={src} download={name} />}
-				className="h-11 px-4"
-			>
+			<Button nativeButton={false} render={<a href={src} download={name} />}>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original
 			</Button>
@@ -352,7 +341,7 @@ function DownloadOriginal({
 	);
 }
 
-/** Shown when an asset's bytes can't be loaded — typically because it was
+/** Shown when an asset's bytes can't be loaded: typically because it was
  *  deleted from the library while a transcript message still references it.
  *  Honest about the state instead of a broken image or a misleading "not yet
  *  read". */
@@ -377,7 +366,7 @@ type ExtractState =
 	| { state: "absent" }
 	| { state: "error"; message: string };
 
-/** The "What Nova reads" panel — fetches the stored extract for the document. */
+/** The "What Nova reads" panel: fetches the stored extract for the document. */
 function ExtractView({ assetId }: { assetId: MediaAssetId }) {
 	const reconciler = useReconcilerContext();
 	const [extract, setExtract] = useState<ExtractState>({ state: "loading" });
@@ -428,7 +417,7 @@ function ExtractView({ assetId }: { assetId: MediaAssetId }) {
 	}
 	if (extract.state === "absent") {
 		// The extract endpoint 404s both for a doc that hasn't finished extracting
-		// AND for one whose asset is gone (deleted) — the client can't tell them
+		// AND for one whose asset is gone (deleted): the client can't tell them
 		// apart, so the copy honestly covers both rather than asserting "not read
 		// yet" over a file that no longer exists.
 		return (
@@ -453,7 +442,7 @@ function ExtractView({ assetId }: { assetId: MediaAssetId }) {
 	}
 	// Render the extract as markdown inside a quiet frame. The extract is built
 	// from untrusted document bytes piped through the summarizer, so we render it
-	// with `ChatMarkdown` — the same allowlist the SA's chat output uses: raw HTML
+	// with `ChatMarkdown`: the same allowlist the SA's chat output uses: raw HTML
 	// is inert text (`disableParsingRawHTML`), links collapse to their text, and
 	// images to their alt text. That leaves headings, emphasis, lists, tables, and
 	// rules (what the extractor actually emits) with no script/link/image surface.
@@ -494,12 +483,7 @@ function ExtractStatePanel({
 					{description}
 				</p>
 			</div>
-			<Button
-				type="button"
-				variant="outline"
-				className="h-11 px-4"
-				onClick={onAction}
-			>
+			<Button type="button" variant="outline" onClick={onAction}>
 				{action}
 			</Button>
 		</div>

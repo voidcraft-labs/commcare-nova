@@ -135,7 +135,6 @@ function PresetRow({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						key={preset.id}
 						onClick={() => {
 							if (!isActive) onChange(preset.pattern);
@@ -150,7 +149,6 @@ function PresetRow({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (isPreset) onChange(customSeed);
 				}}
@@ -255,7 +253,7 @@ function CustomEditor({
 					placeholder="Choose date pieces below"
 					aria-describedby={isInvalid ? errorId : undefined}
 					aria-invalid={isInvalid || undefined}
-					className="h-auto min-h-11 w-full rounded-md border border-white/[0.06] bg-nova-deep/50 px-3 font-mono text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 aria-invalid:border-nova-rose/40 aria-invalid:focus-visible:border-nova-rose/60 aria-invalid:focus-visible:ring-nova-rose/30 md:text-sm dark:bg-nova-deep/50"
+					className="nova-focusable h-auto min-h-11 w-full rounded-md border border-white/[0.06] bg-nova-deep/50 px-3 font-mono text-sm text-nova-text placeholder:text-nova-text-muted aria-invalid:border-nova-rose/40 aria-invalid: aria-invalid: md:text-sm dark:bg-nova-deep/50"
 				/>
 				{isInvalid ? (
 					<p id={errorId} className="text-[13px] leading-snug text-nova-rose">
@@ -353,8 +351,7 @@ function DatePieceBuilder({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
-						className="group w-full justify-between whitespace-normal px-3 text-left"
+						className="group w-full justify-between whitespace-normal text-left"
 					/>
 				}
 			>
@@ -405,7 +402,6 @@ function DatePieceGroup({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						key={piece.token}
 						onClick={() => onInsert(piece.token)}
 						aria-label={`Insert ${piece.label.toLowerCase()}, shown as ${piece.example}`}

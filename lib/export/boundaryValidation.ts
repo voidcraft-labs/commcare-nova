@@ -140,7 +140,7 @@ async function collectViolationsWithRegistry(
 			validationError(
 				"MEDIA_EXPORT_TOO_LARGE",
 				"app",
-				`This app references too many attachments to export — ${exportableRefCount} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
+				`This app references too many attachments to export: ${exportableRefCount} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
 				{},
 			),
 			...lookupExportFindings(doc, mode, lookupRows),
@@ -251,7 +251,7 @@ function lookupFixtureBudgetFindings(
 		validationError(
 			"LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
 			"app",
-			`This app references more lookup data than a downloadable app can bundle — ${axisSummaries.join(
+			`This app references more lookup data than a downloadable app can bundle: ${axisSummaries.join(
 				" and ",
 			)}. The largest tables are ${largestTags.join(
 				", ",
@@ -296,7 +296,7 @@ function exportBudgetError(rows: MediaAssetRecord[]): ValidationError | null {
 	return validationError(
 		"MEDIA_EXPORT_TOO_LARGE",
 		"app",
-		`This app bundles too much media to export — ${excess.reasons.join(
+		`This app bundles too much media to export: ${excess.reasons.join(
 			" and ",
 		)}. Remove or shrink some attachments, then export again.`,
 		{},

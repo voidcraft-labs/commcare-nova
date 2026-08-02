@@ -199,7 +199,7 @@ function noModules(doc: BlueprintDoc): ValidationError[] {
 		validationError(
 			"NO_MODULES",
 			"app",
-			`Your app needs at least one module — it's the menu entry users tap to reach a form or case list. Add a module, or, if you're removing your last one, add another first.`,
+			`Your app needs at least one module. It's the menu entry users tap to reach a form or case list. Add a module, or, if you're removing your last one, add another first.`,
 			{},
 		),
 	];
@@ -242,7 +242,7 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"RESERVED_CASE_TYPE_NAME",
 				"app",
-				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves #form/, #user/, #case/, and #parent/ — "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (e.g. "${name}_record").`,
+				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves #form/, #user/, #case/, and #parent/: "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (for example "${name}_record").`,
 				location,
 				{ caseType: name },
 			),
@@ -309,7 +309,7 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"MISSING_CHILD_CASE_MODULE",
 				"app",
-				`Cases of type "${written}"${parent ? ` (child of "${parent}")` : ""} are created by forms, but there is no module to display them. CommCare requires every case type to have a module — add one with case_type "${written}" (a case-list-only module is enough) and configure its case list columns so users can see these cases.`,
+				`Cases of type "${written}"${parent ? ` (child of "${parent}")` : ""} are created by forms, but there is no module to display them. CommCare requires every case type to have a module. Add one with case_type "${written}" (a case-list-only module is enough) and configure its case list columns so users can see these cases.`,
 				{},
 				{ caseType: written },
 			),
@@ -376,7 +376,7 @@ function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
 			"app",
 			`Circular form link detected: ${path}.\n\n` +
 				`"${startForm?.name ?? startUuid}" eventually links back to itself through a chain of form links. ` +
-				`After form submission, CommCare evaluates links in sequence — a cycle means ` +
+				`After form submission, CommCare evaluates links in sequence, a cycle means ` +
 				`the user would be trapped in an infinite loop of form submissions.\n\n` +
 				`Break the cycle by changing one of the links in the chain to target a module menu instead of a form.`,
 			{},
@@ -431,7 +431,7 @@ function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
 						validationError(
 							"CONNECT_ID_DUPLICATE",
 							"app",
-							`Connect id "${id}" is used by two blocks — ${prior} and ${site}. Each Connect id must be unique across the app: it becomes the block's database slug and its XForm element name, so a shared id collapses the two blocks into one. Rename one of them.`,
+							`Connect id "${id}" is used by two blocks: ${prior} and ${site}. Each Connect id must be unique across the app: it becomes the block's database slug and its XForm element name, so a shared id collapses the two blocks into one. Rename one of them.`,
 							{ moduleUuid, formUuid, formName: form.name },
 							{ connectId: id },
 						),
@@ -490,7 +490,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 		validationError(
 			"CONNECT_NO_PARTICIPATING_FORMS",
 			"app",
-			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form — a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix} through configureConnect/configure_connect, or turn Connect off there with mode null.`,
+			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form, a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix} through configureConnect/configure_connect, or turn Connect off there with mode null.`,
 			{},
 		),
 	];

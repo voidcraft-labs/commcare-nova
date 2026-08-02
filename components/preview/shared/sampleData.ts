@@ -3,8 +3,8 @@
 // Shared status shape + error wording for the sample-data actions
 // (Generate / Reset). Both actions return the same
 // `PopulateSampleCasesResult` from the case store, so every surface
-// that offers one — the case-list canvas's empty state, the running
-// preview's empty state, the list-panel inspector — drives the same
+// that offers one: the case-list canvas's empty state, the running
+// preview's empty state, the list-panel inspector: drives the same
 // three-state machine and renders the same error sentences.
 
 import type { PopulateSampleCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";

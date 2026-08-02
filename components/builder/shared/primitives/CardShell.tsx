@@ -2,11 +2,11 @@
 //
 // Shared chrome for every predicate card: header (icon + label +
 // optional remove action), body slot, and inline-error footer. The
-// shell never reaches into the AST itself — it's purely a visual
+// shell never reaches into the AST itself: it's purely a visual
 // container the per-kind cards compose around their own body.
 //
 // Visual language: a glass-tinted rounded container with a hairline
-// border and a violet accent strip on the label — the frosted-card
+// border and a violet accent strip on the label: the frosted-card
 // surface the predicate / detail panels share. Cards stack vertically
 // inside their parent group; reorder drag uses pragmatic-drag-and-drop
 // and presents through the optional `dragHandleProps` slot.
@@ -62,7 +62,7 @@ function RemoveConditionButton({
 				onClick={(event) => removeAndRestoreFocus(event.currentTarget, onClick)}
 				aria-label={label}
 				data-removal-action
-				className={`size-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose ${className}`}
+				className={`rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose ${className}`}
 			>
 				<Icon icon={tablerTrash} width="16" height="16" />
 			</Button>
@@ -71,12 +71,12 @@ function RemoveConditionButton({
 }
 
 interface CardShellProps {
-	/** Imported `IconifyIcon` data — drives the leading icon. */
+	/** Imported `IconifyIcon` data: drives the leading icon. */
 	readonly icon: IconifyIcon;
 	/** Human-readable kind label rendered next to the icon. */
 	readonly label: string;
 	/**
-	 * Optional ribbon variant — `"normal"` (default) renders the
+	 * Optional ribbon variant: `"normal"` (default) renders the
 	 * standard glass surface; `"nested"` shifts the violet accent up
 	 * for cards inside a group's clause list so the parent group's
 	 * accent doesn't fight the child's.
@@ -93,7 +93,7 @@ interface CardShellProps {
 	/** Position-aware accessible name supplied by the list owner. */
 	readonly reorderLabel?: string;
 	/**
-	 * Optional remove handler — when provided, a direct remove control appears.
+	 * Optional remove handler: when provided, a direct remove control appears.
 	 * Cards inside an `and` / `or` group's clause
 	 * list and cards under a `not` / `when-input-present` / `exists`
 	 * wrapper get a delete affordance; standalone top-level cards omit it
@@ -111,12 +111,12 @@ interface CardShellProps {
 }
 
 /**
- * Card shell — header + body + footer-error rendering.
+ * Card shell: header + body + footer-error rendering.
  *
  * The card surface is the shared frosted-card look (rounded, frosted
  * violet-tinted background, hairline border) so the predicate editor
  * reads as the same surface family. Cards
- * surface inline diagnostics at the bottom of the body — the type
+ * surface inline diagnostics at the bottom of the body: the type
  * checker's verdict for the card's own path lands here, with
  * per-slot errors rendering inside the body's own input chrome.
  */
@@ -152,7 +152,7 @@ export function CardShell({
 			<div className="flex items-center gap-2 mb-2">
 				{dragHandleRef !== undefined && (
 					// `dragHandleRef` is a stable ref-callback (the
-					// caller's `setHandleEl` from useState — identity
+					// caller's `setHandleEl` from useState: identity
 					// preserved across renders), so it's passed through
 					// directly. Wrapping in a fresh-each-render arrow
 					// would force React 19 to detach + re-attach the
@@ -174,7 +174,7 @@ export function CardShell({
 								onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
 							}
 							onKeyDown={(event) => handleReorderKey(event, onMove)}
-							className="size-11 cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 						>
 							<Icon icon={tablerGripVertical} width="16" height="16" />
 						</Button>
@@ -201,7 +201,7 @@ export function CardShell({
 				)}
 			</div>
 
-			{/* Body — per-card content. Cards lay out their inputs
+			{/* Body: per-card content. Cards lay out their inputs
 			 *  directly (no nested wrapper) so they can compose
 			 *  arbitrary grids / rows without the shell imposing
 			 *  layout. */}
@@ -212,11 +212,11 @@ export function CardShell({
 				</div>
 			) : null}
 
-			{/* Footer — operator-level diagnostics (e.g.
+			{/* Footer: operator-level diagnostics (e.g.
 			 *  "between has lower > upper", "gt requires ordered
 			 *  types"). Per-slot diagnostics render adjacent to their
 			 *  input via `InlineError` below. The message string is a
-			 *  safe React key here — `buildValidityIndex`
+			 *  safe React key here: `buildValidityIndex`
 			 *  deduplicates per path on the way in (so the exact-match
 			 *  `useEditorErrorsAt` returns a deduped list) and
 			 *  `useEditorErrorsBelow` deduplicates across the
@@ -224,7 +224,7 @@ export function CardShell({
 			 *  guaranteed unique within the render.
 			 *
 			 *  The `aria-live="polite"` + `aria-atomic="true"`
-			 *  region renders unconditionally — many screen readers
+			 *  region renders unconditionally: many screen readers
 			 *  fail to announce content of a live region "born
 			 *  together" with the content itself. Keeping the
 			 *  wrapper mounted means the region is monitored before
@@ -263,12 +263,12 @@ interface RowShellProps {
 
 /**
  * Headerless shell for sentence-shaped condition rows. A condition
- * reads as subject–verb–object ("age — is at least — 50"), so there
+ * reads as subject–verb–object ("age: is at least, 50"), so there
  * is nothing for a title to add: the verb chip inside the row IS the
  * operation, and naming the AST node above it ("GREATER THAN OR
  * EQUAL") would say the same thing twice in implementation
  * vocabulary. Container shapes (groups, related-case lookups) keep
- * the titled `CardShell` — a box's identity isn't expressible
+ * the titled `CardShell`: a box's identity isn't expressible
  * inline.
  *
  * Row chrome that survives from the card shell: a full-height grab
@@ -316,7 +316,7 @@ export function PredicateRowShell({
 							onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
 						}
 						onKeyDown={(event) => handleReorderKey(event, onMove)}
-						className="absolute inset-y-0 left-0 h-auto w-11 cursor-grab rounded-l-md rounded-r-none text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+						className="absolute inset-y-0 left-0 h-auto w-11 cursor-grab rounded-l-md rounded-r-none text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>
@@ -360,14 +360,14 @@ interface InlineErrorProps {
 
 /**
  * Per-slot inline error rendering. Cards call this beneath each
- * input that may carry a diagnostic from the type checker — the
+ * input that may carry a diagnostic from the type checker: the
  * helper renders the live region UNCONDITIONALLY so screen readers
  * have it monitored before content arrives. Many screen readers
  * fail to announce content of a live region "born together" with
  * its content; keeping the wrapper mounted closes that gap.
  *
  * `aria-live="polite"` defers announcement until the user pauses
- * input — appropriate for typed-as-you-go validation messages
+ * input: appropriate for typed-as-you-go validation messages
  * (alert would be too aggressive). `aria-atomic="true"` reads the
  * full region content on each update so a partial change (one of
  * two errors clearing) doesn't leak partial-region announcements.
@@ -384,7 +384,7 @@ export function InlineError({ errors }: InlineErrorProps) {
 			aria-atomic="true"
 			className={hasErrors ? "mt-1 space-y-0.5" : "sr-only"}
 		>
-			{/* The message string is a safe React key —
+			{/* The message string is a safe React key:
 			 *  `buildValidityIndex` (in `editorContext.tsx`)
 			 *  deduplicates per path on the way in (so the exact-match
 			 *  `useEditorErrorsAt` returns a deduped list), and

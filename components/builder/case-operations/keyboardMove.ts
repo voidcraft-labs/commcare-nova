@@ -4,19 +4,19 @@
 //
 // A pointer user learns a destination is unavailable from the drop zone
 // itself: the row refuses to open a gap. A keyboard user gets nothing
-// from a key that silently does nothing — so every refused ArrowUp
+// from a key that silently does nothing, so every refused ArrowUp
 // ANNOUNCES why, naming the operations the refusal is about. That
 // parity is the point of this file.
 //
 // The verdict itself is the move planner's, read out of the same
 // `caseOperationMoveVerdicts` map the drag gate consults
 // (`lib/doc/caseOperationReview.ts`). Keyboard and drag therefore cannot
-// disagree about what is legal — they are two readings of one map.
+// disagree about what is legal: they are two readings of one map.
 //
 // Only the outcomes that DID NOT move carry their own words. A committed
 // move is described by the canvas from the document after the commit,
 // because the rank the author lands at is a fact about the committed
-// sequence, not about the index this plan requested — a peer's concurrent
+// sequence, not about the index this plan requested: a peer's concurrent
 // edit is exactly the case where the two differ.
 
 import type {
@@ -30,7 +30,7 @@ export type ReorderKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
 
 export type KeyboardMoveOutcome =
 	/** Commit the move. The caller says where it landed, from the committed
-	 *  document — see the note above. */
+	 *  document: see the note above. */
 	| { readonly kind: "move"; readonly toIndex: number }
 	/** Already at the end it was asked to travel toward. */
 	| { readonly kind: "at-edge"; readonly announcement: string }
@@ -47,7 +47,7 @@ interface KeyboardMoveArgs {
 	readonly verdicts: ReadonlyMap<number, CaseOperationMoveVerdict>;
 	/** How each operation is named in a sentence. */
 	readonly nameOf: CaseOperationReviewName;
-	/** The creates the moved operation consumes, in execution order —
+	/** The creates the moved operation consumes, in execution order:
 	 *  what a refusal names when the move would break its OWN references
 	 *  rather than someone else's. */
 	readonly dependsOn: readonly Uuid[];
@@ -107,7 +107,7 @@ export function planKeyboardMove(
 		return {
 			kind: "refused",
 			// The name leads so a screen reader announces WHICH change did not
-			// move before the reason — on a twenty-change form the author may
+			// move before the reason: on a twenty-change form the author may
 			// have arrowed several rows since they last heard a name.
 			announcement: `${name} did not move ${direction(key)}. ${message}`,
 		};

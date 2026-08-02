@@ -4,7 +4,7 @@
  *
  * Mocks: `getSession` (auth-utils), `discoverAccessibleDomains` (the HQ
  * client orchestration), and the `@/lib/db/settings` writers/readers. The
- * actions never throw — they return discriminated-union results — so each
+ * actions never throw: they return discriminated-union results, so each
  * test asserts the result shape and the side-effect (what got persisted).
  *
  * The behavior this locks: verifying stores EVERY reachable space (the fix
@@ -155,7 +155,7 @@ describe("verifyAndSaveCredentials", () => {
 		const result = await verifyAndSaveCredentials("alice", "bad-key", "eu");
 		expect(result.success).toBe(false);
 		if (!result.success) {
-			/* The key may be perfectly valid — on a different deployment. The
+			/* The key may be perfectly valid: on a different deployment. The
 			 * message must point at the server choice or the user has nothing
 			 * left to check. */
 			expect(result.error).toContain("eu.commcarehq.org");

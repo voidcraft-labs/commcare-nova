@@ -116,13 +116,13 @@ export function describeMediaExpectationFailures(
 		const row = rows.get(expectation.assetId);
 		if (!row || row.project_id !== projectId) {
 			failures.push(
-				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but no asset with that id is in your library — it may have been deleted, or the id may be mistyped. Run list_media_assets to see what's available, or upload the file first.`,
+				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but no asset with that id is in your library, it may have been deleted, or the id may be mistyped. Run list_media_assets to see what's available, or upload the file first.`,
 			);
 			continue;
 		}
 		if (row.status !== "ready") {
 			failures.push(
-				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but its upload hasn't finished — the bytes aren't confirmed yet. Wait for it to appear in list_media_assets (only ready assets are listed), or pick a different file.`,
+				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but its upload hasn't finished, the bytes aren't confirmed yet. Wait for it to appear in list_media_assets (only ready assets are listed), or pick a different file.`,
 			);
 			continue;
 		}

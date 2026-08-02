@@ -1,15 +1,15 @@
 // components/builder/case-list-config/cards/column/ImageMapColumnCard.tsx
 //
-// Renders the `image-map` Column kind — looks up an IMAGE for each
+// Renders the `image-map` Column kind: looks up an IMAGE for each
 // property value via an explicitly-authored value→image table (the
 // image analogue of `id-mapping`). The runtime renders the matched
 // image; no entry matches => no image. Used for case-row status icons
 // driven by a case property's value (e.g. a triage-color swatch).
 //
 // Slots:
-//   - `field` — case-property name (same shape as id-mapping).
-//   - `header` — column display label.
-//   - `mapping` — variadic list of `{ value, assetId }` entries. Order
+//   - `field`: case-property name (same shape as id-mapping).
+//   - `header`: column display label.
+//   - `mapping`: variadic list of `{ value, assetId }` entries. Order
 //     is significant: the runtime renders the first matching entry, so
 //     authors place more-specific values above more-general ones.
 //
@@ -103,7 +103,7 @@ export function ImageMapColumnCard({
 	};
 
 	const moveEntry = (from: number, to: number) => {
-		// Bounds check — the buttons disable at the boundaries, but the
+		// Bounds check: the buttons disable at the boundaries, but the
 		// guard catches callers that bypass the disabled state.
 		if (to < 0 || to >= value.mapping.length || from === to) return;
 		const next = [...value.mapping];

@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 /**
  * Warmup target for Cloud Run's HTTP startup probe.
  *
- * A new instance is only marked ready — and only starts receiving
- * traffic — once this page has rendered successfully. Rendering it
+ * A new instance is only marked ready, and only starts receiving
+ * traffic: once this page has rendered successfully. Rendering it
  * forces the work a cold instance otherwise performs on its first
  * user-facing request: the `(app)` layout chain, the shared Cloud SQL pool,
  * and the builder page's server module graph (via the side-effect import

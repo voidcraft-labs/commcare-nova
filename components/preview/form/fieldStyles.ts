@@ -1,5 +1,5 @@
 /**
- * Shared text styling per field type — single source of truth for both
+ * Shared text styling per field type: single source of truth for both
  * static rendering (LabelContent) and TipTap editor (InlineTextEditor).
  * Ensures flipbook parity between edit and preview modes at compile time
  * rather than relying on manual string duplication.

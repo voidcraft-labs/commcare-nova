@@ -1,5 +1,5 @@
 /**
- * RequiredEditor — declarative editor for the `required` field's
+ * RequiredEditor: declarative editor for the `required` field's
  * tri-state lifecycle.
  *
  * The `required` value encodes three states in one string:
@@ -8,7 +8,7 @@
  *   - any other XPath → conditionally required (toggle on + condition)
  *
  * This component owns the toggle, the add-condition affordance, the
- * nested XPath editor, and the save semantics for every transition —
+ * nested XPath editor, and the save semantics for every transition:
  * no other code needs to know about the `"true()"` sentinel. Removing
  * a condition falls back to the sentinel (keeps the toggle on); the
  * toggle-off path clears the property entirely.
@@ -45,7 +45,7 @@ import {
  * The `as F["required" & keyof F]` casts let the sentinel string and
  * `undefined` flow through the generic-key-typed `onChange`. Every
  * kind that declares `required` carries it as `string | undefined`,
- * so the values are always valid — the cast is the syntactic form
+ * so the values are always valid: the cast is the syntactic form
  * TS requires when writing through an indexed-access generic.
  */
 export function RequiredEditor<F extends Field>({
@@ -71,12 +71,12 @@ export function RequiredEditor<F extends Field>({
 		requiredText || undefined,
 	);
 
-	// `field.uuid` is already branded `Uuid` by the Field type — no
+	// `field.uuid` is already branded `Uuid` by the Field type, no
 	// second cast is needed before calling into the doc-store hook.
 	const getLintContext = useFormLintContext(field.uuid);
 
 	// Local state: whether the user is composing a brand-new condition.
-	// Distinct from the XPathField's own edit state — the flag lets the
+	// Distinct from the XPathField's own edit state: the flag lets the
 	// editor open blank (rather than resetting to the sentinel) when
 	// the user clicks "Condition".
 	const [addingCondition, setAddingCondition] = useState(false);
@@ -124,7 +124,7 @@ export function RequiredEditor<F extends Field>({
 			const outcome = onChange(
 				toStored(nextRequiredValue({ type: "save-condition", next })),
 			);
-			// Keep the add-condition editor open when the gate refuses — the
+			// Keep the add-condition editor open when the gate refuses, the
 			// outcome flows back to XPathField, which holds the draft.
 			if (outcome.ok) {
 				setAddingCondition(false);
@@ -149,7 +149,7 @@ export function RequiredEditor<F extends Field>({
 	});
 
 	// `data-field-id` is hardcoded to `"required"` because this editor
-	// is permanently bound to that key — the registry only wires it
+	// is permanently bound to that key: the registry only wires it
 	// onto `required`, and undo/redo focus hints reference the same
 	// string literal by contract.
 	return (

@@ -63,13 +63,13 @@ interface LiteralValueInputProps {
 	/**
 	 * The case-type-property this input is constrained to. Drives
 	 * the `data_type` lookup and the option list (for select-typed
-	 * properties). Pass undefined when no property is selected yet
-	 * — the input renders a disabled placeholder.
+	 * properties). Pass undefined when no property is selected yet:
+	 * the input renders a disabled placeholder.
 	 */
 	readonly caseTypeName: string;
 	readonly propertyName: string | undefined;
 	/**
-	 * Optional override of the data type — used when the surrounding
+	 * Optional override of the data type: used when the surrounding
 	 * card knows the type from context other than the property's
 	 * declared type (e.g. the input drives a search-input ref whose
 	 * declared data type lives on `SearchInputDecl`, not on the case
@@ -77,14 +77,14 @@ interface LiteralValueInputProps {
 	 */
 	readonly overrideDataType?: string;
 	/**
-	 * The slot's accepted result types — used to pick the widget's
+	 * The slot's accepted result types: used to pick the widget's
 	 * data type when no property anchor resolves one (a literal-list
 	 * value whose `left` isn't a property ref). Ignored once a
 	 * property or `overrideDataType` is in play.
 	 */
 	readonly accepts?: ReadonlySet<ResolvedType>;
 	/**
-	 * When true, the text widget refuses to commit an empty value —
+	 * When true, the text widget refuses to commit an empty value:
 	 * an emptied draft reverts to the prior value rather than emitting
 	 * `literal("")`. Used by slots where the empty string is a
 	 * soundness state (a `match` value).
@@ -98,7 +98,7 @@ interface LiteralValueInputProps {
 
 // The literal types a typed widget exists for, in the order a no-anchor
 // slot prefers them. A geopoint accept-set (`{geopoint, _any}`) shares
-// none of these — there is no geopoint literal widget — so such a slot
+// none of these: there is no geopoint literal widget, so such a slot
 // renders the null-only control rather than a free text input that
 // could commit a text coordinate the checker rejects.
 const WIDGETABLE_TYPES = [
@@ -115,7 +115,7 @@ function hasWidgetableType(accepts: ReadonlySet<ResolvedType>): boolean {
 	return WIDGETABLE_TYPES.some((t) => accepts.has(t));
 }
 
-/** The widget data type to render when no property anchors one —
+/** The widget data type to render when no property anchors one:
  *  the first concrete type the slot accepts, preferring text. */
 function widgetDataTypeFromAccepts(accepts: ReadonlySet<ResolvedType>): string {
 	for (const t of WIDGETABLE_TYPES) {
@@ -129,7 +129,7 @@ function widgetDataTypeFromAccepts(accepts: ReadonlySet<ResolvedType>): string {
  * property's declared `data_type` (or the explicit
  * `overrideDataType` when set). The constructed `Literal` carries
  * `data_type` for date / time / datetime values so the type
- * checker resolves them to the correct ordered types — see
+ * checker resolves them to the correct ordered types: see
  * `dateLiteral` / `datetimeLiteral` / `timeLiteral` in the
  * predicate builders for the contract.
  */
@@ -161,7 +161,7 @@ export function LiteralValueInput({
 	//      property);
 	//   2. the resolved property's effective type;
 	//   3. the slot's accept-set (a literal-list value whose `left`
-	//      isn't a property ref — pick a widget the slot accepts);
+	//      isn't a property ref: pick a widget the slot accepts);
 	//   4. `text` (CommCare's default for un-annotated properties).
 	const dataType: string =
 		overrideDataType ??
@@ -260,7 +260,7 @@ export function LiteralValueInput({
 				/>
 			);
 		case "geopoint":
-			// A geopoint property has no literal widget — the only literal
+			// A geopoint property has no literal widget: the only literal
 			// compatible with a place is `null`. Render the null-only
 			// control rather than a free text input that could commit a text
 			// coordinate the checker rejects.
@@ -280,10 +280,8 @@ export function LiteralValueInput({
 
 const INPUT_BASE_CLS =
 	"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
-const INPUT_VALID_CLS =
-	"border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30";
-const INPUT_INVALID_CLS =
-	"border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30";
+const INPUT_VALID_CLS = "nova-focusable border-white/[0.06]";
+const INPUT_INVALID_CLS = "nova-focusable border-nova-rose/40";
 
 function inputCls(invalid: boolean): string {
 	return `${INPUT_BASE_CLS} ${invalid ? INPUT_INVALID_CLS : INPUT_VALID_CLS}`;
@@ -297,12 +295,12 @@ interface ScalarInputProps {
 }
 
 /**
- * Text-typed literal input. Commits on blur — keystroke commits
+ * Text-typed literal input. Commits on blur: keystroke commits
  * would re-run the type checker on every character, hammering it.
  * The local draft state preserves the in-flight edit until blur.
  *
  * The draft re-syncs to the external `value` only when the input
- * itself is not focused — comparing the input's own ref against
+ * itself is not focused: comparing the input's own ref against
  * `document.activeElement` (rather than the global tag-only check)
  * keeps a peer input's focus from blocking a re-sync of this one.
  */
@@ -336,7 +334,7 @@ function TextInput({
 	//     text-typed property slot stays declared after the edit;
 	//     the bare `literal(draft)` rebuild would drop it.
 	//   - When the source is undefined (no prior literal), commit
-	//     emits a bare `literal(draft)` — there's no qualifier to
+	//     emits a bare `literal(draft)`: there's no qualifier to
 	//     preserve.
 	const commit = useCallback(() => {
 		if (nonEmpty && draft === "") {
@@ -385,7 +383,7 @@ interface NumericInputProps extends ScalarInputProps {
 }
 
 /**
- * Numeric literal input — int or decimal. Integers retain the native
+ * Numeric literal input: int or decimal. Integers retain the native
  * number control; decimals use a text control with `inputMode="decimal"`
  * so an incomplete or malformed draft remains visible for correction
  * instead of being sanitized away by the browser. Commits on blur.
@@ -516,7 +514,7 @@ interface DateInputProps {
  * drive the picker UX; the wire form is the platform's
  * ISO-formatted output, which matches CommCare's date / datetime
  * conventions when truncated to seconds. Commits on change rather
- * than blur — picker commits are atomic events, not in-flight
+ * than blur: picker commits are atomic events, not in-flight
  * edits.
  *
  * A required `nonEmpty` slot keeps a cleared picker visible with a
@@ -592,14 +590,14 @@ function RequiredValueError({ id }: { readonly id: string }) {
 
 /**
  * Null-only literal control for a slot whose accept-set names no
- * widget-able type (a geopoint membership / discriminator value — no
+ * widget-able type (a geopoint membership / discriminator value, no
  * geopoint literal widget exists, and the only literal compatible with
  * a place is the universally-compatible `null`). The control has no
  * current-value exception: stored predicates are valid by construction, so a
  * non-null place literal cannot reach this editor through a committed doc.
  */
 function NullOnlyLiteral() {
-	// No `aria-label` — the visible instruction is the accessible name; a
+	// No `aria-label`: the visible instruction is the accessible name; a
 	// label on a non-interactive div isn't supported by its role.
 	return (
 		<div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[13px]">
@@ -620,7 +618,7 @@ interface SelectOptionInputProps extends ScalarInputProps {
  * `options`; selecting one commits a string-typed literal whose
  * value is the option's wire-form `value`.
  *
- * Note: this is single-select for the literal value slot —
+ * Note: this is single-select for the literal value slot:
  * `multi-select-contains` carries multiple literals via the
  * `values` array on its parent, each independently selected here.
  */
@@ -673,12 +671,7 @@ function SelectOptionInput({
 				aria-label={`${ariaLabel}: ${display}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span

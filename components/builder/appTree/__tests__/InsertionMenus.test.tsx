@@ -7,6 +7,7 @@ import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions"
 import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
 import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import type { FormType, Uuid } from "@/lib/domain";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 
 afterEach(async () => {
 	await settleBaseUiTransitions();
@@ -83,15 +84,17 @@ beforeEach(() => {
 });
 
 describe("structure insertion menus", () => {
-	it("uses the shared popover and full-size module choices", async () => {
+	it("uses the shared popover and menu-row module choices", async () => {
 		render(<AddModulePopover atIndex={1} prominent />);
 		fireEvent.click(screen.getByRole("button", { name: "Add module" }));
 
 		const caseList = await screen.findByRole("button", { name: /Case list/ });
 		const survey = screen.getByRole("button", { name: /Survey/ });
-		expect(caseList.getAttribute("data-slot")).toBe("button");
-		expect(caseList.className).toContain("min-h-14");
-		expect(survey.className).toContain("min-h-14");
+		// Each choice is a row in a popover, so it wears the one menu-row
+		// treatment: the 44px floor, growing for its second line, and the
+		// same inset highlight the real menu items get.
+		expect(caseList.className).toBe(POPOVER_ROW_CLS);
+		expect(survey.className).toBe(POPOVER_ROW_CLS);
 		expect(screen.getByText("Manages a case type").className).toContain(
 			"text-xs",
 		);

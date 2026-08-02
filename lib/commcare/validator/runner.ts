@@ -388,9 +388,9 @@ function suggestionHint(
 		(p) => `\`#form/${p.replace(/^\/data\//, "")}\``,
 	);
 	if (formPaths.length === 1) {
-		return `A field with that id exists at ${formPaths[0]} — did you mean that? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
+		return `A field with that id exists at ${formPaths[0]}. Did you mean that? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
 	}
-	return `Fields with that id exist at ${formPaths.join(", ")} — did you mean one of these? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
+	return `Fields with that id exist at ${formPaths.join(", ")}. Did you mean one of these? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
 }
 
 /**
@@ -407,7 +407,7 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			return `${where} has a syntax error: ${error.message}. Check for unbalanced parentheses, missing operators, or stray characters.`;
 
 		case "UNKNOWN_FUNCTION":
-			return `${where} calls a function that isn't a recognized CommCare function: ${error.message}. Function names are case-sensitive — check for a typo or the wrong case.`;
+			return `${where} calls a function that isn't a recognized CommCare function: ${error.message}. Function names are case-sensitive. Check for a typo or the wrong case.`;
 
 		case "WRONG_ARITY":
 			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
@@ -419,7 +419,7 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			// of a field that's gone, not something a person can look up, so
 			// the message names the carrier and slot (`where`) instead.
 			if (error.storedRef === "dangling-identity") {
-				return `${where} references a field that no longer exists in this form. The expression tracks the exact field it pointed at, and that field is gone — if this change is what removes it, the expression has to let go of it first. Edit that expression to drop the reference or point it at an existing field, then retry this change.`;
+				return `${where} references a field that no longer exists in this form. The expression tracks the exact field it pointed at, and that field is gone. If this change is what removes it, the expression has to let go of it first. Edit that expression to drop the reference or point it at an existing field, then retry this change.`;
 			}
 			// When an existing field shares the unknown ref's leaf id, the SA
 			// almost certainly wrote the bare id and dropped the field's group

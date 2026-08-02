@@ -1,19 +1,19 @@
 // components/builder/shared/cards/PredicateVerbMenu.tsx
 //
 // THE verb of a condition sentence. A condition is something the
-// author already knows how to say — "age is at least 50" — so the
+// author already knows how to say: "age is at least 50", so the
 // editor renders it as that sentence: subject (the property), verb
 // (this menu), object (the value). Every filter builder people
 // already know (Notion, Airtable, smart folders, mail rules) uses
 // this exact shape, and none of them title the row with the
-// operation's internal name — the verb IS the operation.
+// operation's internal name: the verb IS the operation.
 //
 // One menu therefore replaces two old controls: the per-card
 // operator dropdown (a lone math glyph) AND the header's "Change"
 // kind-replace. Picking a verb in the same family rewrites the
 // operator in place; picking across families rebuilds the node
 // while carrying the SUBJECT over (and the value where the target
-// has one) — switching "age is at least 50" to "is between" keeps
+// has one): switching "age is at least 50" to "is between" keeps
 // age, because that's what changing a verb means. The Structure
 // group holds the non-sentence shapes (groups, related-case
 // lookups, the always-true/false sentinels); those become titled
@@ -116,19 +116,19 @@ export interface VerbEntry {
 	readonly id: string;
 	readonly label: string;
 	readonly description: string;
-	/** Scan anchor — menus are skimmed by glyph before they're read. */
+	/** Scan anchor: menus are skimmed by glyph before they're read. */
 	readonly icon: IconifyIcon;
 	/** The schema kind backing applicability dimming. */
 	readonly schemaKind: Predicate["kind"];
 	readonly isCurrent: (value: Predicate) => boolean;
 	readonly build: (value: Predicate, ctx: PredicateEditContext) => Predicate;
 	/**
-	 * Subject-type gate — whether the subject (left operand) of the
+	 * Subject-type gate: whether the subject (left operand) of the
 	 * CURRENT condition can support this verb. Absent for verbs every
 	 * subject supports (`eq` / `neq` / `in` / `is-blank`,
 	 * the contains / near shapes whose builder re-anchors a valid
 	 * property, and the structure shapes). When present and the gate
-	 * fails, the verb is disabled with `disabledReason` — so changing
+	 * fails, the verb is disabled with `disabledReason`, so changing
 	 * HOW you compare never lands a type the subject can't take; the
 	 * author changes the subject first.
 	 */
@@ -139,7 +139,7 @@ export interface VerbEntry {
 	/** Reason shown when the subject-type gate disables the verb. */
 	readonly disabledReason?: string;
 	/**
-	 * Runtime gate — whether the CARRIER can evaluate this verb at all,
+	 * Runtime gate: whether the CARRIER can evaluate this verb at all,
 	 * independent of the subject. Distinct from `subjectGate` because the
 	 * author cannot repair it by changing the subject: no subject makes a
 	 * case-search-only match mode runnable on a device. When it fails the
@@ -149,7 +149,7 @@ export interface VerbEntry {
 	/** Reason shown when the runtime gate disables the verb. */
 	readonly contextDisabledReason?: string;
 	/**
-	 * Carry gate — whether the CURRENT condition holds something this
+	 * Carry gate: whether the CURRENT condition holds something this
 	 * verb can build a complete value from. A `match` whose value is the
 	 * empty string matches nothing on every mode, so the commit gate
 	 * refuses it; building one from a condition with no carryable value
@@ -163,7 +163,7 @@ export interface VerbEntry {
 
 // ── Subject / object extraction ───────────────────────────────────
 //
-// The "subject" is what the condition is about — the left operand.
+// The "subject" is what the condition is about: the left operand.
 // Carrying it across a verb change is the whole point of the shared
 // menu: changing HOW you compare must never lose WHAT you compare.
 
@@ -188,7 +188,7 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
 	}
 }
 
-/** The subject as a bare property reference, when it is one — the
+/** The subject as a bare property reference, when it is one, the
  *  shapes whose subject slot is a `PropertyRef` (match, contains,
  *  near) can only carry a property over, not a computed value. */
 function subjectRefOf(value: Predicate): PropertyRef | undefined {
@@ -357,8 +357,8 @@ function rangeFromSource(value: Predicate): {
 // ── Reseed helpers ────────────────────────────────────────────────
 //
 // Changing the verb carries the subject (and the value where the
-// target holds one), but the carried VALUE may not fit the new shape
-// — `is any of` over an int subject can't seed a text literal, a
+// target holds one), but the carried VALUE may not fit the new shape:
+// `is any of` over an int subject can't seed a text literal, a
 // fuzzy-date value can't carry into a fuzzy match. Each builder reseeds
 // a now-incompatible carried object in the same step so the emitted
 // predicate is valid by construction. The subject-type gate on the
@@ -378,7 +378,7 @@ export function propertyType(
 }
 
 /** Carry a value expression unless its resolved type sits outside
- *  `accepts` — then reseed it valid (carrying its typed content where
+ *  `accepts`, then reseed it valid (carrying its typed content where
  *  the new accept-set can hold it). */
 export function reseedObjectIfNeeded(
 	obj: ValueExpression,
@@ -421,7 +421,7 @@ export function buildComparison(
 	// Cross-family → comparison: carry the subject, then reseed the
 	// value to the subject's compatible set. The fallback's value was
 	// built for the fallback's OWN property, not this subject, so it is
-	// reseeded the same as a carried value — `eq(geopoint, "")` (a text
+	// reseeded the same as a carried value: `eq(geopoint, "")` (a text
 	// literal opposite a place subject) becomes `eq(geopoint, null)`.
 	const fallback = predicateCardSchemas[kind].defaultValue(ctx);
 	const left = subjectOf(value) ?? fallback.left;
@@ -444,7 +444,7 @@ export function buildMatch(
 ): Predicate {
 	const allow = MATCH_PROPERTY_TYPES_BY_MODE[mode];
 	if (value.kind === "match") {
-		// Mode change on an existing match — reseed the value if its type
+		// Mode change on an existing match: reseed the value if its type
 		// no longer sits in the new mode's allow-list.
 		return { ...value, mode, value: reseedMatchValue(value.value, allow, ctx) };
 	}
@@ -489,7 +489,7 @@ function matchCarriesAValue(
 	);
 }
 
-/** A match value valid for the mode's allow-list — carries a still-
+/** A match value valid for the mode's allow-list: carries a still-
  *  admissible term, reseeds an incompatible one, and leaves an
  *  unresolved (empty / placeholder) term as the completeness state. */
 export function reseedMatchValue(
@@ -555,7 +555,7 @@ export function buildWithSubjectLeft(
 			upperInclusive: carried?.upperInclusive ?? b.upperInclusive,
 		});
 	}
-	// is-blank carries only the subject — any read can be blank.
+	// is-blank carries only the subject: any read can be blank.
 	return { ...fallback, left: subject };
 }
 
@@ -646,7 +646,7 @@ const MATCH_VERBS: ReadonlyArray<{
 	{ mode: "fuzzy-date", icon: tablerCalendarQuestion },
 ];
 
-/** Ordering operators compare by total order — only ordered subject
+/** Ordering operators compare by total order: only ordered subject
  *  types support them. */
 const ORDERED_COMPARISON_REASON =
 	"Only numbers, dates, and times compare by order";
@@ -708,7 +708,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			carryGate: (value: Predicate, ctx: PredicateEditContext) =>
 				matchCarriesAValue(value, m.mode, ctx),
 			carryDisabledReason:
-				"Type the text to match first — matching against an empty value never finds anything.",
+				"Type the text to match first. Matching against an empty value never finds anything.",
 		});
 	}
 	entries.push(
@@ -815,11 +815,11 @@ function buildVerbEntries(): readonly VerbEntry[] {
 }
 
 /** Every sentence verb (comparison / match / membership / range /
- *  contains / near / blank) — exported so the valid-by-construction
+ *  contains / near / blank): exported so the valid-by-construction
  *  glue-fuzz can drive every build the menu can dispatch. */
 export const VERB_ENTRIES = buildVerbEntries();
 
-/** Structural shapes — not sentences. Picking one replaces (or
+/** Structural shapes, not sentences. Picking one replaces (or
  *  wraps) the condition with a container card. Exported alongside
  *  `VERB_ENTRIES` for the same glue-fuzz. */
 export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
@@ -831,7 +831,7 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		schemaKind: "and",
 		isCurrent: (p) => p.kind === "and",
 		// Wrapping (not replacing): the current condition becomes the
-		// group's first row, with a fresh row beside it to fill in —
+		// group's first row, with a fresh row beside it to fill in:
 		// "group this" must never throw away what the author built.
 		// The sibling group kind converts in place (same rows, the
 		// other combinator); only the sentinels start from the
@@ -940,14 +940,14 @@ const SPECIAL_CONDITION_ENTRIES = STRUCTURE_ENTRIES.filter(
 		entry.schemaKind === "match-all" || entry.schemaKind === "match-none",
 );
 
-/** The verb the current node reads as — shown on the trigger chip. */
+/** The verb the current node reads as: shown on the trigger chip. */
 export function currentVerbLabel(value: Predicate): string {
 	const all = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 	return all.find((e) => e.isCurrent(value))?.label ?? value.kind;
 }
 
 /**
- * Whether a verb entry is offerable for the current predicate — the
+ * Whether a verb entry is offerable for the current predicate, the
  * exact admission the menu renders against. Both its case-type
  * applicability (`schemaKind.applicable`) and its subject-type gate
  * must pass. Exported so the glue-fuzz can drive every admitted build
@@ -1001,7 +1001,7 @@ export function PredicateVerbMenu({
 	// answer or a worker-information read to nothing and skip the reseed
 	// that keeps the new verb's object type-correct.
 	const editCtx: PredicateEditContext = predicateEditContextFrom(ctx);
-	// The subject (left operand) drives which verbs are offerable — the
+	// The subject (left operand) drives which verbs are offerable, the
 	// same checker `checkComparison` / `checkMatch` validate against, so
 	// a verb the subject can't take is never selectable into an error.
 	const subjectType = useResolvedType(subjectOf(value));
@@ -1141,14 +1141,12 @@ export function PredicateVerbMenu({
 					render={
 						<Button
 							type="button"
-							variant="outline"
-							size="xl"
+							variant="field"
 							data-predicate-verb-trigger
-							className={`group border bg-nova-deep/50 px-3 text-sm dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start ${
-								invalid
-									? "border-nova-rose/40 text-nova-rose not-disabled:hover:border-nova-rose/60"
-									: "border-white/[0.06] text-nova-violet-bright not-disabled:hover:border-nova-violet/30"
-							}`}
+							/* The trigger already carries `aria-invalid`, and the
+							 * button styles that state itself, so the invalid look
+							 * needs no branch here. */
+							className="group @max-md:justify-self-start"
 						/>
 					}
 				>

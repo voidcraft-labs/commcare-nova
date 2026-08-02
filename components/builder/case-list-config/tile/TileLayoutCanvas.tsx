@@ -2,7 +2,7 @@
 //
 // Everything the tile arrangement owns on the Results canvas: the
 // starting-layout menu, the grid itself, and the one setting that
-// belongs to the layout rather than to a field — whether the tile stays
+// belongs to the layout rather than to a field: whether the tile stays
 // on screen above this module's forms.
 
 "use client";

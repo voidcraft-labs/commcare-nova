@@ -12,7 +12,7 @@
 //
 // Commits go through the INLINE gate flavor. Every single choice the
 // editor offers is already admissible, but "this condition can never
-// match" is a property of the whole tree rather than of any one choice —
+// match" is a property of the whole tree rather than of any one choice:
 // an author can still compose one deliberately (excluding an
 // always-true rule), and the gate refuses it. Refusing in place, beside
 // the rule, is honest; a toast plus a silent revert is not.
@@ -95,9 +95,8 @@ export function DisplayConditionCanvas({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={back}
-				className="-ml-2 mb-5 text-nova-text-secondary"
+				className="-ml-2 mb-5"
 			>
 				<Icon icon={tablerArrowLeft} width="16" height="16" />
 				{copy.backLabel}
@@ -107,7 +106,7 @@ export function DisplayConditionCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					{copy.title}
 				</h1>
@@ -122,7 +121,7 @@ export function DisplayConditionCanvas({
 			>
 				<h2
 					id="display-condition-locus-heading"
-					className="flex items-center gap-2 font-display text-[15px] font-semibold text-nova-text"
+					className="flex items-center gap-2 font-display tracking-tighter text-[15px] font-semibold text-nova-text"
 				>
 					<Icon
 						icon={tablerEye}
@@ -138,7 +137,7 @@ export function DisplayConditionCanvas({
 					))}
 					<li>{copy.scopeNote}</li>
 				</ul>
-				{/* Not a locus statement, so not a locus bullet — it is the one
+				{/* Not a locus statement, so not a locus bullet: it is the one
 				 *  thing an author must not misread about the whole feature. */}
 				<p className="mt-3 max-w-2xl border-t border-white/[0.06] pt-3 text-[13px] leading-relaxed text-nova-text-muted">
 					{DISPLAY_CONDITION_NOT_A_PERMISSION}
@@ -152,7 +151,7 @@ export function DisplayConditionCanvas({
 				<div className="mb-4 flex flex-wrap items-start justify-between gap-3">
 					<h2
 						id="display-condition-heading"
-						className="font-display text-[17px] font-semibold text-nova-text"
+						className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 					>
 						{copy.sectionTitle}
 					</h2>
@@ -196,8 +195,7 @@ export function DisplayConditionCanvas({
 						<Button
 							ref={addButtonRef}
 							type="button"
-							variant="outline"
-							size="xl"
+							variant="ghost"
 							disabled={!canEdit}
 							onClick={() =>
 								change(
@@ -209,7 +207,7 @@ export function DisplayConditionCanvas({
 									}),
 								)
 							}
-							className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+							className="nova-add-slot w-full"
 						>
 							Add condition
 						</Button>

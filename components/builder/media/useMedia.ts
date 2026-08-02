@@ -4,9 +4,9 @@
 // state. Two hooks, colocated because they share the same data
 // shape and are always used together by the picker:
 //
-//  - `useMediaUpload` — drives one upload, exposing in-flight /
+//  - `useMediaUpload`: drives one upload, exposing in-flight /
 //    error status for the upload tab's UX.
-//  - `useMediaLibrary` — paginates the Project's existing assets for
+//  - `useMediaLibrary`: paginates the Project's existing assets for
 //    the library tab, with an `addUploaded` hook so a just-uploaded
 //    asset appears at the top without a refetch.
 
@@ -96,7 +96,7 @@ export function useMediaUpload(appId?: string): UseMediaUpload {
 				// `appId` lands the asset in that app's Project (the chat composer in
 				// the builder passes it so a chat document belongs to the same
 				// Project the conversation resolves it under). Omitted by the
-				// account-menu file manager — those go to the user's active Project.
+				// account-menu file manager: those go to the user's active Project.
 				const asset = await uploadMediaAsset(file, {
 					appId,
 					signal: controller.signal,
@@ -138,7 +138,7 @@ export interface UseMediaLibrary {
 	addUploaded: (asset: MediaAssetView) => void;
 	/** Drop a just-deleted asset from the list so it disappears immediately. */
 	removeAsset: (assetId: string) => void;
-	/** Merge a partial update into a loaded asset in place — used to fold a freshly
+	/** Merge a partial update into a loaded asset in place: used to fold a freshly
 	 *  completed extract (title/summary) into the list without a re-fetch, so the
 	 *  preview opened from the library is current within the same session. */
 	updateAsset: (assetId: string, patch: Partial<MediaAssetView>) => void;
@@ -146,7 +146,7 @@ export interface UseMediaLibrary {
 
 /**
  * One library fetch request: which kinds (as a stable comma-joined KEY, not the
- * array — see below), which authoritative name query, from which `cursor`, and
+ * array: see below), which authoritative name query, from which `cursor`, and
  * whether the result appends (next page) or replaces (fresh page). A single
  * effect keys off this object, so each state change maps to exactly one fetch.
  */
@@ -182,7 +182,7 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
  * independent, so `["pdf","image"]` and `["image","pdf"]` are one page).
  *
  * The scope reset is done by deriving a fresh page-0 request DURING render (the
- * `trackedScopeKey` compare) rather than in a second effect — that keeps it to
+ * `trackedScopeKey` compare) rather than in a second effect, that keeps it to
  * one fetch per change with no mount double-fetch. The fetch effect guards
  * setState-after-unmount with a per-run `cancelled` flag so a fetch resolving
  * after the picker closes doesn't leak a state update (or trip the leak gate).

@@ -720,7 +720,7 @@ function compileLiteralFuzzyDate(
 	if (permutations.length === 0) {
 		throw new Error(
 			[
-				"`compilePredicate` — `match` (mode `fuzzy-date`) requires a `YYYY-MM-DD` value.",
+				"`compilePredicate`: `match` (mode `fuzzy-date`) requires a `YYYY-MM-DD` value.",
 				"",
 				`    expected: a string of the form 'YYYY-MM-DD' (zero-padded month and day)`,
 				`    got:      '${value}'`,
@@ -1119,7 +1119,7 @@ function compileExistsOrMissing(
 				invariant:
 					"a non-`self` `RelationPath` produced a `self` compiled result",
 				detail:
-					"The upstream branch routes every `pred.via.kind === 'self'` away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
+					"The upstream branch routes every `pred.via.kind === 'self'` away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self`, a contract violation between the two helpers.",
 			}),
 		);
 	}

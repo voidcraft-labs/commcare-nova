@@ -1,20 +1,20 @@
 /**
- * SaveIndicator — persistent auto-save status in the builder subheader.
+ * SaveIndicator: persistent auto-save status in the builder subheader.
  *
  * Renders to the left of the Connect icon in the toolbar's right section.
  * Shows a ticking relative timestamp ("Saved just now", "Saved 2m ago")
  * so the user always has confidence their edits are persisted. The timestamp
- * ticks on a 15-second interval — frequent enough to feel alive, infrequent
+ * ticks on a 15-second interval: frequent enough to feel alive, infrequent
  * enough to avoid needless re-renders.
  *
- * Owns the `useAutoSave` subscription internally — save status transitions
+ * Owns the `useAutoSave` subscription internally: save status transitions
  * (idle → saving → saved) re-render only this component, not the parent
  * BuilderLayout. The hook subscribes to entity map changes and fires
  * save PUTs; the indicator displays the result.
  *
  * AnimatePresence handles only the mount/unmount transition (idle ↔ visible).
  * Status changes within the visible state (saving → saved, timestamp ticks)
- * update text and icon in place — no fade, no flash.
+ * update text and icon in place: no fade, no flash.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -33,7 +33,7 @@ export function SaveIndicator({ compact = false }: { compact?: boolean }) {
 	const { status, savedAt } = useAutoSave();
 
 	/* Tick on a fixed interval to keep the relative timestamp current.
-	 * Only active when displaying a "Saved" timestamp — paused during
+	 * Only active when displaying a "Saved" timestamp: paused during
 	 * saving/error states and before the first save. The interval restarts
 	 * on each new save (savedAt change) so the tick aligns with the timestamp. */
 	const [, setTick] = useState(false);
@@ -65,8 +65,8 @@ export function SaveIndicator({ compact = false }: { compact?: boolean }) {
 			{visible && (
 				/* pl-[13px] = the icon buttons' glyph inset ((44px hit target −
 				 * 18px glyph) / 2), so the PresenceRoster divider's right-hand
-				 * neighbor — this indicator when visible, the settings button
-				 * otherwise — presents the same leading whitespace and the
+				 * neighbor: this indicator when visible, the settings button
+				 * otherwise: presents the same leading whitespace and the
 				 * divider stays visually centered (see its comment). */
 				<motion.div
 					role={isError ? "alert" : undefined}

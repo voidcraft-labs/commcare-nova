@@ -1,6 +1,6 @@
 // components/builder/shared/__tests__/operationScopeFailsClosed.test.ts
 //
-// Absent means not authorable — submission-local values exist only in
+// Absent means not authorable: submission-local values exist only in
 // the operation slots that own their runtime bindings.
 //
 // `formFields` and `operationScope` are optional on the edit context, so
@@ -8,7 +8,7 @@
 // before: the form-answer source and the submission-local kinds stay
 // unauthorable, and the type context those surfaces build refuses the
 // values outright. That has to be true of the defaults themselves, not
-// true because every current caller happens to omit them — a new surface
+// true because every current caller happens to omit them: a new surface
 // forgetting to opt in should fail closed rather than quietly widen what
 // an author can write into a slot the commit gate will reject.
 
@@ -136,7 +136,7 @@ describe("with an operation scope", () => {
 });
 
 // The cascade reseed resolves types inside an event handler, where a hook
-// cannot run — so it builds its own context. If that context is narrower
+// cannot run, so it builds its own context. If that context is narrower
 // than the one the pickers offer, the resolution silently returns
 // `undefined`, every dependent slot's accept-set widens to everything, the
 // reseed is skipped, and a type-incorrect pair commits into a slot the gate
@@ -170,7 +170,7 @@ describe("the cascade reseed resolves against the vocabulary on screen", () => {
 		const accepts = compatibleTypesFor(subjectType);
 		expect(accepts.has("text")).toBe(false);
 		// A text value has no date reading, so the reseed drops to an empty
-		// literal of the subject's own type — the committed comparison is
+		// literal of the subject's own type: the committed comparison is
 		// `date == date`, never the `date == text` an unresolved subject left.
 		expect(
 			reseedValueForConstraint(term(literal("2024-01-01")), accepts),
@@ -179,7 +179,7 @@ describe("the cascade reseed resolves against the vocabulary on screen", () => {
 
 	it("resolves a form answer to nothing when the surface declares none", () => {
 		// The fail-closed half: no answers in scope means the reference is not
-		// merely unresolved, it is inadmissible — which is why a surface must
+		// merely unresolved, it is inadmissible, which is why a surface must
 		// declare them rather than the resolver inventing a permissive default.
 		expect(resolveExpressionType(term(formField(FIELD)), BARE)).toBeUndefined();
 		expect(

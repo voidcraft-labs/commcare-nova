@@ -1,4 +1,4 @@
-/** Server-rendered stat card — pure markup, no client JS. */
+/** Server-rendered stat card: pure markup, no client JS. */
 export function StatCard({
 	label,
 	value,
@@ -9,11 +9,11 @@ export function StatCard({
 	subtitle?: string;
 }) {
 	return (
-		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
-			<p className="text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary mb-1">
+		<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
+			<p className="text-xs font-medium text-nova-text-secondary mb-1">
 				{label}
 			</p>
-			<p className="text-3xl font-display font-semibold text-nova-text">
+			<p className="text-3xl font-display font-semibold tracking-tighter text-nova-text">
 				{value}
 			</p>
 			{subtitle && (

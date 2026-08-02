@@ -26,12 +26,12 @@ import { StagedCommitRow } from "./StagedCommitRow";
 import { useConnectLintContext } from "./useConnectLintContext";
 
 /**
- * Shared prop contract mirroring LearnConfig's — declared locally so each
+ * Shared prop contract mirroring LearnConfig's: declared locally so each
  * sub-config file owns its contract rather than importing from a sibling.
  */
 interface ConnectSubConfigProps {
 	connect: ConnectDeliverConfig;
-	/** Persist the new config through the gated form update —
+	/** Persist the new config through the gated form update:
 	 *  returns the commit outcome so a refused edit keeps the
 	 *  inline editor's draft + finding on screen. */
 	save: (c: ConnectDeliverConfig | null) => CommitOutcome;
@@ -42,7 +42,7 @@ interface ConnectSubConfigProps {
 /**
  * Deliver-mode connect sub-config: two independent sub-toggles for the
  * `deliver_unit` and `task` halves of a Connect deliver app. Structurally
- * parallel to LearnConfig — each sub-toggle remembers the last populated
+ * parallel to LearnConfig: each sub-toggle remembers the last populated
  * value in a ref so off+on restores rather than resets, and with no
  * restorable value STAGES the block: the names and descriptions are
  * content the user writes (the same collect-before-commit pattern the
@@ -72,7 +72,7 @@ export function DeliverConfig({
 	const entityIdText = useXPathText(du?.entity_id);
 	const entityNameText = useXPathText(du?.entity_name);
 	const parseForForm = useParseXPathForForm(formUuid);
-	/** In-flight staged blocks — component state only, until committed
+	/** In-flight staged blocks: component state only, until committed
 	 *  (or toggled off, which discards). */
 	const [stagedDeliver, setStagedDeliver] = useState<
 		{ name: string } | undefined
@@ -80,8 +80,8 @@ export function DeliverConfig({
 	const [stagedTask, setStagedTask] = useState<
 		{ name: string; description: string } | undefined
 	>();
-	/** A refusal from a gesture with no input of its own — the sub-toggles,
-	 *  restores, clears, and the staged Add — rendered beneath the cards.
+	/** A refusal from a gesture with no input of its own: the sub-toggles,
+	 *  restores, clears, and the staged Add: rendered beneath the cards.
 	 *  The field editors present their own outcomes and bypass this. */
 	const [saveRejection, setSaveRejection] = useState<string | null>(null);
 	const dispatchSave = useCallback(
@@ -159,7 +159,7 @@ export function DeliverConfig({
 
 	const toggleDeliver = useCallback(() => {
 		if (stagedDeliver) {
-			/* Discard the uncommitted draft — nothing ever reached the doc,
+			/* Discard the uncommitted draft: nothing ever reached the doc,
 			 * so nothing refused remains. */
 			setStagedDeliver(undefined);
 			setSaveRejection(null);
@@ -171,7 +171,7 @@ export function DeliverConfig({
 			if (restored?.name.trim()) {
 				dispatchSave({ ...connect, deliver_unit: restored });
 			} else {
-				/* No prior work to restore — stage and collect the name from
+				/* No prior work to restore: stage and collect the name from
 				 * the user before anything commits. */
 				setStagedDeliver({ name: "" });
 			}
@@ -184,7 +184,7 @@ export function DeliverConfig({
 		/* Commit only the user-written name plus the derived id. `entity_id`
 		 * and `entity_name` are intentionally left undefined so the
 		 * wire-emit fallback in `lib/commcare/xform/builder.ts` is the
-		 * single home for the canonical default XPath expressions —
+		 * single home for the canonical default XPath expressions:
 		 * duplicating those literals here would silently bake stale strings
 		 * into the persisted doc if the canonical defaults ever evolve. */
 		const outcome = dispatchSave({
@@ -235,13 +235,10 @@ export function DeliverConfig({
 			{/* Deliver Unit sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Deliver Unit
-					</span>
+					<span className="text-xs text-nova-text-muted">Deliver Unit</span>
 					<Switch
 						checked={deliverEnabled || stagedDeliver !== undefined}
 						onCheckedChange={toggleDeliver}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -271,7 +268,7 @@ export function DeliverConfig({
 											 * Marking required would tell the user a
 											 * lie. Saving an empty value clears the key
 											 * outright (via `clearDeliverField`) so the
-											 * wire-emit fallback kicks in — writing
+											 * wire-emit fallback kicks in: writing
 											 * `""` would trip `CONNECT_EMPTY_XPATH`. */
 											value={entityIdText}
 											onSave={(v) => {
@@ -286,7 +283,7 @@ export function DeliverConfig({
 											getLintContext={getLintContext}
 										/>
 										<LabeledXPathField
-											label="Entity Name"
+											label="Entity name"
 											value={entityNameText}
 											onSave={(v) => {
 												if (v.trim())
@@ -301,7 +298,7 @@ export function DeliverConfig({
 										/>
 									</>
 								) : stagedDeliver ? (
-									/* STAGED — collect the name before anything commits;
+									/* STAGED: collect the name before anything commits;
 									 * the id derives at commit, the entity XPaths stay on
 									 * the wire-emit defaults. */
 									<>
@@ -330,13 +327,10 @@ export function DeliverConfig({
 			{/* Task sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Task
-					</span>
+					<span className="text-xs text-nova-text-muted">Task</span>
 					<Switch
 						checked={taskEnabled || stagedTask !== undefined}
 						onCheckedChange={toggleTask}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -352,13 +346,13 @@ export function DeliverConfig({
 								{task ? (
 									<>
 										<InlineField
-											label="Task Name"
+											label="Task name"
 											value={task.name}
 											onChange={(v) => updateTask("name", v)}
 											required
 										/>
 										<InlineField
-											label="Task Description"
+											label="Task description"
 											value={task.description}
 											onChange={(v) => updateTask("description", v)}
 											multiline
@@ -368,14 +362,14 @@ export function DeliverConfig({
 								) : stagedTask ? (
 									<>
 										<DraftField
-											label="Task Name"
+											label="Task name"
 											value={stagedTask.name}
 											onChange={(v) =>
 												setStagedTask((d) => d && { ...d, name: v })
 											}
 										/>
 										<DraftField
-											label="Task Description"
+											label="Task description"
 											value={stagedTask.description}
 											onChange={(v) =>
 												setStagedTask((d) => d && { ...d, description: v })
@@ -399,7 +393,7 @@ export function DeliverConfig({
 				</AnimatePresence>
 			</div>
 
-			{/* A refused toggle/restore/clear/Add explains itself here — those
+			{/* A refused toggle/restore/clear/Add explains itself here: those
 			 * gestures have no input to anchor the finding to. */}
 			<RejectionInline message={saveRejection} />
 		</div>

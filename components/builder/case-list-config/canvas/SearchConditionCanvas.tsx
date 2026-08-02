@@ -77,7 +77,6 @@ export function SearchConditionCanvas({
 				ref={backRef}
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={onBack}
 				data-inspector-return-focus
 				aria-label={
@@ -85,14 +84,14 @@ export function SearchConditionCanvas({
 						? undefined
 						: `Back to ${dependencyReview.inputLabel} search field`
 				}
-				className="-ml-2 mb-5 text-nova-text-secondary"
+				className="-ml-2 mb-5"
 			>
 				<Icon icon={tablerArrowLeft} width="16" height="16" />
 				{dependencyReview === undefined ? "Back to Search" : "Back to field"}
 			</Button>
 
 			<header className="mb-7">
-				<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+				<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 					{title}
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
@@ -113,7 +112,7 @@ export function SearchConditionCanvas({
 				<div className="mb-4">
 					<h2
 						id="search-condition-heading"
-						className="font-display text-[17px] font-semibold text-nova-text"
+						className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 					>
 						{sectionTitle}
 					</h2>

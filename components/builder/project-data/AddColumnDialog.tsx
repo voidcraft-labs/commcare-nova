@@ -1,8 +1,8 @@
 /**
  * Add a column to an existing table.
  *
- * Adding is the one schema change that is purely additive — no existing value
- * changes meaning and no app can be broken by it — so it needs `edit` rather
+ * Adding is the one schema change that is purely additive: no existing value
+ * changes meaning and no app can be broken by it, so it needs `edit` rather
  * than `delete` and asks for no confirmation. The export name is derived from
  * what the author types and stays editable, because it is a contract every CSV
  * heading and every export will use, and guessing it silently would hide that.
@@ -55,7 +55,7 @@ export function AddColumnDialog({
 	const [label, setLabel] = useState("");
 	const [wireName, setWireName] = useState("");
 	/* Whether the author has taken the export name over. Until they do it
-	 * tracks the label, which is what makes the common case one field — but a
+	 * tracks the label, which is what makes the common case one field, but a
 	 * hand-typed name is never overwritten afterwards. */
 	const [wireNameTouched, setWireNameTouched] = useState(false);
 	const [dataType, setDataType] = useState<LookupDataType>("text");
@@ -64,7 +64,7 @@ export function AddColumnDialog({
 	const operation = useRef(0);
 	const mounted = useRef(true);
 	useEffect(() => {
-		/* Claim the flag on every mount, not just the first — a cleanup-only
+		/* Claim the flag on every mount, not just the first: a cleanup-only
 		 * version leaves it false forever once React remounts the same instance
 		 * (StrictMode's development double-invoke does exactly that), and the
 		 * guards below then strand the dialog on "Adding…" after a real write. */
@@ -201,7 +201,7 @@ export function AddColumnDialog({
 							else setFailure(refusal);
 						}}
 					>
-						{working ? "Adding…" : "Add column"}
+						{working ? "Adding" : "Add column"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

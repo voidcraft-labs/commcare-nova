@@ -14,11 +14,11 @@ import { UserProfileSection } from "./user-profile";
 import { UserUsageSection } from "./user-usage";
 
 /**
- * Admin user detail — in-page breadcrumb + three streamed sections.
+ * Admin user detail: in-page breadcrumb + three streamed sections.
  *
  * Auth is handled by the admin layout (requireAdminAccess). The global header
  * is rendered by the root layout. Back navigation and breadcrumb trail live
- * in the page content — not the header.
+ * in the page content, not the header.
  *
  * The URL param is the user's UUID (`/admin/users/{userId}`). The profile
  * section resolves the email and name from Postgres for display.
@@ -35,7 +35,7 @@ export default async function AdminUserDetailPage({
 			<nav className="flex items-center gap-2 text-sm text-nova-text-muted">
 				<Link
 					href="/admin"
-					className="flex items-center gap-0.5 hover:text-nova-text transition-colors"
+					className="nova-focusable flex min-h-11 items-center gap-0.5 rounded-lg pr-1 hover:text-nova-text transition-colors"
 				>
 					<Icon icon={tablerChevronLeft} width="16" height="16" />
 					Admin
@@ -44,7 +44,7 @@ export default async function AdminUserDetailPage({
 				<span className="text-nova-text-secondary">User</span>
 			</nav>
 
-			{/* ── Content — four independent Suspense streams ─── */}
+			{/* ── Content: four independent Suspense streams ─── */}
 			<Suspense fallback={<ProfileSkeleton />}>
 				<UserProfileSection userId={userId} />
 			</Suspense>

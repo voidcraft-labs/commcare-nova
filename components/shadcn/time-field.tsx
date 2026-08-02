@@ -4,7 +4,7 @@ import { Input } from "@/components/shadcn/input";
 import { cn } from "@/lib/utils";
 
 interface TimeFieldProps {
-	/** The raw typed text — parsing belongs to the caller's commit boundary. */
+	/** The raw typed text: parsing belongs to the caller's commit boundary. */
 	value: string;
 	onValueChange: (next: string) => void;
 	id?: string;
@@ -26,14 +26,14 @@ interface TimeFieldProps {
 }
 
 /**
- * Clock-time entry — a themed text field people type a time into, in the
+ * Clock-time entry: a themed text field people type a time into, in the
  * locale's own clock (the example reads "2:30 PM", never a 24-hour spelling
  * worn as theme). It deliberately is NOT a native `<input type="time">`:
  * the browser control brings its own picker chrome over Nova's theme.
  *
  * The field owns the entry UX only; the value contract is the raw typed
  * text. A hand-typed clock needs a strict parse at the caller's commit
- * boundary — `lib/ui/clockTime.ts::parseClockTime` is the canonical
+ * boundary: `lib/ui/clockTime.ts::parseClockTime` is the canonical
  * parser (typed text → 24-hour `HH:MM:SS`, 12-hour and bare 24-hour
  * spellings, shape + ranges checked).
  */

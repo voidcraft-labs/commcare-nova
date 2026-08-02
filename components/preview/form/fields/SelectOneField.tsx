@@ -39,7 +39,7 @@ export function SelectOneField({
 	const lookupBacked = field.optionsSource.kind === "lookup";
 	// The engine only resolves option labels for a field whose label or hint
 	// already carries a reference, so an option that references something on a
-	// plainly-labelled question arrives here unresolved — spell it against the
+	// plainly-labelled question arrives here unresolved: spell it against the
 	// document rather than showing repair text for a healthy reference.
 	const projectProse = useProseProjection();
 	// `key` is display identity: static options are validator-unique by
@@ -86,7 +86,7 @@ export function SelectOneField({
 							key={opt.key}
 							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								isSelected
-									? "bg-pv-accent/10 border border-pv-accent/30"
+									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"
 									: showError
 										? "bg-pv-input-bg border border-nova-rose/30 hover:border-nova-rose/50"
 										: "bg-pv-input-bg border border-pv-input-border hover:border-pv-input-focus"
@@ -113,12 +113,12 @@ export function SelectOneField({
 								<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
 							</span>
 							{/* Per-option media (the image/audio that makes a visual
-						    choice concrete) — compact so a list of options stays
+						    choice concrete): compact so a list of options stays
 						    scannable. */}
 							<MediaDisplay
 								media={opt.media}
 								interactive={!isEditMode}
-								imageClassName="max-h-24 max-w-full rounded object-contain"
+								imageClassName="max-h-24 max-w-full rounded-lg object-contain"
 							/>
 						</label>
 					);

@@ -6,7 +6,7 @@
 //
 //   1. Mounts a `PredicateEditProvider` carrying the schema-driven
 //      type-checking context (`caseTypes`, `currentCaseType`,
-//      `knownInputs`) plus the precomputed `validityIndex` —
+//      `knownInputs`) plus the precomputed `validityIndex`:
 //      cards look up their own path's errors via the context.
 //
 //   2. Runs `checkPredicate` on every onChange to refresh the
@@ -26,7 +26,7 @@
 // (`and([])` → `match-all`, `and([single])` → single, `not(not(x))`
 // → x, etc.) so the saved AST is always in canonical reduced form.
 // Cards may therefore disappear mid-edit when their clause list
-// collapses to one — the parent's onChange replaces the group with
+// collapses to one: the parent's onChange replaces the group with
 // the unwrapped clause and the next render shows just the inner
 // card.
 
@@ -66,8 +66,8 @@ interface PredicateCardEditorProps {
 	readonly userProperties?: readonly UserProperty[];
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
-	 * onChange. The editor authors valid by construction — no sequence
-	 * of picker choices yields a type-incorrect predicate — so for
+	 * onChange. The editor authors valid by construction: no sequence
+	 * of picker choices yields a type-incorrect predicate, so for
 	 * normally-authored trees this stays `true`. The parent gates its save
 	 * affordance on the same verdict.
 	 */
@@ -115,7 +115,7 @@ export function PredicateCardEditor({
 
 	// Run the type checker on every value change. The checker is
 	// pure (no I/O, no allocations beyond the error list), so
-	// running it inside `useMemo` is the right shape — the
+	// running it inside `useMemo` is the right shape: the
 	// validity index is a derived value driven by `value` and the
 	// context.
 	const validityResult = useMemo(
@@ -129,7 +129,7 @@ export function PredicateCardEditor({
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
-	// Standardized parent-validity propagation — fires on mount + on
+	// Standardized parent-validity propagation: fires on mount + on
 	// every transition. Downstream consumers (the Filter-section save
 	// button) gate on this and need the initial-mount fire so the
 	// parent's save state initializes correctly. The helper ref-

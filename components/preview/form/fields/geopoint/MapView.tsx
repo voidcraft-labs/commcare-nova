@@ -6,7 +6,7 @@
 // the map to drop/move it. Commit happens on drag-END (and on click), so the
 // form engine never recomputes mid-drag.
 //
-// A vector **Map ID** (`NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`) is required — it's
+// A vector **Map ID** (`NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`) is required, it's
 // part of the picker's config gate (`googleMapsConfigured`), so this component
 // only mounts when one is present. That buys the WebGL **vector** basemap plus
 // the modern `AdvancedMarkerElement` (draggable, no deprecation notice), styled
@@ -35,7 +35,7 @@ const FOCUS_ZOOM = 16;
  *  put them (no needless camera motion). */
 const TOP_SAFE_FRACTION = 0.2;
 /** Nova-violet pin (brand accent) for the Advanced Marker. */
-const PIN_BG = "#8b5cf6";
+const PIN_BG = "#9678f2";
 const PIN_BORDER = "#6d28d9";
 const PIN_GLYPH = "#ede9fe";
 
@@ -48,12 +48,12 @@ export interface MapHandle {
 interface MapViewProps {
 	/** Committed location, or null when there's no value yet. The pin marks it. */
 	readonly point: GeoPoint | null;
-	/** Fired when the user drops/drags the pin or clicks the map — carries the
+	/** Fired when the user drops/drags the pin or clicks the map, carries the
 	 *  new coordinate (lng in Google's order). */
 	readonly onPick: (lat: number, lng: number) => void;
 }
 
-/** A handle to the draggable Advanced Marker — move it or tear it down without
+/** A handle to the draggable Advanced Marker: move it or tear it down without
  *  the rest of the component touching the Maps element directly. */
 interface PinMarker {
 	setPosition(lat: number, lng: number): void;
@@ -62,7 +62,7 @@ interface PinMarker {
 
 /** A Nova-violet teardrop pin for the Advanced Marker's `content`. Built as
  *  a data-URL `<img>` from a fully static SVG (no `innerHTML`, no untrusted
- *  input) rather than `PinElement`, whose `.element` accessor is deprecated —
+ *  input) rather than `PinElement`, whose `.element` accessor is deprecated:
  *  so the console stays clean. The Advanced Marker anchors the element's
  *  bottom-center (the teardrop tip) on the coordinate. */
 function createPinElement(): HTMLElement {
@@ -150,7 +150,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 
 		(async () => {
 			// The parent gates on `googleMapsConfigured()` (key + Map ID), so a
-			// missing Map ID here means config drift — bail rather than fall back
+			// missing Map ID here means config drift: bail rather than fall back
 			// to a deprecated classic marker.
 			if (!mapId) return;
 			const [{ Map: GoogleMap }, { AdvancedMarkerElement }] = await Promise.all(
@@ -217,7 +217,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 				}),
 			);
 		})().catch(() => {
-			/* load failure — the parent shows a manual-entry fallback when
+			/* load failure: the parent shows a manual-entry fallback when
 			   `googleMapsConfigured()` is false. */
 		});
 

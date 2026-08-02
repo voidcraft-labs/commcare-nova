@@ -64,6 +64,9 @@ interface CaseWriteChoice {
 	readonly group: string;
 	readonly label: string;
 	readonly detail: string;
+	/** True when `detail` is a `#case-type/property` ref rather than prose:
+	 *  a ref is a data value and sets in mono, prose sets in the sans. */
+	readonly detailIsRef?: boolean;
 	readonly searchText: string;
 	readonly kind: "clear" | "destination" | "new";
 	readonly caseWrite?: CaseWrite;
@@ -95,6 +98,7 @@ function propertyChoice(
 		group: typeLabel(caseType.name),
 		label,
 		detail: verdict.ok ? `#${caseType.name}/${property.name}` : verdict.reason,
+		detailIsRef: verdict.ok,
 		searchText: `${caseType.name} ${property.name} ${label}`,
 		kind: "destination",
 		caseWrite: { caseType: caseType.name, property: property.name },
@@ -315,12 +319,7 @@ export function CaseWriteEditor<F extends Field>(
 					}}
 					id={triggerId}
 					render={
-						<Button
-							type="button"
-							variant="outline"
-							size="xl"
-							className="h-auto min-h-11 w-full min-w-0 justify-between rounded-lg border-white/[0.06] bg-nova-deep/50 px-3 py-2.5 text-left"
-						/>
+						<Button type="button" variant="field" className="w-full min-w-0" />
 					}
 					aria-label={`${label}: ${displayLabel}, ${displayDetail}`}
 				>
@@ -335,7 +334,15 @@ export function CaseWriteEditor<F extends Field>(
 							<span className="block break-words text-sm font-medium text-nova-text">
 								{displayLabel}
 							</span>
-							<span className="mt-0.5 block break-all text-xs font-normal text-nova-text-muted">
+							{/* A `#case-type/property` ref is a data value, and the
+							 * design system names it in the same breath as field ids
+							 * and formulas: mono, not the UI sans. "Form answer only"
+							 * is prose, so it stays in the sans. */}
+							<span
+								className={`mt-0.5 block break-all text-xs font-normal text-nova-text-muted${
+									current === undefined ? "" : " font-mono"
+								}`}
+							>
 								{displayDetail}
 							</span>
 						</span>
@@ -347,7 +354,7 @@ export function CaseWriteEditor<F extends Field>(
 					className="w-80"
 				>
 					<header className="px-3 pb-2.5 pt-3">
-						<h3 className="font-display text-[15px] font-semibold text-nova-text">
+						<h3 className="font-display tracking-tighter text-[15px] font-semibold text-nova-text">
 							Choose case information
 						</h3>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
@@ -413,7 +420,11 @@ export function CaseWriteEditor<F extends Field>(
 												<span className="block break-words font-medium">
 													{choice.label}
 												</span>
-												<span className="mt-0.5 block break-words text-xs leading-relaxed text-nova-text-muted">
+												<span
+													className={`mt-0.5 block break-words text-xs leading-relaxed text-nova-text-muted${
+														choice.detailIsRef ? " font-mono" : ""
+													}`}
+												>
 													{choice.detail}
 												</span>
 											</span>
@@ -428,7 +439,7 @@ export function CaseWriteEditor<F extends Field>(
 
 			{context !== null && writableTypes.length === 0 && (
 				<p className="text-[13px] leading-5 text-nova-text-muted">
-					This form does not save case data.
+					No case type is available here yet.
 				</p>
 			)}
 
@@ -524,7 +535,7 @@ export function CaseWriteEditor<F extends Field>(
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							onClick={() => {
 								setCreating(false);
 								requestAnimationFrame(() => triggerRef.current?.focus());
@@ -534,7 +545,7 @@ export function CaseWriteEditor<F extends Field>(
 						</Button>
 						<Button
 							type="button"
-							className="min-h-11"
+							className=""
 							disabled={!canCreate}
 							onClick={() => {
 								if (!parsedNewName.success) return;

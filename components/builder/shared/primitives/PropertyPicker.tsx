@@ -2,7 +2,7 @@
 //
 // Searchable case-property picker. Shows all properties of the
 // editor's `currentCaseType` (or, optionally, a caller-supplied
-// case type — used by `ExistsCard` when picking properties on the
+// case type: used by `ExistsCard` when picking properties on the
 // destination of a relation walk). The picker drives every
 // property-shaped slot across the card editor: comparison `left`,
 // match `property`, multi-select-contains `property`,
@@ -10,7 +10,7 @@
 // `left`, etc.
 //
 // Implementation: Nova's shadcn dropdown-menu primitive. Optional filter narrows the
-// shown properties to a subset by data type — comparison cards
+// shown properties to a subset by data type: comparison cards
 // for ordering operators (gt/lt/...) restrict to ordered types,
 // multi-select-contains restricts to multi_select, etc.
 
@@ -64,7 +64,7 @@ interface PropertyPickerProps {
 	/** Fired when the user selects a property. */
 	readonly onChange: (propertyName: string) => void;
 	/**
-	 * Override case type — when provided, the picker shows
+	 * Override case type: when provided, the picker shows
 	 * properties from this case type rather than the context's
 	 * `currentCaseType`. Used by relation-walk consumers
 	 * (`ExistsCard` after resolving the via's destination) to scope
@@ -80,8 +80,8 @@ interface PropertyPickerProps {
 	/** Optional whole-rule admission for a concrete property choice. */
 	readonly admit?: (property: CaseProperty) => ExpressionChangeAdmission;
 	/**
-	 * Optional accessibility label override. Defaults to "Case information"
-	 * — cards that have multiple property slots (none today, but
+	 * Optional accessibility label override. Defaults to "Case information":
+	 * cards that have multiple property slots (none today, but
 	 * the contract is forward-looking) can disambiguate via the
 	 * override.
 	 */
@@ -238,12 +238,7 @@ export function PropertyPicker({
 				id={triggerId}
 				aria-label={`${ariaLabel}: ${accessibleDisplayLabel}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
@@ -298,7 +293,7 @@ export function PropertyPicker({
 							<label htmlFor={`${triggerId}-search`} className="sr-only">
 								Search information
 							</label>
-							<div className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 transition-colors focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/25">
+							<div className="nova-focusable-within flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 transition-colors">
 								<Icon
 									icon={tablerSearch}
 									width="15"
@@ -315,7 +310,7 @@ export function PropertyPicker({
 									placeholder="Search information"
 									autoComplete="off"
 									data-1p-ignore
-									className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-nova-text shadow-none outline-none placeholder:text-nova-text-muted focus-visible:border-transparent focus-visible:ring-0 md:text-[14px] dark:bg-transparent"
+									className="nova-focusable h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-nova-text shadow-none outline-none placeholder:text-nova-text-muted md:text-[14px] dark:bg-transparent"
 								/>
 							</div>
 						</div>

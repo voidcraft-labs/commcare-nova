@@ -4,7 +4,7 @@
 // the composer: "Reading…" while the file is being prepared, "Ready" once
 // Nova can read it, "Couldn't read" (with retry) on failure. Nothing for a
 // non-document (images reach the model directly). This is the surface that
-// answers "is feature extraction happening?" — so a user understands Nova works
+// answers "is feature extraction happening?", so a user understands Nova works
 // from the extract, not the raw file.
 
 "use client";
@@ -13,7 +13,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
-import { Spinner } from "@/components/shadcn/spinner";
 import {
 	SimpleTooltip,
 	Tooltip,
@@ -31,8 +30,8 @@ import {
 /**
  * Hook-driving wrapper: kicks off (and tracks) extraction for `asset`, then
  * renders the indicator. Used where the badge is the sole consumer of the
- * extraction status (the file manager). The composer drives the hook itself —
- * it also needs the status to gate the chip's remove control — and renders
+ * extraction status (the file manager). The composer drives the hook itself:
+ * it also needs the status to gate the chip's remove control, and renders
  * `ExtractionStatusBadgeView` directly with the result.
  */
 export function ExtractionStatusBadge({
@@ -86,9 +85,8 @@ export function ExtractionStatusBadgeView({
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<Badge variant="secondary">
-							<Spinner className="size-3" />
-							Reading…
+						<Badge variant="violet" working>
+							Reading
 						</Badge>
 					}
 				/>
@@ -102,7 +100,7 @@ export function ExtractionStatusBadgeView({
 	if (status === "failed") {
 		if (!canRetry) {
 			return (
-				<Badge variant="destructive" className="min-h-11 gap-1.5 px-3">
+				<Badge variant="rose">
 					<Icon icon={tablerAlertTriangle} />
 					Couldn't read
 				</Badge>
@@ -112,12 +110,7 @@ export function ExtractionStatusBadgeView({
 		// that happens to be clickable.
 		return (
 			<SimpleTooltip content="Try reading this file again">
-				<Button
-					type="button"
-					variant="destructive"
-					className="h-11 px-3"
-					onClick={retry}
-				>
+				<Button type="button" variant="destructive" onClick={retry}>
 					<Icon icon={tablerAlertTriangle} />
 					Retry
 				</Button>
@@ -128,7 +121,7 @@ export function ExtractionStatusBadgeView({
 	// Ready keeps the status and its explanation together. The info trigger gets
 	// the same full-size target as the other media controls.
 	return (
-		<Badge variant="outline" className="min-h-11 gap-1.5 px-2 text-xs">
+		<Badge variant="emerald">
 			<ExtractionInfoPopover />
 			Ready
 		</Badge>

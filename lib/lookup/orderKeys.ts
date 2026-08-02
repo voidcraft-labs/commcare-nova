@@ -134,7 +134,7 @@ export function keyBetween(a: string | null, b: string | null): string {
 	if (lo !== null && hi !== null && lo >= hi) {
 		throw new Error(
 			`keyBetween needs an ordered interval, but got lo="${a}" >= hi="${b}" ` +
-				"(compared by numeric key value — trailing zero digits carry none). " +
+				"(compared by numeric key value. Trailing zero digits carry none). " +
 				"Two display-adjacent siblings share an order key (a rested tie broken " +
 				"on uuid), so there is no key strictly between them. Compute the slot " +
 				"through keysForSlot, which widens past the whole tied run to a distinct " +

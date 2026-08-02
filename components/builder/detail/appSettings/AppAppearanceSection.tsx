@@ -10,7 +10,7 @@ import { useUncarriedLogo } from "@/lib/doc/hooks/useUncarriedLogo";
 
 /**
  * App-level appearance: the logo image shown on the web-apps login and
- * home screens. A single optional image asset — no audio, no per-language
+ * home screens. A single optional image asset: no audio, no per-language
  * variants (Android-only logo slots are out of scope for Nova's web-apps
  * target). The change dispatches through `setAppLogo` so a clear rides
  * the JSON-safe `null` sentinel; the reducer maps `null → undefined` so
@@ -29,7 +29,7 @@ export function AppAppearanceSection() {
 
 	return (
 		<div>
-			<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
+			<span className="text-xs font-medium text-nova-text-secondary mb-1.5 block">
 				App logo
 			</span>
 			<div>
@@ -48,7 +48,7 @@ export function AppAppearanceSection() {
 }
 
 /**
- * The proactive heads-up shown when the logo image is used nowhere else —
+ * The proactive heads-up shown when the logo image is used nowhere else:
  * a small amber line plus an info popover explaining (in plain terms) why
  * it won't appear and what to do about it.
  */
@@ -66,11 +66,11 @@ function UncarriedLogoNotice() {
 				title="Why won't my logo appear?"
 				ariaLabel="Why won't my logo appear?"
 			>
-				CommCare doesn't carry an app logo by itself when you upload — logos are
+				CommCare doesn't carry an app logo by itself when you upload. Logos are
 				set inside <span className="text-nova-text">CommCare HQ</span>. Your app
 				still works; it just won't show this logo until you add it there. Tip:
-				if you also use this image somewhere in a form — like a question or a
-				menu icon — it gets carried with the app automatically.
+				if you also use this image somewhere in a form, like a question or a
+				menu icon, it gets carried with the app automatically.
 			</InfoPopover>
 		</div>
 	);

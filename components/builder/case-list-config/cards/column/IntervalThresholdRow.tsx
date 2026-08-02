@@ -2,9 +2,9 @@
 //
 // Shared `(threshold, unit)` editor row for `interval` columns. The
 // numeric threshold input + unit dropdown live here so the card
-// body (`IntervalCard`) focuses on the per-display extras — the
+// body (`IntervalCard`) focuses on the per-display extras: the
 // `display` segmented toggle and the `text` slot whose label flips
-// between "decoration" and "flag text" — rather than re-implementing
+// between "decoration" and "flag text", rather than re-implementing
 // the threshold-plus-unit pair inline.
 //
 // `TimeSinceUnit` is a closed enum (`days` / `weeks` / `months` /
@@ -29,7 +29,7 @@ import { TIME_SINCE_UNITS, type TimeSinceUnit } from "@/lib/domain";
 
 /**
  * Per-unit display label. The `Record<TimeSinceUnit, string>` shape
- * forces an entry for every variant — adding `"hours"` to
+ * forces an entry for every variant: adding `"hours"` to
  * `TIME_SINCE_UNITS` (the source of truth in
  * `lib/domain/modules.ts`) breaks the build here until a label
  * lands. The dropdown options below iterate `TIME_SINCE_UNITS`
@@ -100,8 +100,8 @@ interface ThresholdInputProps {
 /**
  * Numeric threshold input. Local draft state preserves incomplete
  * and invalid edits so the author can correct them in place. Blur
- * commits only a finite, positive whole number — exactly the domain
- * schema's `int().positive()` contract — and otherwise exposes a
+ * commits only a finite, positive whole number: exactly the domain
+ * schema's `int().positive()` contract, and otherwise exposes a
  * friendly inline action without changing the document.
  */
 function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
@@ -150,10 +150,8 @@ function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
 				data-1p-ignore
 				aria-invalid={showError || undefined}
 				aria-describedby={showError ? errorId : undefined}
-				className={`h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted focus-visible:ring-1 md:text-[14px] dark:bg-nova-deep/50 ${
-					showError
-						? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
-						: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30"
+				className={`nova-focusable h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted md:text-[14px] dark:bg-nova-deep/50 ${
+					showError ? "border-nova-rose/40" : "border-white/[0.06]"
 				}`}
 			/>
 			{showError ? (

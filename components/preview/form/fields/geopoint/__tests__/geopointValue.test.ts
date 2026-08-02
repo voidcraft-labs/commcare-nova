@@ -7,7 +7,7 @@ import {
 	parseGeopoint,
 } from "../geopointValue";
 
-// Mirrors `GEOPOINT_PATTERN` in lib/domain/predicate/jsonSchema.ts — four
+// Mirrors `GEOPOINT_PATTERN` in lib/domain/predicate/jsonSchema.ts, four
 // space-separated decimals. Every `formatGeopoint` output must satisfy it,
 // or the case-store write-side AJV validator would reject the submission.
 const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;

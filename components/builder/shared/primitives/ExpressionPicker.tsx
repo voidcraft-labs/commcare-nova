@@ -1,6 +1,6 @@
 // components/builder/shared/primitives/ExpressionPicker.tsx
 //
-// Recursive dispatch shell for a single ValueExpression node — the
+// Recursive dispatch shell for a single ValueExpression node, the
 // ValueExpression-side analogue of `cards/ChildPredicateEditor.tsx`.
 // Looks up the schema entry for `value.kind`, delegates rendering to
 // the matched card, and frames the card with a kind-replacing menu
@@ -11,7 +11,7 @@
 // card that holds a nested value slot (`arith.left` / `right`,
 // `date-add.date` / `quantity`, `concat.parts[i]`, `coalesce.values[i]`,
 // `if.then` / `else`, `switch.on` / `cases[i].then` / `fallback`,
-// `count.where` is a Predicate slot — that uses ChildPredicateEditor).
+// `count.where` is a Predicate slot: that uses ChildPredicateEditor).
 // The Predicate-side cards (ComparisonCard.right, BetweenCard's bound
 // editors, MatchCard's value, WithinDistanceCard's center) ALSO mount
 // this shell at their value slots; both editors share one type-check
@@ -21,7 +21,7 @@
 // Valid by construction: the shell takes a `SlotConstraint` naming the
 // types the slot may hold (computed by the parent card from its
 // subject's resolved type) and offers ONLY the kinds whose result can
-// satisfy it — every inadmissible kind is disabled WITH A REASON, never
+// satisfy it: every inadmissible kind is disabled WITH A REASON, never
 // dimmed-but-clickable. A `termOnly` slot offers no computed kinds at
 // all. The constraint flows down to `TermCard`, which gates its value
 // sources the same way, so no sequence of picker choices can author a
@@ -32,11 +32,11 @@
 // operands (the unary coercions and ordered value lists) so an
 // intentional kind swap does not drop authored content.
 //
-// Term values (a typed value, a property, a search field — the
+// Term values (a typed value, a property, a search field: the
 // overwhelmingly common case) render UNBOXED: no card shell, no slot
 // title, because inside a condition sentence the value is just the
 // object of the verb. The computed kinds (math, if–then, today, …)
-// fold into the term's own source dropdown as a "Calculated" group —
+// fold into the term's own source dropdown as a "Calculated" group:
 // one menu answers "what is this value?". Calculated kinds, once
 // picked, render as titled container cards (their structure isn't
 // expressible inline).
@@ -124,7 +124,7 @@ interface ExpressionPickerProps {
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
 	/**
-	 * The type constraint on this slot — the kinds whose result can
+	 * The type constraint on this slot: the kinds whose result can
 	 * satisfy it are offered; every other kind is disabled with a
 	 * reason. Defaults to `ANY_CONSTRAINT` (no narrowing). The parent
 	 * card computes it from its subject's resolved type
@@ -137,7 +137,7 @@ interface ExpressionPickerProps {
 	 *  "A property"; ordinary value slots use "Another property". */
 	readonly presentation?: "value" | "subject";
 	/**
-	 * Optional remove handler — when provided, the card surfaces a
+	 * Optional remove handler: when provided, the card surfaces a
 	 * "Delete" item in its kebab menu. List-shaped containers
 	 * (`concat.parts` / `coalesce.values` / `switch.cases`) thread
 	 * one through; single-slot operands and the top-level editor
@@ -145,7 +145,7 @@ interface ExpressionPickerProps {
 	 */
 	readonly onRemove?: () => void;
 	/**
-	 * Display variant — `"normal"` (default) renders the standard
+	 * Display variant: `"normal"` (default) renders the standard
 	 * glass surface; `"nested"` shifts the violet accent up for
 	 * cards inside a parent group's list.
 	 */
@@ -255,7 +255,7 @@ export function ExpressionPicker({
 		);
 	}
 
-	// Term values render unboxed — see the file header. The computed
+	// Term values render unboxed: see the file header. The computed
 	// kinds ride the term's source menu as injected items, each gated
 	// by whether its result type can satisfy the slot's constraint; a
 	// `termOnly` slot offers no computed kinds at all. Inside a
@@ -378,7 +378,7 @@ export function ExpressionPicker({
 						className="text-left"
 					>
 						<AlertDialogHeader>
-							<AlertDialogTitle className="font-display">
+							<AlertDialogTitle className="font-display tracking-tighter">
 								Use “
 								{pendingTermReplacement?.target.label ?? "a calculated value"}”
 								instead?
@@ -480,7 +480,7 @@ function termSeedForSlot(
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
 ): ValueExpression {
-	// A `nonEmpty` slot DECLARES that an empty string is invalid in it —
+	// A `nonEmpty` slot DECLARES that an empty string is invalid in it:
 	// a case name, a rename, an explicit owner, all of which CommCare
 	// refuses blank. Seeding `literal("")` there offers a choice the
 	// commit gate refuses the instant it is picked, so seed something
@@ -586,8 +586,8 @@ export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 		);
 	}
 	if (seed.kind === "coalesce") {
-		// Every value is result-bearing — the coalesce resolves to whichever
-		// one is first non-empty — so a typed slot needs each seeded for the
+		// Every value is result-bearing: the coalesce resolves to whichever
+		// one is first non-empty, so a typed slot needs each seeded for the
 		// slot, exactly as `if`'s branches and `switch`'s cases are. The
 		// registry's untyped `null` is not storable anywhere.
 		const [first, ...rest] = seed.values.map(() => branchSeed());
@@ -685,14 +685,7 @@ function KindReplaceMenu({
 				<DropdownMenuTrigger
 					ref={setTriggerRef}
 					aria-label="Change value type"
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							size="xl"
-							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
-						/>
-					}
+					render={<Button type="button" variant="ghost" className="group" />}
 				>
 					<span>Change</span>
 					<Icon
@@ -804,7 +797,7 @@ function KindReplaceMenu({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Replace “{pendingSourceLabel}” with “{pendingTargetLabel}”?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">

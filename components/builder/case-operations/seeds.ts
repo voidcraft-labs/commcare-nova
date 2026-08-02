@@ -58,7 +58,7 @@ export function nextOperationId(
 	const slug = base
 		// `toLowerCase`, never `toLocaleLowerCase`: this produces a wire
 		// identifier, and a Turkish or Azerbaijani locale maps capital I
-		// to the dotless ı, which the ASCII filter below then strips —
+		// to the dotless ı, which the ASCII filter below then strips:
 		// so the same case type would yield a different operation id
 		// depending on the author's browser. `slugifyId` uses the same
 		// locale-independent lowercase for the same reason.
@@ -84,7 +84,7 @@ function seededCaseName(caseType: string): ValueExpression {
  * One complete operation for the chosen intent.
  *
  * `create` is the only action that takes a `new` target, and it is the
- * only one that may carry a case name — the other two forbid both, so
+ * only one that may carry a case name: the other two forbid both, so
  * each intent produces exactly the facets its action admits.
  */
 export function seedCaseOperation(
@@ -130,7 +130,7 @@ export function seedCaseOperation(
  * literal compiles to SQL NULL here and blank text on the device, a text
  * literal cannot be stored as a multi-select, and a null is not a
  * portable clear on either. So the seed is not "an empty value of the
- * right type" — it is the first value that would actually submit.
+ * right type": it is the first value that would actually submit.
  */
 export function seedCaseOperationWrite(
 	property: string,
@@ -147,8 +147,8 @@ export function seedCaseOperationWrite(
  * write overwhelmingly means, and because for several types it is the
  * only storable value that exists: no literal can hold a multi-select or
  * a geopoint, and an empty temporal literal is not portable. When no
- * answer fits, a constant does — `today()` / `now()` for the temporal
- * types, a literal for the rest — and when neither exists the caller
+ * answer fits, a constant does: `today()` / `now()` for the temporal
+ * types, a literal for the rest, and when neither exists the caller
  * offers the property with the reason rather than seeding something the
  * gate would refuse.
  */
@@ -234,7 +234,7 @@ export function writeSeedUnavailableReason(
  *
  * `targetType` is the type at the OTHER end, so it must never default to
  * the operation's own case type: that would make the author's very next
- * click — pointing the link at the case this form opened — a type
+ * click: pointing the link at the case this form opened, a type
  * mismatch caused by a default they never chose. The module's case type
  * is what the other end usually is, and what every legal target in the
  * picker resolves to.
@@ -300,7 +300,7 @@ export function reshapeForAction(
 			retype: operation.retype,
 		});
 	}
-	// Close forbids owner, rename, retype, and links — but keeps its writes,
+	// Close forbids owner, rename, retype, and links, but keeps its writes,
 	// so "record the outcome and close" stays one operation.
 	return stripUndefined({ ...base, target, caseType, links: undefined });
 }

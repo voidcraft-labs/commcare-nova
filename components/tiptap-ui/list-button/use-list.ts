@@ -145,7 +145,7 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 
 	try {
 		/* When the list is already active, use TipTap's built-in toggle commands
-		 * directly — they handle unwrapping correctly without needing the
+		 * directly: they handle unwrapping correctly without needing the
 		 * NodeSelection conversion dance that the "turn into" path requires. */
 		if (editor.isActive(type)) {
 			const toggleMap: Record<ListType, () => boolean> = {
@@ -203,7 +203,7 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 
 		let chain = editor.chain().focus();
 
-		/* Handle NodeSelection — clear the block structure first,
+		/* Handle NodeSelection: clear the block structure first,
 		 * then wrap in the target list type */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;

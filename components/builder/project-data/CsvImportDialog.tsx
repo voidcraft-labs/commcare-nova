@@ -254,7 +254,7 @@ export function CsvImportDialog({
 					<DialogDescription>
 						This replaces all {formatLookupCount(currentTable.rowCount, "row")}{" "}
 						in “{currentTable.name}” with the rows in your file. It is not a
-						merge — rows that are not in the file are removed.
+						merge: rows that are not in the file are removed.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody>
@@ -301,7 +301,7 @@ export function CsvImportDialog({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-2 min-h-11"
+									className="mt-2"
 									disabled={busy}
 									onClick={() => void reviewAgainstLatest()}
 								>
@@ -330,7 +330,7 @@ export function CsvImportDialog({
 										className="shrink-0 text-nova-text-muted"
 										aria-hidden="true"
 									/>
-									{selection.fileName} —{" "}
+									{selection.fileName} ·{" "}
 									{formatLookupCount(selection.rowCount, "row")}, checked
 									against the current table and ready to replace{" "}
 									{formatLookupCount(selection.replacedRowCount, "row")}.
@@ -342,7 +342,7 @@ export function CsvImportDialog({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={busy}
 						onClick={close}
 					>
@@ -351,7 +351,7 @@ export function CsvImportDialog({
 					<Button
 						type="button"
 						variant="destructive"
-						className="min-h-11"
+						className=""
 						disabled={
 							selection === undefined ||
 							!current ||

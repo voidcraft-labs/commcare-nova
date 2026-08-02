@@ -8,7 +8,7 @@
 // `text/csv` body instead, and no parsed row array ever crosses an action.
 //
 // The client parses the file FIRST, purely to tell the author what is wrong
-// before spending an upload — the server re-parses the same bytes against the
+// before spending an upload: the server re-parses the same bytes against the
 // table it locks, and that pass is the authority. A client that said "looks
 // fine" and a server that then refused would be worse than no preview at all,
 // so both run `parseLookupCsv` + `validateLookupCsv`: the same functions, on
@@ -34,7 +34,7 @@ export type LookupImportResult =
  * Check a chosen file against the table it would replace, without uploading.
  *
  * Returns `null` when the file would be accepted. Everything it can refuse,
- * the server refuses identically — this only moves the answer earlier.
+ * the server refuses identically: this only moves the answer earlier.
  */
 export function inspectLookupCsv(
 	bytes: Uint8Array,

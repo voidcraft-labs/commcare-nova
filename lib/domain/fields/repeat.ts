@@ -142,6 +142,6 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members) — set repeat_mode and nothing else; "count_bound" for a fixed count from another XPath (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). count_bound and query_bound do NOT recalculate after form load — JavaRosa spec, not a Nova choice.',
+		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a fixed count from another XPath (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). count_bound and query_bound do NOT recalculate after form load. JavaRosa spec, not a Nova choice.',
 	convertTargets: ["group"],
 };

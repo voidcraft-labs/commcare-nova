@@ -1,6 +1,6 @@
 // components/builder/case-list-config/predicateSummary.ts
 //
-// Human-language one-liner for a filter `Predicate` — "Status isn't
+// Human-language one-liner for a filter `Predicate`: "Status isn't
 // closed and Age is more than 5", never `status ≠ closed`. Search stamps
 // this on its Cases available summary so the always-on rule reads as a
 // sentence; the full structural editor stays in the inspector.
@@ -9,7 +9,7 @@
 // (nested groups, relational quantifiers, calculated operands), so
 // exotic shapes degrade to honest generic phrases ("a calculated
 // value", "a related case exists") rather than leaking AST jargon.
-// The summary is display-only — nothing parses it back.
+// The summary is display-only: nothing parses it back.
 
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
@@ -30,7 +30,7 @@ import {
 	searchInputDisplayLabel,
 } from "../shared/searchInputPresentation";
 
-/** Cap on rendered `and` / `or` clauses before "+N more" kicks in —
+/** Cap on rendered `and` / `or` clauses before "+N more" kicks in:
  *  past two clauses the sentence stops being scannable. */
 const MAX_CLAUSES = 2;
 
@@ -342,7 +342,7 @@ function embeddedSummary(summary: string): string {
 }
 
 /** Render a value operand. Terms read as their referent; computed
- *  expressions stay honest-generic — the inspector shows structure. */
+ *  expressions stay honest-generic: the inspector shows structure. */
 function operand(
 	expr: ValueExpression,
 	context: PredicateSummaryContext,
@@ -553,7 +553,7 @@ function literalText(value: string | number | boolean | null): string {
 
 /** Identifier → words: `rash_onset_date` reads "rash onset date".
  *  Property/input names are author-controlled identifiers; spacing the
- *  separators is as far as the summary goes (no casing games — the
+ *  separators is as far as the summary goes (no casing games, the
  *  author's vocabulary stays recognizable). */
 export function humanizeName(name: string): string {
 	return name.replace(/[_-]+/g, " ").trim() || name;

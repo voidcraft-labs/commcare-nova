@@ -1,13 +1,13 @@
 // components/preview/shared/CaseTile.tsx
 //
-// One case drawn as a tile — the running app's grid layout, used
+// One case drawn as a tile: the running app's grid layout, used
 // verbatim by both surfaces the short detail drives: a Results row and
 // the tile pinned above a module's forms. One component, so the two can
 // never disagree about geometry.
 //
 // Everything positional comes from `lib/preview/caseTileRendering.ts`,
 // which reads the Web Apps templates; this file owns only what a
-// renderer must own — the DOM, the Nova tokens that stand in for
+// renderer must own: the DOM, the Nova tokens that stand in for
 // CommCare's literal border and shading colors, and the assistive text a
 // tile needs because it draws no header row.
 
@@ -30,11 +30,11 @@ import { caseColumnLabel } from "./caseColumnLabel";
  * Where the tile is drawn. The geometry is identical either way; the
  * surface decides what the cells are FOR.
  *
- *   - `results` — the tile is a row in a chooser. Its cells sit above
+ *   - `results`: the tile is a row in a chooser. Its cells sit above
  *     the row's own full-size action and let authored controls (a phone
  *     link, a value explanation) take pointer input back as independent
  *     siblings, never as children of that action.
- *   - `persistent` — the tile is the context above a form. Nothing in it
+ *   - `persistent`: the tile is the context above a form. Nothing in it
  *     chooses anything, so its cells stay ordinary content.
  */
 export type CaseTileSurface = "results" | "persistent";
@@ -53,7 +53,7 @@ interface CaseTileProps {
 /** Visible tile content sits above the Results row's stretched primary
  *  button. Ordinary text passes pointer input through to that button;
  *  authored cell controls opt back in as independent siblings with their
- *  own focus and touch behavior. Mirrors the row layout's rule exactly —
+ *  own focus and touch behavior. Mirrors the row layout's rule exactly:
  *  a tile changes a row's shape, not what may be nested inside it.
  *
  *  This has to sit on the GRID, not on each cell. Unlike the row layout's
@@ -107,7 +107,7 @@ export function CaseTile({
 						} ${plan.shaded ? "bg-pv-elevated" : ""}`}
 					>
 						{/* A hidden column that still orders the list holds its square
-						 *  and shows nothing — the device's zero-width sort carrier. */}
+						 *  and shows nothing: the device's zero-width sort carrier. */}
 						{!entry.valueHidden && (
 							<>
 								<span className="sr-only">{label}: </span>

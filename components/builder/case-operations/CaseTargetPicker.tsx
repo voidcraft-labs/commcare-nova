@@ -5,7 +5,7 @@
 // Targeting is where the platform's own surface concentrates everything
 // hard about this feature and offers a bare XPath box for it. Nova's
 // model is four named intents instead, and this picker offers exactly
-// the ones that are legal here — the session case only where the module
+// the ones that are legal here: the session case only where the module
 // chooses one before opening its forms, an earlier change's case only
 // where such a change exists before this one. Anything it cannot offer
 // is disabled with the reason, never hidden.
@@ -43,12 +43,12 @@ export interface TargetChoiceContext {
 	 * Whether a brand-new case is the ONLY legal target here.
 	 *
 	 * A create brings its case into existence, so `validateFacets` refuses
-	 * every other target kind on one — the choice is not "new is also
+	 * every other target kind on one: the choice is not "new is also
 	 * allowed", it is "new is all there is". Offering the rest would be
 	 * offer-then-reject.
 	 */
 	readonly newOnly: boolean;
-	/** Whether "no case" is legal — an unlink, on a link target only. */
+	/** Whether "no case" is legal: an unlink, on a link target only. */
 	readonly allowsNone: boolean;
 	/**
 	 * A target this slot may not point at because it names the operation's
@@ -173,12 +173,7 @@ export function CaseTargetPicker({
 				disabled={disabled}
 				aria-label={`${ariaLabel}: ${current}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">

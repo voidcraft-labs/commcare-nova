@@ -63,7 +63,7 @@ vi.mock("@/components/builder/RefLabelInput", () => ({
 }));
 
 /** Option rows mount `MediaSlot`, whose staged-upload chip reads the
- *  session store and whose attach budget check reads the doc store —
+ *  session store and whose attach budget check reads the doc store:
  *  provide both the way the builder always does. */
 const wrapper = ({ children }: { children: React.ReactNode }) => (
 	<BlueprintDocProvider>
@@ -99,7 +99,7 @@ const baseSource = baseField.optionsSource as Extract<
 >;
 
 /**
- * Minimal controlled parent — mirrors the real doc-store round-trip
+ * Minimal controlled parent: mirrors the real doc-store round-trip
  * where `onChange` eventually feeds back in as the new `value` prop.
  * This exposes bugs that only surface on the echo (the focus-loss
  * regression, for example).

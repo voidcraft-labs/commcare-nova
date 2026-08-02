@@ -67,7 +67,7 @@ import { resolveSortedColumns } from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
 	/** The whole config, because both lists this composer shows are Results
-	 *  sequences — the sorted carriers and the fields still available to add. */
+	 *  sequences: the sorted carriers and the fields still available to add. */
 	readonly config: CaseListConfig;
 	readonly value: readonly Column[];
 	readonly caseType?: CaseType;
@@ -379,7 +379,7 @@ export function CaseOrderingComposer({
 							render={
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									aria-label={
 										expanded
 											? canEdit
@@ -391,7 +391,7 @@ export function CaseOrderingComposer({
 													? "Change default order"
 													: "View full default order"
 									}
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[28rem]:w-auto"
 								/>
 							}
 						>
@@ -505,12 +505,11 @@ export function CaseOrderingComposer({
 										ref={addRuleTriggerRef}
 										type="button"
 										variant="ghost"
-										size="xl"
 										disabled={orderChoices.length === 0}
 										aria-describedby={
 											orderChoices.length === 0 ? orderAddReasonId : undefined
 										}
-										className="w-full border border-dashed border-nova-border-bright px-4 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:not-disabled:hover:bg-nova-violet/[0.06]"
+										className="nova-add-slot w-full"
 									/>
 								}
 								triggerLabel="Add to default order"
@@ -597,7 +596,7 @@ function CaseOrderingRuleRow({
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label}. ${connector} in the order. Use arrow keys or drag.`}
 						data-case-ordering-focus-key={column.uuid}
-						className="h-auto min-h-11 w-11 shrink-0 cursor-grab rounded-l-lg rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto min-h-11 w-11 shrink-0 cursor-grab rounded-l-lg rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>
@@ -622,10 +621,10 @@ function CaseOrderingRuleRow({
 				{canEdit ? (
 					<DropdownMenu>
 						<DropdownMenuTrigger
-							render={<Button type="button" variant="outline" size="xl" />}
+							render={<Button type="button" variant="field" />}
 							aria-label={`Change direction for ${label}, currently ${currentDirection}`}
 							data-case-ordering-direction
-							className="min-h-11 w-full shrink-0 justify-between border-nova-border bg-transparent px-3 text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-border-bright not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text dark:bg-transparent dark:not-disabled:hover:bg-transparent @min-[28rem]:w-auto"
+							className="w-full shrink-0 @min-[28rem]:w-auto"
 						>
 							{currentDirection}
 							<Icon icon={tablerChevronDown} width="14" height="14" />
@@ -660,11 +659,10 @@ function CaseOrderingRuleRow({
 				<SimpleTooltip content={`Remove ${label} from the default order`}>
 					<Button
 						type="button"
-						variant="ghost"
+						variant="ghost-destructive"
 						size="icon"
 						onClick={onRemove}
 						aria-label={`Remove ${label} from default order`}
-						className="min-h-11 w-11 rounded-l-none rounded-r-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="15" height="15" />
 					</Button>

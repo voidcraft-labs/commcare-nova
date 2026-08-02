@@ -2,11 +2,11 @@
 //
 // Renders the two single-slot date / datetime coercion expressions:
 //
-//   - `date-coerce` — text → typed date (Postgres `::date`, CSQL
+//   - `date-coerce`: text → typed date (Postgres `::date`, CSQL
 //     `date(...)`, on-device `date(...)`).
-//   - `datetime-coerce` — text → typed datetime (Postgres
+//   - `datetime-coerce`: text → typed datetime (Postgres
 //     `::timestamptz`, CSQL `datetime(...)`; on-device this ALSO
-//     emits `date(...)` — the one parse-coercion that evaluator has,
+//     emits `date(...)`: the one parse-coercion that evaluator has,
 //     whose String arm preserves time-of-day).
 //
 // Both share an identical `{ value: ValueExpression }` operand shape;
@@ -17,7 +17,7 @@
 // Type-checker rule (per `checkExpression`'s `case "date-coerce" |
 // "datetime-coerce":`): the operand must be text-shaped (`text` /
 // `single_select` / `multi_select`) or already date-shaped (`date` /
-// `datetime` — identity / widening coercion). The `_any` sentinel
+// `datetime`: identity / widening coercion). The `_any` sentinel
 // bypasses the check uniformly. Errors land at `[..., "value"]`; the
 // editor captures them inline next to the operand picker.
 
@@ -34,11 +34,11 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** Both coercion operators read a text-shaped or date-shaped operand
- *  — module-const for a stable identity across renders. */
+/** Both coercion operators read a text-shaped or date-shaped operand:
+ * module-const for a stable identity across renders. */
 const OPERAND_CONSTRAINT = coerceOperandConstraint();
 
-/** Default `date-coerce` — `date-coerce(literal(""))`. The empty
+/** Default `date-coerce`: `date-coerce(literal(""))`. The empty
  *  literal lets the user immediately see the operand picker; the
  *  type checker surfaces the operand-shape error only when the
  *  operand resolves to an incompatible type. */
@@ -48,7 +48,7 @@ export function dateCoerceDefault(
 	return dateCoerce(term(literal("")));
 }
 
-/** Default `datetime-coerce` — same shape as `dateCoerce`. */
+/** Default `datetime-coerce`: same shape as `dateCoerce`. */
 export function datetimeCoerceDefault(
 	_ctx: ExpressionEditContext,
 ): Extract<ValueExpression, { kind: "datetime-coerce" }> {
@@ -70,7 +70,7 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 	// `<InlineError>` is needed here.
 
 	const setOperand = (next: ValueExpression) => {
-		// Kind-preserving build — the card serves both arms; the
+		// Kind-preserving build: the card serves both arms; the
 		// builder selection follows the source's `kind` so the
 		// operator survives the operand edit. Kind swap goes through
 		// the parent shell's "Change" menu (which routes through

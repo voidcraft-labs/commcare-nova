@@ -1,7 +1,7 @@
 /**
- * PresenceRoster — the who-else-is-here avatars in the BuilderHeader.
+ * PresenceRoster: the who-else-is-here avatars in the BuilderHeader.
  *
- * One avatar per peer (self excluded, one per user even with two tabs — the
+ * One avatar per peer (self excluded, one per user even with two tabs, the
  * roster is deduped upstream by `usePresenceRoster`): the peer's Google
  * profile PHOTO when their account has one, otherwise initials on their
  * palette fill. Either way the avatar wears the peer's stable palette hue as
@@ -11,7 +11,7 @@
  * Clicking a peer FOLLOWS them: navigate to
  * `recoverLocation(peer.location, doc)`, so a click lands on their exact
  * screen, or its nearest valid ancestor if the entity they're on was since
- * deleted. Crowds cap at {@link MAX_AVATARS} circles — beyond that the tail
+ * deleted. Crowds cap at {@link MAX_AVATARS} circles: beyond that the tail
  * collapses into a "+N" chip opening a menu of the remaining peers (name +
  * where they are), each row still followable, so no presence is ever
  * invisible or unreachable.
@@ -58,7 +58,7 @@ function whereLabel(location: Location): string {
 		case "app-setup":
 			return `in ${APP_SETUP_SECTION_LABELS[location.section].toLowerCase()}`;
 		case "project-data":
-			return "in the project's data tables";
+			return "in the Project's data tables";
 		case "module":
 			return "in a module";
 		case "cases":
@@ -82,7 +82,7 @@ function whereLabel(location: Location): string {
 export function PresenceRoster({ compact = false }: { compact?: boolean }) {
 	const peers = usePresenceRoster();
 	const navigate = useNavigate();
-	// Only the entity maps `recoverLocation` reads — a peer moving between
+	// Only the entity maps `recoverLocation` reads: a peer moving between
 	// screens re-renders the roster (its `location` changed), but an unrelated
 	// property edit does not.
 	const doc = useBlueprintDocShallow((s) => ({
@@ -124,11 +124,11 @@ export function PresenceRoster({ compact = false }: { compact?: boolean }) {
 				)}
 			</div>
 			{/* People/actions divider. `border-bright` matches the app's other
-			 *  structural vertical divider (the sidebar edge — the plain token
+			 *  structural vertical divider (the sidebar edge: the plain token
 			 *  reads too faint as a standalone line). The spacing is OPTICAL and
 			 *  balances at ~17px per side: left, ml-5 minus the last avatar's
 			 *  ~3px ring+offset overhang; right, the header's 4px gap plus a
-			 *  13px leading inset EVERY possible neighbor presents — the
+			 *  13px leading inset EVERY possible neighbor presents: the
 			 *  settings glyph's inset inside its 44px hit target, and the
 			 *  matching pl/ml on the SaveIndicator and View-only badge. Keep
 			 *  those three in step or the line drifts off-center. */}
@@ -154,7 +154,7 @@ function CompactRosterChip({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={label}
-				className="group/button relative flex size-11 items-center justify-center rounded-full bg-transparent p-0 outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
+				className="nova-focusable group/button relative flex size-11 shrink-0 items-center justify-center rounded-full bg-transparent p-0 outline-none transition-all"
 			>
 				<span
 					className={`flex size-7 items-center justify-center rounded-full ring-2 ${first.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
@@ -189,7 +189,7 @@ function CompactRosterChip({
 }
 
 /** The avatar face: photo when the peer has one, initials on their palette
- *  fill otherwise — shared by the roster circles, the profile card, and the
+ *  fill otherwise: shared by the roster circles, the profile card, and the
  *  overflow rows. */
 function AvatarFace({ peer, size }: { peer: Peer; size: "lg" | "md" | "sm" }) {
 	const box = size === "lg" ? "w-9 h-9" : size === "md" ? "w-7 h-7" : "w-5 h-5";
@@ -219,10 +219,10 @@ function AvatarFace({ peer, size }: { peer: Peer; size: "lg" | "md" | "sm" }) {
 }
 
 /**
- * The hover profile card — a two-zone glass surface whose ONE accent is the
+ * The hover profile card: a two-zone glass surface whose ONE accent is the
  * peer's own palette hue, echoed exactly twice so the person's color reads
  * as their identity across the card: the avatar ring and the live-status
- * pulse dot. No "click to follow" caption — the affordance speaks through
+ * pulse dot. No "click to follow" caption: the affordance speaks through
  * the button semantics (cursor, aria-label, hover lift), Docs-style.
  *
  *   ┌──────────────────────────────┐
@@ -233,7 +233,7 @@ function AvatarFace({ peer, size }: { peer: Peer; size: "lg" | "md" | "sm" }) {
  *   └──────────────────────────────┘
  *
  * Built on the Tooltip primitives directly (hover/focus semantics, a
- * non-interactive surface — the AVATAR is the control) rather than the
+ * non-interactive surface: the AVATAR is the control) rather than the
  * shared text `Tooltip`, because the card owns its container: glass on the
  * POSITIONER (the repo-wide floating-surface constraint) and a zero-padding
  * popup the zones fill edge-to-edge.
@@ -287,10 +287,9 @@ function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
+				size="icon"
 				onClick={onFollow}
 				aria-label={`Follow ${peer.name || "collaborator"}`}
-				className="size-11 rounded-full bg-transparent p-0 not-disabled:hover:bg-transparent"
 			>
 				<span
 					className={`flex size-7 items-center justify-center rounded-full ring-2 ${peer.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
@@ -302,7 +301,7 @@ function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 	);
 }
 
-/** The "+N" tail of a crowded roster — a menu of the remaining peers, each
+/** The "+N" tail of a crowded roster: a menu of the remaining peers, each
  *  row followable, so every presence stays reachable however many join. */
 function OverflowChip({
 	peers,
@@ -315,7 +314,7 @@ function OverflowChip({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={`${peers.length} more collaborators`}
-				className="group/button flex size-11 items-center justify-center rounded-full bg-transparent p-0 text-[11px] font-semibold leading-none text-nova-text outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
+				className="nova-focusable group/button flex size-11 shrink-0 items-center justify-center rounded-full bg-transparent p-0 text-[11px] font-semibold leading-none text-nova-text outline-none transition-all"
 			>
 				<span className="flex size-7 items-center justify-center rounded-full bg-nova-surface ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110">
 					+{peers.length}

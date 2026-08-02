@@ -86,7 +86,7 @@ export const listAppsInputSchema = {
 		.string()
 		.optional()
 		.describe(
-			"Opaque pagination cursor. Pass the `next_cursor` from a prior `list_apps` response to fetch the next page. Must be used with the same `sort` as the prior call — mixing sort orders across pagination is rejected.",
+			"Opaque pagination cursor. Pass the `next_cursor` from a prior `list_apps` response to fetch the next page. Must be used with the same `sort` as the prior call. Mixing sort orders across pagination is rejected.",
 		),
 	status: z
 		.enum(["generating", "complete", "error"])
@@ -118,7 +118,7 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 		"list_apps",
 		{
 			description:
-				"Enumerate your Nova apps with pagination, optional status filter, and a choice of sort order. Does NOT search by name — use `search_apps` for that. Returns id, name, status, and updated_at per app, plus an opaque `next_cursor` when more pages exist.",
+				"Enumerate your Nova apps with pagination, optional status filter, and a choice of sort order. Does NOT search by name. Use `search_apps` for that. Returns id, name, status, and updated_at per app, plus an opaque `next_cursor` when more pages exist.",
 			inputSchema: listAppsInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {

@@ -23,7 +23,7 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 		// is separated from the section above it (Connect, or After submit when
 		// Connect is off) with the same seam every other section uses.
 		<div className="border-t border-white/[0.06] pt-3">
-			<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
+			<span className="text-xs font-medium text-nova-text-secondary mb-1.5 block">
 				Menu appearance
 			</span>
 			<div className="space-y-2">

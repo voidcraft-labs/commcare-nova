@@ -10,11 +10,11 @@
 // before it.
 //
 // Every expression slot here mounts with the operation's own scope: the
-// form answers this change may read (narrowed by its multiplicity — see
+// form answers this change may read (narrowed by its multiplicity, see
 // `formFieldScope.ts`), the app's worker information, the submission's own
 // vocabulary (the acting user, no owner, an earlier create's case), and
 // what the slot may read against a case row. Together they are what let
-// the shared editor offer a form answer at all — and what stop it
+// the shared editor offer a form answer at all, and what stop it
 // offering a case read this module can never make, or an earlier create's
 // id inside a runtime target. `editorScope.ts` owns the last two, because
 // the target slots deliberately do NOT get the same scope as the rest.
@@ -117,27 +117,27 @@ export function CaseOperationDetailCanvas({
 	const writeFocus = useRemovedRowFocus((operation?.writes ?? []).length);
 	/* Whether a slot here may read the case at all. The gate refuses every
 	 * case-data read in a form the module opens without choosing a case
-	 * first — see `editorScope.ts` for why that maps onto `"global"`. */
+	 * first: see `editorScope.ts` for why that maps onto `"global"`. */
 	const caseDataScope = operationCaseDataScope(caseFirst);
 	/* The scope an operation EXPRESSION resolves against is the module's case
-	 * type — what `rules/caseOperations.ts::expressionContext` hands the
-	 * checker — not the operation's destination type. The destination decides
+	 * type: what `rules/caseOperations.ts::expressionContext` hands the
+	 * checker, not the operation's destination type. The destination decides
 	 * which PROPERTY a write may target; it never decides what the value may
 	 * read. A module with no case type has no walkable origin, and the empty
 	 * string is how the editor says so. */
 	const expressionCaseType = useModuleCaseType(moduleUuid) ?? "";
 	/* A link may point at "the case this form opened" only where the module
-	 * actually hands its forms one — the same rule the validator applies to
+	 * actually hands its forms one: the same rule the validator applies to
 	 * a session target. */
 	const sessionUnavailableReason = caseFirst
 		? undefined
-		: "This module does not choose a case before opening its forms, so there is no case in hand";
+		: "This module doesn't choose a case before opening its forms, so there is no case in hand";
 	const formFields = useMemo(
 		() => operationFormFieldDecls(fieldEntries, operation?.forEach?.repeat),
 		[fieldEntries, operation?.forEach?.repeat],
 	);
 
-	/* Only the creates BEFORE this one are in scope — the same set the
+	/* Only the creates BEFORE this one are in scope: the same set the
 	 * checker admits, so an `id-of` value can never name a case that does
 	 * not exist yet at this point in the sequence. */
 	const operationScope = useMemo<OperationValueScope>(() => {
@@ -202,9 +202,8 @@ export function CaseOperationDetailCanvas({
 				<Button
 					type="button"
 					variant="ghost"
-					size="xl"
 					onClick={backToList}
-					className="-ml-2 text-nova-text-secondary"
+					className="-ml-2"
 				>
 					<Icon icon={tablerArrowLeft} width="16" height="16" />
 					All case changes
@@ -216,7 +215,6 @@ export function CaseOperationDetailCanvas({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={index === 0}
 						aria-label="Previous change"
 						onClick={() => {
@@ -236,7 +234,6 @@ export function CaseOperationDetailCanvas({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={index === operations.length - 1}
 						aria-label="Next change"
 						onClick={() => {
@@ -259,7 +256,7 @@ export function CaseOperationDetailCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="mt-1 font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="mt-1 font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					{sentence.lead}
 				</h1>
@@ -354,7 +351,6 @@ export function CaseOperationDetailCanvas({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={targetDraft.clear}
 								>
 									Cancel
@@ -383,7 +379,7 @@ export function CaseOperationDetailCanvas({
 							}}
 							constraint={caseOperationRuntimeTargetConstraint()}
 							{...editorScope}
-							// A runtime target may not name a create's output — target
+							// A runtime target may not name a create's output: target
 							// that create directly instead. Owner sentinels are withheld
 							// because this is not an owner-value slot.
 							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
@@ -514,7 +510,7 @@ export function CaseOperationDetailCanvas({
 				{operation.action !== "close" && (
 					<Section
 						title="Connections to other cases"
-						description="How this case relates to another one. A connection can also be broken here — that is what an author reaches for when a temporary grouping has served its purpose."
+						description="How this case relates to another one. A connection can also be broken here, that is what an author reaches for when a temporary grouping has served its purpose."
 					>
 						<CaseOperationLinks
 							operation={operation}
@@ -532,7 +528,7 @@ export function CaseOperationDetailCanvas({
 							initialSessionCaseType={expressionCaseType || undefined}
 							// The only editor a link mounts is a runtime target, so
 							// `operationScope` is withheld here rather than overridden
-							// there — the rows fix it to the target scope themselves.
+							// there: the rows fix it to the target scope themselves.
 							editorScope={{
 								caseTypes,
 								currentCaseType: expressionCaseType,
@@ -572,7 +568,7 @@ function Section({
 		<section className="mb-6 rounded-2xl border border-white/[0.08] bg-nova-surface/25 p-4 @sm:p-5">
 			<div className="mb-4 flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
-					<h2 className="font-display text-[17px] font-semibold text-nova-text">
+					<h2 className="font-display tracking-tighter text-[17px] font-semibold text-nova-text">
 						{title}
 					</h2>
 					<p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-nova-text-muted">
@@ -602,11 +598,10 @@ function AddSlotButton({
 		<Button
 			ref={ref}
 			type="button"
-			variant="outline"
-			size="xl"
+			variant="ghost"
 			disabled={disabled}
 			onClick={onClick}
-			className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+			className="nova-add-slot w-full"
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
 			{label}
@@ -707,7 +702,7 @@ function WriteRow({
 	readonly canEdit: boolean;
 	readonly editorScope: EditorScope;
 	/** The declared type of the property being written, when the catalog
-	 *  knows one. Absent means a brand-new property — the batch declares
+	 *  knows one. Absent means a brand-new property: the batch declares
 	 *  it, so any storable value is admissible. */
 	readonly destinationType: CasePropertyDataType | undefined;
 	readonly onChange: (next: CaseOperationWrite) => void;
@@ -725,11 +720,9 @@ function WriteRow({
 					<Button
 						ref={removeRef}
 						type="button"
-						variant="ghost"
-						size="xl"
+						variant="ghost-destructive"
 						onClick={onRemove}
 						aria-label={`Stop saving ${write.property}`}
-						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 					>
 						<Icon icon={tablerTrash} width="14" height="14" />
 						Stop saving this

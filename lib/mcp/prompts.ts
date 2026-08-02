@@ -150,7 +150,7 @@ and answers it, then you resume.`,
 
 You run without user interaction. Commit to a reasonable default for
 every ambiguous design choice and report your decisions in the final
-summary. Do NOT attempt to ask the user questions — the AskUserQuestion
+summary. Do NOT attempt to ask the user questions, the AskUserQuestion
 tool is not available to you in this mode.`,
 } as const;
 
@@ -227,7 +227,7 @@ function appStateBlockFor(doc: BlueprintDoc, budget: number): string {
 	if (block.length <= budget) return block;
 	return `\n\n---\n\n## Current app state
 
-This app's structure is too large to include here — it would push these
+This app's structure is too large to include here, it would push these
 instructions past what one tool result can carry, and you would receive
 a fragment of them instead.
 

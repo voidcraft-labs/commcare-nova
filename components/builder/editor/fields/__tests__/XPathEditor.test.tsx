@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// XPathEditor — `validate_msg` clear-arm tests.
+// XPathEditor: `validate_msg` clear-arm tests.
 //
 // XPathEditor bundles an optional `validate_msg` text editor under
 // the `validate` key (the message has no meaning without an
@@ -8,15 +8,15 @@
 // `onEmpty` does two pieces of work that have different
 // conditionality:
 //
-//   1. Slot clear (`updateField({ validate_msg: null })`) — the
+//   1. Slot clear (`updateField({ validate_msg: null })`), the
 //      authoring-layer write that drops the message string. Gated
 //      on `validateMsg !== undefined` so a passive focus-blur or
 //      Esc on a never-set slot does not stamp a redundant removal
 //      patch into undo history.
 //
-//   2. Add-pill state reset (`setAddingMsg(false)`) — local UI state
+//   2. Add-pill state reset (`setAddingMsg(false)`): local UI state
 //      cleanup. Always fires so a user backing out of "Add
-//      Validation Message" can close the editor and bring the pill
+//      Validation message" can close the editor and bring the pill
 //      back, regardless of whether the slot ever held a value.
 //
 // The test below pins the two arms together: rendering with
@@ -46,7 +46,7 @@ import type { TextField, XPathExpression } from "@/lib/domain";
 import { printXPath } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-// Stub XPathField — the real implementation mounts CodeMirror and
+// Stub XPathField: the real implementation mounts CodeMirror and
 // requires a ReferenceProvider context. The stub renders an opaque
 // placeholder so the component tree mounts; the test never interacts
 // with the parent expression.
@@ -84,7 +84,7 @@ const updateFieldMock = vi.fn(
 );
 const xpathProjectionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
-	// The editor dispatches through the inline (no-toast) flavor — mirror
+	// The editor dispatches through the inline (no-toast) flavor, mirror
 	// the hook's announcing + inline twin shape.
 	useBlueprintMutations: () => ({
 		updateField: updateFieldMock,
@@ -159,17 +159,17 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 
 		// Pre-state: the Add pill is rendered because `validate` is
 		// non-empty and `validate_msg` is absent.
-		const addPill = screen.getByRole("button", { name: /Validation Message/i });
+		const addPill = screen.getByRole("button", { name: /Validation message/i });
 		expect(addPill).toBeDefined();
 
-		// User clicks Add — the editor mounts in place of the pill.
+		// User clicks Add: the editor mounts in place of the pill.
 		fireEvent.click(addPill);
 		const messageInput = screen.getByLabelText(
-			"Validation Message",
+			"Validation message",
 		) as HTMLInputElement;
 		expect(messageInput.value).toBe("");
 
-		// User focus-blurs the input without typing — the cancel-on-
+		// User focus-blurs the input without typing: the cancel-on-
 		// empty path. The local-state arm must close the editor; the
 		// slot-clear arm must NOT dispatch a removal patch on a slot
 		// that never held a value.
@@ -177,17 +177,17 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		fireEvent.blur(messageInput);
 
 		// Editor closed → input gone, Add pill back.
-		expect(screen.queryByLabelText("Validation Message")).toBeNull();
+		expect(screen.queryByLabelText("Validation message")).toBeNull();
 		expect(
-			screen.getByRole("button", { name: /Validation Message/i }),
+			screen.getByRole("button", { name: /Validation message/i }),
 		).toBeDefined();
 
-		// Slot-clear arm did not fire — the slot was already absent.
+		// Slot-clear arm did not fire: the slot was already absent.
 		expect(updateFieldMock).not.toHaveBeenCalled();
 	});
 
 	it("blurring an emptied populated message dispatches the clear and returns the Add pill", () => {
-		// Companion case — the gate is "nothing to clear," not "never
+		// Companion case: the gate is "nothing to clear," not "never
 		// fire." When the field has a real `validate_msg` and the user
 		// empties it, the slot-clear arm must fire so the message is
 		// dropped from the doc.
@@ -209,7 +209,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		// `validate_msg` populated → editor mounts directly (no Add
 		// pill click needed).
 		const messageInput = screen.getByLabelText(
-			"Validation Message",
+			"Validation message",
 		) as HTMLInputElement;
 		expect(messageInput.value).toBe("Must be greater than zero.");
 

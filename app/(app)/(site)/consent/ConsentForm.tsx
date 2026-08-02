@@ -1,5 +1,5 @@
 /**
- * Consent form — renders the requested scopes and hands approve/deny
+ * Consent form: renders the requested scopes and hands approve/deny
  * decisions back to Better Auth's oauth-provider plugin. Keeps all
  * interactive state on the client; the RSC shell hydrates the initial
  * view with client name + scope list.
@@ -35,8 +35,8 @@ interface ConsentFormProps {
 	trustedClient: boolean;
 	/**
 	 * Whether the user has connected a CommCare HQ API key. The OAuth grant
-	 * itself is unconditional — the user is granting the SCOPE here, and the
-	 * connecting app picks up data access the moment a key is later added —
+	 * itself is unconditional: the user is granting the SCOPE here, and the
+	 * connecting app picks up data access the moment a key is later added:
 	 * but if HQ scopes are requested while the key is missing, the
 	 * capability list surfaces a dormancy hint so the user isn't surprised
 	 * when the connecting app's HQ features no-op until setup completes.
@@ -52,12 +52,12 @@ interface ConsentFormProps {
 
 /**
  * Translate the opaque error object from `authClient.oauth2.consent` into
- * a user-readable message. "Consent failed" — the default message on many
- * Better Auth error paths — is meaningless to a non-technical user and
+ * a user-readable message. "Consent failed": the default message on many
+ * Better Auth error paths: is meaningless to a non-technical user and
  * leaves them with no recovery path; every branch here ends with an
  * actionable instruction (retry, sign in again, go back to the app).
  *
- * The mapping is best-effort — Better Auth's error shape doesn't
+ * The mapping is best-effort: Better Auth's error shape doesn't
  * guarantee specific codes across versions, so we fall back on HTTP
  * status first and an unknown-error string last.
  */
@@ -81,7 +81,7 @@ function friendlyConsentError(err: ConsentClientError): string {
 		if (status >= 500)
 			return "Something went wrong on our end. Please try again in a moment.";
 	}
-	/* A missing status usually means the fetch never completed — offline,
+	/* A missing status usually means the fetch never completed, offline,
 	 * DNS, CORS, etc. Prompt a retry rather than bouncing them back to the
 	 * client app, which won't help if their network is down. */
 	if (status === undefined)
@@ -102,7 +102,7 @@ export function ConsentForm({
 	const [error, setError] = useState<string | null>(null);
 
 	/* Invalid / expired request branch. Rendered inside the same card shell
-	 * as the happy path so the visual identity stays consistent — the user
+	 * as the happy path so the visual identity stays consistent, the user
 	 * doesn't bounce between "real Nova screen" and "generic error page" if
 	 * their auth link is stale. */
 	if (redirectMismatch) {
@@ -111,7 +111,7 @@ export function ConsentForm({
 				<div className="flex flex-col items-start gap-5">
 					<IconChip tone="error" icon={tablerAlertTriangle} />
 					<div className="flex flex-col gap-2">
-						<h1 className="font-display text-2xl font-semibold leading-tight text-nova-text">
+						<h1 className="font-display tracking-tighter text-2xl font-semibold leading-tight text-nova-text">
 							This authorization link isn&rsquo;t valid anymore
 						</h1>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
@@ -134,7 +134,7 @@ export function ConsentForm({
 			setPending(null);
 		}
 		/* Success: plugin redirects the user back to the client's
-		 * redirect_uri with an authorization_code — no client-side
+		 * redirect_uri with an authorization_code: no client-side
 		 * navigation needed here. */
 	};
 
@@ -150,7 +150,7 @@ export function ConsentForm({
 	 * without leaking styling onto the standard rows. Order within each
 	 * group is preserved from `deriveCapabilities`, which already sequences
 	 * known capabilities top-to-bottom in a sensible progression and
-	 * appends unknown-scope catch-alls at the end — those land in the
+	 * appends unknown-scope catch-alls at the end: those land in the
 	 * non-HQ bucket, so the HQ sub-card always anchors at the bottom of
 	 * the list regardless of whether unknown scopes are present. */
 	const allCapabilities = deriveCapabilities(scopes);
@@ -164,13 +164,13 @@ export function ConsentForm({
 	/* Render the dormancy sub-card only when the page told us we asked AND
 	 * got back a "no key" answer (`hqConfigured === false`) AND the row
 	 * actually surfaces. `undefined` means the page never even ran the
-	 * Postgres read — collapsing it with `false` would silently treat
+	 * Postgres read: collapsing it with `false` would silently treat
 	 * "didn't ask" as "asked and got no key" the moment a future caller
 	 * forgets to gate the prop on scope content. */
 	const showHqPendingGroup =
 		hqConfigured === false && hqCapabilities.length > 0;
 
-	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1) —
+	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1):
 	 * gentle decelerating arrival. Timing is tight enough to feel instant on
 	 * repeat visits but gives the eye a moment to parse hierarchy on first
 	 * sight. Three staggered groups (card → content → actions) rather than
@@ -189,16 +189,16 @@ export function ConsentForm({
 				<div className="flex flex-col gap-4">
 					<div className="flex items-center gap-3">
 						<IconChip tone="violet" icon={tablerShieldCheck} size="sm" />
-						<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-nova-text-muted">
+						<span className="text-xs font-medium text-nova-text-muted">
 							Authorization request
 						</span>
 					</div>
 					<div className="flex flex-col gap-3">
-						<h1 className="font-display text-[1.65rem] font-medium leading-[1.08] text-nova-text">
+						<h1 className="font-display tracking-tighter text-[1.65rem] font-medium leading-[1.08] text-nova-text">
 							Connect to{" "}
 							<span
 								data-testid="consent-nova-mark"
-								className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text font-semibold text-transparent [background-position:right_center] [background-size:325%_100%]"
+								className="font-semibold text-nova-violet-bright"
 							>
 								nova
 							</span>
@@ -206,12 +206,12 @@ export function ConsentForm({
 						</h1>
 						<div className="overflow-hidden rounded-xl border border-nova-border/70 bg-nova-surface/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
 							<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/60 bg-nova-elevated/20 px-3.5 py-2.5">
-								<div className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+								<div className="text-xs font-medium leading-none text-nova-text-muted">
 									Application
 								</div>
 								<div
 									data-testid="consent-app-name"
-									className="min-w-0 break-words font-display text-[1.05rem] font-semibold leading-tight text-nova-orchid"
+									className="min-w-0 break-words font-display tracking-tighter text-[1.05rem] font-semibold leading-tight text-nova-orchid"
 								>
 									{disclosure.appName}
 								</div>
@@ -265,18 +265,18 @@ export function ConsentForm({
 					transition={{ duration: 0.5, ease, delay: 0.08 }}
 					className="flex flex-col gap-2.5"
 				>
-					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-nova-text-muted">
+					<p className="text-xs font-medium text-nova-text-muted">
 						It will be able to
 					</p>
 					{/* Three rendering shapes share the "It will be able to" slot:
 					 *
-					 *   1. Standard list — every row in a single <ul> with the
+					 *   1. Standard list: every row in a single <ul> with the
 					 *      gray surface treatment (HQ configured, OR no HQ
 					 *      scopes requested).
-					 *   2. Standard list + amber sub-card — non-HQ rows in the
+					 *   2. Standard list + amber sub-card: non-HQ rows in the
 					 *      gray-bordered <ul> as usual; HQ rows + footnote nest
 					 *      below in a self-contained amber sub-card.
-					 *   3. Amber sub-card alone — the request is HQ-only (a
+					 *   3. Amber sub-card alone: the request is HQ-only (a
 					 *      legitimate scope combination for deploy-only
 					 *      integrations), so there are zero non-HQ rows and the
 					 *      gray wrapper would otherwise render an empty <ul>
@@ -353,21 +353,20 @@ export function ConsentForm({
 					<Button
 						type="button"
 						variant="secondary"
-						size="xl"
 						disabled={pending !== null}
 						onClick={() => submit(false)}
 						className="flex-1"
 					>
-						{pending === "deny" ? "Denying…" : "Deny"}
+						{pending === "deny" ? "Denying" : "Deny"}
 					</Button>
 					<Button
 						type="button"
-						size="xl"
+						glow
 						disabled={pending !== null}
 						onClick={() => submit(true)}
-						className="flex-1 shadow-[var(--nova-glow-violet)]"
+						className="flex-1"
 					>
-						{pending === "accept" ? "Approving…" : "Allow"}
+						{pending === "accept" ? "Approving" : "Allow"}
 					</Button>
 				</motion.div>
 
@@ -382,18 +381,18 @@ export function ConsentForm({
 // ── Local primitives ────────────────────────────────────────────────────
 //
 // Both branches (happy path + invalid-link fallback) share the same elevated
-// card shell. Factored locally rather than promoted to `components/ui/` — no
+// card shell. Factored locally rather than promoted to `components/ui/`, no
 // other surface in the app uses this exact treatment today, and premature
 // extraction would fossilize a "Nova card" API around a single caller.
 
 /**
  * Elevated card shell. Uses `bg-nova-deep` (the same tier Nova's
  * `ConfirmDialog` uses) so the consent surface reads as a decision dialog,
- * not a passive panel — it's lifted off the page with border + outer glow
+ * not a passive panel: it's lifted off the page with border + outer glow
  * rather than a brighter fill.
  *
  * The `tone` prop swaps the accent glow: violet for normal consent, rose
- * for the invalid-link state. The card itself stays dark in both cases —
+ * for the invalid-link state. The card itself stays dark in both cases:
  * flooding the surface with rose would turn error recovery into a scolding.
  */
 function ConsentCard({
@@ -406,13 +405,13 @@ function ConsentCard({
 	const glow =
 		tone === "error"
 			? "shadow-[0_0_80px_rgba(212,112,143,0.08),inset_0_1px_0_rgba(255,255,255,0.03)]"
-			: "shadow-[0_0_80px_rgba(139,92,246,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]";
+			: "shadow-[0_0_80px_rgba(150,120,242,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]";
 
 	return (
 		<div
 			className={`relative w-full rounded-2xl border border-nova-border bg-nova-deep p-5 sm:p-6 ${glow}`}
 		>
-			{/* Hairline top highlight — one-pixel violet gradient along the top
+			{/* Hairline top highlight: one-pixel violet gradient along the top
 			 *   edge of the card. Reads as a light source from above and adds a
 			 *   hint of the hardware-panel motif used in `nova-panel` without
 			 *   pulling in the full LED/bezel chrome (which would be too loud
@@ -482,7 +481,7 @@ function IdentityRow({
 }) {
 	return (
 		<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/50 px-3.5 py-2.5 last:border-b-0">
-			<dt className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+			<dt className="text-xs font-medium leading-none text-nova-text-muted">
 				{label}
 			</dt>
 			<dd className="min-w-0 text-sm leading-snug text-nova-text">
@@ -501,7 +500,7 @@ function IdentityRow({
 }
 
 /**
- * Single capability row. Plain-English description is the only content —
+ * Single capability row. Plain-English description is the only content:
  * raw scope identifiers are intentionally omitted to keep the list
  * scannable for non-technical users. The semantic icon (user / eye /
  * pencil / cloud) carries the "what kind of grant this is" signal
@@ -540,14 +539,14 @@ function CapabilityRow({
 /**
  * Dormancy footnote attached to the capability list when the user is
  * granting HQ scopes but hasn't connected a CommCare HQ API key yet. The
- * grant itself is unconditional — the connecting app picks up data
- * access the moment a key is added later — so the footnote is purely
+ * grant itself is unconditional: the connecting app picks up data
+ * access the moment a key is added later, so the footnote is purely
  * informational, not a prerequisite or warning.
  *
  * The whole strip is a single popover trigger: opens on hover, focus, or
  * click (no settings link inside, on purpose). A direct "Open settings"
  * affordance would tempt the user to leave mid-flow, and the OAuth `sig`
- * has an `exp` — losing the tab to a settings detour can stale the
+ * has an `exp`: losing the tab to a settings detour can stale the
  * signature out from under them. The popover explains and reassures;
  * the user finishes consent first, sets up later.
  *
@@ -564,7 +563,7 @@ function HqPendingFootnote() {
 			 *   on its own.
 			 *
 			 *   Hover-open relies on Base UI's 300ms default delay to filter
-			 *   incidental pass-through hovers — without it, a cursor
+			 *   incidental pass-through hovers: without it, a cursor
 			 *   sweeping from the capability list down to the Allow button
 			 *   trips the hover threshold and flashes the popup open right
 			 *   as the user is about to click, reading as a bug. */}
@@ -572,7 +571,7 @@ function HqPendingFootnote() {
 				openOnHover
 				closeDelay={120}
 				aria-label="Awaiting CommCare HQ setup. Open for details."
-				className="group flex w-full cursor-pointer items-center gap-2 border-t border-nova-amber/25 bg-nova-amber/[0.05] px-3.5 py-2 text-left outline-none transition-colors duration-150 hover:bg-nova-amber/[0.12] focus-visible:bg-nova-amber/[0.12] focus-visible:ring-1 focus-visible:ring-nova-amber/40 focus-visible:ring-inset"
+				className="nova-focusable-inset group flex w-full cursor-pointer items-center gap-2 border-t border-nova-amber/25 bg-nova-amber/[0.05] px-3.5 py-2 text-left outline-none transition-colors duration-150 hover:bg-nova-amber/[0.12] focus-visible:bg-nova-amber/[0.12]"
 			>
 				<Icon
 					icon={tablerCircleDashed}
@@ -581,7 +580,7 @@ function HqPendingFootnote() {
 					aria-hidden
 					className="shrink-0 text-nova-amber"
 				/>
-				<span className="flex-1 text-[10px] font-medium uppercase tracking-[0.12em] text-nova-amber">
+				<span className="flex-1 text-xs font-medium text-nova-amber">
 					Awaiting CommCare HQ setup
 				</span>
 				<Icon
@@ -610,16 +609,16 @@ function HqPendingFootnote() {
 									className="text-nova-amber"
 								/>
 								{/* `Popover.Title` is what Base UI threads into the
-								 *   popup's `aria-labelledby` — without it, AT users
+								 *   popup's `aria-labelledby`: without it, AT users
 								 *   who land focus inside the dialog (touch / tap-to-
 								 *   open path) hear an unlabelled dialog. Default
 								 *   render element is `<h2>`; we override to `<p>`
-								 *   because the text is a small uppercase eyebrow,
+								 *   because the text is a small quiet eyebrow,
 								 *   not a heading users would navigate to via the
 								 *   page's heading outline. */}
 								<Popover.Title
 									render={<p />}
-									className="text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-amber"
+									className="text-xs font-semibold text-nova-amber"
 								>
 									Activates after setup
 								</Popover.Title>
@@ -634,7 +633,7 @@ function HqPendingFootnote() {
 								<span className="font-medium text-nova-text">
 									Settings &rarr; CommCare HQ
 								</span>{" "}
-								— you won&rsquo;t need to come back here.
+								you won&rsquo;t need to come back here.
 							</Popover.Description>
 						</div>
 					</Popover.Popup>

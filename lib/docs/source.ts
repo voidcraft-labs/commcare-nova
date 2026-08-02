@@ -9,7 +9,7 @@ import { docs } from "@/.source/server";
  * so links have to point at the internal `/docs/...` path directly —
  * otherwise every sidebar click 404s on `localhost:3000`.
  *
- * Exported so `layoutProps.ts` can reuse it for the nav home link
+ * Exported so `layoutProps.tsx` can reuse it for the nav home link
  * without re-deriving the env check.
  */
 export const DOCS_BASE_URL =

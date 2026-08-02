@@ -2,7 +2,7 @@
 //
 // The Results arrangement switch. It sits beside the "Information shown"
 // heading rather than in Module settings because it changes the
-// composition surface directly underneath it — the same reason row order
+// composition surface directly underneath it: the same reason row order
 // is dragged on the canvas and never set from a panel. Module settings
 // stays the home for the module's menu appearance, and it isn't even
 // reachable from this workspace on a module that has forms.
@@ -23,8 +23,8 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
-import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { selectableSegmentCls } from "@/lib/styles";
 
 export type CaseListArrangement = "rows" | "tile";
 
@@ -38,7 +38,7 @@ export function TileLayoutToggle({
 	/** Present when the case list cannot currently be laid out as a tile;
 	 *  the option stays visible and explains itself. */
 	readonly tileDisabledReason: string | undefined;
-	/** Present when going back to rows takes a tile setting with it — the
+	/** Present when going back to rows takes a tile setting with it, the
 	 *  cells always survive, but a setting that only a tile can carry
 	 *  cannot, so the author confirms it first. */
 	readonly rowsConsequence: string | undefined;
@@ -97,7 +97,7 @@ export function TileLayoutToggle({
 			<AlertDialog open={confirmingRows} onOpenChange={setConfirmingRows}>
 				<AlertDialogContent finalFocus={rowsRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Show Results as rows?
 						</AlertDialogTitle>
 						<AlertDialogDescription>{rowsConsequence}</AlertDialogDescription>
@@ -138,23 +138,17 @@ function ArrangementOption({
 }) {
 	return (
 		<SimpleTooltip content={hint}>
-			<Button
+			<button
 				ref={ref}
 				type="button"
-				variant="ghost"
-				size="xl"
 				onClick={onClick}
 				disabled={disabled}
 				aria-pressed={active}
-				className={`min-h-11 gap-2 rounded-md px-3 text-[14px] active:translate-y-0 ${
-					active
-						? "bg-nova-violet/[0.18] font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-						: "text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.04]"
-				}`}
+				className={selectableSegmentCls(active)}
 			>
 				<Icon icon={icon} width="15" height="15" />
 				{label}
-			</Button>
+			</button>
 		</SimpleTooltip>
 	);
 }

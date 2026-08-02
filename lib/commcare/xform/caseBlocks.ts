@@ -950,7 +950,7 @@ function resolveSpliceParent(dataEl: Element, path: FormPath): Element {
 		);
 		if (next === null) {
 			throw new Error(
-				`addCaseBlocks could not resolve splice path "${path.toXPath()}" — ` +
+				`addCaseBlocks could not resolve splice path "${path.toXPath()}": ` +
 					`the step "${segment.name}" doesn't exist as a child of <${cursor.name}>. ` +
 					`Splice paths come from repeat_context values that xform/builder.ts::buildContainer ` +
 					`emits as data-instance elements; check the repeat field's emit site for the missing element.`,

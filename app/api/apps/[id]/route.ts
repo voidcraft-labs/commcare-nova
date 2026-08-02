@@ -1,8 +1,8 @@
 /**
- * App document API — load and update individual apps.
+ * App document API: load and update individual apps.
  *
- * GET  /api/apps/{id} — load an app (full blueprint) for the builder
- * PUT  /api/apps/{id} — update an app after client-side edits (auto-save)
+ * GET  /api/apps/{id}: load an app (full blueprint) for the builder
+ * PUT  /api/apps/{id}: update an app after client-side edits (auto-save)
  *
  * Both endpoints require an authenticated session and Project membership. GET
  * uses the transactionally authorized snapshot (`view`); PUT performs its early
@@ -44,7 +44,7 @@ export async function GET(
 		const session = await requireSession(req);
 		const { id } = await params;
 		/* Project-membership gate (view). An `AppAccessError` (absent / non-member
-		 * / under-privileged) maps to a 404 in `handleApiError` — the shared
+		 * / under-privileged) maps to a 404 in `handleApiError`: the shared
 		 * IDOR-safe not-found posture. */
 		const snapshot = await resolveAuthorizedAppSnapshot(
 			id,
@@ -93,7 +93,7 @@ export async function PUT(
 		// smaller than the blueprint, so 2 MB rejects only the pathological;
 		// a declared-oversize body throws `ApiError(413)` here.
 		const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
-		// `readJsonBody` returns `null` for an UNPARSEABLE body — surface that as
+		// `readJsonBody` returns `null` for an UNPARSEABLE body: surface that as
 		// "Invalid JSON body", not the misleading "Invalid mutations" the schema
 		// parse below would otherwise produce.
 		if (body === null) {
@@ -137,7 +137,7 @@ export async function PUT(
 			guard: { mutations },
 		});
 		/* The migration outcome rides the response ONLY when the commit's
-		 * row migrations actually touched saved case data — the client
+		 * row migrations actually touched saved case data: the client
 		 * toasts it (a schema change silently rewriting or parking values
 		 * must never be invisible to the person who caused it). */
 		const migration = result.migration;
@@ -205,7 +205,7 @@ export async function PUT(
 			);
 		}
 		if (err instanceof BlueprintCommitRejectedError) {
-			/* The delta is invalid against the fresh server doc — a genuine
+			/* The delta is invalid against the fresh server doc: a genuine
 			 * fresh-doc commit-gate rejection (often, but not exclusively, an edit
 			 * colliding with a collaborator's change). Return the typed 409 with its
 			 * person-to-person message; the reconciler drops only this rejected batch
@@ -216,7 +216,7 @@ export async function PUT(
 				{ status: 409 },
 			);
 		}
-		/* Save failures mean silent data loss — log every rejection so they're
+		/* Save failures mean silent data loss: log every rejection so they're
 		 * visible in Cloud Logging regardless of whether the client report fires.
 		 * handleApiError already logs unhandled Errors; this covers ApiError (401,
 		 * 400) which would otherwise be returned without any server-side trace. */

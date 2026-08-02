@@ -1,5 +1,5 @@
 /**
- * The relay `/stream` route against a real Postgres testcontainer — the SSE
+ * The relay `/stream` route against a real Postgres testcontainer, the SSE
  * channel every builder session opens, now driven by LISTEN/NOTIFY.
  *
  * What this pins against a REAL Postgres LISTEN/NOTIFY (a mocked listen can't):
@@ -8,7 +8,7 @@
  *     is delivered as an `event: mutation` frame carrying `id:<seq>`.
  *   - LIVE delivery: a `commitGuardedBatch` after the stream is open pokes
  *     `nova_app_stream`, the dedicated LISTEN connection dispatches it, and the
- *     route's pump SELECTs + emits the new batch — end-to-end NOTIFY delivery.
+ *     route's pump SELECTs + emits the new batch: end-to-end NOTIFY delivery.
  *   - Lookup delivery: the initial and poke-driven frames are complete Project
  *     manifests with exact decimal revisions and NO SSE `id:` line, so they
  *     cannot advance the mutation reconnect cursor.
@@ -27,7 +27,7 @@
  *     membership loss (`AppAccessError`), and a session-identity change each
  *     close the stream with `event: revoked`; a TRANSIENT blip (a null session,
  *     an `isUserActive` throw, a non-`AppAccessError` scope throw) does NOT.
- *   - The mutation frame carries the projected reconciler shape — `runId` ridden
+ *   - The mutation frame carries the projected reconciler shape, `runId` ridden
  *     through, no server-only `ts` on the wire.
  *   - Presence roster snapshots in the projected client shape (`updatedAt` is
  *     epoch millis, no `expire_at`); one malformed row rejects the entire
@@ -43,7 +43,7 @@
  * teardown, plus the real LISTEN/NOTIFY path are the code under test.
  *
  * Runs on the per-test-database harness booted by the case-store testcontainer
- * `globalSetup` — the app-state migrations create the `apps` / `app_changes`
+ * `globalSetup`: the app-state migrations create the `apps` / `app_changes`
  * / `presence` tables; the data layer is pointed at the per-test database via
  * `__setAppDbForTests`, and the dedicated LISTEN client at the same database via
  * `__setListenerConfigForTests`.
@@ -107,8 +107,8 @@ vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	getSessionSafe: getSessionSafeMock,
 }));
-/* `reauthorizeStreamScope` keeps its real shape — `withAppTx` around
- * `resolveAppScopeInTransaction` — so a test programs ONE mock and it drives the
+/* `reauthorizeStreamScope` keeps its real shape: `withAppTx` around
+ * `resolveAppScopeInTransaction`, so a test programs ONE mock and it drives the
  * connect gate, the app-change reauthorization, and the cadence re-check alike,
  * each on a genuine transaction against the per-test database. */
 vi.mock("@/lib/db/appAccess", async () => {
@@ -132,7 +132,7 @@ vi.mock("@/lib/db/projectMembership", () => ({
 }));
 
 /* The route reads its revocation cadence from `NOVA_STREAM_CADENCE_MS` at
- * MODULE LOAD, so set it before the dynamic import below — a short cadence lets
+ * MODULE LOAD, so set it before the dynamic import below: a short cadence lets
  * the revocation tests observe a `revoked` frame in well under a second instead
  * of waiting the prod ~10 s. Prod never sets this var. */
 const originalStreamEnv = {
@@ -563,7 +563,7 @@ async function collectUntil(
 	// Default under vitest's body timeout so a never-satisfied predicate surfaces
 	// as an assertion, not an opaque body-timeout. A deadline timer aborts the
 	// controller, which ends the stream so the pending `read()` resolves `done`
-	// and the loop exits — NEVER race `read()` against a timeout.
+	// and the loop exits: NEVER race `read()` against a timeout.
 	const timeoutMs = opts.timeoutMs ?? 4_000;
 	const deadline = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -638,12 +638,12 @@ beforeEach(async () => {
 afterEach(async () => {
 	__setStreamReadTestHooksForTests(null);
 	__setNextListenerCloseBarrierForTests(null);
-	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE — a
+	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE, a
 	// leaked LISTEN connection would be force-terminated by the drop and its
 	// reconnect timer would spin against a vanished database. `harness.destroy()`
 	// quiesces the pool before ending it: the ordinary straggling pump/roster
 	// read would otherwise race `Pool.end()` and orphan a mid-connect client,
-	// which `end()` then waits on forever — see `perTestAppDb.ts`.
+	// which `end()` then waits on forever: see `perTestAppDb.ts`.
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
 	__setAppDbForTests(null);
@@ -1026,7 +1026,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			async onOpen() {
-				// Let the LISTEN attach, then POST presence through the real route —
+				// Let the LISTEN attach, then POST presence through the real route:
 				// its `notifyPresence` poke should drive a live roster frame.
 				await delay(300);
 				const res = await presencePost(
@@ -1071,7 +1071,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const reload = frames.find((f) => f.event === "reload");
 		expect(reload).toBeDefined();
-		// A `reload` is seq-less — no `id:` line.
+		// A `reload` is seq-less: no `id:` line.
 		expect(reload?.id).toBeUndefined();
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
 	});
@@ -1387,7 +1387,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("mutation frame carries the projected client shape (runId ridden through, no ts)", async () => {
 		const appId = await seedApp(1);
-		// A chat commit carries a runId — it must ride through for the reconciler's
+		// A chat commit carries a runId: it must ride through for the reconciler's
 		// echo classification.
 		await writeEntry(appId, 1, { kind: "chat", runId: "run-abc" });
 
@@ -1426,7 +1426,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		if (!presence) throw new Error("no presence frame arrived");
 		const entry = (presence.data as Record<string, unknown>[])[0];
 		expect(entry?.userId).toBe(USER);
-		// The wire shape is exactly the reconciler/presence-relevant fields —
+		// The wire shape is exactly the reconciler/presence-relevant fields:
 		// `updatedAt` is epoch MILLIS (a number the client does `now − updatedAt`
 		// arithmetic on).
 		expect(Object.keys(entry ?? {}).sort()).toEqual(
@@ -1506,7 +1506,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("revokes when a different user's session is resolved on the cadence re-check", async () => {
 		const appId = await seedApp(0);
-		// A cookie that now resolves to a DIFFERENT user — the cadence closes on
+		// A cookie that now resolves to a DIFFERENT user: the cadence closes on
 		// the identity mismatch.
 		getSessionSafeMock.mockResolvedValue(sessionFor(OTHER_USER));
 
@@ -1521,7 +1521,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("does NOT revoke on a TRANSIENT backend blip (a non-AppAccessError throw, a null session, an isUserActive throw)", async () => {
 		const appId = await seedApp(0);
-		// Every cadence signal is transient/ambiguous — an authorized collaborator
+		// Every cadence signal is transient/ambiguous: an authorized collaborator
 		// must NOT be booted.
 		getSessionSafeMock.mockResolvedValue(null);
 		isUserActiveMock.mockRejectedValue(new Error("pool exhausted"));

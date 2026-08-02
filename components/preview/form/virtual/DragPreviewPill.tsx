@@ -1,5 +1,5 @@
 /**
- * DragPreviewPill — the small "chip" rendered as the custom drag preview
+ * DragPreviewPill: the small "chip" rendered as the custom drag preview
  * while a field or group is being dragged.
  *
  * Exists as a named component (rather than an inline JSX literal) so
@@ -9,7 +9,7 @@
  * The preview is portaled into a library-owned container that lives at
  * document.body, far outside the virtualizer's scroll container. It does
  * not participate in the row layout and never affects the source row's
- * size — that's the whole point of using `setCustomNativeDragPreview`.
+ * size: that's the whole point of using `setCustomNativeDragPreview`.
  */
 
 "use client";

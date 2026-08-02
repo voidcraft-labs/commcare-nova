@@ -45,8 +45,10 @@ describe("ModuleSettingsButton", () => {
 		expect(content?.className).toContain("var(--available-height)");
 		expect(content?.className).toContain("overflow-hidden");
 		const title = screen.getByText("Module settings");
+		// The retired console chrome was uppercase on WIDE tracking. Outfit's
+		// own snug display tracking is the opposite of that and is expected.
 		expect(title.className).not.toContain("uppercase");
-		expect(title.className).not.toContain("tracking-");
+		expect(title.className).not.toMatch(/tracking-(wide|wider|widest|etched)/);
 
 		const close = screen.getByRole("button", {
 			name: "Close module settings",

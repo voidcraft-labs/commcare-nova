@@ -699,7 +699,7 @@ function predicateEdges(
 		});
 	} catch (err) {
 		console.warn(
-			`referenceIndex: couldn't walk the "${slot}" predicate for references — the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
+			`referenceIndex: couldn't walk the "${slot}" predicate for references, the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
 			err,
 		);
 	}
@@ -725,7 +725,7 @@ function expressionEdges(
 		});
 	} catch (err) {
 		console.warn(
-			`referenceIndex: couldn't walk the "${slot}" expression for references — the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
+			`referenceIndex: couldn't walk the "${slot}" expression for references, the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
 			err,
 		);
 	}
@@ -1211,7 +1211,7 @@ export function devAssertReferenceIndexParity(doc: BlueprintDoc): void {
 	const rebuilt = buildReferenceIndex(doc);
 	if (!plainDeepEqual(doc.refIndex, rebuilt)) {
 		console.error(
-			"referenceIndex: the incrementally maintained index diverged from a from-scratch rebuild — a maintenance bug. Reference lookups (rename cascades, retirement checks, peer scans) may be stale until the next full load. Compare the two structures to find the missing/extra edges.",
+			"referenceIndex: the incrementally maintained index diverged from a from-scratch rebuild, a maintenance bug. Reference lookups (rename cascades, retirement checks, peer scans) may be stale until the next full load. Compare the two structures to find the missing/extra edges.",
 			{ incremental: doc.refIndex, rebuilt },
 		);
 	}

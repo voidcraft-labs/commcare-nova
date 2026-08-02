@@ -33,6 +33,7 @@ import {
 	isStandardCaseListProperty,
 } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -257,7 +258,7 @@ function FieldRow({
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label} in ${screenName}. Position ${position} of ${total}. Use arrow keys or drag.`}
-						className="h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
 					</Button>
@@ -265,16 +266,15 @@ function FieldRow({
 			)}
 
 			{canEdit ? (
-				<Button
+				<button
 					type="button"
-					variant="ghost"
 					onClick={onSelect}
 					aria-pressed={selected}
 					data-case-column-select={column.uuid}
-					className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className={`flex-1 ${LIST_ROW_CLS}`}
 				>
 					{rowContent}
-				</Button>
+				</button>
 			) : (
 				<div className="flex min-w-0 flex-1 items-center px-4 py-3 text-left">
 					{rowContent}
@@ -498,10 +498,9 @@ export function AddInformationControl({
 			trigger={
 				<Button
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					data-case-add={surface}
-					className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot w-full gap-2"
 				/>
 			}
 			triggerLabel="Add information"
@@ -541,7 +540,7 @@ export function AddInformationControl({
 									clearSearch();
 									setMode("main");
 								}}
-								className="-ml-1 size-11 shrink-0 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.05]"
+								className="-ml-1 shrink-0 text-nova-text-muted not-disabled:hover:bg-white/[0.05] dark:not-disabled:hover:bg-white/[0.05]"
 							>
 								<Icon icon={tablerArrowLeft} width="15" height="15" />
 							</Button>

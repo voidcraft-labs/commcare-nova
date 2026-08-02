@@ -1,12 +1,12 @@
 // components/builder/appTree/TreeRowDelete.tsx
 //
-// The two-step, no-dialog delete for a tree row (module / form) — the app-card
+// The two-step, no-dialog delete for a tree row (module / form), the app-card
 // delete pattern (`components/ui/AppCard.tsx`) shrunk to fit a tree row. Idle:
-// a hover-revealed trash icon. Armed (after one click): a rose "Delete?" pill +
-// a cancel ✕; a second click on "Delete?" runs `onDelete`. Moving the pointer
+// a hover-revealed trash icon. Armed (after one click): a rose "Delete" pill +
+// a cancel ✕; a second click on it runs `onDelete`. Moving the pointer
 // off the cluster disarms. The parent row must set `group` for the idle reveal.
 //
-// `onDelete` dispatches `removeModule` / `removeForm` — both gated mutations, so
+// `onDelete` dispatches `removeModule` / `removeForm`: both gated mutations, so
 // the removal is one undo entry (⌘Z restores it, including a module's cascaded
 // forms/fields + any retired case-type record).
 
@@ -27,8 +27,8 @@ export function TreeRowDelete({
 	readonly label: string;
 	/** Runs the (gated) removal; returns whether it committed. A success
 	 *  unmounts this row with the deleted entity, so on `false` (the gate
-	 *  refused — e.g. a still-referenced case type can't be retired) we disarm
-	 *  rather than leave the row stuck in its "Delete?" state. */
+	 *  refused: e.g. a still-referenced case type can't be retired) we disarm
+	 *  rather than leave the row stuck in its armed state. */
 	readonly onDelete: () => boolean;
 }) {
 	const [armed, setArmed] = useState(false);
@@ -48,8 +48,20 @@ export function TreeRowDelete({
 		}
 	}, [armed]);
 
-	// A view-only Project member can't delete rows — render nothing.
+	// A view-only Project member can't delete rows: render nothing.
 	if (!canEdit) return null;
+
+	/* Escape backs out, the way it dismisses any other transient confirmation:
+	 * a pointer user already has mouse-leave, so without this the keyboard is
+	 * the one route into the armed state with no route out but the X. Every
+	 * other key stays inside the cluster so the tree's row navigation doesn't
+	 * also act on what the confirmation is reading. */
+	const onConfirmKeyDown = (event: React.KeyboardEvent) => {
+		event.stopPropagation();
+		if (event.key !== "Escape") return;
+		restoreFocusRef.current = true;
+		setArmed(false);
+	};
 
 	if (armed) {
 		return (
@@ -64,28 +76,27 @@ export function TreeRowDelete({
 					ref={confirmRef}
 					type="button"
 					variant="destructive"
-					size="xl"
 					aria-label={`Confirm ${label.toLowerCase()}`}
-					onKeyDown={(event) => event.stopPropagation()}
+					onKeyDown={onConfirmKeyDown}
 					onClick={(e) => {
 						e.stopPropagation();
 						if (!onDelete()) setArmed(false);
 					}}
-					className="h-11 rounded-lg px-3 text-xs"
 				>
 					Delete
 				</Button>
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					aria-label="Cancel delete"
-					onKeyDown={(event) => event.stopPropagation()}
+					onKeyDown={onConfirmKeyDown}
 					onClick={(e) => {
 						e.stopPropagation();
+						restoreFocusRef.current = true;
 						setArmed(false);
 					}}
-					className="size-11 text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text"
+					className="text-nova-text-muted"
 				>
 					<Icon icon={tablerX} width="16" height="16" />
 				</Button>
@@ -99,7 +110,7 @@ export function TreeRowDelete({
 				ref={idleRef}
 				type="button"
 				variant="ghost"
-				size="icon-lg"
+				size="icon"
 				aria-label={label}
 				onKeyDown={(event) => event.stopPropagation()}
 				onClick={(e) => {
@@ -107,7 +118,7 @@ export function TreeRowDelete({
 					restoreFocusRef.current = true;
 					setArmed(true);
 				}}
-				className="size-11 shrink-0 text-nova-text-muted opacity-0 hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
+				className="shrink-0 text-nova-text-muted opacity-0 hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
 			>
 				<Icon icon={tablerTrash} width="16" height="16" />
 			</Button>

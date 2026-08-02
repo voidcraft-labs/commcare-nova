@@ -39,7 +39,7 @@ const AFTER_SUBMIT_OPTIONS: ReadonlyArray<
 ];
 
 /**
- * Dropdown for "After Submit" — what screen the user lands on after the
+ * Dropdown for "After Submit": what screen the user lands on after the
  * form is submitted. Writes the JSON-stable clear `null` when the choice matches the
  * form-type default so the doc doesn't carry redundant state.
  */
@@ -63,7 +63,7 @@ export function AfterSubmitSection({ formUuid }: FormSettingsSectionProps) {
 		<div>
 			<label
 				htmlFor={triggerId}
-				className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block"
+				className="text-xs font-medium text-nova-text-secondary mb-1.5 block"
 			>
 				After Submit
 			</label>

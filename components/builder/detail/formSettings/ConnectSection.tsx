@@ -23,14 +23,14 @@ import { LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
 
 /**
- * Connect-mode configuration section — only rendered when the app has a
+ * Connect-mode configuration section: only rendered when the app has a
  * connect type set. Owns:
  *
  * 1. The per-form Connect PARTICIPATION toggle. A connect block opts the
  *    form into Connect; a form without one is auxiliary and ships
  *    nothing Connect-side. Either direction rebuilds the complete live
  *    participant map and sends it through the same app-wide exact-target
- *    planner as the manager — participation has one owner. OFF stashes the
+ *    planner as the manager: participation has one owner. OFF stashes the
  *    dropped block through that owner and clears it, while the last
  *    participant is rejected. ON restores a stashed block only when the
  *    exact saved value still passes the app-wide gate. A conflict refuses
@@ -45,7 +45,7 @@ import type { FormSettingsSectionProps } from "./types";
  *    independent sub-toggles each) but have distinct field shapes.
  *
  * The `save` callback passed to sub-configs writes the ConnectConfig
- * wholesale — sub-configs always spread the current connect object so
+ * wholesale: sub-configs always spread the current connect object so
  * the other half's state round-trips through this single mutation path.
  */
 export function ConnectSection({
@@ -55,7 +55,7 @@ export function ConnectSection({
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	/* Inline flavor throughout: every rejection in this section has a
-	 * contextual surface — the sub-config editors keep refused drafts with
+	 * contextual surface: the sub-config editors keep refused drafts with
 	 * the finding, the staging dialog shows findings in its footer, and a
 	 * refused toggle-off renders its notice right under the toggle row. */
 	const { inline } = useBlueprintMutations();
@@ -70,11 +70,11 @@ export function ConnectSection({
 		{ rejectionMessages: string[] } | undefined
 	>();
 	/** The gate's finding from a refused toggle-OFF (removing the app's
-	 *  last participating form's block) — rendered under the toggle row,
+	 *  last participating form's block): rendered under the toggle row,
 	 *  cleared on the next toggle gesture. */
 	const [disableRejection, setDisableRejection] = useState<string | null>(null);
 
-	/* Session stash — a block stashed here (or by an app-level mode
+	/* Session stash: a block stashed here (or by an app-level mode
 	 * switch) restores when the user toggles participation back on. */
 	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
 	const save = useCallback(
@@ -143,7 +143,7 @@ export function ConnectSection({
 				setStaging(undefined);
 				return;
 			}
-			/* The gate refused — keep the dialog (and the user's drafts) on
+			/* The gate refused: keep the dialog (and the user's drafts) on
 			 * screen with the findings inline, so the bounce explains itself. */
 			setStaging({ rejectionMessages: outcome.messages });
 		},
@@ -184,17 +184,17 @@ export function ConnectSection({
 			{/* Header row with toggle */}
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-2">
-					<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+					<span className="text-xs font-medium text-nova-text-secondary">
 						Connect
 					</span>
-					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
+					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded-full bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
 						{connectType}
 					</span>
 				</div>
 				<Switch checked={enabled} onCheckedChange={toggle} />
 			</div>
 
-			{/* A refused toggle-off explains itself where the gesture happened —
+			{/* A refused toggle-off explains itself where the gesture happened:
 			 * the label keeps the toggle's own vocabulary. */}
 			<RejectionInline message={disableRejection} label="Still participating" />
 
@@ -208,7 +208,7 @@ export function ConnectSection({
 						className="overflow-hidden"
 					>
 						<div className="pt-2.5 space-y-3">
-							{/* Learn config — sub-toggles for learn_module and assessment */}
+							{/* Learn config: sub-toggles for learn_module and assessment */}
 							{connectType === "learn" && learnConnect && (
 								<LearnConfig
 									connect={learnConnect}
@@ -218,7 +218,7 @@ export function ConnectSection({
 								/>
 							)}
 
-							{/* Deliver config — sub-toggles for deliver_unit and task */}
+							{/* Deliver config: sub-toggles for deliver_unit and task */}
 							{connectType === "deliver" && deliverConnect && (
 								<DeliverConfig
 									connect={deliverConnect}

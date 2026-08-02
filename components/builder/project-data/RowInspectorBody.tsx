@@ -106,7 +106,7 @@ export function RowInspectorBody({
 				setFailure(outcome.failure.message);
 				return;
 			}
-			/* Handed to the controller, which renders it as its own body — this one
+			/* Handed to the controller, which renders it as its own body, this one
 			 * unmounts the moment the row leaves the table, which is exactly what a
 			 * co-member's delete does. */
 			workspace.setRowConflict(outcome.conflict);
@@ -125,7 +125,7 @@ export function RowInspectorBody({
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
 					{dirty
 						? "Your edit access changed, so this local row draft cannot be saved. Nova kept it here for you to copy or explicitly discard."
-						: "You can read this row. Changing it needs edit access to this project."}
+						: "You can read this row. Changing it needs edit access to this Project."}
 				</p>
 			)}
 			{canEdit ? (
@@ -167,7 +167,7 @@ export function RowInspectorBody({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					onClick={() => {
 						workspace.discardRowEdit(row.id);
 						setErrors(new Map());
@@ -198,17 +198,17 @@ export function RowInspectorBody({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
+						className=""
 						disabled={!dirty || saving || deleting || confirmingDelete}
 						onClick={() => void save()}
 					>
-						{saving ? "Saving…" : "Save row"}
+						{saving ? "Saving" : "Save row"}
 					</Button>
 					{dirty && (
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={saving || deleting || confirmingDelete}
 							onClick={() => {
 								workspace.discardRowEdit(row.id);
@@ -234,14 +234,14 @@ export function RowInspectorBody({
 							Delete this row?
 						</p>
 						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							Every app in this project that offers this table’s values stops
+							Every app in this Project that offers this table’s values stops
 							offering this one.
 						</p>
 						<div className="flex flex-wrap gap-2">
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-11"
+								className=""
 								disabled={deleting}
 								onClick={() => setConfirmingDelete(false)}
 							>
@@ -250,7 +250,7 @@ export function RowInspectorBody({
 							<Button
 								type="button"
 								variant="destructive"
-								className="min-h-11"
+								className=""
 								disabled={deleting}
 								onClick={async () => {
 									if (deleting) return;
@@ -275,7 +275,7 @@ export function RowInspectorBody({
 									}
 								}}
 							>
-								{deleting ? "Deleting…" : "Delete row"}
+								{deleting ? "Deleting" : "Delete row"}
 							</Button>
 						</div>
 					</div>
@@ -285,7 +285,6 @@ export function RowInspectorBody({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
 							disabled={saving || deleting || dirty}
 							onClick={() => setConfirmingDelete(true)}
 						>
@@ -295,7 +294,7 @@ export function RowInspectorBody({
 								height="16"
 								aria-hidden="true"
 							/>
-							{deleting ? "Deleting…" : "Delete row"}
+							{deleting ? "Deleting" : "Delete row"}
 						</Button>
 						{dirty && (
 							<p className="text-[12px] leading-snug text-nova-text-muted">

@@ -2,7 +2,7 @@
  * Create a data table.
  *
  * A table is born with at least one column, because that is what the boundary
- * requires and because a columnless table is not a thing anyone wants — the
+ * requires and because a columnless table is not a thing anyone wants, the
  * dialog therefore starts with one row of column fields rather than creating
  * an empty shell you then have to fill.
  *
@@ -102,8 +102,8 @@ export function CreateTableDialog({
 	useEffect(() => {
 		/* Claim the flag on every mount, not just the first. A cleanup-only
 		 * version leaves it false forever the moment React mounts, unmounts and
-		 * remounts the same instance — StrictMode's development double-invoke does
-		 * exactly that — and then every `mounted.current` guard below returns
+		 * remounts the same instance: StrictMode's development double-invoke does
+		 * exactly that, and then every `mounted.current` guard below returns
 		 * early, stranding the dialog on "Creating…" after a successful write. */
 		mounted.current = true;
 		return () => {
@@ -153,7 +153,7 @@ export function CreateTableDialog({
 				<DialogHeader>
 					<DialogTitle>Create a data table</DialogTitle>
 					<DialogDescription>
-						Every app in this project will be able to use this table’s values.
+						Every app in this Project will be able to use this table’s values.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -202,8 +202,8 @@ export function CreateTableDialog({
 									/* A real fieldset per column: its legend captions the group, so
 									 * "Name people see" is announced inside "Column 2" rather than
 									 * arriving as the third identically-labelled input on screen.
-									 * The legend carries text only — the browser renders it into
-									 * the border line, which a 44px control would straddle — so
+									 * The legend carries text only: the browser renders it into
+									 * the border line, which a 44px control would straddle, so
 									 * removal sits at the foot of the card, under its own name. */
 									<FieldSet
 										key={column.key}
@@ -291,7 +291,7 @@ export function CreateTableDialog({
 											<Button
 												type="button"
 												variant="destructive"
-												className="min-h-11 gap-2 self-end"
+												className="gap-2 self-end"
 												disabled={working}
 												onClick={() =>
 													setColumns((current) =>
@@ -315,8 +315,8 @@ export function CreateTableDialog({
 							})}
 							<Button
 								type="button"
-								variant="outline"
-								className="min-h-11 gap-2 self-start"
+								variant="ghost"
+								className="nova-add-slot gap-2 self-start"
 								disabled={working}
 								onClick={() =>
 									setColumns((current) => [...current, newColumnDraft()])
@@ -362,7 +362,7 @@ export function CreateTableDialog({
 								working
 							) {
 								setFailure(
-									"This project changed while the dialog was open. Close it and create the table in the project you are viewing.",
+									"This Project changed while the dialog was open. Close it and create the table in the Project you are viewing.",
 								);
 								return;
 							}
@@ -405,7 +405,7 @@ export function CreateTableDialog({
 							if (latestProject.current !== scopedProject) {
 								setWorking(false);
 								setFailure(
-									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+									"The table was created in the Project where you opened this dialog. Close this dialog to continue in the Project you are now viewing.",
 								);
 								return;
 							}
@@ -424,7 +424,7 @@ export function CreateTableDialog({
 							if (latestProject.current !== scopedProject) {
 								setWorking(false);
 								setFailure(
-									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+									"The table was created in the Project where you opened this dialog. Close this dialog to continue in the Project you are now viewing.",
 								);
 								return;
 							}

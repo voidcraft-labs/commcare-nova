@@ -1,9 +1,9 @@
 /**
- * Home app list — Server Component shell. Fetches the user's active
+ * Home app list: Server Component shell. Fetches the user's active
  * and recently-deleted apps in parallel and hands both arrays to the
  * client island that owns the active/deleted view toggle. The
  * orchestration is deliberately flat: this file knows the user's
- * apps, the page header, and the existence of the body component —
+ * apps, the page header, and the existence of the body component:
  * nothing about per-card state, action wiring, or filtering.
  *
  * Wrapped in a Suspense boundary by the page so the shell streams
@@ -24,14 +24,14 @@ import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
 
 interface AppListProps {
-	/** Active Project id (Better Auth organizationId) — the tenancy scope. */
+	/** Active Project id (Better Auth organizationId): the tenancy scope. */
 	projectId: string;
-	/** Signed-in user — resolves their role in the active Project. */
+	/** Signed-in user: resolves their role in the active Project. */
 	userId: string;
 }
 
 /**
- * First-page size. The web surface is non-paginated today — a single
+ * First-page size. The web surface is non-paginated today: a single
  * card grid up to this many rows. The same number is reused for the
  * recently-deleted list, which is naturally bounded by the 30-day
  * retention window and rarely binds.
@@ -46,7 +46,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 	]);
 
 	/* Placement is a governance act, so only members who hold it in BOTH Projects
-	 * see the control — and the destination list is exactly the other Projects
+	 * see the control, and the destination list is exactly the other Projects
 	 * where this member holds it. The database re-proves both roles, plus source
 	 * owner retention, inside the move transaction. */
 	const active = projects.find((p) => p.id === projectId);
@@ -62,16 +62,13 @@ export async function AppList({ projectId, userId }: AppListProps) {
 	return (
 		<>
 			<div className="flex items-center justify-between mb-8">
-				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
+				<h1 className="text-2xl font-display font-semibold tracking-tighter">
+					Your apps
+				</h1>
 				{canCreateApp ? (
-					<Button
-						render={<Link href="/build/new" />}
-						nativeButton={false}
-						size="lg"
-						className="shadow-[var(--nova-glow-violet)]"
-					>
+					<Button render={<Link href="/build/new" />} nativeButton={false}>
 						<Icon icon={tablerPlus} width="14" height="14" />
-						New App
+						New app
 					</Button>
 				) : null}
 			</div>

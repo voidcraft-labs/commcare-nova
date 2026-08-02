@@ -184,7 +184,7 @@ describe("CaseTypePicker", () => {
 		const stopManaging = await screen.findByRole("button", {
 			name: "Stop managing cases",
 		});
-		expect(stopManaging.className).toContain("bg-destructive");
+		expect(stopManaging.className).toContain("nova-keycap-rose");
 		fireEvent.click(stopManaging);
 		expect(onClear).toHaveBeenCalledTimes(1);
 		await waitFor(() =>

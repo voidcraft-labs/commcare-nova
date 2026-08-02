@@ -2,7 +2,7 @@
  * Removing a persona, with the consequence stated before it happens.
  *
  * Cases the persona owns are deliberately left where they are. That is
- * Nova's own rule rather than HQ parity — HQ deactivating a worker leaves
+ * Nova's own rule rather than HQ parity: HQ deactivating a worker leaves
  * their cases alone, but HQ DELETING one soft-deletes every case they own
  * (`users/models.py::CommCareUser.retire`). A persona is a design and test
  * actor rather than a person who left an organization, and the cases it
@@ -47,9 +47,8 @@ export function PersonaRemoveConfirm({
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
-				size="lg"
 				onClick={() => setConfirming(true)}
-				className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+				className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 			>
 				Remove persona
 			</Button>
@@ -143,8 +142,7 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="outline"
-					size="lg"
-					className="h-11 self-start"
+					className="self-start"
 					onClick={() => setAttempt((value) => value + 1)}
 				>
 					Try again
@@ -154,8 +152,7 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="destructive"
-					size="lg"
-					className="h-11"
+					className=""
 					disabled={owned.state !== "known"}
 					onClick={() => {
 						if (owned.state !== "known") return;
@@ -166,13 +163,7 @@ function ConfirmPanel({
 				>
 					Remove
 				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="lg"
-					className="h-11"
-					onClick={onCancel}
-				>
+				<Button type="button" variant="ghost" className="" onClick={onCancel}>
 					Cancel
 				</Button>
 			</div>

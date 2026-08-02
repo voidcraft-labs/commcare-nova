@@ -1,5 +1,5 @@
 /**
- * Settings layout — auth gate for the /settings tree.
+ * Settings layout: auth gate for the /settings tree.
  *
  * Requires an authenticated session. Non-authenticated users are
  * redirected to the landing page by `requireAuth()`.

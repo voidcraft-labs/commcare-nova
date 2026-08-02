@@ -86,7 +86,7 @@ export function toggleCodeBlock(editor: Editor | null): boolean {
 	if (!canToggle(editor)) return false;
 
 	try {
-		/* When code block is already active, toggle back to paragraph directly —
+		/* When code block is already active, toggle back to paragraph directly:
 		 * TipTap handles this without needing the NodeSelection conversion path. */
 		if (editor.isActive("codeBlock")) {
 			editor.chain().focus().toggleNode("codeBlock", "paragraph").run();
@@ -134,7 +134,7 @@ export function toggleCodeBlock(editor: Editor | null): boolean {
 
 		let chain = editor.chain().focus();
 
-		/* Handle NodeSelection — clear the block structure first,
+		/* Handle NodeSelection: clear the block structure first,
 		 * then set the code block */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;

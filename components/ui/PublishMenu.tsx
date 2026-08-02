@@ -1,6 +1,7 @@
 /**
- * Export menu — CommCare HQ is the primary destination and local files are
- * secondary. The shared shadcn menu owns positioning, focus, keyboard
+ * Publish menu: the one control that takes a finished app somewhere real.
+ * CommCare HQ is the primary destination and a downloaded file is the
+ * secondary one. The shared shadcn menu owns positioning, focus, keyboard
  * navigation, collision handling, item highlights, and the floating chrome.
  */
 
@@ -9,7 +10,7 @@
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
-import tablerUpload from "@iconify-icons/tabler/upload";
+import tablerRocket from "@iconify-icons/tabler/rocket";
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
@@ -22,18 +23,17 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
-export interface ExportOption {
+export interface DownloadOption {
 	label: string;
 	description: string;
 	icon: IconifyIcon;
 	onClick: () => void;
 }
 
-interface ExportDropdownProps {
+interface PublishMenuProps {
 	/** File download options (JSON, CCZ). */
-	options: ExportOption[];
+	options: DownloadOption[];
 	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
 	/** Project edit capability. Viewers may download, never upload to HQ. */
@@ -42,12 +42,12 @@ interface ExportDropdownProps {
 	onCommCareUpload: () => void;
 }
 
-export function ExportDropdown({
+export function PublishMenu({
 	options,
 	commcareConfigured,
 	canUploadToHq,
 	onCommCareUpload,
-}: ExportDropdownProps) {
+}: PublishMenuProps) {
 	const [open, setOpen] = useState(false);
 	const choose = (action: () => void) => {
 		action();
@@ -56,15 +56,13 @@ export function ExportDropdown({
 
 	return (
 		<DropdownMenu open={open} onOpenChange={setOpen}>
-			<SimpleTooltip content="Export">
-				<DropdownMenuTrigger
-					render={<Button type="button" variant="ghost" size="icon-lg" />}
-					aria-label="Export"
-					className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
-				>
-					<Icon icon={tablerUpload} width={18} height={18} />
-				</DropdownMenuTrigger>
-			</SimpleTooltip>
+			{/* Named, not a glyph with a tooltip. This is the end of the whole
+			 *  build and the one action in this header someone arrives looking
+			 *  for, so it says what it is without being hovered. */}
+			<DropdownMenuTrigger render={<Button type="button" variant="outline" />}>
+				<Icon icon={tablerRocket} width={18} height={18} />
+				Publish
+			</DropdownMenuTrigger>
 
 			<DropdownMenuContent align="end" sideOffset={6} preferredMinWidth="18rem">
 				{canUploadToHq && (

@@ -128,7 +128,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
 				carrier.location.scope,
-				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace — tidy those rows or choose another value column.`,
+				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. Tidy those rows or choose another value column.`,
 				location,
 				{
 					...baseDetails,

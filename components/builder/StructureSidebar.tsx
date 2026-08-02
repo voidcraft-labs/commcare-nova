@@ -1,11 +1,11 @@
 /**
- * StructureSidebar — collapsible panel showing the app's module/form/field
- * tree. Fully self-sufficient — subscribes to store state directly, no props
+ * StructureSidebar: collapsible panel showing the app's module/form/field
+ * tree. Fully self-sufficient: subscribes to store state directly, no props
  * needed from BuilderLayout. Calls store actions to close itself.
  *
  * The header is the app row: collapse control, then the app's name
  * titling the tree, with the app-level settings gear beside it
- * (`AppSettingsButton` — renders only for a ready editor). Before the
+ * (`AppSettingsButton`: renders only for a ready editor). Before the
  * app is named, the row falls back to naming the panel itself.
  */
 "use client";
@@ -23,6 +23,7 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
+import { selectableRowCls } from "@/lib/styles";
 
 export function StructureSidebar() {
 	const isReady = useBuilderIsReady();
@@ -39,11 +40,11 @@ export function StructureSidebar() {
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					onClick={() => setSidebarOpen("structure", false)}
 					aria-label="Collapse structure sidebar"
 					data-builder-sidebar-toggle="collapse-structure"
-					className="size-11 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
+					className="text-nova-text-muted hover:bg-white/[0.05]"
 				>
 					<Icon icon={tablerLayoutSidebarLeftCollapse} width="17" height="17" />
 				</Button>
@@ -53,13 +54,13 @@ export function StructureSidebar() {
 				<AppSettingsButton />
 			</div>
 
-			{/* Structure tree — reads all state from hooks internally */}
+			{/* Structure tree: reads all state from hooks internally */}
 			<div className="flex-1 overflow-hidden flex flex-col relative">
 				<ErrorBoundary>
 					<AppTree />
 				</ErrorBoundary>
 
-				{/* Dim overlay — blocks interaction until generation completes */}
+				{/* Dim overlay: blocks interaction until generation completes */}
 				<AnimatePresence>
 					{!isReady && (
 						<motion.div
@@ -124,17 +125,11 @@ function WorkspaceNavEntry({
 	onClick: () => void;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant="ghost"
-			size="lg"
 			aria-current={active ? "page" : undefined}
 			onClick={onClick}
-			className={`h-11 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${
-				active
-					? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-					: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
-			}`}
+			className={selectableRowCls(active)}
 		>
 			<Icon
 				icon={icon}
@@ -144,6 +139,6 @@ function WorkspaceNavEntry({
 				className="shrink-0"
 			/>
 			{label}
-		</Button>
+		</button>
 	);
 }

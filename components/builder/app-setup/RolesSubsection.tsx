@@ -1,5 +1,5 @@
 /**
- * Roles — reusable templates that fill worker information with defaults.
+ * Roles: reusable templates that fill worker information with defaults.
  *
  * A role is not a person and never becomes one: it says what every worker
  * in that role carries. Personas hold a role; a deployed worker is created
@@ -50,7 +50,7 @@ export function RolesSubsection() {
 		<Subsection
 			id="app-setup-roles"
 			title="Roles"
-			description="A role bundles the worker information a kind of worker carries — every community health worker starts with the same defaults. A persona holds a role; a role on its own is a template, not a person."
+			description="A role bundles the worker information a kind of worker carries. Every community health worker starts with the same defaults. A persona holds a role; a role on its own is a template, not a person."
 			addLabel="Add role"
 			onAdd={add}
 			canEdit={canEdit}
@@ -253,8 +253,7 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="destructive"
-									size="lg"
-									className="h-11"
+									className=""
 									onClick={() => {
 										if (!sessionApi.getState().canEdit) return;
 										const outcome = mutations.inline.removeUserType(role.uuid);
@@ -267,8 +266,7 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="lg"
-									className="h-11"
+									className=""
 									onClick={() => {
 										setConfirmingRemove(false);
 										setRefusal(undefined);
@@ -283,9 +281,8 @@ function RoleRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							size="lg"
 							onClick={() => setConfirmingRemove(true)}
-							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+							className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>
 							Remove role
 						</Button>

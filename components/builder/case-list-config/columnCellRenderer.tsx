@@ -18,7 +18,6 @@
 
 "use client";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
-import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
 	PopoverContent,
@@ -56,11 +55,11 @@ import { XPathDate } from "@/lib/preview/xpath/types";
  * column's `kind` discriminator; each branch handles the
  * authored shape with a best-effort runtime-mirroring format.
  *
- * The exhaustive `switch` forces a branch per kind — adding a
+ * The exhaustive `switch` forces a branch per kind: adding a
  * new column kind to the discriminated union surfaces here as a
  * type error first, not a silent rendering regression.
  *
- * Calculated arm reads `row.calculated[column.uuid]` — the case-
+ * Calculated arm reads `row.calculated[column.uuid]`: the case-
  * store's `query` keys results by the column's uuid (the wire-side
  * stable handle). Other arms read the case property named by
  * `column.field` via the shared display-value helper.
@@ -333,7 +332,7 @@ function unsupportedStoredValue(): PreviewFormattedValue {
  *     IEEE-754 round-tripping)
  *   - **boolean** → JS boolean
  *   - **date** / **timestamptz** → JS Date object (NOT an ISO
- *     string — pg's per-OID deserializer materializes the typed
+ *     string: pg's per-OID deserializer materializes the typed
  *     value)
  *   - **jsonb** → JS object / array (pg's JSONB deserializer
  *     parses the wire payload)
@@ -470,9 +469,9 @@ export function formatDateForPreview(
  * Runtime-aligned interval renderer. Dispatches on the column's
  * `display` discriminator:
  *
- *   - `"always"` — render the integer unit count until the threshold is
+ *   - `"always"`: render the integer unit count until the threshold is
  *     crossed, then replace it with the authored text.
- *   - `"flag"` — render the `text` slot when the interval has
+ *   - `"flag"`: render the `text` slot when the interval has
  *     crossed the threshold; otherwise empty cell.
  *
  * Empty values and future dates intentionally follow the emitted XPath shape.
@@ -504,7 +503,7 @@ export function formatIntervalForPreview(
 	// (commcare-core `DateUtils.roundDate` uses the default-timezone
 	// calendar) and `today()` is the local calendar day. A date-only value
 	// already IS a calendar day; a datetime instant converts to the viewer's
-	// local day first — reading its UTC fields instead would shift the count
+	// local day first: reading its UTC fields instead would shift the count
 	// by one near midnight for non-UTC viewers.
 	const baseDays =
 		parsed.time === null ? parsed.days : localCalendarDate(parsed.time).days;
@@ -542,7 +541,7 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 				<ProjectMediaImage
 					assetId={value.assetId}
 					alt={value.text}
-					className="inline-block size-5 rounded object-cover"
+					className="inline-block size-5 rounded-sm object-cover"
 				/>
 			</SimpleTooltip>
 		);
@@ -559,10 +558,12 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 		<Popover>
 			<PopoverTrigger
 				render={
-					<Button
+					// The value itself is the affordance: a cell reads as its own
+					// text, and a keycap around it would claim the row. The dotted
+					// underline is what says there is more to see.
+					<button
 						type="button"
-						variant="link"
-						className="h-auto min-h-11 min-w-11 max-w-full justify-start whitespace-normal rounded-sm p-0 text-left font-normal text-inherit underline decoration-dotted decoration-nova-text-muted underline-offset-4 [overflow-wrap:anywhere]"
+						className="nova-focusable inline-flex min-h-11 min-w-11 max-w-full cursor-pointer items-center rounded-lg text-left underline decoration-nova-text-muted decoration-dotted [overflow-wrap:anywhere]"
 					/>
 				}
 				aria-label={`${value.text}. More information`}
@@ -583,7 +584,7 @@ function renderEmptyCell(): React.ReactNode {
 	return (
 		<span>
 			<span aria-hidden="true" className="text-nova-text-muted">
-				—
+				–
 			</span>
 			<span className="sr-only">No value</span>
 		</span>

@@ -1,5 +1,5 @@
 /**
- * Account menu — avatar-triggered dropdown with profile, credit balance,
+ * Account menu: avatar-triggered dropdown with profile, credit balance,
  * settings link, and sign-out.
  *
  * The credit summary comes from the shared `useCreditBalance` hook, which
@@ -17,7 +17,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
-import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
 	PopoverContent,
@@ -29,12 +28,13 @@ import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { ASSET_KINDS } from "@/lib/domain/multimedia";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { getInitials } from "@/lib/utils";
 
 /**
  * Credit-gauge gradient. The argument is the fraction of the month's credits
  * still available, so the bar is healthy violet while credits remain and shifts
- * to the amber→rose warning once the balance runs low — under 20% of the
+ * to the amber→rose warning once the balance runs low: under 20% of the
  * month's credits left.
  */
 function getBarGradient(remainingRatio: number): string {
@@ -81,7 +81,7 @@ function UserAvatar({
 		);
 	}
 	return (
-		/* `leading-none` centers the CAPS optically — with the inherited
+		/* `leading-none` centers the CAPS optically: with the inherited
 		 * line-height the line box towers over the glyphs, so flex centers
 		 * the box and the letters ride high of the circle's midline. */
 		<span
@@ -104,12 +104,12 @@ export function AccountMenu({
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
 	/* File-manager dialog open state. The "Files" item opens the same media
-	 * dialog the chat composer uses, but with no pick target — a standalone
+	 * dialog the chat composer uses, but with no pick target: a standalone
 	 * manager for browsing, uploading, previewing, and deleting your files. */
 	const [fileManagerOpen, setFileManagerOpen] = useState(false);
 
-	/* Credit summary via the shared hook. It owns the on-mount fetch — gated by
-	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves — so the
+	/* Credit summary via the shared hook. It owns the on-mount fetch, gated by
+	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves, so the
 	 * dropdown opens instantly with no loading state. `refresh` re-fetches on
 	 * demand for the on-open effect below. */
 	const { summary: usage, refresh } = useCreditBalance(isAuthenticated);
@@ -127,8 +127,8 @@ export function AccountMenu({
 	/* Hold the placeholder until mounted to avoid an SSR/client hydration
 	 * mismatch: the auth client resolves the session synchronously on the client
 	 * (`isPending` false on first paint) while SSR has none (`isPending` true),
-	 * so the server renders the placeholder and the client would render the menu
-	 * — a mismatch React has to discard. Gating the first client render on mount
+	 * so the server renders the placeholder and the client would render the menu:
+	 * a mismatch React has to discard. Gating the first client render on mount
 	 * makes it match the server, then it swaps to the resolved menu. */
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => {
@@ -145,11 +145,11 @@ export function AccountMenu({
 		);
 	}
 
-	/* Session still loading or somehow unauthenticated — nothing to render */
+	/* Session still loading or somehow unauthenticated: nothing to render */
 	if (!isAuthenticated || !user) return null;
 
 	/* The bar is a fuel gauge: full when fresh, depleting as credits are spent.
-	 * Its denominator is the effective monthly total — allowance + bonus, recovered
+	 * Its denominator is the effective monthly total: allowance + bonus, recovered
 	 * as `balance + consumed` (equal by definition) so a bonused user's extra credits
 	 * count toward the total. The ratio is the fraction still available; clamped to
 	 * [0, 1] and guarding divide-by-zero. */
@@ -162,7 +162,7 @@ export function AccountMenu({
 			<Popover open={open} onOpenChange={setOpen}>
 				{/* ── Trigger: avatar or initials ──────────────────────── */}
 				<PopoverTrigger
-					className="flex size-11 items-center justify-center rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+					className="nova-focusable flex size-11 items-center justify-center rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright outline-none"
 					aria-label="Account menu"
 				>
 					<UserAvatar user={user} size="sm" />
@@ -173,7 +173,7 @@ export function AccountMenu({
 					side="bottom"
 					align="end"
 					sideOffset={6}
-					className="w-64 gap-0 p-0"
+					className="w-64 gap-0 p-1"
 				>
 					<PopoverTitle className="sr-only">Account</PopoverTitle>
 					<PopoverDescription className="sr-only">
@@ -181,7 +181,7 @@ export function AccountMenu({
 					</PopoverDescription>
 					<div className="w-full overflow-hidden">
 						{/* ── Profile ────────────────────────────────────── */}
-						<div className="px-4 pt-4 pb-3 flex items-center gap-3">
+						<div className="px-3 pt-3 pb-3 flex items-center gap-3">
 							<UserAvatar user={user} size="md" />
 							<div className="min-w-0">
 								<p className="break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
@@ -195,12 +195,12 @@ export function AccountMenu({
 
 						{/* ── Credit bar ─────────────────────────────────── */}
 						{usage && (
-							<div className="px-4 pb-3">
+							<div className="px-3 pb-3">
 								<div className="flex items-baseline justify-between mb-1.5">
 									<span className="text-[11px] text-nova-text-muted">
 										Credits this month
 									</span>
-									{/* Just the remaining balance — no "/ total", no "credits" word. A
+									{/* Just the remaining balance: no "/ total", no "credits" word. A
 									 * countdown to zero reads fine without the denominator, and dropping the
 									 * trailing text keeps this on one line beside the "Credits this month"
 									 * label instead of wrapping. The bar below still conveys the proportion
@@ -220,55 +220,47 @@ export function AccountMenu({
 						)}
 
 						{/* ── Divider ────────────────────────────────────── */}
-						<div className="border-t border-white/[0.06]" />
+						<div className="mx-2 my-1 border-t border-white/[0.06]" />
 
 						{/* ── Files (file manager) ─────────────────────── */}
-						{/* Opens the media dialog as a standalone manager — the only
+						{/* Opens the media dialog as a standalone manager: the only
 						 *  entry to it outside the chat composer's attach flow. Close
 						 *  the menu first, then open the dialog (a sibling of this
 						 *  Popover, so it outlives the menu). */}
-						<Button
+						<button
 							type="button"
-							variant="ghost"
-							size="xl"
 							onClick={() => {
 								setOpen(false);
 								setFileManagerOpen(true);
 							}}
-							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+							className={POPOVER_ROW_CLS}
 						>
 							<Icon icon={tablerFiles} width="16" height="16" />
 							Files
-						</Button>
+						</button>
 
 						{/* ── Settings link ────────────────────────────── */}
-						<Button
-							render={<Link href="/settings" />}
-							nativeButton={false}
-							role="link"
-							variant="ghost"
-							size="xl"
+						<Link
+							href="/settings"
 							onClick={() => setOpen(false)}
-							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+							className={POPOVER_ROW_CLS}
 						>
 							<Icon icon={tablerSettings} width="16" height="16" />
 							Settings
-						</Button>
+						</Link>
 
 						{/* ── Divider ────────────────────────────────────── */}
-						<div className="border-t border-white/[0.06]" />
+						<div className="mx-2 my-1 border-t border-white/[0.06]" />
 
 						{/* ── Sign out ──────────────────────────────────── */}
 						<div>
-							<Button
+							<button
 								type="button"
-								variant="ghost"
-								size="xl"
 								onClick={() => {
 									signOut();
 									setOpen(false);
 								}}
-								className="w-full justify-start gap-2.5 rounded-t-none rounded-b-xl px-3 text-nova-text-secondary not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.06]"
+								className={`${POPOVER_ROW_CLS} not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose`}
 							>
 								<Icon
 									icon={tablerLogout}
@@ -277,7 +269,7 @@ export function AccountMenu({
 									className="transition-colors"
 								/>
 								Sign out
-							</Button>
+							</button>
 						</div>
 					</div>
 				</PopoverContent>
@@ -285,11 +277,11 @@ export function AccountMenu({
 
 			{/* The file manager opens OUTSIDE the Popover (it portals to body
 			 *  anyway), so it outlives the menu closing on the click that opened it.
-			 *  Omitting onPick puts the dialog in manage mode — all asset kinds,
+			 *  Omitting onPick puts the dialog in manage mode: all asset kinds,
 			 *  browse / preview, plus upload/delete for Project editors, with no
 			 *  carrier to pick into.
 			 *  `iconLibrary="all"` surfaces the built-in icon set here for discovery
-			 *  (browse-only — clicking previews; there's no slot to attach to). */}
+			 *  (browse-only: clicking previews; there's no slot to attach to). */}
 			<MediaPickerDialog
 				open={fileManagerOpen}
 				onOpenChange={setFileManagerOpen}

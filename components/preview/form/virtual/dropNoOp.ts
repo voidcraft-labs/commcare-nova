@@ -3,7 +3,7 @@
  * `onDrop` so it's testable without mounting the hook.
  *
  * A field drop is a no-op when the dragged field would land in the position
- * it already holds — dropped just BEFORE the sibling that already follows it
+ * it already holds: dropped just BEFORE the sibling that already follows it
  * (edge `top`), or just AFTER the sibling that already precedes it (any other
  * edge). Adjacency is measured in `fieldOrder` array position, the same sequence
  * the onDrag placeholder renders.

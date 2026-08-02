@@ -6,8 +6,9 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -80,8 +81,8 @@ interface AppCardProps {
 /**
  * App card for live (non-deleted) rows. Used by the home active list
  * and the admin user-detail page. Each card owns its own delete state
- * (idle → confirming → deleting → unmount-on-success / error → idle)
- * — there is no parent-level orchestration. On a successful delete
+ * (idle → confirming → deleting → unmount-on-success / error → idle):
+ * there is no parent-level orchestration. On a successful delete
  * the Server Action's `revalidatePath` re-runs the parent RSC and the
  * card naturally unmounts when the row drops off the active query.
  *
@@ -101,6 +102,54 @@ export function AppCard({
 	const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
 	const moveTriggerRef = useRef<HTMLButtonElement>(null);
 	const moveTitleRef = useRef<HTMLHeadingElement>(null);
+	const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+	const confirmDeleteRef = useRef<HTMLButtonElement>(null);
+	/* Armed when the confirmation takes focus, consumed when it gives it back.
+	 * The trash control is UNMOUNTED while the confirmation is up, so focusing
+	 * it has to wait for the render that brings it back rather than happening
+	 * in the handler that asked for it. */
+	const restoreDeleteFocusRef = useRef(false);
+
+	/* Backing out of the delete confirmation. `returnFocus` is true when the
+	 * person dismissed it deliberately (Cancel, Escape) and false when they
+	 * simply clicked somewhere else, where pulling focus back to the trash
+	 * would fight whatever they just reached for. */
+	const cancelConfirmDelete = useCallback((returnFocus: boolean) => {
+		if (!returnFocus) restoreDeleteFocusRef.current = false;
+		setCardState((s) => (s.type === "confirmingDelete" ? { type: "idle" } : s));
+	}, []);
+
+	const confirmingDelete = cardState.type === "confirmingDelete";
+	useEffect(() => {
+		if (confirmingDelete || !restoreDeleteFocusRef.current) return;
+		restoreDeleteFocusRef.current = false;
+		deleteTriggerRef.current?.focus();
+	}, [confirmingDelete]);
+
+	/* The confirmation replaces the trash control in place rather than opening
+	 * a dialog, so it has to grow the affordances a dialog owns for free:
+	 * focus lands on the confirm instead of falling to the document body, and
+	 * both Escape and a click anywhere outside back out. Without them the only
+	 * way out of a destructive question is one specific 44px target. */
+	const confirmDeleteClusterRef = useCallback(
+		(node: HTMLSpanElement | null) => {
+			if (!node) return;
+			confirmDeleteRef.current?.focus();
+			const onPointerDown = (event: PointerEvent) => {
+				if (!node.contains(event.target as Node)) cancelConfirmDelete(false);
+			};
+			const onKeyDown = (event: KeyboardEvent) => {
+				if (event.key === "Escape") cancelConfirmDelete(true);
+			};
+			document.addEventListener("pointerdown", onPointerDown, true);
+			document.addEventListener("keydown", onKeyDown);
+			return () => {
+				document.removeEventListener("pointerdown", onPointerDown, true);
+				document.removeEventListener("keydown", onKeyDown);
+			};
+		},
+		[cancelConfirmDelete],
+	);
 
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
@@ -146,7 +195,7 @@ export function AppCard({
 				setCardState({ type: "error", message: result.error });
 			}
 			/* On success the parent RSC re-fetches via the Server Action's
-			 * `revalidatePath` and the row drops out of the active list —
+			 * `revalidatePath` and the row drops out of the active list:
 			 * this card unmounts, so we don't need to clear state here. */
 		} catch {
 			setCardState({
@@ -157,7 +206,11 @@ export function AppCard({
 	};
 
 	const content = (
-		<div className="flex items-center justify-between gap-3">
+		/* Below 480px the status badge and the action controls take more room
+		 * than the name has to give (they squeezed an 8-character title down to
+		 * "Mod…"), so they drop to their own row and the name gets the width
+		 * back. Wider than that the card stays the single row it reads best as. */
+		<div className="flex flex-wrap items-center justify-between gap-3">
 			{app.logo ? (
 				// The app's web-apps logo, denormalized onto the list summary.
 				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
@@ -167,7 +220,7 @@ export function AppCard({
 					className="size-9 rounded-md object-cover shrink-0"
 				/>
 			) : (
-				// Same-size fallback so every title block starts at the same x —
+				// Same-size fallback so every title block starts at the same x:
 				// logo or not, the column stays aligned.
 				<div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-nova-violet/10">
 					<Icon icon={tablerApps} className="size-5 text-nova-violet-bright" />
@@ -180,13 +233,20 @@ export function AppCard({
 				>
 					{app.app_name || "Untitled"}
 				</h3>
-				<p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
+				{/* Each fragment is one phrase, so the row wraps BETWEEN them rather
+				 * than breaking "24m ago" or "2 modules · 2 forms" across lines.
+				 * On a handset there isn't room for both beside the status badge,
+				 * and a metadata line broken mid-phrase reads as damage. */}
+				<p className="text-sm text-nova-text-secondary mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
 					{isFailed ? (
 						<span className="text-nova-rose">Generation failed</span>
 					) : (
 						<>
-							<RelativeTime date={updatedAt} />
-							<span className="text-nova-text-muted">
+							<RelativeTime
+								date={updatedAt}
+								className="whitespace-nowrap first-letter:uppercase"
+							/>
+							<span className="whitespace-nowrap text-nova-text-muted">
 								{app.module_count} module
 								{app.module_count !== 1 ? "s" : ""}
 								{" · "}
@@ -211,32 +271,36 @@ export function AppCard({
 					)}
 				</AnimatePresence>
 			</div>
-			<div className="pointer-events-auto relative z-10 shrink-0 flex items-center gap-2">
+			<div className="pointer-events-auto relative z-10 flex w-full shrink-0 items-center justify-end gap-2 min-[480px]:w-auto">
 				{cardState.type === "confirmingDelete" ? (
-					<>
-						<button
+					<span
+						ref={confirmDeleteClusterRef}
+						className="flex items-center gap-2"
+					>
+						<Button
 							type="button"
+							variant="ghost"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
-								setCardState({ type: "idle" });
+								cancelConfirmDelete(true);
 							}}
-							className="min-h-11 cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 						>
 							Cancel
-						</button>
-						<button
+						</Button>
+						<Button
+							ref={confirmDeleteRef}
 							type="button"
+							variant="destructive"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
 								void handleConfirmDelete();
 							}}
-							className="min-h-11 cursor-pointer rounded-md bg-nova-rose/10 px-3 py-1.5 text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
 						>
 							Confirm delete
-						</button>
-					</>
+						</Button>
+					</span>
 				) : cardState.type === "deleting" || cardState.type === "movingApp" ? (
 					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
 						<Icon
@@ -249,11 +313,7 @@ export function AppCard({
 					</span>
 				) : (
 					<>
-						<span
-							className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}
-						>
-							{style.label}
-						</span>
+						<Badge variant={style.variant}>{style.label}</Badge>
 						{projectMove && !isFailed && (
 							<Popover
 								open={cardState.type === "choosingMoveTarget"}
@@ -261,7 +321,7 @@ export function AppCard({
 									/* Closing abandons the choice. Keeping it would leave the
 									 * next open pre-armed, so a single click on a popover the
 									 * user only meant to read would move the app and all of its
-									 * data — there is no confirmation step after this. */
+									 * data: there is no confirmation step after this. */
 									if (!open) setMoveTargetId(null);
 									setCardState((s) =>
 										open
@@ -276,14 +336,14 @@ export function AppCard({
 									<PopoverTrigger
 										ref={moveTriggerRef}
 										render={
-											<Button type="button" variant="ghost" size="icon-lg" />
+											<Button type="button" variant="ghost" size="icon" />
 										}
 										aria-label={moveLabel}
 										onClick={(e) => {
 											e.preventDefault();
 											e.stopPropagation();
 										}}
-										className="size-12 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
+										className="size-11 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
 									>
 										<Icon
 											icon={tablerBuildingCommunity}
@@ -303,7 +363,7 @@ export function AppCard({
 										<PopoverTitle
 											ref={moveTitleRef}
 											tabIndex={-1}
-											className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-surface"
+											className="nova-focusable rounded-sm outline-none"
 										>
 											Moving between Projects
 										</PopoverTitle>
@@ -327,7 +387,7 @@ export function AppCard({
 												{projectMove.targets.map((target) => (
 													<label
 														key={target.id}
-														className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] has-checked:bg-nova-violet/10 has-focus-visible:ring-2 has-focus-visible:ring-nova-violet-bright/60"
+														className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] has-checked:bg-nova-violet/10 has-focus-visible:shadow-(--focus-ring)"
 													>
 														<input
 															type="radio"
@@ -337,7 +397,7 @@ export function AppCard({
 															onChange={() => setMoveTargetId(target.id)}
 															autoComplete="off"
 															data-1p-ignore
-															className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-nova-border transition-all checked:border-[5px] checked:border-nova-violet-bright focus-visible:outline-none"
+															className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-nova-border transition-all checked:border-[5px] checked:border-nova-violet-bright nova-focusable"
 														/>
 														<span className="flex-1 truncate font-medium">
 															{target.name}
@@ -361,13 +421,18 @@ export function AppCard({
 						{onDelete && (
 							<SimpleTooltip content="Move to recently deleted">
 								<button
+									ref={deleteTriggerRef}
 									type="button"
 									onClick={(e) => {
 										e.preventDefault();
 										e.stopPropagation();
+										/* The confirmation is about to take focus, so whichever
+										 * way it leaves (Cancel, Escape, a refused delete) hands
+										 * focus back here rather than to the document. */
+										restoreDeleteFocusRef.current = true;
 										setCardState({ type: "confirmingDelete" });
 									}}
-									className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
+									className="nova-focusable inline-flex size-11 cursor-pointer items-center justify-center rounded-xl text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
 									aria-label={`Move ${displayName} to recently deleted`}
 								>
 									<Icon icon={tablerTrash} width="18" height="18" />
@@ -399,7 +464,7 @@ export function AppCard({
 					<Link
 						href={openHref}
 						aria-label={`Open ${displayName}`}
-						className="absolute inset-0 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+						className="nova-focusable absolute inset-0 rounded-lg outline-none"
 					/>
 				)}
 				<div className="pointer-events-none relative z-10">{content}</div>

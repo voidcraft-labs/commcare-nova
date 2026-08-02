@@ -1,5 +1,5 @@
 /**
- * dragData helpers — payload factories, narrowing, and the cycle-safety
+ * dragData helpers: payload factories, narrowing, and the cycle-safety
  * helper `isUuidInSubtree`.
  *
  * The cycle test is the most important one: dragging a group onto one of
@@ -80,7 +80,7 @@ describe("targetContainerUuidFor", () => {
 		expect(targetContainerUuidFor(drop, null)).toBe(G(1));
 	});
 
-	// The top-edge case represents "insert before the group" — the
+	// The top-edge case represents "insert before the group": the
 	// landing container is the group's PARENT, not the group itself. Any
 	// caller feeding the return into a cycle check must get the parent
 	// uuid here, otherwise a legal "drop before a group" would get
@@ -132,7 +132,7 @@ describe("isUuidInSubtree", () => {
 	});
 
 	it("returns false when the ancestor has no entry in fieldOrder", () => {
-		// A leaf field has no order entry — everything outside its own
+		// A leaf field has no order entry: everything outside its own
 		// uuid should register as non-descendant.
 		expect(isUuidInSubtree(order, Q(1), G(1))).toBe(false);
 	});

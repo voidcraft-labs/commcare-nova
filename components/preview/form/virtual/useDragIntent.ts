@@ -1,15 +1,15 @@
 /**
- * useDragIntent — drag lifecycle + cursor velocity for the virtualized form.
+ * useDragIntent: drag lifecycle + cursor velocity for the virtualized form.
  *
  * The hook owns everything that VirtualFormList used to carry inline about
  * dragging:
  *
  *   - `dragActive` state (true between `onDragStart` and `onDrop`).
- *   - `placeholderIndex` state — the row index where the synthetic drop
+ *   - `placeholderIndex` state: the row index where the synthetic drop
  *     placeholder is spliced into the rows array. Only changes when the
  *     resolved target changes (not every pixel of cursor motion), so the
  *     virtualizer recalculates a few times per drag at most.
- *   - `placeholderDepth` ref — indentation for the placeholder row,
+ *   - `placeholderDepth` ref: indentation for the placeholder row,
  *     exposed as a plain number at render time.
  *   - The `monitorForElements` registration that runs the full drag
  *     lifecycle (~280 lines: onDragStart, onDrag intent resolution +
@@ -72,7 +72,7 @@ interface UseDragIntentResult {
  * placeholder row and gate insertion-point hover.
  *
  * `formUuid` is accepted for future scoping work even though the current
- * implementation uses a single global monitor — keeping the param keeps
+ * implementation uses a single global monitor: keeping the param keeps
  * the hook's signature ready for a per-form monitor without a breaking
  * change later.
  */
@@ -97,19 +97,19 @@ export function useDragIntent({
 	// second during a drag.
 	const [placeholderIndex, setPlaceholderIndex] = useState<number | null>(null);
 
-	// Dedup ref — the row-index we last set, so `onDrag` (60fps) only
+	// Dedup ref: the row-index we last set, so `onDrag` (60fps) only
 	// calls `setPlaceholderIndex` when the target actually changes.
 	const lastPlaceholderRef = useRef<number | null>(null);
 
-	// Depth of the placeholder — drives indentation. Kept in a ref
+	// Depth of the placeholder: drives indentation. Kept in a ref
 	// because it's read during render via the returned number but only
 	// updated alongside the dedup'd `setPlaceholderIndex` call.
 	const placeholderDepthRef = useRef(0);
 
-	// The dragged item's uuid — used for no-op detection on drop.
+	// The dragged item's uuid: used for no-op detection on drop.
 	const dragSourceUuidRef = useRef<string | null>(null);
 
-	// The resolved drop intent — stored by `onDrag` so `onDrop` can use
+	// The resolved drop intent: stored by `onDrag` so `onDrop` can use
 	// the SAME position the user saw, even if the cursor is over dead
 	// space (the placeholder gap) at drop time.
 	const pendingDropRef = useRef<{
@@ -117,14 +117,14 @@ export function useDragIntent({
 		edge: ReturnType<typeof extractClosestEdge>;
 	} | null>(null);
 
-	// ── Global monitor — drag lifecycle ──────────────────────────────
+	// ── Global monitor: drag lifecycle ──────────────────────────────
 	// `onDragStart` clears selection + enables drag mode.
 	// `onDrag`      computes the placeholder row index from the hovered
-	//               drop target — only fires setState when the index
+	//               drop target: only fires setState when the index
 	//               changes.
 	// `onDrop`      applies the mutation + selects the dropped field.
 	//
-	// Effect deps intentionally exclude `baseRowsRef` — callers mutate
+	// Effect deps intentionally exclude `baseRowsRef`: callers mutate
 	// the ref in-place (not its identity), so depending on it would
 	// force a monitor re-register every time. `docStore` / `moveField`
 	// / `select` come from context + hooks and are stable across
@@ -163,13 +163,13 @@ export function useDragIntent({
 				const drop = readDropTargetData(innermost.data);
 				if (!drop) return;
 
-				// Read the edge early — the group-header branch needs it
+				// Read the edge early: the group-header branch needs it
 				// both to decide placeholder position AND (via the cycle
 				// guard's `targetContainerUuidFor`) to pick the correct
 				// landing container (parent vs group-self).
 				const edge = extractClosestEdge(innermost.data);
 
-				// Cycle guard — no placeholder for illegal drops.
+				// Cycle guard: no placeholder for illegal drops.
 				const targetContainer = targetContainerUuidFor(drop, edge);
 				if (
 					isUuidInSubtree(
@@ -193,7 +193,7 @@ export function useDragIntent({
 				// By targeting the insertion row, we:
 				//   1. Place the placeholder in the natural gap (not
 				//      kissing the field border).
-				//   2. Eliminate edge thrashing — both edges of the
+				//   2. Eliminate edge thrashing: both edges of the
 				//      boundary resolve to the same insertion row index.
 				const br = baseRowsRef.current;
 				let insertionRowIndex = -1;
@@ -220,7 +220,7 @@ export function useDragIntent({
 									}
 								}
 							} else {
-								// "bottom" or null — look forward for the insertion
+								// "bottom" or null: look forward for the insertion
 								// row after this field (skipping group-close, etc.).
 								for (let j = i + 1; j < br.length; j++) {
 									if (br[j].kind === "insertion") {
@@ -306,7 +306,7 @@ export function useDragIntent({
 						if (!r) return false;
 						if (r.kind === "field" && r.uuid === dragUuid) return true;
 						if (r.kind === "group-open" && r.uuid === dragUuid) return true;
-						// group-close trailing a dragged group — the row
+						// group-close trailing a dragged group: the row
 						// before the insertion is the group's close bracket.
 						if (r.kind === "group-close" && r.uuid === dragUuid) return true;
 						return false;
@@ -321,12 +321,12 @@ export function useDragIntent({
 					}
 				}
 
-				// Dedup — only setState when the index changes.
+				// Dedup: only setState when the index changes.
 				if (lastPlaceholderRef.current === insertionRowIndex) return;
 				lastPlaceholderRef.current = insertionRowIndex;
 				placeholderDepthRef.current = insertionDepth;
 				// Stash the resolved drop intent so `onDrop` can use the
-				// same position the user saw — at drop time the cursor may
+				// same position the user saw: at drop time the cursor may
 				// be over the placeholder gap (no drop target), so
 				// re-reading from `location` would fail.
 				pendingDropRef.current = { drop, edge };
@@ -340,7 +340,7 @@ export function useDragIntent({
 				dragSourceUuidRef.current = null;
 				document.body.style.cursor = "";
 
-				// Use the stashed intent from onDrag — at drop time the
+				// Use the stashed intent from onDrag: at drop time the
 				// cursor is likely over the placeholder gap (no drop target),
 				// so re-reading from `location` would find nothing.
 				const pending = pendingDropRef.current;
@@ -351,7 +351,7 @@ export function useDragIntent({
 				const dragUuid = source.data.uuid;
 				const { drop, edge } = pending;
 
-				// Cycle guard — same edge-aware target-container resolution
+				// Cycle guard: same edge-aware target-container resolution
 				// as onDrag, so "drop before a group" doesn't get rejected
 				// for a cycle against the group itself.
 				const targetContainer = targetContainerUuidFor(drop, edge);
@@ -366,7 +366,7 @@ export function useDragIntent({
 				}
 
 				// No-op detection: if the source would land in the same
-				// `fieldOrder` position, skip the mutation entirely — it's a
+				// `fieldOrder` position, skip the mutation entirely: it's a
 				// cancel, not a move.
 				if (drop.kind === "drop-field") {
 					const siblings = orderedFieldUuids(
@@ -398,7 +398,7 @@ export function useDragIntent({
 					case "drop-group-header": {
 						if (drop.uuid === dragUuid) return;
 						// edge === "top" means the user aimed at the gap ABOVE
-						// the group header — insert the source at the parent
+						// the group header: insert the source at the parent
 						// level immediately before the group, not as a child.
 						// Mirrors the drop-field/top branch above.
 						if (edge === "top") {
@@ -441,7 +441,7 @@ export function useDragIntent({
 		dragActive,
 		setDragActive,
 		placeholderIndex,
-		// Expose the depth as a plain number — the shell reads it alongside
+		// Expose the depth as a plain number: the shell reads it alongside
 		// `placeholderIndex`, whose state change drives the render.
 		placeholderDepth: placeholderDepthRef.current,
 	};

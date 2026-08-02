@@ -1,6 +1,6 @@
 /**
  * "Permissions" pill rendered on every settings row that represents
- * a credential — both `<ConnectedApps />` (OAuth grants) and
+ * a credential: both `<ConnectedApps />` (OAuth grants) and
  * `<ApiKeys />` (long-lived bearers). The pill takes a list of
  * granted scopes, runs them through `deriveCapabilities` to
  * translate the raw OAuth tokens into human-readable rows, and
@@ -10,12 +10,12 @@
  * because both surfaces use the same scope vocabulary
  * (`nova.read`, `nova.write`, `nova.hq.read`, `nova.hq.write`,
  * plus the OIDC `profile` / `email` set), and the visual + ARIA
- * shape should stay identical between them — credential rows that
+ * shape should stay identical between them: credential rows that
  * read differently in two corners of the same settings page would
  * train users to think the underlying permission model is
  * different.
  *
- * Suppressed entirely when `deriveCapabilities` returns nothing —
+ * Suppressed entirely when `deriveCapabilities` returns nothing:
  * no hollow pill opening an empty popover. Glass styles live on
  * the positioner per the project-wide `backdrop-filter` +
  * `will-change` constraint (see `lib/styles.ts`).
@@ -67,7 +67,7 @@ export function ScopesPopover({
 				delay={150}
 				closeDelay={120}
 				aria-label={`Permissions granted to ${subjectName}`}
-				className="inline-flex cursor-pointer items-center rounded-md border border-nova-violet/20 bg-nova-violet/[0.08] px-2 py-[2px] text-[11px] font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/40 hover:bg-nova-violet/[0.14] focus-visible:border-nova-violet/40 focus-visible:bg-nova-violet/[0.14] focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+				className="nova-focusable inline-flex cursor-pointer items-center rounded-md border border-nova-violet/20 bg-nova-violet/[0.08] px-2 py-[2px] text-[11px] font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/40 hover:bg-nova-violet/[0.14] focus-visible:bg-nova-violet/[0.14]"
 			>
 				Permissions
 			</Popover.Trigger>
@@ -80,7 +80,7 @@ export function ScopesPopover({
 				>
 					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-64`}>
 						<div className="px-4 pt-3.5 pb-4">
-							<p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-text-muted">
+							<p className="mb-3 text-xs font-medium text-nova-text-muted">
 								This {credentialLabel} can
 							</p>
 							<ul className="space-y-2">

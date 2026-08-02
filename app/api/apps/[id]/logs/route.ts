@@ -1,13 +1,13 @@
 /**
- * App logs API — load generation run logs from the events table.
+ * App logs API: load generation run logs from the events table.
  *
- * GET /api/apps/{id}/logs            — load entries for the latest run
- * GET /api/apps/{id}/logs?runId={id} — load entries for a specific run
+ * GET /api/apps/{id}/logs              load entries for the latest run
+ * GET /api/apps/{id}/logs?runId={id}: load entries for a specific run
  *
  * Both return `{ events: StoredEvent[], runId: string | null }`.
  * When no entries exist, returns `{ entries: [], runId: null }`.
  *
- * Admin-only — logs contain full conversation transcripts that may include
+ * Admin-only: logs contain full conversation transcripts that may include
  * sensitive information. Regular users cannot access logs.
  */
 

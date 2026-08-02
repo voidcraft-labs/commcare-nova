@@ -652,7 +652,7 @@ export function createBlueprintDocStore() {
 						// silently corrupt the counter.
 						if (openBrackets > 0) {
 							throw new Error(
-								"BlueprintDoc.load() called inside an open suppression bracket — reseed via commitDoc instead so the depth counter stays coherent.",
+								"BlueprintDoc.load() called inside an open suppression bracket. Reseed via commitDoc instead so the depth counter stays coherent.",
 							);
 						}
 						// A load replaces the document, so any command still waiting to

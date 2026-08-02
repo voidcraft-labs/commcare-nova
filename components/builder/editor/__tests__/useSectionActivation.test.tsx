@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 /**
- * useSectionActivation — tests for the activation lifecycle bundled
+ * useSectionActivation: tests for the activation lifecycle bundled
  * with the section's partition.
  *
  * The hook owns three rules the section consumes:
@@ -22,7 +22,7 @@ import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { proseText } from "@/lib/domain/prose";
 import { useSectionActivation } from "../useSectionActivation";
 
-// Trivial stub component — only its identity matters for the partition.
+// Trivial stub component: only its identity matters for the partition.
 const StubComponent = () => null;
 
 const FIELD_UUID = testUuid("q-section-act-0000-0000-0000-000000000000");
@@ -101,7 +101,7 @@ describe("useSectionActivation — pendingSatisfied effect (value lands)", () =>
 		rerender();
 		expect(result.current.visible[0].autoFocus).toBe(true);
 
-		// 2. Value lands by some path (LLM, undo, user typing — all flow
+		// 2. Value lands by some path (LLM, undo, user typing: all flow
 		//    through the same independentlyVisible flip).
 		field = { ...baseField, hint: proseText("typed value") };
 		rerender();
@@ -115,7 +115,7 @@ describe("useSectionActivation — pendingSatisfied effect (value lands)", () =>
 	});
 
 	it("does not clear activation while the value is still missing", () => {
-		// User clicked the pill but nothing has landed yet — pending must
+		// User clicked the pill but nothing has landed yet: pending must
 		// stay true so the editor keeps autoFocus on subsequent renders.
 		const entries = [entry({ visible: () => false, addable: true })];
 		const { result, rerender } = renderHook(() =>
@@ -123,7 +123,7 @@ describe("useSectionActivation — pendingSatisfied effect (value lands)", () =>
 		);
 		act(() => result.current.activate("hint"));
 		rerender();
-		// Re-render with no field change — predicate still falsy, pending
+		// Re-render with no field change: predicate still falsy, pending
 		// must stay true.
 		rerender();
 		expect(result.current.visible[0].autoFocus).toBe(true);
@@ -146,7 +146,7 @@ describe("useSectionActivation — onCommit (empty-commit clear)", () => {
 		rerender();
 		expect(result.current.visible).toHaveLength(1);
 
-		// User commits empty — onCommit should clear pending immediately.
+		// User commits empty: onCommit should clear pending immediately.
 		act(() => result.current.onCommit("hint", undefined));
 		rerender();
 		expect(result.current.visible).toHaveLength(0);

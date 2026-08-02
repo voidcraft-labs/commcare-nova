@@ -1,15 +1,15 @@
 /**
- * ProjectDataWorkspace — the URL-owned workspace for the Project's shared
+ * ProjectDataWorkspace: the URL-owned workspace for the Project's shared
  * data tables (`/build/{appId}/project-data[/{tableId}]`).
  *
  * It sits deliberately outside the structure tree. The tree represents the
- * runnable app — modules, case lists, forms — and a lookup table is none of
+ * runnable app: modules, case lists, forms, and a lookup table is none of
  * those: it belongs to the PROJECT, is shared by every app in it, and
  * outlives any one of them. Preview therefore has nothing to run from this
  * URL and leaves for the app home (`usePreviewModeTransition`).
  *
  * The shell is a fixed, non-scrolling identity strip over an independently
- * scrolling body — the same shape the case workspace's tabs and the App setup
+ * scrolling body: the same shape the case workspace's tabs and the App setup
  * sections use, so the configuration workspaces feel like one system. The
  * strip is where the sharing consequence is stated, and it is stated on every
  * screen rather than once at the door: an author who deep-links to a table

@@ -1,5 +1,5 @@
 /**
- * The resumable chat-stream route against a real Postgres testcontainer —
+ * The resumable chat-stream route against a real Postgres testcontainer:
  * the server half of the WorkflowChatTransport contract, driven end-to-end
  * through the REAL chunk log + LISTEN/NOTIFY.
  *
@@ -12,7 +12,7 @@
  *     tail rides back in `x-workflow-stream-tail-index` (the transport's
  *     retry math).
  *   - LIVE tail: chunks appended AFTER the stream opened arrive via the
- *     `nova_chat_stream` poke — end-to-end NOTIFY delivery.
+ *     `nova_chat_stream` poke: end-to-end NOTIFY delivery.
  *   - The `DurableStreamWriter` → route round trip: what the chat POST's
  *     writer logs is exactly what a resume replays, synthetic finish
  *     included.
@@ -29,7 +29,7 @@
  *     thread is 404.
  *
  * Auth (`requireSession` / `getSessionSafe` / `resolveAppScope` /
- * `isUserActive`) is mocked exactly like the app relay's suite — the chunk
+ * `isUserActive`) is mocked exactly like the app relay's suite, the chunk
  * log, the LISTEN path, and the route's own replay/tail/fallback logic are
  * the code under test.
  */
@@ -57,7 +57,7 @@ const {
 	isUserActiveMock: vi.fn(),
 }));
 
-/* A real `AppAccessError` shape — the route revokes only on this class. */
+/* A real `AppAccessError` shape: the route revokes only on this class. */
 class MockAppAccessError extends Error {
 	readonly name = "AppAccessError";
 	constructor(readonly reason: string) {
@@ -81,7 +81,7 @@ vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleForInTransaction: vi.fn(async () => "editor"),
 }));
 
-/* Module-load cadence — set BEFORE the dynamic import so the fallback and
+/* Module-load cadence: set BEFORE the dynamic import so the fallback and
  * revocation tests observe their close in milliseconds, not the prod ~10 s. */
 process.env.NOVA_CHAT_STREAM_CADENCE_MS = "150";
 
@@ -165,7 +165,7 @@ function parseFrames(raw: string): Frame[] {
  * Open the resume stream and collect frames until the SERVER closes it (or
  * the deadline aborts). Every route outcome under test ends in a server-side
  * teardown, so `ended` distinguishes a real close from the deadline abort.
- * The deadline aborts `req.signal` so the pending read resolves `done` —
+ * The deadline aborts `req.signal` so the pending read resolves `done`:
  * never a read raced against a timer.
  */
 async function collectUntil(
@@ -325,7 +325,7 @@ describe("live tail", () => {
 
 		const { frames, ended } = await collectUntil("s4", {
 			onOpen: async () => {
-				// The real append path — INSERT + pg_notify on the per-test DB.
+				// The real append path: INSERT + pg_notify on the per-test DB.
 				await appendStreamChunks({
 					streamId: "s4",
 					appId: "app-1",
@@ -359,7 +359,7 @@ describe("live tail", () => {
 			transient: true,
 		});
 		writer.write(delta(0) as never);
-		// No explicit finish — an error-terminated POST; close() synthesizes it.
+		// No explicit finish: an error-terminated POST; close() synthesizes it.
 		await writer.close();
 
 		const { frames } = await collectUntil("s5", {});
@@ -523,7 +523,7 @@ describe("dead-run fallback", () => {
 			},
 			timeoutMs: 5_000,
 		});
-		// Exactly one finish — the appended one, no premature synthetic.
+		// Exactly one finish: the appended one, no premature synthetic.
 		expect(frames).toEqual([delta(0), delta(1), { type: "finish" }, "[DONE]"]);
 	});
 });
@@ -536,7 +536,7 @@ describe("auth posture", () => {
 			{ params: Promise.resolve({ streamId: "nope" }) },
 		);
 		expect(res.status).toBe(404);
-		// Drain the JSON body — an unread `NextResponse.json` stream is an
+		// Drain the JSON body: an unread `NextResponse.json` stream is an
 		// async resource the leak gate flags.
 		await res.text();
 	});
@@ -569,7 +569,7 @@ describe("auth posture", () => {
 		const { frames, ended } = await collectUntil("s9", {
 			timeoutMs: 3_000,
 		});
-		// Closed WITHOUT [DONE] — a revoked tail is not a completed stream.
+		// Closed WITHOUT [DONE]: a revoked tail is not a completed stream.
 		expect(ended).toBe(true);
 		expect(frames).toEqual([delta(0)]);
 	});
@@ -578,7 +578,7 @@ describe("auth posture", () => {
 describe("append idempotency", () => {
 	it("converges a retried append of the same (stream, firstIndex) batch instead of raising", async () => {
 		// The writer's in-chain retry can re-send a batch whose INSERT actually
-		// committed (lost ack, or a failed advisory poke on the first call) —
+		// committed (lost ack, or a failed advisory poke on the first call):
 		// the duplicate must be a no-op, not a PK violation that marks the
 		// stream broken.
 		const batch = {
@@ -635,7 +635,7 @@ describe("thread resolution", () => {
 			messages: [{ id: "m1", role: "user", parts: [] }],
 			expectedProjectId: PROJECT,
 		});
-		/* Finalize cleared the marker — nothing to resume. The reply must be a
+		/* Finalize cleared the marker: nothing to resume. The reply must be a
 		 * 200 that terminates on its first chunk: the transport ERRORS on any
 		 * non-OK response (it has no null arm on this class). */
 		await appendThreadResponse({

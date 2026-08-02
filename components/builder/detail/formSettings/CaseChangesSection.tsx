@@ -6,7 +6,7 @@
 // the fact an author is looking for: "this form changes three cases" is
 // the answer to "what does submitting this do?", and zero is a real,
 // ordinary answer (a survey changes nothing). Editing is a screen
-// change, not a popover — an ordered list with reorder and per-change
+// change, not a popover: an ordered list with reorder and per-change
 // editors does not fit here, which is the same reason the display
 // condition hands off to its own URL.
 
@@ -25,7 +25,7 @@ export function CaseChangesSection({
 	formUuid,
 	onNavigateAway,
 }: FormSettingsSectionProps & {
-	/** Dismiss the settings popover that hosts this row — opening the
+	/** Dismiss the settings popover that hosts this row: opening the
 	 *  screen is a navigation, and the popover's open state would
 	 *  otherwise survive it. */
 	readonly onNavigateAway?: () => void;
@@ -51,7 +51,6 @@ export function CaseChangesSection({
 			<Button
 				type="button"
 				variant="outline"
-				size="xl"
 				onClick={() => {
 					onNavigateAway?.();
 					navigate.openFormOperations(moduleUuid, formUuid);

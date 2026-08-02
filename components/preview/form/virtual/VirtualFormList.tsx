@@ -1,12 +1,12 @@
 /**
- * VirtualFormList — virtualized flat-row renderer for edit-mode forms.
+ * VirtualFormList: virtualized flat-row renderer for edit-mode forms.
  *
  * Performance model: only rows in the visible range (plus overscan +
  * the pinned selected row) are mounted, which turns the form-open mount
  * storm from `O(fields)` components into `O(viewport)` components.
  *
  * Drag-and-drop uses pragmatic-drag-and-drop (browser-native drag).
- * The row list stays completely stable during a drag — no array
+ * The row list stays completely stable during a drag: no array
  * reordering, no preview order, no virtualizer recalculation. When the
  * cursor resolves to an insertion row, that row is REPLACED in place
  * with a taller `drop-placeholder` row (dashed violet outline). Row
@@ -96,7 +96,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// outside the component. We restore it through the virtualizer's OWN
 	// scroll-restoration API: `initialOffset` (the px offset) +
 	// `initialMeasurementsCache` (the measured row heights). Both are applied
-	// at creation, inside the virtualizer's layout effect — no rAF, no
+	// at creation, inside the virtualizer's layout effect: no rAF, no
 	// after-mount nudge to be stomped back to 0, and no estimate drift,
 	// because the restored instance already knows every row's real height.
 	// Read once at creation; later reads are ignored by the virtualizer.
@@ -164,7 +164,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-	/** Height for the placeholder row — matches a typical field. */
+	/** Height for the placeholder row: matches a typical field. */
 	const DROP_PLACEHOLDER_HEIGHT_PX = 60;
 
 	const estimateSize = useCallback(
@@ -232,7 +232,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// ── Save scroll state on unmount (restored above) ────────────────
 	// Snapshot the virtualizer's offset + measured rows for this form so the
 	// next mount restores the exact position. We read the VIRTUALIZER's own
-	// state (`scrollOffset` / `measurementsCache`), never `el.scrollTop` —
+	// state (`scrollOffset` / `measurementsCache`), never `el.scrollTop`:
 	// this passive cleanup runs after React detaches the DOM node, where
 	// `scrollTop` would read 0. The virtualizer instance is still intact here
 	// (its own effects tear down after this one). Copy the cache so the next
@@ -254,7 +254,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		[],
 	);
 	// The insertion location the picker is open for right now (null when
-	// closed) — reported by the popup from inside Menu.Popup, whose mount IS
+	// closed): reported by the popup from inside Menu.Popup, whose mount IS
 	// the open lifetime. The anchor InsertionPoint pins its line while this
 	// matches it.
 	const [activeInsertTarget, setActiveInsertTarget] =
@@ -344,7 +344,7 @@ const RenderRow = memo(function RenderRow({
 	row,
 	disableInsertion,
 }: RenderRowProps) {
-	/* Group nesting rails — left/right borders at each ancestor group's
+	/* Group nesting rails: left/right borders at each ancestor group's
 	 * depth connecting the group-open and group-close brackets into a
 	 * continuous visual box. Inside the memo so scroll-driven re-renders
 	 * of the virtualizer don't rebuild the rail elements. */
@@ -422,12 +422,12 @@ const RenderRow = memo(function RenderRow({
  * group (depths 0 through d−1). Each rail aligns its left AND right
  * edges with the ancestor bracket's own borders (both at
  * `depthPadding(i)` from the respective form edge) so every nested
- * group is symmetrically inset from its parent — children never kiss
+ * group is symmetrically inset from its parent: children never kiss
  * the parent's right border the way they did when the right pin was
  * fixed at `depthPadding(0)`.
  *
  * Rails render BEFORE the row content in the DOM, so they paint behind
- * it — field cards, insertion lines, and bracket decorations all sit
+ * it: field cards, insertion lines, and bracket decorations all sit
  * above the rails in the stacking order.
  */
 function GroupNestingRails({ depth }: { depth: number }) {
@@ -452,7 +452,7 @@ function GroupNestingRails({ depth }: { depth: number }) {
 /**
  * The visible gap that opens at the drop position during drag. Registered
  * as a `dropTargetForElements` so the browser accepts the native drop
- * (calls `preventDefault` on `dragover`) — without this, the browser
+ * (calls `preventDefault` on `dragover`): without this, the browser
  * rejects the drop, plays its snap-back animation, and THEN our monitor
  * fires the mutation, producing a jarring delay.
  */
@@ -464,7 +464,7 @@ function DropPlaceholderRow({ depth }: { depth: number }) {
 		if (!el) return;
 		return dropTargetForElements({
 			element: el,
-			// Accept anything — the monitor handles the actual mutation.
+			// Accept anything: the monitor handles the actual mutation.
 			getData: () => ({ kind: "drop-placeholder" }),
 		});
 	}, []);

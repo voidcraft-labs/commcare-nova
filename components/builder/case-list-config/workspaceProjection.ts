@@ -14,7 +14,7 @@ import { type CaseListConfig, type Column, orderedColumns } from "@/lib/domain";
 export type CaseDisplaySurface = "list" | "detail";
 
 export interface CaseWorkspaceColumnProjection {
-	/** Every definition, in the Results sequence — the add-menu's recovery list. */
+	/** Every definition, in the Results sequence: the add-menu's recovery list. */
 	readonly ordered: readonly Column[];
 	readonly listVisible: readonly Column[];
 	/** Definitions available to add to Results. */
@@ -67,7 +67,7 @@ export function projectCaseWorkspaceColumns(
 
 /**
  * Hide one definition from a user-facing screen. The definition always stays in
- * the document — and keeps its place in that screen's sequence — so the author
+ * the document, and keeps its place in that screen's sequence, so the author
  * can restore it through Add information. Nova treats visibility as a
  * reversible presentation choice, never as deletion.
  */

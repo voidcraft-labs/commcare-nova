@@ -1,7 +1,7 @@
 // components/preview/shared/useColumnDisplayContext.ts
 //
 // The display context every running case-list surface projects its cells
-// through — the Results list, the Quick Filter that has to match what
+// through: the Results list, the Quick Filter that has to match what
 // those cells say, and the tile pinned above a module's forms. One
 // derivation, so option labels, calculated temporal semantics, and the
 // current day can never differ between two surfaces showing one case.

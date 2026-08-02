@@ -123,15 +123,11 @@ describe("dialog viewport containment", () => {
 		);
 		await settleBaseUiMount();
 
-		const footer = document.querySelector<HTMLElement>(
-			'[data-slot="dialog-footer"]',
-		);
-		expect(footer?.className).toContain(
-			"[&_[data-slot=dialog-close]]:min-h-11",
-		);
-		expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined();
-		expect(
-			screen.getByRole("button", { name: "Use connection" }),
-		).toBeDefined();
+		/* The 44px floor lives on the Button itself now: every rendered
+		 *  footer action is the one 44px control. */
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		expect(cancel.className).toContain("h-11");
+		const primary = screen.getByRole("button", { name: "Use connection" });
+		expect(primary.className).toContain("h-11");
 	});
 });

@@ -163,7 +163,7 @@ export function CaseDataManager({
 	 * remains after the conversion toast dies) and the popover's review
 	 * section. Both derive from the same list the review screen renders,
 	 * so one invalidation refreshes every surface. At zero active
-	 * entries neither renders — no empty-state noise. */
+	 * entries neither renders: no empty-state noise. */
 	const { state: parkedState } = useParkedValues({
 		appId,
 		caseType: caseType.name,
@@ -265,12 +265,15 @@ export function CaseDataManager({
 
 	const count = countState.kind === "count" ? countState.count : undefined;
 	const caseTypeDisplayName = humanizeId(caseType.name) || "Case";
+	/* No ellipsis: this is a button's own label, where the design system asks
+	 * for the bare word and lets the spinner or the status row carry progress.
+	 * Standalone in-progress status text is the one place the ellipsis lives. */
 	const triggerSummary =
 		count !== undefined
 			? caseLabel(count)
 			: countState.kind === "error" || countState.kind === "unauthenticated"
 				? "Unavailable"
-				: "Loading…";
+				: "Loading";
 	const triggerCountStatus =
 		count !== undefined
 			? `${caseLabel(count)}${fetching ? ", refreshing" : ""}`
@@ -381,9 +384,9 @@ export function CaseDataManager({
 			>
 				<PopoverTrigger
 					ref={triggerRef}
-					render={<Button type="button" variant="outline" size="xl" />}
+					render={<Button type="button" variant="outline" />}
 					aria-label={triggerLabel}
-					className="relative min-h-11 shrink-0 gap-2 rounded-lg border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
+					className="relative min-h-11 shrink-0 gap-2 rounded-xl border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
 				>
 					<Icon icon={tablerDatabase} width="16" height="16" />
 					<span className="inline-flex items-center gap-2">
@@ -407,7 +410,7 @@ export function CaseDataManager({
 							aria-label="Refreshing case count…"
 						/>
 					)}
-					{/* The durable discovery signal — outlives the conversion
+					{/* The durable discovery signal: outlives the conversion
 					 * toast, clears when no undismissed entries remain. Amber:
 					 * the warning hue, never rose (nothing failed; values are
 					 * waiting). */}
@@ -443,7 +446,7 @@ export function CaseDataManager({
 						<PopoverTitle
 							ref={popoverTitleRef}
 							tabIndex={operation === "create" ? 0 : -1}
-							className="font-display text-base font-semibold text-nova-text outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+							className="nova-focusable font-display tracking-tighter text-base font-semibold text-nova-text outline-none"
 						>
 							Case data
 						</PopoverTitle>
@@ -493,7 +496,7 @@ export function CaseDataManager({
 						</p>
 					)}
 
-					{/* Review section — news first, between the header and the
+					{/* Review section: news first, between the header and the
 					 * count block, so the popover's existing jobs stay
 					 * untouched. Renders only while undismissed entries exist. */}
 					{activeParked.length > 0 && moduleUuid !== undefined && (
@@ -519,10 +522,10 @@ export function CaseDataManager({
 							<Button
 								type="button"
 								variant="outline"
-								className="mt-2.5 min-h-11 w-full"
+								className="mt-2.5 w-full"
 								onClick={() => {
 									setPopoverOpen(false);
-									// The review screen is an edit surface — in preview the
+									// The review screen is an edit surface: in preview the
 									// data-review URL renders the running case list, so the
 									// press would look like a no-op. Leave preview first.
 									setPreviewing(false);
@@ -551,7 +554,7 @@ export function CaseDataManager({
 						<Button
 							type="button"
 							variant="outline"
-							className="mt-3 min-h-11 w-full"
+							className="mt-3 w-full"
 							onClick={() => {
 								setPopoverOpen(false);
 								setPropertiesOpen(true);
@@ -601,7 +604,7 @@ export function CaseDataManager({
 										<Button
 											type="button"
 											variant="outline"
-											className="mt-4 min-h-11 w-full"
+											className="mt-4 w-full"
 											disabled={loading}
 											onClick={() => void createSamples()}
 										>
@@ -623,7 +626,7 @@ export function CaseDataManager({
 										<Button
 											type="button"
 											variant="destructive"
-											className="mt-4 min-h-11 w-full"
+											className="mt-4 w-full"
 											disabled={loading}
 											onClick={() => {
 												setError(null);
@@ -655,7 +658,7 @@ export function CaseDataManager({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-3 min-h-11"
+									className="mt-3"
 									onClick={() => void retryCount()}
 								>
 									<Icon icon={tablerRefresh} />
@@ -671,7 +674,7 @@ export function CaseDataManager({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-3 min-h-11"
+									className="mt-3"
 									onClick={() => window.location.reload()}
 								>
 									<Icon icon={tablerRefresh} />
@@ -728,7 +731,7 @@ export function CaseDataManager({
 						<AlertDialogTitle
 							ref={confirmTitleRef}
 							tabIndex={operation === "replace" ? 0 : -1}
-							className="font-display outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+							className="nova-focusable font-display tracking-tighter outline-none"
 						>
 							Replace all {caseLabel(count ?? 0)}?
 						</AlertDialogTitle>

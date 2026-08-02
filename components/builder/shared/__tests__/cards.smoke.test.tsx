@@ -70,7 +70,7 @@ const ctx: PredicateEditContext = {
 
 const allKinds = Object.keys(predicateCardSchemas) as Predicate["kind"][];
 
-// ── Round-trip parsing — every default is schema-valid AST ─────────────
+// ── Round-trip parsing: every default is schema-valid AST ─────────────
 
 describe("cards smoke — defaultValue parses through predicateSchema", () => {
 	for (const kind of allKinds) {
@@ -81,7 +81,7 @@ describe("cards smoke — defaultValue parses through predicateSchema", () => {
 	}
 });
 
-// ── Mount-and-render — every card mounts without throwing ──────────────
+// ── Mount-and-render: every card mounts without throwing ──────────────
 
 describe("cards smoke — mount via PredicateCardEditor", () => {
 	for (const kind of allKinds) {
@@ -100,7 +100,7 @@ describe("cards smoke — mount via PredicateCardEditor", () => {
 					/>
 				</BlueprintDocProvider>,
 			);
-			// One element in the container — the predicate card —
+			// One element in the container: the predicate card:
 			// confirms render landed without throwing.
 			expect(container.firstElementChild).not.toBeNull();
 		});

@@ -18,8 +18,8 @@ export const novaXPathTheme = createTheme({
 		background: "transparent",
 		foreground: "#bebcdc", // lavender-200 — base code color
 		caret: "#b6b4e4", // periwinkle-200
-		selection: "rgba(139, 92, 246, 0.2)",
-		selectionMatch: "rgba(139, 92, 246, 0.1)",
+		selection: "rgba(150, 120, 242, 0.2)",
+		selectionMatch: "rgba(150, 120, 242, 0.1)",
 		lineHighlight: "transparent",
 		gutterBackground: "transparent",
 		gutterForeground: "transparent",
@@ -71,8 +71,8 @@ export const novaAutocompleteTheme = EditorView.theme({
 		zIndex: "200",
 	},
 	".cm-tooltip-autocomplete": {
-		background: "#0f0c27", // deep-navy-900
-		border: "1px solid rgba(139, 92, 246, 0.2)",
+		background: "var(--nova-overlay)", // near-opaque plum floating tier
+		border: "1px solid var(--nova-border)",
 		borderRadius: "8px",
 		boxShadow: "0 4px 20px rgba(0, 0, 0, 0.5)",
 		fontFamily: "var(--font-nova-mono)",
@@ -86,7 +86,7 @@ export const novaAutocompleteTheme = EditorView.theme({
 		color: "#dfdeed", // lavender-100
 	},
 	".cm-tooltip-autocomplete > ul > li[aria-selected]": {
-		background: "rgba(139, 92, 246, 0.15)",
+		background: "rgba(150, 120, 242, 0.15)",
 		color: "#efeef6", // lavender-50
 	},
 	".cm-completionDetail": {
@@ -103,8 +103,8 @@ export const novaAutocompleteTheme = EditorView.theme({
 	".cm-completionIcon-variable::after": { color: "#928fd6" }, // periwinkle-300
 	".cm-completionIcon-namespace::after": { color: "#b6b4e4" }, // periwinkle-200
 	".cm-snippet-field": {
-		background: "rgba(139, 92, 246, 0.12)",
-		border: "1px solid rgba(139, 92, 246, 0.25)",
+		background: "rgba(150, 120, 242, 0.12)",
+		border: "1px solid rgba(150, 120, 242, 0.25)",
 		borderRadius: "2px",
 	},
 });

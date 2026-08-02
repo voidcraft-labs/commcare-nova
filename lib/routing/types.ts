@@ -46,7 +46,7 @@ export const PROJECT_DATA_LABEL = "Project data";
  * author happens to have open.
  */
 export const PROJECT_DATA_SHARED_NOTICE =
-	"These tables are shared with every app in this project. A change here affects all of them.";
+	"These tables are shared with every app in this Project. A change here affects all of them.";
 
 /**
  * The App setup workspace's sections, in the order they appear.
@@ -61,7 +61,7 @@ export const APP_SETUP_SECTIONS = [
 	"users",
 	"organization",
 	"automations",
-	"deployment",
+	"publishing",
 ] as const;
 export type AppSetupSection = (typeof APP_SETUP_SECTIONS)[number];
 
@@ -76,10 +76,10 @@ export const DEFAULT_APP_SETUP_SECTION: AppSetupSection = "users";
 export const APP_SETUP_SECTION_LABELS: Readonly<
 	Record<AppSetupSection, string>
 > = {
-	users: "Users & personas",
+	users: "Users and personas",
 	organization: "Organization",
 	automations: "Automations",
-	deployment: "Deployment",
+	publishing: "Publishing",
 };
 
 /** The workspace's own name, wherever it is referred to as a whole. */

@@ -1,7 +1,7 @@
 // components/builder/shared/ClearConditionButton.tsx
 //
 // Removing a condition is authored work leaving the app, and it changes
-// who is offered the thing it guards — so it is confirmed before it
+// who is offered the thing it guards, so it is confirmed before it
 // commits, wherever it is offered. Sharing the control is what keeps
 // that true: the same words on the settings row and on the condition
 // screen, rather than one surface asking and the other not.
@@ -30,7 +30,7 @@ export interface ClearConditionButtonProps {
 	readonly consequence: string;
 	readonly onConfirm: () => void;
 	readonly disabled?: boolean;
-	/** Where focus lands after the dialog closes — normally whatever
+	/** Where focus lands after the dialog closes: normally whatever
 	 *  control replaces this one once the condition is gone. */
 	readonly finalFocus?: () => HTMLElement | null;
 	readonly className?: string;
@@ -53,7 +53,6 @@ export function ClearConditionButton({
 				ref={triggerRef}
 				type="button"
 				variant="destructive"
-				size="xl"
 				disabled={disabled}
 				onClick={() => setConfirming(true)}
 				className={`shrink-0 px-3 text-[14px] ${className}`}

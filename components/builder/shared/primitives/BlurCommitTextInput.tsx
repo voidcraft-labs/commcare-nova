@@ -1,7 +1,7 @@
 // components/builder/shared/primitives/BlurCommitTextInput.tsx
 //
 // Canonical blur-commit text primitive used by every text slot in
-// the builder's section editors — column header inputs, id-mapping
+// the builder's section editors: column header inputs, id-mapping
 // table cells, interval `text` labels, search-input name + label
 // rows. The draft / commit handshake:
 //
@@ -13,7 +13,7 @@
 //     parent converts the string into the AST shape it wants. Escape
 //     reverts the draft to the last committed value.
 //   - The draft re-syncs to the external `value` only when the
-//     input itself is NOT focused — comparing the input's own ref
+//     input itself is NOT focused: comparing the input's own ref
 //     against `document.activeElement` (rather than a tag-only
 //     check) keeps a peer input's focus from blocking a re-sync of
 //     this one.
@@ -38,7 +38,7 @@ interface BlurCommitTextInputProps {
 	 * Render the input with `font-mono` for code-shaped values. The
 	 * monospace class is the only visual difference between the
 	 * column-header input (variable-width text) and the id-mapping
-	 * value cell (a wire-form code) — sharing the rest of the
+	 * value cell (a wire-form code): sharing the rest of the
 	 * chrome keeps polish-passes on padding / border / focus ring
 	 * applied uniformly.
 	 */
@@ -48,7 +48,7 @@ interface BlurCommitTextInputProps {
 /**
  * Blur-committed text input. Local draft state, no commit until
  * blur, no-op gate on unchanged text. The variants vary only on
- * `font-mono` — every other class is identical, so a polish-pass
+ * `font-mono`: every other class is identical, so a polish-pass
  * fix lands in one place.
  */
 export function BlurCommitTextInput({
@@ -69,7 +69,7 @@ export function BlurCommitTextInput({
 		if (draft === value) return;
 		onCommit(draft);
 	}, [draft, value, onCommit]);
-	/* Enter commits and Escape reverts — the same keyboard contract
+	/* Enter commits and Escape reverts: the same keyboard contract
 	 * `useCommitField` gives every other text slot in the builder, so
 	 * one input never feels different from its neighbors. Both stop
 	 * propagation so the workspace-level Escape (close inspector) and
@@ -90,7 +90,7 @@ export function BlurCommitTextInput({
 		[commit, value],
 	);
 	const cls = [
-		"h-auto min-h-11 w-full rounded-lg border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 md:text-sm dark:bg-nova-deep/50",
+		"nova-focusable h-auto min-h-11 w-full rounded-lg border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50",
 		monospace ? "font-mono" : "",
 	]
 		.filter(Boolean)

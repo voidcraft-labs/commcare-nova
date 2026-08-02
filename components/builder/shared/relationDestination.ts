@@ -3,7 +3,7 @@
 // Shared destination-case-type resolver for cards that mount an
 // inner `where` predicate against a relation walk's destination
 // scope. Used by every card whose AST shape is
-// `{ via: RelationPath, where?: Predicate }` — `ExistsCard` (the
+// `{ via: RelationPath, where?: Predicate }`, `ExistsCard` (the
 // boolean-side `exists` / `missing` cards) and `CountCard` (the
 // expression-side `count` card). Future relational cards (subcase
 // member-of operators, aggregation arms) pick this up for free.
@@ -13,12 +13,12 @@
 // returns the destination case-type name when the walk resolves
 // against the schema, or `undefined` when the walk is structurally
 // unresolvable. The unresolvable branch is the editor's "render
-// the inline hint" signal — the surrounding card surfaces the
+// the inline hint" signal: the surrounding card surfaces the
 // type-checker error inline via the validity index.
 
 import type { RelationPath } from "@/lib/domain/predicate";
 
-/** A subset of `CaseType` shape — every consumer's `caseTypes`
+/** A subset of `CaseType` shape: every consumer's `caseTypes`
  *  array satisfies it. Keeping the parameter type minimal means
  *  cards don't have to widen their imported `CaseType` shape just
  *  to pass it here. */
@@ -34,19 +34,19 @@ export interface RelationDestinationCaseType {
  * against the current schema (the surrounding card surfaces the
  * error inline via the type checker's verdict). Branches:
  *
- *   - `self` — no traversal; the destination is the origin. The
+ *   - `self`: no traversal; the destination is the origin. The
  *     type checker rejects `exists(via: self)` / `missing(via: self)`
  *     as meaningless quantifiers. `count(via: self)` and property
  *     refs via self are valid and remain in the current scope.
- *   - `ancestor` — multi-hop walk along `parent_type` chains. Each
+ *   - `ancestor`: multi-hop walk along `parent_type` chains. Each
  *     hop's `throughCaseType` qualifier is NOT consulted here; the
  *     type checker reports any structural mismatch and the editor
  *     falls back to the resolved parent so the where clause stays
  *     renderable.
- *   - `subcase` — the canonical `parent` index resolves through child types.
- *   - `any-relation` — the canonical `parent` index resolves through the
+ *   - `subcase`: the canonical `parent` index resolves through child types.
+ *   - `any-relation`: the canonical `parent` index resolves through the
  *     union of the origin's parent and children.
- *   - custom index names — Nova has no relationship metadata to infer their
+ *   - custom index names: Nova has no relationship metadata to infer their
  *     direction, so only an explicit declared destination resolves.
  */
 export function resolveRelationDestination(

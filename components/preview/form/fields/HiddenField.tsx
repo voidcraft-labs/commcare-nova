@@ -10,7 +10,7 @@ import { ExpressionContent } from "@/lib/references/ExpressionContent";
 
 /**
  * Edit-mode-only representation of a hidden field. These have no label or
- * visible input — they're system-level values driven by calculate expressions
+ * visible input: they're system-level values driven by calculate expressions
  * or static defaults. The card shows the field ID as the primary identifier
  * and surfaces any calculate/default expressions with dimmed inline chips for
  * hashtag references.
@@ -28,7 +28,7 @@ export function HiddenField({ field }: { field: HiddenFieldEntity }) {
 					height="14"
 					className="text-nova-text-muted"
 				/>
-				<span className="text-[10px] font-semibold uppercase tracking-wider text-nova-text-muted">
+				<span className="text-[11px] font-medium text-nova-text-muted">
 					Hidden
 				</span>
 			</div>

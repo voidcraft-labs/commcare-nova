@@ -516,7 +516,7 @@ const idMappingEntrySchema = z
 			.string()
 			.regex(
 				/^\S+$/,
-				"ID-mapping value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
+				"ID-mapping value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
 			),
 		label: z.string(),
 	})
@@ -540,7 +540,7 @@ const idMappingColumnSchema = columnBase.extend({
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
 				message:
-					"Mapping values are not unique within this column — two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
+					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
 			},
 		),
 });
@@ -562,7 +562,7 @@ const imageMapEntrySchema = z
 			.string()
 			.regex(
 				/^\S+$/,
-				"Image-map value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
+				"Image-map value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
 			),
 		assetId: mediaAssetIdSchema,
 	})
@@ -583,7 +583,7 @@ const imageMapColumnSchema = columnBase.extend({
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
 				message:
-					"Mapping values are not unique within this image-map column — two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
+					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
 			},
 		),
 });

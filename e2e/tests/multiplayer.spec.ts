@@ -475,7 +475,7 @@ test.describe("two-user multiplayer builder", () => {
 		const grace = await openBuilder(browser, mp.stateFileB, `/${mp.formUuid}`);
 		try {
 			// Ada has field one selected; its inspector "Field actions" menu offers a
-			// non-drag "Move Down" (drag on a virtualized list is fragile). Field
+			// non-drag "Move down" (drag on a virtualized list is fragile). Field
 			// one's id is "full_name" (untouched by the disjoint test, which edited
 			// field two). The suite shares one app, so don't assume the FORM's name.
 			const adaId = fieldIdInput(ada.page);
@@ -491,7 +491,7 @@ test.describe("two-user multiplayer builder", () => {
 			await titleInput(grace.page).click();
 			await titleInput(grace.page).fill(graceForm);
 			await ada.page.getByRole("button", { name: "Field actions" }).click();
-			await ada.page.getByRole("menuitem", { name: "Move Down" }).click();
+			await ada.page.getByRole("menuitem", { name: "Move down" }).click();
 			await titleInput(grace.page).press("Enter");
 
 			// Grace's rename reaches Ada (the reorder didn't clobber it) — the merge.
@@ -499,7 +499,7 @@ test.describe("two-user multiplayer builder", () => {
 				timeout: 20_000,
 			});
 			// The reorder propagated to Grace: on HER page, field one is no longer
-			// first, so its "Move Up" action is now enabled (it was disabled — first —
+			// first, so its "Move up" action is now enabled (it was disabled — first —
 			// before the move). Selecting field one on Grace's side and opening the
 			// Field-actions menu reflects the order the reconciler folded in.
 			await grace.page.goto(
@@ -509,9 +509,9 @@ test.describe("two-user multiplayer builder", () => {
 				timeout: 20_000,
 			});
 			await grace.page.getByRole("button", { name: "Field actions" }).click();
-			// "Move Up" enabled ⇒ field one is not first ⇒ the reorder reached Grace.
+			// "Move up" enabled ⇒ field one is not first ⇒ the reorder reached Grace.
 			await expect(
-				grace.page.getByRole("menuitem", { name: "Move Up" }),
+				grace.page.getByRole("menuitem", { name: "Move up" }),
 			).toBeEnabled({ timeout: 20_000 });
 			await grace.page.screenshot({
 				path: path.join(SHOTS_DIR, "07-reorder-grace-sees-new-order.png"),

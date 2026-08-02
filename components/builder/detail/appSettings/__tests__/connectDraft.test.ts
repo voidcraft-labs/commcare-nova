@@ -5,7 +5,7 @@
  * an expression is data loss; re-deriving an id churns Connect's Postgres
  * slug. The XPath buffers are TEXT (printed on seed, parsed on commit), so
  * the test drives the print/parse boundary explicitly. Pure functions, no
- * React — mounts nothing.
+ * React: mounts nothing.
  */
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
@@ -21,7 +21,7 @@ import {
 	EMPTY_DRAFT,
 } from "../ConnectEnableDialog";
 
-/** A print/parse pair that must never run — proves a config with no XPath
+/** A print/parse pair that must never run: proves a config with no XPath
  *  never touches the expression boundary. */
 const noExpr = (): never => {
 	throw new Error(

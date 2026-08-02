@@ -25,7 +25,7 @@ const context: OperationSentenceContext = {
 	fieldLabel: (uuid) => names[uuid],
 };
 
-/** Nothing outside the operation resolves — every fallback fires. */
+/** Nothing outside the operation resolves: every fallback fires. */
 const blind: OperationSentenceContext = {
 	operationName: () => undefined,
 	repeatLabel: () => undefined,
@@ -217,7 +217,7 @@ describe("operationSentence", () => {
 			operationSentenceText(
 				operationSentence(op({ forEach: { repeat: REPEAT } }), context),
 			),
-		).toBe("Create a new referral case — once for each “Beds” entry");
+		).toBe("Create a new referral case: once for each “Beds” entry");
 		expect(operationSentenceText(operationSentence(op(), context))).toBe(
 			"Create a new referral case",
 		);

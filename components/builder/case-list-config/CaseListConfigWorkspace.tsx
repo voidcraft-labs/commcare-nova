@@ -1,13 +1,13 @@
 // components/builder/case-list-config/CaseListConfigWorkspace.tsx
 //
-// The unified case-list authoring workspace — three focused config tabs
+// The unified case-list authoring workspace: three focused config tabs
 // (Search / Results / Details). Each canvas is a direct composition surface:
 // drag the visible rows where workers will see them, add information
 // in place, and compose the default case ordering as a readable sentence.
 // Selecting one item opens its data source and formatting in the right rail.
 // The tab IS the URL (`/search`, `/results`, `/details`), so tab switches are ordinary
 // history navigation and deep links land on the right canvas. The
-// run-through lives behind the chrome's global Preview toggle —
+// run-through lives behind the chrome's global Preview toggle:
 // this surface carries no preview affordance of its own.
 //
 // Selection is workspace-local state (case-list entities have no
@@ -99,6 +99,7 @@ import {
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import type { Location } from "@/lib/routing/types";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
+import { selectableSegmentCls } from "@/lib/styles";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
@@ -155,7 +156,7 @@ import type { WorkspaceSelection } from "./workspaceSelection";
 
 // ── Public types ──────────────────────────────────────────────────
 
-/** Which canvas is showing — derived from the URL location kind. */
+/** Which canvas is showing: derived from the URL location kind. */
 export type CaseListWorkspaceTab = "search" | "list" | "detail";
 
 type SearchInputRemovalReviewSession =
@@ -258,14 +259,14 @@ function markInspectorReturnFocus(target: HTMLElement): void {
 const PROPERTYLESS_HINT = "Add case information before adding fields";
 
 /** Stable empty config for modules whose `caseListConfig` slot is
- *  still absent — first edit persists the seeded shape. */
+ *  still absent: first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = emptyCaseListConfig();
 
-/** Stable empty tile-issue list — a fresh array per render would defeat
+/** Stable empty tile-issue list: a fresh array per render would defeat
  *  the inspector body's memoization. */
 const NO_TILE_ISSUES: readonly string[] = [];
 
-/** Stable no-case-type verdicts — a fresh object per render would
+/** Stable no-case-type verdicts: a fresh object per render would
  *  defeat the canvases' memoization. */
 const EMPTY_VERDICTS = {
 	errorAreas: { search: false, list: false, detail: false },
@@ -335,7 +336,7 @@ function surfaceDisplayName(
 // The workspace controller runs ONCE, mounted above the builder row by
 // `CaseListWorkspaceProvider` (wired in `BuilderProvider`). The center canvas
 // (`CaseListWorkspaceCanvas`, in the preview shell) and the right-rail inspector
-// are two CONSUMERS of this one controller — so the inspector body lives in the
+// are two CONSUMERS of this one controller, so the inspector body lives in the
 // always-mounted rail and rides it off-screen during a preview flip without
 // unmounting (the scroll-survives-for-free guarantee chat and the app tree
 // already have). Selection is retained per module across navigation because the
@@ -380,7 +381,7 @@ function useController(
 	const tab = stickyTabRef.current;
 
 	const mod = useModule(moduleUuid);
-	/* The EFFECTIVE view — the same property admission set + types the
+	/* The EFFECTIVE view: the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const userProperties = useUserProperties();
@@ -389,7 +390,7 @@ function useController(
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
-	 * not navigate — `target` stays a case-list URL and the retained selection
+	 * not navigate: `target` stays a case-list URL and the retained selection
 	 * survives, invisibly, behind the running app. Gate the Escape shortcut below
 	 * on this so it stands down in preview (Escape must exit preview, not clear a
 	 * hidden selection). */
@@ -542,7 +543,7 @@ function useController(
 		if (target !== null) markInspectorReturnFocus(target);
 		leaveSearchCondition(null);
 	}, [leaveSearchCondition, sel, tab]);
-	/* Tab switches deselect — covers in-app tab clicks AND browser
+	/* Tab switches deselect: covers in-app tab clicks AND browser
 	 * back/forward, since both arrive as a `tab` prop change. */
 	const prevTabRef = useRef(tab);
 	useEffect(() => {
@@ -676,7 +677,7 @@ function useController(
 	}, [sel]);
 
 	/* Escape closes the inspector. Routed through the shared keyboard
-	 * manager (not a raw listener — the manager preventDefaults every
+	 * manager (not a raw listener: the manager preventDefaults every
 	 * matched key, and later registrations win) so it layers over the
 	 * builder-layout shortcuts and stays quiet while an input or
 	 * CodeMirror editor has focus. Registered only while something is
@@ -825,7 +826,7 @@ function useController(
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
 	/* Joining Results while the case list is a tile means taking a place on
-	 * it — an unplaced field the tile shows is a commit-gate rejection, so
+	 * it: an unplaced field the tile shows is a commit-gate rejection, so
 	 * every add and reveal carries its placement in the same batch. A SAVED
 	 * cell is re-adjudicated rather than trusted: a hidden column leaves the
 	 * tile's membership, so its square is free for anything else to take,
@@ -1379,8 +1380,8 @@ function useController(
 	// ── Inspector resolution ──
 	//
 	// Computed only while the workspace is actually on-screen (`active`). When
-	// it isn't — the module has no case type, or the URL moved on while the
-	// controller is retained — there is nothing to inspect and the rail shows
+	// it isn't: the module has no case type, or the URL moved on while the
+	// controller is retained: there is nothing to inspect and the rail shows
 	// chat. `caseType` is re-narrowed here (a bare `active` boolean can't do it).
 	let inspector: { kicker: string; title: string; body: ReactNode } | null =
 		null;
@@ -1572,7 +1573,7 @@ const CaseListWorkspaceContext = createContext<CaseListWorkspace | null>(null);
  * Read the single case-list workspace controller. Non-null for the whole life of
  * the builder (the provider always mounts it); `controller.active` is false until
  * a case-list URL is open. Consumed by the center canvas, which needs the full
- * controller — inspector-only consumers use `useCaseListInspector` so they don't
+ * controller: inspector-only consumers use `useCaseListInspector` so they don't
  * re-render on every controller change.
  */
 export function useCaseListWorkspace(): CaseListWorkspace | null {
@@ -1582,7 +1583,7 @@ export function useCaseListWorkspace(): CaseListWorkspace | null {
 /**
  * The slice the right rail + layout consume: just the resolved inspector
  * descriptor and its close handler. Split from the full controller context so
- * the rail (chat) and layout don't re-render on every workspace change — while
+ * the rail (chat) and layout don't re-render on every workspace change, while
  * the workspace is off-screen `inspector` is a stable `null`, so this value's
  * identity holds and its consumers stay put.
  */
@@ -1602,7 +1603,7 @@ export function useCaseListInspector(): CaseListInspectorSlice | null {
 /**
  * Mounts the workspace controller ONCE, above the builder row (wired in
  * `BuilderProvider`), so the center canvas and the right-rail inspector share one
- * instance. It renders `ActiveHost` UNCONDITIONALLY — the child element type must
+ * instance. It renders `ActiveHost` UNCONDITIONALLY: the child element type must
  * stay stable, because swapping it (e.g. gating the controller behind a
  * first-visit flag) remounts the whole `children` subtree, severing chat's live
  * run. The controller is simply inert (`active` false) until a case-list URL
@@ -1642,7 +1643,7 @@ function ActiveHost({
 
 // ── Canvas (center) ───────────────────────────────────────────────
 //
-// The composition surface for the active workspace — a consumer of the shared
+// The composition surface for the active workspace: a consumer of the shared
 // controller, mounted by `PreviewShell` (which Activity-hides it during a
 // preview flip, when the running CaseListScreen takes over). The inspector body
 // is NOT rendered here; the rail renders it from `controller.inspector`.
@@ -2012,7 +2013,7 @@ interface ResolveInspectorArgs {
 /**
  * Selection → inspector chrome + body. Returns `null` when nothing is
  * selected OR the selected entity no longer exists (e.g. the agent
- * removed it mid-session) — a dangling selection renders no inspector
+ * removed it mid-session): a dangling selection renders no inspector
  * rather than a broken one.
  */
 function resolveInspector(args: ResolveInspectorArgs): {
@@ -2192,7 +2193,7 @@ function ColumnInspectorBody({
 }: {
 	readonly column: Column;
 	readonly config: CaseListConfig;
-	/** The whole case list — a tile placement is adjudicated against the
+	/** The whole case list: a tile placement is adjudicated against the
 	 * other fields on the tile, so the rail needs more than one column. */
 	readonly surface: CaseDisplaySurface;
 	readonly visibleCount: number;
@@ -2211,7 +2212,7 @@ function ColumnInspectorBody({
 }) {
 	const canEdit = useCanEdit();
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	/* Focus lands here when the tile section removes itself — its own button
+	/* Focus lands here when the tile section removes itself, its own button
 	 * goes with it, and an unmounted action never drops focus on the page. */
 	const hideRef = useRef<HTMLButtonElement>(null);
 	const screenName = surfaceDisplayName(surface);
@@ -2264,12 +2265,9 @@ function ColumnInspectorBody({
 					disabled={keepLastResult}
 					aria-disabled={keepLastResult}
 					variant="outline"
-					size="xl"
-					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
-						keepLastResult
-							? "border-white/[0.04] text-nova-text-muted"
-							: "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"
-					}`}
+					/* The disabled branch only restated what `disabled` already
+					 * does: one 0.6 opacity, hover gated off. */
+					className="w-full"
 				>
 					<Icon icon={tablerEyeOff} width="15" height="15" />
 					Hide from {screenName}
@@ -2297,7 +2295,7 @@ function ColumnInspectorBody({
 			<AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Delete {columnDisplayLabel(column)}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>{deleteDescription}</AlertDialogDescription>
@@ -2452,7 +2450,7 @@ function SearchInputInspectorBody({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							This field is used in other rules
 						</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -2473,7 +2471,6 @@ function SearchInputInspectorBody({
 									<Button
 										type="button"
 										variant="outline"
-										size="xl"
 										onClick={() => {
 											navigatingReviewRef.current = true;
 											onReviewRemovalDependency(dependency);
@@ -2509,7 +2506,7 @@ function SearchInputInspectorBody({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Remove the last Search field?
 						</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -2545,7 +2542,7 @@ interface WorkspaceTabsProps {
 const TAB_DEFS: ReadonlyArray<{
 	id: CaseListWorkspaceTab;
 	icon: IconifyIcon;
-	/** Concise visible label — the workspace is commonly only ~560px wide. */
+	/** Concise visible label: the workspace is commonly only ~560px wide. */
 	label: string;
 	/** Full accessible name + tooltip copy. */
 	accessibleLabel: string;
@@ -2571,7 +2568,7 @@ const TAB_DEFS: ReadonlyArray<{
 ];
 
 /**
- * Peer config tabs — no numbering, no implied order. The run-through
+ * Peer config tabs: no numbering, no implied order. The run-through
  * lives behind the chrome's global Preview toggle, so the strip is
  * pure workbench navigation.
  */
@@ -2623,18 +2620,19 @@ export function WorkspaceTabs({
 									}
 									side="bottom"
 								>
-									<Button
+									{/* A tab holds a state rather than performing an action, so
+									 *  it wears the shared selected treatment the App setup strip
+									 *  and the sidebar destinations wear: one skin, three
+									 *  geometries. Drawn as a ghost Button it inherited ghost's
+									 *  neutral hover, which REPLACES a selected tab's violet wash
+									 *  with a flat grey, so pointing at the tab you are already on
+									 *  read as dimming it. */}
+									<button
 										type="button"
 										aria-label={accessibleName}
 										aria-current={active ? "page" : undefined}
 										onClick={() => onSelectTab(id)}
-										variant="ghost"
-										size="xl"
-										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
-											active
-												? "bg-nova-violet/[0.13] border-nova-border-bright"
-												: "border-transparent not-disabled:hover:bg-white/[0.03]"
-										}`}
+										className={`relative flex-1 gap-1 @sm:gap-2 ${selectableSegmentCls(active)}`}
 									>
 										{hasErrors && (
 											<span
@@ -2647,40 +2645,24 @@ export function WorkspaceTabs({
 											width="17"
 											height="17"
 											className={`hidden shrink-0 @sm:block ${
-												active
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
+												active ? "" : "text-nova-text-muted"
 											}`}
 										/>
-										{/* Flex column (not a plain block): a block wrapper carries
-										 *  the inherited 16px/24px line-height strut into the label's
-										 *  anonymous line box, which pads ~5px of dead space above the
-										 *  label and bottom-weights the whole text block. Flex children
-										 *  size to their own line-height, so label + meta center as a
-										 *  unit against the icon. */}
-										<span className="flex min-w-0 flex-col">
-											{/* Grid stacks the visible label over an invisible bold
-											 *  ghost, so the slot is always as wide as the bold form —
-											 *  selecting a tab must never nudge its neighbors. */}
-											<span className="grid text-sm leading-tight">
-												<span
-													className={`col-start-1 row-start-1 ${
-														active
-															? "font-semibold text-nova-text"
-															: "font-medium text-nova-text-secondary"
-													}`}
-												>
-													{label}
-												</span>
-												<span
-													aria-hidden="true"
-													className="col-start-1 row-start-1 font-semibold invisible"
-												>
-													{label}
-												</span>
+										{/* Grid stacks the visible label over an invisible bold
+										 *  ghost, so the slot is always as wide as the selected
+										 *  form: choosing a tab must never nudge its neighbors. */}
+										<span className="grid min-w-0 leading-tight">
+											<span className="col-start-1 row-start-1 truncate">
+												{label}
+											</span>
+											<span
+												aria-hidden="true"
+												className="invisible col-start-1 row-start-1 font-medium"
+											>
+												{label}
 											</span>
 										</span>
-									</Button>
+									</button>
 								</SimpleTooltip>
 							);
 						})}

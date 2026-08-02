@@ -278,7 +278,7 @@ export function toMcpErrorResult(
 					text: JSON.stringify(
 						payload(
 							"internal",
-							"This edit could not be saved: Nova reused a save id for different content. Nothing was written. This is a fault on our side, not something to correct in the request — repeating it will not help.",
+							"This edit could not be saved: Nova reused a save id for different content. Nothing was written. This is a fault on our side, not something to correct in the request. Repeating it will not help.",
 						),
 					),
 				},

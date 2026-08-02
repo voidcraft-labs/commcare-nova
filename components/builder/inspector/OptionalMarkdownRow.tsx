@@ -4,7 +4,7 @@
 // optional inspector slots whose wire value is markdown (verified
 // against CommCare Web Apps, which renders the search screen's
 // `description` through its markdown-it pipeline). The attached toolbar
-// IS the affordance — it shows exactly the formatting the runtime
+// IS the affordance: it shows exactly the formatting the runtime
 // renders, so the row needs no "Markdown" badge, no syntax explanation,
 // and no separate live preview.
 //
@@ -103,7 +103,7 @@ export function OptionalMarkdownRow({
 	const inputId = useId();
 	const rowRef = useRef<HTMLDivElement>(null);
 
-	/* Fresh-value refs — the blur handler and keyboard extension are
+	/* Fresh-value refs: the blur handler and keyboard extension are
 	 * captured once by TipTap, so they read through refs. */
 	const valueRef = useRef(value);
 	valueRef.current = value;
@@ -132,7 +132,7 @@ export function OptionalMarkdownRow({
 							editor.commands.blur();
 							return true;
 						},
-						/* Revert, then blur — the blur commit compares against the
+						/* Revert, then blur: the blur commit compares against the
 						 * restored value and no-ops, so Escape is a pure cancel. */
 						Escape: ({ editor }) => {
 							editor.commands.setContent(valueRef.current ?? "");
@@ -167,9 +167,9 @@ export function OptionalMarkdownRow({
 		},
 		onBlur: ({ editor: e }) => {
 			/* Delay so activeElement reflects where focus went. Focus moving
-			 * into the row's own toolbar — or a toolbar popover portaled to
+			 * into the row's own toolbar, or a toolbar popover portaled to
 			 * body (tagged [data-inline-toolbar] by the tiptap-ui
-			 * primitives) — is a transient blur, not a commit. */
+			 * primitives): is a transient blur, not a commit. */
 			requestAnimationFrame(() => {
 				const active = document.activeElement;
 				if (rowRef.current?.contains(active) === true) return;
@@ -179,7 +179,7 @@ export function OptionalMarkdownRow({
 		},
 	});
 
-	/* External value sync — undo/redo or an agent edit can change the
+	/* External value sync: undo/redo or an agent edit can change the
 	 * slot while the row is mounted. Only while unfocused, so a commit's
 	 * own round-trip never stomps an in-progress edit. */
 	useEffect(() => {
@@ -200,7 +200,7 @@ export function OptionalMarkdownRow({
 				{label}
 			</label>
 			<Tiptap editor={editor}>
-				<div className="rounded-lg border border-white/[0.06] bg-nova-deep/50 focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/30 transition-colors overflow-hidden">
+				<div className="nova-focusable-within rounded-lg border border-white/[0.06] bg-nova-deep/50 transition-colors overflow-hidden">
 					{/* The compact toolbar shows the three everyday actions and one
 					 *  clearly named progressive-disclosure menu. Its floating variant
 					 *  clips instead of creating a horizontal scroll region, and the
@@ -282,9 +282,8 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							tabIndex={-1}
-							className="min-h-11 shrink-0 px-2 text-[14px] text-nova-text-secondary not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="shrink-0"
 						/>
 					}
 				>
@@ -477,12 +476,10 @@ function ImageFormattingDialog({
 						</div>
 					</DialogBody>
 					<DialogFooter>
-						<DialogClose
-							render={<Button type="button" variant="outline" size="xl" />}
-						>
+						<DialogClose render={<Button type="button" variant="outline" />}>
 							Cancel
 						</DialogClose>
-						<Button type="submit" size="xl" disabled={url.trim() === ""}>
+						<Button type="submit" disabled={url.trim() === ""}>
 							Insert
 						</Button>
 					</DialogFooter>
@@ -568,12 +565,10 @@ function TableFormattingDialog({
 						</div>
 					</DialogBody>
 					<DialogFooter>
-						<DialogClose
-							render={<Button type="button" variant="outline" size="xl" />}
-						>
+						<DialogClose render={<Button type="button" variant="outline" />}>
 							Cancel
 						</DialogClose>
-						<Button type="submit" size="xl" disabled={!canInsert}>
+						<Button type="submit" disabled={!canInsert}>
 							Insert
 						</Button>
 					</DialogFooter>

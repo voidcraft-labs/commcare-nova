@@ -15,15 +15,14 @@ import {
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	FLOATING_LAYER_CLS,
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
+	selectableMenuItemCls,
 } from "@/lib/styles";
 
 // Derived from the domain's single-source labels (lib/domain/forms.ts) so the
-// type-change dropdown reads the same vocabulary as the add-form chooser — e.g.
+// type-change dropdown reads the same vocabulary as the add-form chooser, e.g.
 // "Follow-up", not a divergent hand-rolled "Followup".
 const formTypeOptions: { value: FormType; label: string }[] = FORM_TYPES.map(
 	(value) => ({ value, label: formTypeLabels[value] }),
@@ -70,7 +69,7 @@ export function FormTypeButton({
 			{editable ? (
 				<Menu.Root>
 					<Menu.Trigger
-						className="-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5"
+						className="nova-focusable -ml-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/[0.06]"
 						aria-label="Change form type"
 					>
 						<Icon icon={icon} width="18" height="18" />
@@ -107,9 +106,7 @@ export function FormTypeButton({
 											className={`${corners} ${
 												needsCase
 													? MENU_ITEM_DISABLED_CLS
-													: isActive
-														? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-														: MENU_ITEM_CLS
+													: selectableMenuItemCls(isActive)
 											}`}
 										>
 											<span

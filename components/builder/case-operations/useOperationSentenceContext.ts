@@ -2,7 +2,7 @@
 //
 // The labels a row sentence needs from outside the operation.
 //
-// References are identity; text is a projection — a `forEach` holds a
+// References are identity; text is a projection: a `forEach` holds a
 // repeat's uuid and an `op` target holds an operation's, so the words
 // "once for each Beds entry" only exist once something resolves those
 // uuids against the current document. That resolution is here, in one
@@ -34,7 +34,7 @@ export function useOperationSentenceContext(
 	formUuid: Uuid | undefined,
 ): OperationSentenceContext {
 	/* The label lookup is over a uuid the caller supplies, so it genuinely
-	 * needs the whole record — but only once a form resolves. A caller that
+	 * needs the whole record, but only once a form resolves. A caller that
 	 * holds no form (the rail's hook-order-preserving call while nothing is
 	 * selected) would otherwise subscribe every builder screen to every field
 	 * in the app, and re-render the layout on each keystroke in any label.

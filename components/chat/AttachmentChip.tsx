@@ -19,7 +19,7 @@ interface AttachmentChipProps {
 	filename: string;
 	/** Opens the preview. When set, the chip body is a button (keyboard-reachable). */
 	onPreview?: () => void;
-	/** Disable the preview (kept visible + hoverable, not removed) — used while the
+	/** Disable the preview (kept visible + hoverable, not removed), used while the
 	 *  document is still reading, since the preview's extract can't load until
 	 *  extraction finishes. The tooltip explains the wait. */
 	previewDisabled?: boolean;
@@ -27,24 +27,24 @@ interface AttachmentChipProps {
 	previewDisabledTooltip?: string;
 	/** Renders a trailing × that removes the chip (composer only). */
 	onRemove?: () => void;
-	/** Disable the remove × (kept visible, not hidden) — used while the document is
+	/** Disable the remove × (kept visible, not hidden): used while the document is
 	 *  still reading, since extraction persists to the library regardless and a
 	 *  working × would be a false "cancel". The tooltip explains the wait. */
 	removeDisabled?: boolean;
 	/** Tooltip shown on the disabled × in place of "Remove". */
 	removeDisabledTooltip?: string;
-	/** Trailing status slot — the extraction indicator badge. */
+	/** Trailing status slot: the extraction indicator badge. */
 	trailing?: ReactNode;
 }
 
 /**
- * One attachment chip — the shared presentational unit for both the composer's
+ * One attachment chip: the shared presentational unit for both the composer's
  * pending-attachment bar and the transcript's per-message manifest. Kept dumb:
  * it knows how to show a file (glyph + name + optional status + actions), not
  * where the data comes from, so the composer (asset views) and the message
  * (asset refs) both feed it the same `{ kind, filename }`.
  *
- * The clickable body is a sibling of the remove button, never its parent — HTML
+ * The clickable body is a sibling of the remove button, never its parent, HTML
  * forbids nesting interactive content inside a `<button>`, and an SSR parser
  * would mangle the tree.
  */
@@ -61,7 +61,7 @@ export function AttachmentChip({
 }: AttachmentChipProps) {
 	const meta = ASSET_KIND_META[kind];
 	// Only the glyph + filename go inside the preview button. `trailing` (the
-	// extraction badge — which can itself be a Retry BUTTON on failure) and the
+	// extraction badge, which can itself be a Retry BUTTON on failure) and the
 	// remove button are SIBLINGS of it: HTML forbids interactive content nested
 	// inside a `<button>`, and nesting would also bubble a Retry/remove click
 	// through to the preview handler.
@@ -91,7 +91,7 @@ export function AttachmentChip({
 								onClick={previewDisabled ? undefined : onPreview}
 								aria-disabled={previewDisabled || undefined}
 								className={cn(
-									"h-11 min-w-0 flex-1 justify-start gap-1.5 px-1.5 text-xs font-normal text-nova-text-secondary",
+									"min-w-0 flex-1 justify-start",
 									previewDisabled
 										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-secondary dark:hover:bg-transparent"
 										: "hover:text-nova-text",
@@ -115,8 +115,8 @@ export function AttachmentChip({
 				/* The × stays VISIBLE while disabled so the affordance doesn't flicker
 				 * in/out as a doc finishes reading. `aria-disabled` (not the native
 				 * `disabled` attribute) is deliberate: a truly-disabled button receives
-				 * no pointer events, so its tooltip — the one thing explaining WHY it's
-				 * disabled — would never open. We instead drop the click handler and
+				 * no pointer events, so its tooltip: the one thing explaining WHY it's
+				 * disabled: would never open. We instead drop the click handler and
 				 * style it inert, keeping it hoverable/focusable for the explanation. */
 				<Tooltip>
 					<TooltipTrigger
@@ -124,11 +124,11 @@ export function AttachmentChip({
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon-lg"
+								size="icon"
 								onClick={removeDisabled ? undefined : onRemove}
 								aria-disabled={removeDisabled || undefined}
 								className={cn(
-									"size-11 shrink-0 text-nova-text-muted",
+									"shrink-0",
 									removeDisabled
 										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-muted dark:hover:bg-transparent"
 										: "hover:bg-white/[0.06] hover:text-nova-text",

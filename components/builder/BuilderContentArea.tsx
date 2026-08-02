@@ -1,5 +1,5 @@
 /**
- * BuilderContentArea — the flex row containing structure sidebar, main
+ * BuilderContentArea: the flex row containing structure sidebar, main
  * preview content, and chat sidebar. Self-subscribes to all layout
  * visibility state (chatOpen, structureOpen, previewing, isReady, hasData)
  * so BuilderLayout doesn't need to.
@@ -15,26 +15,26 @@
  *     panel must NOT unmount on a preview flip (an unmount/remount resets
  *     the tree's scroll, expand, and search state), and the chat panel
  *     must NEVER unmount at all (ChatContainer owns the live useChat
- *     stream, the draft, and run-boundary refs — unmounting would sever
+ *     stream, the draft, and run-boundary refs: unmounting would sever
  *     an active run). So each is the same shape: spacer + absolute panel.
  *     The spacer snaps its width on a mode flip (one layout commit, so
  *     the canvas gets its final width in a single render) and tweens on
  *     manual open/close and inspector claims, mirroring the panel's
  *     slide. AnimatePresence still carries each flank's coarse enter/exit
- *     slide (app open/close, the handset dock swap) — not the preview
+ *     slide (app open/close, the handset dock swap), not the preview
  *     flip, which the persistent panels ride via transform alone.
  *   - Centered canvas content glides through `ModeFlipGlideProvider` +
  *     `ContentFrame`.
  *
  * Manual sidebar toggles (collapse to rail, open/close chat) keep the
- * plain width tween — one-sided, small travel, content reflows natively.
+ * plain width tween: one-sided, small travel, content reflows natively.
  * Below the narrow-canvas breakpoint, both 56px icon rails stay in flow
  * and the single expanded flank overlays the canvas instead. On compact
  * handsets those rails become a bottom panel dock, restoring the full canvas
  * width while keeping both drawers one tap away. The session's desktop
  * open-state is preserved; `narrowPanel` owns only that local choice.
  *
- * Children (PreviewShell, GenerationProgress) are self-sufficient —
+ * Children (PreviewShell, GenerationProgress) are self-sufficient:
  * they subscribe to their own state from the store. This component only
  * controls mount/unmount and animation wrappers.
  */
@@ -91,7 +91,7 @@ import {
 	INSPECTOR_RAIL_WIDTH,
 } from "@/lib/ui/inspector";
 
-/** Width of the collapsed icon rails (w-14) — structure and chat
+/** Width of the collapsed icon rails (w-14): structure and chat
  *  share it, so the two edges read as one system. */
 const COLLAPSED_RAIL_WIDTH = 56;
 
@@ -151,11 +151,11 @@ interface BuilderContentAreaProps {
 	isCentered: boolean;
 	/** Whether the app was loaded from Postgres (not a new build). */
 	isExistingApp: boolean;
-	/** Thread-list projection for ChatContainer — loaded by the RSC page. */
+	/** Thread-list projection for ChatContainer: loaded by the RSC page. */
 	threads?: ThreadMeta[];
 	/** The most recently active thread, transcript included. */
 	initialThread?: ThreadDoc | null;
-	/** True when the page loaded a `generating` app — a live-thread resume
+	/** True when the page loaded a `generating` app: a live-thread resume
 	 *  reconnects to an initial BUILD run. */
 	appGenerating?: boolean;
 	/** The signed-in user, for owner-scoped chat notices. */
@@ -174,18 +174,18 @@ export function BuilderContentArea({
 	const isReady = useBuilderIsReady();
 	const hasData = useDocHasData();
 
-	/* Back navigation for PreviewShell — reads directly from URL hooks
+	/* Back navigation for PreviewShell: reads directly from URL hooks
 	 * instead of being threaded as a prop from BuilderLayout. */
 	const navigate = useNavigate();
 
-	/* Layout visibility — these only change on deliberate user interactions
+	/* Layout visibility: these only change on deliberate user interactions
 	 * (sidebar toggle, preview toggle), not on every keystroke or message. */
 	const { open: chatOpen } = useSidebarState("chat");
 	const { open: structureOpen, stashed: structureStashed } =
 		useSidebarState("structure");
 	/* Entering preview stashes the open-state and closes both sidebars (see
 	 * `setPreviewing`). The layout WIDTHS collapse off the `previewing` flag,
-	 * not this close — so the app-tree panel renders against the EFFECTIVE
+	 * not this close, so the app-tree panel renders against the EFFECTIVE
 	 * open-state (the stashed pre-preview value while previewing), keeping the
 	 * open StructureSidebar mounted as it slides off instead of swapping to the
 	 * rail and dropping its scroll. */
@@ -258,7 +258,7 @@ export function BuilderContentArea({
 	}, [chatOpen, structureOpen]);
 
 	/* The right rail belongs to the inspector while something is selected:
-	 * it stays open even when the chat sidebar is toggled closed — a
+	 * it stays open even when the chat sidebar is toggled closed, a
 	 * selection without a visible properties panel would be dead UI.
 	 * Chat and inspector share ONE live width, so docking the rail never
 	 * reflows the canvas. Open rails compact together on narrow desktops;
@@ -266,7 +266,7 @@ export function BuilderContentArea({
 	 * handset.
 	 *
 	 * A selection survives a preview flip in the URL, but preview parks the whole
-	 * rail off-screen — so the inspector must NOT drive layout there. Gate the
+	 * rail off-screen, so the inspector must NOT drive layout there. Gate the
 	 * layout signal on `!previewing`; the rail (ChatSidebar) owns its own mount
 	 * and keeps the panel mounted while parked, so scroll survives the flip. */
 	const { docked: inspectorDocked, requestClose: closeInspector } =
@@ -336,7 +336,7 @@ export function BuilderContentArea({
 			? openRailWidth
 			: 0;
 
-	/* Flank widths as the flex row will actually lay them out THIS render —
+	/* Flank widths as the flex row will actually lay them out THIS render:
 	 * these feed the glide geometry, so they must mirror the JSX below. */
 	const showFlanks = !isCentered && hasData;
 	const structureColumnVisible = showFlanks && !previewing;
@@ -350,11 +350,11 @@ export function BuilderContentArea({
 				: COLLAPSED_RAIL_WIDTH
 		: 0;
 	/* The app-tree panel stays MOUNTED across a preview flip (like the chat
-	 * dock) so the tree keeps its scroll + expand + search state — an
+	 * dock) so the tree keeps its scroll + expand + search state, an
 	 * unmount/remount reset all three. Only its LAYOUT width (`structureWidth`,
 	 * owned by the spacer below) collapses to 0 in preview, so the canvas
 	 * glides to full width in lockstep. `structureContentWidth` is the panel's
-	 * own width — the width it holds while it slides off, so its content never
+	 * own width: the width it holds while it slides off, so its content never
 	 * reflows mid-slide (`previewing` deliberately absent). */
 	const structurePanelMounted = showFlanks && !handsetLayout;
 	const structureContentWidth = narrowLayout
@@ -369,7 +369,7 @@ export function BuilderContentArea({
 	const spacerWidth = isCentered || previewing || narrowLayout ? 0 : railWidth;
 	const rightWidth = spacerWidth + chatRailWidth;
 
-	/* True only on the render where `previewing` changed — the render
+	/* True only on the render where `previewing` changed: the render
 	 * whose layout the flip must commit in one frame. The chat spacer
 	 * snaps its width on exactly that render; everything else animates
 	 * via transforms. */
@@ -397,7 +397,7 @@ export function BuilderContentArea({
 				handsetLayout ? "handset" : narrowLayout ? "narrow" : "desktop"
 			}
 		>
-			{/* App-tree spacer — owns the structure column's LAYOUT width; the
+			{/* App-tree spacer: owns the structure column's LAYOUT width; the
 			 *  visible tree is the absolute dock below, mirroring the chat side.
 			 *  On a mode flip the width SNAPS to its post-flip value in one commit
 			 *  (transition disabled) so the canvas glides in lockstep; manual
@@ -415,7 +415,7 @@ export function BuilderContentArea({
 				/>
 			)}
 
-			{/* App-tree panel (left) — full tree when open, icon rail when
+			{/* App-tree panel (left): full tree when open, icon rail when
 			 *  collapsed. The rail keeps every destination (modules, each case
 			 *  list, every form) one click away, so collapsing trades width for
 			 *  labels, never for reach. The MIRROR of the chat dock: ALWAYS
@@ -477,7 +477,7 @@ export function BuilderContentArea({
 							rightWidth={rightWidth}
 							rowRef={rowRef}
 						>
-							{/* Breadcrumb strip — wayfinding lives in the canvas column,
+							{/* Breadcrumb strip: wayfinding lives in the canvas column,
 							 *  not the header, so the sidebars bound its width and a long
 							 *  trail collapses instead of reaching the centered Preview
 							 *  toggle. */}
@@ -513,7 +513,7 @@ export function BuilderContentArea({
 				)}
 			</AnimatePresence>
 
-			{/* Chat spacer — on desktop, owns the chat panel's LAYOUT width (the visual
+			{/* Chat spacer: on desktop, owns the chat panel's LAYOUT width (the visual
 			 *  panel is the absolute dock below). A plain div, NOT a motion
 			 *  one: on a mode flip its width must change in the same React
 			 *  commit as the popped sidebars (Motion applies even duration-0
@@ -547,6 +547,13 @@ export function BuilderContentArea({
 						key="chat-rail"
 						className="h-full shrink-0 overflow-hidden"
 						data-builder-flank="chat"
+						/* Stepping aside means width 0 while still mounted, which hides
+						 * the rail from the eye and from nobody else: its two 44px
+						 * buttons stayed in the tab order, parked just past the right
+						 * edge, so Tab landed on a control that could not be seen or
+						 * clicked. Staying mounted is deliberate (unmounting chat
+						 * severs the live run), so the rail is made inert instead. */
+						inert={chatRailWidth === 0 ? true : undefined}
 						style={{ width: chatRailWidth }}
 						initial={{ x: "100%" }}
 						animate={{ x: 0, width: chatRailWidth }}
@@ -574,10 +581,9 @@ export function BuilderContentArea({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={expandStructure}
 						aria-label="Open app structure"
-						className="h-11 min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+						className="min-w-0"
 					>
 						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
 						<span>App</span>
@@ -585,10 +591,9 @@ export function BuilderContentArea({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={expandChat}
 						aria-label="Open chat"
-						className="h-11 min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+						className="min-w-0"
 					>
 						<Icon icon={tablerMessageChatbot} width="18" height="18" />
 						<span>Chat</span>
@@ -632,13 +637,13 @@ export function BuilderContentArea({
 				</Drawer>
 			)}
 
-			{/* Chat panel — ALWAYS mounted: ChatContainer owns the live
+			{/* Chat panel: ALWAYS mounted: ChatContainer owns the live
 			 *  useChat stream, the composer draft, and run-boundary refs, so
 			 *  unmounting would sever an active run. In builder mode it's an
 			 *  absolute right dock sliding via transform over the spacer's
 			 *  reserved gap; parked, it sits past the row's right edge
 			 *  (clipped by the row's overflow-hidden). z-raised only while
-			 *  previewing — it must paint above the canvas as it slides out,
+			 *  previewing: it must paint above the canvas as it slides out,
 			 *  but at rest it must NOT form a stacking context that would
 			 *  flatten the inspector's popovers/tooltips below canvas ones.
 			 *  In centered mode the wrapper is invisible to layout (auto

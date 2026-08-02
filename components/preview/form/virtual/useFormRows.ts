@@ -1,9 +1,9 @@
 /**
- * useFormRows — hook that produces the flattened row list for a form.
+ * useFormRows: hook that produces the flattened row list for a form.
  *
  * Subscribes to the two doc slices the walker reads (`fields`,
  * `fieldOrder`) with shallow equality so unrelated mutations don't
- * churn the walker. The walker output is memoized on its inputs —
+ * churn the walker. The walker output is memoized on its inputs:
  * `useMemo` bails when the source slices and the collapsed set are
  * reference-equal.
  *
@@ -19,7 +19,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { buildFormRows, type CollapseState, type FormRow } from "./rowModel";
 
 export interface UseFormRowsOptions {
-	/** The form's uuid — root parent for the walker. */
+	/** The form's uuid: root parent for the walker. */
 	readonly formUuid: Uuid;
 	/** Whether to include insertion-point rows (edit mode = true). */
 	readonly includeInsertionPoints: boolean;

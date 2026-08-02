@@ -21,7 +21,7 @@ form appears** on a form):
 
 Choose **Add condition**. Nova commits a starting condition and opens the full
 editor in the middle of the screen, where you build the rule out of plain
-clauses — a value, a comparison, and what to compare it with. Group clauses
+clauses, a value, a comparison, and what to compare it with. Group clauses
 together with **All conditions must match** or **Any condition can match**, and
 nest as deeply as the rule needs.
 
@@ -38,7 +38,7 @@ item.
 
 **A module's condition** is checked on the app's home screen, before anyone opens
 a module or picks a case. There is no case yet, so the condition can use fixed
-values and information about the person signed in — not case information.
+values and information about the person signed in, not case information.
 
 **A form's condition** is checked wherever people choose that form, and that
 depends on the module it sits in:
@@ -46,7 +46,7 @@ depends on the module it sits in:
 - If **every form in the module opens an existing case**, people pick the case
   first. Nova checks the condition straight afterwards, for the case they
   picked, so the condition can read that case's own information. If the module
-  holds only one form, picking a case normally opens it immediately — a case
+  holds only one form, picking a case normally opens it immediately, a case
   the condition does not match stops at the list instead.
 - If **any form in the module starts a new case** (or collects a plain survey),
   people choose the form before they pick a case. Nova checks the condition on
@@ -88,5 +88,5 @@ data away from people.
 ## Removing a condition
 
 **Always show** removes the condition and confirms what that changes before it
-does — from the settings row or from the condition screen. The item then appears
+does, from the settings row or from the condition screen. The item then appears
 every time. Like every other edit in the builder, you can undo it.

@@ -1,6 +1,6 @@
 // components/preview/screens/CaseListScreen.tsx
 //
-// The case list as the running app shows it — the preview-mode screen
+// The case list as the running app shows it: the preview-mode screen
 // for every case-list workspace URL (`results` / `search` / `details`).
 // Search and detail are facets of the same list, so
 // preview always shows the assembled artifact: the real
@@ -8,19 +8,19 @@
 // authored button, the list narrows through its own filter box (the same per-word,
 // case-insensitive narrowing CommCare's case list runs), and rows open
 // the case detail IN PLACE. From the detail, Continue carries the
-// selected case into a CASE-LOADING form (followup / close — never
+// selected case into a CASE-LOADING form (followup / close, never
 // registration), the same case-select → confirm → form flow the shipped
 // app runs. When the module has more than one case-loading form and no
 // specific form was chosen first (a case-first entry), Continue lands on
-// a FORM MENU — the running app's post-selection "which form?" screen.
+// a FORM MENU: the running app's post-selection "which form?" screen.
 // Modules with no detail fields skip the confirm step; modules with no
 // case-loading form have nowhere to continue, so the list is
 // informational. The destination is read from the running app's
-// navigation, never defaulted — see the `seededFormUuid` / `proceedWithCase`
+// navigation, never defaulted: see the `seededFormUuid` / `proceedWithCase`
 // derivation and `isCaseFirstModule`.
 //
 // Composition is width-driven: search beside the results when the
-// canvas is wide, stacked when it isn't — the same responsive truth
+// canvas is wide, stacked when it isn't: the same responsive truth
 // the running app follows, so authors never pick an export mode. The
 // result rows respond to THEIR OWN remaining width: compact canvases
 // show labelled case cards, while roomy panes retain aligned columns.
@@ -131,12 +131,12 @@ import {
 } from "@/lib/session/hooks";
 
 /** Canvas width where search sits beside the results instead of above
- *  them — the same responsive truth the running app follows. */
+ *  them: the same responsive truth the running app follows. */
 const SPLIT_MIN_WIDTH = 760;
 /** Keep real case populations bounded in both the SQL payload and the DOM. */
 const CASE_LIST_PAGE_SIZE = 50;
 const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
-/** Stable empty catalog slice — a fresh `[]` per render would defeat the
+/** Stable empty catalog slice: a fresh `[]` per render would defeat the
  *  display context's memo. */
 const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
 
@@ -149,7 +149,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const orderedModules = useOrderedModules();
-	/* The MATERIALIZABLE case-type view — derived property types
+	/* The MATERIALIZABLE case-type view: derived property types
 	 * included, implicit standard entries excluded. The same shape the
 	 * running-app query compiler and stored insert schema derive from,
 	 * so the list sorts/filters with the same casts and the sample
@@ -162,7 +162,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const accessPhase = useAccessPhase();
 
 	/* All three case-list workspace URLs (`results` / `search` / `details`)
-	 * render this screen in preview mode — search and
+	 * render this screen in preview mode: search and
 	 * detail are facets of the same case list, so the live preview is
 	 * always the assembled artifact. */
 	const moduleUuid =
@@ -173,9 +173,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: orderedModules[screen.moduleIndex]?.uuid;
 	const routeCaseId = loc.kind === "cases" ? loc.caseId : undefined;
 
-	/* Where selecting a case leads — read from the running app's own
+	/* Where selecting a case leads: read from the running app's own
 	 * navigation, not a default. Selecting a case always continues into a
-	 * CASE-LOADING form (followup / close — the form types that consume a
+	 * CASE-LOADING form (followup / close: the form types that consume a
 	 * case), never registration or survey:
 	 *
 	 *   - Forms-first entry (the worker tapped a specific case-loading form in
@@ -186,7 +186,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *     entered from the case workspace): no form was chosen yet. With exactly
 	 *     one case-loading form we go straight to it; with more than one, the
 	 *     app shows a FORM MENU after the case is picked (CommCare hoists the
-	 *     shared case datum, then asks which form — see `isCaseFirstModule`),
+	 *     shared case datum, then asks which form: see `isCaseFirstModule`),
 	 *     so we render that menu.
 	 *
 	 * A module with no case-loading form has nowhere to continue, so the
@@ -199,7 +199,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[orderedForms],
 	);
 	/** The form a forms-first entry tapped to get here, when it's a real
-	 *  case-loading form in this module — otherwise undefined (case-first). */
+	 *  case-loading form in this module: otherwise undefined (case-first). */
 	const seededFormUuid = useMemo(() => {
 		const seeded = previewCaseTarget?.formUuid;
 		return seeded && caseLoadingForms.some((f) => f.uuid === seeded)
@@ -221,7 +221,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
-	/* Whoever Preview is running as — the member, or the persona they
+	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. The hook owns the hydration rule, so search defaults and the
 	 * assigned-case exclusion resolve against one identity. */
 	const identity = useSelectedPreviewIdentity();
@@ -231,7 +231,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	/* Case-first form conditions evaluate at THIS screen, against the
-	 * SELECTED row's projection — the wire's `<command relevant>` locus
+	 * SELECTED row's projection: the wire's `<command relevant>` locus
 	 * (a case-first module's form menu renders after selection). The
 	 * decided list drives the auto-continue AND the post-selection menu,
 	 * so a false condition suppresses both. Edit-mode canvases never
@@ -265,7 +265,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[caseType, config?.searchInputs, effectiveCaseTypes],
 	);
 
-	// ── Responsive split — the canvas's own width decides ──
+	// ── Responsive split: the canvas's own width decides ──
 	// Measured synchronously in the ref callback so the very first
 	// paint already has the real width; the ResizeObserver keeps it
 	// fresh afterwards. (An effect-mounted observer measures only
@@ -301,7 +301,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * it must never make the pane's submit button react to its own draft. */
 	/* No legacy fallback: the commit gate rejects a condition the on-device
 	 * emitter can't lower, and stored pre-gate documents are migrated rather
-	 * than tolerated — so a throw here is a Nova bug and must surface, not
+	 * than tolerated, so a throw here is a Nova bug and must surface, not
 	 * fail the action closed. */
 	const searchActionIsRelevant =
 		searchConfig !== undefined &&
@@ -312,7 +312,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			)
 				? /* A condition whose carriers the held snapshot doesn't cover
 					 * (still loading, or a valid edit the stale snapshot predates)
-					 * is undecided — keep the Search pane withheld rather than
+					 * is undecided: keep the Search pane withheld rather than
 					 * flashing a surface the decided value may retract. */
 					false
 				: evaluatePreviewSearchPredicate(
@@ -405,7 +405,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
 	/** When set, the case has been picked (and confirmed) and the running app
-	 *  is on the form menu — choosing among the module's case-loading forms.
+	 *  is on the form menu: choosing among the module's case-loading forms.
 	 *  Only reached on a case-first entry with more than one such form. */
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
@@ -545,7 +545,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseListConfig: config,
 		inputValues: activeSearchInputValues,
 		excludedOwnerIdsExpression,
-		// The live case-type catalog — the schema slice the SQL compiler
+		// The live case-type catalog: the schema slice the SQL compiler
 		// casts the config's predicate/sort/calc against. Sent with the
 		// config so a property rename/retype reaches both together, and a
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
@@ -630,7 +630,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const visibleColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
-	/* A tile carries the columns the short detail emits — the visible ones
+	/* A tile carries the columns the short detail emits: the visible ones
 	 * PLUS any hidden column that still orders the list. The hidden one holds
 	 * NO square (the wire gives it no `<style>`, so the device draws an empty
 	 * zero-size item); it is carried only so ordering keeps working, which is
@@ -812,7 +812,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * transient steps of THIS case selection, not a destination. The case
 	 * list is retained (React 19 `<Activity>`), so without this reset,
 	 * navigating back from the form would reveal the stale detail-confirm
-	 * instead of the list — the running app pops back to the case list to
+	 * instead of the list: the running app pops back to the case list to
 	 * re-select, never to the confirm screen. Search/filter persist (the
 	 * list remembers what you were looking at). */
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) => {
@@ -847,12 +847,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const shown = decided.filter((entry) => entry.visibility === "shown");
 		const undecided = decided.some((entry) => entry.visibility === "pending");
 		if (!undecided && shown.length === 1) {
-			/* The single-form skip applies to the CONDITION-ELIGIBLE set —
+			/* The single-form skip applies to the CONDITION-ELIGIBLE set:
 			 * a false condition suppresses the auto-continue too. */
 			openFormWithCase(shown[0].form.uuid, row);
 		} else if (decided.length > 0) {
 			/* Several eligible forms, still-loading conditions, or none
-			 * eligible at all land on the menu — it renders placeholders and
+			 * eligible at all land on the menu: it renders placeholders and
 			 * the hidden-items reveal honestly. */
 			setFormMenuCase(row);
 			focusNextFrame(() => formMenuBackRef.current);
@@ -905,11 +905,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						/>
 						<div
 							data-search-pane-title
-							className="min-w-0 flex-1 whitespace-normal break-words font-display text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
+							className="min-w-0 flex-1 whitespace-normal break-words font-display tracking-tighter text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
 						>
 							{title}
 						</div>
-						{/* Clear what was typed — lives WITH the search (where you'd
+						{/* Clear what was typed: lives WITH the search (where you'd
 						 *  reach to start over) and only appears when there's an active
 						 *  query to clear. */}
 						{(queryActive || draftActive) && (
@@ -917,7 +917,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								type="button"
 								variant="ghost"
 								onClick={clearSearch}
-								className="ml-auto min-h-11 shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent"
 							>
 								<Icon icon={tablerX} width="13" height="13" />
 								Clear search
@@ -974,14 +974,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				type="button"
 				variant="ghost"
 				onClick={closeCaseDetail}
-				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				Back to results
 			</Button>
 			<h1
 				data-case-detail-title
-				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{displayedOpenCase.case_name || "Case"}
 			</h1>
@@ -1010,7 +1010,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					);
 				})}
 			</dl>
-			{/* The running app's confirm step ends in Continue — on to the
+			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to
 			 *  continue, so the detail is the end of the road and no button
@@ -1019,7 +1019,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				<Button
 					type="button"
 					onClick={() => proceedWithCase(displayedOpenCase)}
-					className="mt-4 min-h-11 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
@@ -1036,7 +1036,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					type="button"
 					variant="ghost"
 					onClick={closeCaseDetail}
-					className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
 					Back to results
@@ -1070,7 +1070,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</div>
 		);
 
-	/* Form menu — the running app's post-selection screen for a case-first
+	/* Form menu: the running app's post-selection screen for a case-first
 	 *  module with more than one case-loading form: the worker picked a case,
 	 *  now picks which form to run for it (Follow-up / Close / …). Mirrors
 	 *  CommCare resolving the shared case datum and THEN asking for the
@@ -1091,7 +1091,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}));
 	const formMenuPane = displayedFormMenuCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
-			{/* Back returns to whatever sits beneath the menu — the case
+			{/* Back returns to whatever sits beneath the menu: the case
 			 *  detail when one is configured, otherwise the results list. */}
 			<Button
 				ref={formMenuBackRef}
@@ -1105,14 +1105,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						restoreResultsFocus();
 					}
 				}}
-				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				{displayedOpenCase !== null ? "Back" : "Back to results"}
 			</Button>
 			<h1
 				data-form-menu-case-title
-				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{displayedFormMenuCase.case_name || "Case"}
 			</h1>
@@ -1171,7 +1171,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					ref={resultsTitleRef}
 					tabIndex={-1}
 					data-results-title
-					className="min-w-0 flex-1 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+					className="min-w-0 flex-1 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 				>
 					{mod.name}
 				</h1>
@@ -1185,7 +1185,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							{visibleResultCount}
 							{/* Trailing, always-reserved spinner slot. The count text must
 							 *  stay the span's FIRST flex item: the row aligns by baseline,
-							 *  and a flex container's baseline comes from its first item —
+							 *  and a flex container's baseline comes from its first item:
 							 *  an SVG's baseline is its bottom edge (~2px off the text
 							 *  baseline), so a leading or unmounting spinner bounces the
 							 *  count vertically every time fetching toggles. */}
@@ -1214,7 +1214,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 						focusNextFrame(() => resultsTitleRef.current);
 					}}
-					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
 				>
 					<Icon icon={tablerSearch} width="16" height="16" />
 					{searchButtonLabel}
@@ -1278,7 +1278,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							variant="outline"
 							disabled={fetching || settledPageOffset === 0}
 							onClick={() => choosePage(settledPageIndex - 1)}
-							className="min-h-11"
+							className=""
 						>
 							Previous
 						</Button>
@@ -1287,7 +1287,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							variant="outline"
 							disabled={fetching || pageEnd >= totalMatchingCases}
 							onClick={() => choosePage(settledPageIndex + 1)}
-							className="min-h-11"
+							className=""
 						>
 							Next
 						</Button>
@@ -1336,7 +1336,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 
 // ── Results body ──────────────────────────────────────────────────
 
-/** The list's loading arm — shown before the first settle and while a
+/** The list's loading arm: shown before the first settle and while a
  *  stale-empty view revalidates. */
 function CasesLoading() {
 	return (
@@ -1618,7 +1618,7 @@ function CaseListEmptyNotice({
 				<Button
 					type="button"
 					variant="outline"
-					className="mt-4 min-h-11"
+					className="mt-4"
 					data-case-list-empty-action
 					onClick={(event) => action.onClick(event.currentTarget)}
 				>
@@ -1795,7 +1795,7 @@ const INTERACTIVE_RESULT_CELL_CLASSES =
 	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
 
 const INTERACTIVE_RESULT_ROW_CLASSES =
-	"cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]:focus-visible:outline-none [&_a]:focus-visible:ring-2 [&_a]:focus-visible:ring-nova-violet-bright/75 [&_a]:focus-visible:ring-offset-2 [&_a]:focus-visible:ring-offset-pv-surface";
+	"nova-focusable cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]: [&_a]: [&_a]: [&_a]: [&_a]:";
 
 function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	if (columnCount <= 3) return XL_RESULTS;
@@ -1929,7 +1929,7 @@ function ResultsTable({
 								data-case-result-action={row.case_id}
 								onClick={(event) => onOpenCase(row, event.currentTarget)}
 								disabled={busy}
-								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+								className="nova-focusable-inset absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 							/>
 							{content}
 						</li>
@@ -1943,7 +1943,7 @@ function ResultsTable({
 /**
  * What the row's own action announces. The name comes from what the list
  * actually shows, so a worker hears the row they are choosing rather than
- * a stored id — and both row shapes (columns and tile) derive it the same
+ * a stored id, and both row shapes (columns and tile) derive it the same
  * way, so switching layouts never changes what a screen reader says.
  */
 function primaryRowActionLabel(
@@ -1978,7 +1978,7 @@ interface ResultsTileLayout {
  * ## Responsive behavior
  *
  * The tile does not reflow, collapse, or scale at any width. A tile is a
- * phone-first layout — the device that runs it is 360 CSS pixels wide, and
+ * phone-first layout: the device that runs it is 360 CSS pixels wide, and
  * a preview that rearranged the grid to fit a builder canvas would stop
  * showing what a worker sees, which is the whole point of running the app
  * here. So width changes the tile's surroundings, never its geometry:
@@ -1986,8 +1986,8 @@ interface ResultsTileLayout {
  *   - **Compact (container under 600px, Material's first boundary).** The
  *     row's gutters tighten so the pane spends its width on content. The
  *     list holds a legibility floor of 18rem: below that the list scrolls
- *     horizontally inside its own container — the same containment wide
- *     content uses everywhere — rather than squeezing a 12-column grid to
+ *     horizontally inside its own container: the same containment wide
+ *     content uses everywhere, rather than squeezing a 12-column grid to
  *     roughly a character per column. A builder canvas is wider than the
  *     floor even on a 320px handset, so the floor is a guarantee, not a
  *     state a worker normally meets.
@@ -2091,7 +2091,7 @@ function ResultsTiles({
 								data-case-result-action={row.case_id}
 								onClick={(event) => onOpenCase(row, event.currentTarget)}
 								disabled={busy}
-								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+								className="nova-focusable-inset absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 							/>
 							{content}
 						</li>

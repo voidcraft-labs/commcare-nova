@@ -289,7 +289,7 @@ test.describe("authenticated builder", () => {
 		// landing. (If the session cookie were rejected we'd see "Sign in with
 		// Google" here instead — a silent-auth-break canary.)
 		await expect(
-			page.getByRole("heading", { name: "Your Apps", level: 1 }),
+			page.getByRole("heading", { name: "Your apps", level: 1 }),
 		).toBeVisible();
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
@@ -1432,7 +1432,7 @@ test.describe("authenticated builder", () => {
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("2:30 PM");
 			await expect(
-				page.getByText("Pick a date — this question needs both."),
+				page.getByText("Pick a date: this question needs both."),
 			).toBeVisible();
 
 			// And clearing the remaining half empties the answer outright.
@@ -1440,7 +1440,7 @@ test.describe("authenticated builder", () => {
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("");
 			await expect(
-				page.getByText("Pick a date — this question needs both."),
+				page.getByText("Pick a date: this question needs both."),
 			).toBeHidden();
 		});
 
@@ -1679,7 +1679,7 @@ test.describe("authenticated builder", () => {
 			// is looking, and the live region announces the same words.
 			await expect(
 				page.getByText(
-					"Patient would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
+					"Patient would sit on top of Village. Two fields can’t share a square on a tile: one would be drawn over the other.",
 				),
 			).toHaveCount(2);
 			// Refused means unmoved, not moved-and-reverted.
@@ -1733,17 +1733,19 @@ test.describe("authenticated builder", () => {
 		};
 		await page.goto(fixture.identityProjectionRoute);
 		await expect(
-			page.getByRole("button", { name: "Form settings" }),
+			page.getByRole("button", { name: "Form settings", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
 
 		await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Close Behavior" }).click();
 			await page
 				.getByRole("menuitem", { name: "When condition is met" })
 				.click();
 
-			const field = page.getByPlaceholder("Search fields...");
+			const field = page.getByPlaceholder("Search fields");
 			await expect(field).toHaveValue("");
 			await field.click();
 			await page
@@ -1775,7 +1777,7 @@ test.describe("authenticated builder", () => {
 
 			await page.getByRole("button", { name: "Field actions" }).click();
 			await waitForSavedMutation('"kind":"moveField"', async () => {
-				await page.getByRole("menuitem", { name: "Move Down" }).click();
+				await page.getByRole("menuitem", { name: "Move down" }).click();
 			});
 			await expect(
 				page.locator("main [data-field-uuid]").first(),
@@ -1784,19 +1786,23 @@ test.describe("authenticated builder", () => {
 
 		await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
 			await page.goto(fixture.identityProjectionRoute);
-			await page.getByRole("button", { name: "Form settings" }).click();
-			const field = page.getByPlaceholder("Search fields...");
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
+			const field = page.getByPlaceholder("Search fields");
 			await expect(field).toHaveValue("given_name", { timeout: 20_000 });
 			const settings = page
 				.getByRole("dialog")
-				.filter({ hasText: "Form Settings" });
+				.filter({ hasText: "Form settings" });
 			await expect(settings).toHaveCount(1);
 			await expect(settings).not.toContainText(identity.firstNameUuid);
 			await expect(settings).not.toContainText(
 				`#form/${identity.firstNameUuid}`,
 			);
 
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			await expect(
 				page.getByRole("textbox", { name: "First name" }),
@@ -1811,12 +1817,14 @@ test.describe("authenticated builder", () => {
 
 		await test.step("returning to Always clears the reference cleanly", async () => {
 			await page.getByRole("button", { name: "Back to edit" }).click();
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Close Behavior" }).click();
 			await waitForSavedMutation('"closeCondition":null', async () => {
 				await page.getByRole("menuitem", { name: "Always" }).click();
 			});
-			await expect(page.getByPlaceholder("Search fields...")).toHaveCount(0);
+			await expect(page.getByPlaceholder("Search fields")).toHaveCount(0);
 		});
 	});
 
@@ -2269,7 +2277,7 @@ test.describe("authenticated builder", () => {
 		await page.goto("/build/new");
 
 		const startFromScratch = page.getByRole("button", {
-			name: "Start from scratch",
+			name: "Start with a blank app",
 		});
 		await expect(startFromScratch).toBeVisible({ timeout: 20_000 });
 
@@ -2352,7 +2360,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "New chat" }).click();
 		await expect(page.getByText(seed.olderThreadAssistantText)).toHaveCount(0);
 		await expect(
-			page.getByText("What changes would you like to make?"),
+			page.getByText("Your conversation with Nova appears here"),
 		).toBeVisible();
 
 		// The old conversation is one list-click away — nothing was lost.
@@ -2375,7 +2383,7 @@ test.describe("authenticated builder", () => {
 		});
 		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
 
-		const composer = page.getByPlaceholder("Describe a change");
+		const composer = page.getByPlaceholder("What would you like to change?");
 		const submit = page.getByRole("button", { name: "Submit" });
 
 		// Re-reading history escapes the bottom pin: the view holds still and
@@ -2441,7 +2449,7 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await expect.poll(() => logScrollTop(page)).toBeLessThanOrEqual(1);
 		const preAnswerMax = await armScrollTrace(page);
-		const composer = page.getByPlaceholder("Describe a change");
+		const composer = page.getByPlaceholder("What would you like to change?");
 		await composer.fill("The community team handles it");
 		await page.getByRole("button", { name: "Submit" }).click();
 		await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();
@@ -2629,7 +2637,7 @@ test.describe("authenticated builder", () => {
 			page.getByRole("heading", { name: "Data tables", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(
-			page.getByText("shared with every app in this project", { exact: false }),
+			page.getByText("shared with every app in this Project", { exact: false }),
 		).toBeVisible();
 
 		// Export identity is visible before opening a table; authors do not need
@@ -3085,7 +3093,7 @@ test.describe("authenticated builder", () => {
 				.click();
 			const confirmation = peerPage.getByRole("alertdialog");
 			await expect(
-				confirmation.getByText("No app in this project uses it right now."),
+				confirmation.getByText("No app in this Project uses it right now."),
 			).toBeVisible();
 			await confirmation.getByRole("button", { name: "Change type" }).click();
 			await expect(confirmation).toBeHidden();
@@ -3161,7 +3169,7 @@ test.describe("authenticated builder", () => {
 		await peerPage.getByRole("button", { name: "Delete table" }).click();
 		const peerDeleteTable = peerPage.getByRole("alertdialog");
 		await expect(
-			peerDeleteTable.getByText("No app in this project uses it right now."),
+			peerDeleteTable.getByText("No app in this Project uses it right now."),
 		).toBeVisible();
 		await peerDeleteTable.getByRole("button", { name: "Delete table" }).click();
 		await expect(
@@ -3179,7 +3187,7 @@ test.describe("authenticated builder", () => {
 		).toHaveCount(2, { timeout: 40_000 });
 		await expect(
 			deletedTableRecovery.getByText(
-				"Original table unavailable — copy or discard this local row",
+				"Original table unavailable. Copy or discard this local row",
 				{ exact: true },
 			),
 		).toHaveCount(2);
@@ -3245,7 +3253,7 @@ test.describe("authenticated builder", () => {
 			),
 		).toBeVisible();
 		await expect(
-			selfDeleteTable.getByText("No app in this project uses it right now."),
+			selfDeleteTable.getByText("No app in this Project uses it right now."),
 		).toBeVisible();
 		await selfDeleteTable.getByRole("button", { name: "Delete table" }).click();
 		const selfDeleteRecovery = recoveryPage.getByRole("region", {

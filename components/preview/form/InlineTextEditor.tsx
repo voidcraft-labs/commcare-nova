@@ -2,15 +2,15 @@
  * WYSIWYG inline text editor for text cursor mode.
  *
  * Replaces static LabelContent in-place when the user clicks a text surface
- * in text mode. CommCare Web Apps markdown rendering — headings, bold, italic,
+ * in text mode. CommCare Web Apps markdown rendering: headings, bold, italic,
  * links, images, lists, code (inline + block), horizontal rules, and GFM
- * tables — via tiptap-markdown. Uses the TipTap composable API (`<Tiptap>`
+ * tables: via tiptap-markdown. Uses the TipTap composable API (`<Tiptap>`
  * provider + `<Tiptap.Content>`). Blockquote and strikethrough are disabled
  * because CommCare Web Apps has no visible styling for either.
  *
  * Two toolbar variants:
  *
- * **Labels** — Always-visible floating toolbar anchored above the editor via
+ * **Labels**: Always-visible floating toolbar anchored above the editor via
  * React portal + manual positioning. CommCare Web Apps markdown feature set
  * via official TipTap UI components: MarkButton (bold, italic, code),
  * HeadingDropdownMenu, ListDropdownMenu, LinkPopover, ImagePopover,
@@ -18,7 +18,7 @@
  * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
  * to body so overflow-hidden ancestors can't clip it.
  *
- * **Hints** — BubbleMenu with default shouldShow (text selection only).
+ * **Hints**: BubbleMenu with default shouldShow (text selection only).
  * Bold and italic MarkButton only.
  *
  * Save: blur, Cmd/Ctrl+Enter. Cancel: Escape reverts to original value.
@@ -67,7 +67,7 @@ interface InlineTextEditorProps {
 	onSave: (value: ProseTemplate) => void;
 	/** Called when the user cancels editing (Escape). Reverts to original value. */
 	onCancel: () => void;
-	/** Which text surface this editor replaces — drives styling to match. */
+	/** Which text surface this editor replaces: drives styling to match. */
 	fieldType: FieldType;
 	/** Whether to auto-focus the editor on mount. */
 	autoFocus?: boolean;
@@ -103,18 +103,18 @@ function LabelToolbar({
 		const portal = portalRef.current;
 		if (!anchor || !portal) return;
 
-		/** Reposition the toolbar via direct DOM mutation — no React re-render.
+		/** Reposition the toolbar via direct DOM mutation: no React re-render.
 		 * Fires on every scroll (capture) and resize, so it must be cheap.
 		 *
 		 * Three regimes as the editor scrolls up:
-		 * 1. **Free** — toolbar floats above the anchor with a 6px gap (default).
-		 * 2. **Clamped** — toolbar would escape above the form header, so it
+		 * 1. **Free**: toolbar floats above the anchor with a 6px gap (default).
+		 * 2. **Clamped**: toolbar would escape above the form header, so it
 		 *    pins just below the header's bottom edge.
-		 * 3. **Hidden** — anchor has scrolled out of the scroll container's
+		 * 3. **Hidden**: anchor has scrolled out of the scroll container's
 		 *    visible region entirely. */
 		const GAP = 6;
 		/* Padding between the bottom of the form header and the clamped
-		 * toolbar. Tight on purpose — paired with the form body's top padding
+		 * toolbar. Tight on purpose: paired with the form body's top padding
 		 * so the toolbar fits flush in the margin above the first field. */
 		const CLAMP_PAD = 2;
 
@@ -213,7 +213,7 @@ function LabelToolbar({
 // ── Hint toolbar (minimal formatting) ────────────────────────────────
 
 /**
- * Minimal BubbleMenu for hint fields. Default shouldShow — appears
+ * Minimal BubbleMenu for hint fields. Default shouldShow: appears
  * on text selection only. Bold and italic only.
  */
 function CompactToolbar() {
@@ -255,7 +255,7 @@ export function InlineTextEditor({
 		[onSave],
 	);
 
-	/** Cancel editing — revert to the original value without saving. */
+	/** Cancel editing: revert to the original value without saving. */
 	const cancelAndDeactivate = useCallback(() => {
 		if (savedRef.current) return;
 		savedRef.current = true;
@@ -318,12 +318,12 @@ export function InlineTextEditor({
 		/* Initial content goes straight through tiptap-markdown's parse pipeline.
 		 * `proseTemplateToMarkdown` emits each typed reference as its encoded
 		 * `<span data-nova-prose-ref="…">` carrier, which CommcareRef's
-		 * `parseHTML` matches — so the ProseMirror doc already contains
+		 * `parseHTML` matches, so the ProseMirror doc already contains
 		 * commcareRef nodes before the view is ever mounted. No post-mount
 		 * hydration dispatch is required: chips are present on first paint, and
 		 * TipTap's `ReactRenderer.flushSync` path is never hit from inside a
 		 * React effect. Hashtag-looking TEXT is not a reference and never
-		 * becomes one here — only the encoded carrier does. */
+		 * becomes one here: only the encoded carrier does. */
 		content: proseTemplateToMarkdown(value),
 		immediatelyRender: false,
 		editorProps: {
@@ -339,7 +339,7 @@ export function InlineTextEditor({
 		onBlur: ({ editor: e }) => {
 			/* Delay save to let the browser update activeElement. If focus moved to
 			 * our toolbar portal or its dropdown (both outside the ProseMirror DOM
-			 * tree), the blur is transient — don't save. Only save when focus has
+			 * tree), the blur is transient: don't save. Only save when focus has
 			 * genuinely left the editing context. The toolbar wrapper and the Radix
 			 * dropdown content are both tagged with [data-inline-toolbar]. */
 			requestAnimationFrame(() => {
@@ -350,7 +350,7 @@ export function InlineTextEditor({
 		},
 	});
 
-	/* One-shot cursor placement on mount. Pure selection mutation — does not
+	/* One-shot cursor placement on mount. Pure selection mutation, does not
 	 * instantiate new React NodeViews, so it's safe to dispatch from a React
 	 * effect (unlike a content-replacing transaction, which creates NodeViews
 	 * whose `ReactRenderer` constructor calls `flushSync` and errors inside the
@@ -384,7 +384,7 @@ export function InlineTextEditor({
 				) : (
 					<CompactToolbar />
 				)}
-				{/* Text styling + preview-markdown on a single wrapper — matches the
+				{/* Text styling + preview-markdown on a single wrapper: matches the
 				 * static LabelContent structure for flipbook parity. */}
 				<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>
 					<Tiptap.Content />
@@ -402,7 +402,7 @@ function activateAdjacentEditable(direction: "next" | "prev") {
 	const all = Array.from(
 		document.querySelectorAll<HTMLElement>("[data-text-editable]"),
 	);
-	/* Find the currently active editable — the one whose InlineTextEditor just saved. */
+	/* Find the currently active editable: the one whose InlineTextEditor just saved. */
 	const active =
 		(document.activeElement?.closest(
 			"[data-text-editable]",

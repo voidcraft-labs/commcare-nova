@@ -15,6 +15,7 @@ import {
 import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/shadcn/badge";
+import { Input } from "@/components/shadcn/input";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -58,9 +59,7 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		cell: ({ getValue }) => {
 			const role = getValue<"user" | "admin">();
 			return (
-				<Badge variant={role === "admin" ? "violet" : "secondary"}>
-					{role}
-				</Badge>
+				<Badge variant={role === "admin" ? "violet" : "muted"}>{role}</Badge>
 			);
 		},
 	},
@@ -79,15 +78,15 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		),
 	},
 	{
-		// Sort on `credits_remaining` — the figure an admin scans to find
-		// low-balance users — while the cell renders the full standing.
+		// Sort on `credits_remaining`: the figure an admin scans to find
+		// low-balance users, while the cell renders the full standing.
 		accessorKey: "credits_remaining",
 		header: "Credits",
 		cell: ({ row }) => <CreditsCell user={row.original} />,
 	},
 	{
 		accessorKey: "credits_used_lifetime",
-		header: "Lifetime cr",
+		header: "Lifetime credits",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">
 				{getValue<number>().toLocaleString()}
@@ -95,26 +94,29 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		),
 	},
 	{
-		// This month's true dollar cost — tracked for tuning + backstop, no
+		// This month's true dollar cost: tracked for tuning + backstop, no
 		// longer the user-facing gate (the credit columns are the gate now).
 		accessorKey: "cost",
-		header: "$ this mo",
+		header: "Cost this month",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),
 	},
 	{
 		accessorKey: "cost_lifetime",
-		header: "$ lifetime",
+		header: "Lifetime cost",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),
 	},
 	{
 		accessorKey: "last_active_at",
-		header: "Last Active",
+		header: "Last active",
 		cell: ({ getValue }) => (
-			<RelativeTime date={new Date(getValue<string>())} />
+			<RelativeTime
+				date={new Date(getValue<string>())}
+				className="first-letter:uppercase"
+			/>
 		),
 		sortingFn: "datetime",
 	},
@@ -125,17 +127,17 @@ const columns: ColumnDef<AdminUserRow>[] = [
 /**
  * Renders a user's current-period credit standing in one compact line.
  *
- * `credits_remaining` is the load-bearing number — the figure an admin scans
- * to spot who's running low — so it leads with `font-semibold`. The
+ * `credits_remaining` is the load-bearing number: the figure an admin scans
+ * to spot who's running low, so it leads with `font-semibold`. The
  * `used / total` context follows in a muted token, kept inline (not stacked)
  * so the cell stays single-line and the row height matches its siblings.
  *
  * The denominator is the EFFECTIVE monthly total, derived as
- * `credits_used + credits_remaining` — deliberately NOT a bare per-month
+ * `credits_used + credits_remaining`: deliberately NOT a bare per-month
  * allowance. Once an admin grants bonus credits, `remaining = allowance + bonus
  * − used`, so a bare allowance would no longer reconcile with the bold remaining
  * and the bonus would be invisible on the row. The row doesn't carry `bonus`,
- * but `used + remaining === allowance + bonus` by definition — so
+ * but `used + remaining === allowance + bonus` by definition, so
  * `used + remaining` recovers the effective allowance+bonus and keeps the muted
  * context consistent with the bold remaining for granted and ungranted users
  * alike.
@@ -220,19 +222,18 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 	return (
 		<div className="space-y-6">
 			{/* Search */}
-			<input
+			<Input
 				type="text"
 				value={globalFilter}
 				onChange={(e) => setGlobalFilter(e.target.value)}
-				placeholder="Search users..."
+				placeholder="Search users"
 				aria-label="Search users"
 				autoComplete="off"
 				data-1p-ignore
-				className="w-full px-4 py-2.5 text-sm bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all"
 			/>
 
 			{/* Table */}
-			<div className="rounded-xl border border-nova-border overflow-x-auto">
+			<div className="rounded-lg border border-nova-border overflow-x-auto">
 				<table className="w-full">
 					<thead>
 						{table.getHeaderGroups().map((headerGroup) => (
@@ -246,7 +247,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 										key={header.id}
 										onClick={header.column.getToggleSortingHandler()}
 										className={`
-                      px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide
+                      px-4 py-3 text-left text-xs font-medium
                       ${header.column.getIsSorted() ? "text-nova-violet-bright" : "text-nova-text-secondary"}
                       ${header.column.getCanSort() ? "cursor-pointer select-none hover:text-nova-text" : ""}
                     `}

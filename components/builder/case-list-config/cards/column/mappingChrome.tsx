@@ -2,9 +2,9 @@
 //
 // Shared chrome for the two value→display mapping tables
 // (`IdMappingCard` value→label, `ImageMapColumnCard` value→image).
-// Both render the same list shape — etched section label, dashed
+// Both render the same list shape: etched section label, dashed
 // empty notice, ordered entry rows with move/remove controls, and a
-// full-width Add CTA — and differ only in each row's display cell.
+// full-width Add CTA, and differ only in each row's display cell.
 // One home for the chrome keeps the row controls at full size (44px
 // targets, tooltips) in both cards without drift.
 
@@ -24,7 +24,7 @@ export function MappingSectionLabel() {
 	return <div className={INSPECTOR_LABEL_CLS}>Values shown as</div>;
 }
 
-/** Dashed notice when the mapping has no entries — the consumer
+/** Dashed notice when the mapping has no entries: the consumer
  *  supplies the consequence ("values show exactly as they're
  *  stored", "rows show no image"). */
 export function MappingEmptyNotice({ children }: { children: ReactNode }) {
@@ -35,7 +35,7 @@ export function MappingEmptyNotice({ children }: { children: ReactNode }) {
 	);
 }
 
-/** Full-width dashed Add CTA — the same shape as every other Add
+/** Full-width dashed Add CTA: the same shape as every other Add
  *  affordance in the inspector. */
 export function AddMappingButton({ onClick }: { onClick: () => void }) {
 	return (
@@ -44,7 +44,7 @@ export function AddMappingButton({ onClick }: { onClick: () => void }) {
 			variant="ghost"
 			onClick={onClick}
 			data-mapping-add
-			className="min-h-11 w-full gap-2 border border-dashed border-white/[0.10] px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-transparent"
+			className="nova-add-slot w-full gap-2"
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
 			<span>Add value</span>
@@ -119,7 +119,6 @@ export function MappingRowShell({
 						aria-label={`Move value ${index + 1} earlier`}
 						onClick={onMoveUp}
 						disabled={isFirst}
-						className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</Button>
@@ -132,7 +131,6 @@ export function MappingRowShell({
 						aria-label={`Move value ${index + 1} later`}
 						onClick={onMoveDown}
 						disabled={isLast}
-						className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</Button>
@@ -140,11 +138,10 @@ export function MappingRowShell({
 				<SimpleTooltip content="Remove value">
 					<Button
 						type="button"
-						variant="ghost"
+						variant="ghost-destructive"
 						size="icon"
 						aria-label={`Remove value ${index + 1}`}
 						onClick={onRemove}
-						className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerTrash} width="13" height="13" />
 					</Button>

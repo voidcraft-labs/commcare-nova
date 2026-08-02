@@ -92,7 +92,7 @@ function emptyForm(
 		validationError(
 			"EMPTY_FORM",
 			"form",
-			`"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form — add at least one field.`,
+			`"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form. Add at least one field.`,
 			baseLocation(ctx),
 		),
 	];
@@ -214,7 +214,7 @@ function caseWriteAdmission(
 				validationError(
 					"CASE_WRITE_DUPLICATE_PROPERTY",
 					"form",
-					`"${ctx.formName}" has ${fieldIds.length} fields (${fieldIds.map((id) => `"${id}"`).join(", ")}) all saving property "${issue.property}" on ${bucketScope(issue.bucket)}. One emitted case action can have exactly one ordinary field writer per property — change or clear the extra case destinations.`,
+					`"${ctx.formName}" has ${fieldIds.length} fields (${fieldIds.map((id) => `"${id}"`).join(", ")}) all saving property "${issue.property}" on ${bucketScope(issue.bucket)}. One emitted case action can have exactly one ordinary field writer per property. Change or clear the extra case destinations.`,
 					{
 						...baseLocation(ctx),
 						fieldUuid: issue.writers[1]?.fieldUuid,
@@ -239,8 +239,8 @@ function caseWriteAdmission(
 				duplicate ? "CASE_CREATE_NAME_DUPLICATE" : "CASE_CREATE_NAME_MISSING",
 				"form",
 				duplicate
-					? `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but ${names.length} fields (${names.map((writer) => `"${writer.fieldId}"`).join(", ")}) write its "case_name". Every case-create action needs exactly one name writer — keep one destination and change or clear the others.`
-					: `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but no field writes its "case_name". Every case-create action needs exactly one name writer — set one field's case destination to type "${issue.bucket.caseType}", property "case_name".`,
+					? `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but ${names.length} fields (${names.map((writer) => `"${writer.fieldId}"`).join(", ")}) write its "case_name". Every case-create action needs exactly one name writer. Keep one destination and change or clear the others.`
+					: `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but no field writes its "case_name". Every case-create action needs exactly one name writer. Set one field's case destination to type "${issue.bucket.caseType}", property "case_name".`,
 				{
 					...baseLocation(ctx),
 					fieldUuid: names[1]?.fieldUuid,
@@ -341,7 +341,7 @@ function closeConditionValidation(
 			validationError(
 				"CLOSE_FORM_NO_CASE_TYPE",
 				"form",
-				`"${ctx.formName}" is a close form but "${ctx.moduleName}" has no case type. Close forms need a case to close — add a case_type to the module or change the form type.`,
+				`"${ctx.formName}" is a close form but "${ctx.moduleName}" has no case type. Close forms need a case to close. Add a case_type to the module or change the form type.`,
 				loc,
 			),
 		);
@@ -638,7 +638,7 @@ function connectValidation(
 			validationError(
 				code,
 				"form",
-				`Connect ${label} id in "${ctx.formName}" — ${reason}`,
+				`Connect ${label} id in "${ctx.formName}": ${reason}`,
 				loc,
 				{ connectId: id },
 			),
@@ -696,7 +696,7 @@ function connectValidation(
 				validationError(
 					"CONNECT_EMPTY_XPATH",
 					"form",
-					`"${ctx.formName}" ${label} is empty. CommCare HQ rejects builds with empty calculate expressions on Connect bindings — set a valid XPath or remove the sub-config.`,
+					`"${ctx.formName}" ${label} is empty. CommCare HQ rejects builds with empty calculate expressions on Connect bindings. Set a valid XPath or remove the sub-config.`,
 					loc,
 				),
 			);
@@ -708,7 +708,7 @@ function connectValidation(
 				validationError(
 					"CONNECT_UNQUOTED_XPATH",
 					"form",
-					`"${ctx.formName}" ${label} has "${bare}" without quotes. This looks like a string value, not an XPath expression — wrap it in single quotes: '${bare}'.`,
+					`"${ctx.formName}" ${label} has "${bare}" without quotes. This looks like a string value, not an XPath expression. Wrap it in single quotes: '${bare}'.`,
 					loc,
 				),
 			);
@@ -852,7 +852,7 @@ function caseHashtagOnCreateForm(
 				validationError(
 					"CASE_HASHTAG_ON_CREATE_FORM",
 					"form",
-					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Reference the form question instead. The only valid case reference is the created case type's "case_id" — it points to the newly allocated case id.`,
+					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Reference the form question instead. The only valid case reference is the created case type's "case_id", it points to the newly allocated case id.`,
 					loc,
 					{ hashtag, surface },
 				),

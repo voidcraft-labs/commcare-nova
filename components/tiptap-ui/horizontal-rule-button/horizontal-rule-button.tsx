@@ -58,7 +58,7 @@ export const HorizontalRuleButton = forwardRef<
 				disabled={!canInsert}
 				data-disabled={!canInsert}
 				aria-label={label}
-				tooltip="Horizontal Rule"
+				tooltip="Horizontal rule"
 				onClick={handleClick}
 				{...buttonProps}
 				ref={ref}

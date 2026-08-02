@@ -24,7 +24,7 @@ import type { UIMessageChunk } from "ai";
 
 /** The message shown on a tool card whose call the aborted attempt orphaned. */
 const INTERRUPTED_TOOL_MESSAGE =
-	"Interrupted by a temporary provider error — retried automatically.";
+	"Interrupted by a temporary provider error. Retried automatically.";
 
 export interface OpenPartTracker {
 	/** Observe every SA chunk the route forwards, in order. */

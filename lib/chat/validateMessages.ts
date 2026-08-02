@@ -44,14 +44,14 @@ export function validateChatMessages(raw: unknown): ChatMessagesValidation {
 		return {
 			ok: false,
 			error:
-				"This request is missing its messages — the chat history didn't arrive as a list. Resend from the composer, or check the client is POSTing a `messages` array.",
+				"This request is missing its messages, the chat history didn't arrive as a list. Resend from the composer, or check the client is POSTing a `messages` array.",
 		};
 	}
 
 	if (raw.length > MAX_CHAT_MESSAGES) {
 		return {
 			ok: false,
-			error: `This request carries ${raw.length} messages, over the ${MAX_CHAT_MESSAGES}-message limit. Start a fresh conversation to continue — the history has grown past what one request can send.`,
+			error: `This request carries ${raw.length} messages, over the ${MAX_CHAT_MESSAGES}-message limit. Start a fresh conversation to continue, the history has grown past what one request can send.`,
 		};
 	}
 
@@ -65,7 +65,7 @@ export function validateChatMessages(raw: unknown): ChatMessagesValidation {
 			return {
 				ok: false,
 				error:
-					"One of these messages is malformed — the chat history must contain message objects.",
+					"One of these messages is malformed, the chat history must contain message objects.",
 			};
 		}
 		// Assistant + plain user messages reach here without metadata. Only a
@@ -79,7 +79,7 @@ export function validateChatMessages(raw: unknown): ChatMessagesValidation {
 			return {
 				ok: false,
 				error:
-					"An attachment on one of these messages has invalid metadata — a field is missing, the wrong type, or over its length limit. Remove and re-attach the file from the composer.",
+					"An attachment on one of these messages has invalid metadata, a field is missing, the wrong type, or over its length limit. Remove and re-attach the file from the composer.",
 			};
 		}
 		totalAttachments += parsed.data.attachments?.length ?? 0;
@@ -88,7 +88,7 @@ export function validateChatMessages(raw: unknown): ChatMessagesValidation {
 	if (totalAttachments > MAX_CHAT_ATTACHMENTS) {
 		return {
 			ok: false,
-			error: `This request references ${totalAttachments} attachments, over the ${MAX_CHAT_ATTACHMENTS}-attachment limit. Send fewer files per conversation — each one is read on every turn.`,
+			error: `This request references ${totalAttachments} attachments, over the ${MAX_CHAT_ATTACHMENTS}-attachment limit. Send fewer files per conversation, each one is read on every turn.`,
 		};
 	}
 

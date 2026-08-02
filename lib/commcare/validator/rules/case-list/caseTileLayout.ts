@@ -144,7 +144,7 @@ export function caseTileLayout(
 				validationError(
 					"CASE_LIST_TILE_CELLS_OVERLAP",
 					"module",
-					`${describeColumn(first.column, first.index)} and ${describeColumn(second.column, second.index)} sit on top of each other on the "${mod.name}" case tile. Two fields cannot share the same square — one would be drawn over the other. Move or resize one of them so they no longer cover the same part of the grid.`,
+					`${describeColumn(first.column, first.index)} and ${describeColumn(second.column, second.index)} sit on top of each other on the "${mod.name}" case tile. Two fields cannot share the same square, one would be drawn over the other. Move or resize one of them so they no longer cover the same part of the grid.`,
 					location,
 					{
 						firstUuid: first.column.uuid,

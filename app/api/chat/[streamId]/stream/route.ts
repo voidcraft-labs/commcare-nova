@@ -1,24 +1,24 @@
 /**
- * Resumable chat stream — replay + live tail of one chat POST's UI message
+ * Resumable chat stream: replay + live tail of one chat POST's UI message
  * chunk stream, from the durable chunk log (`lib/db/streamChunks`).
  *
  * GET /api/chat/{streamId|threadId}/stream?startIndex=N
  *
  * This is the server half of the AI SDK's `WorkflowChatTransport` contract
  * (the client half ships in `@ai-sdk/workflow`; Nova serves the contract from
- * its own Postgres — no workflow runtime involved). The path id is resolved
+ * its own Postgres: no workflow runtime involved). The path id is resolved
  * in two steps:
  *
- *  1. A STREAM id (the `x-workflow-run-id` a POST returned) — the transport
+ *  1. A STREAM id (the `x-workflow-run-id` a POST returned), the transport
  *     reconnects here whenever that POST's response ends without a `finish`
  *     chunk: a network blip, a mid-run deploy hiccup, Cloud Run's 60-minute
  *     request cap. `startIndex` is the count of chunks already received.
- *  2. A THREAD id — the cold page-refresh resume (`useChat`'s `resumeStream`
+ *  2. A THREAD id: the cold page-refresh resume (`useChat`'s `resumeStream`
  *     calls `reconnectToStream({chatId})`, and the Chat instance's id IS the
  *     thread id). The thread row's `active_stream_id` names the live POST's
  *     stream; the reply serves THAT stream from cursor 0, replaying the
  *     whole in-flight response and tailing it live. A thread with no live
- *     stream answers a bare `finish` — the transport treats a non-OK
+ *     stream answers a bare `finish`: the transport treats a non-OK
  *     response as an error (it never returns null), so "nothing to resume"
  *     must be a well-formed, instantly-terminating stream.
  *
@@ -29,11 +29,11 @@
  *  - a negative `startIndex` resolved from the stream's end, with the
  *    absolute tail position returned in `x-workflow-stream-tail-index`,
  *  - the stream to END once complete (the terminal chunk-log row, whose
- *    stream always closes with a `finish` chunk — the durable writer
+ *    stream always closes with a `finish` chunk: the durable writer
  *    guarantees one), rather than tail forever.
  *
  * The run itself is untouched: it executes inside its original POST, and this
- * route only reads what that POST's `DurableStreamWriter` appended — replay
+ * route only reads what that POST's `DurableStreamWriter` appended, replay
  * from the cursor, then live tail on the `nova_chat_stream` poke (plus a slow
  * poll so a dropped poke degrades to latency, never loss).
  *
@@ -44,7 +44,7 @@
  *
  * If the producing process died without sealing the log (instance kill), the
  * cadence notices the app is no longer held live and closes the tail with a
- * synthetic `finish` — a resuming client always terminates.
+ * synthetic `finish`: a resuming client always terminates.
  */
 
 import { UI_MESSAGE_STREAM_HEADERS } from "ai";
@@ -66,11 +66,11 @@ import {
 } from "@/lib/db/threads";
 import { log } from "@/lib/logger";
 
-/* Node runtime — the route holds a long-lived subscription to the Postgres
+/* Node runtime: the route holds a long-lived subscription to the Postgres
  * LISTEN connection and `setInterval`s, neither of which the Edge runtime
  * supports. */
 export const runtime = "nodejs";
-/* Never statically prerender or cache — every connection is a live per-user
+/* Never statically prerender or cache: every connection is a live per-user
  * stream keyed on the session cookie. */
 export const dynamic = "force-dynamic";
 /* Advisory: the platform caps a request at 60 min regardless; the transport
@@ -79,7 +79,7 @@ export const maxDuration = 3600;
 
 /**
  * Re-check session + scope + run liveness on this cadence. ~10 s in prod; the
- * same test seam shape as the app relay's cadence (a testability seam only —
+ * same test seam shape as the app relay's cadence (a testability seam only:
  * prod never sets the var).
  */
 const CADENCE_MS = (() => {
@@ -101,12 +101,12 @@ const POLL_FALLBACK_MS = 2_500;
  * Consecutive liveness-cadence ticks with the app held by NO live run before
  * a terminal-less tail is closed with a synthetic `finish`. Two ticks (not
  * one) because a clean run releases its hold shortly BEFORE the durable
- * writer seals the log — a single-tick read landing in that gap would cut a
+ * writer seals the log: a single-tick read landing in that gap would cut a
  * healthy close; the pump between ticks delivers the terminal row instead.
  */
 const DEAD_TICKS_TO_CLOSE = 2;
 
-/** Parse `?startIndex=` — any integer; negative reads from the stream's end. */
+/** Parse `?startIndex=`: any integer; negative reads from the stream's end. */
 function parseStartIndex(req: Request): number {
 	const raw = new URL(req.url).searchParams.get("startIndex") ?? "0";
 	const parsed = Number.parseInt(raw, 10);
@@ -127,10 +127,10 @@ export async function GET(
 		({ streamId } = await params);
 		userId = session.user.id;
 
-		/* Resolve the path id: a stream id first (the hot path — a broken POST
+		/* Resolve the path id: a stream id first (the hot path, a broken POST
 		 * reconnecting), then a thread id (the cold page-refresh resume). The
-		 * owning app is the auth anchor either way. An id that is neither — or
-		 * one the caller may not see — is 404 (the IDOR-safe posture; a pruned
+		 * owning app is the auth anchor either way. An id that is neither, or
+		 * one the caller may not see: is 404 (the IDOR-safe posture; a pruned
 		 * stream is indistinguishable from a foreign one on purpose). */
 		const meta = await streamChunkMeta(streamId);
 		if (meta) {
@@ -148,7 +148,7 @@ export async function GET(
 				 * 200 that terminates on its first chunk. */
 				return finishOnlyResponse();
 			}
-			/* Serve the LIVE stream under the thread's name — the client's
+			/* Serve the LIVE stream under the thread's name: the client's
 			 * cursor math (`startIndex` = chunks received on this GET chain)
 			 * applies to that stream verbatim. */
 			streamId = thread.activeStreamId;
@@ -176,7 +176,7 @@ export async function GET(
 }
 
 /**
- * A complete, instantly-terminating stream — one `finish` chunk, then
+ * A complete, instantly-terminating stream: one `finish` chunk, then
  * `[DONE]`. What a thread with nothing in flight answers: the client's
  * stream processor consumes it as a zero-content response and returns to
  * `ready` without touching the hydrated messages.
@@ -196,7 +196,7 @@ function finishOnlyResponse(): Response {
 }
 
 /**
- * Build the SSE `Response` once the connect-time gate has passed — the same
+ * Build the SSE `Response` once the connect-time gate has passed, the same
  * split as the app relay: gate failures return JSON errors, the stream body
  * never throws synchronously.
  */
@@ -218,13 +218,13 @@ function openStream(args: {
 			let closed = false;
 			/** Next chunk index to deliver (count of chunks emitted + skipped). */
 			let cursor = args.cursor;
-			/* Overlapping-pump coalescing — a poke mid-pump re-queries once more
+			/* Overlapping-pump coalescing: a poke mid-pump re-queries once more
 			 * at the end rather than racing a second SELECT. */
 			let pumpInFlight = false;
 			let pumpPending = false;
 			/** Consecutive cadence ticks with no live hold on the app. */
 			let deadTicks = 0;
-			/** A real `finish` chunk was delivered — the dead-run fallback must
+			/** A real `finish` chunk was delivered: the dead-run fallback must
 			 *  not append a second one (the client's stream processor finalizes
 			 *  on the first; a duplicate is malformed framing). */
 			let sawFinishChunk = false;
@@ -237,7 +237,7 @@ function openStream(args: {
 				try {
 					controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
 				} catch {
-					/* Platform closed the response before our abort listener ran —
+					/* Platform closed the response before our abort listener ran:
 					 * treat the first failed write as the disconnect. */
 					teardown();
 				}
@@ -257,7 +257,7 @@ function openStream(args: {
 			}
 			teardownRef = teardown;
 
-			/** Seal the wire. The transport terminates on a `finish` CHUNK — a
+			/** Seal the wire. The transport terminates on a `finish` CHUNK, a
 			 *  response that closes without ever delivering one sends the client
 			 *  back into an immediate reconnect, forever (`[DONE]` is ignored by
 			 *  its parser). A completed replay can legitimately deliver none: a
@@ -343,7 +343,7 @@ function openStream(args: {
 						await deliverSince();
 					} while (pumpPending && !closed);
 				} catch (err) {
-					/* Transient read fault — the next poke / poll tick re-queries. */
+					/* Transient read fault: the next poke / poll tick re-queries. */
 					log.warn("[chat-stream] pump error", {
 						streamId,
 						err: err instanceof Error ? err.message : String(err),
@@ -353,7 +353,7 @@ function openStream(args: {
 				}
 			}
 
-			/* Subscribe FIRST, then the initial read — a flush landing between
+			/* Subscribe FIRST, then the initial read: a flush landing between
 			 * them is covered by the subscription's poke. */
 			unsubscribe = subscribeChatStream(streamId, () => {
 				void pump();
@@ -369,7 +369,7 @@ function openStream(args: {
 			 * app relay: close ONLY on a CONFIRMED denial (an identity change, a
 			 * definitive ban/deletion, an `AppAccessError`), never on a transient
 			 * backend blip. The dead-run fallback closes a terminal-less tail once
-			 * the app has been held by NO live run for consecutive ticks — the
+			 * the app has been held by NO live run for consecutive ticks, the
 			 * producing process died without sealing the log; the synthetic
 			 * `finish` chunk tells the client the turn is over. */
 			cadence = setInterval(() => {
@@ -389,7 +389,7 @@ function openStream(args: {
 							return;
 						}
 					} catch {
-						return; // transient — leave the stream open, re-check next tick
+						return; // transient: leave the stream open, re-check next tick
 					}
 					if (closed) return;
 
@@ -397,7 +397,7 @@ function openStream(args: {
 						await resolveAppScope(appId, userId, "view");
 					} catch (err) {
 						if (err instanceof AppAccessError) teardown();
-						return; // non-access throw: transient — re-check next tick
+						return; // non-access throw: transient, re-check next tick
 					}
 					if (closed) return;
 
@@ -407,7 +407,7 @@ function openStream(args: {
 							return;
 						}
 					} catch {
-						return; // transient — re-check next tick
+						return; // transient: re-check next tick
 					}
 					deadTicks += 1;
 					if (deadTicks < DEAD_TICKS_TO_CLOSE) {

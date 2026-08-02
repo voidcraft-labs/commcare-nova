@@ -21,7 +21,7 @@ interface HomePageProps {
 }
 
 /**
- * Root page — three branches, zero redirects:
+ * Root page: three branches, zero redirects:
  *
  * 1. Unauthenticated → Landing page with Google OAuth sign-in. If the URL
  *    carries `?error=…` (set by Better Auth when an OAuth attempt is
@@ -32,7 +32,7 @@ interface HomePageProps {
  * 3. Authenticated, has apps → App list skeleton streams via Suspense
  *    while the active + recently-deleted lists load from Postgres.
  *    The active/deleted toggle lives in the client island below the
- *    fetch — it's a UI filter, not a routable state, so it stays out
+ *    fetch: it's a UI filter, not a routable state, so it stays out
  *    of the URL.
  *
  * The `projectHasApps` existence check (`limit(1)`) runs before the
@@ -87,7 +87,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
 // ── Pending-invitation discovery ──────────────────────────────────────
 
-/** Banner shown when the user has Project invitations awaiting a response —
+/** Banner shown when the user has Project invitations awaiting a response:
  *  the in-app discovery point (no invitation email is sent). */
 function InvitationsBanner({ count }: { count: number }) {
 	return (
@@ -116,7 +116,7 @@ function InvitationsBanner({ count }: { count: number }) {
 function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 	return (
 		<div className="flex flex-col items-center text-center">
-			<h1 className="text-3xl font-display font-semibold mb-3">
+			<h1 className="text-3xl font-display font-semibold tracking-tighter mb-3">
 				{canCreateApp ? "Build your first app" : "No apps yet"}
 			</h1>
 			<p className="text-nova-text-muted mb-8 max-w-md">
@@ -125,28 +125,23 @@ function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 					: "Someone with edit access can create the first app in this Project."}
 			</p>
 			{canCreateApp ? (
-				<Button
-					render={<Link href="/build/new" />}
-					nativeButton={false}
-					size="xl"
-					className="shadow-[var(--nova-glow-violet)]"
-				>
+				<Button render={<Link href="/build/new" />} nativeButton={false} glow>
 					<Icon icon={tablerSparkles} width="16" height="16" />
-					Get Started
+					Get started
 				</Button>
 			) : null}
 		</div>
 	);
 }
 
-// ── Suspense fallback — matches AppCard grid layout ─────────────────
+// ── Suspense fallback: matches AppCard grid layout ─────────────────
 
 const SKELETON_KEYS = ["a", "b", "c", "d"] as const;
 
 function AppListFallback() {
 	return (
 		<>
-			{/* Header skeleton — matches the header rendered by AppList */}
+			{/* Header skeleton: matches the header rendered by AppList */}
 			<div className="flex items-center justify-between mb-8">
 				<Skeleton className="w-32 h-7" />
 				<Skeleton className="w-24 h-8 rounded-lg" />

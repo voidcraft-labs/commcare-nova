@@ -53,8 +53,8 @@ import { SearchConditionCanvas } from "../canvas/SearchConditionCanvas";
 import { SearchInputEditor } from "../inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "../inspector/SearchPanelInspectorBody";
 
-// Every surface on this canvas spells authored prose — an information label, a
-// field name, a saved condition — against the document. Wrapping at `render`
+// Every surface on this canvas spells authored prose: an information label, a
+// field name, a saved condition: against the document. Wrapping at `render`
 // rather than per component reproduces the builder's provider for the whole
 // workspace, and carries through each `rerender`.
 function DocumentProvider({ children }: { readonly children: ReactNode }) {
@@ -124,7 +124,7 @@ const SEARCH_CONDITION_CASE_TYPES: readonly CaseType[] = [
 ];
 // The Search-button condition resolves before any case is selected, so
 // its friendly first condition compares a session value, never a case
-// property (the gate rejects case reads in that slot) — and it holds
+// property (the gate rejects case reads in that slot), and it holds
 // true unedited, so the committed placeholder never hides the Search
 // action before the author writes the real rule.
 const FIRST_SEARCH_CONDITION = neq(sessionContext("username"), literal(""));
@@ -264,9 +264,7 @@ describe("case workspace chrome", () => {
 		expect(screen.queryByText(/example value/i)).toBeNull();
 		const selectField = screen.getByRole("button", { name: "Patient name" });
 		expect(selectField.getAttribute("data-case-column-select")).toBe(NAME.uuid);
-		expect(selectField.classList.contains("focus-visible:ring-inset")).toBe(
-			true,
-		);
+		expect(selectField.classList.contains("nova-focusable-inset")).toBe(true);
 		fireEvent.click(selectField);
 		expect(onSelect).toHaveBeenCalledWith(NAME);
 	});
@@ -1510,7 +1508,7 @@ describe("case workspace chrome", () => {
 		const alwaysContinue = screen.getByRole("button", {
 			name: "Always allow Search",
 		});
-		expect(alwaysContinue.className).toContain("bg-destructive");
+		expect(alwaysContinue.className).toContain("nova-keycap-rose");
 		alwaysContinue.focus();
 		fireEvent.click(alwaysContinue);
 		let dialog = await screen.findByRole("alertdialog");
@@ -1534,7 +1532,7 @@ describe("case workspace chrome", () => {
 		const confirm = within(dialog).getByRole("button", {
 			name: "Always allow Search",
 		});
-		expect(confirm.className).toContain("bg-destructive");
+		expect(confirm.className).toContain("nova-keycap-rose");
 		fireEvent.click(confirm);
 		expect(onChange).toHaveBeenLastCalledWith({});
 		view.rerender(
@@ -1714,7 +1712,7 @@ describe("case workspace chrome", () => {
 		const replace = within(dialog).getByRole("button", {
 			name: "Hide cases",
 		});
-		expect(replace.className).toContain("bg-destructive");
+		expect(replace.className).toContain("nova-keycap-rose");
 		fireEvent.click(replace);
 		expect(onChange).toHaveBeenLastCalledWith(currentUserOwners);
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -1960,7 +1958,7 @@ describe("case workspace chrome", () => {
 			screen.getByRole("button", {
 				name: "Remove the starting value for search field 1",
 			}).className,
-		).toContain("bg-destructive");
+		).toContain("nova-keycap-rose");
 
 		const typeTrigger = screen.getByRole("button", {
 			name: /search field 1 type: text box/i,

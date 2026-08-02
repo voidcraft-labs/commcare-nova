@@ -1,6 +1,6 @@
 // components/builder/case-operations/CaseOperationLinks.tsx
 //
-// How a change connects its case to another one — and how it breaks a
+// How a change connects its case to another one, and how it breaks a
 // connection.
 //
 // The wire calls this an index and the platform's own UI calls it
@@ -8,12 +8,12 @@
 // something about their data ("this referral belongs to this client"),
 // so the surface asks about relationships and treats unlinking as a
 // target choice rather than a separate mode, which is also exactly what
-// the wire does — an empty target removes the connection.
+// the wire does: an empty target removes the connection.
 //
 // The two relationship kinds are genuinely different and an author has
 // to be able to tell them apart, so each states what the edge means: a
 // child belongs to its parent, while an extension names a host. Do not
-// promise a close cascade here — Nova and a default HQ domain close only
+// promise a close cascade here: Nova and a default HQ domain close only
 // the case explicitly named by the submission.
 
 "use client";
@@ -171,12 +171,11 @@ export function CaseOperationLinks({
 				<Button
 					ref={rowFocus.addRef}
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					data-case-operation-add-link
 					disabled={!addVerdict.ok}
 					onClick={() => onChange([...links, addedLink])}
-					className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot w-full gap-2"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					<span className="flex-1 text-left">
@@ -277,11 +276,9 @@ function LinkRow({
 					<Button
 						ref={removeRef}
 						type="button"
-						variant="ghost"
-						size="xl"
+						variant="ghost-destructive"
 						onClick={onRemove}
 						aria-label={`Remove the connection “${link.identifier}”`}
-						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 					>
 						<Icon icon={tablerTrash} width="14" height="14" />
 						Remove
@@ -316,7 +313,6 @@ function LinkRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={() => {
 										setTargetDraft(undefined);
 										setRejection(undefined);
@@ -413,12 +409,7 @@ function RelationshipMenu({
 				disabled={!canEdit}
 				aria-label={`How they are related: ${RELATIONSHIP_LABEL[value]}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">

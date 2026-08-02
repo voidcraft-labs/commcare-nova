@@ -39,7 +39,7 @@ describe("useEntryActivation", () => {
 			{ initialProps: { uuid: "u1" } },
 		);
 		act(() => result.current.activate("validate"));
-		rerender({ uuid: "u1" }); // same scope — must not clear
+		rerender({ uuid: "u1" }); // same scope: must not clear
 		expect(result.current.pending("validate")).toBe(true);
 	});
 

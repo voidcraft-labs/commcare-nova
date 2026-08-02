@@ -1,7 +1,7 @@
 // components/builder/shared/__tests__/path.test.ts
 //
 // Path-encoding round-trips. Mirrors the walker shape in
-// `lib/domain/predicate/typeChecker.ts` — the editor's path-build
+// `lib/domain/predicate/typeChecker.ts`: the editor's path-build
 // helpers must reproduce the walker's emitted paths exactly so the
 // validity index lookups land on the right cards.
 
@@ -83,7 +83,7 @@ describe("path helpers — append shapes", () => {
 
 	it("appendKind pushes only the operator-kind segment (no slot)", () => {
 		// Used for operator-level errors emitted by the checker at
-		// the kind boundary itself — `[..., "if"]` (branch type-
+		// the kind boundary itself: `[..., "if"]` (branch type-
 		// mismatch on `if`), `[..., "count"]` (count's "no current
 		// case-type scope" error). Matches the checker's emission
 		// path exactly without forcing a slot suffix.
@@ -93,7 +93,7 @@ describe("path helpers — append shapes", () => {
 
 	it("appendKindIndexSlot pushes kind + collection + index + slot", () => {
 		// Mirrors the walker's `[...path, "switch", "cases", i, "then"]`
-		// emission shape — used by `SwitchCard` for per-case sub-slot
+		// emission shape: used by `SwitchCard` for per-case sub-slot
 		// paths.
 		expect(appendKindIndexSlot([], "switch", "cases", 0, "when")).toEqual([
 			"switch",
@@ -130,7 +130,7 @@ describe("path serialization — round-trip", () => {
 
 	it("serializes numeric and equal-string segments to the same key", () => {
 		// `["values", 0]` and `["values", "0"]` collapse to the same
-		// serialized form — `String(0) === "0"` and the join
+		// serialized form: `String(0) === "0"` and the join
 		// produces identical bytes. This collapse is acceptable
 		// because the editor only ever constructs paths with
 		// numeric indices in array slots; the string form does not

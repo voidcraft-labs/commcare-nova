@@ -429,7 +429,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 			const finding = verdict.findings.find(
 				(e) => e.code === "UNKNOWN_FUNCTION",
 			);
-			expect(finding?.message).toContain('did you mean "today()"');
+			expect(finding?.message).toContain('Did you mean "today()"');
 		}
 	});
 

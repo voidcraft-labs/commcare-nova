@@ -1,12 +1,12 @@
 // components/builder/appTree/insertion/AddModulePopover.tsx
 //
 // The "+ add module" popover opened from a tree insertion point. Two steps:
-//   1. Pick an archetype — Case List (case-managing) or Survey (menu, no case).
+//   1. Pick an archetype: Case List (case-managing) or Survey (menu, no case).
 //   2. (Case List only) pick or create the case type, embedding
 //      `CaseTypePickerContent` inline.
 // On commit it dispatches the atomic, born-valid scaffold through the gated
 // hook (`createCaseListModule` / `createSurveyModule`) and navigates to the new
-// module. A gate rejection (rare — the scaffolds are valid by construction) is
+// module. A gate rejection (rare: the scaffolds are valid by construction) is
 // surfaced inline rather than only as a toast.
 
 "use client";
@@ -27,6 +27,7 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
@@ -49,13 +50,13 @@ export function AddModulePopover({
 	const [step, setStep] = useState<"choose" | "caselist">("choose");
 	const [error, setError] = useState<string | null>(null);
 	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
-	// error line, not as a toast — the popover owns the feedback.
+	// error line, not as a toast: the popover owns the feedback.
 	const { inline } = useBlueprintMutations();
 	const { openModule, openCaseList } = useNavigate();
 	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
-	// Reset transient state whenever the popover closes — by dismiss
+	// Reset transient state whenever the popover closes: by dismiss
 	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
 	// successful create (`close()`, which sets `open` directly). Both routes
 	// go through here so the next open always starts at "choose".
@@ -88,7 +89,7 @@ export function AddModulePopover({
 		const outcome = inline.createCaseListModule({ caseType, index: atIndex });
 		if (outcome.ok) {
 			// Born a `caseListOnly` viewer (no forms), so its home is the case
-			// list, not an empty form menu — land on the config directly.
+			// list, not an empty form menu: land on the config directly.
 			openCaseList(outcome.uuid);
 			close();
 		} else {
@@ -96,7 +97,7 @@ export function AddModulePopover({
 		}
 	};
 
-	// A view-only Project member can't add modules — drop the "+" strip.
+	// A view-only Project member can't add modules: drop the "+" strip.
 	if (!canEdit) return null;
 
 	return (
@@ -105,6 +106,9 @@ export function AddModulePopover({
 				<PopoverTrigger
 					ref={ref}
 					className={`${INSERTION_TRIGGER_CLS} ${prominent ? "h-11" : "h-2"}`}
+					/* A seam rests as a thin line and expands to the 44px
+					 * floor as it reveals; the marker says so out loud. */
+					data-insertion-affordance={prominent ? "persistent" : "seam"}
 					style={insertionTriggerStyle(revealed, prominent)}
 					tabIndex={prominent ? 0 : -1}
 					aria-hidden={prominent ? undefined : true}
@@ -150,12 +154,11 @@ export function AddModulePopover({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={() => {
 										setStep("choose");
 										setError(null);
 									}}
-									className="h-11 w-full justify-start gap-1 px-2 text-sm text-nova-text-muted hover:text-nova-text"
+									className="w-full justify-start gap-1 px-2 text-sm text-nova-text-muted"
 								>
 									<Icon icon={tablerChevronLeft} width="12" height="12" />
 									Back to module choices
@@ -185,13 +188,7 @@ function ArchetypeRow({
 	onClick: () => void;
 }) {
 	return (
-		<Button
-			type="button"
-			variant="ghost"
-			size="xl"
-			onClick={onClick}
-			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left hover:bg-white/[0.06]"
-		>
+		<button type="button" onClick={onClick} className={POPOVER_ROW_CLS}>
 			<div className="w-7 h-7 shrink-0 rounded-lg bg-nova-violet/10 flex items-center justify-center">
 				<Icon
 					icon={icon}
@@ -206,6 +203,6 @@ function ArchetypeRow({
 					{subtitle}
 				</div>
 			</div>
-		</Button>
+		</button>
 	);
 }

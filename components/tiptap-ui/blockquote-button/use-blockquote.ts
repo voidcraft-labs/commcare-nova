@@ -83,7 +83,7 @@ export function toggleBlockquote(editor: Editor | null): boolean {
 	if (!canToggleBlockquote(editor)) return false;
 
 	try {
-		/* When blockquote is already active, lift directly — TipTap handles
+		/* When blockquote is already active, lift directly: TipTap handles
 		 * unwrapping without needing the NodeSelection conversion path. */
 		if (editor.isActive("blockquote")) {
 			editor.chain().focus().lift("blockquote").run();
@@ -131,7 +131,7 @@ export function toggleBlockquote(editor: Editor | null): boolean {
 
 		let chain = editor.chain().focus();
 
-		/* Handle NodeSelection — clear the block structure first,
+		/* Handle NodeSelection: clear the block structure first,
 		 * then wrap in blockquote */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;

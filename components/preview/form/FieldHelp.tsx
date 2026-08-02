@@ -11,8 +11,8 @@ import { LabelContent } from "@/lib/references/LabelContent";
  * can see what help they've set (the preview's job is to show the authored
  * content, not reproduce the runtime affordance).
  *
- * Rendered identically in edit and live — only `interactive` differs (toggling
- * the media's `pointer-events`) — so a field with help is the same height in
+ * Rendered identically in edit and live: only `interactive` differs (toggling
+ * the media's `pointer-events`), so a field with help is the same height in
  * both modes and the edit↔preview flipbook holds. Help text is NOT inline-
  * editable in the form (it's edited in the field panel), so it needs no
  * `TextEditable`/parity wrapper. Returns `null` when the field has neither, so

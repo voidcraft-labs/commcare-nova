@@ -62,7 +62,7 @@ export function DetailCanvas({
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-8">
 			<div data-case-detail-layout>
 				<header className="mb-9">
-					<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+					<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 						Details
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
@@ -76,7 +76,7 @@ export function DetailCanvas({
 					<div className="mb-4">
 						<h2
 							id="details-information-heading"
-							className="font-display text-[17px] font-semibold text-nova-text"
+							className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 						>
 							Information shown
 						</h2>

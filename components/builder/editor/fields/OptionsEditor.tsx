@@ -1,11 +1,11 @@
 /**
- * OptionsEditor — declarative editor for a select field's inline options.
+ * OptionsEditor: declarative editor for a select field's inline options.
  *
  * Two exports:
- *   - `OptionsEditor` — the FieldEditorComponent adapter. Accepts
+ *   - `OptionsEditor`: the FieldEditorComponent adapter. Accepts
  *     `FieldEditorComponentProps` and preserves the complete
  *     `optionsSource` discriminant.
- *   - `OptionsEditorWidget` — the underlying fieldset widget with the
+ *   - `OptionsEditorWidget`: the underlying fieldset widget with the
  *     `{ options, onSave }` shape. Callers that already hold a
  *     persistence strategy and simply want the label/value rows + add
  *     button use this directly.
@@ -36,7 +36,7 @@ import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
 /**
  * Draft option with a stable identity for React key management.
- * The `id` is component-local and never persisted — it exists purely
+ * The `id` is component-local and never persisted: it exists purely
  * so that reordering or editing doesn't cause React to lose input
  * state.
  */
@@ -46,11 +46,11 @@ interface DraftOption extends SelectOption {
 
 export interface OptionsEditorWidgetProps {
 	options: SelectOption[];
-	/** Persist the next options. May return the gated dispatch's outcome —
+	/** Persist the next options. May return the gated dispatch's outcome:
 	 *  a refusal keeps the widget's draft (the committed-key ref only
 	 *  advances on a landed save); `void` reads as committed. */
 	onSave: (options: SelectOption[]) => CommitOutcome | undefined;
-	/** Staged-upload identity base for the option rows' media slots —
+	/** Staged-upload identity base for the option rows' media slots:
 	 *  the owning field's uuid; each row scopes itself by option value. */
 	slotKeyBase: string;
 	/** When true, the first option label input receives focus on mount (undo/redo restore). */
@@ -104,7 +104,7 @@ export function OptionsEditorWidget({
 	// author sees in the chip, so it goes through the document too.
 	const projectProse = useProseProjection();
 
-	// Ref on the fieldset element — used by the blur handler to check
+	// Ref on the fieldset element: used by the blur handler to check
 	// whether focus moved outside the group. Checking
 	// `fieldsetRef.current?.contains(...)` after an rAF is resilient
 	// to the element unmounting mid-blur (common when the group's
@@ -121,7 +121,7 @@ export function OptionsEditorWidget({
 	const lastCommittedKeyRef = useRef<string>(serializeOptions(options));
 	const currentKey = serializeOptions(options);
 	if (currentKey !== lastCommittedKeyRef.current) {
-		// External change — the prop no longer matches what we last
+		// External change: the prop no longer matches what we last
 		// wrote. Resync the draft and drop any pending focus hint.
 		lastCommittedKeyRef.current = currentKey;
 		setDraft(toDraftOptions(options));
@@ -129,7 +129,7 @@ export function OptionsEditorWidget({
 	}
 
 	// Commit the draft to the parent, stripping empty rows. The committed
-	// key advances only when the save LANDED — on a gate refusal the doc
+	// key advances only when the save LANDED: on a gate refusal the doc
 	// is unchanged, so advancing it optimistically would make the
 	// external-change sync block above read the unchanged prop as foreign
 	// and revert the user's draft right as the notice explains the bounce.
@@ -218,7 +218,7 @@ export function OptionsEditorWidget({
 	 * Commit when focus leaves the entire option group.
 	 *
 	 * The check runs in the next frame (rAF) because `blur` fires
-	 * before React processes the focus move to the new element —
+	 * before React processes the focus move to the new element:
 	 * without the deferral, `document.activeElement` is still `body`
 	 * even when the user is tabbing between inputs inside the same
 	 * fieldset. `fieldsetRef.current?.contains(...)` is nullable to
@@ -336,7 +336,7 @@ export function OptionsEditor<F extends Field>(
 	const { field, value, onChange, autoFocus } = props;
 	const source = value as SelectOptionsSource;
 	/* The widget's `onSave` has no inline channel of its own, so the
-	 * adapter holds the gate's finding and renders it beneath the rows —
+	 * adapter holds the gate's finding and renders it beneath the rows:
 	 * the section dispatches through the inline (no-toast) flavor on the
 	 * promise that every editor presents its own rejections. Cleared on
 	 * the next save that lands. */
@@ -349,7 +349,7 @@ export function OptionsEditor<F extends Field>(
 			>
 				<p className={INSPECTOR_LABEL_CLS}>Options</p>
 				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-					These choices come from a project data table. Change the table,
+					These choices come from a Project data table. Change the table,
 					columns, or row filter in the table-source editor.
 				</p>
 			</div>
@@ -367,7 +367,7 @@ export function OptionsEditor<F extends Field>(
 						options: next,
 					} as F["optionsSource" & keyof F]);
 					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
-					// The widget gates its committed-key ref on this — a refusal
+					// The widget gates its committed-key ref on this: a refusal
 					// must keep the user's draft rows on screen.
 					return outcome;
 				}}

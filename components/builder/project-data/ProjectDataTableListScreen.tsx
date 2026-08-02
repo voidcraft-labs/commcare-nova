@@ -3,7 +3,7 @@
  * Project, with what each one holds.
  *
  * A row states the table's name, the tag apps and exports address it by, and
- * its size in both units that can stop a write — rows and stored bytes —
+ * its size in both units that can stop a write: rows and stored bytes:
  * because the two caps bind independently and a surface that shows only one
  * leaves an author guessing which limit refused them.
  */
@@ -39,22 +39,22 @@ export function ProjectDataTableListScreen() {
 		<section aria-labelledby="project-data-tables-heading" className="min-w-0">
 			<h1
 				id="project-data-tables-heading"
-				className="font-display text-2xl font-semibold tracking-tight text-nova-text"
+				className="font-display text-2xl font-semibold tracking-tighter text-nova-text"
 			>
 				Data tables
 			</h1>
 			<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-				A data table holds a list you reuse across forms — facilities,
-				districts, products, anything a question should offer as choices instead
-				of asking someone to type. Point a question at a column here and
-				everyone answering that question sees the same list.
+				A data table holds a list you reuse across forms: facilities, districts,
+				products, anything a question should offer as choices instead of asking
+				someone to type. Point a question at a column here and everyone
+				answering that question sees the same list.
 			</p>
 
 			{canEdit && (
 				<Button
 					type="button"
 					variant="outline"
-					className="mt-4 min-h-11 gap-2"
+					className="mt-4 gap-2"
 					onClick={() => setCreating(true)}
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
@@ -105,7 +105,7 @@ export function ProjectDataTableListScreen() {
 									<Button
 										type="button"
 										variant="outline"
-										className="min-h-11 shrink-0"
+										className="shrink-0"
 										onClick={() => workspace.openRetainedRow(retained)}
 									>
 										Review
@@ -123,7 +123,7 @@ export function ProjectDataTableListScreen() {
 			)}
 
 			{state.kind === "loading" || state.kind === "idle" ? (
-				<ProjectDataLoading label="Loading this project’s data tables…" />
+				<ProjectDataLoading label="Loading this Project’s data tables…" />
 			) : state.kind === "failed" ? (
 				<ProjectDataFailure
 					title="These tables didn’t load"
@@ -144,7 +144,7 @@ export function ProjectDataTableListScreen() {
 					<p className="text-sm leading-relaxed text-nova-text-secondary">
 						{canEdit
 							? "Create one when you have a list that more than one question, or more than one app, should share."
-							: "Nobody has added a shared list to this project yet."}
+							: "Nobody has added a shared list to this Project yet."}
 					</p>
 				</div>
 			) : (
@@ -158,10 +158,17 @@ export function ProjectDataTableListScreen() {
 								className="h-auto min-h-16 w-full justify-between gap-3 rounded-xl border border-nova-border bg-nova-elevated px-4 py-3 text-left hover:bg-white/[0.05]"
 							>
 								<span className="flex min-w-0 flex-col gap-1">
-									<span className="min-w-0 text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+									{/* `whitespace-normal` is what makes the wrapping real. The
+									    row is drawn as a Button and the button base sets
+									    `whitespace-nowrap`, which pins the line and leaves
+									    `[overflow-wrap:anywhere]` with nothing to do: a long
+									    authored table name then ran straight off the card,
+									    cut mid-word with no ellipsis, over its own chevron.
+									    An authored name is content, so it wraps. */}
+									<span className="min-w-0 whitespace-normal text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
 										{table.name}
 									</span>
-									<span className="min-w-0 text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
+									<span className="min-w-0 whitespace-normal text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
 										{formatLookupCount(table.columnCount, "column")} ·{" "}
 										{formatLookupCount(table.rowCount, "row")} ·{" "}
 										{formatLookupBytes(table.dataBytes)}
@@ -195,6 +202,6 @@ function retainedRowStatus(retained: RetainedRowRecovery): string {
 		case "delete-conflict":
 			return "A delete needs your decision";
 		case "table-unavailable":
-			return "Original table unavailable — copy or discard this local row";
+			return "Original table unavailable. Copy or discard this local row";
 	}
 }

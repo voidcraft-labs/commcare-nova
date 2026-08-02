@@ -1,6 +1,6 @@
 /**
  * OAuth client revocation Server Action. Mirrors the discriminated-
- * union pattern in `actions.ts` — never throws, always returns a
+ * union pattern in `actions.ts`: never throws, always returns a
  * structured result, because Next.js surfaces unhandled Server Action
  * errors as full-page error boundaries.
  */
@@ -22,7 +22,7 @@ export type RevokeResult =
 
 /**
  * Revoke a connected application's authorization. Ownership is
- * enforced inside `revokeAuthorizedClient`'s Postgres transaction —
+ * enforced inside `revokeAuthorizedClient`'s Postgres transaction:
  * a session check here alone would have a TOCTOU window. The optimistic
  * UI drives the user-visible refresh; `revalidatePath` is a correctness
  * backstop for a hard navigation.

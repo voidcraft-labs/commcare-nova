@@ -15,8 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /* Nova chrome throughout: the frosted-glass surface classes come from
- * `lib/styles.ts` — the same constants the raw `@base-ui/react` menu call
- * sites use — so shadcn menus and hand-composed menus cannot drift apart.
+ * `lib/styles.ts`: the same constants the raw `@base-ui/react` menu call
+ * sites use, so shadcn menus and hand-composed menus cannot drift apart.
  * Glass lives on the POSITIONER (Base UI's `will-change: transform` there
  * creates a compositing boundary that would break a descendant
  * `backdrop-filter`); the popup only carries the open/close animation. */
@@ -194,7 +194,7 @@ function DropdownMenuItem({
 			data-variant={variant}
 			className={cn(
 				MENU_ITEM_CLS,
-				"group/dropdown-menu-item relative rounded-lg data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"group/dropdown-menu-item relative rounded-lg data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				variant === "destructive" &&
 					"text-nova-rose data-[highlighted]:bg-nova-rose/[0.08] data-[highlighted]:text-nova-rose *:[svg]:text-nova-rose",
 				className,
@@ -246,7 +246,7 @@ function DropdownMenuSubContent({
 }) {
 	return (
 		// Submenus stack ABOVE a glass parent, so they take the near-opaque
-		// elevated tier — glass-on-glass loses the backdrop blur.
+		// elevated tier: glass-on-glass loses the backdrop blur.
 		<MenuPrimitive.Portal>
 			<DropdownMenuPositioner
 				surface="elevated"
@@ -281,7 +281,7 @@ function DropdownMenuCheckboxItem({
 			data-inset={inset}
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			checked={checked}
@@ -323,7 +323,7 @@ function DropdownMenuRadioItem({
 			data-inset={inset}
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}
@@ -362,7 +362,7 @@ function DropdownMenuShortcut({
 		<span
 			data-slot="dropdown-menu-shortcut"
 			className={cn(
-				"ml-auto text-xs tracking-widest text-nova-text-muted group-data-[highlighted]/dropdown-menu-item:text-nova-text",
+				"ml-auto text-xs text-nova-text-muted group-data-[highlighted]/dropdown-menu-item:text-nova-text",
 				className,
 			)}
 			{...props}

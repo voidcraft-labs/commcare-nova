@@ -67,12 +67,12 @@ export function GeopointPicker({
 
 	const mapRef = useRef<MapHandle | null>(null);
 	// The map box is the IntersectionObserver target; the Google map mounts
-	// only while on screen (browser WebGL-context cap — see useInView) and is
+	// only while on screen (browser WebGL-context cap: see useInView) and is
 	// released when scrolled away, so many geopoint fields don't all run live
 	// maps at once.
 	const mapBoxRef = useRef<HTMLDivElement>(null);
 	const mapInView = useInView(mapBoxRef);
-	// Resolved address shown in the search box + readout. Local UI state —
+	// Resolved address shown in the search box + readout. Local UI state:
 	// the engine only stores coordinates, never the address text.
 	const [address, setAddress] = useState("");
 	const [locating, setLocating] = useState(false);
@@ -132,7 +132,7 @@ export function GeopointPicker({
 					return; // superseded or Project reset
 				setAddress(results[0]?.formatted_address ?? "");
 			} catch {
-				/* reverse lookup is best-effort — leave the address as-is */
+				/* reverse lookup is best-effort: leave the address as-is */
 			}
 		}, REVERSE_DEBOUNCE_MS);
 	}, []);
@@ -155,7 +155,7 @@ export function GeopointPicker({
 		[onChange, onBlur, reverseGeocode],
 	);
 
-	// User positioned via the map (drag settle or click) — coordinates are
+	// User positioned via the map (drag settle or click): coordinates are
 	// Google's (lat, lng); store lng as `lon`. The map is already centered
 	// there, so no recenter.
 	const handleMapPick = useCallback(
@@ -225,7 +225,7 @@ export function GeopointPicker({
 						{mapInView ? (
 							<MapView ref={mapRef} point={point} onPick={handleMapPick} />
 						) : (
-							// Lightweight stand-in until the field scrolls into view —
+							// Lightweight stand-in until the field scrolls into view:
 							// keeps layout stable and the map instance unallocated.
 							<div className="flex h-full w-full items-center justify-center bg-pv-input-bg">
 								<Icon
@@ -242,7 +242,7 @@ export function GeopointPicker({
 							type="button"
 							onClick={handleUseMyLocation}
 							disabled={locating}
-							className="absolute right-2 top-2 z-raised flex items-center gap-1.5 rounded-md border border-pv-input-border bg-pv-surface/90 px-2.5 py-1.5 text-xs font-medium text-nova-text shadow-sm backdrop-blur-sm transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-40"
+							className="absolute right-2 top-2 z-raised flex items-center gap-1.5 rounded-md border border-pv-input-border bg-pv-surface/90 px-2.5 py-1.5 text-xs font-medium text-nova-text shadow-sm backdrop-blur-sm transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-(--disabled-opacity)"
 						>
 							<Icon
 								icon={tablerCurrentLocation}
@@ -251,7 +251,7 @@ export function GeopointPicker({
 								aria-hidden="true"
 								className={locating ? "animate-pulse" : ""}
 							/>
-							{locating ? "Locating…" : "My location"}
+							{locating ? "Locating" : "My location"}
 						</button>
 
 						{!point && (
@@ -264,7 +264,7 @@ export function GeopointPicker({
 				</>
 			) : (
 				<div className="rounded-lg border border-dashed border-pv-input-border bg-pv-surface px-4 py-3 text-sm text-nova-text-muted">
-					Map unavailable — set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> and{" "}
+					Map unavailable. Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> and{" "}
 					<code>NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> to enable it. You can
 					still enter coordinates manually below.
 				</div>
@@ -372,7 +372,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 
 			{open && (
 				<div className="mt-2 grid grid-cols-2 gap-2">
-					<label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-nova-text-muted">
+					<label className="flex flex-col gap-1 text-xs text-nova-text-muted">
 						Latitude
 						<input
 							type="number"
@@ -390,7 +390,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 							}`}
 						/>
 					</label>
-					<label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-nova-text-muted">
+					<label className="flex flex-col gap-1 text-xs text-nova-text-muted">
 						Longitude
 						<input
 							type="number"

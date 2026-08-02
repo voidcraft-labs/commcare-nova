@@ -1,17 +1,17 @@
 /**
- * StartFromScratch — the "skip the SA, build it yourself" affordance that sits
+ * StartFromScratch: the "skip the SA, build it yourself" affordance that sits
  * under the centered chat card on `/build/new`.
  *
  * It shares the centered column with the hero logo and the chat card, so its
  * presence pushes the chat above true center. Sending a message is the user
  * choosing the SA instead: the card collapses (`height → 0`) and the column,
- * being `justify-center`, reflows the logo + chat back to center every frame
- * — no layout animation to coordinate, and nothing to race.
+ * being `justify-center`, reflows the logo + chat back to center every frame:
+ * no layout animation to coordinate, and nothing to race.
  *
  * While it animates out the button stays visually enabled ON PURPOSE. The
  * click is already inert (the parent latches the moment the message is sent),
- * and flashing a disabled state mid-fade — under a chat card that is itself
- * sliding — is one visual event too many for a single user action.
+ * and flashing a disabled state mid-fade: under a chat card that is itself
+ * sliding: is one visual event too many for a single user action.
  */
 "use client";
 
@@ -22,7 +22,7 @@ import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 
 interface StartFromScratchProps {
-	/** The user has sent a message — the SA is taking over, so this collapses away. */
+	/** The user has sent a message: the SA is taking over, so this collapses away. */
 	agentEngaged: boolean;
 	/** The canonical starter is being created; navigation follows. */
 	creating: boolean;
@@ -62,7 +62,7 @@ export function StartFromScratch({
 					transition={{
 						duration: 0.4,
 						ease: [0.4, 0, 0.2, 1],
-						/* Let the hero logo and chat card land before this arrives —
+						/* Let the hero logo and chat card land before this arrives:
 						 * it's the secondary path, and it should read that way. */
 						delay: 0.4,
 					}}
@@ -81,22 +81,21 @@ export function StartFromScratch({
 						{/* Deliberately never `disabled`. `onCreate` is already inert once the
 						 *  parent has latched (it latches synchronously, in the same handler
 						 *  that sends), and this is mid-fade under a chat card that is
-						 *  itself sliding — a disabled flash is one visual event too many.
+						 *  itself sliding: a disabled flash is one visual event too many.
 						 *  Don't try to drive attributes off `agentEngaged` here either:
 						 *  `AnimatePresence` re-renders the LEAVING child with its last
 						 *  props, so anything keyed on it can't change during the exit. */}
 						<Button
 							variant="outline"
-							size="xl"
 							onClick={onCreate}
 							aria-busy={creating || undefined}
 						>
 							{creating ? <Spinner /> : <Icon icon={tablerFilePlus} />}
-							{creating ? "Creating starter…" : "Start from scratch"}
+							{creating ? "Creating blank app" : "Start with a blank app"}
 						</Button>
 
 						<p className="text-xs text-nova-text-muted">
-							Skip chat and build the app yourself
+							Build it yourself, with Nova here whenever you want a hand
 						</p>
 					</div>
 				</motion.div>

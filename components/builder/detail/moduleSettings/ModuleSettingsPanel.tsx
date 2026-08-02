@@ -18,7 +18,7 @@ interface ModuleSettingsPanelProps {
 
 /**
  * Module-settings drawer body rendered inside the Popover popup. Pure
- * chrome — a labeled header with a dismiss button and a content region
+ * chrome: a labeled header with a dismiss button and a content region
  * that hosts the module's name (when it has no other screen), case type,
  * appearance, and display-condition sections. The shell keeps its header fixed while the body scrolls
  * within the available viewport.
@@ -31,16 +31,16 @@ export function ModuleSettingsPanel({
 		<div className="flex max-h-[calc(var(--available-height)-0.5rem)] min-h-0 w-full flex-col">
 			{/* Header */}
 			<div className="flex min-h-14 shrink-0 items-center justify-between border-b border-nova-border px-4">
-				<PopoverTitle className="font-display text-base font-semibold text-nova-text">
+				<PopoverTitle className="font-display tracking-tighter text-base font-semibold text-nova-text">
 					Module settings
 				</PopoverTitle>
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					onClick={onClose}
 					aria-label="Close module settings"
-					className="-mr-2 size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"
+					className="-mr-2"
 				>
 					<Icon icon={tablerX} className="size-4" />
 				</Button>

@@ -5,16 +5,16 @@
 // Validity + applicability tests for the top-level ColumnEditor.
 // Pins two behaviors:
 //
-//   1. Per-kind property-type applicability — Date / Interval
+//   1. Per-kind property-type applicability: Date / Interval
 //      require a date-typed property; Phone requires a text-shaped
 //      property. When the resolved property's data type doesn't
 //      satisfy the kind, the editor surfaces an inline error AND
 //      propagates `valid: false` to the parent's `onValidityChange`
 //      callback. Calculated columns have no `field`, so the
-//      applicability check is skipped — calc always reports valid
+//      applicability check is skipped: calc always reports valid
 //      regardless of the surrounding case-type's properties.
 //
-//   2. Round-trip preservation — every card's mutation paths
+//   2. Round-trip preservation: every card's mutation paths
 //      route through the per-kind builders; constructed columns
 //      always parse through `columnSchema`. Persisted columns
 //      with non-default values (custom date pattern, populated

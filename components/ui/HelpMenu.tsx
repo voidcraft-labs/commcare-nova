@@ -1,5 +1,5 @@
 /**
- * Help menu — a header dropdown (styled like the Project switcher) that groups
+ * Help menu: a header dropdown (styled like the Project switcher) that groups
  * the Docs and Give-Feedback links behind one control so the top bar stays
  * uncluttered. Both open in a new tab.
  */
@@ -19,6 +19,7 @@ import {
 	FLOATING_LAYER_CLS,
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
+	POPOVER_ROW_CLS,
 } from "@/lib/styles";
 
 const FEEDBACK_FORM_URL =
@@ -26,15 +27,14 @@ const FEEDBACK_FORM_URL =
 
 /* Both links open in a new tab. Only the Docs URL differs by env: dev serves
  * the docs in-tree at `/docs` (so local edits preview), while prod points at the
- * `docs.commcare.app` subdomain — the main host doesn't serve `/docs` under the
+ * `docs.commcare.app` subdomain: the main host doesn't serve `/docs` under the
  * multi-host routing. `process.env.NODE_ENV` is inlined by Next at build time. */
 const DOCS_HREF =
 	process.env.NODE_ENV === "development"
 		? "/docs"
 		: "https://docs.commcare.app/";
 
-const ITEM_CLS =
-	"flex w-full items-center gap-2.5 px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] cursor-pointer";
+const ITEM_CLS = POPOVER_ROW_CLS;
 
 export function HelpMenu() {
 	const [open, setOpen] = useState(false);
@@ -43,7 +43,7 @@ export function HelpMenu() {
 		<Popover.Root open={open} onOpenChange={setOpen}>
 			<Popover.Trigger
 				aria-label="Help"
-				className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none cursor-pointer"
+				className="nova-focusable flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
 			>
 				<Icon
 					icon={tablerHelpCircle}
@@ -51,7 +51,7 @@ export function HelpMenu() {
 					height="16"
 					className="shrink-0"
 				/>
-				<span className="font-medium">Help</span>
+				<span className="hidden font-medium sm:inline">Help</span>
 				<Icon
 					icon={tablerChevronDown}
 					width="14"
@@ -67,14 +67,14 @@ export function HelpMenu() {
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
+					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
 						<div style={{ minWidth: "200px" }}>
 							<Link
 								href={DOCS_HREF}
 								target="_blank"
 								rel="noopener noreferrer"
 								onClick={() => setOpen(false)}
-								className={`${ITEM_CLS} rounded-t-xl`}
+								className={`${ITEM_CLS}`}
 							>
 								<Icon
 									icon={tablerBook}
@@ -95,7 +95,7 @@ export function HelpMenu() {
 								target="_blank"
 								rel="noopener noreferrer"
 								onClick={() => setOpen(false)}
-								className={`${ITEM_CLS} rounded-b-xl`}
+								className={`${ITEM_CLS}`}
 							>
 								<Icon
 									icon={tablerMessage}
@@ -103,7 +103,7 @@ export function HelpMenu() {
 									height="16"
 									className="shrink-0 text-nova-text-muted"
 								/>
-								<span className="flex-1 text-left">Give Feedback</span>
+								<span className="flex-1 text-left">Give feedback</span>
 								<Icon
 									icon={externalLinkIcon}
 									width="14"

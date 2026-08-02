@@ -31,7 +31,7 @@ describe("unhandledKindMessage", () => {
 
 		expect(message).toBe(
 			[
-				'Internal bug — `compilePredicate` received an unhandled Predicate kind: "future-kind".',
+				'Internal bug: `compilePredicate` received an unhandled Predicate kind: "future-kind".',
 				"",
 				"I know how to handle these Predicate kinds:",
 				"",
@@ -66,7 +66,7 @@ describe("compilerBugMessage", () => {
 		});
 
 		expect(message).toBe(
-			"Internal bug — `compilePredicate.compileBetween`: `between` predicate has neither lower nor upper bound, but the schema's `.refine()` should have rejected it upstream.",
+			"Internal bug: `compilePredicate.compileBetween`: `between` predicate has neither lower nor upper bound, but the schema's `.refine()` should have rejected it upstream.",
 		);
 	});
 
@@ -80,7 +80,7 @@ describe("compilerBugMessage", () => {
 
 		expect(message).toBe(
 			[
-				"Internal bug — `compileRelationPath`: non-self input produced a `self` compiled result.",
+				"Internal bug: `compileRelationPath`: non-self input produced a `self` compiled result.",
 				"",
 				"This means the relation-path compiler dispatched the wrong arm; check the switch's cases against the input's `kind`.",
 			].join("\n"),
@@ -102,7 +102,7 @@ describe("typeCheckerBypassMessage", () => {
 
 		expect(message).toBe(
 			[
-				"`compileTerm` — property 'ghost-property' is not declared on case type 'patient' (type-checker bypass).",
+				"`compileTerm`: property 'ghost-property' is not declared on case type 'patient' (type-checker bypass).",
 				"",
 				'    expected: a property declared in `case_type_schemas[appId, "patient"].properties`',
 				"    got:      'ghost-property'",
@@ -149,7 +149,7 @@ describe("missingPredicateThunkMessage", () => {
 
 		expect(message).toBe(
 			[
-				"`compileExpression` — `if` reached the expression compiler without a wired predicate compiler.",
+				"`compileExpression`: `if` reached the expression compiler without a wired predicate compiler.",
 				"",
 				"The `if` arm carries a `Predicate` condition, but `ctx.compilePredicate` is `undefined`. The expression",
 				"compiler does not import `compilePredicate` directly (the cycle would",

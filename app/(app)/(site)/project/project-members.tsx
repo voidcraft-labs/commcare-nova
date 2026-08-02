@@ -1,12 +1,12 @@
 /**
- * Project members — the Project-settings card that manages who shares the
+ * Project members: the Project-settings card that manages who shares the
  * active Project and at what role. Admins and owners can invite (dimagi addresses
- * only — the server's `beforeCreateInvitation` hook enforces it and its
+ * only: the server's `beforeCreateInvitation` hook enforces it and its
  * rejection surfaces here), change a member's role, remove a member, and
  * cancel a pending invitation. Everyone sees the roster read-only.
  *
  * Mutations go through Better Auth's organization client
- * (`authClient.organization.*`) — the org HTTP endpoints are live and
+ * (`authClient.organization.*`): the org HTTP endpoints are live and
  * authorized server-side by the role access-control rules, so a viewer/editor
  * who forged a request would still be refused. After each success we
  * `navigate.refresh()` so the server-fetched roster/invitation lists re-render.
@@ -63,11 +63,11 @@ const ROLE_DESCRIPTIONS: Record<
 	string
 > = {
 	viewer:
-		"Can open and preview this Project's apps and case data — but can't change anything.",
+		"Can open and preview this Project's apps and case data, but can't change anything.",
 	editor:
 		"Can build and edit the Project's apps and case data. Can't invite people or change roles.",
 	admin:
-		"Everything an editor can do, plus managing people — invite members, change their roles, and remove them. Can't remove or change the owner.",
+		"Everything an editor can do, plus managing people. Invite members, change their roles, and remove them. Can't remove or change the owner.",
 	owner:
 		"Whoever created the Project. Full control, and the one member who can't be removed or have their role changed.",
 };
@@ -190,13 +190,13 @@ export function ProjectMembers({
 		navigate.refresh();
 	}
 
-	/* A personal Project is private — it holds only its owner and accepts no
+	/* A personal Project is private: it holds only its owner and accepts no
 	 * invitations, so there's nothing to invite or manage. Render a read-only
 	 * card that explains why and points to the currently available collaboration
 	 * path instead of promising the temporarily blocked app move. */
 	if (personal) {
 		return (
-			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+			<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 						<Icon
@@ -207,7 +207,7 @@ export function ProjectMembers({
 						/>
 					</div>
 					<div className="min-w-0 flex-1">
-						<h2 className="text-base font-display font-semibold text-nova-text">
+						<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 							Members
 						</h2>
 						<p className="text-xs text-nova-text-muted">
@@ -238,7 +238,7 @@ export function ProjectMembers({
 						</div>
 					</div>
 
-					{/* Roster — a private personal Project holds just the owner (you), but
+					{/* Roster: a private personal Project holds just the owner (you), but
 					    may carry a non-owner guest, who can be removed here. */}
 					<ul className="divide-y divide-nova-border">
 						{members.map((m) => {
@@ -267,7 +267,7 @@ export function ProjectMembers({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-sm"
+											size="icon"
 											disabled={busy}
 											onClick={() => removeMember(m.memberId)}
 											aria-label={`Remove ${m.name}`}
@@ -280,7 +280,7 @@ export function ProjectMembers({
 						})}
 					</ul>
 
-					{/* A still-pending invitation on a private personal Project —
+					{/* A still-pending invitation on a private personal Project:
 					    cancelable here (it can no longer be accepted either). */}
 					{invitations.length > 0 && (
 						<div>
@@ -303,7 +303,6 @@ export function ProjectMembers({
 											<Button
 												type="button"
 												variant="ghost"
-												size="sm"
 												disabled={busy}
 												onClick={() => cancelInvitation(inv.id)}
 											>
@@ -321,7 +320,7 @@ export function ProjectMembers({
 	}
 
 	return (
-		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+		<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
 			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
@@ -333,7 +332,7 @@ export function ProjectMembers({
 					/>
 				</div>
 				<div className="min-w-0 flex-1">
-					<h2 className="text-base font-display font-semibold text-nova-text">
+					<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 						Members
 					</h2>
 					<p className="text-xs text-nova-text-muted">
@@ -344,12 +343,12 @@ export function ProjectMembers({
 				<Popover>
 					<PopoverTrigger
 						aria-label="What the roles mean"
-						className="shrink-0 inline-flex items-center justify-center rounded-md p-1 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nova-violet"
+						className="nova-focusable shrink-0 inline-flex items-center justify-center rounded-md p-1 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text"
 					>
 						<Icon icon={tablerInfoCircle} width="16" height="16" />
 					</PopoverTrigger>
 					<PopoverContent className="w-80">
-						<p className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+						<p className="text-xs font-medium text-nova-text-muted">
 							What each role can do
 						</p>
 						{legendRoles.map((r) => (
@@ -367,7 +366,7 @@ export function ProjectMembers({
 			</div>
 
 			<div className="p-6">
-				{/* Invite — admins/owners only */}
+				{/* Invite: admins/owners only */}
 				{canManage && (
 					<div className="mb-6 flex flex-wrap items-center gap-2">
 						<Input
@@ -438,7 +437,7 @@ export function ProjectMembers({
 											changeRole(m.memberId, next as AssignableRole)
 										}
 									>
-										<SelectTrigger size="sm" aria-label={`Role for ${m.name}`}>
+										<SelectTrigger aria-label={`Role for ${m.name}`}>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
@@ -458,7 +457,7 @@ export function ProjectMembers({
 									<Button
 										type="button"
 										variant="ghost"
-										size="icon-sm"
+										size="icon"
 										disabled={busy}
 										onClick={() => removeMember(m.memberId)}
 										aria-label={`Remove ${m.name}`}
@@ -493,7 +492,6 @@ export function ProjectMembers({
 										<Button
 											type="button"
 											variant="ghost"
-											size="sm"
 											disabled={busy}
 											onClick={() => cancelInvitation(inv.id)}
 										>

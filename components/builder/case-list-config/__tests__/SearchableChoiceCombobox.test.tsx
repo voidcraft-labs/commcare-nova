@@ -187,7 +187,7 @@ describe("SearchableChoiceCombobox", () => {
 		expect(screen.getAllByRole("option")).toHaveLength(1);
 
 		const clearSearch = screen.getByRole("button", { name: "Clear search" });
-		expect(clearSearch.getAttribute("data-size")).toBe("icon-lg");
+		expect(clearSearch.className).toContain("size-11");
 		fireEvent.click(clearSearch);
 		expect(opened.input.value).toBe("");
 		expect(document.activeElement).toBe(opened.input);

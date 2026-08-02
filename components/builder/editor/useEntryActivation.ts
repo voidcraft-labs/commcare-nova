@@ -1,5 +1,5 @@
 /**
- * useEntryActivation — per-section pending-activation state for the
+ * useEntryActivation: per-section pending-activation state for the
  * declarative editor.
  *
  * When a user clicks the "Add Property" pill for a hidden-but-addable
@@ -8,13 +8,13 @@
  * key. The scope is `${fieldUuid}:${section}` so two effects are
  * automatic:
  *
- *   1. Switching the selected field clears pending — you don't carry
+ *   1. Switching the selected field clears pending: you don't carry
  *      "I just added a hint" state across field selections.
  *   2. Two sections (Logic + UI) can each have their own pending key
- *      simultaneously — clicking "Add Hint" in UI doesn't clear a
+ *      simultaneously: clicking "Add Hint" in UI doesn't clear a
  *      "pending validate" in Logic.
  *
- * Only one key can be pending per scope at any moment — calling `activate`
+ * Only one key can be pending per scope at any moment: calling `activate`
  * with a new key replaces the prior one. This matches the UX constraint that
  * each section exposes at most one "Add Property" action at a time.
  */
@@ -37,7 +37,7 @@ export function useEntryActivation(
 	fieldUuid: string,
 	section: EditorSectionName,
 ): EntryActivation {
-	// UUIDs are RFC 4122 (hex + hyphens only) so `:` is a safe delimiter —
+	// UUIDs are RFC 4122 (hex + hyphens only) so `:` is a safe delimiter:
 	// no uuid can embed a colon that would alias a different (uuid, section) pair.
 	const scope = `${fieldUuid}:${section}`;
 	const [state, setState] = useState<{ scope: string; key: string } | null>(
@@ -56,7 +56,7 @@ export function useEntryActivation(
 
 	// Stabilize the returned object so memoized consumers (React.memo / spread
 	// onto props) don't rerender when only the `pending` closure identity
-	// changes — useMemo recomputes only when one of the three callbacks does.
+	// changes: useMemo recomputes only when one of the three callbacks does.
 	return useMemo(
 		() => ({ pending, activate, clear }),
 		[pending, activate, clear],

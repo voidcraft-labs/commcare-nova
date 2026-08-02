@@ -246,7 +246,7 @@ export function RowConflictBody({
 					<Button
 						type="button"
 						variant="destructive"
-						className="min-h-11"
+						className=""
 						disabled={working}
 						onClick={() =>
 							void finish(() => workspace.deleteConflictRow(conflict))
@@ -259,7 +259,7 @@ export function RowConflictBody({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
+						className=""
 						disabled={
 							working || (conflict.removed.length > 0 && !removedAcknowledged)
 						}
@@ -276,7 +276,7 @@ export function RowConflictBody({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
+						className=""
 						disabled={
 							working || (conflict.removed.length > 0 && !removedAcknowledged)
 						}
@@ -292,7 +292,7 @@ export function RowConflictBody({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					disabled={working}
 					onClick={() => {
 						workspace.discardRowConflict(conflict);

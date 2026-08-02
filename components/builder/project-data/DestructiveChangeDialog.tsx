@@ -5,7 +5,7 @@
  * **It names the apps.** Reference edges are exact and transactional, so this
  * surface can say "Household register and Referral follow-up still use this"
  * instead of warning generically that something somewhere might break. The
- * pre-flight read runs while the dialog opens — advisory by construction,
+ * pre-flight read runs while the dialog opens: advisory by construction,
  * because a scan races a concurrent app commit and only the transactional edge
  * check under the table lock can authorize the change. If the commit refuses
  * anyway, its own blocking set is rendered in exactly the same words, so the
@@ -69,7 +69,7 @@ export function DestructiveChangeDialog({
 	confirmLabel: string;
 	onCancel: () => void;
 	/** Resolves `null` when the change landed, or the refusal that stopped it.
-	 *  A refusal keeps the dialog open, beside the action that produced it —
+	 *  A refusal keeps the dialog open, beside the action that produced it:
 	 *  and its `blockingApps` replace the advisory list, because the commit's
 	 *  answer is the authoritative one. */
 	onConfirm: () => Promise<LookupGovernanceFailure | null>;
@@ -108,7 +108,7 @@ export function DestructiveChangeDialog({
 			setPreflight({
 				kind: "failed",
 				message:
-					"Nova cannot verify which apps use this yet. Wait for the project to finish loading, then try again.",
+					"Nova cannot verify which apps use this yet. Wait for the Project to finish loading, then try again.",
 			});
 			return;
 		}
@@ -195,7 +195,7 @@ export function DestructiveChangeDialog({
 							<Button
 								type="button"
 								variant="outline"
-								className="mt-2 min-h-11"
+								className="mt-2"
 								onClick={() => setRetryGeneration((current) => current + 1)}
 							>
 								<Icon icon={tablerRefresh} aria-hidden="true" />
@@ -229,7 +229,7 @@ export function DestructiveChangeDialog({
 											{app.deleted && (
 												<span className="text-nova-text-muted">
 													{" "}
-													— in the trash, but it still counts
+													(in the trash, but it still counts
 												</span>
 											)}
 										</li>
@@ -245,7 +245,7 @@ export function DestructiveChangeDialog({
 								<Button
 									type="button"
 									variant="outline"
-									className="min-h-11"
+									className=""
 									onClick={() => {
 										setPreflight({ kind: "loading" });
 										setUnnamedReferenceRefusal(false);
@@ -263,7 +263,7 @@ export function DestructiveChangeDialog({
 							role="status"
 							className="text-[13px] leading-relaxed text-nova-text-secondary"
 						>
-							No app in this project uses it right now.
+							No app in this Project uses it right now.
 						</p>
 					)}
 
@@ -314,7 +314,7 @@ export function DestructiveChangeDialog({
 							}
 						}}
 					>
-						{working ? "Working…" : confirmLabel}
+						{working ? "Working" : confirmLabel}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

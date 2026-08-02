@@ -289,7 +289,7 @@ export async function confirmAssetReady(
 	 * dangling reference then rejects far away at the commit gate or export. */
 	if (Number(result.numUpdatedRows) === 0) {
 		throw new Error(
-			`[confirmAssetReady] asset row missing for assetId=${args.assetId} — it was deleted while the upload was being confirmed.`,
+			`[confirmAssetReady] asset row missing for assetId=${args.assetId}, it was deleted while the upload was being confirmed.`,
 		);
 	}
 }
@@ -1325,7 +1325,7 @@ export function decodeLibraryCursor(cursor: string): {
 export class MalformedCursorError extends Error {
 	constructor() {
 		super(
-			"Couldn't read the media-library page cursor — it should be the opaque token the previous page returned. Drop the cursor to start from the first page.",
+			"Couldn't read the media-library page cursor, it should be the opaque token the previous page returned. Drop the cursor to start from the first page.",
 		);
 		this.name = "MalformedCursorError";
 	}

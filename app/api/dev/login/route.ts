@@ -1,12 +1,12 @@
 /**
- * Local-dev only — one-URL sign-in for agents, scripts, and browsers.
+ * Local-dev only: one-URL sign-in for agents, scripts, and browsers.
  *
  * Google SSO can't be driven headlessly, so every local automation (AI agents
  * driving the UI, curl against authed APIs, manual browser poking) needs a
  * session without the OAuth dance. Visiting this route mints one for real:
  * it upserts a `@dimagi.com` agent user + personal Project, writes a live
  * session row through Better Auth's own adapter, and sets the signed session
- * cookie (`lib/auth/sessionCookie.ts` — the same signer the smoke suite uses,
+ * cookie (`lib/auth/sessionCookie.ts`: the same signer the smoke suite uses,
  * contract-pinned by `lib/db/__tests__/sessionCookie.integration.test.ts`),
  * then redirects. From there the client is simply logged in.
  *
@@ -15,7 +15,7 @@
  *                     curl -b /tmp/jar 'http://localhost:3000/api/auth/get-session'
  *
  * Query params: `next` (relative redirect target, default `/`) and `as`
- * (identity slug — `?as=alice` yields a second user `agent-alice@dimagi.com`,
+ * (identity slug: `?as=alice` yields a second user `agent-alice@dimagi.com`,
  * e.g. for driving multiplayer/sharing flows from two contexts).
  *
  * Prod-safety, two independent layers: the handler 404s outside
@@ -23,7 +23,7 @@
  * the route is deliberately ABSENT from the main-host allowlist in
  * `lib/hostnames.ts`, so on the production hosts the proxy 404s the path
  * before this module even loads. Keep it off that allowlist. The handler also
- * refuses to run without `NOVA_DB_LOCAL_URL` — the same guard `e2e/seed.ts`
+ * refuses to run without `NOVA_DB_LOCAL_URL`: the same guard `e2e/seed.ts`
  * uses to keep forged sessions off the real Cloud SQL instance.
  */
 
@@ -33,7 +33,7 @@ import { getAuth } from "@/lib/auth";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { sessionCookieName, signSessionCookie } from "@/lib/auth/sessionCookie";
 
-/** Long-lived on purpose — a local agent session should outlast a workday. */
+/** Long-lived on purpose: a local agent session should outlast a workday. */
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 interface AgentIdentity {
@@ -55,7 +55,7 @@ function identityFor(as: string | null): AgentIdentity {
 	if (as === null) return DEFAULT_IDENTITY;
 	if (!IDENTITY_SLUG.test(as)) {
 		throw new ApiError(
-			`dev-login: \`as\` must match ${IDENTITY_SLUG} (it becomes the user id and email local-part) — got \`${as}\`.`,
+			`dev-login: \`as\` must match ${IDENTITY_SLUG} (it becomes the user id and email local-part). Got \`${as}\`.`,
 			400,
 		);
 	}
@@ -74,7 +74,7 @@ export async function GET(request: Request): Promise<Response> {
 		}
 		if (!process.env.NOVA_DB_LOCAL_URL) {
 			throw new ApiError(
-				"dev-login refuses to run without NOVA_DB_LOCAL_URL — it writes a forged session, and that env var is the guard keeping such writes on the local compose Postgres, never the real Cloud SQL instance. Set it in .env (see .env.example) and restart `npm run dev`.",
+				"dev-login refuses to run without NOVA_DB_LOCAL_URL, it writes a forged session, and that env var is the guard keeping such writes on the local compose Postgres, never the real Cloud SQL instance. Set it in .env (see .env.example) and restart `npm run dev`.",
 				500,
 			);
 		}
@@ -91,7 +91,7 @@ export async function GET(request: Request): Promise<Response> {
 		const next = url.searchParams.get("next") ?? "/";
 		if (!next.startsWith("/") || next.startsWith("//")) {
 			throw new ApiError(
-				`dev-login: \`next\` must be a same-origin path starting with \`/\` — got \`${next}\`.`,
+				`dev-login: \`next\` must be a same-origin path starting with \`/\`. Got \`${next}\`.`,
 				400,
 			);
 		}
@@ -101,7 +101,7 @@ export async function GET(request: Request): Promise<Response> {
 		const now = new Date();
 
 		// Adapter-direct like `e2e/seed.ts`: bypasses the OAuth-callback-only
-		// domain-allowlist hook, which is fine — the identity is @dimagi.com.
+		// domain-allowlist hook, which is fine: the identity is @dimagi.com.
 		const existing = await ctx.adapter.findOne({
 			model: "user",
 			where: [{ field: "id", value: identity.userId }],

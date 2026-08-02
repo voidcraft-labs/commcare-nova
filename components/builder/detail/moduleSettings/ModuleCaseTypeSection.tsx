@@ -1,7 +1,7 @@
 // components/builder/detail/moduleSettings/ModuleCaseTypeSection.tsx
 //
 // Module-settings section for viewing and changing a module's case type. Picks
-// an existing type, creates a new one, or clears it — all through the gated
+// an existing type, creates a new one, or clears it: all through the gated
 // `updateModule` (the inline flavor, so a rejection renders beside the control
 // instead of only as a toast). The born-valid shaping lives in the
 // `caseTypeSetPatch` / `caseTypeClearPatch` builders (`lib/doc/scaffolds`):
@@ -9,7 +9,7 @@
 // clearing drops the case-list config AND the `caseListOnly` flag (so a module
 // with forms becomes a survey). `updateModule` itself declares a brand-new type
 // in the catalog and runs the case-type retirement cascade. A change the gate
-// refuses surfaces inline — clearing the type while case forms still need it,
+// refuses surfaces inline: clearing the type while case forms still need it,
 // or clearing a FORMLESS viewer (a module with neither forms nor a case list is
 // invalid in CommCare, so the user must add a form first or delete the module).
 
@@ -131,8 +131,11 @@ export function ModuleCaseTypeSection({
 						setClearOpen(true);
 					}}
 				/>
+				{/* The section label and the picker's own placeholder both already
+				    name the choice, so this line says what CHOOSING one gets you
+				    rather than asking for it a third time in one block. */}
 				<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
-					Choose the kind of case this module works with
+					Forms here can then read and save that case's data
 				</p>
 				{error && (
 					<p
@@ -155,7 +158,7 @@ export function ModuleCaseTypeSection({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{pendingSwitch
 								? `Switch to ${humanizeId(pendingSwitch.to)} cases?`
 								: "Switch case type?"}
@@ -197,7 +200,7 @@ export function ModuleCaseTypeSection({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{hasForms ? "Stop managing cases?" : "Add a form first"}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">

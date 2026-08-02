@@ -1,5 +1,5 @@
 /**
- * Nova API Key Server Actions — mint, revoke, edit-scopes.
+ * Nova API Key Server Actions: mint, revoke, edit-scopes.
  *
  * Mirrors the discriminated-union pattern in `oauth-actions.ts` and
  * `actions.ts`: never throws, always returns a structured result. Next.js
@@ -15,7 +15,7 @@
  * `lib/db/oauth-consents.ts` keeps both revoke flows symmetrical and
  * defends against any future plugin behavior change.
  *
- * Permissions shape: `{ scope: string[] }` — flat, mirrors Nova's
+ * Permissions shape: `{ scope: string[] }`, flat, mirrors Nova's
  * existing dot-namespaced scope vocabulary 1:1 (see
  * `NOVA_API_KEY_SCOPES` in `lib/auth.ts`). Avoids a translation layer
  * between the api-key plugin and the MCP route's scope-comparison code.
@@ -46,7 +46,7 @@ import { log } from "@/lib/logger";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-/* `PER_USER_KEY_LIMIT` is imported from `lib/db/api-keys` — the same
+/* `PER_USER_KEY_LIMIT` is imported from `lib/db/api-keys`: the same
  * constant the listing query references, so the action's enforcement
  * and the UI's view share one source of truth. The pre-flight count
  * is a soft check; `mintApiKey` pairs it with a position-aware
@@ -58,7 +58,7 @@ import { log } from "@/lib/logger";
 /**
  * Set of scope strings the mint / edit endpoints will accept. Anything
  * outside this set returns a validation error before the plugin call
- * fires — the plugin would store an unknown scope without complaint
+ * fires: the plugin would store an unknown scope without complaint
  * (the schema is `Record<string, string[]>`), and the MCP route's
  * scope check would silently never grant it. Validating here means
  * the user gets a clear error at mint time, not a mysterious 403 at
@@ -83,7 +83,7 @@ export type MintApiKeyResult =
 			success: true;
 			/** Full plaintext key (`sk-nova-v1-…`). Returned ONCE. */
 			key: string;
-			/** Plugin row id — passed back on revoke / edit. */
+			/** Plugin row id: passed back on revoke / edit. */
 			keyId: string;
 			/** Visible-prefix portion (the `start` field). */
 			displayPrefix: string;
@@ -115,7 +115,7 @@ export type EditApiKeyScopesResult =
  * Map the UI's expiry option to the plugin's `expiresIn` field, in
  * seconds. The plugin's create-endpoint Zod schema declares
  * `expiresIn` as a number with `.min(1).optional().nullable()`, where
- * `null` means "use the configured default" — but our default is also
+ * `null` means "use the configured default", but our default is also
  * 1y, so we pass the exact value the user picked, including for
  * "never".
  *
@@ -179,7 +179,7 @@ function validateScopes(
  * person who has a problem" per the project's error-message rule.
  *
  * `KEY_NOT_FOUND` is the plugin's collapsed code for both "no such
- * key" and "key exists but you don't own it" — see the
+ * key" and "key exists but you don't own it": see the
  * `apiKey.referenceId !== session.user.id` branches in
  * `node_modules/@better-auth/api-key/dist/index.mjs`'s delete and
  * update endpoints. The collapse is correct (it prevents leaking key
@@ -195,11 +195,11 @@ function readPluginErrorCode(err: unknown): string | undefined {
 
 /**
  * Match Better Auth's `generateId` output exactly: 32 characters from
- * `[a-zA-Z0-9]` (source: `@better-auth/core/utils/id::generateId` —
+ * `[a-zA-Z0-9]` (source: `@better-auth/core/utils/id::generateId`:
  * `createRandomStringGenerator("a-z", "A-Z", "0-9")(32)`). Server
  * Actions deserialize JSON from the wire so `keyId` is
  * client-controlled; tightening to the literal generator output
- * rejects everything that isn't a real Nova-issued key id —
+ * rejects everything that isn't a real Nova-issued key id:
  * whitespace, newlines, control characters, slashes, HTML,
  * oversized strings, and even legitimate-looking IDs from a
  * different generator the project doesn't use. Test fixtures use
@@ -211,7 +211,7 @@ function isValidKeyId(value: unknown): value is string {
 	return typeof value === "string" && BETTER_AUTH_ID_PATTERN.test(value);
 }
 
-/** Server-Action-shaped wrapper around `callerIpFromHeaders` — awaits
+/** Server-Action-shaped wrapper around `callerIpFromHeaders`, awaits
  * `next/headers` so the audit-log call sites stay one-liners. */
 async function callerIp(): Promise<string> {
 	return callerIpFromHeaders(await headers());
@@ -219,7 +219,7 @@ async function callerIp(): Promise<string> {
 
 /**
  * Decide whether the just-minted row is a "loser" of a count→create
- * race — i.e., whether its position in the user's row set, ordered
+ * race: i.e., whether its position in the user's row set, ordered
  * deterministically, falls beyond `PER_USER_KEY_LIMIT`. Returns true
  * when the caller should delete its own row and surface the limit
  * error; false when the caller is a winner and should keep its row.
@@ -229,7 +229,7 @@ async function callerIp(): Promise<string> {
  * order, but lexically comparable; the secondary sort by id resolves
  * the rare case where two creates land in the same millisecond.
  * Concurrent callers each read the full committed row set (READ
- * COMMITTED), so they agree on the ordering — exactly the loser rows
+ * COMMITTED), so they agree on the ordering: exactly the loser rows
  * are pruned.
  *
  * If the caller's row isn't in the set at all (a regression that
@@ -252,7 +252,7 @@ async function isOverLimitMintLoser(
 			.where("referenceId", "=", userId)
 			.execute();
 	} catch (err) {
-		/* Read failure during compensating action — fail-open on
+		/* Read failure during compensating action: fail-open on
 		 * delete (don't destroy the just-minted row). The over-
 		 * limit state surfaces in `listUserApiKeys` and the user
 		 * has a recovery path via the kebab-revoke flow. */
@@ -278,7 +278,7 @@ async function isOverLimitMintLoser(
  * `maxAge` configured at `lib/auth.ts::session.cookieCache`) means
  * `getSession()` can return a still-valid-looking session payload
  * for up to that window after `admin.banUser` deleted the underlying
- * `auth_session` row — a banned user with a stale cookie would
+ * `auth_session` row: a banned user with a stale cookie would
  * otherwise authenticate every Server Action in the gap. Mirrors
  * `requireAdminAccess`'s direct database read that bypasses the same
  * cache for `role`.
@@ -299,14 +299,14 @@ async function isAuthorizedSession(
 		active = await isUserActive(userId);
 	} catch (err) {
 		log.error("[settings/api-keys] user-status lookup failed", err);
-		/* Fail closed — a database outage rejects rather than
+		/* Fail closed: a database outage rejects rather than
 		 * authenticates a possibly-banned user. The action returns the
 		 * "sign in" message; the user retries when the outage clears. */
 		return false;
 	}
 	if (!active) {
 		/* Mirrors `[mcp/api-key] user disabled or deleted` on the route
-		 * side — the only persistent record that a banned-user action
+		 * side: the only persistent record that a banned-user action
 		 * was attempted. Wire response is the generic "sign in"
 		 * message; the audit signal lives here. */
 		log.warn("[settings/api-keys] action rejected: user disabled", {
@@ -322,7 +322,7 @@ function pluginErrorMessage(err: unknown, fallback: string): string {
 	const code = readPluginErrorCode(err);
 	switch (code) {
 		case "KEY_NOT_FOUND":
-			return "That key isn't available — it may have been revoked already. The list will refresh on your next visit.";
+			return "That key isn't available, it may have been revoked already. The list will refresh on your next visit.";
 		case "INVALID_NAME_LENGTH":
 		case "NAME_REQUIRED":
 			return "Names must be 1–32 characters.";
@@ -342,13 +342,13 @@ function pluginErrorMessage(err: unknown, fallback: string): string {
  *
  * Pre-flight: enforce the per-user limit and validate the requested
  * scope set before invoking the plugin. The full plaintext key is
- * returned in the result and shown to the user exactly once — every
+ * returned in the result and shown to the user exactly once, every
  * subsequent UI surface displays only the masked prefix.
  *
  * The `userId` body field is passed explicitly. The plugin can derive
  * it from a session if `headers` are forwarded, but passing it
  * directly is clearer at the Server Action boundary and matches the
- * pattern in the plugin's docs ("server-only — required for user-owned
+ * pattern in the plugin's docs ("server-only: required for user-owned
  * keys when not using session headers").
  */
 export async function mintApiKey(
@@ -413,7 +413,7 @@ export async function mintApiKey(
 		 * rule out: "If you're creating an API key on the server,
 		 * without access to headers, you must pass the userId property."
 		 * We deliberately omit headers and pass `userId` explicitly,
-		 * derived from the session we already loaded above — the session
+		 * derived from the session we already loaded above: the session
 		 * check has already authenticated the caller; the plugin only
 		 * needs the resolved id, not the request context. */
 		const created = await auth.api.createApiKey({
@@ -432,7 +432,7 @@ export async function mintApiKey(
 		 *
 		 * The compensation MUST be position-aware, not symmetric. A
 		 * naive "if postCount > limit, delete my row" strategy lets
-		 * every concurrent caller delete its own row — at count = 9,
+		 * every concurrent caller delete its own row: at count = 9,
 		 * two parallel mints both create (count → 11), both observe
 		 * 11, both delete, end state count = 9 with both callers
 		 * seeing a misleading "you already have 10 keys" error. The
@@ -451,7 +451,7 @@ export async function mintApiKey(
 		 * (which mounts `sessionMiddleware` and expects a cookie-
 		 * bearing request that this server-only mode doesn't carry).
 		 * Read failure or delete failure is logged but does NOT
-		 * destroy the success — leaving an over-budget row surfaces
+		 * destroy the success: leaving an over-budget row surfaces
 		 * as the over-limit warn in `listUserApiKeys` and the user
 		 * can revoke it from the UI. The plaintext return below
 		 * happens only after this check passes, preserving the
@@ -474,7 +474,7 @@ export async function mintApiKey(
 							.where("id", "=", created.id)
 							.execute();
 						log.warn(
-							"[settings/api-keys] mint race detected — over-limit row deleted",
+							"[settings/api-keys] mint race detected. Over-limit row deleted",
 							{
 								userId: session.user.id,
 								keyId: created.id,
@@ -489,12 +489,12 @@ export async function mintApiKey(
 						error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
 					};
 				}
-				/* Else: I'm a winner of the race — keep my row, fall
+				/* Else: I'm a winner of the race, keep my row, fall
 				 * through to the success path below. The losers handle
 				 * their own deletes. */
 			}
 		} catch (recountErr) {
-			/* error() (not warn) — this is rare (mint is a deliberate action, not a
+			/* error() (not warn): this is rare (mint is a deliberate action, not a
 			 * per-request path) and notable: the per-user cap went unenforced for
 			 * this mint, worth Sentry visibility. */
 			log.error(
@@ -507,14 +507,14 @@ export async function mintApiKey(
 		 * can throw. Audit logging, `revalidatePath`, and even
 		 * `toISOString` (if the plugin's response shape ever drifts to
 		 * an unexpected createdAt type) must not swallow a successful
-		 * mint into the catch block — the row already exists hashed in
+		 * mint into the catch block: the row already exists hashed in
 		 * Postgres, the plaintext is unrecoverable, and the user has
 		 * burned a slot toward `PER_USER_KEY_LIMIT`. The two `toISOString`
 		 * calls are bracketed here as part of the success-shape
 		 * construction; the audit log and revalidate run in their own
 		 * try/catch below. */
 		if (!created.start) {
-			/* Symmetric with `lib/db/api-keys.ts::listUserApiKeys` —
+			/* Symmetric with `lib/db/api-keys.ts::listUserApiKeys`:
 			 * `startingCharactersConfig.shouldStore: true` makes `start`
 			 * unconditional in production, so a missing value is a
 			 * plugin regression worth surfacing. Coalesce to `""` so the
@@ -530,7 +530,7 @@ export async function mintApiKey(
 			keyId: created.id,
 			displayPrefix: created.start ?? "",
 			/* `toISOString` / `toISOStringOrNull` from `lib/db/api-keys`
-			 * normalize the Kysely adapter's `Date` columns to ISO strings —
+			 * normalize the Kysely adapter's `Date` columns to ISO strings:
 			 * shared with `listUserApiKeys` so mint + list agree. */
 			createdAt: toISOString(created.createdAt),
 			expiresAt: toISOStringOrNull(created.expiresAt),
@@ -572,7 +572,7 @@ export async function mintApiKey(
  *
  * The plugin's `/api-key/delete` endpoint mounts `sessionMiddleware`,
  * which means the typed `auth.api.deleteApiKey` call requires the
- * caller's session — passing `headers` is structural, not stylistic.
+ * caller's session: passing `headers` is structural, not stylistic.
  * Mint and edit run in server-only mode (no headers, explicit
  * `userId` in body) because their endpoints accept `permissions` and
  * the plugin rejects `permissions` whenever `ctx.headers` is present.
@@ -583,7 +583,7 @@ export async function mintApiKey(
  *
  * Idempotent on already-deleted rows: the plugin's delete handler
  * throws `KEY_NOT_FOUND` for both "no such key" and
- * "row exists but `referenceId !== session.user.id`" — same code,
+ * "row exists but `referenceId !== session.user.id`": same code,
  * deliberate collapse to avoid leaking key-existence to non-owners
  * (see the throws inside
  * `node_modules/@better-auth/api-key/dist/index.mjs::deleteApiKey`).
@@ -622,7 +622,7 @@ export async function revokeApiKey(keyId: string): Promise<RevokeApiKeyResult> {
 		revalidatePath("/settings");
 		return { success: true };
 	} catch (err) {
-		/* `KEY_NOT_FOUND` is idempotent-success for revoke — see the
+		/* `KEY_NOT_FOUND` is idempotent-success for revoke: see the
 		 * function docblock for the missing/not-owned collapse. The
 		 * audit-log line preserves the signal that would otherwise be
 		 * lost: "user attempted to revoke a key id they don't own" is
@@ -650,7 +650,7 @@ export async function revokeApiKey(keyId: string): Promise<RevokeApiKeyResult> {
 
 /**
  * Update the granted scope set on an existing key. The plaintext key
- * value is unchanged — only `permissions.scope` is rewritten. Same
+ * value is unchanged: only `permissions.scope` is rewritten. Same
  * floor-scope rule as mint: read + write are always required.
  */
 export async function editApiKeyScopes(
@@ -684,7 +684,7 @@ export async function editApiKeyScopes(
 		 * Ownership model: in server-only mode the plugin's update
 		 * handler authenticates from `body.userId` (no session to
 		 * cross-check), then verifies `apiKey.referenceId === user.id`
-		 * — which compares against the value we passed. The check is
+		 *, which compares against the value we passed. The check is
 		 * tautologically true unless `referenceId` belongs to a
 		 * different user, in which case it throws `KEY_NOT_FOUND` (the
 		 * non-leaking missing-vs-not-owned collapse). The actual auth
@@ -710,7 +710,7 @@ export async function editApiKeyScopes(
 		revalidatePath("/settings");
 		return { success: true };
 	} catch (err) {
-		/* Same audit-log signal as the revoke path — preserves the
+		/* Same audit-log signal as the revoke path: preserves the
 		 * "user tried to edit a key they don't own" diagnostic that the
 		 * non-leaking wire response collapses. */
 		if (readPluginErrorCode(err) === "KEY_NOT_FOUND") {

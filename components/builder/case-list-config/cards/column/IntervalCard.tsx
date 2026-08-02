@@ -1,27 +1,27 @@
 // components/builder/case-list-config/cards/column/IntervalCard.tsx
 //
-// Renders the `interval` Column kind — a relative interval against
+// Renders the `interval` Column kind: a relative interval against
 // a date property, with a `display` discriminator that picks between
 // two cell shapes:
 //
-//   - `display: "always"` — show the whole-unit interval until the
+//   - `display: "always"`, show the whole-unit interval until the
 //     threshold is crossed, then replace it with `text`.
-//   - `display: "flag"` — show `text` only when the threshold is
+//   - `display: "flag"`, show `text` only when the threshold is
 //     exceeded; otherwise the cell renders empty.
 //
-// One card, two modes — the user picks `display` via a segmented
+// One card, two modes: the user picks `display` via a segmented
 // toggle and the `text` slot's label adjusts to match. Threshold +
 // unit + the field reference shape are identical across both modes.
 //
 // Slots:
-//   - `field` — case-property name. Filtered to `date` /
+//   - `field`: case-property name. Filtered to `date` /
 //     `datetime` typed properties.
-//   - `header` — column display label.
+//   - `header`: column display label.
 //   - `threshold` (number) + `unit` (`days` / `weeks` / `months`
-//     / `years`) — the interval at which the row crosses from
+//     / `years`): the interval at which the row crosses from
 //     "fine" to "flagged."
-//   - `display` — `"always"` (interval) or `"flag"` (flag-text).
-//   - `text` — the runtime label whose role flips by `display`.
+//   - `display`: `"always"` (interval) or `"flag"` (flag-text).
+//   - `text`: the runtime label whose role flips by `display`.
 
 "use client";
 import {
@@ -41,7 +41,7 @@ import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 
-/** The gate's own accept-set — unknown-typed properties are
+/** The gate's own accept-set: unknown-typed properties are
  *  admissible, so the dropdown offers them (see `DateColumnCard`). */
 const acceptsIntervalColumn = (p: CaseProperty) =>
 	columnKindAcceptsPropertyType("interval", p.data_type);
@@ -201,7 +201,7 @@ interface DisplayToggleProps {
 
 /**
  * Two-state segmented toggle picking between the two interval
- * display modes — the shared `SegmentedRow`, so both options stay
+ * display modes: the shared `SegmentedRow`, so both options stay
  * visible at full size.
  */
 function DisplayToggle({ value, onChange }: DisplayToggleProps) {

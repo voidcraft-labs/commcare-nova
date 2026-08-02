@@ -132,7 +132,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
 				<CardItemGroup orientation="horizontal">
 					<Input
 						type="url"
-						placeholder="Paste a link..."
+						placeholder="Paste a link"
 						value={url}
 						onChange={(e) => setUrl(e.target.value)}
 						onKeyDown={handleKeyDown}

@@ -1,31 +1,31 @@
 // components/builder/shared/cards/expression/TermCard.tsx
 //
-// Term-arm card for the ValueExpression editor — the universal value
+// Term-arm card for the ValueExpression editor: the universal value
 // carrier. Edits the six authorable Term variants:
 //
-//   - `prop` — case property reference (with optional `via:
+//   - `prop`: case property reference (with optional `via:
 //     RelationPath` walk preserved across edits via the shared
 //     `PropertyRefPicker`).
-//   - `input` — search-input ref (named picker over declared inputs).
-//   - `session-context` — closed-namespace session field (`userid` /
+//   - `input`: search-input ref (named picker over declared inputs).
+//   - `session-context`: closed-namespace session field (`userid` /
 //     `username` / `deviceid` / `appversion`).
-//   - `session-user-property` — a custom worker-information property by
+//   - `session-user-property`: a custom worker-information property by
 //     stable UUID (its current slug is resolved only for display/wire output).
-//   - `session-user` — an explicit raw built-in/external user-data field.
-//   - `field` — stable form-field identity. Offered as a real source only
+//   - `session-user`: an explicit raw built-in/external user-data field.
+//   - `field`: stable form-field identity. Offered as a real source only
 //     where the edit context supplies `formFields` (today, a case
 //     operation); every other context rejects it.
-//   - `literal` — primitive constant (string / number / boolean /
+//   - `literal`: primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
-//   - `table-column` — stable lookup-column identity. Offered only in an
+//   - `table-column`: stable lookup-column identity. Offered only in an
 //     explicit table-row scope whose table/column catalog admits it.
 //
-// The card edits ONLY Term-shaped values — non-Term ValueExpression
+// The card edits ONLY Term-shaped values: non-Term ValueExpression
 // arms route through their own dedicated cards (ArithCard / IfCard /
 // etc.) at the `ExpressionPicker` shell's registry-driven dispatch.
 //
 // Valid by construction: the card takes the slot's `SlotConstraint`
-// and gates every value source against it — a source that can't
+// and gates every value source against it: a source that can't
 // produce an accepted type is disabled WITH A REASON (never dimmed),
 // the property / search-input dropdowns filter to admissible entries,
 // and the literal shape menu offers only shapes whose value type the
@@ -128,7 +128,7 @@ import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
 import { searchInputDisplayLabel } from "../../searchInputPresentation";
 import { reseedLiteralForConstraint } from "../reseed";
 
-/** Default Term-arm value — a `term(literal(""))`. The empty literal
+/** Default Term-arm value: a `term(literal(""))`. The empty literal
  *  renders the typed text input directly; authors who want a different
  *  Term variant flip the mode menu. */
 export function termDefault(
@@ -137,7 +137,7 @@ export function termDefault(
 	return wrapTerm(literal(""));
 }
 
-/** Term mode discriminator — one per Term arm. Drives the mode menu
+/** Term mode discriminator: one per Term arm. Drives the mode menu
  *  in the card's body. */
 type TermMode =
 	| "literal"
@@ -167,7 +167,7 @@ interface TermCardProps {
 	readonly value: Extract<ValueExpression, { kind: "term" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
-	/** The slot's type constraint — gates the value sources and the
+	/** The slot's type constraint: gates the value sources and the
 	 *  literal shape menu. Defaults to `ANY_CONSTRAINT`. */
 	readonly constraint?: SlotConstraint;
 	/** Copy context for the source menu. A predicate's left side is the
@@ -175,7 +175,7 @@ interface TermCardProps {
 	 *  ordinary value slots read "Other case information". The editor and AST
 	 *  behavior are identical. */
 	readonly sourceContext?: "value" | "subject";
-	/** Extra entries the picker shell injects into the source menu —
+	/** Extra entries the picker shell injects into the source menu:
 	 *  the computed expression kinds (math, if–then, today, …), so ONE
 	 *  dropdown answers "what is this value?" without a separate
 	 *  Change affordance. Built by `ExpressionPicker` (which owns the
@@ -187,7 +187,7 @@ interface TermCardProps {
  * Term-arm card. Renders a mode toggle + per-mode body editor.
  *
  * Path encoding: the typeChecker delegates the `term` arm directly
- * to `resolveTermType(...)` with the path UNCHANGED — Term-resolution
+ * to `resolveTermType(...)` with the path UNCHANGED: Term-resolution
  * errors land at the slot path, not at `[..., "term"]`. The card
  * therefore looks up errors at its own path, not at a deeper
  * sub-segment.
@@ -205,7 +205,7 @@ function EditableTermCard({
 	computedItems,
 }: TermCardProps) {
 	const ctx = usePredicateEditContext();
-	// Term-side error rendering — two sources:
+	// Term-side error rendering: two sources:
 	//
 	//   - `errors` (exact-at-path): the general-purpose term-arm
 	//     branch in `checkExpression` calls `resolveTermType(...,
@@ -754,7 +754,7 @@ function describeTermModeReplacement(
 	}
 }
 
-/** Whether the slot accepts a value of type `t` — `ANY_CONSTRAINT`
+/** Whether the slot accepts a value of type `t`: `ANY_CONSTRAINT`
  *  admits everything. */
 function constraintAdmitsType(
 	constraint: SlotConstraint,
@@ -763,7 +763,7 @@ function constraintAdmitsType(
 	return constraint.accepts === "any" || acceptsType(constraint, t);
 }
 
-/** A property filter derived from the slot constraint — `undefined`
+/** A property filter derived from the slot constraint: `undefined`
  *  (no narrowing) when the constraint is unconstrained. Memoize at the
  *  call site so `PropertyPicker`'s `[caseType, filter]` memo stays
  *  stable across renders with the same constraint. */
@@ -784,15 +784,15 @@ interface TermAdmissionContext extends ExpressionEditContext {
 
 /**
  * Resolve which Term sources can produce a value the slot accepts:
- *   - `literal` — admitted unless this exact node is an absence-check
+ *   - `literal`: admitted unless this exact node is an absence-check
  *     subject. Otherwise a literal can be `null`, which is compatible
  *     with every type, and the shape menu does the fine-grained gating
  *     per accepted type.
- *   - `property` — admitted when a property of an accepted type
+ *   - `property`: admitted when a property of an accepted type
  *     exists on the current case type.
- *   - `input` — admitted when a declared search input of an accepted
+ *   - `input`: admitted when a declared search input of an accepted
  *     type is in scope.
- *   - `session-context` / both user sources — resolve to `text`, so
+ *   - `session-context` / both user sources: resolve to `text`, so
  *     admitted only when the slot accepts text.
  */
 function computeModeAdmission(
@@ -1086,9 +1086,8 @@ function ModeMenu({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						size="xl"
-						className="group min-h-11 justify-start border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 not-disabled:hover:text-nova-text dark:bg-nova-deep/50"
+						variant="field"
+						className="group justify-start"
 					/>
 				}
 			>
@@ -1231,7 +1230,7 @@ function TermBodyInput({
 			// `via: RelationPath` walk round-trips on every property name
 			// change. The picker handles the canonical-vs-non-canonical
 			// branch internally and rebuilds via `prop(caseType, name,
-			// via)` (three-arg form) — bypassing this primitive would
+			// via)` (three-arg form): bypassing this primitive would
 			// silently drop authored relation walks on first user click.
 			// The constraint filter narrows the dropdown to properties of
 			// an accepted type.
@@ -1359,18 +1358,12 @@ function TableColumnRefMenu({
 			<DropdownMenuTrigger
 				ref={triggerRef}
 				aria-label={`Data table column: ${label}${missing ? ", no longer available" : ""}`}
-				aria-invalid={invalid || undefined}
+				/* A column that no longer exists is an invalid value in this
+				 * control, the same as one the checker refused, and the button
+				 * draws that state itself. */
+				aria-invalid={invalid || missing || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={`group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
-							invalid || missing
-								? "border-nova-rose/40 text-nova-rose"
-								: "border-white/[0.06] text-nova-text not-disabled:hover:border-nova-violet/30"
-						}`}
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -1455,7 +1448,7 @@ const SEARCH_ANSWER_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 	geopoint: "Location",
 };
 
-/** Search-input dropdown — picks from declared search inputs in
+/** Search-input dropdown: picks from declared search inputs in
  *  scope whose declared type the slot accepts. An unresolved identity is
  *  shown only as an ephemeral repair state and is never re-admitted. */
 function InputRefMenu({
@@ -1498,12 +1491,7 @@ function InputRefMenu({
 				aria-label={`Search answer: ${currentLabel ?? "Choose a search answer"}${currentMissing ? ", no longer available" : ""}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -1588,9 +1576,9 @@ function InputRefMenu({
 }
 
 /**
- * Form-answer dropdown. The context's decl list IS the admission list —
+ * Form-answer dropdown. The context's decl list IS the admission list:
  * the mounting surface has already dropped every answer this slot may
- * not read — so this menu only narrows further by the slot's own type.
+ * not read, so this menu only narrows further by the slot's own type.
  *
  * A saved answer that has since been deleted keeps its identity visible
  * with a recovery line rather than collapsing to an empty placeholder:
@@ -1639,12 +1627,7 @@ function FormFieldRefMenu({
 				aria-label={`Form answer: ${currentLabel ?? "Choose a form answer"}${missing ? ", no longer in this form" : ""}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -1778,12 +1761,7 @@ function SessionContextMenu({
 				aria-label={`App information: ${current.label}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="text-nova-violet-bright">{current.label}</span>
@@ -1845,7 +1823,7 @@ interface PendingLiteralShapeChange {
 
 /** Classify a literal into the editor's shape enum. Reads
  *  `data_type` first (the explicit qualifier set by `dateLiteral`
- *  etc.), then falls back to the JS runtime type — same fallback
+ *  etc.), then falls back to the JS runtime type: same fallback
  *  the type-checker's `literalType` uses. The classification drives
  *  the input variant; the runtime literal carries the matching
  *  qualifier on rebuild via the `buildLiteralForShape` mapping. */
@@ -1863,7 +1841,7 @@ function literalsMatch(left: Literal, right: Literal): boolean {
 	return left.value === right.value && left.data_type === right.data_type;
 }
 
-/** The resolved type a literal shape produces — drives the shape
+/** The resolved type a literal shape produces: drives the shape
  *  menu's per-shape admission against the slot's accept-set.
  *  `boolean` resolves to `text` (CommCare has no Boolean type); `null`
  *  resolves to the null sentinel (`_any`), compatible with every
@@ -2007,9 +1985,9 @@ function LiteralShapeSubmenu({
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"h-auto min-h-11 w-full rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 md:text-sm dark:bg-nova-deep/50";
+	"nova-focusable h-auto min-h-11 w-full rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
 const LITERAL_INPUT_CLS_INVALID =
-	"h-auto min-h-11 w-full rounded-lg border border-nova-rose/40 bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30 md:text-sm dark:bg-nova-deep/50";
+	"nova-focusable h-auto min-h-11 w-full rounded-lg border border-nova-rose/40 bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -2092,7 +2070,7 @@ function LiteralBodyInput({
 	}
 }
 
-/** Text-typed literal input — commits on blur to avoid hammering
+/** Text-typed literal input: commits on blur to avoid hammering
  *  the type checker on every keystroke. A required slot keeps an
  *  emptied draft in place and explains how to correct it; restoring
  *  the previous value would make the user's edit appear to vanish. */
@@ -2174,7 +2152,7 @@ function LiteralTextInput({
 	);
 }
 
-/** Numeric literal input — commits on blur, accepting finite integers
+/** Numeric literal input: commits on blur, accepting finite integers
  *  and decimals. Empty input commits a `literal(null)` so the type
  *  checker treats the slot as the absent-or-null compatibility case;
  *  malformed drafts remain visible with an inline correction. */
@@ -2202,7 +2180,7 @@ function LiteralNumberInput({
 	// `LiteralTextInput`. The numeric input's no-op gate compares
 	// the draft against the source's serialized form so a focus
 	// pulse on an untouched input doesn't fire. Empty input emits a
-	// `literal(null)` carrying the source's qualifier — the type
+	// `literal(null)` carrying the source's qualifier: the type
 	// checker treats null as universally compatible per
 	// `typesCompatible`'s `_any` rule.
 	const commit = useCallback(() => {
@@ -2267,7 +2245,7 @@ function finiteLiteralNumber(draft: string): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-/** Boolean literal toggle — segmented control showing both states
+/** Boolean literal toggle: segmented control showing both states
  *  with an active marker. Commits the boolean directly. */
 function LiteralBooleanToggle({
 	value,
@@ -2287,7 +2265,7 @@ function LiteralBooleanToggle({
 		? "flex gap-1 px-1 py-1 rounded-md border border-nova-rose/40 bg-nova-deep/50"
 		: "flex gap-1 px-1 py-1 rounded-md border border-white/[0.06] bg-nova-deep/50";
 	// `<fieldset>` carries the implicit "group of related controls" role
-	// without a separate `role="group"` attribute — biome's
+	// without a separate `role="group"` attribute: biome's
 	// `useSemanticElements` rule prefers the semantic element. The
 	// visible-label decoration uses `aria-label` rather than a
 	// `<legend>` because the surrounding card already carries a
@@ -2304,7 +2282,6 @@ function LiteralBooleanToggle({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (current) return;
 					onChange(rebuildLiteralPreservingDataType(value, true));
@@ -2317,7 +2294,6 @@ function LiteralBooleanToggle({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (!current) return;
 					onChange(rebuildLiteralPreservingDataType(value, false));
@@ -2331,7 +2307,7 @@ function LiteralBooleanToggle({
 	);
 }
 
-/** Null sentinel chip — non-editable, showing the literal resolves
+/** Null sentinel chip: non-editable, showing the literal resolves
  *  to null. The shape menu above flips back to a typed shape if the
  *  user wants a non-null value. */
 function LiteralNullChip() {
@@ -2346,7 +2322,7 @@ function LiteralNullChip() {
  *  drive the picker UX; the wire form is the platform's ISO-
  *  formatted output, which matches CommCare's date / datetime
  *  conventions when truncated to seconds. Commits on change rather
- *  than blur — picker commits are atomic events, not in-flight
+ *  than blur: picker commits are atomic events, not in-flight
  *  edits. Same shape `LiteralValueInput`'s `DateInput` uses.
  *
  *  A required slot keeps a cleared picker visible with a correction
@@ -2455,8 +2431,8 @@ function userFieldInputClass(invalid: boolean): string {
 	return [
 		"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text md:text-sm dark:bg-nova-deep/50",
 		invalid
-			? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
-			: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30",
+			? "nova-focusable border-nova-rose/40"
+			: "nova-focusable border-white/[0.06]",
 	].join(" ");
 }
 
@@ -2497,12 +2473,7 @@ function UserPropertyMenu({
 				aria-label={`Worker information: ${current.label}, ${current.slug}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">

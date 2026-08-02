@@ -5,26 +5,26 @@
 // Pins the running-app search-input form contract. Three orthogonal
 // axes get coverage:
 //
-//   1. Per-input widget dispatch — one widget per `SearchInputDef.type`
+//   1. Per-input widget dispatch: one widget per `SearchInputDef.type`
 //      (text / select / date / date-range / barcode), independent of
 //      the arm discriminator (`kind: "simple"` vs `kind: "advanced"`).
-//   2. Debounced upward emission — keystroke bursts collapse to one
+//   2. Debounced upward emission: keystroke bursts collapse to one
 //      `onChange` after 300 ms. Re-emission of the same map is
 //      suppressed so the form doesn't loop after the parent echoes
 //      `value` back in.
-//   3. Date-range two-key shape — bounds emit under `<name>:from` /
+//   3. Date-range two-key shape: bounds emit under `<name>:from` /
 //      `<name>:to` and clear independently while editing; submission
 //      requires the complete ordered pair CommCare can represent.
 //
 // The date / date-range widgets are Popover+Calendar pickers, NOT
 // native date inputs. Tests assert against the trigger button's text
 // (controlled-prop side) and drive value changes through a mocked
-// Calendar that exposes deterministic "pick"/"clear" buttons —
+// Calendar that exposes deterministic "pick"/"clear" buttons:
 // happy-dom + fake timers + react-day-picker's nested grid is too
 // fragile to drive end-to-end, and the value-flow contract doesn't
 // depend on the calendar's internals.
 //
-// Fake timers + `fireEvent.change` for typing bursts — `userEvent.type`
+// Fake timers + `fireEvent.change` for typing bursts: `userEvent.type`
 // uses real `setTimeout` internally and hangs under fake timers
 // unless wired through `advanceTimers`. Sticking to `fireEvent.change`
 // keeps the timing model deterministic.
@@ -50,13 +50,13 @@ import {
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 
 // Mock the shadcn Calendar with a deterministic stub. The real
-// component is react-day-picker v10 — fast, accessible, but the
+// component is react-day-picker v10: fast, accessible, but the
 // nested grid makes per-day-button targeting brittle under
 // happy-dom + fake timers. The stub exposes two buttons per
 // instance: "Pick 2024-01-01" (or whatever `data-test-pick-date`
 // resolves to) and "Pick 2024-12-31"; tests that need to drive a
 // specific date click the matching button. The stub honors
-// `mode="single"` only — the form never renders `mode="range"`.
+// `mode="single"` only: the form never renders `mode="range"`.
 vi.mock("@/components/shadcn/calendar", () => ({
 	Calendar: ({
 		selected,
@@ -369,7 +369,7 @@ describe("widget dispatch", () => {
 				),
 			],
 		});
-		// Each bound is its own labeled trigger — "Registered from"
+		// Each bound is its own labeled trigger: "Registered from"
 		// / "Registered to". Surfacing the bound role to assistive
 		// tech is more useful than a single ambiguous "Registered"
 		// addressing both controls.
@@ -599,13 +599,13 @@ describe("debounced onChange emission", () => {
 		if (emitted === undefined) return;
 		rerender(emitted);
 		vi.advanceTimersByTime(1000);
-		// No additional emission — the parent's echo is a no-op for us.
+		// No additional emission: the parent's echo is a no-op for us.
 		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not emit when the parent pushes a fresh value reference", () => {
 		// The realistic controlled-prop pattern: parents call
-		// `setValues(new Map([...]))` — a fresh Map instance each
+		// `setValues(new Map([...]))`: a fresh Map instance each
 		// time. The reference-identity echo guard in the previous
 		// test (parent passes the EXACT same Map instance back) is
 		// insufficient; the form must also stamp `lastEmittedRef`
@@ -681,8 +681,8 @@ describe("controlled `value` prop flow", () => {
 	});
 
 	it("renders the placeholder when the inbound value is not ISO-shaped", () => {
-		// A malformed inbound shape — URL-hydration edge case, typo'd
-		// fixture, or a non-date value pushed into a date slot — would
+		// A malformed inbound shape: URL-hydration edge case, typo'd
+		// fixture, or a non-date value pushed into a date slot: would
 		// pass through `parseISO` as Invalid Date and then crash
 		// `format(invalidDate, ...)` with `RangeError: Invalid time
 		// value`. The form re-applies the runtime-bindings layer's
@@ -702,7 +702,7 @@ describe("controlled `value` prop flow", () => {
 	it("renders the placeholder when the inbound value passes the shape gate but is calendar-invalid", () => {
 		// `"2024-13-45"` satisfies the regex (digits + dashes in the
 		// `YYYY-MM-DD` layout) but `parseISO` produces an Invalid
-		// Date — month 13, day 45 are out of range. Without the
+		// Date: month 13, day 45 are out of range. Without the
 		// `isValid` calendar-correctness gate, `format(invalidDate,
 		// ...)` would throw `RangeError: Invalid time value` and
 		// crash the entire `<search>` subtree. The widget surfaces
@@ -794,7 +794,7 @@ describe("date-range two-key emission", () => {
 		// Open the "from" popover and pick Jan 1 from the mock
 		// Calendar. The mock fires `onSelect(new Date(2024,0,1))`,
 		// which the form formats through `date-fns`'s
-		// `format(date, "yyyy-MM-dd")` — local time, no UTC
+		// `format(date, "yyyy-MM-dd")`: local time, no UTC
 		// drift. The picker auto-closes after the pick (see
 		// `DatePopoverField`'s controlled-open contract) so a
 		// single calendar is in the DOM at any given moment.
@@ -815,7 +815,7 @@ describe("date-range two-key emission", () => {
 	});
 
 	it("leaves the other bound intact when one is cleared", () => {
-		// Date-range bounds keep independent draft state — clearing the from
+		// Date-range bounds keep independent draft state: clearing the from
 		// bound should not destroy the worker's to-bound selection, even though
 		// Search now waits for a complete pair. The form surfaces a "Clear" button
 		// inside the popover's footer when a value is set; tests
@@ -865,7 +865,7 @@ describe("popover auto-close after pick", () => {
 
 	it("closes the single-date popover when a day is picked", () => {
 		// Base UI's Popover only auto-dismisses on outside-press /
-		// escape / close-press / focus-out — none fire when the
+		// escape / close-press / focus-out: none fire when the
 		// Calendar updates its own state. Without the controlled-
 		// open contract in `DatePopoverField`, the popover would
 		// stay open after the user picks, forcing them to click
@@ -884,7 +884,7 @@ describe("popover auto-close after pick", () => {
 	});
 
 	it("closes the popover when the Clear button is pressed", () => {
-		// Same auto-close contract on the Clear path — the popover
+		// Same auto-close contract on the Clear path: the popover
 		// footer's clear affordance updates the value through the
 		// same controlled-open seam, so the user doesn't have to
 		// click outside after clearing.
@@ -918,7 +918,7 @@ describe("multi-input composition", () => {
 		const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
 		fireEvent.change(nameInput, { target: { value: "Dee" } });
 
-		// Drive the date via the mocked Calendar's Jan 1 button — the
+		// Drive the date via the mocked Calendar's Jan 1 button: the
 		// Popover trigger opens the calendar; the mock's click handler
 		// fires `onSelect(...)` synchronously, so `draft` updates in
 		// the same render tick as the text input.
@@ -927,7 +927,7 @@ describe("multi-input composition", () => {
 
 		vi.advanceTimersByTime(300);
 
-		// Both contributions flow through a single emission — the
+		// Both contributions flow through a single emission: the
 		// debounce window collapses cross-input bursts into one upward
 		// signal, keeping the action-call cadence sane for the
 		// running-app case-list reload trigger.
@@ -1165,7 +1165,7 @@ describe("layout", () => {
 			],
 		});
 		// HTML5 `<search>` is the canonical landmark for filter / search
-		// regions — assistive tech maps it to the search landmark via
+		// regions: assistive tech maps it to the search landmark via
 		// implicit role. happy-dom + aria-query don't expose that
 		// implicit role through `getByRole("search")` yet, so the test
 		// queries the element directly.

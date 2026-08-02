@@ -40,7 +40,7 @@ export function InlineField({
 	 * Optional field-level validity check. Return a human-readable reason
 	 * to reject the value, or `null` when it's valid. A non-null result
 	 * blocks the commit (the value reverts, `onChange` never fires) AND
-	 * renders the reason inline while the field is focused — a visible
+	 * renders the reason inline while the field is focused: a visible
 	 * "can't save, here's why" rather than a silent revert. Mirrors how the
 	 * builder blocks invalid XPath at the field. Absent → unchanged.
 	 */
@@ -76,10 +76,10 @@ export function InlineField({
 	const shakeProps = useRejectionShake(rejectionNonce);
 
 	// Compute the reason against the in-progress draft so the message
-	// tracks what the user is typing. Only surfaced while focused — at rest
+	// tracks what the user is typing. Only surfaced while focused, at rest
 	// the field shows the persisted (valid) value, so no error chrome
 	// lingers. A gate `rejection` (the commit bounced AFTER local
-	// validation passed) shares the same display channel — but only the
+	// validation passed) shares the same display channel, but only the
 	// bounced commit carries the "Not saved" register line; a live reason
 	// is a pre-commit hint, nothing was refused yet.
 	const liveReason = validate && focused ? validate(draft) : null;
@@ -95,7 +95,7 @@ export function InlineField({
 		<div>
 			<label
 				htmlFor={fieldId}
-				className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5"
+				className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5"
 			>
 				{label}
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
@@ -129,7 +129,7 @@ export function InlineField({
 						reason
 							? "bg-nova-surface border-nova-rose/60 shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
 							: focused
-								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(150,120,242,0.1)]"
 								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 					} ${suffix ? "pr-8" : ""}`}
 				/>

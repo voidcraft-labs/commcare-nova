@@ -5,20 +5,20 @@
  * positional sequence of typed rows that a virtualizer (see
  * `VirtualFormList`) can mount piecewise: only visible rows enter the
  * React tree. This replaces a recursive `FormRenderer` whose
- * group/repeat children mounted their own nested renderers — an
+ * group/repeat children mounted their own nested renderers, an
  * arbitrarily deep tree where a single form-open commit could mount
  * hundreds of components at once.
  *
  * Row semantics:
  *
- * - `field`          — a leaf field (text / select / label / hidden).
- * - `group-open`     — the opening bracket of a group or repeat container.
- * - `group-close`    — the closing bracket of that same container.
- * - `empty-container`— placeholder row inside a group/repeat that has no
+ * - `field`            a leaf field (text / select / label / hidden).
+ * - `group-open`       the opening bracket of a group or repeat container.
+ * - `group-close`      the closing bracket of that same container.
+ * - `empty-container` placeholder row inside a group/repeat that has no
  *                      children; carries the pragmatic-drag-and-drop drop
  *                      target so the user can drop a field into an
  *                      empty group.
- * - `insertion`      — the gap between two children of the SAME parent; the
+ * - `insertion`        the gap between two children of the SAME parent; the
  *                      row IS the gap (24px). Owning the gap as a sibling row
  *                      (rather than margins on field rows) makes it
  *                      structurally impossible to accidentally double up
@@ -34,7 +34,7 @@ import type { Field, Uuid } from "@/lib/domain";
 // ── Types ──────────────────────────────────────────────────────────────
 
 /**
- * A single row in the flattened form editor. Discriminated by `kind` —
+ * A single row in the flattened form editor. Discriminated by `kind`:
  * consumers `switch` on it to pick a row component.
  *
  * `id` is the React key + virtualizer measurement cache key. Each kind
@@ -71,7 +71,7 @@ export interface InsertionRow {
 }
 
 /**
- * A leaf field — any field kind other than `group` or `repeat`.
+ * A leaf field: any field kind other than `group` or `repeat`.
  * `parentUuid` + `siblingIndex` locate this row inside its parent's child
  * array so the drop-target `getData` and cycle checks can address it
  * without the row component having to walk the doc itself.
@@ -127,7 +127,7 @@ export type CollapseState = ReadonlySet<Uuid>;
  * makes the subscription shape in `useFormRows` obvious.
  *
  * Keys are typed as the branded `Uuid` so the walker preserves brand
- * safety end-to-end — the store's `fieldOrder` values are
+ * safety end-to-end: the store's `fieldOrder` values are
  * `Uuid[]`, not bare strings, and we want that invariant to reach the
  * row output.
  */
@@ -150,7 +150,7 @@ export interface BuildFormRowsOptions {
 
 /**
  * Walk the blueprint rooted at `rootParentUuid` (the form's uuid) and
- * produce the flat row sequence. Pure, synchronous — no React hooks, no
+ * produce the flat row sequence. Pure, synchronous: no React hooks, no
  * store subscriptions. Safe to call from a `useMemo` and from unit tests.
  *
  * Ordering contract: within a parent, rows appear in the order
@@ -164,7 +164,7 @@ export interface BuildFormRowsOptions {
  * the visual bracket stays balanced.
  *
  * An empty group/repeat (depth > 0, no children) emits a single
- * `empty-container` row between its `group-open` and `group-close` — this row
+ * `empty-container` row between its `group-open` and `group-close`, this row
  * owns the drop target so the drop-handling monitor can route drops
  * into empty containers.
  */
@@ -202,7 +202,7 @@ function walk(
 
 	// An empty container (depth > 0 means we're inside a group/repeat, not
 	// at the form root) gets a single placeholder row that owns the drop
-	// target. The form root is allowed to be empty without a placeholder —
+	// target. The form root is allowed to be empty without a placeholder:
 	// there's nothing to render if the form has no fields.
 	if (childUuids.length === 0) {
 		if (depth > 0) {
@@ -222,7 +222,7 @@ function walk(
 		// Defensive: skip dangling order entries AND their trailing
 		// insertion point. The store guarantees `fieldOrder` values
 		// reference existing fields, but a race during mutation replay
-		// could briefly violate that — better to elide a row than crash
+		// could briefly violate that: better to elide a row than crash
 		// the virtualizer. `beforeIndex` values remain array positions
 		// (may have gaps when dangling entries are skipped); consumers
 		// must not assume contiguous sequence.
@@ -260,7 +260,7 @@ function walk(
 		}
 
 		// Trailing insertion point after this child. Indexed by the
-		// position AFTER this child — so `beforeIndex=i+1` means
+		// position AFTER this child, so `beforeIndex=i+1` means
 		// "insert between child[i] and child[i+1]".
 		if (options.includeInsertionPoints) {
 			rows.push({

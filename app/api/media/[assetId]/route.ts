@@ -1,8 +1,8 @@
 /**
- * GET /api/media/[assetId] — stream a media asset's bytes.
+ * GET /api/media/[assetId]: stream a media asset's bytes.
  *
  * Project-gated proxy in front of GCS. The bucket has uniform
- * bucket-level access + public-access prevention enforced — the
+ * bucket-level access + public-access prevention enforced: the
  * only way the browser sees these bytes is through this route, and
  * the route's Project-membership check is what enforces "your
  * Project's assets, your bytes."
@@ -10,7 +10,7 @@
  * 404 on both missing-asset AND non-member so the response
  * shape can't be used to enumerate other Projects' asset ids.
  *
- * `Cache-Control: private, no-store` — authorization follows current Project
+ * `Cache-Control: private, no-store`, authorization follows current Project
  * membership, which can change while a tab stays open. Content-hash identity
  * prevents byte drift but cannot make a previously authorized response safe
  * to reuse after an app/asset moves or membership is revoked.
@@ -51,7 +51,7 @@ export async function GET(
 		}
 
 		// The response declares Content-Length before any byte streams, so a
-		// missing object discovered mid-stream cannot become a 404 — it
+		// missing object discovered mid-stream cannot become a 404, it
 		// truncates the body, Cloud Run's front end drops the malformed
 		// response as a 503, and that teardown takes the other responses
 		// multiplexed on the connection down with it. Resolve the size from
@@ -62,7 +62,7 @@ export async function GET(
 		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
 		if (storedSize === null) {
 			log.error(
-				"Media asset row says ready, but its object is missing from storage — returning 404. The row is stale and needs cleanup.",
+				"Media asset row says ready, but its object is missing from storage. Returning 404. The row is stale and needs cleanup.",
 				undefined,
 				{ assetId, gcsObjectKey: asset.gcsObjectKey },
 			);
@@ -72,7 +72,7 @@ export async function GET(
 		const nodeStream = streamAsset(asset.gcsObjectKey);
 		// Destroy the underlying GCS read stream if the client aborts
 		// mid-transfer (seek, navigate-away, tab close). Without this
-		// the socket/file handle stays open per aborted request —
+		// the socket/file handle stays open per aborted request:
 		// which both leaks resources in production and trips the
 		// pre-push async-leak gate in tests.
 		req.signal.addEventListener("abort", () => nodeStream.destroy());
@@ -92,7 +92,7 @@ export async function GET(
 				// and the accepted set excludes SVG/HTML. `sandbox` is the
 				// backstop: if a response is ever navigated to directly, it
 				// loads into an opaque, script-less origin that can't reach the
-				// app's cookies or session — so even a content-type slip or
+				// app's cookies or session, so even a content-type slip or
 				// renderer bug can't become a session-stealing XSS on our
 				// origin. The directive is document-scoped, so it does NOT
 				// affect inline `<img>`/`<audio>`/`<video>` rendering of these
@@ -112,10 +112,10 @@ export async function GET(
 }
 
 /**
- * DELETE /api/media/[assetId] — remove an asset from the owner's library.
+ * DELETE /api/media/[assetId]: remove an asset from the owner's library.
  *
  * Project-gated (404 on missing OR non-member, so ids stay non-enumerable).
- * Refuses with a 409 — naming the carriers — if any persisted app (including a
+ * Refuses with a 409: naming the carriers, if any persisted app (including a
  * recoverable soft-deleted app) still references the asset, so delete cannot
  * corrupt an exact later restore. On success it purges the asset row, the GCS
  * bytes, and the document-extract sibling (keeping shared bytes intact), then
@@ -140,7 +140,7 @@ export async function DELETE(
 			!(await userInProject(session.user.id, asset.project_id, "edit"))
 		) {
 			throw new ApiError(
-				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				"We couldn't find that file, it may already have been deleted, or it isn't yours.",
 				404,
 			);
 		}
@@ -157,7 +157,7 @@ export async function DELETE(
 				});
 				if (result.kind === "referenced") {
 					throw new ApiError(
-						`Can't delete this file — it's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
+						`Can't delete this file. It's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
 						409,
 					);
 				}
@@ -166,7 +166,7 @@ export async function DELETE(
 		});
 		if (!deleted) {
 			throw new ApiError(
-				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				"We couldn't find that file, it may already have been deleted, or it isn't yours.",
 				404,
 			);
 		}

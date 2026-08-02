@@ -82,7 +82,7 @@ export function inDefault(
 		acceptsType(subjectConstraint, effectiveDataType(candidate)),
 	);
 	const propName = property?.name ?? "";
-	// Seed the value of the property's OWN type — a text `literal("")`
+	// Seed the value of the property's OWN type: a text `literal("")`
 	// opposite a non-text first property would be a soundness error.
 	return isIn(
 		prop(ctx.currentCaseType, propName),
@@ -108,7 +108,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 			? value.left.term.property
 			: undefined;
 
-	// The subject (left) drives each membership value — the value
+	// The subject (left) drives each membership value: the value
 	// widgets are typed against the `in` value constraint (compatible
 	// with the subject), and a change of subject reseeds any
 	// now-incompatible value in the same onChange. `inValueConstraint`
@@ -202,11 +202,10 @@ export function InCard({ value, onChange, path }: InCardProps) {
 				))}
 				<Button
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					onClick={append}
 					data-removal-focus-fallback
-					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className="nova-add-slot w-full"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					<span>Add value</span>
@@ -254,13 +253,13 @@ function ValueRow({
 						<Button
 							type="button"
 							variant="ghost"
-							size="icon-lg"
+							size="icon"
 							aria-label="Remove value"
 							onClick={(event) =>
 								removeAndRestoreFocus(event.currentTarget, onRemove)
 							}
 							data-removal-action
-							className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
+							className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
 						>
 							<Icon icon={tablerX} width="13" height="13" />
 						</Button>

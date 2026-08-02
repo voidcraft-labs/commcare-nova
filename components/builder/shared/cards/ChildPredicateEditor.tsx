@@ -1,6 +1,6 @@
 // components/builder/shared/cards/ChildPredicateEditor.tsx
 //
-// Dispatch shell for a single predicate node — looks up the
+// Dispatch shell for a single predicate node: looks up the
 // schema entry for `value.kind`, delegates rendering to the
 // matched card, and frames the card with a kind-replacing menu so
 // authors can swap a clause's operator without re-creating the
@@ -77,7 +77,7 @@ interface ChildPredicateEditorProps {
 	readonly onChange: (next: Predicate) => void;
 	readonly path: EditorPath;
 	/**
-	 * Optional remove handler — when provided, the card surfaces a
+	 * Optional remove handler: when provided, the card surfaces a
 	 * "Delete" item in its kebab menu. Cards inside an `and`/`or`
 	 * clause list, under a `not` wrapper, etc. carry the affordance;
 	 * the top-level editor passes `undefined` (the root card cannot
@@ -89,7 +89,7 @@ interface ChildPredicateEditorProps {
 	/** Optional card-bound action row supplied by a list composer. */
 	readonly footerAction?: ReactNode;
 	/**
-	 * Display variant — the top-level card uses `"normal"`; nested
+	 * Display variant: the top-level card uses `"normal"`; nested
 	 * children inside a logical group use `"nested"` so the parent
 	 * group's accent doesn't fight the child's surface.
 	 */
@@ -97,12 +97,12 @@ interface ChildPredicateEditorProps {
 	/**
 	 * Optional ref-callback the parent installs on the card shell's
 	 * grip handle for native drag binding. When undefined, the grip
-	 * does not render — only cards inside an `and` / `or` clause
+	 * does not render: only cards inside an `and` / `or` clause
 	 * list carry a drag affordance.
 	 */
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
 	/**
-	 * The slot's type constraint — threaded for signature uniformity
+	 * The slot's type constraint: threaded for signature uniformity
 	 * with the ValueExpression-side `ExpressionPicker`. A Predicate has
 	 * no result type, so every clause recurses with `ANY_CONSTRAINT`
 	 * and predicate cards compute their own child constraints from
@@ -111,7 +111,7 @@ interface ChildPredicateEditorProps {
 	readonly constraint?: SlotConstraint;
 }
 
-/** Sentence-shaped kinds — these render headerless rows whose verb
+/** Sentence-shaped kinds: these render headerless rows whose verb
  *  chip (the in-card `PredicateVerbMenu`) carries the operation AND
  *  the kind switching. Container kinds keep the titled card shell. */
 const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
@@ -176,7 +176,7 @@ export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
 /**
  * Render one predicate node. Sentence-shaped kinds (comparisons,
  * matches, membership, blank/missing, the sentinels) render as
- * headerless rows — the condition reads as subject–verb–object, and
+ * headerless rows: the condition reads as subject–verb–object, and
  * the verb chip inside the row owns both the operation and the
  * kind switching. Container kinds (groups, related-case lookups,
  * the when-field gate) keep the titled `CardShell` with the
@@ -542,7 +542,7 @@ export function PredicateTransitionAlert({
 		>
 			<AlertDialogContent finalFocus={finalFocus} className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						{plan?.confirmation?.title}
 					</AlertDialogTitle>
 					<AlertDialogDescription className="text-left">
@@ -562,7 +562,7 @@ export function PredicateTransitionAlert({
 
 /** Comparison-kind membership Set, sourced from the canonical
  *  `COMPARISON_KINDS` constant in `lib/domain/predicate/types.ts`.
- *  Single source of truth — adding a comparison kind to the
+ *  Single source of truth: adding a comparison kind to the
  *  predicate package widens this Set without a parallel edit
  *  here. */
 const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
@@ -570,20 +570,20 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
 );
 
 /**
- * Map a kind to the structural-twin set it shares — pairs of
+ * Map a kind to the structural-twin set it shares: pairs of
  * kinds with identical operand shapes that the editor preserves
  * verbatim across replacement. Three twin groups, one per operand
  * shape:
  *
- *   - `{ clauses: [Predicate, ...Predicate[]] }` — `and` ↔ `or`.
+ *   - `{ clauses: [Predicate, ...Predicate[]] }`, `and` ↔ `or`.
  *     Switching the discriminator preserves the author's clause
  *     list verbatim. Routes through the matching `and` / `or`
  *     builder so the construction-time reductions apply.
- *   - `{ left, right: ValueExpression }` — the six comparison
+ *   - `{ left, right: ValueExpression }`, the six comparison
  *     kinds (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`). Routes
  *     through `COMPARISON_BUILDERS` (the table exported by
  *     `ComparisonCard`).
- *   - `{ via: RelationPath, where?: Predicate }` — `exists` ↔
+ *   - `{ via: RelationPath, where?: Predicate }`, `exists` ↔
  *     `missing`. Same shape; the in-card `KindMenu` toggles
  *     between them and the outer "Change" menu now produces the
  *     same result. Routes through the `exists` / `missing`
@@ -593,7 +593,7 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
  * Returns `null` when no twin shape applies; the caller falls
  * through to `defaultValue(ctx)`.
  *
- * Exported as part of the module's tested surface — the
+ * Exported as part of the module's tested surface: the
  * transformation is the contract (the emitted AST shape), so the
  * unit tests call it directly rather than driving the menu chrome.
  */
@@ -601,13 +601,13 @@ export function preservedOperandSwap(
 	currentValue: Predicate,
 	targetKind: Predicate["kind"],
 ): Predicate | null {
-	// and ↔ or — same `{ clauses }`.
+	// and ↔ or: same `{ clauses }`.
 	if (
 		(currentValue.kind === "and" || currentValue.kind === "or") &&
 		(targetKind === "and" || targetKind === "or")
 	) {
 		const builder = targetKind === "or" ? or : and;
-		// Spread through the builder's variadic signature — at least
+		// Spread through the builder's variadic signature: at least
 		// two clauses guaranteed by the schema (and / or both reject
 		// empty + single-clause envelopes via reduction). The cast
 		// widens to the implementation signature; the runtime
@@ -616,7 +616,7 @@ export function preservedOperandSwap(
 			...currentValue.clauses,
 		);
 	}
-	// Comparison ↔ comparison — same `{ left, right }`.
+	// Comparison ↔ comparison: same `{ left, right }`.
 	if (
 		COMPARISON_KIND_SET.has(currentValue.kind) &&
 		COMPARISON_KIND_SET.has(targetKind)
@@ -628,9 +628,9 @@ export function preservedOperandSwap(
 		const builder = COMPARISON_BUILDERS[targetKind as ComparisonKind];
 		return builder(comparison.left, comparison.right);
 	}
-	// exists ↔ missing — same `{ via, where? }`. The builders'
+	// exists ↔ missing: same `{ via, where? }`. The builders'
 	// absent-not-undefined contract handles the optional `where`
-	// slot — calling `exists(via)` produces a result with no
+	// slot: calling `exists(via)` produces a result with no
 	// `where` key (rather than `where: undefined`), matching the
 	// schema's `.optional()` strip behavior on parse.
 	if (
@@ -736,14 +736,7 @@ export function PredicateKindReplaceMenu({
 				<DropdownMenuTrigger
 					ref={triggerRef}
 					aria-label={`${label} type`}
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							size="xl"
-							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
-						/>
-					}
+					render={<Button type="button" variant="ghost" className="group" />}
 				>
 					<span>{label}</span>
 					<Icon
@@ -769,10 +762,10 @@ export function PredicateKindReplaceMenu({
 									<DropdownMenuItem
 										key={s.kind}
 										onClick={() => replaceWith(s)}
-										// Current kind is not a valid replacement target —
+										// Current kind is not a valid replacement target:
 										// clicking it would re-render an identical predicate.
 										// Inapplicable kinds (per the schema's `applicable`
-										// predicate — e.g. `multi-select-contains` on a case
+										// predicate: e.g. `multi-select-contains` on a case
 										// type without a multi_select property) are disabled
 										// WITH a reason so the editor never offers a swap that
 										// would author a kind whose semantics don't fit the

@@ -1,5 +1,5 @@
 /**
- * Upload to CommCare HQ dialog — modal for uploading the current app
+ * Upload to CommCare HQ dialog: modal for uploading the current app
  * as a new CommCare application to one of the user's project spaces.
  *
  * Uses Base UI Dialog for accessible dismiss/focus coordination via
@@ -7,7 +7,7 @@
  * dialog is where the upload target is chosen (the Settings card is
  * display-only): a single-space key shows a static verified card; a
  * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed) that
- * starts unselected — there is no stored default, so the target is chosen here
+ * starts unselected: there is no stored default, so the target is chosen here
  * per upload. The selected space is sent to the upload route, which
  * re-authorizes it against the key's reachable set.
  */
@@ -55,14 +55,14 @@ interface UploadToHqDialogProps {
 	open: boolean;
 	onClose: () => void;
 	/** The app id to upload. The server loads the blueprint and converts it
-	 *  to CommCare's wire format at the upload boundary — no whole doc on the
+	 *  to CommCare's wire format at the upload boundary: no whole doc on the
 	 *  wire. Called when the user clicks Upload. */
 	getAppId: () => string;
 	/** Every space the key can upload to. Empty ⇒ HQ not configured. */
 	availableDomains: Domain[];
 }
 
-/** Upload status — independent of the form fields. */
+/** Upload status: independent of the form fields. */
 type UploadStatus =
 	| { type: "idle" }
 	| { type: "uploading" }
@@ -89,7 +89,7 @@ export function UploadToHqDialog({
 	const session = useBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
-	/* Self-subscribe to the app name from the doc store — no prop drilling
+	/* Self-subscribe to the app name from the doc store: no prop drilling
 	 * from BuilderLayout needed. Only re-renders when appName actually changes. */
 	const storeAppName = useAppName();
 	const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
@@ -126,7 +126,7 @@ export function UploadToHqDialog({
 
 	/* Base UI Select resolves the trigger label from `items` (value → label),
 	 * so the closed trigger shows the friendly displayName rather than the raw
-	 * slug — no per-render formatter needed. */
+	 * slug: no per-render formatter needed. */
 	const domainItems = useMemo(
 		() =>
 			availableDomains.map((d) => ({ label: d.displayName, value: d.name })),
@@ -134,7 +134,7 @@ export function UploadToHqDialog({
 	);
 
 	/* ── Reset form state on the open (false→true) transition only ──── */
-	/* Seeding only on open — not on every dep change — means a prop or
+	/* Seeding only on open, not on every dep change: means a prop or
 	 * store update while the dialog is open (a refreshed app name, a settings
 	 * change elsewhere) can't clobber the name the user is typing or the space
 	 * they just picked. The deps are still listed for lint correctness; the
@@ -252,7 +252,7 @@ export function UploadToHqDialog({
 			<DialogContent className="gap-0 p-0">
 				{/* ── Header ───────────────────────────────────── */}
 				<div className="px-5 pt-5">
-					<DialogTitle className="font-display">
+					<DialogTitle className="font-display tracking-tighter">
 						Upload to CommCare HQ
 					</DialogTitle>
 				</div>
@@ -274,7 +274,7 @@ export function UploadToHqDialog({
 						) : (
 							<>
 								<div className="space-y-4">
-									{/* Project space — picker (multi) or verified badge (single) */}
+									{/* Project space: picker (multi) or verified badge (single) */}
 									<div className="flex flex-col gap-1.5">
 										<span className="text-sm text-nova-text-secondary font-medium">
 											Project Space
@@ -293,7 +293,7 @@ export function UploadToHqDialog({
 														className="w-full"
 														aria-label="Project space"
 													>
-														<SelectValue placeholder="Choose a project space…" />
+														<SelectValue placeholder="Choose a project space" />
 													</SelectTrigger>
 													<SelectContent>
 														{availableDomains.map((d) => (
@@ -351,7 +351,7 @@ export function UploadToHqDialog({
 										/>
 									</label>
 
-									{/* Info callout — sets expectations about new app creation */}
+									{/* Info callout: sets expectations about new app creation */}
 									<div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
 										<Icon
 											icon={tablerInfoCircle}
@@ -366,9 +366,9 @@ export function UploadToHqDialog({
 									</div>
 								</div>
 
-								{/* Upload error — inline, form stays intact for retry.
+								{/* Upload error: inline, form stays intact for retry.
 								 * Boundary-gate rejections carry per-issue lines, each
-								 * naming what's wrong and where — list them so the user
+								 * naming what's wrong and where: list them so the user
 								 * can fix the app without guessing. */}
 								{uploadStatus.type === "error" && (
 									<div className="mt-3">
@@ -391,7 +391,7 @@ export function UploadToHqDialog({
 											<Link
 												href="/settings"
 												onClick={onClose}
-												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
+												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-text transition-colors"
 											>
 												Go to Settings
 												<Icon
@@ -406,12 +406,11 @@ export function UploadToHqDialog({
 
 								{/* Action buttons */}
 								<div className="mt-5 flex justify-end gap-2">
-									<DialogClose render={<Button variant="outline" size="lg" />}>
+									<DialogClose render={<Button variant="outline" />}>
 										Cancel
 									</DialogClose>
 									<Button
 										type="button"
-										size="lg"
 										onClick={handleUpload}
 										disabled={!canUpload}
 									>
@@ -441,7 +440,7 @@ export function UploadToHqDialog({
 
 // ── Sub-views ──────────────────────────────────────────────────────
 
-/** Success view — checkmark, link to the new app, done button. */
+/** Success view: checkmark, link to the new app, done button. */
 function SuccessView({
 	appUrl,
 	warnings,
@@ -496,7 +495,7 @@ function SuccessView({
 			)}
 
 			<div className="mt-5">
-				<Button type="button" variant="outline" size="lg" onClick={onClose}>
+				<Button type="button" variant="outline" onClick={onClose}>
 					Done
 				</Button>
 			</div>
@@ -504,7 +503,7 @@ function SuccessView({
 	);
 }
 
-/** Load error view — shown when no spaces are reachable (settings not configured). */
+/** Load error view: shown when no spaces are reachable (settings not configured). */
 function LoadErrorView({
 	message,
 	onClose,
@@ -519,7 +518,7 @@ function LoadErrorView({
 				<Link
 					href="/settings"
 					onClick={onClose}
-					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-white transition-colors"
+					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-nova-text transition-colors"
 				>
 					Go to Settings
 					<Icon icon={tablerChevronRight} width="14" height="14" />

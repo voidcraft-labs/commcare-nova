@@ -5,17 +5,17 @@
 // Pins the running-app preview's case-list screen contract:
 //
 //   1. Heading reads from `mod.name` (the module IS the case-list
-//      title in v2) — not from the first form's name. Asserts the
+//      title in v2), not from the first form's name. Asserts the
 //      heading shows the module's name even when the first form's
 //      name is distinct.
-//   2. Display columns filter by `column.visibleInList ?? true` —
+//   2. Display columns filter by `column.visibleInList ?? true`:
 //      columns with `visibleInList: false` are absent from the
 //      header row AND every body cell.
 //   3. Calculated columns surface `row.calculated[column.uuid]`
 //      values in their cells. The case-store's `query` materializes
 //      calc values keyed by uuid (via the optional `calculated`
 //      projection arg); the screen reads the slot directly via
-//      `evaluateColumnValue` — no AST evaluation in the preview
+//      `evaluateColumnValue`: no AST evaluation in the preview
 //      layer.
 //   4. A relevant Search action with authored inputs mounts the form above the
 //      rows; its authored button submits the latest input bag and only then
@@ -25,7 +25,7 @@
 //      `<search>` landmark is absent from the DOM.
 //   5. Row click opens the case detail in place (detail fields
 //      configured → confirm step), and the detail's Continue fires
-//      `navigate.openForm` with the module's first form — the same
+//      `navigate.openForm` with the module's first form: the same
 //      case-select → confirm → form flow the shipped app runs.
 
 import {
@@ -70,21 +70,21 @@ import type { Location } from "@/lib/routing/types";
 
 const APP_ID = "app-case-list-screen-test";
 const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
-/** The module's registration form — first in order, but NOT a case-loading
+/** The module's registration form: first in order, but NOT a case-loading
  *  form, so selecting a case must never continue into it. */
 const FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a02");
-/** The followup form — the case-loading form a selected case continues into. */
+/** The followup form: the case-loading form a selected case continues into. */
 const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a03");
 const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
-/** Mocked `useSetPreviewCaseTarget` — asserts the selected case datum is
+/** Mocked `useSetPreviewCaseTarget`: asserts the selected case datum is
  *  recorded for the form before navigation. */
 const setPreviewCaseTargetMock = vi.fn();
 const setPreviewSelectedCaseMock = vi.fn();
 const signInMock = vi.fn(() => Promise.resolve());
 let canEditMock = true;
 
-// Routing — mounting the screen reads `useLocation()` to derive
+// Routing: mounting the screen reads `useLocation()` to derive
 // `moduleUuid`. The screen branches on `loc.kind === "cases"`,
 // so the test pins that arm with the fixture module's uuid.
 const navigateMock = {
@@ -178,7 +178,7 @@ const COL_CALC_UUID = testUuid("00000000-0000-0000-0000-000000000c04");
 const COL_PHONE_UUID = testUuid("00000000-0000-0000-0000-000000000c05");
 
 /** Synthetic case-row fixture. Mirrors the case-store contract's
- *  `CaseRowWithCalculated` shape — every reserved scalar plus
+ *  `CaseRowWithCalculated` shape: every reserved scalar plus
  *  `properties` JSONB plus a `calculated` map keyed by column
  *  uuid. */
 function makeRow(
@@ -206,12 +206,12 @@ function makeRow(
 
 /** Mount the screen against a doc seeded with the fixture
  *  `caseListConfig`. The provider's `initialDoc` shape mirrors the
- *  stored `PersistableDoc` — a fresh module carrying our
+ *  stored `PersistableDoc`: a fresh module carrying our
  *  fixture columns + a single first-form whose name differs from
  *  the module's. `searchInputs` defaults to the empty array so the
  *  pre-Task-4 test suite keeps its zero-search-input shape; tests
  *  exercising the search form pass the array explicitly. */
-/** Second case-loading form's uuid — only added to the fixture when a test
+/** Second case-loading form's uuid: only added to the fixture when a test
  *  needs the multi-form (form-menu) path. */
 const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a04");
 
@@ -428,7 +428,7 @@ beforeEach(() => {
 	vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 });
 
-/* No `afterEach(mockReset)` — clearing the action mock's
+/* No `afterEach(mockReset)`: clearing the action mock's
  *  implementation between tests intermittently raced with effects
  *  scheduled by the just-finished test, leaving the pending
  *  `loadCasesAction(...).then(...)` chain calling an unimplemented
@@ -984,7 +984,7 @@ describe("CaseListScreen — visibleInList filter", () => {
 			expect(screen.getAllByText("Name").length).toBeGreaterThan(0);
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
-		// Hidden column's header is absent — the filter applies to
+		// Hidden column's header is absent: the filter applies to
 		// `<th>` rendering, not just to the cell-rendering side.
 		expect(screen.queryByText("Age")).toBeNull();
 		// And the hidden column's cell value (`age: 30`) does not
@@ -1114,7 +1114,7 @@ describe("CaseListScreen — per-surface field order", () => {
 
 describe("CaseListScreen — calculated columns", () => {
 	it("surfaces row.calculated[col.uuid] in the calc column's cell", async () => {
-		// The expression value is irrelevant at this layer — the
+		// The expression value is irrelevant at this layer: the
 		// case-store materializes calc values via SQL and surfaces
 		// them on `row.calculated[uuid]`. The screen reads the slot
 		// directly. Test fixture supplies the materialized value;
@@ -1145,7 +1145,7 @@ describe("CaseListScreen — calculated columns", () => {
 	});
 
 	it("shows a clear, accessible missing-value marker for calculated values", async () => {
-		// Calc map keyed only by the plain column's slot — the calc
+		// Calc map keyed only by the plain column's slot: the calc
 		// column's uuid is missing. `renderColumnCell` falls through to the
 		// canonical missing-value treatment: a quiet visual marker with explicit
 		// assistive copy, rather than an ambiguous blank space.
@@ -1167,7 +1167,7 @@ describe("CaseListScreen — calculated columns", () => {
 			],
 		});
 		await waitFor(() => {
-			// Header still renders — the column itself is still in
+			// Header still renders: the column itself is still in
 			// the visible set.
 			expect(screen.getAllByText("Status").length).toBeGreaterThan(0);
 			expect(screen.getByText("Alice")).toBeDefined();
@@ -1176,7 +1176,7 @@ describe("CaseListScreen — calculated columns", () => {
 		// the row with the same missing-value treatment as every other column.
 		const row = caseResultRowFor(screen.getByRole("button", { name: /Alice/ }));
 		expect(row.textContent).toContain("No value");
-		expect(row.textContent).toContain("—");
+		expect(row.textContent).toContain("–");
 	});
 });
 
@@ -1230,8 +1230,7 @@ describe("CaseListScreen — responsive results", () => {
 		expect(row.className).toContain("@xl/results:grid");
 		// The Results shell clips row hover/background paint. Keep keyboard focus
 		// inside that clipping boundary so the indicator remains fully visible.
-		expect(rowAction.className).toContain("focus-visible:ring-inset");
-		expect(rowAction.className).toContain("focus-visible:ring-2");
+		expect(rowAction.className).toContain("nova-focusable-inset");
 		expect(
 			results
 				?.querySelector("[data-case-results-header]")
@@ -1498,7 +1497,7 @@ const SEARCH_NAME_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 /** Two-row population used across the typing / clearing tests.
  *  `loadCasesAction`'s mock implementation reads the inbound
  *  `inputValues` map and narrows the return set to rows whose
- *  canonical case name matches — the screen's contract is that a
+ *  canonical case name matches: the screen's contract is that a
  *  fresh-reference `inputValues` triggers the action's re-fire,
  *  and the test asserts the resulting render reflects the new
  *  row set. The mock stands in for the runtime-bindings predicate
@@ -2176,7 +2175,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("re-fires the action with the typed value bag and renders the filtered rows", async () => {
 		// `mockImplementation` reads the inbound `inputValues` and
-		// narrows the row set — the mock stands in for the actual
+		// narrows the row set: the mock stands in for the actual
 		// runtime-bindings + Postgres filtering path. The initial
 		// load (no inputValues) returns both rows; the submitted search
 		// (inputValues = { name: "Alice" }) returns only Alice.
@@ -2195,7 +2194,7 @@ describe("CaseListScreen — search-input form", () => {
 			],
 		});
 
-		// Initial load completes — both rows visible.
+		// Initial load completes: both rows visible.
 		await waitFor(() => {
 			expect(screen.getByText("Alice")).toBeDefined();
 			expect(screen.getByText("Bob")).toBeDefined();
@@ -2295,7 +2294,7 @@ describe("CaseListScreen — search-input form", () => {
 	});
 
 	it("reverts to the filter-only result set after the user clears the input", async () => {
-		// Same mock implementation as the typing test — the value bag
+		// Same mock implementation as the typing test: the value bag
 		// drives row narrowing. Clearing the text input emits an
 		// empty value bag, which the implementation maps to the full
 		// row population.
@@ -2314,7 +2313,7 @@ describe("CaseListScreen — search-input form", () => {
 			],
 		});
 
-		// Initial load completes — both rows.
+		// Initial load completes: both rows.
 		await waitFor(() => {
 			expect(screen.getByText("Alice")).toBeDefined();
 			expect(screen.getByText("Bob")).toBeDefined();
@@ -2627,7 +2626,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
 
-		// Click the row — the detail pane replaces the results and its
+		// Click the row: the detail pane replaces the results and its
 		// canonical record URL becomes the navigation source of truth.
 		const originalCaseAction = screen.getByRole("button", { name: /Alice/ });
 		originalCaseAction.focus();
@@ -2670,7 +2669,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		/* Re-open for the Continue half of the journey. */
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 
-		// Continue — the confirm step ends in the module's case-loading
+		// Continue: the confirm step ends in the module's case-loading
 		// form (the followup, NOT the order-zero registration form), with
 		// the selected case datum recorded for preload.
 		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -2683,7 +2682,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			MODULE_UUID,
 			FOLLOWUP_FORM_UUID,
 		);
-		/* Continuing collapses the detail-confirm sub-screen — the case list
+		/* Continuing collapses the detail-confirm sub-screen: the case list
 		 *  is retained across navigation, so it must be back at the list (not
 		 *  the stale confirm) when the user navigates back from the form. */
 		expect(
@@ -2973,7 +2972,7 @@ describe("CaseListScreen — detail confirm step", () => {
 	});
 
 	it("row click navigates straight to the case-loading form when no detail fields are configured", async () => {
-		// Every column opts out of the detail — CommCare skips the
+		// Every column opts out of the detail: CommCare skips the
 		// confirm step in this shape, so the row click goes straight
 		// into the form with the case in hand.
 		vi.mocked(loadCasesAction).mockResolvedValue({
@@ -3011,7 +3010,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 	it("shows a form menu after selecting a case when the module has more than one case-loading form, and continues into the chosen form with the case", async () => {
 		// Two case-loading forms (Follow-up Visit + Close Case) share the
 		// case list. With no specific form seeded (case-first entry), CommCare
-		// shows the case list, then a menu of those forms — so selecting a case
+		// shows the case list, then a menu of those forms, so selecting a case
 		// must NOT silently pick one.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
@@ -3033,7 +3032,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
-		// No navigation yet — the form menu is shown instead.
+		// No navigation yet: the form menu is shown instead.
 		expect(navigateMock.openForm).not.toHaveBeenCalled();
 		const formMenuBack = screen.getByRole("button", { name: "Back" });
 		await waitFor(() => expect(document.activeElement).toBe(formMenuBack));
@@ -3085,7 +3084,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
-		// Straight to the form — no Close Case choice rendered.
+		// Straight to the form: no Close Case choice rendered.
 		expect(screen.queryByRole("button", { name: /Close Case/ })).toBeNull();
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,

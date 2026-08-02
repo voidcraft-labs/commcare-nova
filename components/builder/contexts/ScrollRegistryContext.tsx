@@ -1,5 +1,5 @@
 /**
- * ScrollRegistryContext — imperative scroll plumbing for the builder.
+ * ScrollRegistryContext: imperative scroll plumbing for the builder.
  *
  * Owns the "scroll the selected field into view" protocol. All state lives
  * in refs (never triggers React re-renders) because scroll is a DOM-level
@@ -8,9 +8,9 @@
  * field" to "scroll when that field's panel mounts".
  *
  * Three public hooks expose the API to consumers:
- *  - `useRegisterScrollCallback` — BuilderLayout registers the DOM scroll impl
- *  - `useScrollIntoView` — setPending + scrollTo for navigation/edit call sites
- *  - `useFulfillPendingScroll` — consumed by the selected field's mount effect
+ *  - `useRegisterScrollCallback`: BuilderLayout registers the DOM scroll impl
+ *  - `useScrollIntoView`: setPending + scrollTo for navigation/edit call sites
+ *  - `useFulfillPendingScroll`: consumed by the selected field's mount effect
  */
 "use client";
 
@@ -30,8 +30,8 @@ type ScrollTarget = HTMLElement | undefined;
 type ScrollCallback = (
 	fieldUuid: string,
 	/** Optional element to bring into view instead of the field row. It MUST
-	 *  live inside the canvas scroll container (`[data-preview-scroll-container]`)
-	 *  — the scroll offset is measured against that container, so an element
+	 *  live inside the canvas scroll container (`[data-preview-scroll-container]`):
+	 * the scroll offset is measured against that container, so an element
 	 *  from another container (e.g. the rail inspector) would jump the canvas
 	 *  to a bogus position. No production caller passes one today; the field
 	 *  row is the right target for undo/redo and selection scrolls. */
@@ -44,7 +44,7 @@ interface ScrollRegistryApi {
 	/** Consumed by BuilderLayout to register the DOM scroll implementation.
 	 *  Returns a cleanup function for ref-callback use. */
 	registerCallback: (cb: ScrollCallback) => () => void;
-	/** Request a pending scroll — fulfilled when a matching field's
+	/** Request a pending scroll: fulfilled when a matching field's
 	 *  panel mount effect calls `fulfill(uuid)`. */
 	setPending: (
 		uuid: string,
@@ -53,7 +53,7 @@ interface ScrollRegistryApi {
 	) => void;
 	/** Try to consume a pending request. Returns true if fired. */
 	fulfillPending: (uuid: string) => boolean;
-	/** Scroll immediately (no pending gate) — used by undo/redo where
+	/** Scroll immediately (no pending gate): used by undo/redo where
 	 *  flushSync guarantees the DOM is already committed. */
 	scrollTo: ScrollCallback;
 }
@@ -65,7 +65,7 @@ const ScrollRegistryContext = createContext<ScrollRegistryApi | null>(null);
 // ── Provider ───────────────────────────────────────────────────────────
 
 export function ScrollRegistryProvider({ children }: { children: ReactNode }) {
-	/* Non-reactive state stored in refs — never triggers re-renders.
+	/* Non-reactive state stored in refs: never triggers re-renders.
 	 * This is the whole point of the scroll subsystem: DOM-level imperative
 	 * plumbing that belongs outside React's render path. */
 	const callbackRef = useRef<ScrollCallback | null>(null);
@@ -120,7 +120,7 @@ function useScrollRegistry(): ScrollRegistryApi {
 // ── Public hooks ───────────────────────────────────────────────────────
 
 /** Ref callback for the scroll implementation owner (BuilderLayout).
- *  Registers the callback via useEffect — the cleanup unregisters
+ *  Registers the callback via useEffect: the cleanup unregisters
  *  it. React 19 ref-callback cleanup is the project's convention
  *  for click-outside, Escape, and observer wire-up; the
  *  registration shape mirrors that contract. */

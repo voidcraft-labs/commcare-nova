@@ -3,14 +3,14 @@
 // Search owns the worker-facing fields used to narrow an already-available
 // set. The running search screen stays recognizable without pretending
 // edit-mode fields are live.
-// Config state lives in the artifact where it manifests — a date-range field
+// Config state lives in the artifact where it manifests: a date-range field
 // renders as two From/To boxes, a choice list carries its chevron, a default
-// shows pre-filled in the field — and in the inspector where it doesn't (the
+// shows pre-filled in the field, and in the inspector where it doesn't (the
 // match setting is invisible on the screen, so it stays off the canvas).
 //
 // Clicking a thing configures that thing: field rows select their
 // field, while Edit Search screen opens the screen-copy inspector. The
-// fields are depictions, not live widgets — the global Preview mode
+// fields are depictions, not live widgets: the global Preview mode
 // mounts the real `SearchInputForm` and its functional Search action.
 
 "use client";
@@ -46,6 +46,7 @@ import {
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -69,7 +70,7 @@ export interface SearchCanvasProps {
 	/** Enables an intentional zero-input Search action before opening settings. */
 	readonly onConfigureSearchAction?: () => void;
 	readonly onAddInput: (property: CaseProperty) => void;
-	/** Disabled-add hint — `undefined` means add is enabled. */
+	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
@@ -182,7 +183,7 @@ export function SearchCanvas({
 		<ContentFrame width="3xl" className="px-6 pt-8 pb-24">
 			<header className="mb-9">
 				<div className="min-w-0">
-					<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+					<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
@@ -198,7 +199,7 @@ export function SearchCanvas({
 					<div className="mb-4">
 						<h2
 							id="search-fields-heading"
-							className="font-display text-[17px] font-semibold text-nova-text"
+							className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 						>
 							Search fields
 						</h2>
@@ -238,7 +239,7 @@ export function SearchCanvas({
 								</span>
 								<div className="min-w-0 flex-1">
 									<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-										<h3 className="min-w-0 break-words font-display text-[16px] font-semibold text-nova-text">
+										<h3 className="min-w-0 break-words font-display tracking-tighter text-[16px] font-semibold text-nova-text">
 											{searchEnabled
 												? title
 												: opensResultsAutomatically
@@ -276,22 +277,22 @@ export function SearchCanvas({
 							{canEdit && searchEnabled ? (
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									onClick={() => onSelect({ type: "search-panel" })}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[34rem]:w-auto"
 								>
 									Edit Search screen
 								</Button>
 							) : canEdit ? (
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									onClick={openSearchSettings}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[34rem]:w-auto"
 								>
 									Change when people continue
 								</Button>
@@ -468,10 +469,9 @@ export function AddSearchFieldControl({
 			trigger={
 				<Button
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					data-case-add-search-field
-					className="mb-1 mt-3 min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot mb-1 mt-3 w-full gap-2"
 				/>
 			}
 			triggerLabel="Add search field"
@@ -567,23 +567,22 @@ function InputRow({
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label} in Search. Position ${position} of ${total}. Use arrow keys or drag.`}
-						className="h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
 					</Button>
 				</SimpleTooltip>
 			)}
 			{canEdit ? (
-				<Button
+				<button
 					type="button"
-					variant="ghost"
 					onClick={onClick}
 					aria-pressed={selected}
 					data-case-search-field={input.uuid}
-					className="h-auto min-w-0 flex-1 items-stretch justify-start rounded-none px-3 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className={`flex-1 items-stretch ${LIST_ROW_CLS}`}
 				>
 					{content}
-				</Button>
+				</button>
 			) : (
 				<div className="min-w-0 flex-1 px-3 py-3 text-left">{content}</div>
 			)}
@@ -591,7 +590,7 @@ function InputRow({
 	);
 }
 
-/** The field as the app renders it — widget shape carried by the
+/** The field as the app renders it: widget shape carried by the
  *  rendering itself (range = two fields, choice list = chevron,
  *  barcode = scan glyph), defaults pre-filled in full text color. */
 function AppField({
@@ -670,7 +669,7 @@ function FieldBox({
 /**
  * Render a default-value expression the way the field would carry it:
  * literal terms show their value, `today` reads as a date, anything
- * computed shows an honest generic. Mirrors the canvas principle —
+ * computed shows an honest generic. Mirrors the canvas principle:
  * the inspector owns the structure.
  */
 function defaultDisplayValue(

@@ -7,8 +7,14 @@
 /**
  * Format a date as a human-readable relative string.
  *
- * Returns "Just now" for <1 minute, "Xm ago" for minutes, "Xh ago" for hours,
- * "Yesterday" for 1 day, "Xd ago" for 2-29 days, and locale date string beyond that.
+ * Returns "just now" for <1 minute, "Xm ago" for minutes, "Xh ago" for hours,
+ * "yesterday" for 1 day, "Xd ago" for 2-29 days, and locale date string beyond
+ * that.
+ *
+ * Lower case on purpose: this is a fragment, and it reads mid-sentence
+ * ("Active just now") as often as it stands alone. A surface that starts a
+ * line with it capitalizes through `first-letter:uppercase` rather than
+ * baking a capital into the value.
  */
 export function formatRelativeDate(date: Date): string {
 	const now = new Date();
@@ -17,10 +23,10 @@ export function formatRelativeDate(date: Date): string {
 	const diffHours = Math.floor(diffMs / 3_600_000);
 	const diffDays = Math.floor(diffMs / 86_400_000);
 
-	if (diffMins < 1) return "Just now";
+	if (diffMins < 1) return "just now";
 	if (diffMins < 60) return `${diffMins}m ago`;
 	if (diffHours < 24) return `${diffHours}h ago`;
-	if (diffDays === 1) return "Yesterday";
+	if (diffDays === 1) return "yesterday";
 	if (diffDays < 30) return `${diffDays}d ago`;
 	return date.toLocaleDateString();
 }
@@ -55,17 +61,9 @@ export function formatPeriodLabel(period: string): string {
  */
 export const STATUS_STYLES: Record<
 	"complete" | "generating" | "error",
-	{ bg: string; text: string; label: string }
+	{ variant: "emerald" | "violet" | "rose"; label: string }
 > = {
-	complete: {
-		bg: "bg-nova-emerald/15",
-		text: "text-nova-emerald",
-		label: "Complete",
-	},
-	generating: {
-		bg: "bg-nova-violet/15",
-		text: "text-nova-violet-bright",
-		label: "Generating",
-	},
-	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
+	complete: { variant: "emerald", label: "Complete" },
+	generating: { variant: "violet", label: "Generating" },
+	error: { variant: "rose", label: "Error" },
 };

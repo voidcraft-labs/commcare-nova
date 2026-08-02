@@ -24,7 +24,7 @@ interface EditableTextProps {
 	selectAll?: boolean;
 	/** Content rendered right-aligned in the label row (e.g. a toggle). */
 	labelRight?: React.ReactNode;
-	/** Undo/redo scroll + flash target — placed on the input element so
+	/** Undo/redo scroll + flash target: placed on the input element so
 	 *  the flash highlights only the control, not the label above it. */
 	dataFieldId?: string;
 }
@@ -84,8 +84,8 @@ export function EditableText({
 	const fontClass = mono ? "font-mono" : "";
 	// Recessed well matching the shared inspector input (INSPECTOR_INPUT_CLS).
 	// EditableText builds the focused class by hand rather than reusing that
-	// constant's `focus:` ring because a refused commit paints the border rose
-	// — the focus pseudo-class would otherwise repaint it violet.
+	// constant's `focus:` ring because a refused commit paints the border rose:
+	// the focus pseudo-class would otherwise repaint it violet.
 	const baseCls = `w-full min-h-11 text-[13px] ${fontClass} rounded-lg px-3 border outline-none transition-colors ${shakeProps.className}`;
 	const focusedCls = `${baseCls} bg-nova-deep/50 text-nova-text ${
 		rejection
@@ -151,7 +151,7 @@ export function EditableText({
 					data-field-id={dataFieldId}
 				/>
 			)}
-			{/* The validity gate refused the last commit — the draft is still
+			{/* The validity gate refused the last commit: the draft is still
 			 * in the input (useCommitField restored editing); the notice tells
 			 * the user what to fix, in the rule's own words. */}
 			<RejectionInline message={rejection} />

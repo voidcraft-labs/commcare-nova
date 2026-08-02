@@ -210,7 +210,7 @@ export async function validateMediaBytes(args: {
 			return {
 				ok: false,
 				reason: "text-not-utf8",
-				message: `\`${args.originalFilename}\` doesn't read as a text file — it has bytes that aren't valid UTF-8 text. If it's really a document, upload it in its original format (PDF, Word, or Excel) rather than as text.`,
+				message: `\`${args.originalFilename}\` doesn't read as a text file, it has bytes that aren't valid UTF-8 text. If it's really a document, upload it in its original format (PDF, Word, or Excel) rather than as text.`,
 			};
 		}
 		sniffedMime = declaredExt === ".md" ? "text/markdown" : "text/plain";
@@ -429,7 +429,7 @@ async function probeDurationMs(
 		]);
 		if (outcome.kind === "timed-out") {
 			throw new Error(
-				`took longer than ${MEDIA_PARSE_TIMEOUT_MS / 1000}s to read — the container may be malformed or use a format we can't parse`,
+				`took longer than ${MEDIA_PARSE_TIMEOUT_MS / 1000}s to read, the container may be malformed or use a format we can't parse`,
 			);
 		}
 		const seconds = outcome.metadata.format.duration;

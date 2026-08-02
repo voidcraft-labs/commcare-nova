@@ -471,7 +471,7 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 						where: "composeXPathQueryEmission",
 						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.searchInputUuid}")\`) outside any when-input-present envelope`,
 						detail:
-							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed — typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
+							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed. Typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
 					}),
 				);
 			}

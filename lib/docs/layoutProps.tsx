@@ -1,4 +1,5 @@
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
+import { Logo } from "@/components/ui/Logo";
 import { DOCS_BASE_URL } from "@/lib/docs/source";
 
 /**
@@ -8,7 +9,16 @@ import { DOCS_BASE_URL } from "@/lib/docs/source";
  */
 export const docsLayoutProps = {
 	nav: {
-		title: "CommCare Nova Docs",
+		/* The brand mark, not a plain string: the docs site is the same
+		 * product, and the header everywhere else carries the logomark and
+		 * the two-tone wordmark. `animate={false}` because a breathing mark
+		 * in a dense docs rail is noise rather than presence. */
+		title: (
+			<span className="flex items-center gap-2">
+				<Logo size="sm" animate={false} />
+				<span className="text-nova-text-secondary">docs</span>
+			</span>
+		),
 		/* Anchored to the same root fumadocs uses for page-tree hrefs so
 		 * the nav "home" link resolves to the correct URL in both prod
 		 * (`/`) and dev (`/docs`). */

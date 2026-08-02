@@ -1,10 +1,10 @@
 /**
- * requiredState — pure tests for the tri-state lifecycle helpers.
+ * requiredState: pure tests for the tri-state lifecycle helpers.
  *
  *   - `deriveRequiredState(value)` decides toggle position + condition
  *     visibility for every value the registry can serve.
  *   - `nextRequiredValue(transition)` decides what value to write for
- *     each user action — including the load-bearing rules that empty
+ *     each user action, including the load-bearing rules that empty
  *     condition input falls back to the sentinel and that removing a
  *     condition leaves the toggle on.
  *   - `shouldShowConditionEditor(...)` decides when the nested XPath
@@ -34,7 +34,7 @@ describe("deriveRequiredState", () => {
 
 	it('"true()" sentinel → on, no condition', () => {
 		// The sentinel is the always-required default. The toggle reads as
-		// on but the condition area collapses to the Add Condition pill —
+		// on but the condition area collapses to the Add Condition pill:
 		// `hasCondition: false` is the signal for that branch.
 		expect(deriveRequiredState(ALWAYS_REQUIRED)).toEqual({
 			enabled: true,
@@ -72,7 +72,7 @@ describe("nextRequiredValue", () => {
 	});
 
 	it("toggle-off clears the property entirely (undefined)", () => {
-		// Undefined is the reducer's removal patch — the property is
+		// Undefined is the reducer's removal patch: the property is
 		// stripped from the field, not left as an empty string.
 		expect(nextRequiredValue({ type: "toggle-off" })).toBeUndefined();
 	});
@@ -85,7 +85,7 @@ describe("nextRequiredValue", () => {
 
 	it("save-condition with empty input falls back to the always-required sentinel", () => {
 		// Critical UX rule: an empty condition commit means "I want it
-		// required, but no condition" — the toggle must stay on. Without
+		// required, but no condition": the toggle must stay on. Without
 		// this fallback the user would silently disable the field.
 		expect(nextRequiredValue({ type: "save-condition", next: "" })).toBe(
 			ALWAYS_REQUIRED,
@@ -94,7 +94,7 @@ describe("nextRequiredValue", () => {
 
 	it("remove-condition reverts to the always-required sentinel (toggle stays on)", () => {
 		// Removing a condition is "I no longer need this rule", not "I
-		// don't want this required" — the toggle remains on.
+		// don't want this required": the toggle remains on.
 		expect(nextRequiredValue({ type: "remove-condition" })).toBe(
 			ALWAYS_REQUIRED,
 		);

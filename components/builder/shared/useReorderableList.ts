@@ -19,18 +19,18 @@
 // the monitor effect deps stay [containerKey], custom drag preview
 // via `setCustomNativeDragPreview`, adjacency suppression so the
 // preview doesn't flicker into the source's slot). Centralizing here
-// keeps every consumer structurally identical — a behavior change
+// keeps every consumer structurally identical: a behavior change
 // lands in one place rather than drifting across N near-duplicates.
 //
 // Two pieces:
 //
-//   - `useReorderableList(...)` — installs the
+//   - `useReorderableList(...)`: installs the
 //     `monitorForElements` for the container. Owns the monitor's
 //     drag/drop bookkeeping, ref-stashes the latest items + reorder
 //     callback, and tracks the active-drag indicator. Returns the
 //     `pendingDrop` state so the caller can pass it to each row.
 //
-//   - `<ReorderableRow>` — per-row component that installs the
+//   - `<ReorderableRow>`: per-row component that installs the
 //     `draggable()` (on the row's grip handle) + `dropTargetForElements()`
 //     (on the row's wrapper) + custom drag preview portal. Render one
 //     per row inside the list; pass a render-prop child that consumes
@@ -61,7 +61,7 @@ import {
 	readListItemDropData,
 } from "./dragData";
 
-/** Active-drag indicator state — the source row's index plus the
+/** Active-drag indicator state: the source row's index plus the
  *  resolved insertion index. The host card uses `fromIndex` to
  *  visually mark the source row as "being moved" and threads
  *  `toIndex` into a placeholder if needed. `null` means no drag in
@@ -134,7 +134,7 @@ interface UseReorderableListArgs<T> {
 	 *  React's `useId()`: immutable edits replace AST envelope objects,
 	 *  so a value envelope is not a container identity. */
 	readonly containerKey: string;
-	/** The container's discriminator — drives the source / target
+	/** The container's discriminator: drives the source / target
 	 *  payloads and gates the monitor against cross-container drops.
 	 *  Free-form so call sites pick their own scope token; the
 	 *  `nodeKey` is the strict scope, `containerKind` is the coarser
@@ -154,8 +154,8 @@ interface UseReorderableListArgs<T> {
 	readonly onReorder: (next: readonly T[], move: ReorderMove<T>) => void;
 	/**
 	 * Optional per-destination gate. A list whose order carries meaning
-	 * beyond presentation — case operations, where a later change can
-	 * consume an earlier one's result — has positions that are not legal
+	 * beyond presentation: case operations, where a later change can
+	 * consume an earlier one's result: has positions that are not legal
 	 * destinations. Returning false suppresses the drop and marks
 	 * `pendingDrop.refused`, so the author sees the position is
 	 * unavailable while dragging instead of releasing onto a silent
@@ -281,7 +281,7 @@ export function useReorderableList<T>(
 					placeAfterTarget: edge === "bottom" || edge === "right",
 				});
 				if (resolved === undefined) {
-					// Adjacency suppression — drop would be a no-op.
+					// Adjacency suppression: drop would be a no-op.
 					setPendingDrop(null);
 					return;
 				}
@@ -348,7 +348,7 @@ export function reorderByStableItemKey<T>(
 /** Per-row wiring the host card's row component consumes via the
  *  render-prop child of `<ReorderableRow>`. */
 export interface ReorderableRowWiring {
-	/** Drop-target hit area — install on the row's outer wrapper as
+	/** Drop-target hit area: install on the row's outer wrapper as
 	 *  `<div ref={wrapperRef}>`. Returning the `RefObject` directly
 	 *  (rather than a callback) matches the canonical `useRowDnd`
 	 *  pattern at `components/preview/form/virtual/useRowDnd.ts`:

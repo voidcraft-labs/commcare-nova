@@ -37,10 +37,8 @@ export function NumberField({
 				placeholder=""
 				autoComplete="off"
 				data-1p-ignore
-				className={`w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none transition-colors ${
-					showError
-						? "border-nova-rose/50 focus:border-nova-rose"
-						: "border-pv-input-border focus:border-pv-input-focus"
+				className={`nova-focusable w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-colors ${
+					showError ? "border-nova-rose/50" : "border-pv-input-border"
 				}`}
 			/>
 			{showError && state.errorMessage && (

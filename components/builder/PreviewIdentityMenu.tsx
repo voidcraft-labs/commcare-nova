@@ -4,7 +4,7 @@
  * Two modes, never blended: **Preview as me** signs in as the member at
  * the keyboard, **Preview as <persona>** signs in as that named worker.
  * The control always names the current one, because a running app that
- * does not say whose session it is showing is a trap — an owner-scoped
+ * does not say whose session it is showing is a trap: an owner-scoped
  * case list looks broken rather than correct.
  *
  * It appears only in Preview. In edit mode there is no session to be in,
@@ -38,8 +38,8 @@ import {
 const AS_ME = "Preview as me";
 
 /**
- * The Preview gate is its own component so the body's subscriptions —
- * the persona list, the selection, the router — only exist while the
+ * The Preview gate is its own component so the body's subscriptions:
+ * the persona list, the selection, the router: only exist while the
  * control does. The header is mounted for the whole session, and it has
  * no business re-rendering on every blueprint edit for a menu that is
  * invisible the entire time the author is editing.
@@ -69,14 +69,7 @@ function PreviewIdentityMenuBody() {
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={`Running as ${currentLabel}. Change who Preview runs as.`}
-				render={
-					<Button
-						type="button"
-						variant="ghost"
-						size="lg"
-						className="h-11 max-w-52 gap-1.5 px-2.5 text-[13px] font-medium text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
-					/>
-				}
+				render={<Button type="button" variant="ghost" className="max-w-52" />}
 			>
 				<Icon
 					icon={tablerUserCircle}

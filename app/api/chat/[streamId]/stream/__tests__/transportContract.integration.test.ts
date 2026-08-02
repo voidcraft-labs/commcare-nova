@@ -1,11 +1,11 @@
 /**
  * The WorkflowChatTransport ↔ resume-route CONTRACT, end-to-end with the real
- * client class — the test that proves a broken chat POST actually resumes.
+ * client class: the test that proves a broken chat POST actually resumes.
  *
  * The transport under test is the real `@ai-sdk/workflow` client Nova ships
  * in `ChatContainer`. Its `fetch` is swapped for a router:
  *
- *   POST /api/chat            → a fabricated response that BREAKS mid-stream —
+ *   POST /api/chat            → a fabricated response that BREAKS mid-stream:
  *                               the first chunks as SSE, no `finish`, with the
  *                               `x-workflow-run-id` header (exactly what the
  *                               chat route emits when a connection drops);
@@ -13,7 +13,7 @@
  *                               chunk log on the per-test Postgres.
  *
  * The transport must detect the missing `finish`, reconnect with
- * `startIndex = chunks received`, and deliver ONE seamless chunk sequence —
+ * `startIndex = chunks received`, and deliver ONE seamless chunk sequence:
  * no gap, no overlap, terminated by the `finish` the log carries. This pins
  * the whole resumability story: SSE encoding compatibility, cursor math,
  * header contract, and close semantics, against the transport's real parser
@@ -123,7 +123,7 @@ async function holderNonceFor(appId: string): Promise<string> {
 	return row.run_holder_nonce;
 }
 
-/** The run's full chunk sequence — what an unbroken POST would have carried. */
+/** The run's full chunk sequence: what an unbroken POST would have carried. */
 const FULL: UIMessageChunk[] = [
 	{ type: "start" } as UIMessageChunk,
 	{ type: "text-start", id: "0" } as UIMessageChunk,
@@ -152,12 +152,12 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			requests.push(`${init?.method ?? "GET"} ${url.pathname}${url.search}`);
 			if (init?.method === "POST") {
 				// The transport sends exactly the headers ChatContainer's
-				// prepareSendMessagesRequest returns — without the explicit
+				// prepareSendMessagesRequest returns: without the explicit
 				// content-type, a stringified JSON body defaults to text/plain.
 				expect(new Headers(init.headers).get("content-type")).toBe(
 					"application/json",
 				);
-				// The POST breaks after 3 chunks — no finish, no [DONE].
+				// The POST breaks after 3 chunks: no finish, no [DONE].
 				return new Response(sseBody(FULL.slice(0, 3)), {
 					headers: {
 						"content-type": "text/event-stream",
@@ -201,7 +201,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			received.push(value);
 		}
 
-		// One seamless sequence — no gap, no overlap, finish included.
+		// One seamless sequence: no gap, no overlap, finish included.
 		expect(received).toEqual(FULL);
 		// And it got there the contract's way: POST, then a reconnect GET from
 		// exactly the break position.
@@ -213,8 +213,8 @@ describe("WorkflowChatTransport against the real resume route", () => {
 
 	it("performs a whole-stream replay by THREAD id (page-refresh shape) via reconnectToStream", async () => {
 		/* The refresh-resume path end-to-end: `useChat`'s `resumeStream` calls
-		 * `reconnectToStream({chatId})` with the Chat instance's id — the
-		 * THREAD id — and the endpoint resolves the thread's live stream and
+		 * `reconnectToStream({chatId})` with the Chat instance's id, the
+		 * THREAD id, and the endpoint resolves the thread's live stream and
 		 * replays it whole. */
 		const { appId } = await createApp(USER, "project-1", "run-1");
 		await upsertThreadTurn({
@@ -249,7 +249,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			fetch: routedFetch,
 		});
 
-		// A cold reconnect with no prior POST in this transport instance —
+		// A cold reconnect with no prior POST in this transport instance:
 		// the chatId (= thread id) maps via the default `{api}/{chatId}/stream`.
 		const stream = await transport.reconnectToStream({
 			chatId: "thread-1",
@@ -271,7 +271,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 
 	it("resolves a thread with nothing in flight to a clean, terminating no-op", async () => {
 		/* The transport THROWS on any non-OK reconnect response, so "nothing
-		 * to resume" must be a 200 that terminates on its first chunk — this
+		 * to resume" must be a 200 that terminates on its first chunk, this
 		 * pins that the real parser consumes it without erroring or looping. */
 		const { appId } = await createApp(USER, "project-1", "run-2");
 		await upsertThreadTurn({

@@ -1,5 +1,5 @@
 /**
- * Worker information — the app's half of CommCare's custom user-data
+ * Worker information: the app's half of CommCare's custom user-data
  * schema. Each entry is a slot every worker carries a value in, and the
  * name it saves under is what expressions read.
  *
@@ -58,7 +58,7 @@ export function WorkerInformationSubsection() {
 		<Subsection
 			id="app-setup-worker-information"
 			title="Worker information"
-			description="What each worker carries with them — a role, a region, anything your app's conditions need to read. You give it a name to save under, and CommCare stores a value per worker."
+			description="What each worker carries with them, a role, a region, anything your app's conditions need to read. You give it a name to save under, and CommCare stores a value per worker."
 			addLabel="Add worker information"
 			onAdd={add}
 			canEdit={canEdit}
@@ -302,8 +302,7 @@ function PropertyRow({
 									<Button
 										type="button"
 										variant="destructive"
-										size="lg"
-										className="h-11"
+										className=""
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
 											const outcome = mutations.inline.removeUserProperty(
@@ -325,8 +324,7 @@ function PropertyRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="lg"
-									className="h-11"
+									className=""
 									onClick={() => {
 										setRemovalPlan(null);
 										setRemovalError(undefined);
@@ -341,14 +339,13 @@ function PropertyRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							size="lg"
 							onClick={() => {
 								setRemovalError(undefined);
 								setRemovalPlan(
 									mutations.inspectUserPropertyRemoval(property.uuid),
 								);
 							}}
-							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+							className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>
 							Remove worker information
 						</Button>
@@ -361,7 +358,7 @@ function PropertyRow({
 /**
  * CommCare's own built-in properties. Read-only, because CommCare sets
  * them; listed because an author writing a condition needs to know they
- * exist, what they hold, and — for the ones Nova cannot know yet — that
+ * exist, what they hold, and: for the ones Nova cannot know yet, that
  * Preview will read them as empty.
  */
 function BuiltInReference() {
@@ -373,7 +370,7 @@ function BuiltInReference() {
 			className="mt-1 rounded-lg border border-nova-border/60"
 		>
 			<CollapsibleTrigger
-				className="flex min-h-11 w-full items-center px-3 py-2 text-left text-[13px] text-nova-text-secondary hover:text-nova-text focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-nova-violet-bright"
+				className="nova-focusable-inset flex min-h-11 w-full items-center px-3 py-2 text-left text-[13px] text-nova-text-secondary hover:text-nova-text"
 				render={<button type="button" />}
 			>
 				{open ? "Hide" : "Show"} what CommCare provides on its own
@@ -394,7 +391,7 @@ function BuiltInReference() {
 										{property.slug}
 									</span>
 									{property.readByRuntime && (
-										<SimpleTooltip content="CommCare itself reads this one — its value changes how the app behaves, not just what conditions see.">
+										<SimpleTooltip content="CommCare itself reads this one, its value changes how the app behaves, not just what conditions see.">
 											<span className="inline-flex items-center gap-1 rounded-full bg-nova-violet/[0.15] px-2 py-0.5 text-[11px] text-nova-violet-bright">
 												<Icon
 													icon={tablerBolt}

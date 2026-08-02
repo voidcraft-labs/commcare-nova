@@ -163,7 +163,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one — a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app; returns the HQ app id and URL on success.",
+				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one, a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app; returns the HQ app id and URL on success.",
 			inputSchema: {
 				app_id: z
 					.string()
@@ -180,7 +180,7 @@ export function registerUploadAppToHq(
 					.string()
 					.optional()
 					.describe(
-						"Optional target project space (domain slug). Must be one the user's API key can reach — see `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
+						"Optional target project space (domain slug). Must be one the user's API key can reach. See `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
 					),
 			},
 		},
@@ -260,7 +260,7 @@ export function registerUploadAppToHq(
 				});
 				if (!boundary.ok) {
 					throw new McpInvalidInputError(
-						`This app isn't ready to upload — fix these first: ${boundary.violations
+						`This app isn't ready to upload. Fix these first: ${boundary.violations
 							.map(errorToString)
 							.join(" ")}`,
 					);
@@ -369,7 +369,7 @@ export function registerUploadAppToHq(
 							);
 						} else if (mediaResult.timedOut) {
 							warnings.push(
-								"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+								"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
 							);
 						} else {
 							// Name the genuine failures by carrier, and separate the
@@ -394,7 +394,7 @@ export function registerUploadAppToHq(
 
 					progress.notify(
 						"upload_complete",
-						`Uploaded — HQ app id ${result.appId}`,
+						`Uploaded. HQ app id ${result.appId}`,
 						{ app_id: appId, hq_app_id: result.appId },
 					);
 

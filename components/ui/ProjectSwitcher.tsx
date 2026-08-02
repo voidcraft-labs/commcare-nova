@@ -1,5 +1,5 @@
 /**
- * Project switcher — the header control that shows the active Project (the
+ * Project switcher: the header control that shows the active Project (the
  * tenancy scope every app list, builder, and case-data read is filtered by)
  * and lets the user switch between the Projects they belong to, spin up a new
  * one, or jump to member management.
@@ -26,6 +26,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerUsers from "@iconify-icons/tabler/users";
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import type { ProjectSummary } from "@/lib/projects/membership";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -33,6 +34,7 @@ import {
 	FLOATING_LAYER_CLS,
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
+	POPOVER_ROW_CLS,
 } from "@/lib/styles";
 import { showToast } from "@/lib/ui/toastStore";
 
@@ -65,7 +67,7 @@ export function ProjectSwitcher({
 	const [newName, setNewName] = useState("");
 	const [busy, setBusy] = useState(false);
 
-	/* No session / no Projects resolved — render nothing rather than an empty
+	/* No session / no Projects resolved: render nothing rather than an empty
 	 * control (the personal Project is always provisioned, so this only happens
 	 * pre-auth, where the header itself is hidden). */
 	if (!activeProjectId || projects.length === 0) return null;
@@ -142,10 +144,12 @@ export function ProjectSwitcher({
 		>
 			<Popover.Trigger
 				aria-label="Switch Project"
-				className="flex items-center gap-1.5 max-w-[200px] rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none cursor-pointer"
+				className="nova-focusable flex min-h-11 items-center gap-1.5 max-w-[200px] rounded-xl px-3 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
 			>
 				<Icon icon={tablerUsers} width="16" height="16" className="shrink-0" />
-				<span className="truncate font-medium">{active.name}</span>
+				<span className="hidden truncate font-medium sm:inline">
+					{active.name}
+				</span>
 				<Icon
 					icon={tablerChevronDown}
 					width="14"
@@ -161,9 +165,9 @@ export function ProjectSwitcher({
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
+					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
 						<div style={{ minWidth: "248px" }}>
-							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium text-nova-text-muted">
 								Projects
 							</div>
 							<div className="max-h-[280px] overflow-y-auto">
@@ -175,7 +179,7 @@ export function ProjectSwitcher({
 											type="button"
 											disabled={busy}
 											onClick={() => switchTo(p.id)}
-											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text not-disabled:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+											className={POPOVER_ROW_CLS}
 										>
 											<span className="flex-1 text-left truncate font-medium">
 												{p.name}
@@ -199,7 +203,7 @@ export function ProjectSwitcher({
 								<div className="p-2.5">
 									<input
 										// Focus on mount via a callback ref (the `autoFocus`
-										// attribute is disallowed) — opening the create form is
+										// attribute is disallowed): opening the create form is
 										// a deliberate click, so jumping the cursor in is wanted.
 										ref={(el) => el?.focus()}
 										autoComplete="off"
@@ -212,31 +216,30 @@ export function ProjectSwitcher({
 										}}
 										placeholder="Project name"
 										maxLength={64}
-										className="w-full rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+										className="nova-focusable w-full rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text placeholder:text-nova-text-muted"
 									/>
 									<div className="mt-2 flex items-center justify-end gap-2">
-										<button
+										<Button
 											type="button"
+											variant="ghost"
 											onClick={() => setCreating(false)}
-											className="rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 										>
 											Cancel
-										</button>
-										<button
+										</Button>
+										<Button
 											type="button"
 											disabled={!newName.trim() || busy}
 											onClick={createProject}
-											className="rounded-lg bg-nova-action px-2.5 py-1.5 text-sm font-medium text-white not-disabled:hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
 											Create
-										</button>
+										</Button>
 									</div>
 								</div>
 							) : (
 								<button
 									type="button"
 									onClick={() => setCreating(true)}
-									className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+									className={POPOVER_ROW_CLS}
 								>
 									<Icon
 										icon={tablerPlus}
@@ -251,7 +254,7 @@ export function ProjectSwitcher({
 							<Link
 								href="/project"
 								onClick={() => setOpen(false)}
-								className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
+								className={POPOVER_ROW_CLS}
 							>
 								<Icon
 									icon={tablerSettings}

@@ -3,16 +3,16 @@
 // Declarative registry mapping every Predicate kind to its card
 // component, label, icon, default-value factory, and applicability
 // predicate. Mirrors the field-editor pattern at
-// `components/builder/editor/fieldEditorSchemas.ts` — adding a new
+// `components/builder/editor/fieldEditorSchemas.ts`: adding a new
 // Predicate kind requires one entry here, and TypeScript flags the
 // omission at compile time via the `Record<Predicate["kind"], ...>`
 // shape.
 //
 // Why per-kind entries (instead of per-card-file entries): a card
-// COMPONENT can serve multiple Predicate kinds — `ComparisonCard`
+// COMPONENT can serve multiple Predicate kinds: `ComparisonCard`
 // serves the six comparison kinds, `LogicalGroupCard` serves
 // `and` / `or` / `not`, `ExistsCard` serves `exists` and `missing`,
-// `SentinelCards` serves `match-all` / `match-none` — but each
+// `SentinelCards` serves `match-all` / `match-none`, but each
 // kind needs its own picker entry (label, icon, default-value,
 // applicability filter) so the kind-picker menu reads correctly.
 // Sharing a component across kinds is purely a code-organization
@@ -96,16 +96,16 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
 /**
  * When a slot's expression is evaluated relative to a case row.
  *
- *   - `"per-case"` — the ordinary scope: the expression runs against a
+ *   - `"per-case"`: the ordinary scope: the expression runs against a
  *     case (a Results row, a search candidate), so case-property and
  *     relationship reads are meaningful.
- *   - `"selected-case"` — the expression runs against ONE already-chosen
+ *   - `"selected-case"`: the expression runs against ONE already-chosen
  *     case and can see nothing else: a form's display condition on a
  *     module where everyone picks a case first. CommCare evaluates it on
  *     the case-list screen, where the chosen case is the whole world, so
  *     the commit gate rejects related-case reads, counts, and presence
  *     tests (`FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`).
- *   - `"global"` — the expression resolves ONCE, before any case is
+ *   - `"global"`: the expression resolves ONCE, before any case is
  *     selected (a search input's starting value, the search-button
  *     display condition, a module's display condition). There is no row
  *     to read: the commit gate rejects case-data reads there
@@ -121,7 +121,7 @@ export type CaseDataScope =
 	| "table-row";
 
 /** One shared disabled-choice reason for every case-data-dependent
- *  pick in a global slot — sources, verbs, and calculated kinds all
+ *  pick in a global slot: sources, verbs, and calculated kinds all
  *  read the same sentence so the vocabulary can't drift. */
 export const GLOBAL_SCOPE_CASE_DATA_REASON =
 	"This is decided before a case is selected, so it can use only fixed values and current-user information";
@@ -148,7 +148,7 @@ export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
  * type has a multi_select-typed property).
  *
  * `caseDataScope` is REQUIRED (not defaulted) so every construction
- * site states which evaluation scope its slot runs in — a surface
+ * site states which evaluation scope its slot runs in: a surface
  * that silently dropped the axis would offer case reads into a
  * global slot and bounce off the commit gate.
  */
@@ -158,7 +158,7 @@ export interface PredicateEditContext {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly caseDataScope: CaseDataScope;
 	/** Custom worker information available to identity-backed user terms.
-	 *  Carried here — not just on the React context — because a card's
+	 *  Carried here, not just on the React context: because a card's
 	 *  cascade reseed resolves types against this shape, and a missing
 	 *  catalog would resolve a saved worker-information read to nothing. */
 	readonly userProperties?: readonly UserProperty[];
@@ -170,7 +170,7 @@ export interface PredicateEditContext {
 	/** The active lookup row; direct table-column terms are authorable only
 	 * while this exact scope is present. */
 	readonly tableScope?: EditorLookupTableScope;
-	/** Present only inside a case operation — see `ExpressionEditContext`. */
+	/** Present only inside a case operation: see `ExpressionEditContext`. */
 	readonly operationScope?: OperationValueScope;
 	/** Present only for the owner facet of a case operation. */
 	readonly ownerValues?: boolean;
@@ -179,7 +179,7 @@ export interface PredicateEditContext {
 	 *
 	 * Defaults to true, because for most carriers it is: a case-list
 	 * filter matching nothing is a real query, and the Search action's
-	 * condition is deliberately allowed to be `match-none` —
+	 * condition is deliberately allowed to be `match-none`:
 	 * `lib/domain/CLAUDE.md` records that projection as valid authored
 	 * data an existing document may already hold, never normalized away.
 	 * It is FALSE only for a navigation display condition, where "never"
@@ -199,7 +199,7 @@ export interface PredicateEditContext {
 	 *  rather than neutral placeholders. */
 	readonly globalPlaceholderHolds?: boolean;
 	/**
-	 * WHICH RUNTIME evaluates this rule — the axis that decides whether a
+	 * WHICH RUNTIME evaluates this rule: the axis that decides whether a
 	 * case-search-only capability is authorable here.
 	 *
 	 * Absent means `"on-device"`, and that default is deliberately the
@@ -208,7 +208,7 @@ export interface PredicateEditContext {
 	 * silently offers reads its gate refuses. Here a surface that forgets
 	 * this offers strictly less, which is visible and repairable rather
 	 * than a commit-time bounce. Only a slot that genuinely resolves as a
-	 * remote case-search query — an advanced search input's predicate —
+	 * remote case-search query: an advanced search input's predicate:
 	 * passes `"case-search"`.
 	 *
 	 * A case-list filter in a search-enabled module passes
@@ -242,7 +242,7 @@ export function neverMatchInScope(ctx: PredicateEditContext): boolean {
 	return ctx.allowsNeverMatch ?? true;
 }
 
-/** Whether the scope can reach past the case being evaluated —
+/** Whether the scope can reach past the case being evaluated:
  *  relationship walks, relationship counts, relationship presence. Only
  *  the ordinary per-case scope can. */
 export function relatedCaseDataInScope(ctx: PredicateEditContext): boolean {
@@ -294,7 +294,7 @@ export function caseDataScopeAdmission(
  * structural `{ kind: K }`-compatible shape when `Extract<Predicate,
  * { kind: K }>` resolves to `never`. The fallback handles the six
  * comparison kinds, where the schema collapses all into one arm
- * via `z.enum(COMPARISON_KINDS)` — `Extract<Predicate, { kind:
+ * via `z.enum(COMPARISON_KINDS)`: `Extract<Predicate, { kind:
  * "eq" }>` is structurally `never` because `"eq"` is narrower
  * than the schema's declared `kind: ComparisonKind`. The fallback
  * mirrors the `ComparisonPredicate<K>` shape in
@@ -309,11 +309,11 @@ type PredicateOfKind<K extends Predicate["kind"]> = [
 /**
  * One registry entry. Generic over `K` (the Predicate kind discriminator)
  * so each entry's `component` and `defaultValue` carry the precise
- * per-arm shape — `ComparisonCard`'s component receives the
+ * per-arm shape: `ComparisonCard`'s component receives the
  * comparison-arm subtype, `LogicalGroupCard`'s receives the and/or/not
  * arm, etc. The signed exhaustiveness lives at the
  * `predicateCardSchemas` declaration (a `Record<Predicate["kind"],
- * ...>`) — adding a kind without an entry breaks the build.
+ * ...>`): adding a kind without an entry breaks the build.
  *
  * `icon` carries imported `IconifyIcon` data (the object literal
  * shape exported by `@iconify-icons/tabler/*` and the project's
@@ -329,7 +329,7 @@ export interface PredicateCardSchema<K extends Predicate["kind"]> {
 		readonly value: PredicateOfKind<K>;
 		readonly onChange: (next: Predicate) => void;
 		readonly path: readonly (string | number)[];
-		/** The slot's type constraint — threaded by the dispatch shell
+		/** The slot's type constraint: threaded by the dispatch shell
 		 *  for signature uniformity with the expression registry. A
 		 *  Predicate has no result type, so predicate cards compute
 		 *  their own child constraints from `useResolvedType` and ignore
@@ -374,7 +374,7 @@ function hasMembershipProperty(ctx: PredicateEditContext): boolean {
 			) ?? false
 		);
 	}
-	// Session values are text-shaped, and text is a legal `in` subject —
+	// Session values are text-shaped, and text is a legal `in` subject:
 	// a global slot always has one.
 	if (!caseDataInScope(ctx)) return true;
 	const constraint = inSubjectConstraint();
@@ -498,7 +498,7 @@ export function predicateUnavailableReason(
 /**
  * Per-kind editor schema keyed by `Predicate["kind"]`. The
  * mapped-type shape forces TypeScript to fail compilation if a new
- * kind lands in the Predicate union without a parallel entry — the
+ * kind lands in the Predicate union without a parallel entry, the
  * registry's exhaustivity is the structural guarantee that the
  * editor never silently bypasses a kind.
  */
@@ -652,8 +652,8 @@ export const predicateCardSchemas: {
 		description: "Let nothing pass this condition",
 		component: MatchNoneCard,
 		defaultValue: () => buildMatchNone(),
-		/* Meaningful wherever "nothing matches" is a real answer — an
-		 * empty case list, a Search action deliberately withheld — and
+		/* Meaningful wherever "nothing matches" is a real answer: an
+		 * empty case list, a Search action deliberately withheld, and
 		 * withheld only where the commit gate refuses it. An ALREADY
 		 * SAVED `match-none` still renders and re-emits: `applicable`
 		 * governs the add/replace menus, never round-tripping. */
@@ -722,7 +722,7 @@ export const predicateCardSchemas: {
 };
 
 /**
- * Convenience array — every schema in declaration order, used by the
+ * Convenience array: every schema in declaration order, used by the
  * kind-picker UI to render the menu.
  */
 export const predicateCardSchemaList: readonly PredicateCardSchema<

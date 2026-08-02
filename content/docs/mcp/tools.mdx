@@ -3,13 +3,13 @@ title: Tools
 description: What your agent can do once it's connected to Nova.
 ---
 
-These are the tools the Nova MCP server exposes. You don't call them directly — your agent does, in response to natural-language instructions. Knowing what's available helps you write better prompts and understand what your agent is doing.
+These are the tools the Nova MCP server exposes. You don't call them directly, your agent does, in response to natural-language instructions. Knowing what's available helps you write better prompts and understand what your agent is doing.
 
 ## Easy starting point
 
-`get_agent_prompt` returns the same instructions Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this — your agent can drive the tools however it wants — but starting from the instructions Nova already tunes for these tools is the fastest path to good results.
+`get_agent_prompt` returns the same instructions Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Nova already tunes for these tools is the fastest path to good results.
 
-It's a long result — a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
+It's a long result, a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
 
 ## Stable identities and structured content
 
@@ -17,9 +17,9 @@ Read an app before editing it. Nova returns stable UUIDs for modules, forms,
 fields, choices, case-list columns, search inputs, worker-information
 properties, roles, personas, case operations, Project data tables, columns, and
 rows. Editing tools address those
-objects by their UUID parameters—such as `moduleUuid`, `formUuid`,
+objects by their UUID parameters, such as `moduleUuid`, `formUuid`,
 `fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`, and
-`operationUuid`—rather than by a display name, saved field id, path, list
+`operationUuid`, rather than by a display name, saved field id, path, list
 position, or operation id. Project data tables and columns carry their UUID on
 `id`. Names, saved ids, lookup tags, and column export names remain readable,
 editable authoring values; changing one does not retarget a UUID-linked
@@ -38,7 +38,7 @@ Every successful creation result returns the final identities it created in
 input order, including identities Nova minted. Field receipts nest their inline
 choice UUIDs in source order; `create_form` nests all field and choice receipts
 under its form, and `create_module` nests forms, fields, choices, and born
-case-list columns under its module. Continue from that result—no read-after-write
+case-list columns under its module. Continue from that result: no read-after-write
 is required just to discover a new UUID.
 
 Machine-authored inline choices have exactly
@@ -55,7 +55,7 @@ example, a field reference is a part such as
 `{ "parts": [/* text and typed reference parts */] }`. Reference-capable prose
 uses the same outer `{ "parts": [...] }` shape with explicit reference atoms.
 Plain text that happens to contain `#form/name` stays plain text. Predicate and
-ValueExpression leaves likewise use UUIDs—for example
+ValueExpression leaves likewise use UUIDs, for example
 `{ "kind": "field", "uuid": "<field UUID>" }`,
 `{ "kind": "input", "searchInputUuid": "<search input UUID>" }`,
 `{ "kind": "id-of", "opUuid": "<operation UUID>" }`, and
@@ -88,7 +88,7 @@ never table tags, export names, or display labels.
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create an export-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
+| `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
@@ -100,7 +100,7 @@ gives it the requested name. When
 the design uses custom worker information, `add_user_properties` declares it
 next, before `generate_schema`, modules, forms, conditions, or calculations can
 refer to it. `generate_schema` then commits the data model, and each
-`create_module` call lands one complete module — every call checked as it
+`create_module` call lands one complete module, every call checked as it
 lands. After a Connect build's forms exist, `configure_connect` sets the mode
 and complete UUID-addressed participant set in one call. Roles and personas can
 follow the app structure; the referenced worker information cannot.
@@ -109,7 +109,7 @@ follow the app structure; the referenced worker information cannot.
 |---|---|
 | `update_app` | Set the app's name. |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
-| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write — `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
 
 ### Configuring CommCare Connect
 
@@ -203,7 +203,7 @@ omitting `valuePatch` leaves every value unchanged.
 | Tool | What it does |
 |---|---|
 | `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
-| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
+| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. |
 | `get_module` | Read one module by `moduleUuid`, including form and field UUIDs, the structured case-list config, its display condition, and each menu tile's current icon and audio label. |
 
@@ -225,7 +225,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 ## Working on case search
 
-Case search is the search experience that surrounds the case list — the screen title, helper text, and search button label the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent — pass `null` on any slot to clear it.
+Case search is the search experience that surrounds the case list: the screen title, helper text, and search button label the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent: pass `null` on any slot to clear it.
 
 | Tool | What it does |
 |---|---|
@@ -305,11 +305,11 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | Tool | What it does |
 |---|---|
 | `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; predeclare `fieldUuid` for a same-call reference, use `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. |
-| `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible — text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode — keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
+| `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible, text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode, keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
 | `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root), keeping every reference intact. |
 | `remove_field` | Delete a field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 | `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
-| `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches — when there are more, the result says how many and your agent should search something more specific. |
+| `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches. When there are more, the result says how many and your agent should search something more specific. |
 | `rename_case_properties` | Rename one or more case properties everywhere in the app as one simultaneous, lossless change. |
 
 ### Saving a field answer to a case
@@ -379,7 +379,7 @@ be unique within its case type; merges, self-renames, temporary-property
 sequences, and overwriting an occupied destination are refused with nothing
 saved. Case properties are the intentional name-keyed exception to Nova's
 UUID object addresses, so each entry uses the exact `(caseType, from, to)`
-names—never a form id, field path, field UUID, or slug.
+names, never a form id, field path, field UUID, or slug.
 
 On success, the result returns the exact `renames` relation and a grouped
 document impact:
@@ -428,24 +428,24 @@ document impact:
 
 ## Working with media
 
-You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and the app's total attached media must stay within the export limit. A bad id fails the call with a message saying what to fix, and nothing is saved.
+You can attach images, audio, and video to parts of an app, a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and the app's total attached media must stay within the export limit. A bad id fails the call with a message saying what to fix, and nothing is saved.
 
 | Tool | What it does |
 |---|---|
-| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4` — CommCare HQ can't accept `.m4a` or `.ogg`. |
-| `list_media_assets` | List your uploaded files and their asset ids — how your agent finds the ids the attach tools need. |
+| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4`, CommCare HQ can't accept `.m4a` or `.ogg`. |
+| `list_media_assets` | List your uploaded files and their asset ids, how your agent finds the ids the attach tools need. |
 | `remove_media_asset` | Delete a file from your library. Refuses if any app still uses it, including an app in its restore window. |
-| `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages — one call batches attachments across fields and forms. |
-| `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select) — a whole picture-choice field in one call. |
-| `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles — any mix of both, the whole app's menu in one call. |
+| `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages, one call batches attachments across fields and forms. |
+| `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select), a whole picture-choice field in one call. |
+| `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles: any mix of both, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
-## Exporting and uploading
+## Publishing
 
 | Tool | What it does |
 |---|---|
-| `compile_app` | Compile to CommCare HQ format — the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
-| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which CommCare server it belongs to (US, India, or EU — separate servers with separate accounts) and which project spaces (domains) it can reach. |
+| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
+| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
 
 <Callout type="info">
@@ -453,9 +453,9 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
+Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>
 
 ## System reminders
 
-A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent — for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.

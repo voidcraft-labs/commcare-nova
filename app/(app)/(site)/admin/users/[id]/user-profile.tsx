@@ -1,5 +1,5 @@
 /**
- * Async server component — user profile card.
+ * Async server component: user profile card.
  *
  * Fetches the user row from Postgres and renders the profile card
  * with an impersonate action for admins viewing another user's profile.
@@ -28,7 +28,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 	const isSelf = session?.user?.id === userId;
 
 	return (
-		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+		<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-4">
 					{user.image ? (
@@ -45,7 +45,12 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 						</div>
 					)}
 					<div>
-						<h2 className="text-lg font-display font-semibold">{user.name}</h2>
+						<h2
+							data-user-content
+							className="text-lg font-display font-semibold tracking-tighter"
+						>
+							{user.name}
+						</h2>
 						<p className="text-sm text-nova-text-secondary">{user.email}</p>
 						<p className="text-xs text-nova-text-muted mt-1">
 							Joined{" "}
@@ -63,7 +68,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 					{!isSelf && (
 						<ImpersonateButton userId={userId} userName={user.name} />
 					)}
-					<Badge variant={user.role === "admin" ? "violet" : "secondary"}>
+					<Badge variant={user.role === "admin" ? "violet" : "muted"}>
 						{user.role}
 					</Badge>
 				</div>

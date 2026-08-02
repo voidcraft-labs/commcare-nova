@@ -7,11 +7,11 @@
 // same library the form-list reorder UI uses.
 //
 // Construction routes through the builders so reductions apply on
-// every onChange — `and([single])` collapses to `single`, and
+// every onChange: `and([single])` collapses to `single`, and
 // `not(not(x))` collapses to `x` per the reduction module. The card
 // emits the canonical reduced AST; the parent's onChange consumes
 // it. Cards can therefore disappear mid-edit when their clause
-// list collapses to one — the parent's state replaces the group
+// list collapses to one: the parent's state replaces the group
 // with the unwrapped clause and the next render shows just the
 // inner card.
 
@@ -88,7 +88,7 @@ import { ChildPredicateEditor } from "./ChildPredicateEditor";
 // so the schema's tuple-with-rest invariant holds and the user
 // immediately sees an editable inner card. The reductions in the
 // builders WILL collapse `and([single])` → `single` on the next
-// onChange — the user adds a second clause to keep the group around.
+// onChange: the user adds a second clause to keep the group around.
 
 export function andDefault(
 	ctx: PredicateEditContext,
@@ -102,7 +102,7 @@ export function andDefault(
 		return { kind: "and", clauses: [matchAll(), matchAll()] };
 	}
 	// `and(p1, p2, ...)` resolves through the two-or-more overload
-	// to `Extract<Predicate, { kind: "and" }>` directly — the
+	// to `Extract<Predicate, { kind: "and" }>` directly, the
 	// non-reducing path. Both inputs are non-sentinel comparison
 	// shapes, so the reductions do not collapse and the envelope
 	// shape is the contracted return type.
@@ -227,7 +227,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 		}),
 		// The provider memoizes the whole context object, so depending on
 		// it directly is both correct and cheaper than listing axes a
-		// projection now owns — and it cannot go stale when one is added.
+		// projection now owns, and it cannot go stale when one is added.
 		[ctx, value.kind],
 	);
 	const containerKey = useId();
@@ -235,7 +235,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 
 	// Track per-clause drag state so the editor can render an
 	// insertion indicator. Pragmatic DnD's `monitorForElements` is
-	// the single owner of the drop logic — same pattern the form
+	// the single owner of the drop logic: same pattern the form
 	// virtual list uses.
 	const [pendingDrop, setPendingDrop] = useState<{
 		itemKey: string;
@@ -245,10 +245,10 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	// refs so the monitor effect doesn't reinstall on every parent
 	// render that produces a new clauses array. The monitor's
 	// callbacks read the current ref values at drag-event time. Same
-	// pattern `useRowDnd` uses for `renderPreview` — write the ref
+	// pattern `useRowDnd` uses for `renderPreview`: write the ref
 	// directly during render so the value is current even before
 	// the commit phase, not deferred into an effect. Effect deps
-	// shrink to `[containerKey]` — the only value that genuinely
+	// shrink to `[containerKey]`: the only value that genuinely
 	// identifies a new monitor scope.
 	const clausesRef = useRef(value.clauses);
 	const rowKeysRef = useRef(rowIdentity.keys);
@@ -283,11 +283,11 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				let toIndex = rowKeysRef.current.indexOf(targetData.itemKey);
 				if (fromIndex < 0 || toIndex < 0) return;
 				const edge = extractClosestEdge(target.data);
-				// Translate the edge into an insertion index — bottom
+				// Translate the edge into an insertion index: bottom
 				// edge inserts after the target row.
 				if (edge === "bottom") toIndex += 1;
 				// Adjust for the source position being removed before
-				// insert — matches Trello-style insertion semantics.
+				// insert: matches Trello-style insertion semantics.
 				if (fromIndex < toIndex) toIndex -= 1;
 				if (fromIndex === toIndex) return;
 				const reordered = [...clausesRef.current];
@@ -344,7 +344,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				insertCount: 0,
 			});
 			if (filtered.length === 0) {
-				// All clauses removed — replace the group with the
+				// All clauses removed: replace the group with the
 				// algebraic identity element. AND collapses to
 				// match-all (the conjunction identity); OR collapses
 				// to match-none (the disjunction identity). Authors
@@ -353,7 +353,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				return;
 			}
 			// `or(single)` / `and(single)` collapses to `single` per
-			// the reductions — the parent's onChange replaces the
+			// the reductions: the parent's onChange replaces the
 			// group with the unwrapped clause.
 			onChange(applyLogical(value.kind, filtered));
 		},
@@ -422,7 +422,7 @@ interface ClauseRowProps {
 }
 
 /** Custom drag preview rendered in place of the browser's default
- *  source snapshot — without it, the browser would snapshot the
+ *  source snapshot: without it, the browser would snapshot the
  *  14×14 grip icon (the draggable element) and the user couldn't
  *  see what's being moved. The preview shows the matching kind
  *  icon + label so the dragged identity is unambiguous. Mirrors
@@ -621,9 +621,8 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						size="xl"
-						className="w-full gap-2 border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+						variant="ghost"
+						className="nova-add-slot w-full gap-2"
 					/>
 				}
 			>

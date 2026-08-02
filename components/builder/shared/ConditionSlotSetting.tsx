@@ -5,7 +5,7 @@
 //
 // The pairing is the point. A recursive condition tree needs the full
 // canvas width, so the panel that OWNS the setting never duplicates the
-// editor — it names the setting, says what it currently does, and hands
+// editor: it names the setting, says what it currently does, and hands
 // off. `data-condition-origin` marks the Edit control so a canvas that
 // returns IN PLACE (the case workspace, whose rail stays mounted) can
 // hand focus back to the exact row the author left from.
@@ -13,7 +13,7 @@
 // Adding is one gesture, not two: it commits a valid seed AND opens the
 // editor, so an author never lands on an empty screen wondering what to
 // do. Clearing is confirmed through the shared `ClearConditionButton`,
-// which the centre-canvas editors use too — the same words wherever the
+// which the centre-canvas editors use too: the same words wherever the
 // removal is offered.
 
 "use client";
@@ -55,7 +55,7 @@ export interface ConditionSlotSettingProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
-	/** The slot's evaluation scope — decides what the seed may read. */
+	/** The slot's evaluation scope: decides what the seed may read. */
 	readonly caseDataScope: CaseDataScope;
 	/** A viewer reads the rule; Add and Clear are not offered. Editing
 	 *  stays available so the condition can still be opened and read. */
@@ -82,7 +82,7 @@ export function ConditionSlotSetting({
 }: ConditionSlotSettingProps) {
 	/* The Clear control unmounts with the condition it removed, so the intent
 	 * to move focus has to outlive it. `useClearedSlotFocus` is that rule's one
-	 * home — it started here, and the case-change canvas needs the same thing
+	 * home: it started here, and the case-change canvas needs the same thing
 	 * in three more places. */
 	const { addRef: addButtonRef, onCleared } = useClearedSlotFocus(value);
 	const projectProse = useProseProjection();
@@ -116,11 +116,10 @@ export function ConditionSlotSetting({
 				<Button
 					ref={addButtonRef}
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					disabled={!canEdit}
 					onClick={add}
-					className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+					className="nova-add-slot w-full"
 				>
 					{addLabel}
 				</Button>
@@ -139,9 +138,8 @@ export function ConditionSlotSetting({
 							data-condition-origin
 							type="button"
 							variant="outline"
-							size="xl"
 							onClick={() => onEdit()}
-							className="min-w-0 flex-1 border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+							className="min-w-0 flex-1"
 						>
 							{canEdit ? editLabel : "View condition"}
 						</Button>

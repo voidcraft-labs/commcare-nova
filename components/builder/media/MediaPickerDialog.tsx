@@ -2,17 +2,17 @@
 //
 // The pick-or-upload dialog the media slots open. Source tabs:
 //
-//  - Upload — drag-and-drop or browse; runs the client upload flow
+//  - Upload: drag-and-drop or browse; runs the client upload flow
 //    (hash → initiate → PUT → confirm), then commits the asset.
-//  - Library — the owner's existing `ready` assets, newest first,
+//  - Library: the owner's existing `ready` assets, newest first,
 //    paginated; click one to pick it.
-//  - Icons — the optional curated icon collection for menu-tile slots.
+//  - Icons: the optional curated icon collection for menu-tile slots.
 //
 // The dialog serves slots that allow ONE kind (a module icon, the app
 // logo) and slots that allow several (a question's display media can
 // be image / audio / video). When more than one kind is allowed the
-// Library tab shows a type filter, and Upload accepts any allowed kind
-// — the picked file's sniffed kind routes it to the right sub-slot in
+// Library tab shows a type filter, and Upload accepts any allowed kind:
+// the picked file's sniffed kind routes it to the right sub-slot in
 // the carrier. The dialog speaks only `MediaAssetView` to its caller;
 // the carrier decides what to store (the asset id).
 
@@ -78,6 +78,7 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { selectableSegmentCls } from "@/lib/styles";
 import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
@@ -123,7 +124,7 @@ export interface MediaPickerDialogProps {
 	 */
 	appId?: string;
 	/**
-	 * Pick handler — fires when a library item is chosen (or an inline upload
+	 * Pick handler: fires when a library item is chosen (or an inline upload
 	 * completes), after which the dialog closes. OMITTED by the standalone file
 	 * manager (the account-menu "Files" entry): with no carrier to pick into,
 	 * clicking a library item opens its preview instead, the Upload tab simply
@@ -137,7 +138,7 @@ export interface MediaPickerDialogProps {
 	 * OFF instead of uploaded inline: the dialog closes immediately and
 	 * the caller stages the upload on its slot (progress + cancel live on
 	 * the slot's chip; the attach dispatches on upload confirm). The
-	 * builder media slots pass this — the doc must never reference an
+	 * builder media slots pass this: the doc must never reference an
 	 * asset that isn't ready. The chat file manager omits it and keeps
 	 * the inline flow (its attachments are message refs, not doc state).
 	 */
@@ -152,7 +153,7 @@ export interface MediaPickerDialogProps {
 	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
 	/**
 	 * Asset ids currently staged elsewhere in the SAME surface that aren't held
-	 * in the blueprint — today, the chat composer's attachment chips. Deleting
+	 * in the blueprint: today, the chat composer's attachment chips. Deleting
 	 * one of these from the library is a valid action (chat attachments aren't an
 	 * app reference, so the delete isn't blocked), but it would silently strand
 	 * the chip, so the confirm dialog warns the user it'll be pulled off the
@@ -166,11 +167,11 @@ export interface MediaPickerDialogProps {
 	 */
 	onAssetDeleted?: (assetId: string) => void;
 	/**
-	 * Surfaces the built-in "Icon Library" tab — a curated set of menu-tile icons
+	 * Surfaces the built-in "Icon Library" tab: a curated set of menu-tile icons
 	 * the user picks by sight (no upload). ONLY for image icon slots: a module/
 	 * caselist slot passes `"module"` (topic icons), a form slot `"form"` (action
 	 * icons), and the standalone file manager `"all"` (browse the whole set).
-	 * Omitted everywhere else — field/option media, image questions, and the app
+	 * Omitted everywhere else: field/option media, image questions, and the app
 	 * logo never offer it. In a picker (with `onPick`) clicking an icon attaches
 	 * it; in the file manager (no `onPick`) it previews. Selecting one stores the
 	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
@@ -209,7 +210,7 @@ export function MediaPickerDialog({
 	// carrier to pick into, so library clicks preview and Upload just lands files.
 	const manage = onPick === undefined;
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
-	// a child of `DialogContent` — Base UI only mounts the popup's
+	// a child of `DialogContent`: Base UI only mounts the popup's
 	// subtree while the dialog is open, so the library fetch fires when
 	// the user opens the picker, NOT eagerly on every slot's mount.
 	// (An always-mounted hook here would fire one library GET per slot
@@ -231,14 +232,14 @@ export function MediaPickerDialog({
 					kinds={kinds}
 					appId={appId}
 					onPick={(asset) => {
-						// Never called in manage mode — library clicks preview there.
+						// Never called in manage mode: library clicks preview there.
 						onPick?.(asset);
 						onOpenChange(false);
 					}}
 					onUploadStart={
 						onUploadStart &&
 						((file, kind) => {
-							// Hand the file off and close — the slot's staged chip
+							// Hand the file off and close: the slot's staged chip
 							// takes over (progress + cancel); the picker has nothing
 							// left to show.
 							onUploadStart(file, kind);
@@ -329,8 +330,8 @@ function PickerBody({
 	// single-kind slot is pinned to its one kind with no filter UI.
 	const multiKind = kinds.length > 1;
 	// The dialog titles itself: "Your files" as the standalone manager, otherwise
-	// from its kinds — "Attach Image" when locked to one, "Attach Media" when it
-	// accepts several — so callers don't thread a title string (and can't drift it
+	// from its kinds: "Attach Image" when locked to one, "Attach Media" when it
+	// accepts several, so callers don't thread a title string (and can't drift it
 	// from what's offered).
 	const title = manage
 		? "Your files"
@@ -340,22 +341,22 @@ function PickerBody({
 	const { nounPhrase } = describeKinds(kinds);
 	const description = manage
 		? canWrite
-			? "Upload, preview, or remove files in this project"
-			: "Preview files in this project"
+			? "Upload, preview, or remove files in this Project"
+			: "Preview files in this Project"
 		: showIcons
 			? canWrite
 				? "Choose an icon, upload an image, or use a file you already added"
-				: "Preview icons and files in this project"
+				: "Preview icons and files in this Project"
 			: canWrite
 				? `Choose a file you already added, or upload ${nounPhrase}`
-				: "Preview files in this project";
+				: "Preview files in this Project";
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
 	const [query, setQuery] = useState("");
 	// "All" → fetch exactly THIS picker's allowed kinds, so the server returns
 	// only attachable assets rather than a page of irrelevant kinds (e.g. a chat
-	// picker's audio/video) the client would then have to hide — which buried the
+	// picker's audio/video) the client would then have to hide, which buried the
 	// few attachable docs behind "Load more". A specific filter narrows to one
 	// kind. Memoized so it isn't a fresh array each render (the hook keys off the
 	// contents, but a stable reference keeps the dependency honest).
@@ -388,13 +389,13 @@ function PickerBody({
 		onPick({ kind: "uploaded", asset });
 	};
 
-	// Preview a library asset WITHOUT picking it — so a user can check a
+	// Preview a library asset WITHOUT picking it, so a user can check a
 	// document's "What Nova reads" extract before attaching. `null` = closed.
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
 
-	// Open an asset's preview without picking it — the eye affordance everywhere,
+	// Open an asset's preview without picking it: the eye affordance everywhere,
 	// and (in the manager, which has no carrier to pick into) the library item's
 	// own click target.
 	const openPreview = (asset: MediaAssetView) => {
@@ -427,7 +428,7 @@ function PickerBody({
 
 	// In the manager an inline upload has nowhere to pick to: land the asset in the
 	// library and switch to it so the user sees what they just added. Reset the
-	// type filter to "all" — the Upload tab accepts any kind, so a kind that
+	// type filter to "all": the Upload tab accepts any kind, so a kind that
 	// doesn't match the active filter would be prepended into a kind-scoped list
 	// and then vanish on the next fetch; "all" keeps it in scope (and is the
 	// natural "here's everything you have" post-upload view).
@@ -475,7 +476,7 @@ function PickerBody({
 			if (controller.signal.aborted) return;
 			if (!ownsWritableScope(deleteScopeEpoch)) return;
 			// A 409 (still referenced by one of your apps) or any failure: tell the
-			// user WHY — the message names the carriers — and leave the asset.
+			// user WHY: the message names the carriers, and leave the asset.
 			projectToast(
 				"warning",
 				"Couldn't delete file",
@@ -494,17 +495,12 @@ function PickerBody({
 		<>
 			<header className="flex shrink-0 items-start justify-between gap-4 border-b border-nova-border px-5 py-4">
 				<div className="min-w-0 space-y-1">
-					<DialogTitle className="font-display">{title}</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						{title}
+					</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</div>
-				<DialogClose
-					render={
-						<Button
-							variant="ghost"
-							className="h-11 shrink-0 px-3 text-nova-text-secondary"
-						/>
-					}
-				>
+				<DialogClose render={<Button variant="ghost" className="shrink-0" />}>
 					<Icon icon={tablerX} className="size-4" />
 					Close
 				</DialogClose>
@@ -608,7 +604,7 @@ function PickerBody({
 				}}
 			/>
 
-			{/* Delete confirmation — also portals after the picker, so it stacks
+			{/* Delete confirmation: also portals after the picker, so it stacks
 			 *  on top at the same z-modal tier. */}
 			<MediaDeleteConfirmDialog
 				target={deleteTarget}
@@ -660,7 +656,7 @@ function UploadTab({
 	kinds: readonly AssetKind[];
 	onUploaded: (asset: MediaAssetView) => void;
 	/** Delegate a validated file to the caller's staged flow instead of
-	 *  uploading inline — see `MediaPickerDialogProps.onUploadStart`. */
+	 *  uploading inline: see `MediaPickerDialogProps.onUploadStart`. */
 	onUploadStart?: (file: File, kind: AssetKind) => void;
 	/** Scopes an inline upload to this app's Project (the chat composer); the
 	 *  account-menu file manager omits it (uploads to the active Project). */
@@ -679,7 +675,7 @@ function UploadTab({
 		// slot allows so the user gets an instant answer instead of hashing
 		// the bytes + a server round trip just to be rejected. Resolve the
 		// kind from the browser's MIME (after normalizing aliases like
-		// `image/apng`), falling back to the filename extension — browsers
+		// `image/apng`), falling back to the filename extension: browsers
 		// set `File.type` to "" or `application/octet-stream` for `.md` and
 		// some office files, which would otherwise reject a valid document.
 		const dropped = normalizeMimeType(file.type);
@@ -703,7 +699,7 @@ function UploadTab({
 		}
 		setKindError(null);
 		// The validated file either hands off to the caller's staged flow
-		// (builder slots — the dialog closes and the slot chip owns
+		// (builder slots: the dialog closes and the slot chip owns
 		// progress/cancel/attach-on-confirm) or uploads inline (the chat
 		// file manager).
 		if (onUploadStart) {
@@ -716,7 +712,7 @@ function UploadTab({
 
 	return (
 		<div className="flex flex-col gap-5">
-			{/* PHI guardrail — Nova reads documents and stores the extract, so real
+			{/* PHI guardrail: Nova reads documents and stores the extract, so real
 			 *  patient data must not ride along. Shown only where documents are
 			 *  accepted (the chat file manager), not on media-only carriers. */}
 			{kinds.some(isDocumentKind) && (
@@ -768,7 +764,6 @@ function UploadTab({
 				</div>
 				<Button
 					type="button"
-					className="h-11 px-4"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
 				>
@@ -865,7 +860,7 @@ function LibraryTab({
 	onPreview: (asset: MediaAssetView) => void;
 	/** Request deletion of an asset (opens the confirmation dialog). */
 	onDelete: (asset: MediaAssetView) => void;
-	/** A document's extraction completed — reconcile its snapshot in the list. */
+	/** A document's extraction completed: reconcile its snapshot in the list. */
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
@@ -929,7 +924,7 @@ function LibraryTab({
 					<Button
 						type="button"
 						variant="outline"
-						className="h-11 shrink-0"
+						className="shrink-0"
 						onClick={retry}
 					>
 						Retry
@@ -1033,7 +1028,7 @@ function LibraryTab({
 											<LibraryThumb asset={asset} />
 										</Button>
 									</SimpleTooltip>
-									{/* Preview without picking — a sibling of the pick button
+									{/* Preview without picking: a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
 									 *  a document's "What Nova reads" extract before attaching.
 									 *  When the thumbnail's primary action already previews (the
@@ -1048,13 +1043,13 @@ function LibraryTab({
 												size="icon"
 												onClick={() => onPreview(asset)}
 												aria-label={`Preview ${fileName}`}
-												className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												className="pointer-events-none absolute top-1 right-1 z-10 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 											>
 												<Icon icon={tablerEye} className="size-4" />
 											</Button>
 										</SimpleTooltip>
 									)}
-									{/* Delete — a sibling of the pick button (not nested),
+									{/* Delete: a sibling of the pick button (not nested),
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
@@ -1066,13 +1061,13 @@ function LibraryTab({
 												size="icon"
 												onClick={() => onDelete(asset)}
 												aria-label={`Delete ${fileName}`}
-												className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												className="pointer-events-none absolute top-1 left-1 z-10 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 											>
 												<Icon icon={tablerTrash} className="size-4" />
 											</Button>
 										</SimpleTooltip>
 									)}
-									{/* Extraction indicator for documents — a sibling of the
+									{/* Extraction indicator for documents: a sibling of the
 									 *  pick button (not nested), so the failed-state retry
 									 *  control isn't interactive content inside a button.
 									 *  Renders nothing for media kinds. */}
@@ -1111,7 +1106,7 @@ function LibraryTab({
 				<Button
 					type="button"
 					variant="outline"
-					className="h-11 self-center px-4"
+					className="self-center"
 					onClick={loadMore}
 					disabled={isLoading}
 				>
@@ -1129,7 +1124,15 @@ function LibraryTab({
 	);
 }
 
-/** A small segmented-control chip for the Library type filter. */
+/**
+ * One choice in the Library's type filter.
+ *
+ * It holds a state rather than performing an action, so it wears the same
+ * skin as every other selectable control: violet means chosen. Drawing it
+ * out of two button variants inverted that, because `outline` is the quiet
+ * violet-wash ACTION, so the one chosen chip came out grey in a row of
+ * violet ones and violet read as "not selected" here alone.
+ */
 function FilterChip({
 	active,
 	onClick,
@@ -1140,15 +1143,14 @@ function FilterChip({
 	children: React.ReactNode;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant={active ? "secondary" : "outline"}
 			aria-pressed={active}
 			onClick={onClick}
-			className="h-11 rounded-full px-4 text-sm"
+			className={selectableSegmentCls(active)}
 		>
 			{children}
-		</Button>
+		</button>
 	);
 }
 
@@ -1175,12 +1177,7 @@ function LibraryState({
 				<p className="text-[13px] text-nova-text-secondary">{description}</p>
 			</div>
 			{action && onAction ? (
-				<Button
-					type="button"
-					variant="outline"
-					className="h-11 px-4"
-					onClick={onAction}
-				>
+				<Button type="button" variant="outline" onClick={onAction}>
 					{action}
 				</Button>
 			) : null}
@@ -1267,7 +1264,7 @@ function IconLibraryTab({
 /**
  * Confirm-before-delete dialog for a library asset. Stacks over the z-modal
  * picker by portal order (its portal mounts later, on the same z plane).
- * Alert semantics — no outside-press dismissal, Cancel / Delete only — which
+ * Alert semantics: no outside-press dismissal, Cancel / Delete only, which
  * is right for a destructive action.
  */
 function MediaDeleteConfirmDialog({
@@ -1299,7 +1296,7 @@ function MediaDeleteConfirmDialog({
 		>
 			<AlertDialogContent className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						This file will be deleted
 					</AlertDialogTitle>
 					<AlertDialogDescription>
@@ -1346,7 +1343,7 @@ function MediaDeleteConfirmDialog({
 	);
 }
 
-/** Thumbnail cell — images show the bitmap; audio/video show a kind glyph. */
+/** Thumbnail cell: images show the bitmap; audio/video show a kind glyph. */
 function LibraryThumb({ asset }: { asset: MediaAssetView }) {
 	if (asset.kind === "image") {
 		return (

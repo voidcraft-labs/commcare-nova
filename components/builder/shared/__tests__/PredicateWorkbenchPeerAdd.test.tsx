@@ -173,7 +173,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 		expect(connector.parentElement).toBe(header);
 		expect(connector.className).toContain("w-full");
 		expect(reset.querySelector("svg")).toBeNull();
-		expect(reset.className).toContain("text-destructive");
+		expect(reset.className).toContain("nova-keycap-rose");
 		expect(screen.queryByText("All conditions match")).toBeNull();
 		expect(screen.queryByText("2 conditions, all must match")).toBeNull();
 	});
@@ -193,7 +193,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 
 		const reset = screen.getByRole("button", { name: "Show all cases" });
 		expect(reset.textContent).toBe("Show all cases");
-		expect(reset.className).toContain("text-destructive");
+		expect(reset.className).toContain("nova-keycap-rose");
 		expect(reset.querySelector("svg")).toBeNull();
 	});
 

@@ -46,7 +46,9 @@ describe("OptionalMarkdownRow", () => {
 		expect(screen.queryByText("Inline code")).toBeNull();
 
 		for (const control of controls.getAllByRole("button")) {
-			expect(control.className).toContain("min-h-11");
+			// The 44px control height is the system button's own guarantee now,
+			// not something a call site re-states.
+			expect(control.className).toContain("h-11");
 		}
 	});
 

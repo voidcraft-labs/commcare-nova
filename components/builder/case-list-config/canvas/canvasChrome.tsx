@@ -55,7 +55,7 @@ export function CanvasNotice({
 				children
 			) : (
 				<>
-					<p className="font-display text-base font-semibold text-nova-text">
+					<p className="font-display tracking-tighter text-base font-semibold text-nova-text">
 						{title}
 					</p>
 					<p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed">
@@ -69,7 +69,7 @@ export function CanvasNotice({
 
 // ── Add affordance ────────────────────────────────────────────────
 
-/** Dashed add button — the canvases' uniform "add a thing" shape. */
+/** Dashed add button: the canvases' uniform "add a thing" shape. */
 export function AddGhostButton({
 	label,
 	onClick,
@@ -105,7 +105,7 @@ export function AddGhostButton({
 					aria-describedby={disabledReason === undefined ? undefined : reasonId}
 					data-case-add={dataCaseAdd}
 					data-case-add-search-field={dataCaseAddSearchField ? "" : undefined}
-					className={`min-h-11 gap-2 border border-dashed border-nova-border-bright px-4 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:not-disabled:hover:bg-nova-violet/[0.06] ${className}`}
+					className={`nova-add-slot gap-2 ${className}`}
 				>
 					<Icon icon={icon} width="14" height="14" />
 					<span>{label}</span>

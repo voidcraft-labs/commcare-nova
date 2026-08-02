@@ -229,7 +229,7 @@ export function useAutoSave(): SaveState {
 					projectToast(
 						"warning",
 						"App reloaded",
-						"This app changed in a way that conflicts with your edits — by an agent connection or another collaborator. We loaded the latest version; redo those changes if you still want them.",
+						"This app changed in a way that conflicts with your edits. By an agent connection or another collaborator. We loaded the latest version; redo those changes if you still want them.",
 					);
 					startCooldown();
 					return;

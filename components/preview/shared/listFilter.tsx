@@ -1,10 +1,10 @@
 // components/preview/shared/listFilter.tsx
 //
-// The case list's own filter box — the same quick narrowing CommCare
+// The case list's own filter box: the same quick narrowing CommCare
 // gives every case list: type a few letters and the rows narrow to
 // the ones containing them, case-insensitively, across every visible
 // column; each typed word has to match somewhere in the row. It runs
-// entirely client-side over the rows already on screen — the
+// entirely client-side over the rows already on screen: the
 // authored search fields query the case store, this narrows what
 // came back. (CommCare's engine implements the same contract in
 // commcare-core's entity filterer: per-term, case-folded, substring,
@@ -57,7 +57,7 @@ export function ListFilterBox({
 }: {
 	readonly value: string;
 	readonly onChange: (next: string) => void;
-	/** Rows surviving the filter — read out under the box only while
+	/** Rows surviving the filter: read out under the box only while
 	 *  a filter is active, so the narrowing is never silent. */
 	readonly resultCount?: number;
 	/** A paged case list can only apply this CommCare-style client filter to
@@ -90,7 +90,7 @@ export function ListFilterBox({
 					onChange={(e) => onChange(e.target.value)}
 					autoComplete="off"
 					data-1p-ignore
-					className="min-h-11 w-full rounded-lg border-pv-input-border bg-pv-surface pr-11 pl-9 text-[14px] text-nova-text focus-visible:border-nova-violet/40 focus-visible:ring-1 focus-visible:ring-nova-violet/30 dark:bg-pv-surface"
+					className="nova-focusable min-h-11 w-full rounded-lg border-pv-input-border bg-pv-surface pr-11 pl-9 text-[14px] text-nova-text dark:bg-pv-surface"
 				/>
 				{value !== "" && (
 					<Button
@@ -101,7 +101,7 @@ export function ListFilterBox({
 							requestAnimationFrame(() => inputRef.current?.focus());
 						}}
 						aria-label="Clear the filter"
-						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="14" height="14" />
 					</Button>

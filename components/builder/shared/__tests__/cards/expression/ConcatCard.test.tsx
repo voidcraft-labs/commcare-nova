@@ -7,10 +7,10 @@
 //     builder (the editor's onDrop reconstructs through the same
 //     builder, so reordering produces an AST whose `parts` array
 //     matches the new visual order).
-//   - drag-handle wiring — confirms the grip button reaches the
+//   - drag-handle wiring: confirms the grip button reaches the
 //     DOM for every part in the list, mirroring the `LogicalGroupCard`
 //     test pattern.
-//   - clause removal contract — refusing the last-row removal so
+//   - clause removal contract: refusing the last-row removal so
 //     the schema's non-empty `parts` invariant holds.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
@@ -40,11 +40,11 @@ describe("ConcatCard — reorder produces parts array in the new order", () => {
 		expect(original.kind).toBe("concat");
 		expect(original.parts).toEqual([a, b, c]);
 
-		// Simulate a drag of `c` to position 0 — the editor's onDrop
+		// Simulate a drag of `c` to position 0: the editor's onDrop
 		// constructs a new `concat(...)` with the rearranged list.
 		const reordered = concat(c, a, b);
 		expect(reordered.parts).toEqual([c, a, b]);
-		// Reordering preserves part references — same a / b / c
+		// Reordering preserves part references: same a / b / c
 		// references appear in the new envelope's parts.
 		expect(reordered.parts[0]).toBe(c);
 		expect(reordered.parts[1]).toBe(a);
@@ -68,7 +68,7 @@ describe("ConcatCard — drag handle wiring", () => {
 			/>,
 		);
 		// Each row threads a `dragHandleRef` into the card-shell grip,
-		// so we expect one grip per part — three in this case.
+		// so we expect one grip per part: three in this case.
 		const grips = container.querySelectorAll(
 			'button[aria-label^="Move value"]',
 		);
@@ -76,7 +76,7 @@ describe("ConcatCard — drag handle wiring", () => {
 	});
 
 	it("grip stays mounted when only one part remains", () => {
-		// Single part — the row still mounts the grip (drag itself is
+		// Single part: the row still mounts the grip (drag itself is
 		// a no-op with no other targets, but the affordance stays so
 		// the visual remains consistent with multi-row state).
 		const value = concat(term(literal("only")));

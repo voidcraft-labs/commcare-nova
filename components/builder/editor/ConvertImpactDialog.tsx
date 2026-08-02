@@ -1,5 +1,5 @@
 /**
- * ConvertImpactDialog — the consent step for a kind conversion whose
+ * ConvertImpactDialog: the consent step for a kind conversion whose
  * per-row cast can fail (`planKindConversion`'s `dataLossRisk`).
  *
  * Opens the moment the convert gesture lands, checks the real impact
@@ -14,7 +14,7 @@
  *     in its own label. Cancel changes nothing.
  *
  * The dispatched conversion is the ordinary gated `convertField`
- * batch — consent lives HERE, never on the mutations, so replay and
+ * batch: consent lives HERE, never on the mutations, so replay and
  * undo re-run the store migration unconditionally and the review
  * surface stays the recovery path.
  */
@@ -45,7 +45,7 @@ import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
-/** One pending conversion awaiting its impact check — the plan's
+/** One pending conversion awaiting its impact check: the plan's
  *  `dataLossRisk` plus the addressing the dispatch needs. */
 export interface ConvertImpactRequest {
 	readonly fieldUuid: string;
@@ -56,7 +56,7 @@ export interface ConvertImpactRequest {
 	readonly toType: CasePropertyDataType;
 }
 
-/** What saved values would have to become, per destination type — the
+/** What saved values would have to become, per destination type, the
  *  plural noun the "can’t become …" sentence hangs on. Sentence
  *  vocabulary only: the property CHIP keeps announcing data-review's
  *  `DATA_TYPE_LABELS`, so the same chip reads identically on every
@@ -75,7 +75,7 @@ const TYPE_NOUNS: Record<CasePropertyDataType, string> = {
 
 /** A sample value as the dialog shows it: strings in quotes, a
  *  selection list space-joined the way the app displays it, anything
- *  else via JSON — truncated so one long value can't blow the layout. */
+ *  else via JSON: truncated so one long value can't blow the layout. */
 function sampleText(value: JsonValue): string {
 	const text = Array.isArray(value)
 		? value.map(String).join(" ")
@@ -113,7 +113,7 @@ export function ConvertImpactDialog({
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
 	const session = useBuilderSessionApi();
-	/* The answered state is BOUND to the request it answers — the
+	/* The answered state is BOUND to the request it answers: the
 	 * component stays mounted across requests (null-request renders
 	 * nothing but keeps state), so an unbound state would let request
 	 * A's zero-uncastable verdict auto-confirm request B before B's
@@ -167,7 +167,7 @@ export function ConvertImpactDialog({
 				}
 			},
 			// A rejected action call (network failure, an interrupted
-			// deploy) must land in the error state — an unhandled
+			// deploy) must land in the error state: an unhandled
 			// rejection would strand the dialog on "Checking saved data"
 			// with no way forward but Cancel.
 			(err: unknown) => {
@@ -248,7 +248,7 @@ export function ConvertImpactDialog({
 		>
 			<AlertDialogContent className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						Convert to {toLabel}?
 					</AlertDialogTitle>
 					{state.kind === "checking" && (

@@ -70,8 +70,8 @@ function column(
 /**
  * The Results screen showing exactly these columns, in the order written.
  *
- * The composer reads the whole config because both lists it shows — the sorted
- * carriers and the fields still available to add — are Results sequences.
+ * The composer reads the whole config because both lists it shows, the sorted
+ * carriers and the fields still available to add: are Results sequences.
  */
 function configOf(columns: readonly Column[]): CaseListConfig {
 	return {

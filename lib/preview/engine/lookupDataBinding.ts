@@ -61,7 +61,7 @@ export async function loadLookupFixtureDataAction(
 			return {
 				kind: "error",
 				message:
-					"The lookup data request was malformed — reload the builder and try again.",
+					"The lookup data request was malformed. Reload the builder and try again.",
 			};
 		}
 		/* `resolveAppScope` is the light membership proof the sibling

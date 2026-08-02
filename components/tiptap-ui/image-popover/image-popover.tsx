@@ -84,7 +84,7 @@ function ImageMain({
 					<div className="image-popover-fields">
 						<Input
 							type="url"
-							placeholder="Paste image URL..."
+							placeholder="Paste image URL"
 							value={url}
 							onChange={(e) => setUrl(e.target.value)}
 							onKeyDown={handleKeyDown}
@@ -130,7 +130,7 @@ function ImageMain({
  * Image popover for Tiptap editors.
  *
  * URL + alt text input in a popover, matching the LinkPopover UX pattern.
- * No file upload — URL-only.
+ * No file upload: URL-only.
  */
 export const ImagePopover = forwardRef<HTMLButtonElement, ImagePopoverProps>(
 	(

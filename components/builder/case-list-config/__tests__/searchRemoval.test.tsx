@@ -368,7 +368,7 @@ const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 
 /* The workspace is now split: a shared controller (mounted by
  * `CaseListWorkspaceProvider`, reading the URL) feeds the center canvas and the
- * right-rail inspector. This harness reunites them for the DOM assertions —
+ * right-rail inspector. This harness reunites them for the DOM assertions:
  * standing in for the old single `CaseListConfigWorkspace` component so the
  * render call sites below are unchanged. The inspector wrapper mirrors the rail
  * chrome the assertions expect (an `aria-label={title}` region with a "Close
@@ -727,7 +727,7 @@ describe("Search field removal", () => {
 		const removeSearchField = screen.getByRole("button", {
 			name: "Remove search field",
 		});
-		expect(removeSearchField.className).toContain("bg-destructive");
+		expect(removeSearchField.className).toContain("nova-keycap-rose");
 		fireEvent.click(removeSearchField);
 
 		await waitFor(() => {

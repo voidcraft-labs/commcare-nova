@@ -1,5 +1,5 @@
 /**
- * Async server component — user usage history table.
+ * Async server component: user usage history table.
  *
  * Fetches all monthly usage periods from Postgres and renders a data table.
  * Wrapped in a Suspense boundary by the parent page so it streams in
@@ -20,7 +20,7 @@ interface UserUsageSectionProps {
 export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 	const usage = await getAdminUserUsage(userId);
 
-	// Lifetime totals are summed straight off the rows we already fetched — no
+	// Lifetime totals are summed straight off the rows we already fetched, no
 	// second query. Only the two figures that carry a meaningful all-time sum
 	// are totalled: credits used (lifetime credit consumption) and cost
 	// (lifetime dollar spend). Generations / tokens / bonus are per-period
@@ -38,7 +38,9 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 
 	return (
 		<section>
-			<h3 className="text-lg font-display font-semibold mb-4">Usage History</h3>
+			<h3 className="text-lg font-display font-semibold tracking-tighter mb-4">
+				Usage history
+			</h3>
 			{usage.length === 0 ? (
 				<p className="text-sm text-nova-text-secondary">
 					No usage recorded yet.
@@ -50,25 +52,25 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 							<tr className="border-b border-nova-border bg-nova-deep/50">
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Period
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Generations
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Tokens (in / out)
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Cost
 								</th>
@@ -78,25 +80,25 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 								    stored. */}
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Allowance
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Credits used
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Bonus
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Balance
 								</th>
@@ -132,7 +134,7 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 									</td>
 									{/* Balance = allowance + bonus − consumed, derived here (not
 									    stored). A period that predates the credit system has all
-									    three absent, so the `?? 0` coalescing yields 0 — accurate
+									    three absent, so the `?? 0` coalescing yields 0: accurate
 									    for a month with no credit doc. */}
 									<td className="px-4 py-3 text-sm tabular-nums">
 										{(
@@ -143,7 +145,7 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 									</td>
 								</tr>
 							))}
-							{/* Totals row — visually set apart by a heavier top border +
+							{/* Totals row: visually set apart by a heavier top border +
 							    medium weight. Only the two figures with a meaningful
 							    lifetime sum (credits used, cost) carry a value; the other
 							    cells stay blank so the columns still line up. Allowance is a

@@ -10,7 +10,7 @@
 // property pickers / value pickers read `caseTypes` / `knownInputs`
 // to drive their dropdown content.
 //
-// Scope flips at relational quantifiers — when a card descends into
+// Scope flips at relational quantifiers: when a card descends into
 // an `exists.where` or `missing.where`, the context's
 // `currentCaseType` changes to the relation walk's destination so
 // nested property dropdowns show the destination's properties (per
@@ -58,7 +58,7 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /** Re-exported from its dependency-free home so the pure cascade-reseed
  *  helpers can build the same context without importing this React
- *  module — see `editorTypeContext.ts` for why that separation exists. */
+ *  module: see `editorTypeContext.ts` for why that separation exists. */
 export { buildEditorTypeContext } from "./editorTypeContext";
 
 /**
@@ -70,7 +70,7 @@ export { buildEditorTypeContext } from "./editorTypeContext";
 export type EditorPathErrors = readonly string[];
 
 /**
- * Opaque map type — components consume it through the helpers below
+ * Opaque map type: components consume it through the helpers below
  * (`useEditorErrorsAt` / `useEditorIsValid`) rather than indexing
  * directly. Keeps the serialization format private.
  */
@@ -103,7 +103,7 @@ interface PredicateEditContextValue {
 	readonly userProperties: readonly UserProperty[];
 	/**
 	 * Form answers this editor may read, ALREADY narrowed by the mounting
-	 * surface to the ones its slot admits — a case operation running once
+	 * surface to the ones its slot admits: a case operation running once
 	 * per submission drops every answer that has one value per repeat
 	 * iteration, because the commit gate refuses that reference. Empty on
 	 * every surface that reads no form answers at all.
@@ -181,7 +181,7 @@ interface PredicateEditProviderProps {
 }
 
 /**
- * Top-level provider — mounted once by `PredicateCardEditor` per
+ * Top-level provider: mounted once by `PredicateCardEditor` per
  * editor instance. The `validityIndex` is recomputed by the editor
  * on every onChange (via the type checker) and threaded through
  * here.
@@ -189,7 +189,7 @@ interface PredicateEditProviderProps {
  * In a `"global"` scope the provider composes the case-data admission
  * oracle IN FRONT of any caller-supplied oracle, so every value-source
  * and calculated-kind menu that consults `admitExpressionChange`
- * disables case reads with one shared reason — no per-surface wiring.
+ * disables case reads with one shared reason: no per-surface wiring.
  * A `"selected-case"` scope composes the narrower twin: the chosen
  * case's own properties stay available while relationship walks,
  * relationship counts, and presence tests do not.
@@ -337,7 +337,7 @@ interface WithCurrentCaseTypeProps {
  * property pickers. Mounted by `ExistsCard` (and any other card
  * walking into a destination scope) so descendants resolve property
  * references against the new scope. Inherits the rest of the
- * context unchanged — keeps `caseTypes`, `knownInputs`, and
+ * context unchanged: keeps `caseTypes`, `knownInputs`, and
  * `validityIndex` consistent across the entire predicate tree.
  */
 export function WithCurrentCaseType({
@@ -381,10 +381,10 @@ export function WithLookupTableScope({
 
 /**
  * Read the editor context. Use this when a card needs the full
- * trio (case types + current scope + known inputs) — typical for
+ * trio (case types + current scope + known inputs): typical for
  * property pickers and value pickers that resolve dropdown content
  * from the schema. Throws if called outside a
- * `<PredicateEditProvider>` — every card mounts beneath the
+ * `<PredicateEditProvider>`: every card mounts beneath the
  * top-level editor's provider, so the throw indicates a structural
  * authoring bug rather than a runtime branch the editor can recover
  * from.
@@ -394,7 +394,7 @@ export function WithLookupTableScope({
  * schemas, seeds, and verb builds consume.
  *
  * Every card that opens a menu needs this, and each used to spell it as
- * its own object literal — four literals, four independent chances to
+ * its own object literal: four literals, four independent chances to
  * omit an axis, and omitting one is silent: the narrower context still
  * type-checks, still renders, and only shows up as a menu offering
  * something the gate refuses or withholding something it admits. One
@@ -430,14 +430,14 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 }
 
 /**
- * Resolve a value expression's type against the live editor scope —
+ * Resolve a value expression's type against the live editor scope:
  * the bridge that makes the editor's "valid choices" provably a
  * function of the type checker. A card calls this on its SUBJECT
  * (e.g. a comparison's left operand) to derive the type constraint it
  * hands its dependent slots (`comparisonObjectConstraint(kind, subjectType)`),
  * so the offered set is exactly what `checkExpression` would accept.
  *
- * Runs the pure checker with a throwaway error sink — only the resolved
+ * Runs the pure checker with a throwaway error sink: only the resolved
  * type is used; diagnostics already surface through `validityIndex`.
  * Returns `undefined` for an absent or unresolved subject (an empty
  * property name, an unknown ref), which the constraint factories read
@@ -455,9 +455,9 @@ export function useResolvedType(
 
 /**
  * The `TypeContext` this editor's scope resolves against. Every editor
- * that runs the checker — the workbench, the expression editor,
+ * that runs the checker: the workbench, the expression editor,
  * `useResolvedType`, and the cascade-reseed helpers a card runs inside
- * an event handler — goes through the shared `buildEditorTypeContext`
+ * an event handler: goes through the shared `buildEditorTypeContext`
  * rather than assembling its own literal (`editorTypeContext.ts` records
  * what an omitted axis silently costs).
  */
@@ -513,7 +513,7 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
 }
 
 /**
- * Read errors attached to a STRICT descendant of `path` — excludes
+ * Read errors attached to a STRICT descendant of `path`: excludes
  * the slot itself. Used by term-arm cards inside an outer slot that
  * need to surface deeper-path errors which no inner card reads at
  * its own depth, WITHOUT duplicating the slot-level errors the
@@ -531,7 +531,7 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
  * to surface the deeper match-side errors below the input WITHOUT
  * re-reading the slot's own errors.
  *
- * The merged list is deduplicated — multiple checker passes can
+ * The merged list is deduplicated: multiple checker passes can
  * leave duplicate messages at adjacent paths, and React's key
  * uniqueness contract on the rendered diagnostic rows demands a
  * unique identifier per row. Stable-order (insertion-order) dedup
@@ -542,11 +542,11 @@ export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
 	const prefix = serializePath(path);
 	// Strict-descendant: only the prefix-with-separator form matches.
 	// Exact-key match is excluded structurally by the trailing `\0`
-	// on `prefixWithSep`, which exact-match keys lack — the slot's
+	// on `prefixWithSep`, which exact-match keys lack: the slot's
 	// own serialized form ends after its last segment, so it can't
 	// `startsWith(prefixWithSep)`. The root path's empty
 	// serialization gets the same strict treatment via the explicit
-	// `key !== ""` guard on the root branch — every non-empty key is
+	// `key !== ""` guard on the root branch: every non-empty key is
 	// a descendant of the root, so excluding the empty key gives
 	// strict-descendant semantics there too.
 	const prefixWithSep = prefix === "" ? "" : `${prefix}\0`;
@@ -572,7 +572,7 @@ export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
  * checker's verdict into a render-time lookup table. Same-path
  * errors collapse into a single list with duplicates removed so
  * the rendered diagnostic rows don't collide on identical message
- * strings — React keys derived from message content stay unique
+ * strings: React keys derived from message content stay unique
  * per slot.
  */
 export function buildValidityIndex(

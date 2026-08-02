@@ -9,7 +9,7 @@ import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
-	/** Multi-select field — options are required on this kind. */
+	/** Multi-select field: options are required on this kind. */
 	field: MultiSelectField;
 	state: FieldState;
 	/** Visible question label rendered by InteractiveFormRenderer. */
@@ -34,12 +34,12 @@ export function SelectMultiField({
 }: SelectMultiFieldProps) {
 	// Static options render in their authored array sequence, matching the wire
 	// `<item>` order; a
-	// lookup-backed select reads the ENGINE's live filtered choices — see
+	// lookup-backed select reads the ENGINE's live filtered choices, see
 	// the single-select twin for the loading contract.
 	const lookupBacked = field.optionsSource.kind === "lookup";
-	// Document-aware option-label projection — see the single-select twin.
+	// Document-aware option-label projection: see the single-select twin.
 	const projectProse = useProseProjection();
-	// `key` is display identity — see the single-select twin.
+	// `key` is display identity: see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
 		value: string;
@@ -79,7 +79,7 @@ export function SelectMultiField({
 				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* Blank values can never be "checked": "" splits to no tokens.
-					 * The DOM id derives from the stable key, never the value —
+					 * The DOM id derives from the stable key, never the value:
 					 * duplicate lookup values would otherwise cross-wire labels. */
 					const checked = opt.value !== "" && selected.has(opt.value);
 					const inputId = `${state.path}-${opt.key}`;
@@ -89,7 +89,7 @@ export function SelectMultiField({
 							htmlFor={inputId}
 							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								checked
-									? "bg-pv-accent/10 border border-pv-accent/30"
+									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"
 									: showError
 										? "bg-pv-input-bg border border-nova-rose/30 hover:border-nova-rose/50"
 										: "bg-pv-input-bg border border-pv-input-border hover:border-pv-input-focus"
@@ -132,11 +132,11 @@ export function SelectMultiField({
 							<span className="preview-markdown text-sm text-nova-text">
 								<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
 							</span>
-							{/* Per-option media — compact, same as the single-select. */}
+							{/* Per-option media: compact, same as the single-select. */}
 							<MediaDisplay
 								media={opt.media}
 								interactive={!isEditMode}
-								imageClassName="max-h-24 max-w-full rounded object-contain"
+								imageClassName="max-h-24 max-w-full rounded-lg object-contain"
 							/>
 						</label>
 					);

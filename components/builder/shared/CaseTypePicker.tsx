@@ -2,15 +2,15 @@
 //
 // Reusable "pick an existing case type or create a new one" surface. Two
 // exports:
-//   - `CaseTypePickerContent` — the inner list + create-new UI, embedded
+//   - `CaseTypePickerContent`: the inner list + create-new UI, embedded
 //     inline by the add-module flow (no popover wrapper, so it nests cleanly
 //     inside the module-creation popover).
-//   - `CaseTypePicker` — a trigger button + its own popover wrapping the
+//   - `CaseTypePicker`: a trigger button + its own popover wrapping the
 //     content, used by module settings as a compact dropdown.
 //
 // Valid by construction: the create-new name is adjudicated live by
 // `caseTypeNameVerdict` (the same wire identifier rules the commit gate
-// enforces), so an illegal or duplicate name can't be committed — the Create
+// enforces), so an illegal or duplicate name can't be committed, the Create
 // control disables with the reason rather than letting the gate reject after.
 
 "use client";
@@ -31,6 +31,7 @@ import {
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { caseTypeNameVerdict } from "@/lib/doc/identifierVerdicts";
 import { humanizeId, slugifyId } from "@/lib/domain";
+import { SELECTED_TINT_CLS } from "@/lib/styles";
 
 const ROW_BASE =
 	"h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left text-sm whitespace-normal";
@@ -155,7 +156,7 @@ export function CaseTypePickerContent({
 		() => caseTypeNameVerdict(candidate, existingNames),
 		[candidate, existingNames],
 	);
-	// Only surface the reason once the user has typed something — an empty
+	// Only surface the reason once the user has typed something, an empty
 	// field shouldn't read as an error before they start.
 	const excludedCandidate = exclude?.has(candidate) === true;
 	const candidateChoiceVerdict =
@@ -228,11 +229,7 @@ export function CaseTypePickerContent({
 										? `${display.label}, saved as ${ct.name}`
 										: display.label
 								}
-								className={`${ROW_BASE} ${
-									active
-										? "bg-nova-violet/10 text-nova-violet-bright not-disabled:hover:bg-nova-violet/15"
-										: "text-nova-text not-disabled:hover:bg-white/[0.06]"
-								}`}
+								className={`${ROW_BASE} ${active ? `${SELECTED_TINT_CLS} text-nova-violet-bright` : "text-nova-text not-disabled:hover:bg-white/[0.06]"}`}
 							>
 								<Icon
 									icon={tablerDatabase}
@@ -296,20 +293,18 @@ export function CaseTypePickerContent({
 						data-1p-ignore
 						aria-invalid={showError}
 						aria-describedby={showError ? errorId : undefined}
-						className={`min-h-11 bg-nova-deep/50 px-2.5 text-sm text-nova-text placeholder:text-nova-text-muted ${
-							showError
-								? "border-nova-rose/50 focus-visible:border-nova-rose focus-visible:ring-nova-rose/20"
-								: "border-white/[0.06] focus-visible:border-nova-violet"
+						className={`nova-focusable min-h-11 bg-nova-deep/50 px-2.5 text-sm text-nova-text placeholder:text-nova-text-muted ${
+							showError ? "border-nova-rose/50" : "border-white/[0.06]"
 						}`}
 					/>
 					<Button
 						type="button"
-						variant="ghost"
+						variant="default"
 						onClick={commitNew}
 						disabled={
 							!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok
 						}
-						className="min-h-11 w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
+						className="w-full"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create

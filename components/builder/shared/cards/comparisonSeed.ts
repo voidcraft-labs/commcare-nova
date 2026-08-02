@@ -47,7 +47,7 @@ const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
 
 /** Build a type-valid comparison against the first applicable case property.
  *  A global slot has no case to read, so its seed compares the current
- *  user's username (a real, always-present session value — text, so
+ *  user's username (a real, always-present session value: text, so
  *  only the equality kinds are reachable there) against a value to
  *  fill in. */
 export function comparisonDefault<K extends ComparisonKind>(
@@ -96,7 +96,7 @@ export function comparisonDefault<K extends ComparisonKind>(
 }
 
 /** An unchosen global placeholder with a chosen truth value. The subject
- *  is the current user's username — a real, always-present text value —
+ *  is the current user's username: a real, always-present text value:
  *  so the verb fully determines the truth: "username is not blank"
  *  always holds, "username is blank" never does. */
 export function globalPlaceholder(
@@ -108,8 +108,8 @@ export function globalPlaceholder(
 }
 
 /** The unchosen sibling minted when wrapping a condition into a group.
- *  In a global slot it is neutral for the combinator — `and(p, true)`
- *  and `or(p, false)` both keep `p`'s meaning — so grouping never
+ *  In a global slot it is neutral for the combinator: `and(p, true)`
+ *  and `or(p, false)` both keep `p`'s meaning, so grouping never
  *  changes what the rule decides (e.g. hides the Search action) before
  *  the author fills the new row. Per-case slots keep the friendly
  *  property comparison. */
@@ -127,7 +127,7 @@ export function wrapSiblingDefault(
  *  A global slot's placeholder commits before the author edits it and
  *  gates a whole surface (the Search action), so it takes the truth
  *  value that leaves the rule's meaning unchanged (the context's
- *  placeholder polarity — true at the root, keeping the surface
+ *  placeholder polarity: true at the root, keeping the surface
  *  visible until a real rule replaces it). Per-case slots keep the
  *  friendly "is" seed. */
 export function firstComparisonDefault(

@@ -45,7 +45,7 @@ import { FLOATING_LAYER_CLS, POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
 
-/** Read-only content chrome — font, padding, no caret/selection. The box
+/** Read-only content chrome: font, padding, no caret/selection. The box
  *  (border + fill) lives on the WRAPPER, not here: the editable-idle state
  *  gets its well from the wrapping button (so the field reads as one
  *  element), and the standalone read-only display layers
@@ -90,7 +90,7 @@ const baseReadOnlyExtensions = [
 // ── Editing theme ──────────────────────────────────────────────────────
 
 /** Compact CodeMirror chrome for the inline editing state. Chromeless like
- *  the read-only base — the wrapper div owns the well (border + fill). */
+ *  the read-only base: the wrapper div owns the well (border + fill). */
 const editingTheme = EditorView.theme({
 	"&": {
 		fontSize: "12px",
@@ -125,7 +125,7 @@ interface XPathFieldProps {
 	/** Callback to save the edited value. Presence enables click-to-edit.
 	 *  May return the gated dispatch's `CommitOutcome`: an `ok: false`
 	 *  with messages keeps the editor OPEN with the draft intact and
-	 *  surfaces the first finding in the error tooltip — the doc-level
+	 *  surfaces the first finding in the error tooltip: the doc-level
 	 *  gate sees findings the inline lint can't (cycles, type errors), and
 	 *  the user's typed expression must survive the bounce. `void` reads
 	 *  as committed. */
@@ -150,7 +150,7 @@ interface XPathFieldProps {
  * editor with autocomplete, linting, bracket matching, and reference chips.
  * Cmd/Ctrl+Enter validates and saves. Escape cancels (reverts). Blur with
  * errors shakes and refocuses (holds the editor open). Invalid expressions
- * cannot be saved — a rose tooltip shows the validation error message on
+ * cannot be saved: a rose tooltip shows the validation error message on
  * rejected save attempts.
  *
  * Hashtag references render as styled chips automatically when a
@@ -210,10 +210,10 @@ export function XPathField({
 			);
 		}
 
-		/* Editable idle — the button IS the single well (border + fill); the
+		/* Editable idle: the button IS the single well (border + fill); the
 		 * CodeMirror inside is chromeless, so the field reads as one element
 		 * and matches the editing box 1:1 (only the border color and
-		 * interactivity change on click — no inner box, no size shift). */
+		 * interactivity change on click: no inner box, no size shift). */
 		return (
 			<button
 				type="button"
@@ -241,13 +241,13 @@ export function XPathField({
 			value={value}
 			onSave={(v) => {
 				const normalized = formatXPath(v);
-				/* Always propagate empty commits — the parent needs the callback
+				/* Always propagate empty commits: the parent needs the callback
 				 * to clean up addable-field state (e.g. xpathField.clear(),
 				 * setAddingCondition(false)). Skip only non-empty no-ops. */
 				if (!normalized.trim() || normalized !== formatXPath(value)) {
 					const outcome = onSave?.(normalized);
 					if (outcome && outcome.ok === false && outcome.messages.length > 0) {
-						/* The commit gate refused the edit — hand the rejection
+						/* The commit gate refused the edit: hand the rejection
 						 * back so the inline editor stays open with the draft. */
 						return outcome;
 					}
@@ -278,13 +278,13 @@ export function XPathField({
 interface InlineXPathEditorProps {
 	value: string;
 	/** Commit the draft. A returned rejection (`ok: false` with messages)
-	 *  means the doc-level gate refused — the editor stays open. */
+	 *  means the doc-level gate refused: the editor stays open. */
 	onSave: (draft: string) => CommitOutcome | undefined;
 	/** Cancel editing and revert to the original value (no save). */
 	onCancel: () => void;
 	getLintContext?: () => XPathLintContext | undefined;
 	provider: ReferenceProvider | null;
-	/** The form being edited — scopes chip resolution. */
+	/** The form being edited: scopes chip resolution. */
 	currentFormUuid: string | undefined;
 	clickPosition: { x: number; y: number } | null;
 }
@@ -393,7 +393,7 @@ function InlineXPathEditor({
 	const getLintContextRef = useRef(getLintContext);
 	getLintContextRef.current = getLintContext;
 
-	/* ReferenceProvider for chip resolution — shares the same getter. */
+	/* ReferenceProvider for chip resolution: shares the same getter. */
 	const chipProvider = useMemo(
 		() => new ReferenceProvider(() => getLintContextRef.current?.()),
 		[],
@@ -416,7 +416,7 @@ function InlineXPathEditor({
 		// Derive the per-case-type accept map from the context via the shared
 		// `caseTypePropsForValidation` (same registration-narrowing rule the
 		// inline linter uses), so the save gate and the diagnostics agree.
-		// Context-less validation is allowed — case-ref checks just skip.
+		// Context-less validation is allowed: case-ref checks just skip.
 		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
 		return validateXPath(
 			currentDraft,
@@ -428,7 +428,7 @@ function InlineXPathEditor({
 
 	/** Trigger the reject shake animation on the editor wrapper. The
 	 *  `onAnimationEnd` handler on the wrapper clears `shaking` when the
-	 *  CSS keyframe completes — see the `xpath-shake` utility in
+	 *  CSS keyframe completes: see the `xpath-shake` utility in
 	 *  `globals.css`. */
 	const shake = useCallback(() => {
 		setShaking(true);
@@ -451,7 +451,7 @@ function InlineXPathEditor({
 		const outcome = onSave(draftRef.current);
 		if (outcome && outcome.ok === false && outcome.messages.length > 0) {
 			/* The doc-level commit gate refused a draft the inline lint
-			 * passed (a dependency cycle, a type error — findings only the
+			 * passed (a dependency cycle, a type error: findings only the
 			 * whole-doc validator can see). Stay open with the draft intact
 			 * and show the finding the same way an inline lint error shows:
 			 * the typed expression is never discarded. */
@@ -462,7 +462,7 @@ function InlineXPathEditor({
 		}
 	}, [onSave, getErrors, shake]);
 
-	/** Cancel editing — revert to the original value without saving. */
+	/** Cancel editing: revert to the original value without saving. */
 	const cancel = useCallback(() => {
 		if (doneRef.current) return;
 		doneRef.current = true;
@@ -483,7 +483,7 @@ function InlineXPathEditor({
 	/** Tracks whether the user has been warned about errors blocking navigation. */
 	const warnedRef = useRef(false);
 
-	/* Edit guard — blocks selection changes while the editor has unsaved
+	/* Edit guard: blocks selection changes while the editor has unsaved
 	 * invalid content. The two-strike pattern ("warn then allow") lives
 	 * inside the predicate: first invocation returns false and surfaces a
 	 * warning; second invocation returns true, letting the selection through.
@@ -610,7 +610,7 @@ function InlineXPathEditor({
 	);
 
 	return (
-		// Filter `onAnimationEnd` on the keyframe name — animation events
+		// Filter `onAnimationEnd` on the keyframe name: animation events
 		// bubble, and any descendant @keyframes (CodeMirror cursor blink, etc.)
 		// would otherwise clear `shaking` mid-shake.
 		<div
@@ -646,13 +646,13 @@ function InlineXPathEditor({
 					/* Mousedown-outside as the authoritative blur signal.
 					 * The capture-phase mousedown listener sets clickedOutsideRef
 					 * synchronously before blur fires, so we can read it directly
-					 * here — no rAF or setTimeout needed.
+					 * here: no rAF or setTimeout needed.
 					 *
 					 * This sidesteps Chrome's contentEditable focus bounce: when
 					 * the user clicks a non-focusable ancestor of cm-content,
 					 * Chrome fires blur → focusin (bounce) → blur. A hasFocus
 					 * check in a rAF races with the bounce. The mousedown flag
-					 * doesn't — it's set once, definitively, before any focus
+					 * doesn't: it's set once, definitively, before any focus
 					 * events fire.
 					 *
 					 * Autocomplete tooltip clicks are excluded in the mousedown
@@ -663,15 +663,15 @@ function InlineXPathEditor({
 					const errors = getErrorsRef.current();
 					if (errors.length > 0) {
 						/* If the edit guard already warned on this interaction (user
-						 * clicked a navigation target), skip the duplicate shake/tooltip
-						 * — the guard already provided the visual feedback. */
+						 * clicked a navigation target), skip the duplicate shake/tooltip:
+						 * the guard already provided the visual feedback. */
 						if (!warnedRef.current) {
 							shakeRef.current();
 							setTooltipMessage(errors[0]);
 						}
 						/* Refocus so Escape works without waiting for the shake
 						 * animation to finish. The shake is CSS-only on the wrapper
-						 * div — unaffected by focus state. */
+						 * div: unaffected by focus state. */
 						editorRef.current?.view?.focus();
 					} else {
 						saveRef.current();

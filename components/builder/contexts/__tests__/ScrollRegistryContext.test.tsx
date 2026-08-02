@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * Tests for ScrollRegistryContext — verifies the scroll registry API:
+ * Tests for ScrollRegistryContext: verifies the scroll registry API:
  * callback registration/cleanup, pending scroll fulfillment, direct scroll,
  * and the provider guard on the internal useScrollRegistry hook.
  *
  * Tests that need multiple hooks sharing the same provider render them
  * in a single `renderHook` body. `useFulfillPendingScroll` takes a
- * uuid and an isSelected flag — the effect only fires when isSelected
+ * uuid and an isSelected flag: the effect only fires when isSelected
  * is true, and re-fires on false -> true transitions.
  */
 import { act, renderHook } from "@testing-library/react";
@@ -123,7 +123,7 @@ describe("ScrollRegistryContext", () => {
 		rerender({ fulfillUuid: "q-2", isSelected: true });
 		expect(cb).not.toHaveBeenCalled();
 
-		/* Pending state should be preserved — fulfill with the correct uuid. */
+		/* Pending state should be preserved: fulfill with the correct uuid. */
 		rerender({ fulfillUuid: "q-1", isSelected: true });
 		expect(cb).toHaveBeenCalledOnce();
 		expect(cb).toHaveBeenCalledWith("q-1", undefined, "instant", true);
@@ -148,7 +148,7 @@ describe("ScrollRegistryContext", () => {
 		});
 		expect(cb).not.toHaveBeenCalled();
 
-		/* Flip isSelected true — the effect re-fires and fulfills the
+		/* Flip isSelected true: the effect re-fires and fulfills the
 		 * pending request. This is the critical within-form navigation path
 		 * where the target field is already mounted. */
 		rerender({ isSelected: true });

@@ -9,7 +9,7 @@
  *   - the WIRE NAME is an external contract every export and every CSV header
  *     uses, so it needs the `delete` capability;
  *   - the TYPE and REMOVAL are destructive or contract-breaking, need `delete`,
- *     AND need zero apps referencing the column — which is what the
+ *     AND need zero apps referencing the column, which is what the
  *     confirmation names before it happens.
  */
 "use client";
@@ -129,7 +129,7 @@ export function ColumnInspectorBody({
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								disabled={
 									!label.dirty || label.conflicted || settingWrite !== null
 								}
@@ -147,7 +147,7 @@ export function ColumnInspectorBody({
 									}
 								}}
 							>
-								{settingWrite === "label" ? "Saving…" : "Save name"}
+								{settingWrite === "label" ? "Saving" : "Save name"}
 							</Button>
 						</div>
 						{label.conflicted && (
@@ -193,7 +193,7 @@ export function ColumnInspectorBody({
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								disabled={
 									!wireName.dirty ||
 									wireName.conflicted ||
@@ -213,7 +213,7 @@ export function ColumnInspectorBody({
 									}
 								}}
 							>
-								{settingWrite === "wire-name" ? "Saving…" : "Save export name"}
+								{settingWrite === "wire-name" ? "Saving" : "Save export name"}
 							</Button>
 						</div>
 						{wireName.conflicted && (
@@ -302,7 +302,6 @@ export function ColumnInspectorBody({
 						type="button"
 						variant="ghost"
 						disabled={lastColumn || settingWrite !== null}
-						className="min-h-11 gap-2 text-nova-text-muted not-disabled:hover:text-nova-text"
 						onClick={() =>
 							setPending({
 								kind: "remove",
@@ -403,7 +402,7 @@ function ColumnDraftDriftNotice({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(discardRevisionedTextDraft(draft))}
 				>
@@ -412,7 +411,7 @@ function ColumnDraftDriftNotice({
 				<Button
 					type="button"
 					variant="outline"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(keepRevisionedTextDraft(draft))}
 				>

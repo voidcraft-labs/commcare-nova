@@ -66,8 +66,8 @@ import { buildValidityIndex, PredicateEditProvider } from "../editorContext";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 
-// Cards and the path builder spell authored prose — option labels, property
-// names — against the document. Wrapping at `render` reproduces the builder's
+// Cards and the path builder spell authored prose: option labels, property
+// names: against the document. Wrapping at `render` reproduces the builder's
 // provider for every surface here.
 function DocumentProvider({ children }: { readonly children: ReactNode }) {
 	return (
@@ -217,7 +217,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 	// pinned by their own card tests.
 
 	it("`arith` value round-trips without firing onChange on mount", () => {
-		// `eq(prop, arith(literal, literal, "+"))` — the right side
+		// `eq(prop, arith(literal, literal, "+"))`: the right side
 		// is a higher-order `arith` expression. Mounting the editor
 		// renders the matching ArithCard via the registry; the
 		// round-trip contract is the no-spurious-onChange assertion.
@@ -234,8 +234,8 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// Arithmetic card label appears on the right-side expression
-		// — the registry surfaced the arith arm via its dedicated
+		// Arithmetic card label appears on the right-side expression:
+		// the registry surfaced the arith arm via its dedicated
 		// card rather than through the old badge.
 		expect(container.textContent).toMatch(/Math/i);
 		expect(onChange).not.toHaveBeenCalled();
@@ -286,7 +286,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// Terms render UNBOXED — no slot title; the source chip
+		// Terms render UNBOXED: no slot title; the source chip
 		// ("A value") is the term's friendly visible identity.
 		expect(container.textContent).toMatch(/A value/);
 		expect(onChange).not.toHaveBeenCalled();
@@ -663,7 +663,7 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 	});
 
 	it("renders an editable qualified subcase walk", () => {
-		// `subcasePath("parent", "visit")` — `ofCaseType` qualifier
+		// `subcasePath("parent", "visit")`: `ofCaseType` qualifier
 		// remains present in the child-case editor.
 		const value = exists(subcasePath("parent", "visit"));
 		const onChange = vi.fn();
@@ -1279,7 +1279,7 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 	// would silently drop the walk. The picker exposes the complete
 	// walk under Uses information from and never rewrites it on mount.
 	//
-	// Eight surfaces total — five subject cards + three
+	// Eight surfaces total: five subject cards + three
 	// property-only cards.
 
 	const VIA = ancestorPath(relationStep("parent"));
@@ -1492,7 +1492,7 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 });
 
 describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
-	// `selfPath()` is semantically equivalent to "no walk" — the
+	// `selfPath()` is semantically equivalent to "no walk": the
 	// `isCanonicalPropertyRef` guard accepts both `via === undefined`
 	// AND `via.kind === "self"` as canonical shapes that round-trip
 	// through the editing surface (no badge). One test per mode
@@ -1556,7 +1556,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// No badge — the canonical guard accepted via=self.
+		// No badge: the canonical guard accepted via=self.
 		expect(container.textContent).not.toMatch(/Property via relation walk/i);
 		expect(onChange).not.toHaveBeenCalled();
 		// Picking a different property must preserve via=self verbatim.

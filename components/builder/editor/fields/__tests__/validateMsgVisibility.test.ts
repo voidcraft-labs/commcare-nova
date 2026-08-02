@@ -1,5 +1,5 @@
 /**
- * validateMsgVisibility — pure tests for the validate-message slot.
+ * validateMsgVisibility: pure tests for the validate-message slot.
  *
  * `XPathEditor` renders for several XPath-valued keys (`relevant`,
  * `validate`, `default_value`, `calculate`) but only the `validate`
@@ -21,7 +21,7 @@ const FALSY_HINT = undefined;
 describe("shouldShowValidateMsgEditor", () => {
 	it("false unless keyName === 'validate'", () => {
 		// Other XPath-valued keys (relevant, calculate, default_value)
-		// don't carry a message — the editor must skip the bundled UX.
+		// don't carry a message: the editor must skip the bundled UX.
 		for (const keyName of ["relevant", "calculate", "default_value"]) {
 			expect(
 				shouldShowValidateMsgEditor({
@@ -96,7 +96,7 @@ describe("shouldShowValidateMsgPill", () => {
 
 	it("false when the parent validate XPath is empty", () => {
 		// A message attached to no validation rule has nothing to assert
-		// against — collapse the row so the user isn't tempted to write one.
+		// against: collapse the row so the user isn't tempted to write one.
 		expect(
 			shouldShowValidateMsgPill({
 				keyName: "validate",
@@ -123,7 +123,7 @@ describe("shouldShowValidateMsgPill", () => {
 	});
 
 	it("false when the message editor is showing instead", () => {
-		// Pill and editor are mutually exclusive — if any signal lit the
+		// Pill and editor are mutually exclusive: if any signal lit the
 		// editor (saved value, pill click, focus hint) the pill stays out.
 		for (const editorSignal of [
 			{ hasValidateMsg: true, addingMsg: false, focusHint: FALSY_HINT },

@@ -1,24 +1,24 @@
 // components/builder/case-list-config/__tests__/cards/column/preservedColumnSwap.test.tsx
 //
-// Unit tests for `preservedColumnSwap` — the pure column
+// Unit tests for `preservedColumnSwap`: the pure column
 // kind-replace transformation in `ColumnEditor`. Given a current
 // Column, a target kind, and the editor context, it returns the
 // rebuilt Column under the target kind, or `undefined` when the
 // target cannot be built from declared compatible information. The
 // transformation enforces three preservation tiers:
 //
-//   - **Universal header + uuid + common slots** — every kind
+//   - **Universal header + uuid + common slots**: every kind
 //     transition threads `header`, `uuid`, and the optional common
 //     slots (`sort`, visibility, and tile presentation) through
 //     verbatim. They're identity / surface-visibility shape, not
 //     kind-specific.
-//   - **Field preservation** — the six non-calc kinds all carry
+//   - **Field preservation**: the six non-calc kinds all carry
 //     `field: string`, so a swap among them preserves `field`
 //     verbatim. Calc has no field: swapping TO calc drops it;
 //     swapping FROM calc seeds the new field from the target
 //     schema's default factory (the case type's first applicable
 //     property).
-//   - **Kind-specific extras** — date pattern, mapping table,
+//   - **Kind-specific extras**: date pattern, mapping table,
 //     interval threshold/unit/display/text, and calc expression
 //     carry over across structural-twin (same-kind) transitions and
 //     reset to the target schema's `defaultValue(ctx)` otherwise.
@@ -63,7 +63,7 @@ const PATIENT: CaseType = {
 };
 
 // The exact `ColumnEditContext` `ColumnEditor` assembles from its
-// props and hands to `preservedColumnSwap` — the case-type schema
+// props and hands to `preservedColumnSwap`: the case-type schema
 // plus the current scope. The default-value factories the swap
 // invokes for non-twin extras / field seeding read these.
 const CTX: ColumnEditContext = {
@@ -253,7 +253,7 @@ describe("preservedColumnSwap — non-twin transitions reset extras", () => {
 		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
 		expect(next.header).toBe("Birthday");
-		// Extras come from the `interval` schema's `defaultValue(ctx)` —
+		// Extras come from the `interval` schema's `defaultValue(ctx)`:
 		// a non-twin (plain) source seeds them fresh rather than carrying
 		// over. Calling the pure swap with the same `ctx` reproduces the
 		// exact factory output.

@@ -1,23 +1,23 @@
 /**
- * GET /api/media/library — list a Project's media assets.
+ * GET /api/media/library: list a Project's media assets.
  *
  * Two modes on one route:
  *
- *   - **List** (default) — cursor-paginated, newest first. Backs the
+ *   - **List** (default): cursor-paginated, newest first. Backs the
  *     asset-library picker. Optional query parameters:
- *       - `kind` — filter to a SET of asset kinds; repeat the param to allow
+ *       - `kind`: filter to a SET of asset kinds; repeat the param to allow
  *         several (`?kind=image&kind=pdf`). Media kinds (image/audio/video) back
  *         the carrier pickers; document kinds (pdf/text/docx/xlsx) back the chat
  *         file manager. A picker's "All" view passes exactly its carrier's allowed
  *         kinds, so the server returns only attachable assets rather than a page of
  *         irrelevant kinds the client would then hide. Omit it for every kind.
- *       - `cursor` — the opaque token the previous page returned in
+ *       - `cursor`: the opaque token the previous page returned in
  *         `nextCursor`; pass it back verbatim to fetch the next page.
  *         Omit it for the first page.
- *       - `q` — case-insensitive literal name search, applied server-side before
+ *       - `q`: case-insensitive literal name search, applied server-side before
  *         pagination. Searches the visible filename and extracted document title,
  *         so an older match is discoverable without loading unrelated pages first.
- *   - **Resolve** — repeated `?id=` looks up exactly those rows (Project-filtered;
+ *   - **Resolve**: repeated `?id=` looks up exactly those rows (Project-filtered;
  *     an id that's missing or in another Project is silently absent, so ids stay
  *     non-enumerable). Backs the browser attach budget check, which needs the
  *     byte sizes of referenced assets the session hasn't otherwise loaded.
@@ -45,12 +45,12 @@ import {
 const querySchema = z
 	.object({
 		// Repeated `?kind=` collects into an array; each must be an accepted kind.
-		// `[]` (no param) means "every kind" — passed through as no filter.
+		// `[]` (no param) means "every kind": passed through as no filter.
 		kinds: z.array(z.enum(ASSET_KINDS)),
 		cursor: z.string().optional(),
 		query: z.string().max(200).optional(),
 		// Repeated `?id=` switches to resolve mode. Capped at the export-asset
-		// ceiling — a doc can't reference more exportable assets than that, so
+		// ceiling: a doc can't reference more exportable assets than that, so
 		// a larger request is malformed, and the cap bounds the row set loaded
 		// in one query the same way the boundary's pre-load cap does.
 		ids: z.array(mediaAssetIdSchema).max(MAX_MEDIA_EXPORT_ASSETS),
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed — each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
+				"Library query couldn't be parsed, each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
 
 		const { ids, kinds, cursor, query, appId } = parsed.data;
 
-		// Resolve the Project to read from — the app's Project in an app context
+		// Resolve the Project to read from: the app's Project in an app context
 		// (view-gated; a denied app throws AppAccessError → 404), else the
 		// caller's active Project for the personal file manager.
 		const project = appId
@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
 			cursor,
 			...(normalizedQuery ? { query: normalizedQuery } : {}),
 		}).catch((err: unknown) => {
-			// A bad cursor is a client error — surface its helpful
+			// A bad cursor is a client error: surface its helpful
 			// message as a 400 rather than collapsing to a 500.
 			if (err instanceof MalformedCursorError) {
 				throw new ApiError(err.message, 400);

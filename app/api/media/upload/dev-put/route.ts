@@ -1,11 +1,11 @@
 /**
- * Local-dev only — the browser's signed-PUT target during development.
+ * Local-dev only: the browser's signed-PUT target during development.
  *
  * Production mints a real V4 signed URL straight to GCS (see
  * `lib/storage/media.ts::createSignedUploadUrl`), signed by the runtime
  * service account. A developer's Application Default Credentials are a
  * user credential with no private key, so they cannot mint that
- * signature — the browser PUTs the bytes here instead and the server
+ * signature: the browser PUTs the bytes here instead and the server
  * writes them to the dev bucket through its own storage client. This
  * keeps the rest of the upload flow (initiate → PUT → confirm →
  * validate → promote) byte-identical to prod; only the signed-PUT hop
@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest) {
 		const key = new URL(req.url).searchParams.get("key");
 		if (!key) {
 			throw new ApiError(
-				"The upload is missing its object key — the `key` query param names where the bytes land. The initiate step sets it; don't call this route directly.",
+				"The upload is missing its object key, the `key` query param names where the bytes land. The initiate step sets it; don't call this route directly.",
 				400,
 			);
 		}
@@ -44,8 +44,8 @@ export async function PUT(req: NextRequest) {
 		// Tenant guard: the initiate step mints keys shaped
 		// `pending/<projectId>/<assetId>.<ext>` (`pendingGcsObjectKeyFor`), and
 		// the Project segment is the tenant the bytes land in. Re-gate `edit`
-		// membership on that Project — the same check initiate ran before
-		// handing out this URL — so the dev route can't be coaxed into writing
+		// membership on that Project: the same check initiate ran before
+		// handing out this URL, so the dev route can't be coaxed into writing
 		// into a Project the caller can't edit. (Prod needs no equivalent: a V4
 		// signature only exists for keys the server itself minted.)
 		const segments = key.split("/");
@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest) {
 			!objectName
 		) {
 			throw new ApiError(
-				`The object key \`${key}\` doesn't look like an upload-attempt key — the initiate step mints \`${PENDING_OBJECT_PREFIX}<projectId>/<assetId>.<ext>\` or \`${STAGED_CAPTURE_PREFIX}<projectId>/<attachmentId>.<ext>\`. Don't call this route directly.`,
+				`The object key \`${key}\` doesn't look like an upload-attempt key, the initiate step mints \`${PENDING_OBJECT_PREFIX}<projectId>/<assetId>.<ext>\` or \`${STAGED_CAPTURE_PREFIX}<projectId>/<attachmentId>.<ext>\`. Don't call this route directly.`,
 				400,
 			);
 		}
@@ -82,7 +82,7 @@ export async function PUT(req: NextRequest) {
 			} catch (err) {
 				if (err instanceof AppAccessError) {
 					throw new ApiError(
-						"This upload targets a Project you can't edit — the pending key's Project segment must name a Project you hold edit access in.",
+						"This upload targets a Project you can't edit, the pending key's Project segment must name a Project you hold edit access in.",
 						403,
 					);
 				}
@@ -92,7 +92,7 @@ export async function PUT(req: NextRequest) {
 
 		// Enforce the per-kind byte cap that prod binds onto the signed PUT via
 		// `x-goog-content-length-range`. The proxy writes the bytes itself, so
-		// there's no GCS-side range check — this keeps dev byte-identical to the
+		// there's no GCS-side range check: this keeps dev byte-identical to the
 		// prod boundary rejection of an oversized write. The legit producer
 		// (`createSignedUploadUrl`) always appends `&max=<positive int>`. Handle
 		// the edges explicitly: ABSENT → no cap (skip, don't 413 on the

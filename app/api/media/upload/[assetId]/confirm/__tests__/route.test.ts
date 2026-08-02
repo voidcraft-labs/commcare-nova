@@ -1,5 +1,5 @@
 /**
- * `POST /api/media/upload/[assetId]/confirm` — storage lifecycle tests.
+ * `POST /api/media/upload/[assetId]/confirm`: storage lifecycle tests.
  *
  * Confirm is the only place untrusted browser bytes become reusable
  * library bytes. These tests pin the safety invariants: validation failure

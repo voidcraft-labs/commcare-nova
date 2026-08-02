@@ -4,13 +4,13 @@
 //
 // A form's display condition on a case-first module runs on the case
 // list, where CommCare has exactly one case and no way to reach its
-// relatives — `lib/commcare/validator/rules/displayConditions.ts`
+// relatives: `lib/commcare/validator/rules/displayConditions.ts`
 // rejects a related read, a count, and a presence test there. So the
 // editor must not OFFER any of those: an author who can build one has
 // found a commit-gate rejection, not a feature.
 //
 // These assert the offered-set, the seeds, and the admission oracle's
-// input predicate — the three places a related read could enter.
+// input predicate: the three places a related read could enter.
 
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";

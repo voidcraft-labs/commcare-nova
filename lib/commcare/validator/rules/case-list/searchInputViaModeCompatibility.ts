@@ -138,7 +138,7 @@ function buildRangeRejectionMessage(args: {
 	if (viaIsCrossWalk && via !== undefined && via.kind !== "self") {
 		const directionLabel = relationDirectionLabel(via.kind);
 		if (nameDiverges) {
-			return `${inputDescriptor} uses the \`range\` mode, walks ${directionLabel}, AND names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's \`daterange\` widget stores one encoded start/end answer, and CCHQ's special runtime matcher applies that pair to the current-case property named by the prompt key; neither half works here — the prompt carries no relation walk, and the prompt key doesn't name the targeted property. ${fixHints}`;
+			return `${inputDescriptor} uses the \`range\` mode, walks ${directionLabel}, AND names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's \`daterange\` widget stores one encoded start/end answer, and CCHQ's special runtime matcher applies that pair to the current-case property named by the prompt key; neither half works here, the prompt carries no relation walk, and the prompt key doesn't name the targeted property. ${fixHints}`;
 		}
 		return `${inputDescriptor} walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget stores one encoded start/end answer, and its special matcher can apply that pair only to the current-case property named by the prompt key; a \`<prompt>\` carries no relation-walk metadata. ${fixHints}`;
 	}

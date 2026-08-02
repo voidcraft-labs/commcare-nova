@@ -28,7 +28,7 @@ export interface TableButtonProps
 
 /**
  * Visual grid picker for selecting table dimensions. Renders a MAX_ROWS × MAX_COLS
- * grid of cells — hovering highlights the top-left region to preview the selection,
+ * grid of cells: hovering highlights the top-left region to preview the selection,
  * clicking inserts a table with those dimensions. A label below shows the current
  * "rows × cols" count. Always inserts with a header row (GFM requirement).
  */
@@ -87,7 +87,7 @@ function TableGridPicker({
 /**
  * Dropdown menu for inserting tables with a visual grid size picker.
  * The trigger shows the table icon + chevron. Opening the dropdown reveals
- * a grid of cells — hover to preview dimensions, click to insert.
+ * a grid of cells: hover to preview dimensions, click to insert.
  */
 export const TableButton = forwardRef<HTMLButtonElement, TableButtonProps>(
 	(

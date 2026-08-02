@@ -2,8 +2,8 @@
 //
 // The ONE place an editor's vocabulary becomes a `TypeContext`.
 //
-// It lives in its own dependency-free module — every import here is
-// type-only — because both halves of the editor need it: the React
+// It lives in its own dependency-free module: every import here is
+// type-only: because both halves of the editor need it: the React
 // context (`editorContext.tsx`, which re-exports it) and the pure
 // cascade-reseed helpers (`cards/reseed.ts`) a card runs inside an event
 // handler. Reseed reaching into `editorContext.tsx` would close a cycle
@@ -54,7 +54,7 @@ export interface EditorTypeVocabulary {
 }
 
 /**
- * The `TypeContext` an editor scope resolves against — the same inputs
+ * The `TypeContext` an editor scope resolves against: the same inputs
  * the commit gate's validator composes, so the offered-set and the
  * accept-set cannot drift.
  */

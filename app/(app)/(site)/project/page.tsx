@@ -1,5 +1,5 @@
 /**
- * Project settings — the settings that belong to the ACTIVE Project (not the
+ * Project settings: the settings that belong to the ACTIVE Project (not the
  * account). Reached from the header's ProjectSwitcher ("Project settings"), NOT
  * from the account-menu → Settings page: members + invitations are Project-
  * scoped and follow the switcher, so they live on their own page with the
@@ -40,10 +40,10 @@ export default async function ProjectSettingsPage() {
 	return (
 		<main className="max-w-2xl mx-auto px-6 py-12">
 			<div className="mb-8">
-				<p className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+				<p className="text-xs font-medium text-nova-text-muted">
 					Project settings
 				</p>
-				<h1 className="text-2xl font-display font-semibold">
+				<h1 className="text-2xl font-display font-semibold tracking-tighter">
 					{activeProject.name}
 				</h1>
 			</div>

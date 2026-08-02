@@ -6,13 +6,13 @@ import { formatRelativeDate } from "@/lib/utils/format";
  * The rendered string is a function of "now", so the server render and
  * the client's hydration pass legitimately disagree whenever the gap
  * between them crosses a unit boundary ("2m ago" → "3m ago"). React
- * treats that as a hydration text mismatch — it throws error #418 and
+ * treats that as a hydration text mismatch: it throws error #418 and
  * regenerates the whole tree on the client. `suppressHydrationWarning`
  * is React's escape hatch for exactly this one-text-node case: the
  * mismatch check is skipped and the server's string stands until the
  * next client render.
  *
- * Relative-time text a CLIENT component renders needs this treatment —
+ * Relative-time text a CLIENT component renders needs this treatment:
  * client trees are server-rendered, then re-computed during hydration,
  * which is where the two clocks can disagree. Render through this
  * component where `formatRelativeDate` fits, or put

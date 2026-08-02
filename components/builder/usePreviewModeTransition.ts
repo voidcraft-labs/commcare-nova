@@ -14,8 +14,8 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
  * every record to Results would lose the flipbook's current screen.
  *
  * Entering Preview from either configuration workspace leaves for the app
- * home. App setup is app administration — worker information, roles, personas
- * — and Project data holds lookup tables the project shares across apps;
+ * home. App setup is app administration: worker information, roles, personas
+ *, and Project data holds lookup tables the project shares across apps;
  * nobody using the app opens any of it, so neither has a running counterpart
  * to show. The two alternatives are both worse: keeping the workspace on
  * screen would make

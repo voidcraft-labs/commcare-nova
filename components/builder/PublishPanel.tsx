@@ -1,14 +1,14 @@
 /**
- * ExportPanel — self-contained export + upload flow.
+ * PublishPanel: the self-contained flow for putting an app somewhere real.
  *
- * Owns the export dropdown (JSON, CCZ), the CommCare HQ upload dialog,
- * and the `uploadDialogOpen` state. Colocated so the trigger (dropdown)
- * and the dialog live in the same component — no state coordination
- * through BuilderLayout needed.
+ * Owns the Publish menu (download JSON or CCZ), the CommCare HQ upload
+ * dialog, and the `uploadDialogOpen` state. Colocated so the trigger and
+ * the dialog live in the same component: no state coordination through
+ * BuilderLayout needed.
  *
  * The client-side surface speaks only the domain shape (`BlueprintDoc`).
  * Any domain → CommCare wire conversion happens server-side at the
- * export / upload routes, which are the only legitimate external
+ * compile / upload routes, which are the only legitimate external
  * emission boundaries.
  */
 "use client";
@@ -24,8 +24,8 @@ import {
 	useState,
 } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
-import type { ExportOption } from "@/components/ui/ExportDropdown";
-import { ExportDropdown } from "@/components/ui/ExportDropdown";
+import type { DownloadOption } from "@/components/ui/PublishMenu";
+import { PublishMenu } from "@/components/ui/PublishMenu";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -34,7 +34,7 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 
-interface ExportPanelProps {
+interface PublishPanelProps {
 	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
 	/** Every project space the key can upload to (drives the dialog picker). */
@@ -43,8 +43,8 @@ interface ExportPanelProps {
 
 /**
  * Download a Blob under `filename` via a transient object URL. Centralizes the
- * create → click → revoke lifecycle both export handlers share so the revoke is
- * never forgotten — a leaked object URL pins the blob in memory.
+ * create → click → revoke lifecycle both download handlers share so the revoke is
+ * never forgotten: a leaked object URL pins the blob in memory.
  */
 function triggerBlobDownload(blob: Blob, filename: string): void {
 	const url = URL.createObjectURL(blob);
@@ -56,19 +56,19 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 }
 
 /**
- * POST a persistable doc to a compile/export endpoint and download the file it
- * returns. The two export buttons differ only in endpoint, the failure-toast
- * noun, and how the filename's extension is derived from the response blob —
+ * POST a persistable doc to a compile endpoint and download the file it
+ * returns. The two download choices differ only in endpoint, the failure-toast
+ * noun, and how the filename's extension is derived from the response blob:
  * the request shape, the `res.ok` branch, the blob download, and the
  * network-failure toast are identical, so they live here once. Both endpoints
  * return the artifact bytes on success and JSON on failure, so we branch on
  * `res.ok` and never read the error body as a blob.
  *
  * A rejection reads its `{ error, details }` body and surfaces the actual
- * findings — the boundary gate's per-issue messages name what's wrong and
+ * findings: the boundary gate's per-issue messages name what's wrong and
  * where, so the toast shows those lines rather than a generic "failed".
  */
-async function exportDoc(opts: {
+async function downloadArtifact(opts: {
 	appId: string;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
@@ -88,7 +88,7 @@ async function exportDoc(opts: {
 		const res = await fetch(opts.endpoint, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			// Send only the app id — the route loads the blueprint server-side.
+			// Send only the app id: the route loads the blueprint server-side.
 			body: JSON.stringify({ appId: opts.appId }),
 			signal: opts.signal,
 		});
@@ -109,7 +109,7 @@ async function exportDoc(opts: {
 			const toastBody = apiFailureToastBody(failure);
 			opts.toast(
 				"error",
-				failure.details.length > 0 ? failure.message : "Export failed",
+				failure.details.length > 0 ? failure.message : "Download failed",
 				toastBody.message,
 				{ lines: toastBody.lines },
 			);
@@ -127,7 +127,7 @@ async function exportDoc(opts: {
 			return;
 		opts.toast(
 			"error",
-			"Export failed",
+			"Download failed",
 			`Could not generate ${opts.fileLabel}.`,
 		);
 	}
@@ -136,42 +136,43 @@ async function exportDoc(opts: {
 /**
  * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
  * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
- * but ExportPanel's props (commcareConfigured, commcareAvailableDomains) are
- * stable across navigations — the cascade is pure waste (profiler: 16ms wasted).
+ * but PublishPanel's props (commcareConfigured, commcareAvailableDomains) are
+ * stable across navigations: the cascade is pure waste (profiler: 16ms wasted).
  */
-export const ExportPanel = memo(function ExportPanel({
+export const PublishPanel = memo(function PublishPanel({
 	commcareConfigured,
 	commcareAvailableDomains,
-}: ExportPanelProps) {
+}: PublishPanelProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-	const exportControllersRef = useRef(new Set<AbortController>());
+	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
 		() =>
 			reconciler?.subscribeProjectScopeReset(() => {
-				for (const controller of exportControllersRef.current)
+				for (const controller of downloadControllersRef.current)
 					controller.abort();
-				exportControllersRef.current.clear();
+				downloadControllersRef.current.clear();
 				setUploadDialogOpen(false);
 			}),
 		[reconciler],
 	);
 	useEffect(
 		() => () => {
-			for (const controller of exportControllersRef.current) controller.abort();
-			exportControllersRef.current.clear();
+			for (const controller of downloadControllersRef.current)
+				controller.abort();
+			downloadControllersRef.current.clear();
 		},
 		[],
 	);
 
-	const runExport = useCallback(
+	const runDownload = useCallback(
 		async (
 			options: Omit<
-				Parameters<typeof exportDoc>[0],
+				Parameters<typeof downloadArtifact>[0],
 				"signal" | "isCurrent" | "toast"
 			>,
 		) => {
@@ -179,7 +180,7 @@ export const ExportPanel = memo(function ExportPanel({
 			if (start.accessPhase !== "authorized") return;
 			const epoch = start.scopeEpoch;
 			const controller = new AbortController();
-			exportControllersRef.current.add(controller);
+			downloadControllersRef.current.add(controller);
 			const isCurrent = () => {
 				const current = session.getState();
 				return (
@@ -189,14 +190,14 @@ export const ExportPanel = memo(function ExportPanel({
 				);
 			};
 			try {
-				await exportDoc({
+				await downloadArtifact({
 					...options,
 					signal: controller.signal,
 					isCurrent,
 					toast: projectToast,
 				});
 			} finally {
-				exportControllersRef.current.delete(controller);
+				downloadControllersRef.current.delete(controller);
 			}
 		},
 		[projectToast, session],
@@ -204,13 +205,13 @@ export const ExportPanel = memo(function ExportPanel({
 
 	/**
 	 * Snapshot the current persistable doc for the upload dialog. Called
-	 * imperatively when the user clicks Upload — no subscription, no
+	 * imperatively when the user clicks Upload: no subscription, no
 	 * re-renders during form entry.
 	 *
-	 * ExportPanel is only rendered when a real app is loaded — the export
-	 * dropdown is hidden until `hasData` on the layout becomes true, and
-	 * the upload dialog is gated behind a button click that requires the
-	 * dropdown to be visible. If this callback somehow runs with an
+	 * PublishPanel is only rendered when a real app is loaded: the Publish
+	 * menu is hidden until `hasData` on the layout becomes true, and the
+	 * upload dialog is gated behind a button click that requires the menu
+	 * to be visible. If this callback somehow runs with an
 	 * unmounted doc store, it's a programming error: throw loudly rather
 	 * than fabricate an empty doc that would push a zero-module app.
 	 */
@@ -218,29 +219,29 @@ export const ExportPanel = memo(function ExportPanel({
 		const s = docStore?.getState();
 		if (!s?.appId) {
 			throw new Error(
-				"ExportPanel.getAppId called before the app was persisted",
+				"PublishPanel.getAppId called before the app was persisted",
 			);
 		}
 		return s.appId;
 	}, [docStore]);
 
-	const handleExportCcz = useCallback(async () => {
+	const handleDownloadCcz = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
-		// The compile endpoint returns the `.ccz` bytes inline — one request, no
+		// The compile endpoint returns the `.ccz` bytes inline: one request, no
 		// separate download round-trip.
-		await runExport({
+		await runDownload({
 			appId: s.appId,
 			endpoint: "/api/compile",
 			fileLabel: "the .ccz file",
 			filename: () => `${s.appName || "app"}.ccz`,
 		});
-	}, [docStore, runExport]);
+	}, [docStore, runDownload]);
 
-	const handleExportJson = useCallback(async () => {
+	const handleDownloadJson = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
-		await runExport({
+		await runDownload({
 			appId: s.appId,
 			endpoint: "/api/compile/json",
 			fileLabel: "the JSON file",
@@ -250,28 +251,28 @@ export const ExportPanel = memo(function ExportPanel({
 			filename: (blob) =>
 				`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
 		});
-	}, [docStore, runExport]);
+	}, [docStore, runDownload]);
 
-	const exportOptions: ExportOption[] = useMemo(
+	const downloadOptions: DownloadOption[] = useMemo(
 		() => [
 			{
 				label: "Web",
 				description: "JSON",
 				icon: tablerBrowser,
-				onClick: handleExportJson,
+				onClick: handleDownloadJson,
 			},
 			{
 				label: "Mobile",
 				description: "CCZ",
 				icon: tablerDeviceMobile,
-				onClick: handleExportCcz,
+				onClick: handleDownloadCcz,
 			},
 		],
-		[handleExportJson, handleExportCcz],
+		[handleDownloadJson, handleDownloadCcz],
 	);
 
-	/* Stable callbacks — prevent cascading re-renders to ExportDropdown and
-	 * UploadToHqDialog when ExportPanel re-renders from parent cascade.
+	/* Stable callbacks: prevent cascading re-renders to PublishMenu and
+	 * UploadToHqDialog when PublishPanel re-renders from parent cascade.
 	 * Without these, inline arrow functions create new refs on every render,
 	 * causing 3ms+ of wasted re-renders in the dialog tree (profiler shows
 	 * UploadToHqDialog re-rendering from props=['onClose'] on every
@@ -286,8 +287,8 @@ export const ExportPanel = memo(function ExportPanel({
 
 	return (
 		<>
-			<ExportDropdown
-				options={exportOptions}
+			<PublishMenu
+				options={downloadOptions}
 				commcareConfigured={commcareConfigured}
 				canUploadToHq={canEdit}
 				onCommCareUpload={handleOpenUpload}

@@ -102,7 +102,7 @@ import {
 
 /** The structural shapes the Add-condition menu offers, beside its one
  *  comparison leaf. Exported so the per-carrier invariant tests can
- *  drive exactly what the menu offers rather than a superset — a seed
+ *  drive exactly what the menu offers rather than a superset, a seed
  *  the menu cannot reach is not an offer, and asserting one claims a
  *  path that does not exist. */
 export const STRUCTURE_KINDS = [
@@ -270,9 +270,8 @@ export function AddConditionMenu({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						size="xl"
-						className={`border-white/[0.09] px-4 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright ${className}`}
+						variant="ghost"
+						className={`nova-add-slot ${className}`}
 					/>
 				}
 			>
@@ -353,7 +352,7 @@ export interface PredicateWorkbenchProps {
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** Current custom worker-information catalog for immutable user refs. */
 	readonly userProperties?: readonly UserProperty[];
-	/** Form answers this rule may read — already narrowed by the owning
+	/** Form answers this rule may read: already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
@@ -366,7 +365,7 @@ export interface PredicateWorkbenchProps {
 	readonly evaluationTarget?: EvaluationTarget;
 	/** When the rule evaluates relative to a case row. `"global"` slots
 	 *  (the search-button display condition) resolve once, before any
-	 *  case is selected — verbs, seeds, and value sources drop every
+	 *  case is selected: verbs, seeds, and value sources drop every
 	 *  case-property / relationship read there. */
 	readonly caseDataScope?: CaseDataScope;
 	/** What this whole rule is called on the surface that owns it. Shown
@@ -374,7 +373,7 @@ export interface PredicateWorkbenchProps {
 	 *  workbench never names another surface's setting. */
 	readonly rootLabel?: string;
 	/** See `PredicateEditContext.allowsNeverMatch`. Its own axis, not a
-	 *  reading of `caseDataScope` — the Search action's condition and a
+	 *  reading of `caseDataScope`: the Search action's condition and a
 	 *  module's display condition are both `global` and disagree. */
 	readonly allowsNeverMatch?: boolean;
 	/** A semantic navigation request from another surface. The token makes a
@@ -471,7 +470,7 @@ export function PredicateWorkbench({
 	// particular is not optional in practice: the sibling `typeContext`
 	// above already carries it, so omitting it here made the validity
 	// index and the verb menu resolve a saved worker-information read
-	// against two different vocabularies — the menu's the narrower one.
+	// against two different vocabularies: the menu's the narrower one.
 	const editContext = useMemo<PredicateEditContext>(
 		() => ({
 			caseTypes,
@@ -728,9 +727,7 @@ export function PredicateWorkbench({
 										<Button
 											type="button"
 											variant="destructive"
-											size="xl"
 											onClick={onRemoveRoot}
-											className="px-3 text-sm"
 										>
 											{removeRootLabel}
 										</Button>
@@ -777,10 +774,9 @@ function WorkbenchNavigation({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => onReturn(parentPath, activePath)}
 				aria-label={`Back to ${parentLabel.toLocaleLowerCase()}`}
-				className="shrink-0 self-start text-nova-text-secondary"
+				className="shrink-0 self-start"
 			>
 				<Icon icon={tablerArrowLeft} />
 				Back
@@ -817,7 +813,6 @@ function WorkbenchNavigation({
 									<Button
 										type="button"
 										variant="link"
-										size="xl"
 										onClick={() => onReturn(item.path, returnTarget)}
 										className="h-auto min-h-11 min-w-0 shrink break-words px-2 py-2 text-left text-[13px] leading-snug whitespace-normal"
 									>
@@ -888,9 +883,8 @@ function FocusedStructure({
 							<Button
 								type="button"
 								variant="destructive"
-								size="xl"
 								onClick={onRemove}
-								className="min-h-11 w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
+								className="w-full shrink-0 justify-start @sm:w-auto @sm:justify-center"
 							>
 								{removeLabel}
 							</Button>
@@ -929,13 +923,7 @@ function FocusedStructure({
 						label="Change condition"
 					/>
 					{onRemove !== undefined ? (
-						<Button
-							type="button"
-							variant="destructive"
-							size="xl"
-							onClick={onRemove}
-							className="px-3 text-sm"
-						>
+						<Button type="button" variant="destructive" onClick={onRemove}>
 							{removeLabel}
 						</Button>
 					) : null}
@@ -1242,14 +1230,7 @@ function GroupConnectorMenu({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
-				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="w-full justify-between border-white/[0.09] px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
-					/>
-				}
+				render={<Button type="button" variant="field" className="w-full" />}
 			>
 				{kind === "and"
 					? "All conditions must match"
@@ -1369,7 +1350,6 @@ function StructuralSummaryRow({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={onEdit}
 						aria-label={`Edit ${context}`}
 						data-rule-focus-summary
@@ -1406,13 +1386,7 @@ function PredicateRowActions({
 	if (actions === undefined && onRemove !== undefined) {
 		return (
 			<div className="flex justify-end">
-				<Button
-					type="button"
-					variant="ghost"
-					size="xl"
-					onClick={onRemove}
-					className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
-				>
+				<Button type="button" variant="ghost-destructive" onClick={onRemove}>
 					<Icon icon={tablerTrash} />
 					{removeLabel}
 				</Button>
@@ -1425,13 +1399,7 @@ function PredicateRowActions({
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
-						<Button
-							type="button"
-							variant="ghost"
-							size="xl"
-							aria-label={triggerLabel}
-							className="px-3 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
-						/>
+						<Button type="button" variant="ghost" aria-label={triggerLabel} />
 					}
 				>
 					Organize condition

@@ -1,20 +1,20 @@
 // components/ui/insertionReveal.ts
 //
-// The shared reveal visuals for insertion affordances — the ONE place the
+// The shared reveal visuals for insertion affordances: the ONE place the
 // arming-glow curve and the line/circle animation live, so the form canvas,
 // the app tree, and the insertion lab reveal identically (retuning is a
 // one-file change). The intent model behind the `progress` / `open` inputs
 // is lib/ui/insertionIntent.ts.
 //
 // The open transition is deliberately slow-attack: a 50ms delay + 200ms ease
-// (the original slide-open timing) acts as a visual low-pass filter — a
+// (the original slide-open timing) acts as a visual low-pass filter, a
 // sub-100ms transient the model lets slip (an aim that lands just past a
 // gap, a swipe endpoint) barely registers before the quick collapse takes
 // it back, while a committed open blooms in confidently.
 
 import type { CSSProperties } from "react";
 
-/** Arming evidence below this shows nothing — a casual crossing must not
+/** Arming evidence below this shows nothing: a casual crossing must not
  *  flash every gap it grazes. */
 const GLOW_DEAD_BAND = 0.5;
 
@@ -49,7 +49,7 @@ export function insertionRevealTransition(
 /** The container's slide-open: the gap physically expands and pushes the
  *  neighboring rows apart, on the same delayed bloom the line/circle use.
  *  The intent binding re-measures zone rects through this animation (a
- *  reveal is a layout change nothing else observes) — see
+ *  reveal is a layout change nothing else observes): see
  *  lib/ui/hooks/useInsertionZone.tsx. */
 export function insertionExpandStyle(
 	open: boolean,
@@ -63,7 +63,7 @@ export function insertionExpandStyle(
 }
 
 /** Class for each violet flanking line; pass the side the line GROWS from
- *  (its transform origin faces the center "+"). Full literals — Tailwind's
+ *  (its transform origin faces the center "+"). Full literals, Tailwind's
  *  scanner can't see interpolated class names. */
 export function insertionLineCls(origin: "left" | "right"): string {
 	return origin === "right"
@@ -71,7 +71,7 @@ export function insertionLineCls(origin: "left" | "right"): string {
 		: "h-px flex-1 bg-nova-violet/40 origin-left";
 }
 
-/** Inline style for a flanking line — glow opacity, the expand-in scale, and
+/** Inline style for a flanking line: glow opacity, the expand-in scale, and
  *  the shared reveal transition. */
 export function insertionLineStyle(
 	progress: number,
@@ -84,12 +84,12 @@ export function insertionLineStyle(
 	};
 }
 
-/** The centered "+" circle chrome (border, fill, color) — layout (size,
+/** The centered "+" circle chrome (border, fill, color): layout (size,
  *  margin, pointer-events) stays with the call site. */
 export const INSERTION_CIRCLE_CLS =
 	"flex items-center justify-center rounded-full border border-nova-violet/40 bg-nova-surface text-nova-violet-bright";
 
-/** Inline style for the circle — pops in with the same delayed bloom the
+/** Inline style for the circle: pops in with the same delayed bloom the
  *  lines use. `extraTransition` lets the form trigger keep its hover tint. */
 export function insertionCircleStyle(
 	open: boolean,

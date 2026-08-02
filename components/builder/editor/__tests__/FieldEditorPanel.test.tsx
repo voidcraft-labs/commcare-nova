@@ -1,14 +1,14 @@
 /**
- * FieldEditorPanel — pure registry-driven contract tests.
+ * FieldEditorPanel: pure registry-driven contract tests.
  *
  * Two contracts live here, both exercised against the real per-kind
  * schemas in `fieldEditorSchemas`:
  *
- *   1. Section visibility — `sectionHasContent` decides whether the
+ *   1. Section visibility: `sectionHasContent` decides whether the
  *      panel mounts each card (Data / Logic / Appearance). The card
  *      skips when no entry would render and mounts otherwise.
  *
- *   2. `valueOnAdd` on `required` — every kind that exposes a
+ *   2. `valueOnAdd` on `required`: every kind that exposes a
  *      `required` entry must declare `valueOnAdd: ALWAYS_REQUIRED_EXPRESSION`,
  *      so clicking "+ Required" turns the toggle on in one click
  *      rather than mounting an empty editor that the user has to
@@ -31,7 +31,7 @@ import { fieldEditorSchemas } from "../fieldEditorSchemas";
 import { ALWAYS_REQUIRED_EXPRESSION } from "../fields/requiredState";
 import { sectionHasContent } from "../partitionEditorEntries";
 
-// Trivial fixtures — only the discriminant + identity keys are read by
+// Trivial fixtures: only the discriminant + identity keys are read by
 // the schema's visibility predicates. The schemas are kind-typed so the
 // `field` cast inside each test narrows safely.
 const FIELD_UUID = testUuid("q-panel-0000-0000-0000-000000000000");
@@ -59,7 +59,7 @@ function groupField(extras: Partial<GroupField> = {}): GroupField {
 // Helpers that read the schema for a kind and ask each section the
 // "would I render anything?" question. The cast through `unknown` is the
 // minimum noise needed to pass the discriminated-union schema entries
-// into the generic `sectionHasContent` — the runtime invariant is that
+// into the generic `sectionHasContent`: the runtime invariant is that
 // `schemas[field.kind]` is the correct schema for the field's kind.
 function panelSections<F extends Field>(
 	field: F,
@@ -88,7 +88,7 @@ describe("FieldEditorPanel section visibility", () => {
 	});
 
 	it("group field collapses to Logic only", () => {
-		// Group has no data or ui entries — those cards never mount. Only
+		// Group has no data or ui entries: those cards never mount. Only
 		// `relevant` (logic, addable) keeps the Logic card alive.
 		expect(panelSections(groupField())).toEqual({
 			data: false,
@@ -118,7 +118,7 @@ describe("required entry — valueOnAdd contract", () => {
 	// Iterating `fieldKinds` and scanning every section of every schema
 	// means a future kind that inlines a bare `{ key: "required" }`
 	// entry without going through the `requiredEntry()` factory fails
-	// here — the contract follows the registry instead of mirroring it.
+	// here: the contract follows the registry instead of mirroring it.
 
 	// Per-kind variants reference different `FieldEditorEntry<F>` shapes
 	// that TS can't correlate when the schema is indexed by a

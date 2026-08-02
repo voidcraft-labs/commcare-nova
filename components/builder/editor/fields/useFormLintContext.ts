@@ -1,5 +1,5 @@
 /**
- * useFormLintContext — shared hook used by every XPath-valued editor
+ * useFormLintContext: shared hook used by every XPath-valued editor
  * that needs to lint an expression against its owning form.
  *
  * XPathField needs a context carrying valid-paths, case properties,

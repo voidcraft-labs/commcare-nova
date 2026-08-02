@@ -1,6 +1,6 @@
 // Browser half of the form-attachment lane: initiate → PUT → confirm.
 //
-// The same three steps the media library uses, and for the same reason —
+// The same three steps the media library uses, and for the same reason:
 // bytes go straight to GCS on a signed URL so a 4 MB photo never travels
 // through Cloud Run. The answer is set only after confirm returns, because
 // a `pending` row's object may not exist yet and a submission that
@@ -19,7 +19,7 @@ export interface StagedAttachment {
 	readonly attachmentName: string;
 	readonly attachmentId: string;
 	/** The name the worker picked. Shown while this page is open, and
-	 *  deliberately not persisted — see `AttachmentField`. */
+	 *  deliberately not persisted: see `AttachmentField`. */
 	readonly originalFilename: string;
 	readonly sizeBytes: number;
 }
@@ -1645,7 +1645,7 @@ function projectAuthoredCaptureSlot(
  * The engine publishes these moves before React can remount a renamed
  * question. Every slot's desired path is projected synchronously before ANY
  * PATCH or DELETE starts, so swaps and simultaneous path/kind changes observe
- * one complete topology. Stable segment identities—not positional depth—carry
+ * one complete topology. Stable segment identities, not positional depth, carry
  * repeat indices across retained ancestors.
  *
  * `removed` is the one destructive projection: a repeat instance above index
@@ -2213,7 +2213,7 @@ async function postJson<T>(
 /**
  * Stage one file against a capture question.
  *
- * Neither the file's kind nor its size is trusted from here — the initiate
+ * Neither the file's kind nor its size is trusted from here, the initiate
  * route reads the question's kind from the committed blueprint and checks
  * the extension against what the device would accept for exactly that
  * kind. This function's own checks exist only so the worker hears about a
@@ -2307,7 +2307,7 @@ export async function stageAttachment(args: {
  * is the opposite of the real runtime's, which deletes the bytes before
  * attempting the answer change and leaves a required question naming a
  * file it just removed. Doing it this way round means a failed delete
- * costs a staged orphan — which the scheduled row sweep and bucket TTL reap —
+ * costs a staged orphan, which the scheduled row sweep and bucket TTL reap:
  * instead of a live answer pointing at nothing.
  */
 export async function discardAttachment(args: {

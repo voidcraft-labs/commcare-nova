@@ -1,5 +1,5 @@
 /**
- * POST /api/media/upload/[assetId]/confirm — finalize an upload.
+ * POST /api/media/upload/[assetId]/confirm: finalize an upload.
  *
  * Called by the browser after the signed-PUT step completes. The
  * server:
@@ -15,7 +15,7 @@
  * The validator's hash check catches GCS-side tampering between the
  * PUT and this confirm (the sniffed bytes' sha256 must match the
  * row's claimed content hash). The sharp/music-metadata re-parse
- * catches truncation + corruption — bytes that pass the magic-bytes
+ * catches truncation + corruption: bytes that pass the magic-bytes
  * sniff but don't actually parse as the format they claim.
  */
 
@@ -79,13 +79,13 @@ export async function POST(
 				});
 			}
 			throw new ApiError(
-				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 				404,
 			);
 		}
 		if (!(await userInProject(session.user.id, asset.project_id, "edit"))) {
 			throw new ApiError(
-				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 				404,
 			);
 		}
@@ -114,7 +114,7 @@ export async function POST(
 				});
 			}
 			throw new ApiError(
-				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed. Try uploading again.",
 				404,
 			);
 		}
@@ -155,7 +155,7 @@ export async function POST(
 					});
 				}
 				throw new ApiError(
-					"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+					"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed. Try uploading again.",
 					404,
 				);
 			}
@@ -230,7 +230,7 @@ export async function POST(
 						);
 						if (current.kind === "not_found") {
 							throw new ApiError(
-								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 								404,
 							);
 						}
@@ -252,7 +252,7 @@ export async function POST(
 						);
 						if (canonicalized.kind === "not_found") {
 							throw new ApiError(
-								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 								404,
 							);
 						}
@@ -305,7 +305,7 @@ export async function POST(
 					);
 					if (published.kind === "not_found") {
 						throw new ApiError(
-							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 							404,
 						);
 					}
@@ -436,7 +436,7 @@ async function deleteRejectedUpload(
 	});
 	if (result.kind === "not_found") {
 		throw new ApiError(
-			"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+			"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 			404,
 		);
 	}

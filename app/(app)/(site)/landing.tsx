@@ -1,6 +1,7 @@
 "use client";
 import { motion } from "motion/react";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { SIGN_IN_ERROR } from "@/lib/auth-errors";
@@ -48,7 +49,7 @@ interface LandingProps {
  *
  * The `?error=…` value is either a code Nova explicitly emitted (one
  * of `SIGN_IN_ERROR`, matched by exact equality against the imported
- * constant — typos on either side fail at build time) or some other
+ * constant: typos on either side fail at build time) or some other
  * code from Better Auth's internal protocol surface that we do not
  * control. We do not pattern-match the latter; everything outside our
  * own code list collapses to a single generic sentence rather than
@@ -66,7 +67,7 @@ function formatSignInError(raw: string | null): string | null {
 }
 
 /**
- * Landing page client component — Google OAuth sign-in.
+ * Landing page client component: Google OAuth sign-in.
  *
  * Rendered by the root page when the user is not authenticated.
  * Sign-in is restricted to the email-domain allowlist enforced by
@@ -79,27 +80,25 @@ export function Landing({ signInError }: LandingProps) {
 	const [signingIn, setSigningIn] = useState(false);
 	const errorMessage = formatSignInError(signInError);
 
-	/** Google OAuth entry — sign in and redirect to builder on success. */
+	/** Google OAuth entry: sign in and redirect to builder on success. */
 	const signInWithGoogle = async () => {
 		setSigningIn(true);
 		await signIn();
 	};
 
+	/* The first-light bloom is the brand's ambient light: a lilac glow
+	 * overhead and a low dawn wash on the horizon. It is the one place dawn
+	 * appears at page scale, so the front door reads as twilight with a
+	 * sunrise in it rather than as a violet void. */
 	return (
-		<div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
-			{/* Cosmic background */}
-			<div className="fixed inset-0 pointer-events-none">
-				<div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-nova-violet/5 blur-[120px]" />
-				<div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] rounded-full bg-nova-violet/3 blur-[100px]" />
-			</div>
-
+		<div className="nova-bloom min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
 			<motion.div
 				initial={{ opacity: 0, y: 20 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
 				className="relative z-10 flex flex-col items-center gap-8 max-w-md w-full px-6"
 			>
-				<Logo size="lg" />
+				<Logo size="hero" />
 
 				<motion.p
 					initial={{ opacity: 0 }}
@@ -115,7 +114,7 @@ export function Landing({ signInError }: LandingProps) {
 						initial={{ opacity: 0, y: -8 }}
 						animate={{ opacity: 1, y: 0 }}
 						transition={{ duration: 0.4 }}
-						/* `role="status"` (== `aria-live="polite"`) — this banner is
+						/* `role="status"` (== `aria-live="polite"`): this banner is
 						 * server-rendered into the initial HTML when `?error=…` is
 						 * present, so by the time a screen reader reaches it the
 						 * content is part of normal page flow. `role="alert"` would
@@ -123,7 +122,7 @@ export function Landing({ signInError }: LandingProps) {
 						 * is the wrong semantic for first-paint static content. */
 						role="status"
 						/* Body text uses `text-nova-text` rather than `text-nova-rose`
-						 * for WCAG AA contrast against the `bg-nova-rose/10` tint —
+						 * for WCAG AA contrast against the `bg-nova-rose/10` tint:
 						 * the rose color sits ~4:1 on the composite background, just
 						 * below the 4.5:1 threshold for normal text. The rose border
 						 * + tint still convey the error semantic visually. */
@@ -139,15 +138,16 @@ export function Landing({ signInError }: LandingProps) {
 					transition={{ delay: 0.5, duration: 0.6 }}
 					className="w-full"
 				>
-					<button
+					<Button
 						type="button"
+						glow
 						onClick={signInWithGoogle}
 						disabled={signingIn}
-						className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 font-medium rounded-lg not-disabled:hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+						className="w-full"
 					>
 						<GoogleLogo />
-						{signingIn ? "Redirecting..." : "Sign in with Google"}
-					</button>
+						{signingIn ? "Redirecting" : "Sign in with Google"}
+					</Button>
 				</motion.div>
 			</motion.div>
 		</div>

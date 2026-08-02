@@ -1,10 +1,10 @@
 /**
- * ChatRail — the chat sidebar's collapsed state: a slim icon rail on
+ * ChatRail: the chat sidebar's collapsed state: a slim icon rail on
  * the right edge, the mirror of the structure side's AppTreeRail. A
  * collapsed panel stays architectural (a rail in the layout flow),
  * never a floating button that something can cover or click-shield.
  *
- * The rail only ever represents "chat closed, nothing selected" —
+ * The rail only ever represents "chat closed, nothing selected":
  * selecting something to inspect bypasses it entirely, because the
  * inspector claims the full-width rail the moment a selection exists.
  */
@@ -26,11 +26,10 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Expand chat sidebar"
 						data-builder-sidebar-toggle="expand-chat"
-						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
 					>
 						<Icon
 							icon={tablerLayoutSidebarRightExpand}
@@ -45,11 +44,10 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Open chat"
 						data-builder-sidebar-toggle="expand-chat"
-						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text-secondary"
 					>
 						<Icon icon={tablerMessageChatbot} width="17" height="17" />
 					</Button>

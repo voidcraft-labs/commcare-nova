@@ -1,14 +1,14 @@
 /**
- * FieldPicker — shared Base UI Autocomplete for selecting form fields.
+ * FieldPicker: shared Base UI Autocomplete for selecting form fields.
  *
  * Provides a searchable dropdown of form fields with kind icons and
- * labels. Reusable anywhere a user needs to reference a field by ID —
+ * labels. Reusable anywhere a user needs to reference a field by ID:
  * close conditions, future XPath field pickers, etc.
  *
  * Consumes the normalized doc directly (`fields` + `fieldOrder` maps).
  * The flat list of selectable entries comes from `collectFieldEntries`,
  * the same walker used by CodeMirror XPath autocomplete and TipTap
- * reference chips — so field lookups stay consistent across surfaces.
+ * reference chips, so field lookups stay consistent across surfaces.
  */
 "use client";
 import { Autocomplete } from "@base-ui/react/autocomplete";
@@ -44,7 +44,7 @@ export interface FieldEntry {
 	labelProjection: ReturnType<
 		typeof collectFieldEntries
 	>[number]["labelProjection"];
-	/** Field kind (text, single_select, etc.) — drives the icon. */
+	/** Field kind (text, single_select, etc.): drives the icon. */
 	kind: FieldKind;
 }
 
@@ -96,7 +96,7 @@ interface FieldPickerProps {
 	onChange: (uuid: Uuid) => void;
 	/** Label text shown above the input. */
 	label: string;
-	/** Optional kind filter — defaults to `VALUE_PRODUCING_TYPES`. */
+	/** Optional kind filter: defaults to `VALUE_PRODUCING_TYPES`. */
 	typeFilter?: ReadonlySet<FieldKind>;
 	/** Placeholder text for empty state. */
 	placeholder?: string;
@@ -115,7 +115,7 @@ export function FieldPicker({
 	onChange,
 	label,
 	typeFilter,
-	placeholder = "Search fields...",
+	placeholder = "Search fields",
 	required,
 }: FieldPickerProps) {
 	const fields = useMemo(
@@ -134,7 +134,7 @@ export function FieldPicker({
 
 	return (
 		<div>
-			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+			<span className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5">
 				{label}
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
 			</span>
@@ -151,7 +151,7 @@ export function FieldPicker({
 						placeholder={placeholder}
 						autoComplete="off"
 						data-1p-ignore
-						className="w-full text-xs font-mono text-nova-violet-bright px-2 py-1.5 rounded-md border transition-colors outline-none bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30 focus:bg-nova-surface focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+						className="w-full text-xs font-mono text-nova-violet-bright px-2 py-1.5 rounded-md border transition-colors outline-none bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30 focus:bg-nova-surface focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(150,120,242,0.1)]"
 					/>
 				</Autocomplete.InputGroup>
 

@@ -1,16 +1,16 @@
 // components/builder/case-list-config/cards/column/PhoneColumnCard.tsx
 //
-// Renders the `phone` Column kind — the case-list cell renders
+// Renders the `phone` Column kind: the case-list cell renders
 // the property as a tappable telephone link in the running app.
 // Static contexts fall back to plain text.
 //
 // Slots:
-//   - `field` — case-property name. The picker filters to
+//   - `field`: case-property name. The picker filters to
 //     text-shaped properties (`text` / `single_select` /
 //     `multi_select`) since phone numbers are stored as strings;
 //     numeric-typed properties would still parse but the wire-
 //     side tap binding expects a string.
-//   - `header` — column display label.
+//   - `header`: column display label.
 
 "use client";
 import type { CaseProperty, Column } from "@/lib/domain";
@@ -18,7 +18,7 @@ import { columnKindAcceptsPropertyType, phoneColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
-/** The gate's own accept-set — unknown-typed properties are
+/** The gate's own accept-set: unknown-typed properties are
  *  admissible, so the dropdown offers them (see `DateColumnCard`). */
 const acceptsPhoneColumn = (p: CaseProperty) =>
 	columnKindAcceptsPropertyType("phone", p.data_type);

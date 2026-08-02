@@ -3,14 +3,14 @@
 // Declarative registry mapping every ValueExpression kind to its
 // card component, label, icon, default-value factory, and
 // applicability predicate. Mirrors `editorSchemas.ts` (the
-// Predicate-side registry) — both registries follow the same
+// Predicate-side registry): both registries follow the same
 // per-kind shape so a single mapped-type guard catches a kind
 // added to the AST without a parallel UI entry.
 //
 // Why per-kind entries (instead of per-card-file entries): a card
-// COMPONENT can serve multiple ValueExpression kinds — `TodayCard`
+// COMPONENT can serve multiple ValueExpression kinds: `TodayCard`
 // + `NowCard` share `DateConstantCards.tsx`, `DateCoerceCard` +
-// `DatetimeCoerceCard` share `DateCoerceCard.tsx` — but each kind
+// `DatetimeCoerceCard` share `DateCoerceCard.tsx`, but each kind
 // needs its own picker entry (label, icon, default-value,
 // applicability filter) so the kind-picker menu reads correctly.
 // Sharing a component across kinds is purely a code-organization
@@ -95,7 +95,7 @@ import type {
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
- * Reuses the same context shape as the Predicate-side editor — the
+ * Reuses the same context shape as the Predicate-side editor, the
  * editor's React context provides values in this shape via
  * `usePredicateEditContext`. Reusing the type lets either editor
  * mount over the other's context without translation.
@@ -104,7 +104,7 @@ export interface ExpressionEditContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
-	/** Custom worker information available to identity-backed user terms —
+	/** Custom worker information available to identity-backed user terms:
 	 *  the catalog a saved `session-user-property` read resolves through. */
 	readonly userProperties?: readonly UserProperty[];
 	/** Form answers this slot may read, already narrowed to the ones its
@@ -113,8 +113,8 @@ export interface ExpressionEditContext {
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
-	 *  vocabulary — the acting user, no owner, and the case an earlier
-	 *  create made — is available. `creates` lists the operations already
+	 *  vocabulary: the acting user, no owner, and the case an earlier
+	 *  create made: is available. `creates` lists the operations already
 	 *  in scope, in execution order. */
 	readonly operationScope?: OperationValueScope;
 	/** Present only for the owner facet of a case operation. */
@@ -129,11 +129,11 @@ export interface OperationValueScope {
 /**
  * One registry entry. Generic over `K` (the ValueExpression kind
  * discriminator) so each entry's `component` and `defaultValue`
- * carry the precise per-arm shape — `ArithCard`'s component
+ * carry the precise per-arm shape: `ArithCard`'s component
  * receives the `arith`-arm subtype, `IfCard`'s receives the
  * `if`-arm, etc. The signed exhaustiveness lives at the
  * `expressionCardSchemas` declaration (a `Record<ValueExpression["kind"],
- * ...>`) — adding a kind without an entry breaks the build.
+ * ...>`): adding a kind without an entry breaks the build.
  *
  * `applicable(ctx, expectedType?)` reports whether the kind can
  * structurally produce the expected type (e.g. `today` declines an
@@ -142,8 +142,8 @@ export interface OperationValueScope {
  * `SlotConstraint` via `admitsValueExpressionKind` (a kind whose
  * result class can't satisfy the constraint is disabled with a reason,
  * never dimmed). `applicable` is retained as the result-class oracle
- * `valueExpressionKindResultClass` cites and the registry tests pin —
- * the kind-result mapping in one tested place — so it must stay in
+ * `valueExpressionKindResultClass` cites and the registry tests pin:
+ * the kind-result mapping in one tested place, so it must stay in
  * lockstep with the constraint admission.
  */
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
@@ -155,7 +155,7 @@ export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 		readonly value: Extract<ValueExpression, { kind: K }>;
 		readonly onChange: (next: ValueExpression) => void;
 		readonly path: readonly (string | number)[];
-		/** The slot's type constraint — the card computes its inner
+		/** The slot's type constraint: the card computes its inner
 		 *  slots' constraints from it ("depends" kinds propagate it; the
 		 *  hard-typed kinds fix their operands). Defaults to
 		 *  `ANY_CONSTRAINT` when the dispatch shell omits it. */
@@ -175,13 +175,13 @@ export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 // Each kind's `applicable` flags whether the kind can structurally
 // produce a value of the expected type. Returning `true` from
 // `applicable` does NOT guarantee the type checker will accept every
-// authoring of the kind — it only signals the kind is a reasonable
+// authoring of the kind: it only signals the kind is a reasonable
 // authoring choice for the slot. The kind-picker UI uses the verdict
 // to de-emphasize unlikely choices.
 //
 // Inputs / kinds that can produce ANY type (Term, If, Switch, Count,
 // Coalesce, the kind we can't reason about without inspecting their
-// inputs) always return `true` — the type checker's verdict on the
+// inputs) always return `true`: the type checker's verdict on the
 // authored expression decides validity. Per the advisor's guidance,
 // strict expectedType filtering would hide kinds whose result type
 // depends on inputs.
@@ -200,7 +200,7 @@ function hasPropertyOfType(
 }
 
 /**
- * Numeric-typed kind (`arith`, `double`) — applicable when the slot
+ * Numeric-typed kind (`arith`, `double`): applicable when the slot
  * either has no expected type OR the expected type is numeric. The
  * `_any` sentinel widens against everything; the helper short-
  * circuits there to mirror `typesCompatible`'s null-as-universal
@@ -216,7 +216,7 @@ function applicableForNumeric(
 }
 
 /**
- * Date-only kinds (`today`) — applicable strictly when the slot
+ * Date-only kinds (`today`): applicable strictly when the slot
  * accepts `date` (or has no expected type, or accepts the null-
  * compatibility `_any` sentinel). `today` always resolves to `date`,
  * so a `datetime` slot rejects it at the picker without further
@@ -232,7 +232,7 @@ function applicableForDate(
 }
 
 /**
- * Datetime-only kinds (`now`) — symmetric with `applicableForDate`.
+ * Datetime-only kinds (`now`): symmetric with `applicableForDate`.
  * `now` always resolves to `datetime`.
  */
 function applicableForDatetime(
@@ -245,15 +245,15 @@ function applicableForDatetime(
 }
 
 /**
- * Date-or-datetime kinds — applicable for either temporal slot type.
+ * Date-or-datetime kinds: applicable for either temporal slot type.
  *
  * Used by the kind whose result type follows its operand:
  *
- *   - `date-add` — result type follows `date.kind`, so
+ *   - `date-add`: result type follows `date.kind`, so
  *     `dateAdd(today(), "days", literal(7))` resolves to `date`
  *     while `dateAdd(now(), "hours", literal(1))` resolves to
  *     `datetime` (per `checkExpression`'s `case "date-add":`). The
- *     kind picker surfaces it for either temporal slot — the
+ *     kind picker surfaces it for either temporal slot: the
  *     operand picker drives which side the type checker validates
  *     against.
  */
@@ -267,7 +267,7 @@ function applicableForDateOrDatetime(
 }
 
 /**
- * Text-typed kind (`concat`, `format-date`) — applicable for
+ * Text-typed kind (`concat`, `format-date`): applicable for
  * text-shaped expected types. Authors who concatenate into a
  * non-text slot get a type-checker error inline; the applicability
  * gate keeps the kind picker focused on plausible authoring.
@@ -282,11 +282,11 @@ function applicableForText(
 }
 
 /**
- * Result-type-depends-on-inputs kinds — Term, If, Switch, Coalesce.
+ * Result-type-depends-on-inputs kinds: Term, If, Switch, Coalesce.
  * Always applicable; the type checker validates the full tree
  * against `expectedType` once authored. Hiding these would make
  * whole authoring patterns unreachable from a typed slot. `Count`
- * is NOT in this set — its result type is always `int`, so its
+ * is NOT in this set, its result type is always `int`, so its
  * registry entry uses a custom predicate that gates on numeric
  * `expectedType` plus the case-type-availability check.
  */
@@ -299,8 +299,8 @@ function applicableAlways(): boolean {
 /**
  * Per-kind editor schema keyed by `ValueExpression["kind"]`. The
  * mapped-type shape forces TypeScript to fail compilation if a new
- * kind lands in the ValueExpression union without a parallel entry
- * — the registry's exhaustivity is the structural guarantee that
+ * kind lands in the ValueExpression union without a parallel entry:
+ * the registry's exhaustivity is the structural guarantee that
  * the editor never silently bypasses a kind.
  */
 export const expressionCardSchemas: {
@@ -372,7 +372,7 @@ export const expressionCardSchemas: {
 		description: "Move a date or time forward or backward",
 		component: DateAddCard,
 		defaultValue: dateAddDefault,
-		// `date-add`'s result type follows the `date` operand —
+		// `date-add`'s result type follows the `date` operand:
 		// `dateAdd(today(), ...)` resolves to `date`,
 		// `dateAdd(now(), ...)` resolves to `datetime`. Applicable for
 		// either temporal slot type; the operand picker drives which
@@ -512,7 +512,7 @@ export const expressionCardSchemas: {
 		defaultValue: formatDateDefault,
 		applicable: (ctx, expectedType) => {
 			if (!hasPropertyOfType(ctx, isDateTyped)) {
-				// No date / datetime property to format — the kind isn't
+				// No date / datetime property to format: the kind isn't
 				// useful in this scope. Authors who pass a `today()` /
 				// `now()` expression to format-date can still get there
 				// through the operand editor; the picker entry stays off.
@@ -524,7 +524,7 @@ export const expressionCardSchemas: {
 };
 
 /**
- * Convenience array — every schema in declaration order, used by the
+ * Convenience array: every schema in declaration order, used by the
  * kind-picker UI to render the menu.
  */
 export const expressionCardSchemaList: readonly ExpressionCardSchema<

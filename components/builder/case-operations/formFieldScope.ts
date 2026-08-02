@@ -41,7 +41,7 @@ function declOf(entry: FormFieldEntry): EditorFormFieldDecl {
 
 /** Whether a field carries an answer an expression can read at all. */
 function carriesAnswer(entry: FormFieldEntry): boolean {
-	// A hidden field has no data type of its own but always holds a value —
+	// A hidden field has no data type of its own but always holds a value:
 	// the same admission `expressionContext` gives the validator's checker.
 	return entry.dataType !== undefined || entry.kind === "hidden";
 }
@@ -63,7 +63,7 @@ export function operationFormFieldDecls(
 }
 
 /**
- * The answers that can key an authored create — a scalar string the
+ * The answers that can key an authored create: a scalar string the
  * author already collects, correlated to the operation's own repeat.
  * A multi-select answer is an array in Nova and cannot be an identity.
  */

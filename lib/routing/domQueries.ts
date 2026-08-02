@@ -60,7 +60,7 @@ export function flashUndoHighlight(el: HTMLElement): void {
 	}
 	el.animate(
 		[
-			{ backgroundColor: "rgba(139, 92, 246, 0.12)" },
+			{ backgroundColor: "rgba(150, 120, 242, 0.12)" },
 			{ backgroundColor: "transparent" },
 		],
 		{ duration: 600, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },

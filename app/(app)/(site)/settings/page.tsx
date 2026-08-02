@@ -1,5 +1,5 @@
 /**
- * Account settings — the settings that belong to the USER, not a Project: their
+ * Account settings: the settings that belong to the USER, not a Project: their
  * CommCare HQ credentials, the apps they've authorized (OAuth), and the API
  * keys they've issued. All keyed to `session.user.id` and unchanged by the
  * active Project. Project-scoped settings (members + invitations) live on their
@@ -31,7 +31,9 @@ export default async function SettingsPage() {
 
 	return (
 		<main className="max-w-2xl mx-auto px-6 py-12">
-			<h1 className="text-2xl font-display font-semibold mb-8">Settings</h1>
+			<h1 className="text-2xl font-display font-semibold tracking-tighter mb-8">
+				Settings
+			</h1>
 			<div className="space-y-6">
 				<CommCareSettings
 					initial={initialSettings}

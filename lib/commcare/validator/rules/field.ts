@@ -200,7 +200,7 @@ function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
 		validationError(
 			"REQUIRED_ON_HIDDEN",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a hidden field with \`required\` set, but a hidden field is never shown to the user — if its value ever comes out empty the form can't be submitted and there's no input on screen to fix it. Hidden fields can't be required. Clear \`required\`; if someone really must answer this, make it a visible field (change its kind).`,
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field with \`required\` set, but a hidden field is never shown to the user. If its value ever comes out empty the form can't be submitted and there's no input on screen to fix it. Hidden fields can't be required. Clear \`required\`; if someone really must answer this, make it a visible field (change its kind).`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -235,7 +235,7 @@ function calculateOnVisibleInput(
 		validationError(
 			"CALCULATE_ON_VISIBLE_INPUT",
 			"field",
-			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has a \`calculate\` set, but only a hidden field can carry one. On a visible field a \`calculate\` makes it read-only — the user sees an editable control whose value is silently replaced by the computed result, so their input is ignored. Move the computed value to a hidden field and reference it, or clear \`calculate\` to let the user enter the value.`,
+			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has a \`calculate\` set, but only a hidden field can carry one. On a visible field a \`calculate\` makes it read-only, the user sees an editable control whose value is silently replaced by the computed result, so their input is ignored. Move the computed value to a hidden field and reference it, or clear \`calculate\` to let the user enter the value.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -263,7 +263,7 @@ function unquotedStringLiteral(
 			validationError(
 				"UNQUOTED_STRING_LITERAL",
 				"field",
-				`Field "${field.id}" in "${ctx.formName}" has ${desc} set to: ${bare} — this looks like a text value, not an XPath expression. If you meant the literal string "${bare}", wrap it in quotes: '${bare}'.`,
+				`Field "${field.id}" in "${ctx.formName}" has ${desc} set to: ${bare}, this looks like a text value, not an XPath expression. If you meant the literal string "${bare}", wrap it in quotes: '${bare}'.`,
 				{
 					moduleUuid: ctx.moduleUuid,
 					moduleName: ctx.moduleName,
@@ -300,7 +300,7 @@ function validationOnNonInputType(
 		validationError(
 			"VALIDATION_ON_NON_INPUT_KIND",
 			"field",
-			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has \`${reported}\` set, but ${field.kind} fields can't have validation. Only input kinds (text, int, date, select, etc.) support constraint messages — structural containers, labels, and hidden/computed fields can't show an error to the user. Clear \`${reported}\`, or change the field's kind.`,
+			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has \`${reported}\` set, but ${field.kind} fields can't have validation. Only input kinds (text, int, date, select, etc.) support constraint messages. Structural containers, labels, and hidden/computed fields can't show an error to the user. Clear \`${reported}\`, or change the field's kind.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -348,7 +348,7 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 				validationError(
 					"EMPTY_REPEAT_COUNT",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count.`,
+					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations, a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count.`,
 					{ ...loc, field: "repeat_count" },
 					{ field: "repeat_count" },
 				),
@@ -361,7 +361,7 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 				validationError(
 					"EMPTY_IDS_QUERY",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`.`,
+					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over. Typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`.`,
 					{ ...loc, field: "ids_query" },
 					{ field: "ids_query" },
 				),
@@ -414,7 +414,7 @@ function reservedFieldIdPrefix(
 		validationError(
 			"RESERVED_FIELD_ID_PREFIX",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
+			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}". Anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,

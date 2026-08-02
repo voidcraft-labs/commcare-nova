@@ -6,7 +6,7 @@
  * `app/api/mcp/auth-plugin.ts`), and the Next.js entry shim at
  * `app/api/mcp/route.ts` synthesizes a Request with URL
  * `/api/auth/mcp` before forwarding to `auth.handler`. Tests target
- * `dispatchMcpAuthRequest` directly with the post-shim URL shape —
+ * `dispatchMcpAuthRequest` directly with the post-shim URL shape:
  * that is the request `mcp-handler` always sees in production, and
  * the synthesizing shim itself is a 5-line URL rewrite that doesn't
  * carry the kind of branching logic worth unit-testing.
@@ -17,7 +17,7 @@
  * streamable-HTTP transport keeps an internal response promise pending
  * while it drains the Request/Response body streams. In a unit test
  * neither ever settles, so the live interval pins the Vitest worker's
- * event loop open and the worker can't exit — an intermittent teardown
+ * event loop open and the worker can't exit: an intermittent teardown
  * hang plus a fistful of leaked async resources under
  * `--detect-async-leaks`. We mock `createMcpHandler` to a sentinel
  * handler (mirroring `lib/db/__tests__/mcp-revocation.integration.test.ts`)
@@ -28,7 +28,7 @@
  * `initializeServer` callback so `registerNovaTools` runs and the
  * `ToolContext` propagation assertions stay meaningful.
  *
- * **basePath invariant** — `mcp-handler` matches its endpoint with
+ * **basePath invariant**: `mcp-handler` matches its endpoint with
  * `new URL(req.url).pathname === ${basePath}/mcp`. Two
  * independently-maintained literals feed that equality: the request URL
  * synthesized by `app/api/mcp/route.ts` (`AUTH_BASE_PATH` +
@@ -42,17 +42,17 @@
  *   - A pure constant-equality assertion imports all three literals and
  *     checks `\`${AUTH_BASE_PATH}${MCP_ENDPOINT_PATH}\``
  *     === `\`${SYNTHESIZED_AUTH_BASE_PATH}/mcp\``. This is the only test
- *     that pins `route.ts`'s literals — the dispatch-driven tests feed
+ *     that pins `route.ts`'s literals: the dispatch-driven tests feed
  *     `dispatchMcpAuthRequest` a hardcoded URL and never execute
  *     `route.ts` (its synthesis ends in a `getAuth().handler` call into
  *     the production Better Auth singleton, which would bypass these
- *     mocks — same reason `mcp-revocation.integration.test.ts` drives
+ *     mocks: same reason `mcp-revocation.integration.test.ts` drives
  *     the dispatcher directly).
  *   - A dispatch-driven test captures `dispatch.ts`'s `basePath` at
  *     handler construction and confirms nothing between the dispatcher
  *     and `createMcpHandler` rewrites the request pathname.
  *
- * **API-key-path coverage** — the dispatcher forks on the bearer
+ * **API-key-path coverage**: the dispatcher forks on the bearer
  * prefix. Tests below assert the fork picks the right path
  * (prefix-match → API key, else → JWT), the API-key 401s carry the
  * right `WWW-Authenticate` shape (Bearer challenge, no
@@ -82,7 +82,7 @@ const isUserActiveMock = vi.fn(async (_userId: string) => true);
  *   is invoked with the (post-shim) wire request.
  *
  * The basePath-invariant regression test asserts these reproduce the
- * equality `mcp-handler` enforces in production — see the file
+ * equality `mcp-handler` enforces in production: see the file
  * docblock for why we capture rather than run the real library.
  */
 const capturedHandlerWiring: {
@@ -97,14 +97,14 @@ const capturedHandlerWiring: {
  * Mock `createMcpHandler` at the `mcp-handler` boundary. Typed against
  * the real export so the mock's construction args (`initializeServer`,
  * `serverOptions`, `config`) and its returned handler signature stay
- * in lockstep with the library — a signature drift surfaces as a type
+ * in lockstep with the library: a signature drift surfaces as a type
  * error here rather than a silent runtime mismatch.
  *
  * The mock:
  *  1. records `config.basePath` for the invariant test,
  *  2. invokes `initializeServer` so the real `registerNovaTools` call
  *     in `dispatchMcpTools` runs and the `ToolContext` assertions hold
- *     (the server arg is unused — `registerNovaTools` is itself a
+ *     (the server arg is unused: `registerNovaTools` is itself a
  *     `vi.fn()` that never touches it), and
  *  3. returns a handler that records the request URL and yields a
  *     body-less success Response so the "reached transport / not 401 /
@@ -115,14 +115,14 @@ const capturedHandlerWiring: {
  * assertions read the response body (they check only status +
  * `WWW-Authenticate`). A `null`-body Response is both sufficient and
  * leak-free. The *request* body is drained one layer up, in the
- * `dispatch` test wrapper — see its docblock for why draining lives
+ * `dispatch` test wrapper: see its docblock for why draining lives
  * there (single owner) rather than here.
  */
 vi.mock("mcp-handler", () => ({
 	createMcpHandler: ((initializeServer, _serverOptions, config) => {
 		capturedHandlerWiring.basePath = config?.basePath;
 		/* `registerNovaTools` is mocked, so the server it receives is
-		 * never inspected — a bare cast is sufficient and avoids pulling
+		 * never inspected: a bare cast is sufficient and avoids pulling
 		 * the real `McpServer` constructor (and its transport machinery)
 		 * into the unit suite. */
 		void initializeServer({} as McpServer);
@@ -133,7 +133,7 @@ vi.mock("mcp-handler", () => ({
 	}) satisfies typeof createMcpHandler,
 }));
 
-/** Bypass JWT verification — invoke the inner handler with synthetic claims. */
+/** Bypass JWT verification: invoke the inner handler with synthetic claims. */
 vi.mock("@better-auth/oauth-provider", () => ({
 	mcpHandler:
 		(
@@ -238,7 +238,7 @@ function buildRequest(authHeader?: string): Request {
  * The dispatcher is imported lazily here rather than at module top.
  * Vitest hoists the `vi.mock` factories above the imports, but the
  * `*Mock` consts those factories close over are ordinary declarations
- * that are NOT hoisted — eagerly importing `../auth-plugin` pulls in
+ * that are NOT hoisted: eagerly importing `../auth-plugin` pulls in
  * `api-key-auth.ts`, whose `vi.mock("@/lib/db/api-keys", …)` factory
  * runs before `isUserActiveMock` is initialized and throws
  * "Cannot access 'isUserActiveMock' before initialization". Deferring
@@ -256,7 +256,7 @@ function buildRequest(authHeader?: string): Request {
  * reads the buffered string to completion and resolves the pull
  * promise; `cancel()` was tried first but undici's wrapper around a
  * synchronously-buffered string body does not reliably settle on
- * `cancel()` — it wedged the test. `bodyUsed` guards the rare path
+ * `cancel()`: it wedged the test. `bodyUsed` guards the rare path
  * where something downstream already read the body, so we never call
  * `arrayBuffer()` on a disturbed stream (which would throw).
  */
@@ -278,13 +278,13 @@ describe("POST /api/mcp basePath (JWT path)", () => {
 		 * `createMcpHandler` is `SYNTHESIZED_AUTH_BASE_PATH`. These live
 		 * in separate files and are maintained by hand, so a drift on
 		 * either side 404s the production wire path after auth already
-		 * passed — invisible to proxy.test.ts.
+		 * passed: invisible to proxy.test.ts.
 		 *
 		 * This is a pure constant-equality check against all three real
 		 * literals, so it is the test that pins `route.ts`'s side of the
 		 * invariant. We assert on imported constants rather than driving
 		 * a request through `route.ts` because `route.ts`'s synthesis
-		 * ends in `getAuth().handler(...)` — the production Better Auth
+		 * ends in `getAuth().handler(...)`: the production Better Auth
 		 * singleton, which bypasses this file's mocks (the same reason
 		 * `mcp-revocation.integration.test.ts` drives the dispatcher
 		 * directly). A pure equality needs no request at all. */
@@ -298,7 +298,7 @@ describe("POST /api/mcp basePath (JWT path)", () => {
 
 	it("passes the request pathname through to createMcpHandler unchanged — nothing between dispatch and mcp-handler rewrites it", async () => {
 		/* Complements the constant-equality test above. That one pins the
-		 * two literals agree; this one pins the runtime half — that the
+		 * two literals agree; this one pins the runtime half: that the
 		 * `basePath` `dispatch.ts` configures reaches `createMcpHandler`
 		 * intact and that the request pathname survives the
 		 * dispatcher → JWT-path → `dispatchMcpTools` hops without being
@@ -307,7 +307,7 @@ describe("POST /api/mcp basePath (JWT path)", () => {
 		 * exact comparison `mcp-handler` would make.
 		 *
 		 * Note: `buildRequest` hardcodes the `/api/auth/mcp` URL, so this
-		 * test does NOT execute `route.ts`'s synthesis — it asserts only
+		 * test does NOT execute `route.ts`'s synthesis: it asserts only
 		 * that the dispatch path leaves the pathname alone. `route.ts`'s
 		 * literals are guarded by the constant-equality test above. */
 		await dispatch(buildRequest());
@@ -351,7 +351,7 @@ describe("MCP plugin host gate", () => {
 		 * a request can take that bypass the proxy (direct Cloud Run
 		 * service URLs, container-local requests). The wire surface
 		 * is `mcp.commcare.app/mcp`; everything else returns 404
-		 * without surfacing a `WWW-Authenticate` header — this isn't
+		 * without surfacing a `WWW-Authenticate` header: this isn't
 		 * an auth failure, it's the wrong wire endpoint. */
 		const req = new Request("https://commcare.app/api/auth/mcp", {
 			method: "POST",
@@ -426,7 +426,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(callArg.body.key).toBe("sk-nova-v1-aBcDeFg12345");
 		/* On a successful verify, dispatch reaches `mcp-handler` and we
 		 * see a transport-level response (not a 401). Floor-scope check
-		 * is local (not delegated to verifyApiKey) — see the dedicated
+		 * is local (not delegated to verifyApiKey): see the dedicated
 		 * test below for that behavior. */
 		expect(res.status).not.toBe(401);
 		/* Tool registration must receive the verified credential's
@@ -459,7 +459,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(res.headers.get("WWW-Authenticate")).toContain(
 			'error_description="user disabled"',
 		);
-		/* Tool dispatch must not run for a disabled user — defends
+		/* Tool dispatch must not run for a disabled user: defends
 		 * against a regression that fails to short-circuit on the
 		 * banned branch. */
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
@@ -472,7 +472,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		 * that drops the catch (or wraps the call in a helper that
 		 * swallows the throw) would silently invert that posture and
 		 * authenticate any verified-key holder while the DB is
-		 * unreachable — including banned users. This test pins the
+		 * unreachable, including banned users. This test pins the
 		 * fail-closed contract. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: true,
@@ -494,7 +494,7 @@ describe("POST /api/mcp (API-key path)", () => {
 	});
 
 	it("returns 401 with a Bearer challenge (no resource_metadata) on INVALID_API_KEY (no such key)", async () => {
-		/* `INVALID_API_KEY` is the plugin's lookup-miss code — what
+		/* `INVALID_API_KEY` is the plugin's lookup-miss code: what
 		 * fires when the bearer's hash doesn't match any stored row
 		 * (key never existed, was deleted, or was forged). Pin the
 		 * production behavior; a regression that drops the
@@ -513,7 +513,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(wwwAuth).toMatch(/^Bearer /);
 		expect(wwwAuth).toContain('error="invalid_token"');
 		expect(wwwAuth).toContain('error_description="api key invalid"');
-		/* No OAuth fallback hint on this branch — the client explicitly
+		/* No OAuth fallback hint on this branch: the client explicitly
 		 * sent an API key; pointing them at OAuth metadata would mislead. */
 		expect(wwwAuth).not.toContain("resource_metadata");
 	});
@@ -524,7 +524,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		 * scope check failed when `permissions` was passed to
 		 * `verifyApiKey`. Nova's route doesn't pass `permissions` to
 		 * verify (see `handleApiKeyMcp`'s docblock), so this code only
-		 * surfaces if the plugin's behavior changes — but the
+		 * surfaces if the plugin's behavior changes, but the
 		 * collapsing-to-"api key invalid" mapping must still hold so
 		 * the wire shape stays consistent. */
 		verifyApiKeyMock.mockResolvedValue({
@@ -570,13 +570,13 @@ describe("POST /api/mcp (API-key path)", () => {
 
 	it("returns 403 + insufficient_scope when the key is valid but lacks a floor scope (RFC 6750 §3)", async () => {
 		/* Floor-scope enforcement is local in `handleApiKeyMcp`, NOT
-		 * delegated to `verifyApiKey({ permissions })` — the plugin's
+		 * delegated to `verifyApiKey({ permissions })`: the plugin's
 		 * built-in permission check throws `KEY_NOT_FOUND`, which
 		 * `mapApiKeyErrorCode` maps to `"api key invalid"`, collapsing
 		 * scope-failure into authentication-failure on the wire.
 		 *
 		 * RFC 6750 §3 says missing-scope is a 403 with
-		 * `error="insufficient_scope"`, not a 401 — and the JWT path
+		 * `error="insufficient_scope"`, not a 401, and the JWT path
 		 * already emits 403 implicitly via `mcpHandler`'s scope check.
 		 * Pin both: the wire status AND the error code. */
 		verifyApiKeyMock.mockResolvedValue({
@@ -662,7 +662,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		/* Lowercase scheme is RFC-compliant; route must route this to
 		 * the API-key path. A regression that drops the regex's `i`
 		 * flag (or replaces with `.startsWith("Bearer ")`) breaks
-		 * less-common-but-compliant clients silently — this test
+		 * less-common-but-compliant clients silently: this test
 		 * catches that. */
 		await dispatch(buildRequest("bearer sk-nova-v1-aBcDeFg12345"));
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);

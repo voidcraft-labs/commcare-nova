@@ -158,7 +158,7 @@ export function RowValueField({
  * Date and time as two controls over one stored value.
  *
  * The wire stores a single date-time string, but a person enters a date and a
- * time as separate things — and the repo's own rule is that each half uses its
+ * time as separate things, and the repo's own rule is that each half uses its
  * real primitive rather than a native `datetime-local`, whose browser picker
  * pops over Nova's theme.
  */
@@ -182,8 +182,8 @@ function DateTimeField({
 	const timeId = useId();
 	const [datePart = "", timePart = ""] = value.split("T");
 	/* A HALF-filled date-time is kept, as `date` + `T` + `time` with one side
-	 * blank. Emitting `""` for a half value instead — the obvious reading of
-	 * "only a complete date-time is valid" — deletes the draft cell, which
+	 * blank. Emitting `""` for a half value instead: the obvious reading of
+	 * "only a complete date-time is valid": deletes the draft cell, which
 	 * resets both controls and discards the half the author just entered, so
 	 * the field could never be filled in at all. The draft holds text; only
 	 * `rowDraftToValues` decides what is storable, and it refuses a half

@@ -20,7 +20,7 @@ export type ProjectLookupDefinitionReadVerdict =
  *
  * Equal Project generations make absence meaningful: both reads omitted the
  * table, so it is gone. Different generations are neither loading forever nor
- * permission to call it deleted — they are an explicit Retry state.
+ * permission to call it deleted: they are an explicit Retry state.
  */
 export function projectLookupDefinitionReadVerdict(args: {
 	readonly currentProjectId: string | undefined;

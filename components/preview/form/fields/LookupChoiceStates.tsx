@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/shadcn/skeleton";
  * The two non-list states of a lookup-backed select's choice area.
  * Loading covers the builder session's fixture fetch (the engine's
  * `choices` slot is still undefined); empty is a real evaluated
- * result — zero rows match the filter right now, exactly what the
+ * result: zero rows match the filter right now, exactly what the
  * device would render, stated in a quiet line instead of a bare gap.
  */
 export function LookupChoicesLoading() {

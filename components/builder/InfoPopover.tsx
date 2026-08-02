@@ -43,7 +43,7 @@ export function InfoPopover({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className="size-11 shrink-0 rounded-full text-nova-text-muted not-disabled:hover:text-nova-text"
+						className="shrink-0"
 					/>
 				}
 				aria-label={ariaLabel}

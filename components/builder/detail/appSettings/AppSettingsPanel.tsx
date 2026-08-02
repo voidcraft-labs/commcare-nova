@@ -1,12 +1,13 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { Button } from "@/components/shadcn/button";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
 
 /** Shell prop shape: just a dismiss callback wired from the popover
- *  trigger. The app surface is a singleton — there is no entity uuid to
+ *  trigger. The app surface is a singleton: there is no entity uuid to
  *  thread through, unlike the form / module panels. */
 interface AppSettingsPanelProps {
 	onClose: () => void;
@@ -14,7 +15,7 @@ interface AppSettingsPanelProps {
 
 /**
  * App-settings drawer body rendered inside the Popover popup. Pure
- * chrome — a labeled header with a dismiss button and a content region
+ * chrome: a labeled header with a dismiss button and a content region
  * composing the app-level sections (logo appearance + CommCare Connect
  * mode + the conditional data-sources row). Mirrors
  * `FormSettingsPanel`'s `w-80` drawer layout and section stacking.
@@ -24,16 +25,19 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 		<div className="w-80">
 			{/* Header */}
 			<div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
-				<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
-					App Settings
+				<span className="text-xs font-medium text-nova-text-secondary">
+					App settings
 				</span>
-				<button
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon"
+					aria-label="Close app settings"
+					className="-mr-2"
 					onClick={onClose}
-					className="p-1 -mr-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
 				>
-					<Icon icon={tablerX} width="14" height="14" />
-				</button>
+					<Icon icon={tablerX} width="16" height="16" />
+				</Button>
 			</div>
 
 			{/* Content */}

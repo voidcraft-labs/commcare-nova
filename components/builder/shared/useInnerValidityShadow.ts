@@ -3,14 +3,14 @@
 // Two validity-propagation utilities every builder editor with an
 // `onValidityChange` prop reaches for:
 //
-//   - `useValidityPropagator` — the parent-validity boundary. Forwards
+//   - `useValidityPropagator`: the parent-validity boundary. Forwards
 //     the host's aggregated verdict to its parent's `onValidityChange`
 //     callback on mount + on every transition. Used by every editor
 //     and section card that exposes an `onValidityChange` prop, which
 //     is why the hook lives in `shared/` rather than in any one
 //     workspace's package.
 //
-//   - `useInnerValidityShadow` — a WeakMap-keyed per-row validity
+//   - `useInnerValidityShadow`: a WeakMap-keyed per-row validity
 //     shadow for drag-orderable list editors that host inner
 //     sub-editors per row. Each row's inner editor fires
 //     `onValidityChange(boolean)` on every transition; the host
@@ -23,7 +23,7 @@
 // looks "permutation-invariant" because the AND aggregation doesn't
 // care about ordering at the reorder instant. But the next inner-flip
 // AFTER a reorder writes against the row's NEW index, which is now
-// occupied by a different row's stale verdict — the writer wins, the
+// occupied by a different row's stale verdict: the writer wins, the
 // other row's stored verdict silently drops, and the aggregated
 // verdict can land on `valid: false` even when every row is valid (or
 // vice versa).
@@ -47,7 +47,7 @@
 // **WeakMap, not Map.** The shadow's keys are row OBJECT REFERENCES.
 // The reorder hook the host consumes preserves element references
 // across reorder (the reordered array's entries are the SAME
-// objects, just in a new order) — so the WeakMap entries survive
+// objects, just in a new order), so the WeakMap entries survive
 // reorder unchanged. When a row is removed (`onChange` emits a new
 // array without that row), the original element becomes unreachable
 // from React state and the WeakMap auto-collects its entry. No
@@ -56,7 +56,7 @@
 // Mutators rebuild the row through builders, which produce a NEW
 // object reference. The new object has no shadow entry yet, so
 // `shadow.get(newRow) ?? true` falls back to the "trivially valid"
-// default — the inner editor's first verdict after the rebuild fires
+// default: the inner editor's first verdict after the rebuild fires
 // `setRowValid(newRow, ...)` and writes the real entry. This matches
 // the index-keyed behavior on rebuilds (an unmounted-then-remounted
 // inner editor fires its first verdict as part of its onMount path).
@@ -65,15 +65,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface UseInnerValidityShadowResult<T extends object> {
-	/** Aggregated boolean — `true` when every row in `rows` is valid
-	 *  (or hasn't fired a verdict yet — the default), `false` when at
+	/** Aggregated boolean: `true` when every row in `rows` is valid
+	 *  (or hasn't fired a verdict yet: the default), `false` when at
 	 *  least one row's most-recent verdict was `false`. Recomputed on
 	 *  every render that bumps the version counter, which `setRowValid`
 	 *  bumps whenever a row's verdict transitions. */
 	readonly aggregatedValid: boolean;
 	/** Record a row's most-recent inner-editor verdict. Bumps the
 	 *  version counter (forcing a re-render) ONLY on actual
-	 *  transitions — re-emitting the current verdict is a no-op. */
+	 *  transitions: re-emitting the current verdict is a no-op. */
 	readonly setRowValid: (row: T, valid: boolean) => void;
 }
 
@@ -82,7 +82,7 @@ interface UseInnerValidityShadowResult<T extends object> {
  * current `rows` array; aggregates the per-row verdicts via logical-
  * AND and exposes a `setRowValid` setter for inner editors to call.
  *
- * The `rows` array is consumed by REFERENCE — entries that survive
+ * The `rows` array is consumed by REFERENCE: entries that survive
  * reorder (the reorder hook splices existing references into the new
  * array order) carry their shadow entries forward; entries replaced
  * by builder mutations get a fresh "trivially valid" default until
@@ -99,11 +99,11 @@ export function useInnerValidityShadow<T extends object>(
 ): UseInnerValidityShadowResult<T> {
 	// WeakMap entries are auto-collected when the row reference leaves
 	// scope (removed from `rows`). The `useRef` keeps the SAME WeakMap
-	// instance across renders — without it, a fresh map per render
+	// instance across renders: without it, a fresh map per render
 	// would lose every entry on the next render cycle.
 	const shadowRef = useRef<WeakMap<T, boolean>>(new WeakMap());
 
-	// Render-trigger counter — bumped on every transition. The
+	// Render-trigger counter: bumped on every transition. The
 	// aggregation memo's deps include this counter so a write to the
 	// WeakMap ref (which doesn't itself trigger React) re-runs the
 	// aggregation against the freshly-updated ref.
@@ -139,7 +139,7 @@ export function useInnerValidityShadow<T extends object>(
 }
 
 interface UseValidityPropagatorArgs {
-	/** The host's current aggregated verdict — computed from the
+	/** The host's current aggregated verdict: computed from the
 	 *  shadow (and any structural-error gates the host owns
 	 *  upstream). */
 	readonly isValid: boolean;
@@ -155,7 +155,7 @@ interface UseValidityPropagatorArgs {
  * transition; the ref-stash defends against a fresh-each-render
  * parent callback identity tripping the effect on non-transitions.
  *
- * Centralized here so the boilerplate doesn't re-emerge per editor —
+ * Centralized here so the boilerplate doesn't re-emerge per editor:
  * one shape, one place to fix.
  */
 export function useValidityPropagator({

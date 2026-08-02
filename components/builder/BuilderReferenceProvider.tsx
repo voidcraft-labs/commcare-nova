@@ -1,10 +1,10 @@
 /**
- * BuilderReferenceProvider — isolates the `useLocation()` subscription
+ * BuilderReferenceProvider: isolates the `useLocation()` subscription
  * needed to resolve the in-scope form for reference autocomplete/lint.
  *
  * The in-scope form lives on the URL, so `getRefContext` needs a
- * `useLocation()` read. Keeping that read here — rather than in
- * `BuilderLayout` — preserves the layout's "re-render only on app
+ * `useLocation()` read. Keeping that read here, rather than in
+ * `BuilderLayout`: preserves the layout's "re-render only on app
  * lifecycle transitions" invariant: every selection change issues a
  * navigation, and a layout-level `useLocation()` would cascade those
  * into layout re-renders.
@@ -12,7 +12,7 @@
  * This component owns the `useLocation()` subscription, constructs
  * `getRefContext` via the doc store imperatively (no reactive
  * subscription), and renders `ReferenceProviderWrapper`. Re-renders here
- * are cheap — the child tree is just the wrapper, whose
+ * are cheap: the child tree is just the wrapper, whose
  * `ReferenceProvider` instance is memoized and whose cache invalidation
  * is driven by the `subscribeMutation` handle, not the React render
  * cycle.
@@ -38,7 +38,7 @@ export function BuilderReferenceProvider({
 	const loc = useLocation();
 
 	/** Build the `XPathLintContext` for any form by uuid. Called by
-	 *  `ReferenceProvider` whenever it resolves a ref — the active form for
+	 *  `ReferenceProvider` whenever it resolves a ref: the active form for
 	 *  in-editor surfaces, each field's owning form for the sidebar. Reads the
 	 *  doc store imperatively so we don't subscribe to blueprint state here
 	 *  (cache invalidation is driven by `subscribeMutation` below). */

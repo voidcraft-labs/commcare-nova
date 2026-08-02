@@ -66,12 +66,12 @@ function Calendar({
 				),
 				button_previous: cn(
 					buttonVariants({ variant: buttonVariant }),
-					"size-(--cell-target-size) p-0 select-none aria-disabled:opacity-40",
+					"size-(--cell-target-size) p-0 select-none aria-disabled:opacity-(--disabled-opacity)",
 					defaultClassNames.button_previous,
 				),
 				button_next: cn(
 					buttonVariants({ variant: buttonVariant }),
-					"size-(--cell-target-size) p-0 select-none aria-disabled:opacity-40",
+					"size-(--cell-target-size) p-0 select-none aria-disabled:opacity-(--disabled-opacity)",
 					defaultClassNames.button_next,
 				),
 				month_caption: cn(
@@ -137,7 +137,7 @@ function Calendar({
 					defaultClassNames.outside,
 				),
 				disabled: cn(
-					"text-muted-foreground opacity-40",
+					"text-muted-foreground opacity-(--disabled-opacity)",
 					defaultClassNames.disabled,
 				),
 				hidden: cn("invisible", defaultClassNames.hidden),
@@ -218,22 +218,22 @@ function CalendarDayButton({
 				// 44px hit target: a transparent 2px border + the Button base's
 				// `bg-clip-padding` keep every fill 4px narrower than the cell,
 				// so adjacent days always have visible breathing room and
-				// NOTHING — plate, border, or focus indicator — ever draws
+				// NOTHING: plate, border, or focus indicator, ever draws
 				// outside its own cell. The plate's radius is the calendar's
 				// own `--cell-radius`, not the Button base's `rounded-lg`, so
 				// every state shares one corner geometry. Hover and today use
-				// violet tints, not `bg-muted` — muted sits at the popover
+				// violet tints, not `bg-muted`: muted sits at the popover
 				// glass's own luminance and paints an invisible plate there.
 				// Selected is the theme's SELECTED vocabulary (violet tint +
 				// violet border, ordinary text), never the CTA button fill.
-				// Focus is `focus-visible` only — an inset ring inside the
+				// Focus is `focus-visible` only: an inset ring inside the
 				// plate, replacing the Button base's outer 3px ring (which
-				// would bleed into the neighboring cell) — so opening the
+				// would bleed into the neighboring cell), so opening the
 				// popover with a pointer paints no surprise ring while
 				// keyboard navigation stays clearly marked. Range fills opt
-				// back into full-bleed (border-0) — a band must run
+				// back into full-bleed (border-0): a band must run
 				// continuous across cells.
-				"relative isolate z-10 flex h-(--cell-target-size) w-(--cell-size) min-w-(--cell-size) flex-col gap-1 rounded-(--cell-radius) border-2 border-transparent leading-none font-normal not-disabled:hover:bg-nova-violet/[0.14] focus-visible:ring-0 focus-visible:inset-ring-2 focus-visible:inset-ring-ring/70 data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:border-0 data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:border-0 data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:border-0 data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:border-nova-violet data-[selected-single=true]:bg-nova-violet/[0.22] data-[selected-single=true]:text-nova-text data-[today=true]:not-data-[selected-single=true]:bg-nova-violet/[0.09] dark:not-disabled:hover:bg-nova-violet/[0.14] dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
+				"nova-focusable-inset relative isolate z-10 flex h-(--cell-target-size) w-(--cell-size) min-w-(--cell-size) flex-col gap-1 rounded-(--cell-radius) border-2 border-transparent leading-none font-normal not-disabled:hover:bg-nova-violet/[0.14] data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:border-0 data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:border-0 data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:border-0 data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:border-nova-violet data-[selected-single=true]:bg-nova-violet/[0.22] data-[selected-single=true]:text-nova-text data-[today=true]:not-data-[selected-single=true]:bg-nova-violet/[0.09] dark:not-disabled:hover:bg-nova-violet/[0.14] dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
 				defaultClassNames.day,
 				className,
 			)}

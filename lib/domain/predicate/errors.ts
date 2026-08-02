@@ -97,7 +97,7 @@ export function unhandledKindMessage(args: UnhandledKindArgs): string {
 	const { where, family, received, knownKinds } = args;
 	const receivedDisplay = JSON.stringify(received) ?? String(received);
 	return [
-		`Internal bug — \`${where}\` received an unhandled ${family} kind: ${receivedDisplay}.`,
+		`Internal bug: \`${where}\` received an unhandled ${family} kind: ${receivedDisplay}.`,
 		``,
 		`I know how to handle these ${family} kinds:`,
 		``,
@@ -141,7 +141,7 @@ interface CompilerBugArgs {
  */
 export function compilerBugMessage(args: CompilerBugArgs): string {
 	const { where, invariant, detail } = args;
-	const lines = [`Internal bug — \`${where}\`: ${invariant}.`];
+	const lines = [`Internal bug: \`${where}\`: ${invariant}.`];
 	if (detail) {
 		lines.push(``, detail);
 	}
@@ -184,7 +184,7 @@ const DEFAULT_BYPASS_HINT =
  */
 export function typeCheckerBypassMessage(args: TypeCheckerBypassArgs): string {
 	const { where, summary, expected, received, hint } = args;
-	const lines = [`\`${where}\` — ${summary} (type-checker bypass).`];
+	const lines = [`\`${where}\`: ${summary} (type-checker bypass).`];
 	if (expected !== undefined || received !== undefined) {
 		lines.push(``);
 		if (expected !== undefined) {
@@ -244,7 +244,7 @@ export function missingPredicateThunkMessage(
 ): string {
 	const { where, arm, slot } = args;
 	return [
-		`\`${where}\` — \`${arm}\` reached the expression compiler without a wired predicate compiler.`,
+		`\`${where}\`: \`${arm}\` reached the expression compiler without a wired predicate compiler.`,
 		``,
 		`The ${slot}, but \`ctx.compilePredicate\` is \`undefined\`. The expression`,
 		"compiler does not import `compilePredicate` directly (the cycle would",

@@ -1,9 +1,9 @@
 // components/builder/case-list-config/seeds.ts
 //
 // Smart seeds for the canvases' add affordances. A freshly-added
-// thing must WORK the moment it lands — bound to a sensible
+// thing must WORK the moment it lands: bound to a sensible
 // property, labeled in human words, and (for text search) matching
-// forgivingly — because a blank/invalid seed is a silent trap: an
+// forgivingly: because a blank/invalid seed is a silent trap: an
 // unbound search input matches nothing, and "exact" text match
 // reads as "search is broken" to anyone who types a lowercase
 // first name.
@@ -13,8 +13,8 @@
 // center-canvas chooser asks which information the author wants, then the
 // helpers here build a working column for that explicit property. The widget
 // follows the property's data type; text-shaped search properties seed with
-// FORGIVING (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
-// per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with Exact one
+// FORGIVING (fuzzy) match: typo-and-case-tolerant on both the wire (CCHQ's
+// per-prompt fuzzy flag) and the preview runtime (pg_trgm), with Exact one
 // click away in the Match picker.
 
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
@@ -49,7 +49,7 @@ import type { CaseDisplaySurface } from "./workspaceProjection";
  * Center-canvas display-field add.
  *
  * The new field lands at the end of the ACTIVE screen and at the end of the
- * other one. Both are required — a column belongs to the Results and Details
+ * other one. Both are required: a column belongs to the Results and Details
  * sequences from birth, and a field added on Results is still a field Details
  * can be asked to show later, at a place it already holds.
  */
@@ -84,7 +84,7 @@ export function xmlNameFromProperty(property: string): string {
 	return cleaned;
 }
 
-/** Suffix until unique among sibling input names — the wire binds
+/** Suffix until unique among sibling input names: the wire binds
  *  inputs by name, so a duplicate would silently shadow. */
 export function uniqueInputName(
 	base: string,
@@ -103,7 +103,7 @@ export function uniqueInputName(
 /**
  * Pick the property a fresh row should bind: `case_name` first
  * (unused), then any unused text property, any unused property,
- * and finally the first property even if taken — never unbound.
+ * and finally the first property even if taken: never unbound.
  * Returns `undefined` only when the case type declares nothing.
  */
 export function pickSeedProperty(
@@ -171,7 +171,7 @@ export function seedSearchInputForProperty(
 	const type = widgetTypeForProperty(property);
 	// Text searches fuzzily by default; date and barcode widgets keep their
 	// per-type default. Fuzzy is gated on
-	// the property's data type too — a number property also renders as
+	// the property's data type too: a number property also renders as
 	// a text widget, but fuzzy is text-only and would seed an invalid row.
 	const fuzzyAdmitted =
 		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(property)) ??

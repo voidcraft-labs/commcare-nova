@@ -1,7 +1,7 @@
 // components/builder/shared/__tests__/verbMenuBuildFuzz.test.ts
 //
 // The valid-by-construction GLUE invariant: the EDITOR's own build
-// functions — not just the domain helpers — never produce a
+// functions, not just the domain helpers: never produce a
 // soundness-invalid AST. `validByConstruction.test.ts` pins the helpers
 // + reseed; this file pins the wiring on top of them:
 //
@@ -11,13 +11,13 @@
 //      with the menu's own admission (`verbEntryAdmitted`), so a future
 //      card miswiring (a wrong reseed) fails CI.
 //   2. Every registry default factory seeds a type-correct AST for a
-//      property of ANY type — the "Add affordances land WORKING
-//      entities" rule — so an invalid seed (a text `literal("")`
+//      property of ANY type: the "Add affordances land WORKING
+//      entities" rule, so an invalid seed (a text `literal("")`
 //      opposite an ordered / non-text property) fails CI too.
 //
 // Both assert `checkPredicate(...).ok` modulo ONLY the two tolerated
 // COMPLETENESS states the editor leaves for the author to fill: an empty
-// property name and an empty `match` value. Pure — no React, no DOM.
+// property name and an empty `match` value. Pure: no React, no DOM.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -73,7 +73,7 @@ import {
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-/** One property per data type — a subject of any type is constructible. */
+/** One property per data type: a subject of any type is constructible. */
 function propOf(dt: CasePropertyDataType): CaseProperty {
 	const base: CaseProperty = {
 		name: `p_${dt}`,
@@ -138,7 +138,7 @@ function eqValue(dt: CasePropertyDataType) {
 		case "time":
 			return timeLiteral("08:00");
 		case "geopoint":
-			// No geopoint literal widget — `null` is the only valid literal.
+			// No geopoint literal widget: `null` is the only valid literal.
 			return literal(null);
 		default:
 			return literal("x"); // text / single_select / multi_select
@@ -179,7 +179,7 @@ const CURRENTS: Predicate[] = [
 
 const ALL_ENTRIES = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 
-/** The two tolerated COMPLETENESS states ("fill this in") — every other
+/** The two tolerated COMPLETENESS states ("fill this in"): every other
  *  finding is a soundness failure the editor must never author. */
 function isCompletenessOnly(errors: readonly CheckError[]): boolean {
 	return errors.every(
@@ -204,7 +204,7 @@ function subjectTypeOf(p: Predicate): ResolvedType | undefined {
 describe("valid by construction — every admitted verb build type-checks", () => {
 	it("no admitted verb pick yields a soundness-invalid AST", () => {
 		for (const current of CURRENTS) {
-			// The editor only ever opens a valid tree — pin that the
+			// The editor only ever opens a valid tree: pin that the
 			// fixtures are themselves schema-valid and type-valid before
 			// transitioning from them.
 			expect(
@@ -328,7 +328,7 @@ describe("valid by construction — every registry default seeds a valid AST", (
 	it("a default factory lands type-correct for a property of ANY first type", () => {
 		// Vary which type is FIRST so the kinds that anchor on the first /
 		// first-ordered property (comparison / membership / range) seed
-		// against every data type — the seed must match the property's own
+		// against every data type: the seed must match the property's own
 		// type, never a stray text `literal("")`.
 		for (const firstType of casePropertyDataTypes) {
 			const ordered = [

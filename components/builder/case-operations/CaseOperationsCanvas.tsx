@@ -15,7 +15,7 @@
 //   - dragging feeds it to `canDropAtIndex`, so a refused destination
 //     never opens and a release over it commits nothing;
 //   - a keyboard move asks the same map BEFORE committing, and a refusal
-//     is SPOKEN — naming the changes it is about — rather than the key
+//     is SPOKEN: naming the changes it is about, rather than the key
 //     silently doing nothing. That parity is the whole point: a keyboard
 //     author gets the information a pointer author reads off the drop
 //     zone.
@@ -68,6 +68,7 @@ import {
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { CaseOperationRow } from "./CaseOperationRow";
 import { planKeyboardMove, type ReorderKey } from "./keyboardMove";
 import { moveRefusalReason } from "./refusalCopy";
@@ -106,7 +107,7 @@ export function CaseOperationsCanvas({
 	);
 
 	/* The dragged row's verdict map, captured the moment its handle is
-	 * grabbed — before any pointer move can ask about a destination. Reading
+	 * grabbed: before any pointer move can ask about a destination. Reading
 	 * it from drag state instead would leave the first pointer move
 	 * ungated. */
 	const dragVerdictsRef = useRef<ReadonlyMap<
@@ -174,7 +175,7 @@ export function CaseOperationsCanvas({
 	});
 
 	/* A refused destination cannot be signalled by the insertion rule's HUE
-	 * alone — that is state conveyed by color, and on the twenty-change form
+	 * alone: that is state conveyed by color, and on the twenty-change form
 	 * this screen is designed for, the sentence below the list can be a
 	 * screenful away from the pointer. The reason travels WITH the rule. */
 	const dropRefusal =
@@ -238,9 +239,8 @@ export function CaseOperationsCanvas({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => navigate.push({ kind: "form", moduleUuid, formUuid })}
-				className="-ml-2 mb-5 text-nova-text-secondary"
+				className="-ml-2 mb-5"
 			>
 				<Icon icon={tablerArrowLeft} width="16" height="16" />
 				Back to the form
@@ -250,13 +250,13 @@ export function CaseOperationsCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					Case changes
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
 					Everything submitting this form does to your cases, in the order it
-					happens. Each change can create a case, update one, or close one — and
+					happens. Each change can create a case, update one, or close one, and
 					a later change can use a case an earlier one made.
 				</p>
 			</header>
@@ -287,7 +287,7 @@ export function CaseOperationsCanvas({
 
 			{operations.length === 0 ? (
 				<p className="mb-4 rounded-2xl border border-dashed border-white/[0.08] px-4 py-6 text-[14px] leading-relaxed text-nova-text-muted">
-					This form does not change any cases yet. Submitting it records the
+					This form doesn't change any cases yet. Submitting it records the
 					answers and nothing else.
 				</p>
 			) : (
@@ -469,7 +469,7 @@ function AddChangeControl({
 				)
 			: undefined;
 	const sessionReason = !sessionAvailable
-		? "This module does not choose a case before opening its forms, so there is no case in hand to change"
+		? "This module doesn't choose a case before opening its forms, so there is no case in hand to change"
 		: sessionCaseType === undefined
 			? "Nova cannot determine which kind of case this form has in hand at this point"
 			: RESERVED_CASE_OPERATION_TYPES.has(sessionCaseType)
@@ -509,9 +509,9 @@ function AddChangeControl({
 	/* Stable so `CaseTypePickerContent` can memoize the whole verdict map: it
 	 * asks once per offered case type, each ask is a whole-document validation,
 	 * and the picker re-renders on every keystroke in its create-new box. The
-	 * verdict itself cannot be value-cached here the way an edit verdict is —
+	 * verdict itself cannot be value-cached here the way an edit verdict is:
 	 * `seedCaseOperation` mints a fresh uuid per call, so each candidate is a
-	 * new identity — which is exactly why the stability has to live here. */
+	 * new identity, which is exactly why the stability has to live here. */
 	const createTypeVerdict = useCallback(
 		(caseType: string) =>
 			addVerdict(
@@ -541,10 +541,9 @@ function AddChangeControl({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						size="xl"
+						variant="ghost"
 						data-case-operations-add
-						className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+						className="nova-add-slot w-full gap-2"
 					/>
 				}
 			>
@@ -572,9 +571,8 @@ function AddChangeControl({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							onClick={() => setMode("intent")}
-							className="w-full justify-start text-[13px] text-nova-text-secondary"
+							className="w-full justify-start text-[13px]"
 						>
 							<Icon icon={tablerArrowLeft} width="14" height="14" />
 							Back
@@ -637,13 +635,11 @@ function IntentRow({
 	readonly onClick: () => void;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant="ghost"
-			size="xl"
 			disabled={disabledReason !== undefined}
 			onClick={onClick}
-			className="h-auto min-h-11 w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-left whitespace-normal"
+			className={POPOVER_ROW_CLS}
 		>
 			<Icon
 				icon={icon}
@@ -659,6 +655,6 @@ function IntentRow({
 					{detail}
 				</span>
 			</span>
-		</Button>
+		</button>
 	);
 }

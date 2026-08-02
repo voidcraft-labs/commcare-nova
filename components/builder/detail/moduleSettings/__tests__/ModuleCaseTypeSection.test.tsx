@@ -66,7 +66,7 @@ describe("ModuleCaseTypeSection", () => {
 		render(<ModuleCaseTypeSection moduleUuid={"module-1" as Uuid} />);
 
 		expect(
-			screen.getByText("Choose the kind of case this module works with"),
+			screen.getByText("Forms here can then read and save that case's data"),
 		).toBeDefined();
 		expect(screen.queryByText(/turns this module/i)).toBeNull();
 

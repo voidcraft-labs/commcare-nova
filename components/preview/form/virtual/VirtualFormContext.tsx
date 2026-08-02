@@ -15,7 +15,7 @@ import { createContext, useContext, useMemo } from "react";
 import type { Uuid } from "@/lib/doc/types";
 
 interface VirtualFormContextValue {
-	/** The form's uuid — handed to drop-target `getData` builders so
+	/** The form's uuid: handed to drop-target `getData` builders so
 	 *  they can correctly compute the moveField target parent when
 	 *  the user drops onto the form root. */
 	readonly formUuid: Uuid;

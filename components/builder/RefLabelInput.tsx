@@ -77,7 +77,7 @@ function parseValueToContent(
 ): JSONContent {
 	return proseTemplateToTiptapContent(value, (part) => {
 		const resolved = provider?.resolvePart(part, formUuid);
-		// What the CHIP shows, which is `displayId` — not `Reference.label`, the
+		// What the CHIP shows, which is `displayId`, not `Reference.label`, the
 		// autocomplete string. The atom's `label` is the text Backspace converts
 		// the chip back into, so the two have to be the same thing or that gesture
 		// replaces a reference with words the author never saw.
@@ -116,7 +116,7 @@ export function RefLabelInput({
 	const committedRef = useRef(false);
 	const valueRef = useRef(value);
 	valueRef.current = value;
-	/** Captures the value at focus time — used by cancel to revert to the
+	/** Captures the value at focus time: used by cancel to revert to the
 	 *  pre-edit state, unaffected by debounced onChange updates. */
 	const savedValueRef = useRef(value);
 	const onChangeRef = useRef(onChange);
@@ -171,11 +171,11 @@ export function RefLabelInput({
 		[multiline],
 	);
 
-	/* Only paragraphs + text + commcareRef nodes — no block-level elements. */
+	/* Only paragraphs + text + commcareRef nodes: no block-level elements. */
 	const extensions = useMemo(
 		() => [
 			StarterKit.configure({
-				/* Disable everything except paragraph — we only want inline text. */
+				/* Disable everything except paragraph: we only want inline text. */
 				heading: false,
 				blockquote: false,
 				bulletList: false,
@@ -208,7 +208,7 @@ export function RefLabelInput({
 		extensions,
 		content: initialContent,
 		immediatelyRender: false,
-		/* Debounced live update — avoids a full builder notification per keystroke
+		/* Debounced live update: avoids a full builder notification per keystroke
        while still keeping the canvas in sync for chip insertion. */
 		onUpdate: ({ editor: e }) => {
 			clearTimeout(debounceRef.current);
@@ -311,7 +311,7 @@ export function RefLabelInput({
 
 	/* Register focus/blur handlers on the editor. Escape is handled here as a
      DOM keydown listener (rather than via TipTap addKeyboardShortcuts) so we
-     can call stopPropagation — preventing the parent popover dismiss
+     can call stopPropagation: preventing the parent popover dismiss
      handler from closing the field inspector during an edit cancel. */
 	useEffect(() => {
 		if (!editor) return;
@@ -366,7 +366,7 @@ export function RefLabelInput({
 		<div>
 			<span
 				id={labelId}
-				className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5"
+				className="text-xs text-nova-text-muted mb-1 flex items-center gap-1.5"
 			>
 				{fieldLabel}
 				<SavedCheck

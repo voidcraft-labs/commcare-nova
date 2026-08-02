@@ -1,6 +1,6 @@
 // components/builder/appTree/insertion/interleaveInsertions.ts
 //
-// Interleave hover-reveal insertion points between tree rows — the shape the
+// Interleave hover-reveal insertion points between tree rows, the shape the
 // module list (AppTree) and a module's form list (ModuleCard) both need: a
 // leading insertion point, then each rendered row followed by a trailing one,
 // UNLESS suppressed (the app is locked or a search filter is active), where
@@ -12,9 +12,9 @@ import type { ReactNode } from "react";
 
 interface InterleaveOpts<T> {
 	/**
-	 * Render rows only, no insertion points — locked app or active filter.
+	 * Render rows only, no insertion points: locked app or active filter.
 	 * Insertion points are emitted ONLY when this is false, so a filtering
-	 * `renderItem` (returning `null`) must pair with `suppress: true` — both
+	 * `renderItem` (returning `null`) must pair with `suppress: true`, both
 	 * callers do (`suppress = locked || !!searchResult`). That pairing is what
 	 * keeps the visual placement honest: when suppressed there are no insertion
 	 * points to mis-place.
@@ -23,7 +23,7 @@ interface InterleaveOpts<T> {
 	/** Render a row; return `null` to omit it (filtered out by search). */
 	readonly renderItem: (item: T, index: number) => ReactNode | null;
 	/**
-	 * Render the insertion point that inserts at `atIndex` — the index into the
+	 * Render the insertion point that inserts at `atIndex`: the index into the
 	 * FULL (unfiltered) order array, taken from the item's own position, so the
 	 * insert lands at the right `moduleOrder` / `formOrder` slot regardless of
 	 * filtering. `key` is unique within the list.

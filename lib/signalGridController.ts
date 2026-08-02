@@ -13,11 +13,11 @@ import {
 
 // ── Color constants (pre-computed RGB for interpolation) ──────────────
 
-const VIOLET = [139, 92, 246] as const; // #8b5cf6 (--nova-violet)
-const VIOLET_BRIGHT = [167, 139, 250] as const; // #a78bfa (--nova-violet-bright)
+const VIOLET = [150, 120, 242] as const; // #9678f2 (--nova-violet)
+const VIOLET_BRIGHT = [182, 160, 251] as const; // #b6a0fb (--nova-violet-bright)
 const PINK = [255, 105, 140] as const; // bubblegum pink (building sweep)
-const WHITE = [237, 237, 244] as const; // #ededf4 (--nova-text)
-const AMBER = [212, 167, 106] as const; // #d4a76a (--nova-amber)
+const WHITE = [249, 246, 253] as const; // #f9f6fd (--nova-text)
+const AMBER = [234, 160, 106] as const; // #eaa06a (--nova-amber)
 const ROSE = [212, 112, 143] as const; // #d4708f (--nova-rose)
 const EMERALD = [134, 206, 188] as const; // #86cebc (--nova-emerald)
 
@@ -2037,7 +2037,7 @@ export class SignalGridController {
 			const base = `width:${CELL_SIZE}px;height:${CELL_SIZE}px;border-radius:1.5px;will-change:transform;`;
 
 			if (brightness < 0.02) {
-				el.style.cssText = `${base}background:rgba(139,92,246,0.06);`;
+				el.style.cssText = `${base}background:rgba(150,120,242,0.06);`;
 				continue;
 			}
 

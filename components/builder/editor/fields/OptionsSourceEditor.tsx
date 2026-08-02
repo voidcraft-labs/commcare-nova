@@ -271,7 +271,7 @@ export function OptionsSourceEditor<
 					<Button
 						type="button"
 						variant="outline"
-						className="mt-2 min-h-11"
+						className="mt-2"
 						onClick={() => void catalog.retry()}
 					>
 						Try again
@@ -459,8 +459,8 @@ export function OptionsSourceEditor<
 								) : canEdit ? (
 									<Button
 										type="button"
-										variant="outline"
-										className="min-h-11 w-full border-dashed"
+										variant="ghost"
+										className="nova-add-slot w-full"
 										onClick={() => {
 											if (tableScope === undefined) return;
 											changeFilter(
@@ -486,8 +486,8 @@ export function OptionsSourceEditor<
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Only matching rows are offered. These choices are built before
 									there is a case row or a search screen, so case data and
-									case-search answers are unavailable here — as are later
-									answers and answers inside a child or sibling repeat.
+									case-search answers are unavailable here, as are later answers
+									and answers inside a child or sibling repeat.
 								</p>
 								<fieldset disabled={!canEdit} className="contents">
 									<PredicateWorkbench

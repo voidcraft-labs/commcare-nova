@@ -220,7 +220,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_user_type",
 		label: "Account type",
 		description:
-			"Always “commcare” — the value CommCare gives a mobile worker. Web-user accounts are not something this app creates.",
+			"Always “commcare”, the value CommCare gives a mobile worker. Web-user accounts are not something this app creates.",
 		availability: "constant",
 		readByRuntime: false,
 	},
@@ -252,7 +252,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_primary_case_sharing_id",
 		label: "Primary case-sharing group",
 		description:
-			"The same id as the primary location — CommCare repeats it under this name. It stays empty until this app has an organization structure.",
+			"The same id as the primary location. CommCare repeats it under this name. It stays empty until this app has an organization structure.",
 		availability: "needs-organization",
 		readByRuntime: false,
 	},

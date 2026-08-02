@@ -1,14 +1,14 @@
 /**
- * BreadcrumbStrip — history navigation + the breadcrumb trail, docked
+ * BreadcrumbStrip: history navigation + the breadcrumb trail, docked
  * at the top of the canvas column (between the sidebars, not in the
  * full-width header). The sidebars bound its width, so a long trail
  * collapses through `CollapsibleBreadcrumb` instead of growing toward
- * the header's centered Preview toggle — wayfinding and the mode
+ * the header's centered Preview toggle: wayfinding and the mode
  * toggle can never collide.
  *
  * Self-sufficient: navigation state from `useLocation` / `useNavigate`
  * / `useBreadcrumbs` (URL-driven), names from the doc store. In preview
- * the trail is rebuilt to follow the running app — a case-list URL names
+ * the trail is rebuilt to follow the running app: a case-list URL names
  * the case-loading FORM it feeds (plus the picked case), not the editor's
  * "Results" tab.
  *
@@ -90,8 +90,8 @@ export function BreadcrumbStrip() {
 	const navigate = useNavigate();
 	const canGoBack = loc.kind !== "home";
 
-	/* Every preview/edit surface shares ONE content frame — `5xl` wide with
-	 * a `px-6` inset — so navigating between screens never swaps width OR
+	/* Every preview/edit surface shares ONE content frame: `5xl` wide with
+	 * a `px-6` inset, so navigating between screens never swaps width OR
 	 * shifts the left edge; the strip matches it exactly. */
 
 	/* Breadcrumbs derived from URL + doc entity names. */
@@ -166,8 +166,8 @@ export function BreadcrumbStrip() {
 	/* Breadcrumb click handlers, memoized on navigation structure so
 	 * CollapsibleBreadcrumb's memo() skips re-renders when nothing changed.
 	 * A case-loading form's crumb (`reselectCaseFor`) re-enters its
-	 * case-selection step — re-open the case list seeded with this form as
-	 * the continue target — instead of re-navigating to the form the user is
+	 * case-selection step: re-open the case list seeded with this form as
+	 * the continue target: instead of re-navigating to the form the user is
 	 * already on; every other crumb pushes its location. */
 	const breadcrumbHandlers = useMemo(
 		() =>
@@ -184,7 +184,7 @@ export function BreadcrumbStrip() {
 		[effectiveBreadcrumbs, navigate, moduleUuid, setPreviewCaseTarget],
 	);
 
-	/* Assemble breadcrumb parts — memoized so CollapsibleBreadcrumb's memo
+	/* Assemble breadcrumb parts: memoized so CollapsibleBreadcrumb's memo
 	 * boundary actually works. Without useMemo, every render creates a new
 	 * array reference, defeating the child's memo check. Before the doc has
 	 * data there is nothing to navigate, so the strip stays an empty bar. */

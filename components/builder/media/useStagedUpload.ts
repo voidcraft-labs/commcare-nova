@@ -1,11 +1,11 @@
 // components/builder/media/useStagedUpload.ts
 //
 // The slot-upload driver: the one place a picked file becomes a staged
-// session record, a running upload, and — on confirm — a gated attach.
+// session record, a running upload, and: on confirm, a gated attach.
 //
 // The contract it implements: the doc never references an asset that
 // isn't `ready`. A file picked for a slot is therefore STAGED in the
-// session store (`stagedUploads` — progress + cancel, never doc state)
+// session store (`stagedUploads`: progress + cancel, never doc state)
 // while the hash → signed-PUT → confirm flow runs; only the confirm
 // response (whose asset is `ready` by definition) dispatches the slot's
 // normal gated attach via `onReady`. A failure flips the staged record
@@ -13,8 +13,8 @@
 // transfer and removes the record.
 //
 // The staged record lives in the session store (not component state) so
-// a slot that unmounts mid-upload — the user closes the settings panel,
-// navigates within the builder — re-renders its chip from the store on
+// a slot that unmounts mid-upload: the user closes the settings panel,
+// navigates within the builder: re-renders its chip from the store on
 // remount, and cancel still reaches the transfer through the store's
 // abort registry. The confirm-time attach goes through an `onReady` ref
 // updated every render, so it dispatches against the carrier's CURRENT
@@ -23,7 +23,7 @@
 // The confirm also runs the attach budget check (`useAttachBudget.ts`)
 // BEFORE dispatching: a confirmed upload that would push the app past
 // the media export ceiling lands in the library (the bytes are valid)
-// but does NOT attach — the staged chip flips to the shared rejection
+// but does NOT attach: the staged chip flips to the shared rejection
 // prose with nothing committed.
 
 "use client";
@@ -36,7 +36,7 @@ import { useAttachBudgetGuard } from "./useAttachBudget";
 
 /**
  * Drive staged uploads for one carrier slot family. `onReady` receives
- * the CONFIRMED (ready) asset plus the kind it was staged under — the
+ * the CONFIRMED (ready) asset plus the kind it was staged under, the
  * slot dispatches its gated attach there.
  *
  * Returns `start(slotKey, kind, file)`: stages the record under
@@ -77,7 +77,7 @@ export function useStagedSlotUpload(
 					/* Confirm flipped the row to ready. Budget BEFORE dispatch:
 					 * the upload itself succeeded (the file is in the library),
 					 * but an attach that would breach the export ceiling refuses
-					 * here — the shared prose lands on the staged chip and
+					 * here: the shared prose lands on the staged chip and
 					 * nothing was ever committed. A cancel that raced the check
 					 * wins (the record is gone; stay silent). */
 					if (
@@ -104,7 +104,7 @@ export function useStagedSlotUpload(
 				},
 				(err: unknown) => {
 					/* Cancel already removed the record (cancelStagedUpload aborts
-					 * then clears) — stay silent so the cleared slot doesn't
+					 * then clears): stay silent so the cleared slot doesn't
 					 * resurrect as an error chip. */
 					if (
 						controller.signal.aborted ||

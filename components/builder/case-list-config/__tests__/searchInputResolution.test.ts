@@ -7,7 +7,7 @@
 // typed value with a BARE `input(...)` ref. A bare search-input ref in
 // a wire-emission-bound slot resolves to the empty string before
 // anyone searches, so the validator (`CASE_LIST_BARE_SEARCH_INPUT_REF`,
-// `requires-envelope` mode) rejects it — the conversion failed the
+// `requires-envelope` mode) rejects it: the conversion failed the
 // moment it was chosen ("Change not applied"). The seed now wraps the
 // comparison in the same `when-input-present` envelope the standard
 // match modes derive at wire-emit (`deriveSimpleArmPredicate`), which
@@ -93,7 +93,7 @@ describe("seedCustomCondition", () => {
 		);
 		const seeded = seedCustomCondition(row, CASE_TYPE);
 
-		// Top-level is the envelope, NOT a bare comparison — this is the
+		// Top-level is the envelope, NOT a bare comparison: this is the
 		// difference between a gate rejection and a clean commit.
 		expect(seeded.kind).toBe("when-input-present");
 		// Byte-for-byte the canonical shape the standard "exact" mode
@@ -109,7 +109,7 @@ describe("seedCustomCondition", () => {
 
 	it("preserves a parent-case walk in the seeded property ref", () => {
 		// A row bound to a parent property keeps its relation walk, so
-		// the seed reads the property on the case it actually searches —
+		// the seed reads the property on the case it actually searches:
 		// not on the current case type, which may not even declare it.
 		const via = ancestorPath(relationStep("parent"));
 		const row = simpleSearchInputDef(
@@ -190,7 +190,7 @@ describe("searchInputDecls", () => {
 		// The exact screenshot scenario: a single search input named
 		// `case_name` converted to a custom condition. The seed
 		// self-references `input("case_name")`, so the row's OWN
-		// declaration must be in scope — excluding it made the editor
+		// declaration must be in scope: excluding it made the editor
 		// report "Unknown search input 'case_name'." against a condition
 		// the commit gate and wire emitter both accept.
 		const row = simpleSearchInputDef(
@@ -204,7 +204,7 @@ describe("searchInputDecls", () => {
 		expect(decls.map((d) => d.name)).toContain("case_name");
 		expect(decls[0]?.label).toBe("Client name");
 
-		// The seeded custom condition must type-check clean — the same
+		// The seeded custom condition must type-check clean: the same
 		// verdict the validator's `moduleTypeContext` reaches.
 		const seeded = seedCustomCondition(row, CASE_TYPE);
 		expect(

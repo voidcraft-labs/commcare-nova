@@ -1,7 +1,7 @@
 /**
  * Better Auth catch-all route handler.
  *
- * Handles all /api/auth/* requests — OAuth flows, session management,
+ * Handles all /api/auth/* requests: OAuth flows, session management,
  * sign-in/sign-out. Better Auth routes internally based on the path segment.
  *
  * Uses `auth.handler` directly instead of `toNextJsHandler` so the auth
@@ -52,9 +52,9 @@ const handler = async (req: Request) => {
 	} catch (err) {
 		/* Better Auth catches its OWN failures and routes them through the
 		 * logger bridge (`lib/auth-logger.ts`) into Sentry. An error thrown
-		 * OUTSIDE that try/catch — a transport-level fault like the Google-auth
+		 * OUTSIDE that try/catch: a transport-level fault like the Google-auth
 		 * token fetch's `ERR_STREAM_PREMATURE_CLOSE` surfacing through the
-		 * per-request rate-limiter's database call — escapes to here, where
+		 * per-request rate-limiter's database call: escapes to here, where
 		 * Next would otherwise return an empty 500 that never reaches Sentry.
 		 * That was the blind spot behind the prod-login outage: the whole
 		 * `/api/auth/*` surface 500'd with nothing logged anywhere. Mirror it to
@@ -67,7 +67,7 @@ const handler = async (req: Request) => {
 	}
 
 	if (isOAuthRegister && response.ok) {
-		/* Cleanup is opportunistic housekeeping — not load-bearing for any
+		/* Cleanup is opportunistic housekeeping, not load-bearing for any
 		 * security check, and never load-bearing for the registering
 		 * client. Awaiting it here would couple register-response latency
 		 * to a scan over up to 50 public-client rows (each followed by two
@@ -87,11 +87,11 @@ const handler = async (req: Request) => {
 				 * tokens (RFC 7009 §2.2), so a `false` here means we couldn't
 				 * classify the token as either a verifiable JWT or a refresh
 				 * token in our table. With JWT signature verification in
-				 * place, that's operationally interesting — a spike of these
+				 * place, that's operationally interesting: a spike of these
 				 * is the visible signal that token shape and watermark logic
 				 * have drifted apart. */
 				log.warn(
-					"[auth/oauth] revoke ok but no watermark written — token shape unrecognized",
+					"[auth/oauth] revoke ok but no watermark written. Token shape unrecognized",
 				);
 			}
 		} catch (err) {

@@ -9,12 +9,12 @@
 // which lands a `key: undefined` source as a real own enumerable
 // property on the persisted document. That breaks the `key in config`
 // presence checks downstream (SA cluster pickers, wire-emission tie-
-// breaks). Branching the emitted shape — set carries the key, clear
-// destructures it out — is what makes `key in obj` the genuine
+// breaks). Branching the emitted shape: set carries the key, clear
+// destructures it out: is what makes `key in obj` the genuine
 // slot-presence check on every persisted document.
 
 /**
- * Keys on `C` whose value type includes `undefined` — the slots a
+ * Keys on `C` whose value type includes `undefined`: the slots a
  * Zod `.optional()` declaration produces in the inferred type.
  *
  * Constraining the slot key to this set is what keeps the clear path
@@ -33,13 +33,13 @@ type OptionalKeyOf<C> = {
  * key. Other keys on `current` flow through unchanged.
  *
  * `current: C | undefined` lets authoring sections whose parent slot
- * is itself optional route through the same helper — the `undefined`
+ * is itself optional route through the same helper: the `undefined`
  * arm materializes an empty object first.
  *
  * @param current The current object, or `undefined` if the parent
  *                slot is absent.
  * @param slot    Key to set or drop. Must be an optional key on `C`
- *                — the constraint surfaces a non-optional slot as a
+ *                  the constraint surfaces a non-optional slot as a
  *                compile error rather than a runtime gap.
  * @param next    Next value, or `undefined` to drop the key.
  */
@@ -50,7 +50,7 @@ export function setOptionalSlot<C extends object, K extends OptionalKeyOf<C>>(
 ): C {
 	const base = current ?? ({} as C);
 	if (next === undefined) {
-		// Destructure-and-rest emits the object WITHOUT the slot key —
+		// Destructure-and-rest emits the object WITHOUT the slot key:
 		// distinct from a `key: undefined` write that would land as an
 		// own enumerable property and fool downstream `key in obj`.
 		const { [slot]: _drop, ...rest } = base;

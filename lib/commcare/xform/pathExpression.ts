@@ -84,7 +84,7 @@ const NODE = (() => {
 		const ids = all.filter((t) => t.name === name).map((t) => t.id);
 		if (ids.length === 0) {
 			throw new Error(
-				`The XPath path classifier expects a grammar node named "${name}", but the parser's node set doesn't have one. The Lezer grammar at lib/commcare/xpath/grammar.lezer.grammar was changed without updating this classifier — re-derive the path-node allowlist against the current grammar.`,
+				`The XPath path classifier expects a grammar node named "${name}", but the parser's node set doesn't have one. The Lezer grammar at lib/commcare/xpath/grammar.lezer.grammar was changed without updating this classifier. Re-derive the path-node allowlist against the current grammar.`,
 			);
 		}
 		return ids;

@@ -1,6 +1,6 @@
 ---
 title: Attachment questions
-description: Photos, audio, video, signatures, and files — what they accept, and what a worker actually sees.
+description: Photos, audio, video, signatures, and files, what they accept, and what a worker actually sees.
 ---
 
 An attachment question asks a worker for a file rather than a value they
@@ -17,7 +17,7 @@ just in what the file contains.
 
 Each one can be marked required, can be shown or hidden by a condition,
 and can sit inside a repeating section. None of them can save to a case
-property — CommCare carries attachments separately from case data, so the
+property: CommCare carries attachments separately from case data, so the
 **Saves to** control is unavailable on these questions.
 
 ## People attach files; they do not capture them
@@ -25,7 +25,7 @@ property — CommCare carries attachments separately from case data, so the
 This is the single most important thing to get right when you write the
 question's label.
 
-CommCare Web Apps — the browser app most people use — has no camera, no
+CommCare Web Apps, the browser app most people use, has no camera, no
 microphone, and no recorder. Every one of these questions except
 Signature opens the device's ordinary file picker. On a phone, that
 picker may itself offer a camera as one of its options, but that is the
@@ -35,7 +35,7 @@ So write **"Attach a photo of the meter"**, not "Take a photo of the
 meter". A label that tells a worker to take a photo describes a button
 that is not there.
 
-The CommCare Android app does capture directly — its photo question opens
+The CommCare Android app does capture directly, its photo question opens
 the camera and its audio question records. If your workers use the
 Android app, they get that behavior for free without any change to the
 question. Wording that works in both places says "attach", because
@@ -51,7 +51,7 @@ of something.
 Clearing a signature waits until the form answer is actually cleared before the
 pad goes blank and offers **Undo**. If that action is canceled or the worker's
 edit access changes while it is waiting, the ink stays visible and Clear becomes
-available again — the pad never claims the signature is gone before the answer
+available again: the pad never claims the signature is gone before the answer
 agrees. The Undo offer then stands until the worker signs again rather than
 disappearing on a timer. That is there because a signature is the one attachment
 with no copy anywhere else: a photo they clear is still on their phone, but a
@@ -72,7 +72,7 @@ hide, collapse, or Preview/Edit switch. Retry saves the retained drawing; Clear
 removes it and remains undoable. Losing pointer capture or temporarily
 unmounting the pad does not strand the latest stroke: Nova settles it or resumes
 its save when the pad returns. Pressing **Clear signature** while an earlier
-save is still running cancels that older save and clears the answer once — old
+save is still running cancels that older save and clears the answer once: old
 ink cannot reappear later. A temporary access refresh also keeps the ink and its
 Submit blocker; if editor access returns for that same form, Nova resumes the
 retained save once under the new access state.
@@ -80,7 +80,7 @@ retained save once under the new access state.
 ## File attachments only work in the web app
 
 The **File** question is a real question in CommCare Web Apps. In the
-CommCare Android app it is not — Android does not recognize it and shows
+CommCare Android app it is not: Android does not recognize it and shows
 a plain text box instead, so a worker there can type anything into it and
 that text is what gets submitted.
 
@@ -90,8 +90,8 @@ or Signature. Use File when you know the work happens in a browser.
 ## Limits
 
 **4 MB per file.** A worker who picks something larger is told the file
-is too big and nothing is attached. There is no automatic shrinking — the
-file the worker picks is the file that gets sent — so if people will be
+is too big and nothing is attached. There is no automatic shrinking, the
+file the worker picks is the file that gets sent, so if people will be
 attaching photos straight off a modern phone, say so in the question's
 hint and ask them to pick a smaller one.
 
@@ -120,7 +120,7 @@ request and its success or error response. A stalled network request or
 response body becomes a recoverable error instead of holding the whole form
 forever.
 
-That means a worker cannot check what they attached — only that they
+That means a worker cannot check what they attached, only that they
 attached something. Where getting the right file matters, ask for it in
 a question of its own with a clear label, rather than as one of several
 attachments on a crowded screen.
@@ -150,8 +150,8 @@ repeat row moves a surviving answer up one position: Nova moves the attachment
 with that repeat entry even if the question is hidden at the time. Leaving or
 clearing the form ends that entry.
 
-If that repeat move cannot be saved — for example, while the browser is
-offline — Nova keeps the attachment and its answer in place and blocks Submit
+If that repeat move cannot be saved, for example, while the browser is
+offline, Nova keeps the attachment and its answer in place and blocks Submit
 only while the question is active. The question shows **Retry**,
 **Replace file**, and **Remove attachment** for picked files. Signature keeps
 **Retry** beside its single **Clear signature** action. The same message is
@@ -176,10 +176,10 @@ If an attachment question is marked required and a worker clears it,
 CommCare deletes the file but the question goes on reporting the old
 one. The worker sees a "required" message. If they attach a new file,
 everything is fine and nothing was lost. But if they leave it and submit
-the form anyway, the form is accepted — and the answer points at a file
+the form anyway, the form is accepted, and the answer points at a file
 that is no longer there.
 
-So the advice is not "avoid required attachments" — requiring a photo is
+So the advice is not "avoid required attachments", requiring a photo is
 a perfectly ordinary thing to need. It is:
 
 - **Tell workers to replace, not clear.** Picking a new file over an old
@@ -191,7 +191,7 @@ Replacing an attachment is clean on every runtime.
 
 ## In the builder
 
-Attachment questions are under **Attachments & scanning** in the question
+Attachment questions are under **Attachments and scanning** in the question
 picker, alongside Barcode. Barcode is not an attachment: it scans a code
 and stores the text it read.
 
@@ -204,7 +204,7 @@ Project viewers can inspect attachment and signature answers in Preview, but
 only Project editors can attach, draw, retry, remove, clear, or submit them.
 
 When a worker presses Submit, Nova first waits for every attachment change
-still in progress — including the signature pad's short pause and PNG
+still in progress, including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding or upload fails, Nova keeps
 the ink and offers **Retry** or **Clear signature** instead of silently
 submitting an older signature. A file or signature action that is waiting
@@ -228,8 +228,8 @@ with a submission.
 
 If Submit finds an unanswered required question inside a collapsed group or
 repeating section, Nova opens every ancestor, announces the problem, scrolls it
-into view, and focuses the real attachment control — the file picker or
-signature pad — so the worker can fix it immediately. If an author changed an
+into view, and focuses the real attachment control, the file picker or
+signature pad, so the worker can fix it immediately. If an author changed an
 answered question into Signature and the old attachment must be replaced,
 Submit likewise focuses the blank signature pad itself.
 
@@ -256,7 +256,7 @@ type instead removes the incompatible staged file and asks for a new file or
 signature.
 
 The preview shows you exactly what a worker sees, which means it shows
-you a filename and a **Remove** action and nothing else — no thumbnail, no
+you a filename and a **Remove** action and nothing else: no thumbnail, no
 playback. That is deliberate. If the preview confirmed your attachments
 in ways the real app cannot, you would design forms around a
 confirmation your workers never get.
@@ -265,14 +265,14 @@ One difference worth knowing, in your favour: if you attach a file and
 then delete the repeating section it was in, or hide its question with a
 condition, Nova leaves that file out of the submission. CommCare itself
 sends it anyway, where it counts toward the 50-attachment limit and
-arrives attached to nothing. Nothing you need to do — it just means the
+arrives attached to nothing. Nothing you need to do: it just means the
 count you see in the preview is the honest one.
 Even an attachment-free retry remains tied to that form entry's accepted
 submission: clearing or hiding the answer after a response is lost cannot make
 Nova apply the form's case changes twice. Nova checks a durable accepted
 receipt before relying on the form's current attachment structure, so the exact
 retry still replays if an author has since converted or deleted the attachment
-question—or deleted the form. A changed retry under that entry identity is
+question, or deleted the form. A changed retry under that entry identity is
 rejected instead of applying case changes again.
 
 **Clear form** is different from removing one file. It immediately starts a

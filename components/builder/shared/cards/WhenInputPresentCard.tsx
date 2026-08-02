@@ -1,6 +1,6 @@
 // components/builder/shared/cards/WhenInputPresentCard.tsx
 //
-// Renders the `when-input-present` predicate — search-input
+// Renders the `when-input-present` predicate: search-input
 // dropdown plus a nested predicate editor for the inner clause.
 // Authors compose conditional inclusion ("apply this filter only
 // when the user typed in the input").
@@ -140,12 +140,7 @@ export function SearchInputMenu({
 				ref={triggerRef}
 				aria-label={`Search field ${currentLabel ?? "Choose a search field"}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="flex items-center gap-1.5">

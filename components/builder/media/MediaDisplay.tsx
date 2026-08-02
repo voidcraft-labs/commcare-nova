@@ -9,13 +9,13 @@ import {
 } from "./ProjectMediaResource";
 
 /**
- * The READ surface for a carrier's attached media — what the form/menu/app
+ * The READ surface for a carrier's attached media: what the form/menu/app
  * actually shows, the way CommCare renders media alongside a question: the
  * image above the label, an audio player, a video player. `MediaSlot` is the
  * authoring surface (attach / replace / remove); this is its display twin.
  *
- * Edit and preview render the IDENTICAL elements — `interactive` only toggles
- * `pointer-events-none` — so a field's row is the same height in both modes
+ * Edit and preview render the IDENTICAL elements: `interactive` only toggles
+ * `pointer-events-none`, so a field's row is the same height in both modes
  * and the edit↔preview flipbook never drifts (the parity invariant the form
  * renderers uphold). In edit mode the block is `pointer-events-none`: the
  * field wrapper is a `div[role=button]` whose click selects the field, and a
@@ -36,7 +36,7 @@ export function MediaDisplay({
 	media: Media | undefined;
 	interactive: boolean;
 	className?: string;
-	/** Override the image's size box — compact contexts (a select option,
+	/** Override the image's size box: compact contexts (a select option,
 	 *  a dense list) pass a smaller cap than the default label size. */
 	imageClassName?: string;
 }) {
@@ -57,7 +57,7 @@ export function MediaDisplay({
 				/>
 			)}
 			{media.audio && (
-				// Definite width — a native `<audio>` has no intrinsic width and
+				// Definite width: a native `<audio>` has no intrinsic width and
 				// `w-full` collapses to 0 inside an `items-start` flex column (the
 				// same `w-full`-collapse MediaSlot's audio preview guards against).
 				<ProjectMediaAudio

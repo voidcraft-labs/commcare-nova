@@ -47,7 +47,7 @@ export const searchAppsInputSchema = {
 		.min(1)
 		.max(100)
 		.describe(
-			"The phrase to search for in app names. Case-insensitive, fuzzy (tolerates typos and partial matches), and matches anywhere in the name — not just the start. Ordering of the response is by relevance, not recency.",
+			"The phrase to search for in app names. Case-insensitive, fuzzy (tolerates typos and partial matches), and matches anywhere in the name, not just the start. Ordering of the response is by relevance, not recency.",
 		),
 	limit: z
 		.number()

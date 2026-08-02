@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 /**
- * partitionEditorEntries — pure helper that decides which entries
+ * partitionEditorEntries: pure helper that decides which entries
  * become visible editors vs addable pills given a field value.
  *
  * Owns the single rule set both the section (renders the partition)
@@ -22,7 +22,7 @@ import {
 	sectionHasContent,
 } from "../partitionEditorEntries";
 
-// Stub component — only its identity matters for the partition logic.
+// Stub component: only its identity matters for the partition logic.
 const StubComponent = () => null;
 
 const baseField: TextField = {
@@ -90,7 +90,7 @@ describe("partitionEditorEntries", () => {
 
 	it("pending + independently visible → visible with autoFocus=false", () => {
 		// When the predicate already reports visible (value committed by
-		// any path), the pending flag must not carry autoFocus=true —
+		// any path), the pending flag must not carry autoFocus=true:
 		// that would steal keyboard focus on the very next render.
 		const { visible } = partitionEditorEntries(
 			baseField,
@@ -103,7 +103,7 @@ describe("partitionEditorEntries", () => {
 	});
 
 	it("treats missing visible predicate as always-visible", () => {
-		// Entries without a `visible` function default to always-visible —
+		// Entries without a `visible` function default to always-visible:
 		// they never become pills, never get autoFocus.
 		const { visible, pills } = partitionEditorEntries(baseField, [entry()]);
 		expect(pills).toHaveLength(0);
@@ -150,7 +150,7 @@ describe("partitionEditorEntries", () => {
 	});
 
 	it("pendingSatisfied is true even when only one of several pending entries has landed", () => {
-		// Activation is section-scoped — at most one entry can be pending
+		// Activation is section-scoped: at most one entry can be pending
 		// at a time. The flag fires the moment any visible entry shows
 		// the satisfied combo, even if others are still pending-and-hidden.
 		const { pendingSatisfied } = partitionEditorEntries(

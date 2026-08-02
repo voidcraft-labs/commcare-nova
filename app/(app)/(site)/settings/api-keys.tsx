@@ -13,7 +13,7 @@
  *   2. User picks a name + scopes + expiry, hits Mint → Server Action
  *      returns `{ key, keyId, displayPrefix, expiresAt }` exactly once.
  *   3. Dialog flips to a "reveal" screen: full plaintext key with a
- *      Copy button. The key lives in component state only — closing
+ *      Copy button. The key lives in component state only: closing
  *      the dialog clears it.
  *   4. User clicks "I've saved this key" → dialog closes, the new row
  *      appears in the list with the masked prefix only.
@@ -103,7 +103,7 @@ interface RowData extends ApiKeySummary {
 /**
  * Set view of the floor scopes (read + write) for O(1) lookup in the
  * checkbox-locked-checked predicate. Sourced from
- * `NOVA_MCP_FLOOR_SCOPES` — the single literal lives in
+ * `NOVA_MCP_FLOOR_SCOPES`: the single literal lives in
  * `lib/auth-public.ts` and is shared by the MCP route, the Server
  * Actions, and this UI, so the "what's required" answer cannot drift
  * across surfaces.
@@ -127,7 +127,7 @@ const RELATIVE_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
 /**
  * Convert a past ISO timestamp to a short relative label
  * ("2 hours ago", "yesterday", "3 days ago"). Anything older than a
- * week falls back to absolute date — at that distance the relative
+ * week falls back to absolute date: at that distance the relative
  * label loses information without saving any space.
  */
 function formatRelativePast(iso: string): string {
@@ -152,7 +152,7 @@ function formatRelativePast(iso: string): string {
  * `keyExpiration.maxExpiresIn` cap configured in `lib/auth.ts`), so
  * the row's actual expiry sits ~100 years out. A 50-day buffer below
  * that ceiling covers clock skew and mint-vs-read time gaps without
- * admitting any realistic finite-expiry choice — the next-longest
+ * admitting any realistic finite-expiry choice: the next-longest
  * mintable expiry is 1 year, two orders of magnitude away.
  */
 const NEVER_EXPIRES_THRESHOLD_SECONDS = (36500 - 50) * 24 * 60 * 60;
@@ -167,7 +167,7 @@ function isEffectivelyNeverExpiring(iso: string): boolean {
  * Convert a future ISO timestamp to a short "in N days" / "in 2 months"
  * label. Used for the per-row expiry strip. Caller is responsible for
  * detecting the never-expires sentinel via
- * `isEffectivelyNeverExpiring` first — this formatter only handles
+ * `isEffectivelyNeverExpiring` first: this formatter only handles
  * realistic distances and would emit "in 73 years" for the 100-year
  * sentinel otherwise.
  */
@@ -261,7 +261,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 	}, []);
 
 	const handleScopesEdited = useCallback((keyId: string, scopes: string[]) => {
-		/* Reset the row's status to idle alongside the scope update — a
+		/* Reset the row's status to idle alongside the scope update, a
 		 * successful edit should clear any stale error from a previous
 		 * revoke attempt on the same row. Without this, the error
 		 * message would persist visually until the next revoke, which
@@ -276,7 +276,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 
 	return (
 		<>
-			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+			<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 				{/* ── Card header ───────────────────────────────────────── */}
 				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
@@ -288,7 +288,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 						/>
 					</div>
 					<div className="min-w-0 flex-1">
-						<h2 className="text-base font-display font-semibold text-nova-text">
+						<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 							API keys
 						</h2>
 						<p className="text-xs text-nova-text-muted">
@@ -305,7 +305,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 							</a>
 						</p>
 					</div>
-					<Button type="button" size="sm" onClick={() => setMintOpen(true)}>
+					<Button type="button" onClick={() => setMintOpen(true)}>
 						<Icon icon={tablerPlus} width="13" height="13" />
 						New key
 					</Button>
@@ -323,7 +323,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 									 * (idle ↔ confirming ↔ revoking) routed through
 									 * motion's layout system and triggered a height
 									 * bounce on the entire row even with
-									 * `layout="position"` — motion snapshots
+									 * `layout="position"`: motion snapshots
 									 * children's bounding boxes on every render and
 									 * any subtree resize spills into the
 									 * `<motion.li>`'s tracked geometry.
@@ -359,7 +359,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 								 * minted first row during the swap. Without the
 								 * height collapse, a new row mounts at the top of
 								 * the `<ul>` while this div is still occupying
-								 * full height below it, opacity dropping — the
+								 * full height below it, opacity dropping: the
 								 * "stack flash" the user reported. `overflow:
 								 * hidden` clips the contents while the wrapper
 								 * shrinks. `height: "auto"` on entry/idle is what
@@ -465,7 +465,7 @@ function Row({
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
 					{/* Both labels are "now"-relative (down to seconds for a
 					 *  just-used key), so the server render and the hydration
-					 *  pass legitimately disagree — same contract as
+					 *  pass legitimately disagree: same contract as
 					 *  `RelativeTime`, which these can't reuse because they
 					 *  format through Intl with their own prefixes. */}
 					<span suppressHydrationWarning>{lastUsedLabel}</span>
@@ -521,7 +521,7 @@ interface ScopeCheckboxGridProps {
 /**
  * Two-column scope picker, shared by `MintForm` and
  * `EditScopesDialog`. Floor scopes (`nova.read` + `nova.write`) are
- * locked-checked via Base UI's `disabled` prop — Base UI handles the
+ * locked-checked via Base UI's `disabled` prop: Base UI handles the
  * disabled-state styling, ARIA, focus rings, and keyboard semantics
  * (Space toggles, Tab traverses) automatically; we just style off the
  * `data-checked` / `data-disabled` attributes Base UI sets.
@@ -548,7 +548,7 @@ function ScopeCheckboxGrid({
 						checked={selectedScopes.has(scope)}
 						disabled={locked}
 						onCheckedChange={() => onToggle(scope)}
-						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+						className="nova-focusable group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity)"
 					>
 						<span
 							aria-hidden
@@ -634,9 +634,8 @@ function RowActions({
 				render={
 					<Button
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						aria-label="Actions for this key"
-						className="text-nova-text-muted"
 					/>
 				}
 			>
@@ -674,7 +673,7 @@ function EmptyState() {
 			<div className="space-y-1">
 				<p className="text-sm text-nova-text">No API keys yet</p>
 				<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
-					Mint one to connect a tool to Nova on your behalf.
+					Mint one to connect a tool to Nova on your behalf
 				</p>
 			</div>
 		</div>
@@ -692,7 +691,7 @@ interface MintDialogProps {
 /**
  * Two-phase dialog. Phase 1: form (name + scopes + expiry). Phase 2:
  * key reveal (full plaintext + Copy + acknowledgment). The reveal phase
- * is reachable only via a successful mint — there is no "regenerate"
+ * is reachable only via a successful mint: there is no "regenerate"
  * affordance because the plugin doesn't store the plaintext to
  * regenerate from.
  */
@@ -720,7 +719,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 * reclaim it; under a same-origin debugger or React DevTools the
 	 * value is recoverable for the duration of the user's session
 	 * regardless. This is the surface the "show the key once" flow
-	 * actually defends — not in-process JS introspection (which
+	 * actually defends, not in-process JS introspection (which
 	 * isn't a meaningful threat for an authenticated settings page).
 	 */
 	useEffect(() => {
@@ -731,7 +730,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	}, [open]);
 
 	/* Reset the form (and any error from the previous mint) when the
-	 * dialog opens fresh — keeps the next mint from inheriting stale
+	 * dialog opens fresh: keeps the next mint from inheriting stale
 	 * state if the user closed mid-form last time. */
 	useEffect(() => {
 		if (!open) return;
@@ -747,7 +746,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 		setSelectedScopes((prev) => {
 			const next = new Set(prev);
 			if (next.has(scope)) {
-				/* Floor scopes can't be unchecked — both are required for any
+				/* Floor scopes can't be unchecked: both are required for any
 				 * MCP call, and silently re-adding them on submit would
 				 * mislead the user about what their key can do. The checkbox
 				 * is rendered as disabled-but-checked in the form. */
@@ -803,9 +802,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 			 * confirming flash. */
 			window.setTimeout(() => setCopied(false), 1800);
 		} catch {
-			setError(
-				"Couldn't copy automatically — select the key and copy by hand.",
-			);
+			setError("Couldn't copy automatically. Select the key and copy by hand.");
 		}
 	}, [revealedKey]);
 
@@ -820,7 +817,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 *
 	 *   1. **Reveal phase.** The plaintext key lives in component
 	 *      state only; once the dialog closes the reset effect clears
-	 *      `revealedKey` and the user has no recovery path — the row
+	 *      `revealedKey` and the user has no recovery path: the row
 	 *      exists hashed in Postgres but the plaintext is
 	 *      unrecoverable, costing a credential and a slot toward the
 	 *      per-user limit. The "I've saved this key" button is the
@@ -831,7 +828,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 *      never sees the response. The Cancel and X buttons are
 	 *      disabled during submit (button-level guard), but Escape /
 	 *      outside-press / focus-out skip the buttons and would
-	 *      otherwise close — this branch closes that race.
+	 *      otherwise close: this branch closes that race.
 	 *
 	 * Imperative closes (the "I've saved this key" acknowledgment)
 	 * carry `reason: "none"` and pass through.
@@ -929,7 +926,9 @@ function MintForm({
 		>
 			<div className="flex shrink-0 items-start justify-between border-b border-nova-border/40 px-6 py-4">
 				<div>
-					<DialogTitle className="font-display">New API key</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						New API key
+					</DialogTitle>
 					<DialogDescription className="mt-0.5 text-xs text-nova-text-muted">
 						You'll see the full key once. Store it somewhere safe.
 					</DialogDescription>
@@ -937,7 +936,7 @@ function MintForm({
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-sm"
+					size="icon"
 					onClick={onCancel}
 					disabled={submitting}
 					aria-label="Close"
@@ -960,7 +959,7 @@ function MintForm({
 						required
 						value={name}
 						onValueChange={onNameChange}
-						placeholder="e.g., ACE service account"
+						placeholder="A name like ACE service account"
 						maxLength={32}
 						autoComplete="off"
 						data-1p-ignore
@@ -1055,7 +1054,7 @@ function MintForm({
 							className="animate-spin"
 						/>
 					)}
-					{submitting ? "Minting…" : "Mint key"}
+					{submitting ? "Minting" : "Mint key"}
 				</Button>
 			</div>
 		</form>
@@ -1069,7 +1068,7 @@ interface RevealedKeyProps {
 	copied: boolean;
 	/** Error surfaced from `handleCopy` (e.g., clipboard permission
 	 *  denied, insecure context). Rendered below the copy button so
-	 *  the user has a recovery path — without this, a clipboard
+	 *  the user has a recovery path: without this, a clipboard
 	 *  failure looks identical to a slow click and the key appears
 	 *  uncopyable. */
 	error: string | null;
@@ -1099,11 +1098,13 @@ function RevealedKey({
 						height="16"
 						className="text-nova-violet-bright"
 					/>
-					<DialogTitle className="font-display">Key created</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						Key created
+					</DialogTitle>
 				</div>
 				<DialogDescription className="mt-1 text-xs text-nova-text-muted leading-relaxed">
-					Copy this key now. Nova won't keep the full value — close this and
-					it's gone.
+					Copy this key now. Nova won't keep the full value. Close this and it's
+					gone.
 				</DialogDescription>
 			</div>
 
@@ -1239,7 +1240,7 @@ function EditScopesDialog({
 	}, [target, selectedScopes, onComplete]);
 
 	/**
-	 * Block accidental dismissal during a save — same data-loss-class
+	 * Block accidental dismissal during a save: same data-loss-class
 	 * race as `MintDialog`, smaller surface (no plaintext key, but the
 	 * inline error from a failed save would unmount mid-await and
 	 * vanish). Cancels Escape / outside-press / focus-out only while
@@ -1268,7 +1269,9 @@ function EditScopesDialog({
 			<DialogContent showCloseButton={false} className="gap-0 p-0">
 				<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
 					<div className="min-w-0">
-						<DialogTitle className="font-display">Edit scopes</DialogTitle>
+						<DialogTitle className="font-display tracking-tighter">
+							Edit scopes
+						</DialogTitle>
 						<DialogDescription className="mt-0.5 text-xs text-nova-text-muted truncate">
 							{target.name}
 						</DialogDescription>
@@ -1276,7 +1279,7 @@ function EditScopesDialog({
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-sm"
+						size="icon"
 						onClick={onCancel}
 						disabled={submitting}
 						aria-label="Close"
@@ -1329,7 +1332,7 @@ function EditScopesDialog({
 								className="animate-spin"
 							/>
 						)}
-						{submitting ? "Saving…" : "Save scopes"}
+						{submitting ? "Saving" : "Save scopes"}
 					</Button>
 				</div>
 			</DialogContent>

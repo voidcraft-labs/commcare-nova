@@ -170,7 +170,7 @@ function expandPhysicalInstances(
 					where: "case-store.submissionEnvelope.expandPhysicalInstances",
 					invariant: `the operation program carries two scope entries for ${scope.repeat === undefined ? "the root scope" : `repeat \`${scope.repeat}\``}`,
 					detail:
-						"Each multiplicity scope appears exactly once, carrying every live iteration. Hint: the caller assembles scopes from the form's repeat structure — deduplicate before building the program.",
+						"Each multiplicity scope appears exactly once, carrying every live iteration. Hint: the caller assembles scopes from the form's repeat structure. Deduplicate before building the program.",
 				}),
 			);
 		}
@@ -1728,7 +1728,7 @@ function requireCaseName(
 				where: "case-store.submissionEnvelope.requireCaseName",
 				invariant: `${role === "primary" ? "registration form" : "child-case op"} for case type \`${seed.caseType}\` produced no \`case_name\` value`,
 				detail:
-					"Every case row carries a top-level `case_name` (`cases.case_name` is `text NOT NULL`). A form that creates a case must include exactly one admitted field writer whose explicit destination property is `case_name`; the shared case-write inventory projects its value into the `caseName` slot. Reaching this throw means the admitted submission program omitted that required writer — an upstream blueprint authoring contract violation.",
+					"Every case row carries a top-level `case_name` (`cases.case_name` is `text NOT NULL`). A form that creates a case must include exactly one admitted field writer whose explicit destination property is `case_name`; the shared case-write inventory projects its value into the `caseName` slot. Reaching this throw means the admitted submission program omitted that required writer, an upstream blueprint authoring contract violation.",
 			}),
 		);
 	}

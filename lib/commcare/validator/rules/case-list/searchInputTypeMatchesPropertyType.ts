@@ -115,7 +115,7 @@ export function searchInputTypeMatchesPropertyType(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH",
 				"module",
-				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (e.g. a calendar picker against text, a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, or point the input at a different property.`,
+				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (for example a calendar picker against text, or a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, or point the input at a different property.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					index: String(index),

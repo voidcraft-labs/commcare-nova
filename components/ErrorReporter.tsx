@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * Global client-side error reporter — captures unhandled errors and
+ * Global client-side error reporter: captures unhandled errors and
  * rejected promises from the browser and sends them to the server
  * logging endpoint for GCP Cloud Logging ingestion.
  *
- * Mounted once in the root layout. Renders nothing — pure side effect
+ * Mounted once in the root layout. Renders nothing: pure side effect
  * component that attaches global event listeners on mount and cleans
  * them up on unmount.
  *
  * Capture points:
- * - `window 'error'` — uncaught synchronous JS errors (throws, reference errors)
- * - `window 'unhandledrejection'` — unhandled async promise rejections
+ * - `window 'error'`: uncaught synchronous JS errors (throws, reference errors)
+ * - `window 'unhandledrejection'`: unhandled async promise rejections
  *
  * React error boundaries are wired separately via `reportBoundaryError()`
  * in their respective error.tsx files.
@@ -23,11 +23,11 @@ import { reportClientError } from "@/lib/clientErrorReporter";
 export function ErrorReporter() {
 	useEffect(() => {
 		/**
-		 * Global error handler — fires on uncaught synchronous JS errors.
+		 * Global error handler: fires on uncaught synchronous JS errors.
 		 * The ErrorEvent includes the error object with its stack trace.
 		 *
 		 * Filters out browser-synthesized warnings that surface as ErrorEvents
-		 * but aren't real exceptions — most notably "ResizeObserver loop
+		 * but aren't real exceptions: most notably "ResizeObserver loop
 		 * completed with undelivered notifications." Chromium dispatches those
 		 * with no underlying Error object and no filename, unlike real thrown
 		 * errors which always carry an Error instance. Same heuristic Sentry
@@ -51,7 +51,7 @@ export function ErrorReporter() {
 		}
 
 		/**
-		 * Unhandled promise rejection handler — fires when a promise rejects
+		 * Unhandled promise rejection handler: fires when a promise rejects
 		 * without a .catch(). The PromiseRejectionEvent includes the rejection
 		 * reason, which may or may not be an Error object.
 		 */
@@ -82,6 +82,6 @@ export function ErrorReporter() {
 		};
 	}, []);
 
-	/* Pure side effect — no UI output. */
+	/* Pure side effect: no UI output. */
 	return null;
 }

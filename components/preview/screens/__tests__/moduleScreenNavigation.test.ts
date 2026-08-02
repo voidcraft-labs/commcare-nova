@@ -5,7 +5,7 @@
 // leave the empty module URL in history, and the case-first redirect must NOT
 // fire while authoring, because the form menu is the authoring surface.
 //
-// Pure `f(state)` — the component reads these and performs the effect, so there
+// Pure `f(state)`: the component reads these and performs the effect, so there
 // is no DOM to mount here.
 
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ describe("moduleScreenLanding", () => {
 	});
 
 	it("keeps the form menu for a case-first module while authoring", () => {
-		// The menu IS the authoring surface — redirecting would make a case-first
+		// The menu IS the authoring surface: redirecting would make a case-first
 		// module's forms unreachable from its own URL in the builder.
 		expect(moduleScreenLanding({ ...CASE_FIRST, mode: "edit" })).toEqual({
 			kind: "form-menu",

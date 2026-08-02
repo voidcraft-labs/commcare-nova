@@ -3,7 +3,7 @@
 // Pins the pure whole-config verdicts (tab dots, in-canvas marks,
 // preview gate). The verdicts must mirror what the entity editors
 // surface: a config every editor would render error-free carries no
-// dots or marks; a config any editor would flag does — and the
+// dots or marks; a config any editor would flag does, and the
 // preview pauses ONLY for the ASTs the SQL compiler consumes.
 
 import { describe, expect, it } from "vitest";
@@ -276,7 +276,7 @@ describe("caseListConfigVerdicts", () => {
 	it("accepts an advanced input whose condition references its own input", () => {
 		// The custom-condition seed self-references the row's own input
 		// via the when-input-present envelope. The edited row must be in
-		// scope for that to resolve — otherwise the gate flags a condition
+		// scope for that to resolve: otherwise the gate flags a condition
 		// the commit gate and wire emitter accept.
 		const searchInputUuid = testUuid("s1");
 		const v = verdicts({

@@ -3,8 +3,8 @@
 // The one derivation both display-condition surfaces read: which item
 // the condition belongs to, what it currently says, and how to write it.
 // The settings row and the centre-canvas editor must agree about the
-// evaluation scope — the row seeds a condition the editor then has to
-// accept — so they resolve it once, here, rather than each rebuilding
+// evaluation scope: the row seeds a condition the editor then has to
+// accept, so they resolve it once, here, rather than each rebuilding
 // the carrier from the doc.
 
 "use client";
@@ -56,7 +56,7 @@ export interface ResolvedDisplayCondition {
 
 /**
  * Resolve a target against the live document. Returns `null` while the
- * item is absent — a stale deep link the recovery effect is about to
+ * item is absent: a stale deep link the recovery effect is about to
  * scrub, or a peer's deletion landing under an open surface.
  */
 export function useDisplayConditionCarrier(

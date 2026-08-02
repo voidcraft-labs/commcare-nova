@@ -536,7 +536,7 @@ function reportImmutableCaseOperationIdentity(
 		code: "custom",
 		path: ["caseOperationPatch", "patch", "uuid"],
 		message:
-			"This update also sets the case operation's uuid. An operation's identity is fixed when it is created, so an update can change what the operation does but never which operation it is — address the operation by its existing uuid and leave that slot out of the patch.",
+			"This update also sets the case operation's uuid. An operation's identity is fixed when it is created, so an update can change what the operation does but never which operation it is. Address the operation by its existing uuid and leave that slot out of the patch.",
 	});
 }
 

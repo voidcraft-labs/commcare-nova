@@ -251,11 +251,10 @@ export function DraftLinesField({
 				<Button
 					ref={applyRef}
 					type="button"
-					variant="ghost"
-					size="sm"
+					variant="ghost-action"
 					disabled={disabled || !dirty}
 					onClick={commit}
-					className="min-h-11 shrink-0 text-nova-violet-bright"
+					className="shrink-0"
 				>
 					Apply accepted values
 				</Button>

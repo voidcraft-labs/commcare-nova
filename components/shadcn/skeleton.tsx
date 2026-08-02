@@ -5,11 +5,11 @@ import { cn } from "@/lib/utils";
  *
  * Nova chrome: instead of shadcn's flat `animate-pulse`, a horizontal
  * gradient sweep from `--nova-surface` through a faint violet-tinted
- * highlight — a pulse against Nova's dark surfaces is nearly invisible,
+ * highlight: a pulse against Nova's dark surfaces is nearly invisible,
  * while the shimmer reads clearly. Size (and `rounded-full` for circles)
  * comes from `className`.
  *
- * Server component — composable into `loading.tsx` files and Suspense
+ * Server component: composable into `loading.tsx` files and Suspense
  * fallbacks without a client boundary.
  */
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {

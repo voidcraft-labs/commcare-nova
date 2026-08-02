@@ -125,7 +125,7 @@ export async function readJsonBody(
 	req: Request,
 	maxBytes: number,
 ): Promise<unknown> {
-	const tooLargeMessage = `Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`;
+	const tooLargeMessage = `Request body is too large, this endpoint accepts at most ${maxBytes} bytes of JSON.`;
 	if (declaredBodyTooLarge(req, maxBytes)) {
 		throw new ApiError(tooLargeMessage, 413);
 	}

@@ -1,11 +1,11 @@
 /**
- * partitionEditorEntries — single source of truth for "what does this
+ * partitionEditorEntries: single source of truth for "what does this
  * section actually render?" given a field value + entries list.
  *
  * Lives standalone so both the section (which renders the result)
  * and the panel (which decides whether to mount the section's card
  * chrome) agree on the partition. Any drift between them would
- * produce an empty card with only a label, or — worse — a section
+ * produce an empty card with only a label, or: worse, a section
  * that claims nothing to render but secretly would.
  *
  * The partition rules:
@@ -14,13 +14,13 @@
  *      no predicate), it goes into the `visible` bucket.
  *   2. Otherwise, if the entry is `addable`, it goes into the
  *      `pills` bucket (rendered as an Add Property button).
- *   3. Otherwise, it's silently dropped — a hidden non-addable entry
+ *   3. Otherwise, it's silently dropped: a hidden non-addable entry
  *      contributes nothing to the section.
  *
  * `autoFocus` is strictly "pending AND NOT independently visible":
  * the pill click was the only reason this entry is in the visible
  * bucket. If the entry became visible by its own `visible()`
- * predicate (value committed by any path — user typing, undo/redo,
+ * predicate (value committed by any path: user typing, undo/redo,
  * LLM mutation, sibling flip), autoFocus is false. This prevents
  * stealing keyboard focus on rerenders after the intent is satisfied.
  *
@@ -41,7 +41,7 @@ interface VisiblePartitionedEntry<F extends Field> {
 	 *  Consumers pass this through to the editor's `autoFocus` prop. */
 	autoFocus: boolean;
 	/** True when the entry's own `visible(field)` predicate returns
-	 *  truthy — i.e. it would render even without the pending flag.
+	 *  truthy: i.e. it would render even without the pending flag.
 	 *  The section uses this to decide when the one-shot pending
 	 *  intent is satisfied and should be cleared. */
 	independentlyVisible: boolean;
@@ -55,7 +55,7 @@ export interface PartitionedEntries<F extends Field> {
 	pills: FieldEditorEntry<F>[];
 	/**
 	 * True when at least one pending entry has become independently
-	 * visible — the pill-click intent is satisfied (value landed by any
+	 * visible: the pill-click intent is satisfied (value landed by any
 	 * path: user typing, undo/redo restore, LLM mutation, sibling
 	 * predicate flip) so activation can safely clear. Without this
 	 * signal, the pending flag would linger and a later value-clear
@@ -68,7 +68,7 @@ export interface PartitionedEntries<F extends Field> {
 /**
  * Walk the entries list once and bucket each entry per the rules above.
  *
- * @param field - The field value — passed to each entry's `visible(field)`
+ * @param field - The field value: passed to each entry's `visible(field)`
  *   predicate.
  * @param entries - The section's entry list from the per-kind schema.
  * @param isPending - Optional predicate answering "is this entry currently
@@ -102,7 +102,7 @@ export function partitionEditorEntries<F extends Field>(
 			});
 			// `pending && independentlyVisible` is the satisfaction signal:
 			// the user requested activation AND the value has now landed.
-			// One match across all entries is enough — activation is
+			// One match across all entries is enough: activation is
 			// section-scoped, so a single satisfied entry clears it for the
 			// whole section.
 			if (pending && independentlyVisible) pendingSatisfied = true;
@@ -117,7 +117,7 @@ export function partitionEditorEntries<F extends Field>(
 /**
  * Cheap "does this section render anything?" check for the panel,
  * used to gate the section's card chrome. Uses the same partition
- * rules as `partitionEditorEntries` but ignores pending activation —
+ * rules as `partitionEditorEntries` but ignores pending activation:
  * the panel mounts the section wrapper BEFORE activation state is
  * known to it, and a pending entry still produces a visible editor
  * (which the section handles).

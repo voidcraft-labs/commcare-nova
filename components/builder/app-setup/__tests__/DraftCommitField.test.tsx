@@ -120,6 +120,6 @@ describe("DraftLinesField", () => {
 			screen
 				.getByRole("button", { name: "Apply accepted values" })
 				.className.split(/\s+/),
-		).toContain("min-h-11");
+		).toContain("h-11");
 	});
 });

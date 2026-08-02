@@ -57,7 +57,7 @@ describe("structure tree controls", () => {
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-my-");
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-mt-");
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-mb-");
-		expect(INSERTION_TRIGGER_CLS).toContain("focus-visible:ring-2");
+		expect(INSERTION_TRIGGER_CLS).toContain("nova-focusable-inset");
 		expect(INSERTION_TRIGGER_CLS).toContain("group");
 		expect(insertionTriggerStyle(false, false)?.height).toBe(8);
 		expect(insertionTriggerStyle(true, false)?.height).toBe(44);
@@ -90,8 +90,11 @@ describe("structure tree controls", () => {
 		});
 		const cancel = screen.getByRole("button", { name: "Cancel delete" });
 		expect(confirm.textContent).toBe("Delete");
+		// "Full-size shared actions" is the point of this test: the confirm is
+		// the system button at its one height and its one text size, not a
+		// downsized copy of it, so there is no text-xs to pin any more.
 		expect(confirm.className).toContain("h-11");
-		expect(confirm.className).toContain("text-xs");
+		expect(confirm.className).toContain("nova-keycap-rose");
 		expect(cancel.className).toContain("size-11");
 		await waitFor(() => expect(document.activeElement).toBe(confirm));
 

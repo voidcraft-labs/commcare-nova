@@ -2,7 +2,7 @@
 //
 // Selection model for the case-list workspace. Selecting an entity on
 // a canvas opens its properties in the inspector rail; the selection
-// is workspace-local UI state (not URL state — case-list entities
+// is workspace-local UI state (not URL state: case-list entities
 // have no standalone screens the way fields do).
 
 export type WorkspaceSelection =

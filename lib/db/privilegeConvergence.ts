@@ -262,7 +262,7 @@ export function auditPublicTableInventory(
 		];
 		if (unknown.length > 0) {
 			parts.push(
-				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, add the name to the matching group in that file — \`APPLICATION_TABLES\` for ordinary app-state or case data, \`CONTROL_TABLES\` or \`MIGRATION_TABLES\` for infrastructure. \`REQUIRED_PUBLIC_TABLES\` and \`TABLE_CLASSES\` both derive from those lists, so the one edit is the whole change.`,
+				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, add the name to the matching group in that file: \`APPLICATION_TABLES\` for ordinary app-state or case data, \`CONTROL_TABLES\` or \`MIGRATION_TABLES\` for infrastructure. \`REQUIRED_PUBLIC_TABLES\` and \`TABLE_CLASSES\` both derive from those lists, so the one edit is the whole change.`,
 			);
 		}
 		if (missing.length > 0) {

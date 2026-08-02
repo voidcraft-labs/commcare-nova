@@ -3,8 +3,8 @@
 /**
  * useDragIntent smoke tests.
  *
- * The real behavior — placeholder resolution, cycle guard, no-op
- * detection, mutation dispatch — is exercised through the existing
+ * The real behavior: placeholder resolution, cycle guard, no-op
+ * detection, mutation dispatch: is exercised through the existing
  * `useFormRows` + `dragData` unit suites plus manual drag-drop
  * verification in the browser. These tests only pin the hook's
  * contract-level guarantees: it mounts without throwing inside a
@@ -26,7 +26,7 @@ import { useDragIntent } from "../useDragIntent";
 /*
  * `useSelect` (consumed by the hook) calls `useConsultEditGuard`, which
  * throws outside `EditGuardProvider`. The guard has nothing to do with
- * drag state at the hook level — stub it to always allow navigation
+ * drag state at the hook level: stub it to always allow navigation
  * so the smoke test can stand up without the full builder provider
  * stack. Mirrors the pattern in `lib/routing/__tests__`.
  */
@@ -77,7 +77,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 /**
  * Thin renderHook-driver that mirrors how `VirtualFormList` actually
- * calls the hook — with a live `baseRowsRef` populated by the parent.
+ * calls the hook: with a live `baseRowsRef` populated by the parent.
  * The hook reads `baseRowsRef.current` inside `onDrag`, so nothing here
  * needs to fire synchronously for the smoke tests.
  */

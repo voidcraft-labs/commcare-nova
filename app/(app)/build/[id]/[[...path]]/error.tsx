@@ -7,7 +7,7 @@ import { reportClientError } from "@/lib/clientErrorReporter";
 /**
  * Error boundary for the build route. Uses hard navigation (window.location)
  * instead of router.push because client-side navigation doesn't work reliably
- * inside an error boundary — React's tree is in an error state.
+ * inside an error boundary: React's tree is in an error state.
  *
  * Reports the caught error through the shared client error funnel on
  * mount so builder crashes reach Sentry and Cloud Logging alongside
@@ -34,9 +34,9 @@ export default function BuildError({
 
 	return (
 		<div className="min-h-screen bg-nova-void flex flex-col items-center justify-center gap-6 px-6">
-			<Logo size="sm" />
+			<Logo size="lg" />
 			<div className="text-center space-y-2 max-w-md">
-				<h1 className="text-lg font-display font-semibold text-nova-text">
+				<h1 className="text-lg font-display font-semibold tracking-tighter text-nova-text">
 					Builder crashed
 				</h1>
 				<p className="text-sm text-nova-text-secondary">
@@ -44,17 +44,15 @@ export default function BuildError({
 				</p>
 			</div>
 			<div className="flex gap-3">
-				<Button variant="ghost" size="lg" onClick={() => reset()}>
-					Try Again
+				<Button variant="ghost" onClick={() => reset()}>
+					Try again
 				</Button>
 				<Button
-					size="lg"
-					className="shadow-[var(--nova-glow-violet)]"
 					onClick={() => {
 						window.location.href = "/build/new";
 					}}
 				>
-					Start New Build
+					Start new build
 				</Button>
 			</div>
 		</div>

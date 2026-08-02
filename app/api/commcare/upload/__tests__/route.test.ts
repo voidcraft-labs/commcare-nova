@@ -1,5 +1,5 @@
 /**
- * `POST /api/commcare/upload` — boundary gate tests.
+ * `POST /api/commcare/upload`: boundary gate tests.
  *
  * This route is media-ON and boundary-gated: any validator finding
  * returns an actionable 422 before the HQ import (a stale media
@@ -37,7 +37,7 @@ vi.mock("@/lib/export/boundaryValidation", () => ({
 	prepareExportBoundary: vi.fn(),
 }));
 // `resolveMediaManifest` is mocked (it reads Postgres + GCS); `assetWirePaths`
-// is a pure projection, so give the mock its real behavior — the outcome
+// is a pure projection, so give the mock its real behavior, the outcome
 // interpreter joins it against the doc to name the unmatched carrier.
 vi.mock("@/lib/media/manifest", () => ({
 	resolveMediaManifest: vi.fn(),
@@ -104,7 +104,7 @@ function validDoc() {
 
 /**
  * A schema-valid doc whose `photo` question carries `assetId` as its label
- * image — so the real `walkAssetRefs` (run inside the route's outcome
+ * image, so the real `walkAssetRefs` (run inside the route's outcome
  * interpreter) resolves an unmatched wire path back to this carrier.
  */
 function docWithFieldImage(assetId: string) {
@@ -146,7 +146,7 @@ function docWithFieldImage(assetId: string) {
 	return doc;
 }
 
-/** Build the stub request — only `json()` is read after `requireSession`. */
+/** Build the stub request: only `json()` is read after `requireSession`. */
 function reqWith(body: unknown) {
 	return {
 		headers: new Headers(),
@@ -233,7 +233,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 
 		expect(res.status).toBe(422);
 		expect(body.details?.[0]).toContain("uploading");
-		/* The gate must short-circuit BEFORE import — an invalid app
+		/* The gate must short-circuit BEFORE import: an invalid app
 		 * never reaches HQ. */
 		expect(importApp).not.toHaveBeenCalled();
 		expect(expandDoc).not.toHaveBeenCalled();
@@ -265,7 +265,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 			warnings: [],
 		});
 		// A non-empty manifest so the route reaches the media upload (a
-		// media-free app skips it — covered below).
+		// media-free app skips it: covered below).
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
 			new Map([["a1", {} as never]]) as never,
 		);
@@ -273,7 +273,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		const res = await POST(
 			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
-		// Drain the response body — an unread `NextResponse.json` stream is a
+		// Drain the response body: an unread `NextResponse.json` stream is a
 		// dangling async resource the leak detector flags; reading it also lets
 		// us assert the response shape, not just the status.
 		const body = (await res.json()) as { appId: string; warnings: string[] };
@@ -344,7 +344,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		expect(res.status).toBe(201);
 		const text = body.warnings.join(" ");
 		expect(text).toMatch(/couldn't attach/i);
-		// The carrier is named — the question id and form, not a bare number.
+		// The carrier is named: the question id and form, not a bare number.
 		expect(text).toContain("photo");
 		expect(text).toContain("Reg");
 	});

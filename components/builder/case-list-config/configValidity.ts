@@ -3,7 +3,7 @@
 // Pure whole-config verdicts for `CaseListConfig`. The workspace
 // mounts at most one editor (the inspected entity), so every verdict
 // is derived from the config alone. Callers pass the EFFECTIVE case
-// types (`useEffectiveCaseTypes` — the same view the commit gate's
+// types (`useEffectiveCaseTypes`: the same view the commit gate's
 // validator resolves against), so these verdicts can't disagree with
 // the gate.
 //
@@ -16,30 +16,30 @@
 //     calculated columns run `checkValueExpression` with the same
 //     bare context `CalculatedColumnCard`'s editor builds.
 //   - filter: `checkPredicate` with the full search-input list as
-//     known inputs — the context Results' Cases available
+//     known inputs: the context Results' Cases available
 //     `PredicateCardEditor` receives.
 //   - search inputs: the structural row resolution from
 //     `searchInputResolution` plus per-row default-expression (no
 //     inputs in scope) / advanced-predicate (every named row in scope)
-//     checks — exactly the editors `SearchInputEditor` mounts.
+//     checks: exactly the editors `SearchInputEditor` mounts.
 //   - tile placement: `tileLayoutIssues`, which mirrors
 //     `lib/commcare/validator/rules/case-list/caseTileLayout.ts` rule
-//     for rule — the same geometry-always / coverage-while-on split.
+//     for rule: the same geometry-always / coverage-while-on split.
 //
 // ONE walk produces three answers, because they gate different
 // surfaces:
 //
-//   - `errorAreas` — which tabs carry the error dot: every finding,
+//   - `errorAreas`, which tabs carry the error dot: every finding,
 //     including search-input problems and column-kind applicability
 //     mismatches. A broken column badges only the screen that shows it;
 //     off-screen sort carriers belong to Results because Default order uses
 //     them. A fully hidden definition is still validated and included in
 //     `brokenColumns`, but has no screen tab to badge.
-//   - `brokenColumns` — the per-column set behind the in-canvas
+//   - `brokenColumns`: the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
-//   - `filterBroken` — used to mark Results' Cases available composer
+//   - `filterBroken`: used to mark Results' Cases available composer
 //     directly so every tab dot leads somewhere.
-//   - `tileIssues` — per-column tile-placement problems, kept OUT of
+//   - `tileIssues`: per-column tile-placement problems, kept OUT of
 //     `brokenColumns` on purpose: a tile problem is a Results problem,
 //     and folding it into the shared set would badge the same field on
 //     Details, where nothing about it is wrong. Results unions the two
@@ -73,7 +73,7 @@ import {
 } from "./searchInputResolution";
 import { tileIssuesByColumn, tileLayoutIssues } from "./tile/tileModel";
 
-/** Which workspace tabs currently host a configuration error — the
+/** Which workspace tabs currently host a configuration error, the
  *  tab strip badges these so a problem on an unopened tab is visible
  *  from anywhere in the workspace. */
 export interface CaseListConfigErrorAreas {
@@ -129,7 +129,7 @@ export function caseListConfigVerdicts(
 		currentCaseType,
 	};
 
-	// ── Columns — one pass feeds the marks and tab dots. ──
+	// ── Columns: one pass feeds the marks and tab dots. ──
 	const brokenColumns = new Set<Uuid>();
 	let listColumnsBroken = false;
 	let detailColumnsBroken = false;
@@ -183,10 +183,10 @@ export function caseListConfigVerdicts(
 	// ── Search inputs ──
 	// Both per-row check contexts are row-invariant, so they build once.
 	// Default values run BEFORE the search screen opens, so they resolve
-	// NO `input(...)` ref — mirror the editor's NO_SEARCH_INPUTS scope
+	// NO `input(...)` ref: mirror the editor's NO_SEARCH_INPUTS scope
 	// (and the commit gate's forbids-input-ref rule); session / user-data
 	// refs still resolve without it. An advanced predicate resolves
-	// `input(...)` against EVERY named row — the full scope the
+	// `input(...)` against EVERY named row: the full scope the
 	// validator's `moduleTypeContext` and the wire emitter use.
 	const defaultCtx: TypeContext = {
 		caseTypes: [...caseTypes],

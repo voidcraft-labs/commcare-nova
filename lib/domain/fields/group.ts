@@ -44,6 +44,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's caseWrite matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime) — a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
+		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's caseWrite matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime), a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
 	convertTargets: ["repeat"],
 };

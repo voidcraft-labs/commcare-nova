@@ -35,10 +35,10 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).
  *
- * All navigation and selection is URL-driven — the hook reads the current
+ * All navigation and selection is URL-driven: the hook reads the current
  * location via `useLocation()`, dispatches selection via `useSelect()`, and
  * fires mutations via uuid-first `useBlueprintMutations()`. Mutation handlers
- * read the doc imperatively at fire time via `useBlueprintDocApi()` — no need
+ * read the doc imperatively at fire time via `useBlueprintDocApi()`, no need
  * to subscribe to entity-map slices; the handlers only run on keystrokes, and
  * always-fresh state beats a reactive entity-map subscription here. The only
  * reactive doc values are the two undo/redo availability booleans, which let
@@ -60,14 +60,14 @@ export function useBuilderShortcuts(
 	const { duplicateField, moveField } = useBlueprintMutations();
 	const previewing = usePreviewing();
 	const transitionPreview = usePreviewModeTransition(setPreviewing);
-	/* Imperative store handle — field handlers read the freshest doc snapshot
+	/* Imperative store handle: field handlers read the freshest doc snapshot
 	 * at fire time instead of subscribing to entity-map slices. */
 	const docApi = useBlueprintDocApi();
 
 	return useMemo(() => {
 		if (!isReady || accessPhase !== "authorized") return [];
 
-		/** Navigate to a field by uuid — update selection via URL and
+		/** Navigate to a field by uuid: update selection via URL and
 		 *  request a scroll to bring the field into view. */
 		const navigateToField = (uuid: Uuid): void => {
 			setPending(uuid, "smooth", false);
@@ -75,10 +75,10 @@ export function useBuilderShortcuts(
 		};
 
 		const shortcuts: Shortcut[] = [
-			// Escape — deselect / exit preview. Declines (returns
+			// Escape: deselect / exit preview. Declines (returns
 			// false) when neither applies so the key falls through to a
 			// more specific registration (e.g. the case-list workspace's
-			// inspector-closing Escape) instead of being eaten — this
+			// inspector-closing Escape) instead of being eaten: this
 			// registration re-registers on every doc mutation (the memo
 			// depends on `loc`), so it routinely sits LAST in the manager's
 			// recency order without being the most specific handler.
@@ -96,7 +96,7 @@ export function useBuilderShortcuts(
 					return false;
 				},
 			},
-			// P — toggle preview (Figma-style single-key shortcut, suppressed
+			// P: toggle preview (Figma-style single-key shortcut, suppressed
 			// when an input/editor is focused via keyboardManager)
 			{
 				key: "p",
@@ -105,7 +105,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// Tab / Shift+Tab — navigate fields in depth-first order, editing only
+			// Tab / Shift+Tab: navigate fields in depth-first order, editing only
 			{
 				key: "Tab",
 				handler: () => {
@@ -135,7 +135,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// Delete / Backspace — delete selected field
+			// Delete / Backspace: delete selected field
 			{
 				key: "Delete",
 				handler: () => {
@@ -152,7 +152,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// Cmd+D — duplicate field via doc mutation
+			// Cmd+D: duplicate field via doc mutation
 			{
 				key: "d",
 				meta: true,
@@ -167,7 +167,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// ArrowUp/ArrowDown — reorder within sibling level via doc mutation
+			// ArrowUp/ArrowDown: reorder within sibling level via doc mutation
 			{
 				key: "ArrowUp",
 				handler: () => {
@@ -194,7 +194,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder.
+			// Shift+ArrowUp/Shift+ArrowDown: cross-level (indent/outdent) reorder.
 			{
 				key: "ArrowUp",
 				shift: true,
@@ -231,7 +231,7 @@ export function useBuilderShortcuts(
 					return true;
 				},
 			},
-			// Cmd+Z / Cmd+Shift+Z — undo/redo (not global: TipTap and CodeMirror
+			// Cmd+Z / Cmd+Shift+Z: undo/redo (not global: TipTap and CodeMirror
 			// have their own undo stacks that should handle Cmd+Z when focused)
 			{
 				key: "z",

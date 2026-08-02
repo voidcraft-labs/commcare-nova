@@ -67,7 +67,6 @@ export function RuleFocusSummary({
 		<Button
 			type="button"
 			variant="ghost"
-			size="xl"
 			onClick={() => focus.open(path)}
 			aria-label={`Edit ${title.toLocaleLowerCase()}`}
 			data-rule-focus-summary

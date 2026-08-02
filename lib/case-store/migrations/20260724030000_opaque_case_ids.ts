@@ -52,7 +52,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				to_regclass('public.cases')
 			 );
 			IF cases_schema IS NULL THEN
-				RAISE EXCEPTION 'cases table not found in nova_case_runtime or public — the baseline migration must run first';
+				RAISE EXCEPTION 'cases table not found in nova_case_runtime or public, the baseline migration must run first';
 			END IF;
 
 			EXECUTE 'SET LOCAL lock_timeout = ''5s''';

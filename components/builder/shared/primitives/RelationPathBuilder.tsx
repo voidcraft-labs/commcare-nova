@@ -64,6 +64,7 @@ import {
 	subcasePath,
 	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/predicate";
+import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import {
 	type ExpressionChangeAdmission,
 	usePredicateEditContext,
@@ -716,7 +717,7 @@ export function RelationPathBuilder({
 			>
 				<AlertDialogContent finalFocus={kindTriggerRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{pendingKindChangeCopy?.title ?? "Change where this value looks?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
@@ -757,7 +758,7 @@ export function RelationPathBuilder({
 			>
 				<DialogContent finalFocus={kindTriggerRef} className="text-left">
 					<DialogHeader>
-						<DialogTitle className="font-display">
+						<DialogTitle className="font-display tracking-tighter">
 							Use a saved connection
 						</DialogTitle>
 						<DialogDescription className="text-left">
@@ -1026,14 +1027,13 @@ function AncestorSteps({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={(event) =>
 										removeStep(event.currentTarget, removablePath, index)
 									}
 									disabled={!removalAdmission.admitted}
 									aria-label={`Remove connection from ${originLabel} to ${destinationLabel}`}
 									data-removal-action
-									className="min-h-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+									className="text-nova-text-muted not-disabled:hover:text-nova-rose"
 								>
 									<Icon icon={tablerTrash} />
 									Remove
@@ -1145,11 +1145,10 @@ function AncestorSteps({
 			{addParentPath !== undefined ? (
 				<Button
 					type="button"
-					variant="outline"
-					size="xl"
+					variant="ghost"
 					onClick={() => onChange(addParentPath)}
 					disabled={!addParentAdmission.admitted}
-					className="w-full"
+					className="nova-add-slot w-full"
 					data-removal-focus-fallback
 				>
 					<Icon icon={tablerPlus} />
@@ -1173,7 +1172,7 @@ function AncestorSteps({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Remove this connection?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
@@ -1362,14 +1361,7 @@ function RelationshipSettings({
 			}}
 		>
 			<CollapsibleTrigger
-				render={
-					<Button
-						type="button"
-						variant="ghost"
-						size="xl"
-						className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
-					/>
-				}
+				render={<button type="button" className={DISCLOSURE_ROW_CLS} />}
 			>
 				<Icon
 					icon={tablerChevronRight}

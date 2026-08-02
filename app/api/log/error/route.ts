@@ -1,8 +1,8 @@
 /**
- * Client error logging endpoint — receives browser-side errors and logs
+ * Client error logging endpoint: receives browser-side errors and logs
  * them as structured JSON for GCP Cloud Logging.
  *
- * No auth required — errors can happen before, during, or after
+ * No auth required: errors can happen before, during, or after
  * authentication (sign-in flow errors, token expiry, etc.). The endpoint
  * validates and sanitizes the payload to prevent abuse.
  *
@@ -25,7 +25,7 @@ const MAX_URL = 2000;
 //
 // This endpoint is intentionally public, and the only client-side throttle
 // (`lib/clientErrorReporter.ts`) is bypassed by a direct HTTP caller. Without
-// a bound, an anonymous client can emit unbounded production `ERROR` records —
+// a bound, an anonymous client can emit unbounded production `ERROR` records:
 // Cloud Logging cost + alert fatigue (CWE-770).
 //
 // The rate limit lives at the EDGE in Cloud Armor, NOT in app code: a per-IP
@@ -52,7 +52,7 @@ const clientErrorSchema = z.object({
 // ── Route Handler ─────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Reject a declared-oversized body before parsing — every accepted field is
+	// Reject a declared-oversized body before parsing: every accepted field is
 	// schema-capped (~20 KB total), so anything over 32 KB is abuse. (Aggregate
 	// request-rate flood control is enforced at the edge by Cloud Armor.)
 	if (declaredBodyTooLarge(req, CLIENT_ERROR_MAX_BYTES)) {
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 	 * Build a composite message that reads well in Cloud Logging's log viewer.
 	 * The labels make it filterable; the stack_trace feeds Error Reporting.
 	 * Component stacks (from React error boundaries) are appended to the
-	 * regular stack since they're complementary — JS stack shows the throw
+	 * regular stack since they're complementary: JS stack shows the throw
 	 * site, component stack shows the React tree path.
 	 */
 	const fullStack =
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
 	if (fullStack) errorObj.stack = fullStack;
 
 	/* `{ sentry: false }`: every payload reaching this endpoint already
-	 * reached Sentry from the browser — the SDK's global handlers capture
+	 * reached Sentry from the browser: the SDK's global handlers capture
 	 * window.onerror/unhandledrejection first-hand, and `reportClientError`
 	 * explicitly captures boundary/manual reports. Recapturing here would
 	 * duplicate each browser error as a second server-side issue with a

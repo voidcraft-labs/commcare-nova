@@ -3,8 +3,8 @@
  * persona editors.
  *
  * A property with an accepted-values list gets a chooser rather than a
- * text box, because CommCare rejects a worker whose value is off the list
- * — offering free text there would let an author type a value that only
+ * text box, because CommCare rejects a worker whose value is off the list:
+ * offering free text there would let an author type a value that only
  * fails much later, when the account is created.
  */
 "use client";
@@ -134,7 +134,7 @@ export function ValueField({
 					type="button"
 					disabled={disabled}
 					onClick={() => onChange(undefined)}
-					className="min-h-11 self-start text-[12px] font-medium text-nova-accent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+					className="min-h-11 self-start text-[12px] font-medium text-nova-accent hover:underline disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 				>
 					{inheritedValue === undefined ? "Remove value" : "Use role value"}
 				</button>

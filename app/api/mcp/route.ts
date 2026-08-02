@@ -1,5 +1,5 @@
 /**
- * Streamable HTTP MCP endpoint for Nova — entry shim.
+ * Streamable HTTP MCP endpoint for Nova: entry shim.
  *
  * The Next.js wire path on the MCP host is `mcp.commcare.app/mcp`
  * (rewritten in-process to `/api/mcp` by `proxy.ts`). The actual
@@ -12,7 +12,7 @@
  * ## Why a synthesized request
  *
  * Next.js middleware rewrites the routing target but DO NOT update
- * `Request.url` — the route handler at this file still sees the
+ * `Request.url`: the route handler at this file still sees the
  * client's original wire URL (`/mcp` or `/api/mcp`). Better Auth's
  * router strips its `/api/auth` basePath from `req.url.pathname` to
  * locate the matching endpoint; a wire URL of `/mcp` with no
@@ -31,7 +31,7 @@
  * when sending a body`. The TypeScript DOM lib doesn't carry this
  * field yet (it's in WHATWG Fetch but not in DOM lib); the
  * `@ts-expect-error` is the conventional handling. The body still
- * gets consumed exactly once — by `mcp-handler` deep inside the
+ * gets consumed exactly once: by `mcp-handler` deep inside the
  * dispatcher.
  */
 
@@ -41,7 +41,7 @@ import { log } from "@/lib/logger";
 /**
  * Next.js App Router segment config (`maxDuration` is the magic export
  * name Next reads for the platform-level request timeout). Must be a
- * literal — Next's static analysis rejects imported / computed values.
+ * literal: Next's static analysis rejects imported / computed values.
  * The protocol-level `mcp-handler` cutoff lives in `dispatch.ts`'s
  * `MCP_MAX_DURATION_SECONDS` and matches this number; both layers
  * exist because they enforce different things (platform vs protocol).
@@ -60,7 +60,7 @@ export const maxDuration = 300;
  *
  * Exported so a test can pin the cross-module invariant that this
  * synthesized path agrees with the `basePath` `dispatch.ts` hands
- * `mcp-handler` — drift on either side reintroduces a production 404.
+ * `mcp-handler`: drift on either side reintroduces a production 404.
  */
 export const AUTH_BASE_PATH = "/api/auth";
 
@@ -81,7 +81,7 @@ const dispatch = async (req: Request): Promise<Response> => {
 			method: req.method,
 			headers: req.headers,
 			body: req.body,
-			/* Required when `body` is a stream — see module docblock. */
+			/* Required when `body` is a stream: see module docblock. */
 			// @ts-expect-error - `duplex` not in TS DOM lib yet
 			duplex: "half",
 		});
@@ -97,7 +97,7 @@ const dispatch = async (req: Request): Promise<Response> => {
  * `mcp-handler`'s streamable-HTTP transport routes JSON-RPC over POST
  * and rejects GET / DELETE with 405 Method Not Allowed before any tool
  * dispatch. The shim is wired into all three Next route exports anyway
- * so token + scope verification + rate limiting run uniformly — a
+ * so token + scope verification + rate limiting run uniformly, a
  * verified-but-405 response shape is the right behavior for verbs
  * Nova doesn't speak.
  */

@@ -2,7 +2,7 @@
  * `GET` + `DELETE /api/media/[assetId]` route tests.
  *
  * GET pins the serve contract: the object's presence and size are resolved
- * from storage BEFORE the response is constructed — a ready row whose object
+ * from storage BEFORE the response is constructed: a ready row whose object
  * is gone returns a clean 404 (never a 200 that dies mid-stream and gets
  * dropped as malformed downstream), and Content-Length reflects the stored
  * bytes, not the row's recorded size.
@@ -53,7 +53,7 @@ vi.mock("@/lib/media/assetDeletion", () => ({
 }));
 // `extractObjectKeyForAsset` comes from the real (pure, mammoth-free)
 // `@/lib/domain/multimedia`, so the route computes the actual extract-sibling
-// key — no need to mock it. Storage is mocked at the boundary so the real GCS
+// key: no need to mock it. Storage is mocked at the boundary so the real GCS
 // module never loads.
 vi.mock("@/lib/storage/media", () => ({
 	streamAsset: streamAssetMock,
@@ -104,7 +104,7 @@ beforeEach(() => {
 	streamAssetMock.mockImplementation(() => Readable.from(Buffer.from("bytes")));
 });
 
-/** GET needs an abort signal — the route wires client-disconnect cleanup. */
+/** GET needs an abort signal: the route wires client-disconnect cleanup. */
 const getReq = () =>
 	({ signal: new AbortController().signal }) as unknown as Parameters<
 		typeof GET
@@ -159,7 +159,7 @@ describe("GET media asset", () => {
 	it("404s a foreign-Project asset so ids stay non-enumerable (no bytes served)", async () => {
 		// The row exists and is ready, but the caller isn't a member of its
 		// Project (`userInProject` → false); the route collapses that to the same
-		// 404 as a missing row, never touching storage — the byte-serving twin of
+		// 404 as a missing row, never touching storage: the byte-serving twin of
 		// the DELETE enumeration-hardening test below.
 		loadAssetByIdMock.mockResolvedValue(docAsset());
 		userInProjectMock.mockResolvedValue(false);

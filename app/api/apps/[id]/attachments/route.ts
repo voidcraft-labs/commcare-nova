@@ -1,11 +1,11 @@
 /**
- * POST /api/apps/[id]/attachments — initiate a form attachment upload.
+ * POST /api/apps/[id]/attachments: initiate a form attachment upload.
  *
  * The worker-capture twin of `/api/media/upload`, and deliberately a
  * separate lane: a file a worker attaches while filling in a form is
  * data, not an authoring asset, so it never enters `media_assets`.
  *
- * Same three-step shape as the media lane, for the same reason — the
+ * Same three-step shape as the media lane, for the same reason, the
  * bytes must not travel through Cloud Run:
  *
  *   1. this route validates the request and returns a signed PUT URL,
@@ -16,7 +16,7 @@
  * The route lives under `/api/apps/[id]/` rather than a new top-level
  * segment on purpose. `lib/hostnames.ts`'s allowlist matching is
  * segment-anchored and already carries `/api/apps`, so nesting here needs
- * no allowlist entry — the single most common deploy-time surprise in this
+ * no allowlist entry: the single most common deploy-time surprise in this
  * repo, sidestepped rather than worked around.
  *
  * There is no content-hash dedup, unlike the media lane. Two workers who
@@ -54,7 +54,7 @@ import {
 
 const requestBodySchema = z
 	.object({
-		/** One form entry — the attachment-attempt scope. Client-minted per
+		/** One form entry: the attachment-attempt scope. Client-minted per
 		 *  `activateForm`, and only ever a selector within the caller's own
 		 *  rows, never authority. */
 		entryKey: z.string().uuid(),
@@ -68,7 +68,7 @@ const requestBodySchema = z
 	})
 	.strict();
 
-/** Metadata only — two uuids, a path, a filename, a number. 4 KB is
+/** Metadata only: two uuids, a path, a filename, a number. 4 KB is
  *  generous and keeps a large body from being buffered and parsed before
  *  the schema rejects it. */
 const ATTACHMENT_METADATA_MAX_BYTES = 4 * 1024;

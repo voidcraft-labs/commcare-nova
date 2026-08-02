@@ -591,7 +591,7 @@ function checkRepeats(
 				validationError(
 					"XFORM_REPEAT_BINDS_ROOT",
 					"form",
-					`"${formName}" has a <repeat> bound to "${nodeset}", the form root. FormPlayer can't repeat the root node — a repeat must wrap a child group. This is a bug in the form generator.`,
+					`"${formName}" has a <repeat> bound to "${nodeset}", the form root. FormPlayer can't repeat the root node, a repeat must wrap a child group. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -749,7 +749,7 @@ function walkRepeatScope(
 					validationError(
 						"XFORM_REPEAT_MEMBER_SCOPE",
 						"form",
-						`"${formName}" nests a <repeat> bound to "${childBind}" directly inside another <repeat> bound to the same node. FormPlayer can't repeat the same node twice — a nested repeat must wrap a deeper child. This is a bug in the form generator.`,
+						`"${formName}" nests a <repeat> bound to "${childBind}" directly inside another <repeat> bound to the same node. FormPlayer can't repeat the same node twice, a nested repeat must wrap a deeper child. This is a bug in the form generator.`,
 						loc,
 					),
 				);
@@ -1173,7 +1173,7 @@ function checkNamespacePrefixes(
 			validationError(
 				"XFORM_PARSE_ERROR",
 				"form",
-				`"${formName}" uses the XML namespace prefix "${prefix}:" but never declares it (no matching xmlns:${prefix}). That makes the whole form malformed XML — CCHQ's parser rejects it, which silently breaks every media reference on upload. This is a bug in the form generator.`,
+				`"${formName}" uses the XML namespace prefix "${prefix}:" but never declares it (no matching xmlns:${prefix}). That makes the whole form malformed XML. CCHQ's parser rejects it, which silently breaks every media reference on upload. This is a bug in the form generator.`,
 				loc,
 			),
 		);

@@ -353,7 +353,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 				)
 				.join(", ");
 		lines.push("");
-		lines.push("**Users & personas:**");
+		lines.push("**Users and personas:**");
 		if (userProperties.length > 0) {
 			lines.push("  worker_information:");
 			for (const property of userProperties) {

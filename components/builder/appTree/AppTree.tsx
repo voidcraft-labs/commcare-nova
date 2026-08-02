@@ -1,17 +1,17 @@
 /**
- * AppTree — structure sidebar with per-entity subscriptions.
+ * AppTree: structure sidebar with per-entity subscriptions.
  *
  * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to
  * its own entity in the builder store by ID/UUID. Immer structural
  * sharing means editing field A's label only re-renders FieldRow(A) in
- * the sidebar — not the other 166 FieldRows, not the FormCards, not the
+ * the sidebar, not the other 166 FieldRows, not the FormCards, not the
  * ModuleCards.
  *
- * Selection uses boolean selectors — only the old and new selected
+ * Selection uses boolean selectors: only the old and new selected
  * components re-render on selection change (2 total), not every tree
  * item.
  *
- * Search filtering operates directly on entity maps — no assembled
+ * Search filtering operates directly on entity maps: no assembled
  * TreeData is constructed.
  */
 "use client";
@@ -60,7 +60,7 @@ export function AppTree() {
 	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
-				Building your app…
+				Building your app
 			</div>
 		);
 	}
@@ -94,17 +94,17 @@ export function AppTree() {
 							placeholder="Find in app"
 							autoComplete="off"
 							data-1p-ignore
-							className="h-11 bg-nova-surface pl-9 pr-11 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet focus-visible:ring-nova-violet/30 dark:bg-nova-surface"
+							className="nova-focusable h-11 bg-nova-surface pl-9 pr-11 text-sm text-nova-text placeholder:text-nova-text-muted dark:bg-nova-surface"
 						/>
 						{searchQuery && (
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon-lg"
+								size="icon"
 								disabled={locked}
 								aria-label="Clear search"
 								onClick={() => setSearchQuery("")}
-								className="absolute right-0 top-1/2 size-11 -translate-y-1/2 text-nova-text-muted not-disabled:hover:text-nova-text"
+								className="absolute right-0 top-1/2 -translate-y-1/2 text-nova-text-muted"
 							>
 								<Icon icon={tablerX} />
 							</Button>
@@ -122,7 +122,7 @@ export function AppTree() {
 						<ul aria-label="App structure" className="m-0 list-none p-0">
 							<AnimatePresence mode="sync">
 								{/* Insertion points interleave between modules so new
-								 *  modules can be added at any position — hidden while
+								 *  modules can be added at any position: hidden while
 								 *  a search filter is active or the app is locked. */}
 								{interleaveInsertions(moduleOrder, {
 									suppress: locked || !!searchResult,

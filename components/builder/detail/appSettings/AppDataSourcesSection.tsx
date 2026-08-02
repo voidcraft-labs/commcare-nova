@@ -4,7 +4,7 @@ import { useUnwrittenPropertyCards } from "@/lib/doc/hooks/useUnwrittenPropertie
 import { UnwrittenPropertiesDialog } from "./UnwrittenPropertiesDialog";
 
 /**
- * App-level data-sources row in the App Settings panel — present only
+ * App-level data-sources row in the App Settings panel: present only
  * while the app reads case properties no form in it writes
  * (`lib/doc/unwrittenProperties.ts`). Informational, not a warning
  * (neutral chrome, no semantic color): the row states the count and
@@ -25,10 +25,10 @@ export function AppDataSourcesSection() {
 				<div className="border-t border-white/[0.06] pt-3">
 					<div className="flex items-center justify-between">
 						<div className="flex items-center gap-2">
-							<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+							<span className="text-xs font-medium text-nova-text-secondary">
 								Data sources
 							</span>
-							<span className="flex h-[18px] items-center rounded border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
+							<span className="flex h-[18px] items-center rounded-full border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
 								{cards.length}
 							</span>
 						</div>

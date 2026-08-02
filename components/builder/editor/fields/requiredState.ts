@@ -1,5 +1,5 @@
 /**
- * requiredState — pure model for the `required` field's tri-state value.
+ * requiredState: pure model for the `required` field's tri-state value.
  *
  * The `required` value encodes three lifecycle positions in one string,
  * sourced directly from CommCare's XForm contract:
@@ -8,8 +8,8 @@
  *   - `"true()"`    → always required (toggle on, no condition)
  *   - any other XPath → conditionally required (toggle on + condition)
  *
- * Both halves of the editor's logic — what UI state to derive from a
- * value, and what value to write for each user transition — live here as
+ * Both halves of the editor's logic: what UI state to derive from a
+ * value, and what value to write for each user transition: live here as
  * pure functions so they can be exercised at the function level. The
  * RequiredEditor component composes these helpers and renders the
  * resulting UI; it carries no extra branching of its own.
@@ -21,10 +21,10 @@
 
 import type { XPathExpression } from "@/lib/domain";
 
-/** CommCare sentinel: "required with no XPath condition" — i.e. always required. */
+/** CommCare sentinel: "required with no XPath condition", i.e. always required. */
 export const ALWAYS_REQUIRED = "true()";
 
-/** The sentinel in its stored shape — one verbatim text run. The slot
+/** The sentinel in its stored shape: one verbatim text run. The slot
  *  stores the expression AST; this constant is what the add-pill and
  *  the toggle-on transition write. */
 export const ALWAYS_REQUIRED_EXPRESSION: XPathExpression = {
@@ -36,7 +36,7 @@ export const ALWAYS_REQUIRED_EXPRESSION: XPathExpression = {
 export interface RequiredState {
 	/** True when the toggle should render in the on position. */
 	enabled: boolean;
-	/** True when the value is a non-sentinel XPath — i.e. a real condition,
+	/** True when the value is a non-sentinel XPath: i.e. a real condition,
 	 *  not the always-required default. */
 	hasCondition: boolean;
 	/** The XPath expression when conditional; empty string otherwise. */
@@ -68,7 +68,7 @@ export type RequiredTransition =
  *
  * Notable rules:
  *   - `save-condition` with an empty string falls back to the
- *     always-required sentinel, not undefined — the user committed
+ *     always-required sentinel, not undefined: the user committed
  *     "required with no condition" rather than "not required."
  *   - `remove-condition` does NOT clear the toggle; it returns to
  *     always-required so the field stays required after the condition

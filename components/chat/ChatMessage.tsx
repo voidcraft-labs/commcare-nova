@@ -25,7 +25,7 @@ interface ChatMessageProps {
 	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
 	toolInteractionsDisabled?: boolean;
 	/** Set by ChatSidebar for the last message while the SSE stream is open.
-	 *  Drives the reasoning panel's "Thinking…" shimmer — narrowed below to "the
+	 *  Drives the reasoning panel's "Thinking…" shimmer: narrowed below to "the
 	 *  trailing part is still reasoning" so the shimmer stops the instant the model
 	 *  emits its first answer token. */
 	isStreaming?: boolean;
@@ -54,7 +54,7 @@ export function ChatMessage({
 	/* Reasoning is relevant to the work that FOLLOWS it (think → act → think
 	 * again), so each burst renders at its own position rather than being hoisted
 	 * into one block at the top. The trailing burst of an in-flight message is the
-	 * only one still streaming — its trigger shimmers "Thinking…"; once the model
+	 * only one still streaming, its trigger shimmers "Thinking…"; once the model
 	 * emits its next part the burst is complete. */
 	const lastPart = message.parts.at(-1);
 	const trailingReasoningIsStreaming =
@@ -66,14 +66,14 @@ export function ChatMessage({
 	 *     large build's dozens of addFields don't flood the transcript;
 	 *   - reasoning bursts collapse into one Reasoning panel at their position
 	 *     (consecutive parts = one burst the SDK split across deltas).
-	 * Switching kind — or hitting text / attachments / askQuestions — flushes the
+	 * Switching kind, or hitting text / attachments / askQuestions, flushes the
 	 * open run first, preserving the model's narrative order
 	 * (think → "3 changes" → text → think → "4 changes"). Generation tools and
 	 * bookkeeping parts (data-*, step-start) are elided: the activity status +
 	 * GenerationProgress own build-mode feedback.
 	 */
 	const items: ReactNode[] = [];
-	/* Attachment chips lead the message — the files the user attached, each
+	/* Attachment chips lead the message: the files the user attached, each
 	 * opening the Document / What-Nova-reads preview. Read off the message
 	 * metadata (the one `AttachmentRef` shape live, replay, and thread history
 	 * all populate), so there's a single render path regardless of source. */
@@ -100,7 +100,7 @@ export function ChatMessage({
 		}
 	};
 
-	/* `streaming` is true only for the trailing burst of an in-flight message — a
+	/* `streaming` is true only for the trailing burst of an in-flight message, a
 	 * mid-message burst the loop flushes because tool/text follows it has already
 	 * finished. Panels are collapsed by default; `defaultOpen={false}` also
 	 * suppresses the component's auto-open-while-streaming, so an active burst

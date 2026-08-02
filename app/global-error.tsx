@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
 
 /**
- * Root error boundary — fires only when the root layout itself crashes,
+ * Root error boundary: fires only when the root layout itself crashes,
  * above every route-level boundary. Reports through the shared client
  * funnel (Sentry + Cloud Logging) like every other boundary.
  */

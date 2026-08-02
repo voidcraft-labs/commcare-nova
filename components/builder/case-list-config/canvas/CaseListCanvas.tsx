@@ -7,8 +7,8 @@
 // leak into the experience.
 //
 // Arrangement is a choice this canvas owns. A case list shows its fields as
-// rows or as a tile, and the switch sits beside the information it rearranges
-// — the same reason order is dragged here and never set from a panel.
+// rows or as a tile, and the switch sits beside the information it rearranges:
+// the same reason order is dragged here and never set from a panel.
 
 "use client";
 
@@ -139,7 +139,7 @@ export function CaseListCanvas({
 			<div data-case-list-layout>
 				<header className="mb-9">
 					<div className="min-w-0 flex-1">
-						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+						<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 							Results
 						</h1>
 						<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
@@ -153,10 +153,15 @@ export function CaseListCanvas({
 				<div className="space-y-10">
 					<section aria-labelledby="results-information-heading">
 						<div className="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-							<div className="min-w-0 flex-1">
+							{/* Asks for a readable column before the switch beside it
+							 * gets to take room. Without a basis the heading block
+							 * shrinks toward nothing and the row never wraps, so the
+							 * helper sentence breaks into four lines in ~110px while
+							 * the switch keeps its full width. */}
+							<div className="min-w-0 grow basis-72">
 								<h2
 									id="results-information-heading"
-									className="font-display text-[17px] font-semibold text-nova-text"
+									className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 								>
 									Information shown
 								</h2>
@@ -235,7 +240,7 @@ export function CaseListCanvas({
 						<div className="mb-4">
 							<h2
 								id="results-availability-heading"
-								className="font-display text-[17px] font-semibold text-nova-text"
+								className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 							>
 								Cases available
 							</h2>
@@ -268,7 +273,7 @@ export function CaseListCanvas({
 						<div className="mb-4">
 							<h2
 								id="results-order-heading"
-								className="font-display text-[17px] font-semibold text-nova-text"
+								className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 							>
 								Default order
 							</h2>

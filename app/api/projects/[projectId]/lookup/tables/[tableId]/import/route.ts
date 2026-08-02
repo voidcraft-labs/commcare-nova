@@ -93,7 +93,7 @@ function invalidInput(error: ZodError): LookupFailure<"invalid_input"> {
 }
 
 /**
- * `measuredBytes` is the size actually seen — the declared `Content-Length` on
+ * `measuredBytes` is the size actually seen: the declared `Content-Length` on
  * the pre-buffer rejection, the buffered length afterwards. Naming it is what
  * separates "your file is 12.4 MB, the limit is 8 MB" from a generic refusal
  * the author cannot act on. It is absent only when a chunked request declared

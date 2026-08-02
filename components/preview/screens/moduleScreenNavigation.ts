@@ -3,8 +3,8 @@
  *
  * Both are `f(module shape, mode)` with no React and no DOM, which is what lets
  * them be checked directly. The component reads them and performs the effect;
- * the rules themselves — when a form menu is the wrong landing, and whether a
- * form needs a case before it can open — live here.
+ * the rules themselves: when a form menu is the wrong landing, and whether a
+ * form needs a case before it can open: live here.
  */
 
 import { CASE_LOADING_FORM_TYPES, type FormType } from "@/lib/domain";
@@ -26,7 +26,7 @@ export type ModuleScreenLanding =
  *   must never become a back-button stop for a formless module.
  * - A case-first module (every form case-loading) lands on the case list in the
  *   running app, since the shared case selection hoists. Edit mode keeps the
- *   menu — it is the authoring surface — so this arm is preview-only, and it
+ *   menu: it is the authoring surface, so this arm is preview-only, and it
  *   PUSHES, because the module is a real reachable screen while authoring.
  *
  * The bare-case-list arm wins when both apply: it holds in edit mode too, and
@@ -47,7 +47,7 @@ export function moduleScreenLanding(args: {
 
 /** What clicking a form in the menu does. */
 export type FormLaunch =
-	/** Open the form directly — it loads no case. */
+	/** Open the form directly: it loads no case. */
 	| { readonly kind: "open-form" }
 	/**
 	 * Select a case first. The clicked form becomes the case list's continue
@@ -58,7 +58,7 @@ export type FormLaunch =
 
 /**
  * A case-loading form needs a case, but only if its module actually has a case
- * type — a case-loading form in a caseless module has no list to select from,
+ * type: a case-loading form in a caseless module has no list to select from,
  * so it opens directly rather than routing to a list that cannot exist.
  */
 export function formLaunch(args: {

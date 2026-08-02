@@ -1,5 +1,5 @@
 /**
- * EmptyContainerRow — drop target + placeholder for an empty group/repeat.
+ * EmptyContainerRow: drop target + placeholder for an empty group/repeat.
  *
  * Rendered between a `group-open` and `group-close` row when the
  * container has no children. Provides the sole drop target for "make
@@ -55,7 +55,7 @@ export const EmptyContainerRow = memo(function EmptyContainerRow({
 				style={{ height: EMPTY_CONTAINER_HEIGHT_PX }}
 			>
 				<Icon icon={tablerDragDrop} width="14" height="14" />
-				Empty — drag a field here
+				Empty: drag a field here
 			</div>
 		</div>
 	);

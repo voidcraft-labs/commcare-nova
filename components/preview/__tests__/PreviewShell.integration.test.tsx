@@ -7,12 +7,12 @@
 // with a case-typed module at /cases (edit mode) and pins:
 //
 //   1. The unified CaseListConfigWorkspace renders its tab row +
-//      the case-list canvas — and carries NO Preview affordance of
+//      the case-list canvas, and carries NO Preview affordance of
 //      its own (the run-through lives behind the chrome's global
 //      Preview toggle, outside PreviewShell).
 //   2. The Case Detail tab fires `navigate.openDetailConfig`.
 //
-// The case-store Server Actions are stubbed — the integration this
+// The case-store Server Actions are stubbed: the integration this
 // test pins is the routing + dispatch wire between the navigate
 // intents and PreviewShell's Activity boundaries; live data loading
 // is a black box from this surface's perspective.
@@ -42,7 +42,7 @@ const navigateMock = {
 	goHome: vi.fn(),
 	openModule: vi.fn(),
 	openCaseList: vi.fn((uuid: string) => {
-		// Simulate the navigation completing — the side-effect of
+		// Simulate the navigation completing: the side-effect of
 		// `navigate.openCaseList(...)` is the URL flipping. Mirroring
 		// that side-effect inside the spy lets the test re-render
 		// PreviewShell and observe the post-navigation state.

@@ -9,8 +9,8 @@
 // as one screen rather than two places to look.
 //
 // Every choice offered here is one the commit gate accepts. Where it
-// cannot be — a session case in a module that never selects one, an
-// action whose facets would drop authored content — the choice is
+// cannot be: a session case in a module that never selects one, an
+// action whose facets would drop authored content: the choice is
 // disabled with its reason or asks first, never dispatched into a
 // rejection.
 
@@ -100,7 +100,7 @@ export function CaseOperationInspectorBody({
 	const view = useCaseOperations(formUuid);
 	/* Destructured so each memo below names the ONE member it reads. The view
 	 * is memoized, so depending on the whole object is no longer free-for-all
-	 * recomputation — but it still turns over whenever any of its fifteen
+	 * recomputation, but it still turns over whenever any of its fifteen
 	 * members does, and a verdict memo has no reason to care about the rest. */
 	const { editVerdict } = view;
 	const navigate = useNavigate();
@@ -120,7 +120,7 @@ export function CaseOperationInspectorBody({
 
 	const sessionUnavailableReason = caseFirst
 		? undefined
-		: "This module does not choose a case before opening its forms, so there is no case in hand";
+		: "This module doesn't choose a case before opening its forms, so there is no case in hand";
 	const initialSessionCaseType = caseFirst ? moduleCaseType : undefined;
 
 	const precedingOperations = useMemo(
@@ -179,7 +179,7 @@ export function CaseOperationInspectorBody({
 	}, [rollingSessionCaseType, priorCreates]);
 
 	/* Every entry asks the real mutation planner and the commit gate, so this
-	 * is three gate runs — not a shape to rebuild on every keystroke in a
+	 * is three gate runs, not a shape to rebuild on every keystroke in a
 	 * sibling control. It depends on the destructured `editVerdict` rather than
 	 * `view`, so an unrelated member of the view turning over cannot trigger
 	 * them. */
@@ -350,7 +350,7 @@ export function CaseOperationInspectorBody({
 							priorCreates,
 							sessionUnavailableReason,
 							// A create's case comes into existence here, so "a new case" is
-							// not one option among several — it is the only target the facet
+							// not one option among several: it is the only target the facet
 							// rules admit on a create.
 							newOnly: operation.action === "create",
 							allowsNone: false,
@@ -565,13 +565,13 @@ function ActionMenu({
 		const losses = actionChangeLosses(operation, pending);
 		const choice = choices[pending];
 		/* The panel reads the LIVE choice rather than the one that opened it. A
-		 * peer edit — or this author's own undo — can refuse the pending action
+		 * peer edit, or this author's own undo: can refuse the pending action
 		 * while the panel sits open, and confirming a change that then silently
 		 * does nothing is the one outcome this surface never allows. */
 		const refused = !("next" in choice);
 		/* Losing the target is not the whole story: an update or close needs an
 		 * existing case, so a create's `{kind:"new"}` target is replaced by the
-		 * first fallback that passes — which may be a DIFFERENT kind of case,
+		 * first fallback that passes, which may be a DIFFERENT kind of case,
 		 * and the writes travel to it, declaring their properties there. */
 		const nextCaseType = "next" in choice ? choice.next.caseType : undefined;
 		const retargets =
@@ -612,7 +612,6 @@ function ActionMenu({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={() => setPending(null)}
 					>
 						{refused ? "Close" : "Cancel"}
@@ -621,7 +620,6 @@ function ActionMenu({
 						<Button
 							type="button"
 							variant="warning"
-							size="xl"
 							onClick={() => {
 								if ("next" in choice) onChange(choice.next);
 								setPending(null);
@@ -645,12 +643,7 @@ function ActionMenu({
 				disabled={!canEdit}
 				aria-label={`What it does: ${ACTION_LABEL[operation.action]}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">
@@ -744,12 +737,7 @@ function IdentityKeyMenu({
 				disabled={!canEdit}
 				aria-label={`Identity: ${label}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -847,12 +835,7 @@ function MultiplicityMenu({
 				disabled={!canEdit}
 				aria-label={`How often: ${current === undefined ? "Once per submission" : `Once for each ${current.label} entry`}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">
@@ -933,7 +916,7 @@ function MultiplicityMenu({
  * `removalPlan` is asked BEFORE the button does anything, so a change
  * something else depends on never offers a delete that would bounce.
  * The review names each blocker and the exact slot holding the
- * reference — on a twenty-change form, "Update client uses it" is not
+ * reference: on a twenty-change form, "Update client uses it" is not
  * actionable while "in the value it saves to status" is.
  *
  * Both come from the planner, and that is what keeps the two halves
@@ -955,7 +938,7 @@ function RemoveOperationRow({
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 	/* Both walk the whole operation graph, so they run when the document or
-	 * the selection changes — not on every keystroke in a sibling input. */
+	 * the selection changes, not on every keystroke in a sibling input. */
 	const plan = useMemo(
 		() => view.removalPlan(operation.uuid),
 		[view, operation.uuid],
@@ -1013,7 +996,6 @@ function RemoveOperationRow({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={() => setConfirming(false)}
 					>
 						Cancel
@@ -1021,7 +1003,6 @@ function RemoveOperationRow({
 					<Button
 						type="button"
 						variant="destructive"
-						size="xl"
 						onClick={() => {
 							const outcome = view.remove(operation.uuid);
 							setConfirming(false);
@@ -1051,7 +1032,6 @@ function RemoveOperationRow({
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => setConfirming(true)}
 				className="w-full justify-start px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 			>

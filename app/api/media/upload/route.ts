@@ -1,18 +1,18 @@
 /**
- * POST /api/media/upload — initiate a media upload.
+ * POST /api/media/upload: initiate a media upload.
  *
  * Two-step pattern. Step 1 (this route): the browser declares what
  * it wants to upload (filename, MIME, size, sha256 hash) BEFORE
  * pushing bytes. The server:
  *
  *   - validates session + the declared metadata
- *   - checks for a (project, hash) match in the asset library — on
+ *   - checks for a (project, hash) match in the asset library, on
  *     hit, returns the existing assetId and tells the browser to
  *     skip the bytes-PUT entirely (dedup-skip-the-upload)
  *   - on miss, creates a `pending` Postgres row and a signed PUT
  *     URL the browser uses to push bytes directly to GCS
  *
- * Step 2 lives at `[assetId]/confirm/route.ts` — the browser calls
+ * Step 2 lives at `[assetId]/confirm/route.ts`: the browser calls
  * it after the PUT completes, and the server re-validates the pending
  * bytes from GCS before promoting them to the content-hash key and
  * flipping the row to `ready`.
@@ -47,7 +47,7 @@ const requestBodySchema = z
 	.object({
 		filename: z.string().min(1).max(255),
 		// Accepted as a free string and normalized below, not
-		// `z.enum(ALL_MIME_TYPES)` — a browser's `File.type` can be an
+		// `z.enum(ALL_MIME_TYPES)`: a browser's `File.type` can be an
 		// alias (`image/apng` for an animated `.png`) or codec-
 		// parameterized (`video/mp4; codecs=...`); `normalizeMimeType`
 		// reconciles both to a canonical accepted type.
@@ -62,7 +62,7 @@ const requestBodySchema = z
 	.strict();
 
 /**
- * This route's body is just the four-field metadata object above —
+ * This route's body is just the four-field metadata object above:
  * filename (≤255) + a MIME string + a size number + a 64-char hash, well
  * under 1 KB. Cap the request body tightly so it can't be used to make the
  * server buffer and parse a large JSON payload before the schema rejects
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
 		const parsed = requestBodySchema.safeParse(body);
 		if (!parsed.success) {
 			throw new ApiError(
-				"Upload request couldn't be parsed — make sure filename, mimeType, sizeBytes, and contentHash are all present and well-formed.",
+				"Upload request couldn't be parsed. Make sure filename, mimeType, sizeBytes, and contentHash are all present and well-formed.",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
 
 		// Per-kind size cap before any storage round trip. The
 		// validator runs the same check again at confirm time against
-		// the actual bytes — this is the cheap up-front rejection.
+		// the actual bytes: this is the cheap up-front rejection.
 		const kind = assetKindForMimeType(mimeType);
 		if (!kind) {
 			throw new ApiError(
@@ -115,10 +115,10 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Resolve the Project the upload belongs to — the tenant + the only
+		// Resolve the Project the upload belongs to: the tenant + the only
 		// access gate. Uploading is a WRITE, so BOTH branches gate at `edit`: an
 		// app upload scopes to the app's Project, a personal upload to the
-		// caller's active Project — a viewer in a shared Project can't seed
+		// caller's active Project: a viewer in a shared Project can't seed
 		// pending rows/objects there (resolveActiveProjectId only proves
 		// membership). A denied gate throws AppAccessError, which the catch maps
 		// to a 404 (app) / 403 (project).
@@ -131,11 +131,11 @@ export async function POST(req: NextRequest) {
 			await resolveProjectAccess(session.user.id, project, "edit");
 		}
 
-		// Dedup probe — if this Project already has this exact content
+		// Dedup probe: if this Project already has this exact content
 		// hash as a `ready` asset, return it and skip the bytes push.
 		// The browser sees `deduplicated: true` and attaches the
 		// returned asset to its target carrier without a second round
-		// trip — so the full wire asset is included, not just the id.
+		// trip, so the full wire asset is included, not just the id.
 		const existing = await findReadyAssetByProjectAndHash(project, contentHash);
 		if (existing) {
 			return NextResponse.json({

@@ -13,7 +13,7 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 	// The mapped type guarantees each builder's STRUCTURE matches its kind, but
 	// the Zod schema carries runtime constraints the type can't express
 	// (`options.min(2)`, non-empty visible label). This is the guard that a
-	// freshly-inserted field of ANY kind round-trips through `fieldSchema` — the
+	// freshly-inserted field of ANY kind round-trips through `fieldSchema`, the
 	// exact thing the auto-save validates, so the insertion can never mint an
 	// unsaveable field again (the `hidden` + `label` regression).
 	it.each(fieldKinds)("%s builds a valid field", (kind) => {
@@ -34,7 +34,7 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 	// Schema-valid is necessary but not sufficient: the insert dispatches
 	// through `useBlueprintMutations`' gate, which also runs the validator
-	// rules — and a starter that any rule flags as soundness is a DEAD menu
+	// rules, and a starter that any rule flags as soundness is a DEAD menu
 	// item (the insert is rejected on every attempt, in both phases). The
 	// `hidden` starter shipped exactly that way once (no value source →
 	// HIDDEN_NO_VALUE), which is why it now seeds `default_value: "''"`.

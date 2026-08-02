@@ -2,47 +2,67 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { Spinner } from "@/components/shadcn/spinner";
 import { cn } from "@/lib/utils";
 
+/**
+ * Small status / metadata chip: a full pill of soft, BORDERLESS color:
+ * a pool of tint rather than an outlined chip (nothing machined, nothing
+ * doubled up against card borders). Violet is the neutral accent;
+ * emerald / amber / rose carry semantic state. Amber means warning /
+ * recovering ("Trying again"), never in-progress: working states pass
+ * `working` for the quiet violet spinner instead.
+ *
+ * Badge text: sentence case, no punctuation. Interactive badges
+ * (rendered as a link or button) lift one step toward light on hover.
+ */
 const badgeVariants = cva(
-	"group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+	"group/badge inline-flex h-[22px] w-fit shrink-0 items-center justify-center gap-1.5 rounded-4xl px-2.5 text-xs leading-none font-medium whitespace-nowrap transition-colors focus-visible:shadow-(--focus-ring) [&>svg]:pointer-events-none [&>svg]:size-3!",
 	{
 		variants: {
 			variant: {
-				default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-				secondary:
-					"bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
-				destructive:
-					"bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
-				outline:
-					"border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
-				ghost:
-					"hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
-				link: "text-nova-violet-bright underline-offset-4 hover:underline",
-				// Nova brand-accent chip — violet-tinted fill with the bright text
-				// tier (the fill is translucent, so text must be violet-bright to
-				// clear AA on dark surfaces).
+				muted:
+					"bg-white/[0.06] text-nova-text-secondary [a&]:hover:bg-white/[0.11] [button&]:hover:bg-white/[0.11]",
 				violet:
-					"border-nova-violet/20 bg-nova-violet/15 text-nova-violet-bright",
+					"bg-nova-violet/[0.16] text-nova-violet-bright [a&]:hover:bg-nova-violet/[0.26] [button&]:hover:bg-nova-violet/[0.26]",
+				emerald:
+					"bg-nova-emerald/[0.16] text-nova-emerald [a&]:hover:bg-nova-emerald/[0.26] [button&]:hover:bg-nova-emerald/[0.26]",
+				amber:
+					"bg-nova-amber/[0.16] text-nova-amber [a&]:hover:bg-nova-amber/[0.26] [button&]:hover:bg-nova-amber/[0.26]",
+				rose: "bg-nova-rose/[0.16] text-nova-rose [a&]:hover:bg-nova-rose/[0.26] [button&]:hover:bg-nova-rose/[0.26]",
 			},
 		},
 		defaultVariants: {
-			variant: "default",
+			variant: "muted",
 		},
 	},
 );
 
 function Badge({
 	className,
-	variant = "default",
+	variant = "muted",
+	working = false,
+	children,
 	render,
 	...props
-}: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
+}: useRender.ComponentProps<"span"> &
+	VariantProps<typeof badgeVariants> & {
+		/** Quiet violet spinner for in-progress states ("Generating"). */
+		working?: boolean;
+	}) {
 	return useRender({
 		defaultTagName: "span",
 		props: mergeProps<"span">(
 			{
 				className: cn(badgeVariants({ variant }), className),
+				children: (
+					<>
+						{working && (
+							<Spinner className="size-[11px] text-nova-violet-bright" />
+						)}
+						{children}
+					</>
+				),
 			},
 			props,
 		),

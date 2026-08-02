@@ -73,7 +73,7 @@ export function buildHqJsonExportArchive(
  */
 function importReadme(appName: string): string {
 	return [
-		`${appName} — exported from Nova for CommCare HQ`,
+		`${appName}. Exported from Nova for CommCare HQ`,
 		"",
 		"This archive has two files to load into CommCare HQ:",
 		`  - ${appName}.json   the application`,
@@ -87,13 +87,13 @@ function importReadme(appName: string): string {
 		"",
 		"This is the only place CommCare's UI lets you upload an app's JSON. The",
 		"first screen asks for an 'App URL' from another server, but it only",
-		"checks the URL's shape and that the server differs from yours — it never",
+		"checks the URL's shape and that the server differs from yours, it never",
 		"opens the link. Paste this exact dummy URL and click Next:",
 		"",
 		"  https://india.commcarehq.org/a/x/apps/view/00000000000000000000000000000000/",
 		"",
 		"(If your CommCare instance IS the India server, change 'india' to 'www'.",
-		" The only rule: the subdomain must be www, india, or eu — and not yours.)",
+		" The only rule: the subdomain must be www, india, or eu, and not yours.)",
 		"",
 		`On the next screen, upload "${appName}.json", name the app, and import.`,
 		"",

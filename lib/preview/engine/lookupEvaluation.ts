@@ -130,7 +130,7 @@ function requireTable(
 			expected:
 				"the builder session loads every table the doc references before a carrier evaluates; validation rejects unavailable lookup identities at commit",
 			received: `a snapshot of ${data.definitions.length} table(s) at Project revision ${data.projectRevision}`,
-			hint: "the carrier references a table outside the loaded set — reload the lookup data for the doc's referenced tables, or repair the doc.",
+			hint: "the carrier references a table outside the loaded set. Reload the lookup data for the doc's referenced tables, or repair the doc.",
 		}),
 	);
 }
@@ -149,7 +149,7 @@ function requireColumn(
 			expected:
 				"validation rejects unavailable lookup column identities before a carrier can evaluate",
 			received: `table \`${table.id}\` with ${table.columns.length} column(s)`,
-			hint: "the definitions snapshot and the doc disagree — refresh the lookup data; if the column was deleted, the commit validator owns the repair.",
+			hint: "the definitions snapshot and the doc disagree. Refresh the lookup data; if the column was deleted, the commit validator owns the repair.",
 		}),
 	);
 }

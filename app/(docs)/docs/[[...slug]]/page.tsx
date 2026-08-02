@@ -11,7 +11,7 @@
  * nonce CSP onto every HTML response (see `proxy.ts`), and Next.js can
  * only attach that nonce to the inline RSC payload chunks
  * (`self.__next_f.push(...)`) it emits when a page renders at request
- * time — SSG bakes them at build time, with no request and no nonce, so
+ * time: SSG bakes them at build time, with no request and no nonce, so
  * the browser then blocks them and React never hydrates. The cost of
  * dynamic rendering here is trivial: pure MDX → HTML, no DB, no session
  * lookup; the docs layout deliberately doesn't read the session for
@@ -33,7 +33,7 @@ import { llmMarkdownUrl } from "@/lib/docs/llm";
 import { source } from "@/lib/docs/source";
 import { getMDXComponents } from "@/mdx-components";
 
-/* See top-of-file comment — required so the proxy's per-request nonce
+/* See top-of-file comment: required so the proxy's per-request nonce
  * lands on Next's inline RSC chunks. Removing this re-breaks the docs
  * site under the strict CSP. */
 export const dynamic = "force-dynamic";
@@ -74,7 +74,7 @@ export default async function Page({ params }: PageProps) {
 	/* `createRelativeLink` rewrites href values that point at sibling
 	 * `.mdx` files into the correct routed URL for the current page.
 	 * Required because the docs site mounts at `/docs` in dev and `/`
-	 * (the docs subdomain root) in prod — hardcoded absolute hrefs would
+	 * (the docs subdomain root) in prod: hardcoded absolute hrefs would
 	 * break in dev. Authors write `[Link](./other.mdx)`; this resolves
 	 * it through the same loader fumadocs uses for sidebar/nav links.
 	 * Server-component-only API. */
@@ -85,16 +85,24 @@ export default async function Page({ params }: PageProps) {
 			 * inline with the page-actions row (right-aligned Copy +
 			 * View buttons). The slot accepts a custom FC, but slot
 			 * functions cannot close over server-side props across the
-			 * RSC boundary — composing inside `children` keeps every
+			 * RSC boundary: composing inside `children` keeps every
 			 * value in scope without crossing it. */
 			breadcrumb={{ enabled: false }}
 		>
 			{/* Header row: breadcrumb on the left, AI page-actions on
 			 * the right. */}
 			<div className="flex flex-row items-center justify-between gap-4">
-				<PageBreadcrumb />
+				{/* The trail shares this row with the 44px page actions, so
+				 * its links reach the hit-target floor for free. */}
+				<div className="nova-docs-breadcrumb">
+					<PageBreadcrumb />
+				</div>
 				<div className="flex flex-row items-center gap-2">
-					<MarkdownCopyButton markdownUrl={markdownUrl} />
+					{/* fumadocs labels this "Copy Markdown"; Nova writes
+					 * every action in sentence case. */}
+					<MarkdownCopyButton markdownUrl={markdownUrl}>
+						Copy markdown
+					</MarkdownCopyButton>
 					<ViewOptionsPopover markdownUrl={markdownUrl} />
 				</div>
 			</div>

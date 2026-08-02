@@ -136,7 +136,7 @@ export const Reasoning = memo(
 				{/* No self-margin (the vendored default's `mb-4` was bottom-only, which
 				 *  left the trigger cramped above and out of rhythm with its neighbors).
 				 *  The SA reply's MessageContent owns one uniform gap for every
-				 *  block — reasoning, tool runs, prose, cards alike. */}
+				 *  block: reasoning, tool runs, prose, cards alike. */}
 				<Collapsible
 					className={cn("not-prose", className)}
 					onOpenChange={handleOpenChange}
@@ -158,7 +158,7 @@ export type ReasoningTriggerProps = ComponentProps<
 
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
 	if (isStreaming || duration === 0) {
-		return <Shimmer duration={1}>Thinking...</Shimmer>;
+		return <Shimmer duration={1}>Thinking&hellip;</Shimmer>;
 	}
 	if (duration === undefined) {
 		return <p>Thought for a few seconds</p>;

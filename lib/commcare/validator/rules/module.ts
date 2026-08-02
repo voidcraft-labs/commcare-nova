@@ -52,7 +52,7 @@ function caseFormsNoCaseType(
 		validationError(
 			"NO_CASE_TYPE",
 			"module",
-			`Module "${mod.name}" has registration, followup, or close forms but no case_type. These form types require cases, so the module needs to know which case type to work with. Set case_type to the type of case this module manages (e.g. "patient", "household").`,
+			`Module "${mod.name}" has registration, followup, or close forms but no case_type. These form types require cases, so the module needs to know which case type to work with. Set case_type to the type of case this module manages (for example "patient" or "household").`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
@@ -69,7 +69,7 @@ function caseListOnlyHasForms(
 		validationError(
 			"CASE_LIST_ONLY_HAS_FORMS",
 			"module",
-			`Module "${mod.name}" is marked as case_list_only (a viewer for existing cases) but also has forms. A case_list_only module just shows a list — it can't contain forms. Either remove the forms or remove the case_list_only flag.`,
+			`Module "${mod.name}" is marked as case_list_only (a viewer for existing cases) but also has forms. A case_list_only module just shows a list, it can't contain forms. Either remove the forms or remove the case_list_only flag.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
@@ -113,8 +113,8 @@ function noFormsOrCaseList(
 	// resolutions for both directions (a module always keeps ≥1 form, so to drop
 	// the last one you either add another first or remove the whole module).
 	const message = mod.caseType
-		? `Module "${mod.name}" has a case_type ("${mod.caseType}") but no forms. CommCare needs either forms to interact with cases, or a visible case list — so add a form, make it a case-list-only viewer, or, if you're removing its last form, delete the whole module instead.`
-		: `Module "${mod.name}" needs at least one form — CommCare won't build a menu with no forms and no case list. Add a form, or, if you're removing its last one, add another form first or delete the whole module.`;
+		? `Module "${mod.name}" has a case_type ("${mod.caseType}") but no forms. CommCare needs either forms to interact with cases, or a visible case list, so add a form, make it a case-list-only viewer, or, if you're removing its last form, delete the whole module instead.`
+		: `Module "${mod.name}" needs at least one form. CommCare won't build a menu with no forms and no case list. Add a form, or, if you're removing its last one, add another form first or delete the whole module.`;
 	return [
 		validationError("NO_FORMS_OR_CASE_LIST", "module", message, {
 			moduleUuid,
@@ -133,7 +133,7 @@ function invalidCaseTypeFormat(
 		validationError(
 			"INVALID_CASE_TYPE_FORMAT",
 			"module",
-			`Module "${mod.name}" has case_type "${mod.caseType}" which isn't a valid identifier. Case type names must start with a letter and can only contain letters, digits, underscores, or hyphens (e.g. "patient", "home_visit", "health-check").`,
+			`Module "${mod.name}" has case_type "${mod.caseType}" which isn't a valid identifier. Case type names must start with a letter and can only contain letters, digits, underscores, or hyphens (for example "patient", "home_visit", or "health-check").`,
 			{ moduleUuid, moduleName: mod.name },
 			{ caseType: mod.caseType },
 		),

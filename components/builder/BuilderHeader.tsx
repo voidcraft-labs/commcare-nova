@@ -1,13 +1,13 @@
 /**
- * BuilderHeader — the builder's one chrome row, replacing the site's
+ * BuilderHeader: the builder's one chrome row, replacing the site's
  * AppHeader inside `/build/*` (see `(site)/layout.tsx` for the split).
  *
- * Three-column grid: logo (the exit back to the app list) on the left,
+ * Three-column grid: the logomark (the exit back to the app list) on the left,
  * the Preview toggle dead center, document tools + account on the
- * right. The header is site + document-action chrome only — the app's
+ * right. The header is site + document-action chrome only: the app's
  * own identity and settings live in the structure sidebar's app row.
  * Preview is centered because reach matters more than corner
- * convention — the canvas is center-aligned, so the toggle sits
+ * convention: the canvas is center-aligned, so the toggle sits
  * directly above the user's work, one short travel away. Nothing can
  * collide with it: breadcrumbs live in the canvas column's own strip
  * (`BreadcrumbStrip`), where the sidebars bound their width.
@@ -23,10 +23,10 @@ import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import Link from "next/link";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
-import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
+import { PublishPanel } from "@/components/builder/PublishPanel";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -55,10 +55,10 @@ interface BuilderHeaderProps {
 	commcareConfigured: boolean;
 	/** Every project space the key can upload to (drives the dialog picker). */
 	commcareAvailableDomains: { name: string; displayName: string }[];
-	/** Preview toggle handler — BuilderLayout's scroll-anchor-capturing
+	/** Preview toggle handler: BuilderLayout's scroll-anchor-capturing
 	 *  wrapper around the store's `setPreviewing`. */
 	onSetPreviewing: (on: boolean) => void;
-	/** Active impersonation info, or null when viewing as yourself —
+	/** Active impersonation info, or null when viewing as yourself:
 	 *  resolved by the build page's RSC, mirroring the site header. */
 	impersonating: { userName: string; userEmail: string } | null;
 }
@@ -109,13 +109,21 @@ export function BuilderHeader({
 						: "flex min-w-0 items-center gap-4"
 				}
 			>
-				<Link
-					href="/"
-					aria-label="Back to applications"
-					className={`${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none`}
-				>
-					<Logo size="sm" markOnly={ultraCompactHeader} />
-				</Link>
+				{/* The mark alone. The builder's chrome belongs to the app being
+				 *  built, and the app's own name sits right below in the structure
+				 *  sidebar: a second name on the same screen makes the reader
+				 *  decide which one they are looking at. The sphere is enough to
+				 *  say whose product this is, and the tooltip says where it
+				 *  goes. */}
+				<SimpleTooltip content="Back to your apps" side="bottom">
+					<Link
+						href="/"
+						aria-label="Back to your apps"
+						className={`nova-focusable ${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-xl outline-none`}
+					>
+						<Logo size="chrome" markOnly />
+					</Link>
+				</SimpleTooltip>
 				{impersonating && !ultraCompactHeader && (
 					<ImpersonationBanner
 						userName={impersonating.userName}
@@ -134,7 +142,7 @@ export function BuilderHeader({
 					<div className="flex min-w-0 items-center gap-1">
 						<PreviewToggle onSetPreviewing={onSetPreviewing} />
 						{/* Sits beside the toggle because it answers the question the
-						 *  toggle raises: the app is running — as whom? It renders
+						 *  toggle raises: the app is running, as whom? It renders
 						 *  nothing outside Preview. */}
 						<PreviewIdentityMenu />
 					</div>
@@ -152,7 +160,7 @@ export function BuilderHeader({
 			>
 				{showAccessStatus && (
 					<>
-						{/* Who-else-is-here avatars — first in the cluster with their own
+						{/* Who-else-is-here avatars: first in the cluster with their own
 						 *  divider (the Google-Docs arrangement: people, then actions).
 						 *  Shown for editors AND viewers (a viewer still sees who's
 						 *  editing); renders nothing in a solo session. */}
@@ -161,16 +169,16 @@ export function BuilderHeader({
 						{/* Keep the autosave owner mounted through reversible access
 						 * transitions; only its visual output is conditional internally. */}
 						<SaveIndicator compact={compactHeader} />
-						{/* Edit affordances — hidden for a view-only member. Preview +
-						 *  Export stay (a viewer may preview and download the app);
-						 *  HQ upload inside Export stays gated server-side. */}
+						{/* Edit affordances: hidden for a view-only member. Preview +
+						 *  Publish stay (a viewer may preview and download the app);
+						 *  HQ upload inside Publish stays gated server-side. */}
 						{showToolbar && canEdit ? (
 							compactHeader ? (
 								<DropdownMenu>
 									<SimpleTooltip content="Edit history" side="bottom">
 										<DropdownMenuTrigger
 											aria-label="Edit history"
-											className="flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text focus-visible:ring-3 focus-visible:ring-ring/50"
+											className="nova-focusable flex size-11 items-center justify-center rounded-xl text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text"
 										>
 											<Icon icon={tablerDotsVertical} width="18" height="18" />
 										</DropdownMenuTrigger>
@@ -204,10 +212,9 @@ export function BuilderHeader({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-lg"
+											size="icon"
 											onClick={undo}
 											disabled={!canUndo}
-											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
 											aria-label="Undo"
 										>
 											<Icon icon={tablerArrowBackUp} width="18" height="18" />
@@ -219,10 +226,9 @@ export function BuilderHeader({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-lg"
+											size="icon"
 											onClick={redo}
 											disabled={!canRedo}
-											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
 											aria-label="Redo"
 										>
 											<Icon
@@ -236,7 +242,7 @@ export function BuilderHeader({
 							)
 						) : null}
 						{showToolbar ? (
-							<ExportPanel
+							<PublishPanel
 								commcareConfigured={commcareConfigured}
 								commcareAvailableDomains={commcareAvailableDomains}
 							/>

@@ -3,12 +3,12 @@
 // Renders the `date-add` ValueExpression: `date + (interval ×
 // quantity)`. Three slots:
 //
-//   - `date` — `ValueExpression` resolving to a date or datetime.
+//   - `date`: `ValueExpression` resolving to a date or datetime.
 //     Recursive `ExpressionPicker` so authors can compose `today() +
 //     7 days`, `prop(...) - 1 month`, etc.
-//   - `interval` — closed enum (`seconds` / `minutes` / `hours` /
+//   - `interval`: closed enum (`seconds` / `minutes` / `hours` /
 //     `days` / `weeks` / `months` / `years`). Plain dropdown.
-//   - `quantity` — `ValueExpression` resolving to a numeric type.
+//   - `quantity`: `ValueExpression` resolving to a numeric type.
 //     Recursive `ExpressionPicker` keyed to `int` / `decimal`.
 //
 // Type-checker rules (per `checkExpression`'s `case "date-add"`):
@@ -57,7 +57,7 @@ const INTERVAL_LABELS: Record<DateAddInterval, string> = {
 	years: "Years",
 };
 
-/** Default `date-add` value — `today() + 7 days`. The seven-day
+/** Default `date-add` value: `today() + 7 days`. The seven-day
  *  default is the most authored shape (relative-date filters); the
  *  type checker validates both operands so the default lands clean. */
 export function dateAddDefault(

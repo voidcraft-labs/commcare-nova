@@ -90,7 +90,7 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "illegal_xml_name",
 			message:
-				"A field ID can't be empty. The ID becomes the question's name in the form — give it a short name like \"first_name\".",
+				"A field ID can't be empty. The ID becomes the question's name in the form. Give it a short name like \"first_name\".",
 			userMessage:
 				'A field needs an ID. Try something short, like "first_name".',
 		};
@@ -99,8 +99,8 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 		return {
 			ok: false,
 			code: "illegal_xml_name",
-			message: `"${proposedId}" can't be a field ID. IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores — no spaces, hyphens, or special characters.`,
-			userMessage: `"${proposedId}" won't work as a field ID. Stick to letters, numbers, and underscores, starting with a letter — no spaces or punctuation.`,
+			message: `"${proposedId}" can't be a field ID. IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores, no spaces, hyphens, or special characters.`,
+			userMessage: `"${proposedId}" won't work as a field ID. Stick to letters, numbers, and underscores, starting with a letter, no spaces or punctuation.`,
 		};
 	}
 	if (isReservedXFormNodeName(proposedId)) {
@@ -121,7 +121,7 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 	return {
 		ok: false,
 		code: "sibling_conflict",
-		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique ID — pick a different one or rename the other field first.`,
+		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique ID. Pick a different one or rename the other field first.`,
 		userMessage: `Another field${where} is already named "${proposedId}". Give this one a different ID, or rename that one first.`,
 	};
 }
@@ -312,7 +312,7 @@ export function caseTypeNameVerdict(
 		return {
 			ok: false,
 			code: "duplicate",
-			userMessage: `"${trimmed}" already exists — pick it from the list instead.`,
+			userMessage: `"${trimmed}" already exists. Pick it from the list instead.`,
 		};
 	}
 	return CASE_TYPE_OK;

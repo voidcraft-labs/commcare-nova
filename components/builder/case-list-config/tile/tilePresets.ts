@@ -1,7 +1,7 @@
 // components/builder/case-list-config/tile/tilePresets.ts
 //
 // Starting arrangements for a tile. A preset is a BUILDER GESTURE that
-// fills every member's placement — there is no template name in the
+// fills every member's placement: there is no template name in the
 // schema and none on the wire, so a preset and a hand-drawn layout take
 // exactly the same path. Each is named for what a worker sees on the
 // screen, never for a CommCare template.
@@ -159,7 +159,7 @@ export function seedTileArrangement(
 	return null;
 }
 
-/** The most fields one tile can lay out — a full grid of single squares. */
+/** The most fields one tile can lay out: a full grid of single squares. */
 export const TILE_MAX_FIELDS = TILE_GRID_COLUMNS * TILE_GRID_ROWS;
 
 /**

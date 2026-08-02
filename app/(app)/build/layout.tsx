@@ -1,11 +1,11 @@
 /**
- * Build layout — auth gate + shell for all /build/* routes.
+ * Build layout: auth gate + shell for all /build/* routes.
  *
  * Enforces authentication before any builder page renders;
  * unauthenticated users are redirected to `/` (the landing page).
  *
  * The builder renders its own chrome (`BuilderHeader` inside
- * BuilderLayout) instead of the site's AppHeader — see
+ * BuilderLayout) instead of the site's AppHeader: see
  * `(site)/layout.tsx` for the split rationale. The wrapper here is the
  * builder's `#main-content`: a fixed full-height flex cell (the
  * builder owns its internal scrolling), unlike the site group's

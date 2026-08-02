@@ -407,12 +407,12 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/seen", "T09:15:00.000-04:00");
 			expect(engine.getState("/data/seen").errorMessage).toBe(
-				"Pick a date — this question needs both.",
+				"Pick a date: this question needs both.",
 			);
 
 			engine.setValue("/data/seen", "2026-01-15T");
 			expect(engine.getState("/data/seen").errorMessage).toBe(
-				"Enter a clock time — this question needs both.",
+				"Enter a clock time: this question needs both.",
 			);
 
 			// A clock that isn't a clock gets the same sentence it gets on a

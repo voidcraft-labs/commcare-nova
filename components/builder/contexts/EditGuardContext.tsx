@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * EditGuardContext — scoped context that gates URL-driven selection changes
+ * EditGuardContext: scoped context that gates URL-driven selection changes
  * when an inline editor has unsaved content.
  *
  * Replaces `BuilderEngine._editGuard` / `setEditGuard` / `clearEditGuard` /
  * `checkEditGuard` with a React-context-based registration pattern.
  *
  * **Contract:**
- * - A single current predicate is allowed (mirrors engine's behavior — there's
+ * - A single current predicate is allowed (mirrors engine's behavior, there's
  *   only ever one inline editor with unsaved content at a time).
  * - `useRegisterEditGuard(predicate, enabled)` installs the predicate when
  *   `enabled` is true and clears on unmount.
  * - Last-write-wins: if a second hook registers while an earlier one is active,
  *   the new predicate takes over. Cleanup only nulls when
- *   `predicateRef.current === predicate` still matches — so stale cleanups
+ *   `predicateRef.current === predicate` still matches, so stale cleanups
  *   from an earlier registration are harmless.
  * - `useConsultEditGuard()` returns a stable function that evaluates the
  *   current predicate: `true` = safe to proceed, `false` = block.
@@ -35,7 +35,7 @@ import {
  *  safe to leave the current editor, `false` to block the transition. */
 export type EditGuardPredicate = () => boolean;
 
-/** Internal API shape — exposed via context, consumed by the public hooks. */
+/** Internal API shape: exposed via context, consumed by the public hooks. */
 interface EditGuardApi {
 	register: (predicate: EditGuardPredicate) => () => void;
 	consult: () => boolean;
@@ -51,7 +51,7 @@ const EditGuardContext = createContext<EditGuardApi | null>(null);
  * Provides the edit-guard registration and consultation surface.
  *
  * Mount once inside `BuilderProvider`. The ref-based predicate storage
- * means this component never re-renders its children — no performance
+ * means this component never re-renders its children: no performance
  * cost from registration churn.
  */
 export function EditGuardProvider({ children }: { children: ReactNode }) {
@@ -122,7 +122,7 @@ export function useRegisterEditGuard(
  * `true` means "safe to proceed", `false` means "block".
  *
  * Used by routing hooks (`useSelect`) to gate URL-driven selection
- * changes — selection only changes when the guard says it's safe
+ * changes: selection only changes when the guard says it's safe
  * to leave the current edit, so an XPath editor with unsaved
  * invalid content can intercept the navigation.
  */

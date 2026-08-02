@@ -29,10 +29,10 @@ export function CollapseChevron({
 		<Button
 			type="button"
 			variant="ghost"
-			size="icon-lg"
+			size="icon"
 			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
 			aria-expanded={!isCollapsed}
-			className="size-11 shrink-0 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
+			className="shrink-0"
 			onClick={onClick}
 			onKeyDown={(event) => event.stopPropagation()}
 		>
@@ -83,7 +83,7 @@ export function TreeItemRow({
 				aria-label={label}
 				aria-current={selected ? "page" : undefined}
 				onClick={onClick}
-				className="absolute inset-0 z-0 size-full cursor-pointer rounded-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet disabled:cursor-default"
+				className="nova-focusable-inset absolute inset-0 z-0 size-full cursor-pointer rounded-none outline-none disabled:cursor-default"
 			/>
 			<div className="contents pointer-events-none [&_button]:relative [&_button]:z-10 [&_button]:pointer-events-auto">
 				{children}

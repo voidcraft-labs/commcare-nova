@@ -48,7 +48,7 @@ interface FormCloseConditionDraft {
 
 /**
  * Close-behavior dropdown rendered only for close forms. The top-level
- * mode switch toggles between "Always" (the default — the form closes
+ * mode switch toggles between "Always" (the default: the form closes
  * the case unconditionally on submit) and "When condition is met". The
  * conditional branch reveals a field picker, an operator selector
  * ("is" / "has selected"), and a value input. When the referenced field
@@ -72,8 +72,8 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	/* The picker projector deliberately accepts only the narrow field shape it
 	 * needs. Keep the domain-typed field map for kind-specific option reads. */
 	const { fields } = useFieldsAndOrder();
-	/** A refusal from the picker or the operator/value menus — controls
-	 *  with no inline channel of their own — rendered beneath the
+	/** A refusal from the picker or the operator/value menus: controls
+	 *  with no inline channel of their own: rendered beneath the
 	 *  condition card. The free-text answer `InlineField` presents its
 	 *  own outcome and bypasses this. */
 	const [conditionRejection, setConditionRejection] = useState<string | null>(
@@ -129,7 +129,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const operator: CloseOperator = condition?.operator ?? "=";
 
 	const handleSelect = (mode: CloseMode) => {
-		// The mode flip replaces (or removes) the whole condition — any
+		// The mode flip replaces (or removes) the whole condition: any
 		// refusal that pointed at the old condition no longer applies.
 		setConditionRejection(null);
 		if (mode === "always") {
@@ -145,7 +145,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		}
 	};
 
-	/* Dispatch wrapper for the picker and the operator/value menus —
+	/* Dispatch wrapper for the picker and the operator/value menus:
 	 * controls with no inline channel of their own. The refusal lands in
 	 * the section-level notice beneath the condition card. */
 	const updateConditionWithNotice = (
@@ -199,7 +199,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		<div>
 			<label
 				htmlFor={triggerId}
-				className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block"
+				className="text-xs font-medium text-nova-text-secondary mb-1.5 block"
 			>
 				Close Behavior
 			</label>
@@ -210,7 +210,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 				onChange={handleSelect}
 			/>
 
-			{/* Conditional close fields — field ID, operator, value */}
+			{/* Conditional close fields: field ID, operator, value */}
 			<AnimatePresence>
 				{condition && (
 					<motion.div
@@ -221,7 +221,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 						className="overflow-hidden"
 					>
 						<div className="space-y-2 mt-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
-							{/* Field picker — autocomplete of form fields. Reads the
+							{/* Field picker: autocomplete of form fields. Reads the
 							 *  doc's normalized fields + order maps directly. */}
 							<FieldPicker
 								source={fieldEntrySource}
@@ -229,13 +229,13 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 								value={condition.field}
 								onChange={(uuid) => updateConditionWithNotice({ field: uuid })}
 								label="Field"
-								placeholder="Search fields..."
+								placeholder="Search fields"
 								required
 							/>
 
-							{/* Operator — "is" (=) vs "has selected" (selected) */}
+							{/* Operator: "is" (=) vs "has selected" (selected) */}
 							<div>
-								<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
+								<span className="text-xs text-nova-text-muted mb-0.5 block">
 									Operator
 								</span>
 								<SelectMenu
@@ -245,12 +245,12 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 								/>
 							</div>
 
-							{/* Value — dropdown of field options when available, free text otherwise.
+							{/* Value: dropdown of field options when available, free text otherwise.
 							 * HQ wraps the value in quotes automatically (it's a string literal,
 							 * not an XPath expression), so users type plain values like "yes". */}
 							{selectedFieldOptions ? (
 								<div>
-									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
+									<span className="text-xs text-nova-text-muted mb-0.5 block">
 										Value <span className="text-nova-rose ml-0.5">*</span>
 									</span>
 									<SelectMenu
@@ -304,7 +304,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							)}
 
 							{/* A refusal from the picker or menus explains itself
-							 * here — those controls have no input of their own to
+							 * here: those controls have no input of their own to
 							 * anchor the finding to. */}
 							<RejectionInline message={conditionRejection} />
 						</div>

@@ -1,5 +1,5 @@
 /**
- * Incoming invitations — the surface where a signed-in user accepts or
+ * Incoming invitations: the surface where a signed-in user accepts or
  * declines the Project invitations addressed to them. No invitation email is
  * sent, so this list is how an invitee discovers a pending invite.
  *
@@ -12,6 +12,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import type { IncomingInvitationRow } from "@/lib/projects/membership";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -40,7 +41,7 @@ export function IncomingInvitations({
 			);
 			return;
 		}
-		/* Land in the Project just joined — set it active, then go to the app
+		/* Land in the Project just joined: set it active, then go to the app
 		 * list. A failure to set active isn't fatal (the membership stands); the
 		 * switcher can still select it. */
 		await authClient.organization.setActive({
@@ -86,7 +87,7 @@ export function IncomingInvitations({
 			{invitations.map((inv) => (
 				<li
 					key={inv.id}
-					className="flex items-center gap-3 rounded-xl border border-nova-border bg-nova-surface p-4"
+					className="flex items-center gap-3 rounded-lg border border-nova-border bg-nova-surface p-4"
 				>
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-medium text-nova-text">
@@ -98,22 +99,17 @@ export function IncomingInvitations({
 							expires {inv.expiresAt.toLocaleDateString()}
 						</div>
 					</div>
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						disabled={busy}
 						onClick={() => decline(inv)}
-						className="rounded-lg px-3 py-2 text-sm text-nova-text-muted not-disabled:hover:text-nova-text transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 					>
 						Decline
-					</button>
-					<button
-						type="button"
-						disabled={busy}
-						onClick={() => accept(inv)}
-						className="rounded-lg bg-nova-action px-3 py-2 text-sm font-medium text-white not-disabled:hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
-					>
+					</Button>
+					<Button type="button" disabled={busy} onClick={() => accept(inv)}>
 						Accept
-					</button>
+					</Button>
 				</li>
 			))}
 		</ul>

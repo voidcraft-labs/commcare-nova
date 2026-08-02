@@ -40,7 +40,7 @@ export function idMappingValueRequired(
 				validationError(
 					"CASE_LIST_ID_MAPPING_EMPTY_VALUE",
 					"module",
-					`ID-mapping column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has an empty value at row ${entryIndex + 1} — an empty value would match every case missing that property. Fill the row with the case property value it should match, or remove the row.`,
+					`ID-mapping column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has an empty value at row ${entryIndex + 1}, an empty value would match every case missing that property. Fill the row with the case property value it should match, or remove the row.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						// `slot` keys the case-workspace boundary verdicts

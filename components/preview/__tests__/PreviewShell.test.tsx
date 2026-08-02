@@ -17,7 +17,7 @@
 //     survive the round-trip.
 //
 // Activity in React 19 renders both `mode="visible"` and
-// `mode="hidden"` subtrees into the DOM — the `display: none` is
+// `mode="hidden"` subtrees into the DOM: the `display: none` is
 // applied at commit time, so a `screen.queryByTestId` will find
 // elements from BOTH branches if both are mounted. The tests
 // therefore assert visibility via the Activity's `<div>` parent
@@ -72,7 +72,7 @@ vi.mock("@/lib/routing/hooks", async () => {
 	// The mock matches the full `NavigateActions` shape so a real
 	// screen mount that reaches for any method finds it. The
 	// annotated return type pins the mock to the production hook's
-	// shape — any drift between the two fails the build here.
+	// shape: any drift between the two fails the build here.
 	const buildNavigateMock = (): ReturnType<typeof actual.useNavigate> => ({
 		goHome: vi.fn(),
 		openModule: vi.fn(),
@@ -121,7 +121,7 @@ vi.mock("@/lib/preview/hooks/useSelectedPreviewIdentity", () => ({
 // Stub the screens so the PreviewShell's dispatch logic is the only subject
 // under test. The workspace canvas reads its module + tab from the shared
 // controller (via the URL), so PreviewShell only owns the Activity visibility
-// gating asserted below — not which tab shows.
+// gating asserted below, not which tab shows.
 vi.mock(
 	"@/components/builder/case-list-config/CaseListConfigWorkspace",
 	() => ({
@@ -143,7 +143,7 @@ vi.mock("../screens/ModuleScreen", () => ({
 }));
 vi.mock("../screens/FormScreen", () => ({
 	// Surface the screen's `caseId` so the case-datum injection is
-	// assertable — `""` when absent (an attribute can't hold undefined).
+	// assertable: `""` when absent (an attribute can't hold undefined).
 	FormScreen: ({ screen }: { screen: { caseId?: string } }) => (
 		<div data-testid="form-stub" data-case-id={screen.caseId ?? ""}>
 			FormScreen
@@ -199,7 +199,7 @@ function renderShell() {
  * Activity-rendered wrapper and reading its rendered visibility.
  *
  * React 19's Activity component renders `mode="hidden"` subtrees
- * with `display: none` applied via inline style — the test reads
+ * with `display: none` applied via inline style, the test reads
  * the computed `display` value via `getComputedStyle` to determine
  * which arm is the visible one.
  */
@@ -406,7 +406,10 @@ describe("PreviewShell — removed selected persona", () => {
 		const view = renderShell();
 
 		const recovery = view.getByRole("button", { name: "Preview as me" });
-		expect(recovery.className.split(/\s+/)).toContain("min-h-11");
+		// The recovery affordance is at the one 44px control height. That is
+		// the system button's own guarantee now, not something this call site
+		// re-states, so assert the primitive's class rather than a duplicate.
+		expect(recovery.className.split(/\s+/)).toContain("h-11");
 		fireEvent.click(recovery);
 
 		expect(setPreviewPersonaUuidMock).toHaveBeenCalledWith(undefined);

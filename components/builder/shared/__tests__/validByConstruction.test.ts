@@ -1,12 +1,12 @@
 // components/builder/shared/__tests__/validByConstruction.test.ts
 //
 // The headline invariant of the valid-by-construction editor: an
-// admitted choice — and any cascade-reseed the editor performs — is
+// admitted choice, and any cascade-reseed the editor performs, is
 // ALWAYS type-correct. These tests tie the editor's admission helpers
 // (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor`)
 // and the reseed (`cards/reseed.ts`) directly to the type checker
 // (`checkPredicate`), so "the pickers only offer valid choices" is a
-// proven property, not a hope. Pure domain-level — no React, no DOM.
+// proven property, not a hope. Pure domain-level: no React, no DOM.
 
 import { describe, expect, it } from "vitest";
 import { type CaseType, casePropertyDataTypes } from "@/lib/domain";
@@ -148,7 +148,7 @@ describe("valid by construction — match admission ⟺ checker", () => {
 			const subject = prop("ct", `p_${t}`);
 			for (const mode of MATCH_MODES) {
 				const admitted = matchModesFor(t).has(mode);
-				// A non-empty term value — the shape the editor's
+				// A non-empty term value: the shape the editor's
 				// `matchValueConstraint` enforces. Builder order is
 				// `match(property, value, mode)`.
 				const predicate = match(subject, term(literal("x")), mode);
@@ -165,14 +165,14 @@ describe("valid by construction — match admission ⟺ checker", () => {
 describe("valid by construction — object-kind admission is non-trivial", () => {
 	it("a numeric subject's object slot rejects a text result kind", () => {
 		const intConstraint = comparisonObjectConstraint("eq", "int");
-		// `concat` resolves to text — not admitted opposite an int subject.
+		// `concat` resolves to text, not admitted opposite an int subject.
 		// (full per-kind coverage lives in slotConstraints.test.ts)
 		expect(ALL_RESOLVED_TYPES.includes(ANY_TYPE)).toBe(true);
 		expect(intConstraint.accepts).not.toBe("any");
 	});
 });
 
-// Local mirror of the checker's literal typing for the assertion above —
+// Local mirror of the checker's literal typing for the assertion above:
 // avoids importing the internal name while keeping the test self-checking.
 function literalTypeOf(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;

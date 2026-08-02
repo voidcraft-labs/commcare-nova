@@ -141,7 +141,7 @@ function buildError(args: {
 	return validationError(
 		"CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE",
 		"module",
-		`Module "${mod.name}" has a ${operatorLabel} in ${slot} testing case property "${match.property}" against "${match.value}" — a value that contains whitespace. CCHQ's runtime tokenizes the value on whitespace through ElasticSearch's \`match\` query and matches as an OR across the tokens, so the wire would match cases whose "${match.property}" tokens contain any of "${match.value.split(/\s+/).join('", "')}" — broader than the authored single-string intent. Open ${adviceSlotName} and ${adviceTail}`,
+		`Module "${mod.name}" has a ${operatorLabel} in ${slot} testing case property "${match.property}" against "${match.value}", a value that contains whitespace. CCHQ's runtime tokenizes the value on whitespace through ElasticSearch's \`match\` query and matches as an OR across the tokens, so the wire would match cases whose "${match.property}" tokens contain any of "${match.value.split(/\s+/).join('", "')}". Broader than the authored single-string intent. Open ${adviceSlotName} and ${adviceTail}`,
 		{ moduleUuid, moduleName: mod.name },
 		{
 			operator: match.operator,

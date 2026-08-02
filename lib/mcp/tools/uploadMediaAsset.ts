@@ -95,7 +95,7 @@ export const uploadMediaAssetInputSchema = z
 			.string()
 			.min(1)
 			.describe(
-				"The file's MIME type (e.g. `image/png`, `audio/mpeg`, `video/mp4`). Checked against the file's real bytes — a mismatch is rejected.",
+				"The file's MIME type (e.g. `image/png`, `audio/mpeg`, `video/mp4`). Checked against the file's real bytes, a mismatch is rejected.",
 			),
 		data_base64: z
 			.string()
@@ -122,7 +122,7 @@ export function registerUploadMediaAsset(
 		"upload_media_asset",
 		{
 			description:
-				"Upload a media file (image, audio, or video) to your library from inline base64 bytes, returning the asset id the attach/set media tools reference. Audio must be .mp3 or .wav and video .mp4 — CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
+				"Upload a media file (image, audio, or video) to your library from inline base64 bytes, returning the asset id the attach/set media tools reference. Audio must be .mp3 or .wav and video .mp4. CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
 			inputSchema: uploadMediaAssetInputSchema.shape,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {

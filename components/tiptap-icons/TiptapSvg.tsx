@@ -9,7 +9,7 @@ export type TiptapIconProps = ComponentPropsWithoutRef<"svg">;
 
 /**
  * Renders a Tabler icon via Iconify's offline renderer. Passes through
- * `className` for styling and marks the SVG as `aria-hidden` — these icons
+ * `className` for styling and marks the SVG as `aria-hidden`, these icons
  * are always decorative, rendered inside labeled buttons that carry their
  * own accessible name via `aria-label`.
  */

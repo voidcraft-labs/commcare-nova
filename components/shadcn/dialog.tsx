@@ -57,14 +57,14 @@ function DialogContent({
 				// `DialogBody` takes the leftover and scrolls INSIDE it, so the
 				// title, the close button, and the actions stay put. Scrolling the
 				// whole panel puts the actions below the fold and carries the X off
-				// the top — the user has to scroll back up to dismiss.
+				// the top: the user has to scroll back up to dismiss.
 				//
 				// `overflow-y-auto` stays as the fallback for a dialog whose middle
 				// isn't wrapped in `DialogBody`: it then behaves exactly as it always
 				// did rather than clipping. Wrap the middle and it never engages,
 				// because a `min-h-0 flex-1` body can shrink to fit.
 				className={cn(
-					"group/dialog-content fixed top-1/2 left-1/2 z-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 [scrollbar-gutter:auto] text-sm text-nova-text shadow-xl outline-none transition-[transform,opacity] sm:max-w-md data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+					"group/dialog-content fixed top-1/2 left-1/2 z-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 [scrollbar-gutter:auto] text-sm text-nova-text shadow-elevated outline-none transition-[transform,opacity] sm:max-w-md data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
 					className,
 				)}
 				{...props}
@@ -76,8 +76,8 @@ function DialogContent({
 						render={
 							<Button
 								variant="ghost"
-								className="absolute top-2 right-2 size-11 text-nova-text-muted"
-								size="icon-lg"
+								className="absolute top-2 right-2"
+								size="icon"
 							/>
 						}
 					>
@@ -115,8 +115,8 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
  * close button on screen no matter how long the content runs.
  *
  * The negative inline margin cancels the panel's own `p-5` and the padding puts
- * it back on the CONTENT, so the scroll track lands where you expect it — hard
- * against the panel's inside edge — instead of floating 20px in from it. A
+ * it back on the CONTENT, so the scroll track lands where you expect it, hard
+ * against the panel's inside edge: instead of floating 20px in from it. A
  * panel that sets its own padding (`p-0` and custom chrome) passes
  * `className="mx-0 px-0"` to opt out.
  */
@@ -145,7 +145,7 @@ function DialogFooter({
 		<div
 			data-slot="dialog-footer"
 			className={cn(
-				"flex min-w-0 shrink-0 flex-row justify-end gap-2 [&_[data-slot=button]]:min-h-11 [&_[data-slot=dialog-close]]:min-h-11",
+				"flex min-w-0 shrink-0 flex-row justify-end gap-2",
 				className,
 			)}
 			{...props}

@@ -1,11 +1,11 @@
 /**
- * `/api/media/[assetId]/extract` — a document's requirements extract.
+ * `/api/media/[assetId]/extract`: a document's requirements extract.
  *
  * Documents (pdf/text/docx/xlsx) are condensed ONCE into the structured extract
  * the Solutions Architect actually reads, stored as a GCS sibling object keyed
  * by content hash + extractor version. This route is the HTTP face of that:
  *
- *   - `POST` resolves the extract through `ensureStoredExtract` — the shared
+ *   - `POST` resolves the extract through `ensureStoredExtract`, the shared
  *     single-flight store that BOTH this eager route and the chat resolve step's
  *     lazy backstop go through (so the lock lives in one place). Triggered
  *     eagerly by the file manager after a document upload, so the extraction
@@ -16,7 +16,7 @@
  *     current ready extract emits `done` immediately with no progress; a job already
  *     in flight emits `done` with status `extracting` (`onInflight: "report"`) so the
  *     caller polls instead of this request holding open behind it. The model call
- *     runs to completion and persists even if the client disconnects mid-stream —
+ *     runs to completion and persists even if the client disconnects mid-stream:
  *     progress writes are best-effort, the extract is not.
  *   - `GET` returns the stored extract text for the "What Nova reads" preview
  *     tab; 404 when no locally-current-or-newer extract exists yet (the client
@@ -26,7 +26,7 @@
  * POST requires edit because it writes metadata/GCS and incurs model cost;
  * GET remains view-only.
  * Not on a chat run, so it passes the standalone extraction condenser rather than
- * a `GenerationContext` — the summarizer call's cost isn't folded into a run's usage
+ * a `GenerationContext`: the summarizer call's cost isn't folded into a run's usage
  * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
  * route, though: a `POST` from a user already over budget 429s before any model
  * work, so eager extraction can't keep billing past the backstop.
@@ -63,7 +63,7 @@ export const maxDuration = 300;
 /**
  * Load the asset, Project-gated, rejecting anything that can't be extracted: a
  * missing row or non-member (404), a non-document kind (400), or a
- * not-yet-validated upload (409 — the bytes must be `ready` before there's
+ * not-yet-validated upload (409: the bytes must be `ready` before there's
  * anything to extract).
  */
 async function loadExtractableDocument(
@@ -81,7 +81,7 @@ async function loadExtractableDocument(
 		!(await userInProject(session.user.id, asset.project_id, capability))
 	) {
 		throw new ApiError(
-			"We couldn't find that file — it may have been deleted, or it isn't yours.",
+			"We couldn't find that file, it may have been deleted, or it isn't yours.",
 			404,
 		);
 	}
@@ -96,7 +96,7 @@ async function loadExtractableDocument(
 	}
 	if (asset.status !== "ready") {
 		throw new ApiError(
-			"This document is still uploading — its features can't be extracted until the upload finishes. Try again in a moment.",
+			"This document is still uploading, its features can't be extracted until the upload finishes. Try again in a moment.",
 			409,
 		);
 	}
@@ -109,7 +109,7 @@ async function loadExtractableDocument(
  * `{type:"done",extract}` carrying the final `ExtractMeta`. Streaming is what lets
  * the client pulse the signal grid with real read progress. The store owns the
  * single-flight + persistence; a `failed` condense and a concurrent `extracting`
- * job both surface as the `done` line's status (the bytes are fine — the asset is
+ * job both surface as the `done` line's status (the bytes are fine, the asset is
  * kept so a retry or the chat backstop can still cover it). Auth, kind/size, and
  * the spend-cap gate are checked BEFORE the stream opens, so those still reject as
  * normal JSON errors.
@@ -126,12 +126,12 @@ export async function POST(
 			"edit",
 		);
 
-		// Gate eager extraction by the same monthly actual-cost backstop as the chat route — a
+		// Gate eager extraction by the same monthly actual-cost backstop as the chat route, a
 		// user over budget shouldn't keep triggering paid model calls. (The
 		// content-hash cache already makes a repeat extraction of the same document
 		// free; this bounds the distinct-document and failed-retry cost.) Fails
 		// CLOSED, exactly like the chat route: if we can't read usage we can't rule
-		// out being over budget, so a 503 is safer than risking uncapped spend — a
+		// out being over budget, so a 503 is safer than risking uncapped spend, a
 		// transient read error pauses extraction rather than waving it through.
 		try {
 			const usage = await getMonthlyUsage(session.user.id);
@@ -149,14 +149,14 @@ export async function POST(
 			// read failure maps to 503.
 			if (err instanceof ApiError) throw err;
 			throw new ApiError(
-				"We couldn't check your usage just now, so extraction is paused for a moment. Try again shortly — your file is still saved.",
+				"We couldn't check your usage just now, so extraction is paused for a moment. Try again shortly. Your file is still saved.",
 				503,
 			);
 		}
 
 		// Stream NDJSON: progress lines while the model runs, then one `done` line
 		// with the final ExtractMeta. The model call persists inside the store
-		// regardless of client connection, so progress writes are best-effort — a
+		// regardless of client connection, so progress writes are best-effort, a
 		// thrown enqueue (client gone) must NOT bubble into `onProgress`, or it would
 		// abort the textStream loop and mark a fine extraction failed.
 		const encoder = new TextEncoder();
@@ -166,7 +166,7 @@ export async function POST(
 					try {
 						controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
 					} catch {
-						// Client disconnected — drop the line; extraction still persists.
+						// Client disconnected: drop the line; extraction still persists.
 					}
 				};
 				try {
@@ -206,7 +206,7 @@ export async function POST(
 						});
 					} else {
 						// `extracting` (a concurrent job owns it) / `failed` (condense
-						// failed) both ride the terminal line as the ExtractMeta status —
+						// failed) both ride the terminal line as the ExtractMeta status:
 						// the caller polls again on `extracting`, surfaces a retry on `failed`.
 						write({
 							type: "done",
@@ -233,7 +233,7 @@ export async function POST(
 					try {
 						controller.close();
 					} catch {
-						// Already closed (client disconnected) — nothing to do.
+						// Already closed (client disconnected): nothing to do.
 					}
 				}
 			},
@@ -256,14 +256,14 @@ export async function POST(
 
 /**
  * Serve the stored extract text for the "What Nova reads" preview tab. 404
- * when no usable extract exists yet — the client reads the
+ * when no usable extract exists yet: the client reads the
  * `extracting`/`failed` status off the asset itself and only fetches the body
  * once it's `ready`. A higher-version ready extract produced by a newer server
  * is usable here; only an older version is stale. CSP `sandbox` + `nosniff`
  * mirror the bytes route's defense-in-depth even though markdown text is inert.
  *
  * `?meta=1` returns the extract's header metadata as JSON ({ status, title,
- * summary }) instead of the body — a cheap asset-doc read, no GCS fetch. The
+ * summary }) instead of the body: a cheap asset-doc read, no GCS fetch. The
  * preview uses it to fill its header when the in-band snapshot lacks the
  * title/summary (a message attachment sent before extraction finished froze its
  * ref empty), so the header is correct without re-resolving the whole extract.
@@ -309,14 +309,14 @@ export async function GET(
 			EXTRACT_MAX_BYTES,
 		);
 		if (text === null) {
-			// The doc says ready but the object is gone — treat as not-found so the
+			// The doc says ready but the object is gone: treat as not-found so the
 			// client can re-trigger a POST rather than 500.
 			throw new ApiError(
-				"This document's extract is missing — try extracting it again.",
+				"This document's extract is missing. Try extracting it again.",
 				404,
 			);
 		}
-		// Repair a double-escaped extract on the way out (`normalizeExtractText` — a
+		// Repair a double-escaped extract on the way out (`normalizeExtractText`, a
 		// no-op on a clean one), so an extract stored before that repair existed
 		// renders correctly in the preview without a re-extraction.
 		return new NextResponse(normalizeExtractText(text), {

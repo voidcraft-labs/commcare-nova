@@ -13,7 +13,7 @@ import { ToastContainer } from "@/components/ui/ToastContainer";
 import type { CommitOutcome } from "@/lib/domain";
 import { showToast } from "@/lib/ui/toastStore";
 
-// Standalone dev gallery — no builder dependency. Each section mounts a real
+// Standalone dev gallery: no builder dependency. Each section mounts a real
 // rejection surface, wired to a gate stub that always refuses, so the bounce
 // can be eyeballed in isolation: type into a control, press Enter, watch it.
 //
@@ -21,11 +21,11 @@ import { showToast } from "@/lib/ui/toastStore";
 // field-ID verdict's userMessage, and lib/commcare/connectSlugs.ts for the
 // Connect ID), paired with the surface that actually shows it in the app:
 //   - EditableTitle edits the app / module / form NAME (home, module, form
-//     screens) — clearing the app name is the refusable title edit.
-//   - EditableText is the inline text / formula editor (XPathEditor) — a bad
+//     screens): clearing the app name is the refusable title edit.
+//   - EditableText is the inline text / formula editor (XPathEditor), a bad
 //     formula reference is its rejection.
 //   - InlineField is a form-settings field (Connect config, close condition).
-//   - FieldIdentitySection / XPathField share the anchored popup — a refused field-ID
+//   - FieldIdentitySection / XPathField share the anchored popup, a refused field-ID
 //     rename surfaces there, NOT on EditableTitle.
 
 const APP_NAME_REQUIRED = "Your app needs a name. Add one to get started.";
@@ -36,7 +36,7 @@ const FIELD_ID_TAKEN =
 const HIDDEN_NO_VALUE =
 	'"visit_score" in "Follow-up" is hidden but has no value, so it\'ll always stay blank. Give it a default or a calculated value.';
 // Mirrors lib/commcare/connectSlugs.ts::connectIdError's over-length branch,
-// recomputed live so the character count tracks the draft — the way the real
+// recomputed live so the character count tracks the draft: the way the real
 // form-settings Connect ID field validates while you type. The CommCare
 // boundary keeps lib/commcare out of this dev page, so the copy and the
 // 50-char cap (CONNECT_SLUG_MAX_LENGTH) are mirrored here.

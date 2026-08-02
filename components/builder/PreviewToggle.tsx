@@ -1,5 +1,5 @@
 /**
- * PreviewToggle — the single Preview affordance for the whole builder.
+ * PreviewToggle: the single Preview affordance for the whole builder.
  *
  * One toggle runs the app exactly as a worker sees it, wherever the user
  * is: forms fill in live, the case list searches real case data, and both
@@ -8,7 +8,7 @@
  * layout you left.
  *
  * Self-subscribes to `previewing` so the subheader doesn't re-render on
- * toggle. The actual store write goes through the `onSetPreviewing` prop —
+ * toggle. The actual store write goes through the `onSetPreviewing` prop:
  * BuilderLayout wraps it to capture the flipbook scroll anchor before the
  * mode flips.
  */
@@ -39,13 +39,8 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 			<Button
 				type="button"
 				variant={previewing ? "default" : "outline"}
-				size="xl"
+				glow={previewing}
 				onClick={() => transitionPreview(!previewing)}
-				className={`rounded-lg px-4 text-[13px] font-semibold ${
-					previewing
-						? "bg-nova-action border-nova-action text-white shadow-[0_0_16px_rgba(79,70,229,0.4)]"
-						: "border-nova-border-bright bg-nova-violet/[0.12] text-nova-violet-bright hover:bg-nova-violet/[0.2] hover:text-nova-violet-bright dark:bg-nova-violet/[0.12] dark:hover:bg-nova-violet/[0.2]"
-				}`}
 			>
 				{/* Preview is a destination, not a media transport. Once inside,
 				 * the control names the useful return action explicitly. */}

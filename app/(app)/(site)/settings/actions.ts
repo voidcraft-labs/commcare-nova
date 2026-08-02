@@ -1,7 +1,7 @@
 /**
- * CommCare HQ settings Server Actions — verify credentials and manage storage.
+ * CommCare HQ settings Server Actions: verify credentials and manage storage.
  *
- * Both actions return result objects and never throw — Next.js surfaces
+ * Both actions return result objects and never throw: Next.js surfaces
  * unhandled Server Action errors as full-page error boundaries, so we
  * catch everything internally and return structured error responses.
  *
@@ -33,7 +33,7 @@ import { log } from "@/lib/logger";
 // ── Types ──────────────────────────────────────────────────────────
 
 /**
- * Shared result for actions that mutate the connection — the success branch
+ * Shared result for actions that mutate the connection: the success branch
  * carries the refreshed public settings so the client can swap its state in
  * one step (the full reachable set of project spaces).
  */
@@ -50,13 +50,13 @@ export type DeleteResult =
 /**
  * A verify-time 401, naming the deployment the key was tried against. The
  * US, India, and EU servers are separate deployments with separate accounts,
- * and a key carries no hint of which one issued it — so "invalid key"
+ * and a key carries no hint of which one issued it, so "invalid key"
  * against one server very often means "valid key, wrong server," and the
  * message has to point there or the user has nothing left to check.
  */
 function invalidKeyMessage(server: CommCareServer): string {
 	const { label, host } = COMMCARE_SERVERS[server];
-	return `CommCare HQ (${label} — ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives — a key only works on the server that issued it.`;
+	return `CommCare HQ (${label}: ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives, a key only works on the server that issued it.`;
 }
 
 /**
@@ -77,8 +77,8 @@ function settingsErrorMessage(status: number): string {
 /**
  * Verify CommCare HQ credentials against HQ's API, then save on success.
  *
- * Discovers every project space the key can actually upload to — one HQ list
- * call plus a parallel app-access probe per space — and stores all of them.
+ * Discovers every project space the key can actually upload to, one HQ list
+ * call plus a parallel app-access probe per space, and stores all of them.
  * Storing the full set (not the first space that passes) is the fix for the
  * silent-wrong-target bug: a multi-space key now shows every space it reaches
  * so the user can pick the upload target.
@@ -142,7 +142,7 @@ export async function verifyAndSaveCredentials(
 }
 
 /**
- * Re-read the spaces the stored key can reach — picks up project memberships
+ * Re-read the spaces the stored key can reach: picks up project memberships
  * added since the key was first saved.
  */
 export async function refreshDomainsAction(): Promise<SettingsResult> {
@@ -159,17 +159,17 @@ export async function refreshDomainsAction(): Promise<SettingsResult> {
 				return {
 					success: false,
 					error:
-						"This API key no longer reaches any project space — it may have been revoked or had its access changed. Your saved connection is unchanged.",
+						"This API key no longer reaches any project space, it may have been revoked or had its access changed. Your saved connection is unchanged.",
 				};
 			}
-			/* A refresh 401 can't be a copy/paste or wrong-server mistake — the
-			 * stored key already verified once — so it means the key stopped
+			/* A refresh 401 can't be a copy/paste or wrong-server mistake, the
+			 * stored key already verified once, so it means the key stopped
 			 * being accepted (revoked, deactivated, or expired). */
 			if (result.status === 401) {
 				return {
 					success: false,
 					error:
-						"CommCare HQ no longer accepts your stored API key — it may have been revoked or expired. Disconnect and reconnect with a new key.",
+						"CommCare HQ no longer accepts your stored API key, it may have been revoked or expired. Disconnect and reconnect with a new key.",
 				};
 			}
 			return { success: false, error: settingsErrorMessage(result.status) };

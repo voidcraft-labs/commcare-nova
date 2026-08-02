@@ -1,17 +1,17 @@
 /**
- * PreviewShell — renders the correct screen (home, module, case list, form)
+ * PreviewShell: renders the correct screen (home, module, case list, form)
  * based on the URL-driven location.
  *
  * ## Architecture
  *
  * Uses React 19's `<Activity>` component for screen retention: previously
  * visited screens stay mounted but hidden (`display: none`, effects cleaned
- * up, state preserved). Return visits are instant — Activity reveals the
+ * up, state preserved). Return visits are instant: Activity reveals the
  * preserved DOM and re-creates effects without remounting 800+ components.
  *
  * `useDeferredValue` wraps the derived PreviewScreen so first-visit
  * mounts are concurrent. When the URL changes, React schedules a deferred
- * re-render at lower priority for the Activity mode flip — the old screen
+ * re-render at lower priority for the Activity mode flip: the old screen
  * stays visible while the new screen prepares in the background. Return
  * visits (Activity reveal of an already-mounted tree) are near-instant.
  *
@@ -31,7 +31,7 @@
  *
  * This matches Activity's semantics: when Activity hides FormScreen, the
  * current screen has moved on (e.g., to "module"), but FormScreen's own
- * identity hasn't changed — it's still form X in module Y. Passing that
+ * identity hasn't changed: it's still form X in module Y. Passing that
  * identity as a prop keeps FormScreen's component tree rendering correctly
  * while hidden.
  */
@@ -70,7 +70,7 @@ import { HomeScreen } from "./screens/HomeScreen";
 import { ModuleScreen } from "./screens/ModuleScreen";
 
 interface PreviewShellProps {
-	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
+	/** Back handler override: used by BuilderLayout to sync selection on back navigation.
 	 *  Also used by FormScreen for post-submit navigation. */
 	onBack?: () => void;
 }
@@ -78,7 +78,7 @@ interface PreviewShellProps {
 /**
  * Translate a URL-derived `Location` into the legacy `PreviewScreen` shape
  * (integer indices) that the interact-mode preview pipeline expects. Falls
- * back to `{ type: "home" }` when a uuid can't be resolved — the stale
+ * back to `{ type: "home" }` when a uuid can't be resolved, the stale
  * param will be scrubbed by LocationRecoveryEffect on the next tick.
  */
 function locationToScreen(
@@ -123,7 +123,7 @@ function locationToScreen(
 	 * would also rewrite this URL out from under the author). */
 	if (loc.kind === "module-condition") return { type: "home" };
 
-	/* Form screen — resolve formUuid to index within the module's form list. */
+	/* Form screen: resolve formUuid to index within the module's form list. */
 	const formIds = formOrder[loc.moduleUuid] ?? [];
 	const formIndex = formIds.indexOf(loc.formUuid);
 	if (formIndex < 0) return { type: "module", moduleIndex };
@@ -143,13 +143,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * when one of the top-level order arrays actually changes reference. */
 	const { moduleOrder, formOrder } = useAppStructure();
 
-	/* Default back handler — callers can override (e.g. for selection sync),
+	/* Default back handler: callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */
 	const handleBack = onBack ?? (() => navigate.back());
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
-	 * case (running-app state, like the search inputs and filter — it never
+	 * case (running-app state, like the search inputs and filter, it never
 	 * goes in the URL). We graft its `caseId` onto the form screen below when
 	 * it names the form we're showing, so `FormScreen` preloads the case. */
 	const previewCaseTarget = usePreviewCaseTarget();
@@ -164,15 +164,15 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		const screen = locationToScreen(loc, moduleOrder, formOrder);
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
-		/* A form's case-operations URL maps onto its RUNNING form screen —
-		 * Preview from a configuration URL runs the thing it configures — so
+		/* A form's case-operations URL maps onto its RUNNING form screen:
+		 * Preview from a configuration URL runs the thing it configures, so
 		 * the URL, not the screen, is what says "authoring" rather than
 		 * "running". Same shape as `atCondition`, and it travels through the
 		 * same deferred value so one can never flip a render before the
 		 * other. */
 		const atOperations = loc.kind === "form-operations";
 		/* Graft the bound case onto the form ONLY when the target binds THIS
-		 * form — `previewCaseTargetBindsLocation` is the same predicate the
+		 * form: `previewCaseTargetBindsLocation` is the same predicate the
 		 * breadcrumb gates its case crumb on, so the loaded case and the named
 		 * case can never disagree (a target carried over from another form is
 		 * ignored, so e.g. a register form loads no case). */
@@ -193,7 +193,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 
 	/* ── Concurrent screen transition ──────────────────────────────────
 	 * `zustandScreen` updates immediately on URL change. `screen` is the
-	 * deferred value — React schedules the Activity mode flip at lower
+	 * deferred value: React schedules the Activity mode flip at lower
 	 * priority, keeping the old screen visible while the new screen mounts
 	 * in the background. Return visits are near-instant. */
 	const view = useDeferredValue(zustandView);
@@ -232,7 +232,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * render (the same zustandScreen produces the same ref contents), and
 	 * React's concurrent mode tolerates this pattern for externally-sourced
 	 * state. Uses `zustandScreen` (the immediate value), not `screen` (the
-	 * deferred value), so boundaries are created eagerly on navigation —
+	 * deferred value), so boundaries are created eagerly on navigation:
 	 * the deferred value then controls when they become visible. */
 	const moduleScreenRef =
 		useRef<Extract<PreviewScreen, { type: "module" }>>(undefined);
@@ -265,7 +265,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			tab: "detail",
 		};
 	}
-	/** The data review screen's identity — uuid-shaped like the
+	/** The data review screen's identity: uuid-shaped like the
 	 *  workspace ref above, for the same reason (a builder surface
 	 *  mounted off the URL, not the integer-indexed preview shape). */
 	const dataReviewRef = useRef<{ moduleUuid: Uuid }>(undefined);
@@ -290,14 +290,14 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			formUuid: loc.formUuid,
 		};
 	}
-	/** The App setup workspace's identity — uuid-free, since it names no
+	/** The App setup workspace's identity: uuid-free, since it names no
 	 *  blueprint entity. Same visited-ref shape as the two refs above so the
 	 *  boundary survives navigating away and back. */
 	const appSetupRef = useRef<{ section: AppSetupSection }>(undefined);
 	if (loc.kind === "app-setup") {
 		appSetupRef.current = { section: loc.section };
 	}
-	/** The Project data workspace's identity — uuid-free for a stronger
+	/** The Project data workspace's identity: uuid-free for a stronger
 	 *  reason: a lookup table id is Project state, not a blueprint entity.
 	 *  Same visited-ref shape, so the boundary survives navigating away and
 	 *  back with the open table intact. */
@@ -306,8 +306,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		projectDataRef.current = { tableId: loc.tableId };
 	}
 	/** The case-operations screen's identity: the form, plus which change
-	 *  is selected. Held in a ref for the same reason the two above are —
-	 *  the boundary must survive navigating away and back — and carrying
+	 *  is selected. Held in a ref for the same reason the two above are:
+	 *  the boundary must survive navigating away and back, and carrying
 	 *  the selection so the detail canvas keeps showing its change while
 	 *  hidden. */
 	const caseOperationsRef = useRef<{
@@ -322,7 +322,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			operationUuid: loc.operationUuid,
 		};
 	}
-	/* `mode` stays immediate — the Preview toggle must never lag — while
+	/* `mode` stays immediate: the Preview toggle must never lag, while
 	 * the location half rides the deferred pair above. */
 	const editingDisplayCondition = mode === "edit" && view.atCondition;
 	const editingCaseOperations = mode === "edit" && view.atOperations;
@@ -338,7 +338,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			homeVisitedRef.current = true;
 			break;
 		case "projectData":
-			/* No preview-pipeline identity to synthesize — Project data has no
+			/* No preview-pipeline identity to synthesize: Project data has no
 			 * running-app counterpart, and Preview navigates away from it rather
 			 * than rendering one (see `usePreviewModeTransition`). */
 			break;
@@ -362,7 +362,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			};
 			break;
 		case "appSetup":
-			/* No preview-pipeline identity to synthesize — App setup has no
+			/* No preview-pipeline identity to synthesize: App setup has no
 			 * running-app counterpart, and Preview navigates away from it
 			 * rather than rendering one (see `usePreviewModeTransition`). */
 			break;
@@ -377,7 +377,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * so navigating back to a scrolled form doesn't land at the top.
 	 *
 	 * Keyed by `screenKey()` (encodes type + indices) rather than just
-	 * `screen.type` — otherwise navigating Form A → Module → Form B would
+	 * `screen.type`: otherwise navigating Form A → Module → Form B would
 	 * incorrectly restore Form A's scroll position for Form B. */
 	const scrollPositions = useRef(new Map<string, number>());
 	const scrollContainerRef = useRef<HTMLElement>(null);
@@ -424,7 +424,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						<Button
 							type="button"
 							onClick={() => setPreviewPersonaUuid(undefined)}
-							className="min-h-11"
+							className=""
 						>
 							Preview as me
 						</Button>
@@ -438,7 +438,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		<div
 			className={`preview-theme ${mode === "edit" ? "design-theme" : ""} h-full flex flex-col`}
 		>
-			{/* No header here — wayfinding (back/up + breadcrumb trail) is the
+			{/* No header here: wayfinding (back/up + breadcrumb trail) is the
 			 *  builder's own `BreadcrumbStrip`, mounted above the canvas column,
 			 *  so the trail has a single source of truth. */}
 			<main
@@ -451,7 +451,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				 *  for screen types that have been visited (the ref is populated).
 				 *  Activity `mode` uses the deferred `screen` value so the old
 				 *  screen stays visible while the new screen mounts concurrently.
-				 *  Screen components receive their identity as props — they never
+				 *  Screen components receive their identity as props: they never
 				 *  read the global current screen, so Activity can hide them
 				 *  without destroying their subtree. */}
 				{homeVisitedRef.current && (
@@ -494,7 +494,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				 * Two parallel Activity boundaries cover the three case-list
 				 * workspace URLs (`results` / `search` / `details`).
 				 *
-				 *   - Edit mode: the unified CaseListConfigWorkspace —
+				 *   - Edit mode: the unified CaseListConfigWorkspace:
 				 *     focused Search / Results / Details canvases whose selected
 				 *     entity opens in the right-rail inspector. The tab IS the
 				 *     URL kind. The
@@ -503,7 +503,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				 *     adapter and reads its identity from the URL-tracked
 				 *     ref directly.
 				 *
-				 *   - Otherwise: the CaseListScreen running-app preview —
+				 *   - Otherwise: the CaseListScreen running-app preview:
 				 *     the composed search + list experience over
 				 *     real case data. All three URLs share it: search and
 				 *     detail are facets of the same case list, so interact

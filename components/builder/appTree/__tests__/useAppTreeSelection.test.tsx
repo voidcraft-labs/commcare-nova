@@ -4,7 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
- * Tests for `useAppTreeSelection` — the dispatcher the AppTree row
+ * Tests for `useAppTreeSelection`: the dispatcher the AppTree row
  * components invoke when the user clicks a tree item.
  *
  * Two responsibilities must hold:
@@ -78,7 +78,7 @@ describe("useAppTreeSelection", () => {
 
 	it("dispatches `cases` → navigate.openCaseList with the uuid", () => {
 		// The tree's Case List & Search node is the workspace's single
-		// entry point — pinning the dispatch keeps it reachable.
+		// entry point: pinning the dispatch keeps it reachable.
 		const { result } = renderHook(() => useAppTreeSelection());
 		const moduleUuid = testUuid("mod-1");
 		act(() => result.current({ kind: "cases", moduleUuid }));

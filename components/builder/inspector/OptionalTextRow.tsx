@@ -6,11 +6,11 @@
 // OptionalMarkdownRow instead.
 //
 // Empty-string-clears comes from `useCommitField`'s `onEmpty`
-// callback — when the user empties the input and blurs, the hook
+// callback: when the user empties the input and blurs, the hook
 // fires `onEmpty()` rather than `onSave("")`. The row converts
 // that to `onCommit(undefined)` so the parent's strict-parse drops
 // the key on the next mount. `useCommitField` also `trim()`s before
-// commit, which means a value of `"   "` round-trips to "empty" —
+// commit, which means a value of `"   "` round-trips to "empty":
 // the right behavior for label slots where surrounding whitespace
 // is a typo, not intent.
 
@@ -60,13 +60,13 @@ export function OptionalTextRow({
 	// and expects `onSave` to return the gated `CommitOutcome` (an
 	// `ok: false` keeps the draft + shows the finding inline). These
 	// slots are non-refusable display strings (search screen title /
-	// button label — no validator rule rejects them, unlike an entity
+	// button label: no validator rule rejects them, unlike an entity
 	// name), so the commit always lands: returning `undefined` reads as
 	// committed, the honest outcome here.
 	//
 	// The `onEmpty` arm gates on `value !== undefined`. When the slot
 	// started absent, an empty commit (focus-blur without typing,
-	// Esc on an empty input) has nothing to clear — emitting
+	// Esc on an empty input) has nothing to clear: emitting
 	// `onCommit(undefined)` would transition the parent config from
 	// absent to `{}`, persisting an empty config and writing an
 	// undo-history entry the user never asked for.

@@ -318,7 +318,7 @@ export function describeUnwrittenProperty(
 		deduped.length > 4
 			? [...deduped.slice(0, 3), `${deduped.length - 3} more`]
 			: deduped;
-	return `\`${entry.property}\` (case type \`${entry.caseType}\`) — read by ${shown.join("; ")}`;
+	return `\`${entry.property}\` (case type \`${entry.caseType}\`). Read by ${shown.join("; ")}`;
 }
 
 function describedReadsOf(

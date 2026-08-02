@@ -4,7 +4,7 @@
 // invariants pinned here (mirrors `editorSchemas.test.ts` on the
 // Predicate side):
 //
-//   1. Exhaustivity over the ValueExpression union — every kind
+//   1. Exhaustivity over the ValueExpression union: every kind
 //      appears as a key in `expressionCardSchemas`. The mapped-type
 //      `Record<ValueExpression["kind"], ...>` enforces this at the
 //      type layer; the runtime guard verifies the keys at the
@@ -143,7 +143,7 @@ describe("expressionCardSchemas — registry exhaustivity", () => {
 describe("expressionCardSchemas — defaultValue parses through the schema", () => {
 	// Iterate every kind; assert the factory's output round-trips
 	// through `valueExpressionSchema.parse`. Smoke test for "the
-	// registry's defaults are kind-valid AST" — semantic validity
+	// registry's defaults are kind-valid AST": semantic validity
 	// (does a property name resolve, are types compatible?) is the
 	// type checker's job and has its own tests.
 	for (const kind of Object.keys(
@@ -188,7 +188,7 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 describe("expressionCardSchemas — applicable predicates", () => {
 	it("term / if / switch / coalesce always apply (result-type-depends-on-inputs)", () => {
 		// Kinds whose result type can't be inferred without examining
-		// inputs always apply — strict expectedType filtering would
+		// inputs always apply: strict expectedType filtering would
 		// hide whole authoring patterns.
 		expect(expressionCardSchemas.term.applicable(ctx)).toBe(true);
 		expect(expressionCardSchemas.if.applicable(ctx)).toBe(true);
@@ -200,7 +200,7 @@ describe("expressionCardSchemas — applicable predicates", () => {
 	});
 
 	it("today applies to date / _any expectedTypes; not to datetime or int", () => {
-		// `today` always resolves to `date` — strict-only.
+		// `today` always resolves to `date`: strict-only.
 		expect(expressionCardSchemas.today.applicable(ctx)).toBe(true);
 		expect(expressionCardSchemas.today.applicable(ctx, "date")).toBe(true);
 		expect(expressionCardSchemas.today.applicable(ctx, "_any")).toBe(true);
@@ -209,7 +209,7 @@ describe("expressionCardSchemas — applicable predicates", () => {
 	});
 
 	it("now applies to datetime / _any expectedTypes; not to date or int", () => {
-		// `now` always resolves to `datetime` — strict-only.
+		// `now` always resolves to `datetime`: strict-only.
 		expect(expressionCardSchemas.now.applicable(ctx)).toBe(true);
 		expect(expressionCardSchemas.now.applicable(ctx, "datetime")).toBe(true);
 		expect(expressionCardSchemas.now.applicable(ctx, "_any")).toBe(true);
@@ -218,7 +218,7 @@ describe("expressionCardSchemas — applicable predicates", () => {
 	});
 
 	it("date-add applies to BOTH date and datetime expectedTypes", () => {
-		// `date-add`'s result type follows the operand — `today() + N`
+		// `date-add`'s result type follows the operand: `today() + N`
 		// resolves to `date`, `now() + N` resolves to `datetime`. The
 		// kind picker surfaces it for either temporal slot; the
 		// operand picker drives which side the type checker validates.

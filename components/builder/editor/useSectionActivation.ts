@@ -1,5 +1,5 @@
 /**
- * useSectionActivation — bundles activation lifecycle for a field-editor
+ * useSectionActivation: bundles activation lifecycle for a field-editor
  * section.
  *
  * The section renders a partition of its schema entries (visible vs

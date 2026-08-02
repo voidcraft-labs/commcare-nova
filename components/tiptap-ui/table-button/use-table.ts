@@ -25,7 +25,7 @@ export function canInsertTable(editor: Editor | null): boolean {
 
 /**
  * Inserts a table with the specified dimensions at the current cursor position.
- * Always creates a header row — GFM pipe tables require a header separator line,
+ * Always creates a header row: GFM pipe tables require a header separator line,
  * so the first row uses `TableHeader` cells and the rest use `TableCell`.
  */
 export function insertTable(

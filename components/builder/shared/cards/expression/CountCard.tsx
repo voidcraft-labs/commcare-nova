@@ -1,13 +1,13 @@
 // components/builder/shared/cards/expression/CountCard.tsx
 //
-// Renders the `count` ValueExpression — relational aggregation. Two
+// Renders the `count` ValueExpression: relational aggregation. Two
 // slots:
 //
-//   - `via` — `RelationPath` to walk along. Routes through the
+//   - `via`: `RelationPath` to walk along. Routes through the
 //     shared `RelationPathBuilder` primitive so non-canonical walks
 //     (multi-hop ancestor, qualified subcase, any-relation) remain
 //     editable through the complete path builder.
-//   - `where` — optional `Predicate`. When present, the count is
+//   - `where`: optional `Predicate`. When present, the count is
 //     filtered to related cases where the predicate holds. Routes
 //     through `ChildPredicateEditor` so the full Predicate-side
 //     editor is reachable inline.
@@ -142,7 +142,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						// Only the CASE TYPE and the scope change inside a
 						// relation walk. The other axes still describe what this
 						// surface offers, and a narrowed context resolves a form
-						// answer to nothing — which widens the dependent slot's
+						// answer to nothing, which widens the dependent slot's
 						// accept-set, skips the reseed, and commits the
 						// type-incorrect pair the gate then refuses.
 						userProperties: ctx.userProperties,
@@ -150,7 +150,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						operationScope: ctx.operationScope,
 						evaluationTarget: ctx.evaluationTarget,
 						// A count's `where` runs against each counted related
-						// case row — per-case even under a global outer slot.
+						// case row: per-case even under a global outer slot.
 						caseDataScope: "per-case",
 					}),
 		[
@@ -196,7 +196,6 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={addWhereUnavailable}
 						aria-describedby={
 							addWhereUnavailable ? unavailableReasonId : undefined

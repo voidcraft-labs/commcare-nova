@@ -7,7 +7,7 @@
  * `exp` timestamp and a `sig` HMAC covering the full query. The plugin
  * uses the signature to prove the query passed through the authorize
  * handler and hasn't been forged or tampered with; the signature is the
- * real validity signal — raw `client_id` + `scope` on their own are
+ * real validity signal: raw `client_id` + `scope` on their own are
  * trivially URL-forgeable.
  *
  * We render the client name + scope list, then hand the accept/deny
@@ -15,7 +15,7 @@
  * The `oauthProviderClient()` plugin reads `window.location.search`
  * client-side and injects the signed query into the POST body as
  * `oauth_query`, so the server can match the decision back to the
- * in-flight authorization request. No `consent_code` is involved — that
+ * in-flight authorization request. No `consent_code` is involved, that
  * was an `oidc-provider` concept this plugin doesn't share.
  */
 
@@ -44,13 +44,13 @@ function parseScopes(raw: string | string[] | undefined): string[] {
  * fall back to a generic "An application" label.
  *
  * The plugin currently gates `/oauth2/public-client` with its session
- * middleware — the upstream has an open issue discussing whether to drop
+ * middleware: the upstream has an open issue discussing whether to drop
  * that gate, so treat "auth required" as a current implementation detail
  * rather than a stable contract. Either way is fine here: this helper
  * runs AFTER the page-level session gate, so a session is always present.
  *
  * Failures are logged to the server console with enough context to
- * diagnose — silently degrading to "An application" on a user-facing
+ * diagnose: silently degrading to "An application" on a user-facing
  * trust signal is worse than a loud log, because the user can't tell
  * the difference between "Nova doesn't know this client" and "Nova is
  * broken." The UI still degrades gracefully; the signal just isn't eaten.
@@ -61,7 +61,7 @@ async function fetchClientPublicInfo(
 	hdrs: Headers,
 ): Promise<{ clientName?: string; clientUri?: string } | undefined> {
 	/* Better Auth's handler requires a parseable absolute URL. The origin
-	 * is discarded by the handler — only the pathname + search are read —
+	 * is discarded by the handler: only the pathname + search are read:
 	 * so any syntactically valid origin works. `http://internal` reads
 	 * clearer than `http://localhost`, which suggests a real target. */
 	const url = new URL("/api/auth/oauth2/public-client", "http://internal");
@@ -98,7 +98,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const hdrs = await headers();
 
 	/* Nova's sign-in surface lives at `/` (the landing page's Google OAuth
-	 * button) — there is no `/sign-in` route. An unauthenticated user who
+	 * button): there is no `/sign-in` route. An unauthenticated user who
 	 * lands here gets bounced to landing to sign in, which is the same UX
 	 * as any other protected page in the app.
 	 *
@@ -107,7 +107,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * still-valid 5-min cookie cache must not be able to approve a NEW OAuth
 	 * grant. (`getSession` returns null for an inactive user; the MCP JWT path
 	 * also re-checks `isUserActive` on every request, so any token minted past
-	 * this point is inert anyway — this is the defense-in-depth front door.) */
+	 * this point is inert anyway: this is the defense-in-depth front door.) */
 	const session = await getSession();
 	if (!session) redirect("/");
 
@@ -127,7 +127,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const requestValid = Boolean(clientId && scopes.length > 0 && sig);
 
 	/* The HQ scopes (`nova.hq.read` / `nova.hq.write`) are real grants
-	 * regardless of whether the user has connected a CommCare HQ API key —
+	 * regardless of whether the user has connected a CommCare HQ API key:
 	 * the OAuth client gains effective access the moment a key is added
 	 * later, with no second consent cycle. We still want to surface that
 	 * dormancy so the user isn't surprised when the connecting app's HQ
@@ -138,7 +138,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	/* Fetch the public client display + the HQ-configured flag in parallel.
 	 * Both are display-only, both gated on `requestValid`, and neither
 	 * blocks the other. The HQ flag is `undefined` when we never asked
-	 * (no HQ scope or invalid request), `true`/`false` when we did — the
+	 * (no HQ scope or invalid request), `true`/`false` when we did, the
 	 * form distinguishes "didn't ask" from "asked, no key" so a future
 	 * caller forgetting the gating logic can't silently flip a "no HQ
 	 * scope requested" call into "user has no key" UI. On a Postgres
@@ -165,7 +165,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 
 	return (
 		<main className="relative isolate flex min-h-full items-center justify-center overflow-hidden px-5 py-6 sm:py-10">
-			{/* Atmosphere — cosmic violet blurs that signal "you are still inside
+			{/* Atmosphere: cosmic violet blurs that signal "you are still inside
 			 *   Nova, this is a real screen from us." Matches the landing page's
 			 *   unauthenticated sign-in surface so the OAuth flow reads as one
 			 *   continuous product experience across sign-in → consent → redirect.

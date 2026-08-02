@@ -29,7 +29,7 @@ export function isImageActive(editor: Editor | null): boolean {
 }
 
 /**
- * Unified hook for the image popover — visibility, active state, field values,
+ * Unified hook for the image popover: visibility, active state, field values,
  * and insertion logic. Uses a single `selectionUpdate` listener to keep all
  * derived state in sync (avoiding the stale-snapshot problem where values
  * computed during render go stale between re-renders).
@@ -62,7 +62,7 @@ export function useImagePopover(config?: UseImagePopoverConfig) {
 			setIsVisible(!hideWhenUnavailable || can);
 
 			/* Populate fields when the cursor lands on an existing image;
-			 * clear them when it moves away — but only if the user hasn't
+			 * clear them when it moves away, but only if the user hasn't
 			 * started typing a new URL (url would be non-empty from input). */
 			if (active) {
 				const attrs = editor.getAttributes("image");

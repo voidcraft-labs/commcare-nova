@@ -1,17 +1,17 @@
 /**
- * InsertionPointRow — flat-row wrapper around the existing `InsertionPoint`.
+ * InsertionPointRow: flat-row wrapper around the existing `InsertionPoint`.
  *
  * In the legacy recursive renderer, insertion points were emitted as
  * sibling JSX between fields. The virtual list emits them as typed
  * row records, but the interactive behavior (intent-gated reveal, menu
- * trigger) is the same — so this row is a thin delegation wrapper
+ * trigger) is the same, so this row is a thin delegation wrapper
  * that positions the existing component at the correct depth.
  *
  * Layout-stability during drag: `InsertionPoint` returns `null` when
  * `disabled` is true (which is during any active drag). That would
  * collapse this row's measured height to 0, the virtualizer's
  * `measureElement` ResizeObserver would pick it up, and every row below
- * the drag source would shift up — making the dragged row look
+ * the drag source would shift up: making the dragged row look
  * "smooshed". To prevent that we set `minHeight` on the wrapper equal
  * to the InsertionPoint's height, so the 24px gap is preserved even
  * when the inner button is intentionally hidden.
@@ -24,7 +24,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { depthPadding, INSERTION_REST_HEIGHT_PX } from "../rowStyles";
 
 interface InsertionPointRowProps {
-	/** Parent container uuid — form uuid for root level, group/repeat uuid
+	/** Parent container uuid: form uuid for root level, group/repeat uuid
 	 *  inside nested containers. */
 	readonly parentUuid: Uuid;
 	/** Insertion index in the parent's child array. */

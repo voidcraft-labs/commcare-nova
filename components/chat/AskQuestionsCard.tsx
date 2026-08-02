@@ -50,7 +50,7 @@ export function AskQuestionsCard({
 
 	/**
 	 * Stable ID map for questions within this tool call. Questions arrive from
-	 * the SA without intrinsic IDs — the `toolCallId` is globally unique, and
+	 * the SA without intrinsic IDs: the `toolCallId` is globally unique, and
 	 * questions within a tool call are immutable (never reordered/removed).
 	 * IDs are assigned once on first observation and stored in this ref.
 	 */
@@ -60,7 +60,7 @@ export function AskQuestionsCard({
 	}
 
 	/** Apply an answer keyed by the current question index. Questions are
-	 * immutable after the SA emits them — index is a stable identity key. */
+	 * immutable after the SA emits them: index is a stable identity key. */
 	const applyAnswer = (answerText: string) => {
 		if (disabled) return;
 		const { answers: ans, currentIndex: ci } = stateRef.current;
@@ -120,7 +120,7 @@ export function AskQuestionsCard({
 					{isLoading && (
 						<div className="space-y-2.5 animate-pulse">
 							{/* Question text skeleton */}
-							<div className="h-4 w-3/4 rounded bg-nova-violet/10" />
+							<div className="h-4 w-3/4 rounded-sm bg-nova-violet/10" />
 							{/* Option skeletons */}
 							<div className="space-y-1.5">
 								<div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />

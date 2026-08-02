@@ -103,7 +103,7 @@ export const maxDuration = 300;
 const CLAIM_WAIT_POLL_MS = 750;
 const CLAIM_WAIT_MAX_MS = 120_000;
 
-/* Opportunistic chunk-log retention sweep — at most one fire-and-forget prune
+/* Opportunistic chunk-log retention sweep: at most one fire-and-forget prune
  * per instance per interval, piggybacked on POST traffic (the same
  * no-dedicated-cron pattern as the run reapers). */
 const CHUNK_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
@@ -116,14 +116,14 @@ export async function POST(req: Request) {
 	// cap is generous enough for the largest real request (blueprint + bounded
 	// message history); the message/attachment/text limits stay as the secondary,
 	// post-parse controls. Enforced on BOTH the declared size (cheap, pre-buffer)
-	// AND the actual byte length — a chunked request omits Content-Length, so the
+	// AND the actual byte length: a chunked request omits Content-Length, so the
 	// declared-size check alone would wave a headerless stream into the full
 	// parse. Buffering is bounded by Cloud Run's ~32 MB inbound limit.
 	const tooLarge = () =>
 		Response.json(
 			{
 				error:
-					"That request is too large to process. Start a fresh conversation — the history has grown past what one request can send.",
+					"That request is too large to process. Start a fresh conversation, the history has grown past what one request can send.",
 				type: "invalid_request",
 			},
 			{ status: 413 },
@@ -148,7 +148,7 @@ export async function POST(req: Request) {
 	// → an asset-row load + a GCS/extract read) and persisted into the event log,
 	// so `validateChatMessages` bounds the message count + the request-wide
 	// attachment total and enforces the per-ref field caps. It deliberately does
-	// NOT re-parse the SDK-owned message `parts` — that shape is the SDK's contract.
+	// NOT re-parse the SDK-owned message `parts`: that shape is the SDK's contract.
 	const messagesResult = validateChatMessages(body.messages);
 	if (!messagesResult.ok) {
 		return Response.json(
@@ -176,7 +176,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	// Reject an over-length typed message — defense in depth behind the
+	// Reject an over-length typed message: defense in depth behind the
 	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
 	// disagree). Only the new turn's typed text counts; attachments ride as
 	// metadata refs, not inline text, so they're never part of this length.
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
 		if (typedLength > MAX_CHAT_MESSAGE_CHARS) {
 			return Response.json(
 				{
-					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it — or attach long content as a file — and send again.`,
+					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it, or attach long content as a file, and send again.`,
 					type: "message_too_long",
 				},
 				{ status: 400 },
@@ -230,18 +230,18 @@ export async function POST(req: Request) {
 		? crypto.randomUUID()
 		: (presentedHolderNonce ?? crypto.randomUUID());
 
-	/* Credit gate — fast-fail read. Sits where the dollar cap used to, at the top
+	/* Credit gate: fast-fail read. Sits where the dollar cap used to, at the top
 	 * of the handler, and FAILS CLOSED: any database read error rejects with 503
 	 * rather than letting an ungated/uncharged generation through. This is the
 	 * cheap pre-flight read; the transactional reservation that actually books
 	 * the charge runs later, after every pre-stream rejection point.
 	 *
 	 * Two independent checks:
-	 *   (a) Actual-$ backstop — runs on EVERY POST (continuations included), so a
+	 *   (a) Actual-$ backstop: runs on EVERY POST (continuations included), so a
 	 *       user hammering a broken app on free continuations still trips it. The
 	 *       dollar threshold is never surfaced to the user (the message must not
 	 *       leak the figure).
-	 *   (b) Credit balance — only on CHARGEABLE POSTs. A continuation never
+	 *   (b) Credit balance: only on CHARGEABLE POSTs. A continuation never
 	 *       reserves, so it has no balance to check; gating it here would also
 	 *       create an orphan app in the common out-of-credits case. */
 	try {
@@ -291,13 +291,13 @@ export async function POST(req: Request) {
 	 * persistence so failure paths below can still surface it if needed. */
 	const effectiveRunId = chatRunIdSchema.parse(runId ?? crypto.randomUUID());
 
-	/* Thread-identity guard — BEFORE any persistence work (a rejection here
+	/* Thread-identity guard: BEFORE any persistence work (a rejection here
 	 * must not mint an orphan app). `threadId` is client-minted, so an id that
 	 * already exists must belong to THIS app: on a new build no thread can
 	 * exist yet, and on an existing app a mismatch means a forged or stale id.
 	 * The write path re-enforces this structurally (`upsertThreadTurn` guards
 	 * `app_id`); this read just turns the failure into a clean 400. Fails
-	 * CLOSED on a read error — proceeding unguarded would let the later
+	 * CLOSED on a read error: proceeding unguarded would let the later
 	 * guarded write silently drop the conversation instead. */
 	let existingThread: Awaited<ReturnType<typeof resolveThreadStream>> = null;
 	try {
@@ -339,14 +339,14 @@ export async function POST(req: Request) {
 		);
 	}
 
-	/* This POST's durable-stream identity — fresh per POST (a run spans many
+	/* This POST's durable-stream identity: fresh per POST (a run spans many
 	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
 	 * `x-workflow-run-id` response header, which is the handle the client's
 	 * WorkflowChatTransport reconnects with (`/api/chat/{streamId}/stream`)
 	 * when this response breaks without a `finish` chunk. */
 	const streamId = crypto.randomUUID();
 
-	/* Retention sweep for the chunk log — throttled per instance, never blocks
+	/* Retention sweep for the chunk log: throttled per instance, never blocks
 	 * or fails the request. */
 	if (Date.now() - lastChunkPruneAt > CHUNK_PRUNE_INTERVAL_MS) {
 		lastChunkPruneAt = Date.now();
@@ -363,7 +363,7 @@ export async function POST(req: Request) {
 	 * (status: 'generating') so log events have an app to live under from the start.
 	 *
 	 * The app doc is created BEFORE the concurrency check so it acts as a
-	 * lock — a second concurrent request will see this row in the in-transaction
+	 * lock: a second concurrent request will see this row in the in-transaction
 	 * concurrency scan
 	 * and reject. Without this ordering, two simultaneous requests could both
 	 * pass the check before either writes a doc (classic TOCTOU).
@@ -378,20 +378,20 @@ export async function POST(req: Request) {
 				canEdit: boolean;
 		  }
 		| undefined;
-	/* The credit reservation this run booked — set atomically with the claim
+	/* The credit reservation this run booked: set atomically with the claim
 	 * (`claimAndReserveRun` / `reserveForNewBuild`) pre-stream on the free /
 	 * first-claim paths, or inside `execute` after the serialize-with-wait poll
 	 * loop. Threaded into the accumulator so a failed or no-op run refunds the
 	 * exact charge against the exact month. */
 	let reservation: Reservation | undefined;
-	/* The persisted app doc for an EXISTING-app request — captured off the
+	/* The persisted app doc for an EXISTING-app request: captured off the
 	 * authorization read below so the SA's working doc seeds from the saved
 	 * blueprint with no extra load. Undefined for a new build, whose exact
 	 * canonical sequence-1 blueprint comes from `createdAppReceipt`. */
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
-	/* The app's Project — the media tenant. Set in BOTH branches below (the
+	/* The app's Project: the media tenant. Set in BOTH branches below (the
 	 * page-bound expected Project for a new build, the app's Project for an existing one) and
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
@@ -400,15 +400,15 @@ export async function POST(req: Request) {
 	 * the exact authorized scope into the Project data boundary. */
 	let projectRole: string | undefined;
 	/* Set when this POST claimed an existing app's run window
-	 * (`claimAndReserveRun` — a build flipped to `generating`, or an edit's
-	 * `run_lock` — with the credit debit in the SAME transaction). There is no
+	 * (`claimAndReserveRun`: a build flipped to `generating`, or an edit's
+	 * `run_lock`: with the credit debit in the SAME transaction). There is no
 	 * prior-state snapshot to carry: every claim rejection (busy, concurrency,
 	 * out-of-credits, infrastructure) is a transaction rollback that held
 	 * nothing, so there is nothing to restore. Set either pre-stream (the free
 	 * / first-claim path) or inside `execute` (after the serialize-with-wait
 	 * poll loop). */
 	let claimedRun: ClaimedRun | undefined;
-	/* Set when the pre-stream claim CONFLICTED — another run holds the app. The
+	/* Set when the pre-stream claim CONFLICTED: another run holds the app. The
 	 * route does NOT 429; it opens the SSE stream and, inside `execute`, emits a
 	 * "busy" conversation event, polls until the holder releases, then claims +
 	 * gates + runs. A conversation event / stream write can only happen inside
@@ -421,7 +421,7 @@ export async function POST(req: Request) {
 	let claimMode: "build" | "edit" | undefined;
 	/* Set when this POST is a free-continuation resume (build OR edit): it must
 	 * re-acquire (confirm ownership + renew the lease) the paused run it's resuming
-	 * before running, or bail — the paused run's lease can lapse while the user
+	 * before running, or bail: the paused run's lease can lapse while the user
 	 * answers and be REAPED, freeing the app for another run. Done inside `execute`
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
@@ -440,7 +440,7 @@ export async function POST(req: Request) {
 		/* `/build/new` captured this Project in its server-rendered access tuple.
 		 * Another tab may have switched the session's active Project since then;
 		 * bind creation to the captured id and freshly authorize it at EDIT instead
-		 * of re-reading mutable session state. The client supplies no capability —
+		 * of re-reading mutable session state. The client supplies no capability:
 		 * role/canEdit below come only from this server-side gate. */
 		try {
 			projectId = expectedProjectId;
@@ -495,7 +495,7 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
-		/* Reserve the new build's credits — one transaction over the app row the
+		/* Reserve the new build's credits: one transaction over the app row the
 		 * create just wrote (the row itself is the claim: `createApp` writes it
 		 * `generating` BEFORE this, so a second concurrent new build sees it in
 		 * the in-transaction concurrency scan). Every rejection is a rollback:
@@ -529,7 +529,7 @@ export async function POST(req: Request) {
 				}
 				if (err instanceof GenerationInProgressError) {
 					/* Awaited: the reserve rolled back, so this fresh `generating` row
-					 * carries no marker — until it flips to `error` it reads as the
+					 * carries no marker, until it flips to `error` it reads as the
 					 * user's own live build and blocks their next POST. */
 					await failApp(
 						appId,
@@ -553,7 +553,7 @@ export async function POST(req: Request) {
 					);
 				}
 				log.error("[chat] credit reservation failed", err);
-				/* Infrastructure, not a balance problem — the message must not send
+				/* Infrastructure, not a balance problem: the message must not send
 				 * the user chasing their allowance, and it asserts nothing about the
 				 * charge (the transaction rolled back). */
 				return Response.json(
@@ -567,7 +567,7 @@ export async function POST(req: Request) {
 			}
 		}
 	} else {
-		/* Project-membership gate (edit) — apps are a root-level collection, so
+		/* Project-membership gate (edit): apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
 		 * another Project's appId could drive a build against it. Authorization,
 		 * Project scope, the persisted blueprint, and its mutation cursor come
@@ -594,18 +594,18 @@ export async function POST(req: Request) {
 		}
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
-			 * AND reserves its credits in ONE transaction — a BUILD-mode
+			 * AND reserves its credits in ONE transaction: a BUILD-mode
 			 * instruction (`!appReady`) flips the row to `generating`; an EDIT
 			 * (`appReady`) takes a `run_lock` without touching status. The claim is
 			 * the per-app serialization lock, across BOTH modes (a build waits on a
 			 * live edit-lock and vice versa, and on ANOTHER actor's PAUSED run of
-			 * either mode — this user's own paused run is superseded by the claim
+			 * either mode: this user's own paused run is superseded by the claim
 			 * instead, so an abandoned askQuestions round never locks them out);
 			 * the cross-app concurrency cap and the affordability check run INSIDE
 			 * the same transaction, so every rejection below is a rollback that
 			 * held nothing.
 			 *
-			 * On a CONFLICT the route does not 429 — it defers the whole
+			 * On a CONFLICT the route does not 429: it defers the whole
 			 * claim+reserve sequence into `execute` behind a poll-wait
 			 * (`waitForClaim`), so a second collaborator's request serializes
 			 * behind the holder instead of bouncing. */
@@ -624,7 +624,7 @@ export async function POST(req: Request) {
 				holderNonce = claimedRun.holderNonce;
 			} catch (err) {
 				if (err instanceof RunConflictError) {
-					/* The app is held — wait inside the stream (below), don't reject. */
+					/* The app is held: wait inside the stream (below), don't reject. */
 					waitForClaim = true;
 				} else if (err instanceof AppProjectChangedError) {
 					return Response.json(
@@ -663,13 +663,13 @@ export async function POST(req: Request) {
 		} else {
 			/* A free continuation (an answered-`askQuestions` auto-resend) resuming a
 			 * PAUSED run (build OR edit). It must re-acquire that run before
-			 * proceeding — a paused run's lease lapses while the user answers (no
+			 * proceeding: a paused run's lease lapses while the user answers (no
 			 * heartbeat during a pause), so it may have been REAPED and the freed app
 			 * claimed by another run; resuming blindly would start a second SA loop on
 			 * an app this POST no longer owns. The re-acquire (uniform across both
 			 * shapes via `reacquireLease`) runs inside `execute` where `ctx` can emit
 			 * the bail; on success it renews the lease + clears the pause flag in one
-			 * txn — a superseded resume touches nothing (a pre-stream clear would
+			 * txn: a superseded resume touches nothing (a pre-stream clear would
 			 * unflag / re-pause an app this POST no longer owns). */
 			resumeMustCheckSupersede = true;
 		}
@@ -680,7 +680,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	/* The paused-run resume's pause-flag clear does NOT happen pre-stream — it
+	/* The paused-run resume's pause-flag clear does NOT happen pre-stream, it
 	 * moves INSIDE `execute`, folded into `reacquireLease`'s success transaction,
 	 * for BOTH modes. A SUPERSEDED resume (of either shape) must touch NOTHING on
 	 * an app a co-member now owns: clearing `awaiting_input` there could flip the
@@ -702,10 +702,10 @@ export async function POST(req: Request) {
 	 * `usage.configureRun()` inside the execute block at their authoritative
 	 * moment. The seed must be REAL, not placeholder: `prompt_mode` /
 	 * `app_ready` are PINNED on the summary row by its first write, and a POST
-	 * that dies before `configureRun` (a serialize-wait timeout) still flushes —
+	 * that dies before `configureRun` (a serialize-wait timeout) still flushes:
 	 * a placeholder seed there would pin an edit thread's summary as a
 	 * zero-module build. */
-	/* Chat-surface writer — every event out of this route is stamped
+	/* Chat-surface writer: every event out of this route is stamped
 	 * `source: "chat"`. The MCP endpoint constructs its own LogWriter
 	 * with `source: "mcp"`; the writer is the single authority on the
 	 * surface tag so the two cannot drift. */
@@ -731,7 +731,7 @@ export async function POST(req: Request) {
 		 * `reservation` is already set (the claim reserved atomically pre-stream),
 		 * so seed it here. On the serialize-with-wait path the reservation lands
 		 * INSIDE `execute` (the poll loop winning `claimAndReserveRun`), so seed
-		 * nothing now and set all three via `usage.configureRun` there — seeding a
+		 * nothing now and set all three via `usage.configureRun` there, seeding a
 		 * `didReserve` with no `chargePeriod` would leave the flush's refund gate
 		 * half-armed. */
 		didReserve: waitForClaim ? undefined : chargeable,
@@ -742,7 +742,7 @@ export async function POST(req: Request) {
 	/* Mirror of the execute-local `finalized` latch, readable by execute's
 	 * prelude-throw net (its `finally` sits outside the block `finalized` is
 	 * scoped to). Set true whenever `finalizeRun` runs to completion; the net's
-	 * stranded-lock release fires ONLY when this stayed false — i.e. the
+	 * stranded-lock release fires ONLY when this stayed false: i.e. the
 	 * prelude threw before any `finalizeRun`. A run that DID finalize (clean /
 	 * failed / paused) already made the correct lock decision (a paused edit
 	 * deliberately KEEPS its lock), so the net must not second-guess it. */
@@ -750,23 +750,23 @@ export async function POST(req: Request) {
 
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
 	 * browser connection. The agent loop is drained server-side (see the execute
-	 * block), so a closed tab neither cancels the run nor finalizes it — `flush()`
+	 * block), so a closed tab neither cancels the run nor finalizes it, `flush()`
 	 * runs once on the run's true terminal state regardless of whether anyone is
 	 * still reading. A run the process can't finish (hard kill) is settled by the
 	 * stale-`generating` reaper.
 	 *
 	 * The same rule bans `onEnd`/`onFinish` on this stream: the SDK fires them
 	 * through the response stream's `cancel()` hook too, so a mid-run refresh
-	 * would run that teardown while the agent is still streaming — sealing the
+	 * would run that teardown while the agent is still streaming, sealing the
 	 * chunk log and flushing a zero-usage accumulator against a live run, which
 	 * refunds the charge, blinds the resume path, and no-ops the real finalize.
 	 * Post-settle cleanup lives in execute's own `finally`, which by
 	 * construction cannot run before the body settles. */
 	const stream = createUIMessageStream({
 		execute: async ({ writer: rawWriter }) => {
-			/* The one write choke point: every chunk out of this request — SDK
+			/* The one write choke point: every chunk out of this request, SDK
 			 * parts forwarded from the SA stream AND the route's own `data-*`
-			 * events — rides this wrapper, which appends it to the durable chunk
+			 * events: rides this wrapper, which appends it to the durable chunk
 			 * log (resume replays it) and forwards it to the live response
 			 * (best-effort; a dead client stops forwarding, never logging).
 			 * Closed by `finalizeRun` so the terminal row is durable before the
@@ -830,7 +830,7 @@ export async function POST(req: Request) {
 
 				/* Latch so the refund toast fires at most once per run. */
 				let refundSignalled = false;
-				/* Finalize-once guard — see `finalizeRun`. */
+				/* Finalize-once guard: see `finalizeRun`. */
 				let finalized = false;
 				/* Set once `upsertThreadTurn` persisted this POST's history onto the
 				 * thread row (which also marked it live via `active_stream_id`).
@@ -841,8 +841,8 @@ export async function POST(req: Request) {
 				let threadPersisted = false;
 
 				/**
-				 * The single authoritative finalization — the charge-vs-refund credit
-				 * decision plus persistence — run exactly once on the run's TRUE terminal
+				 * The single authoritative finalization: the charge-vs-refund credit
+				 * decision plus persistence: run exactly once on the run's TRUE terminal
 				 * state.
 				 *
 				 * Driven by the agent drain completing (below), NOT by an SDK callback: a
@@ -852,20 +852,20 @@ export async function POST(req: Request) {
 				 * never hangs waiting on a callback that never fires). A failed run marks
 				 * itself failed and FLUSHES (handing the reservation back; actual $ still
 				 * accrues so the backstop sees retry-spam), and only THEN flips the app to
-				 * `error` — and only if the refund actually committed, so a stranded refund
+				 * `error`, and only if the refund actually committed, so a stranded refund
 				 * leaves the build `generating` for the reaper to retry. Idempotent via this
 				 * guard and the accumulator's own `_finalized` latch.
 				 *
 				 * Settle/release is threaded on `paused` (`ctx.pausedOnInput()`): a run
 				 * that PAUSED on `askQuestions` is alive (a later POST resumes it), so its
 				 * kept charge must NOT be settled and an edit's `run_lock` must NOT be
-				 * released — its marker is a live hold the resume's failure funnel may
+				 * released, its marker is a live hold the resume's failure funnel may
 				 * still refund. A clean, non-paused completion settles the kept charge (so
 				 * the status-agnostic edit reaper can't claw it back) and releases an
 				 * edit's lock (so the next serialize-with-wait waiter proceeds). A FAILED
 				 * run releases the edit lock UNCONDITIONALLY (a failed edit routes here
 				 * without entering the clean editing arm, so gating release on clean
-				 * completion would strand the lock) — except a paused hold, which never
+				 * completion would strand the lock): except a paused hold, which never
 				 * reaches the failure funnel from a pause.
 				 */
 				const finalizeRun = async (
@@ -880,9 +880,9 @@ export async function POST(req: Request) {
 					finalized = true;
 					finalizeRan = true;
 					/* Stop the wall-clock lease heartbeat the moment the run reaches a
-					 * terminal state — the run is no longer live, so it must stop extending
+					 * terminal state: the run is no longer live, so it must stop extending
 					 * its own liveness horizon (a clean edit is about to release the lock; a
-					 * paused run deliberately lets its horizon ride until resume — the
+					 * paused run deliberately lets its horizon ride until resume, the
 					 * heartbeat MUST stop here or an abandoned pause would never lapse for
 					 * the reapers). Idempotent. Clearing the interval here is what keeps it
 					 * from leaking. */
@@ -891,27 +891,27 @@ export async function POST(req: Request) {
 					/* Whether THIS POST owns the run holding the app. False only on the
 					 * serialize-with-wait early returns (a timed-out waiter, or a
 					 * post-claim gate bail that already released the claim): such a POST
-					 * holds nothing — the app is still held by ANOTHER run — so it must
+					 * holds nothing: the app is still held by ANOTHER run, so it must
 					 * NOT touch the reservation marker or `run_lock` (settling/clearing
 					 * would break the true holder's refund + strand its lock). It still
 					 * flushes usage + drains the log (below), both no-ops for a POST that
-					 * reserved nothing. Every other terminal path — the drain-end finally,
-					 * `failRun`, the paused arm — is a POST that owns or continues the
+					 * reserved nothing. Every other terminal path: the drain-end finally,
+					 * `failRun`, the paused arm: is a POST that owns or continues the
 					 * holding run, so it defaults true. */
 					let heldApp = opts?.heldApp ?? true;
 					if (failure) usage.markRunFailed();
 					await usage.flush();
 					if (failure && heldApp) {
-						/* Failed-run terminal write — refund + settle the marker AND (for an
+						/* Failed-run terminal write: refund + settle the marker AND (for an
 						 * EDIT) release the `run_lock`, ATOMICALLY (`settleAndRelease`). `flush`
 						 * above already refunded a hold THIS POST booked; this settles a hold an
 						 * EARLIER POST booked (askQuestions: an earlier chargeable POST reserves,
-						 * a free continuation fails here) — it reads the hold off the marker, so
+						 * a free continuation fails here): it reads the hold off the marker, so
 						 * it settles whichever POST booked it. Idempotent when flush already
 						 * settled it. The atomicity is load-bearing: the `run_lock` is
 						 * released ONLY inside the same commit that settles the marker, so
 						 * "lock cleared + marker unsettled" (the state that stranded credits) is
-						 * impossible — if the txn throws NOTHING changed (the lock stays for the
+						 * impossible: if the txn throws NOTHING changed (the lock stays for the
 						 * reaper) and `settled` reports `false`. The explicit mode is part of
 						 * the holder token (a build has no lock). A failure never reaches here
 						 * paused. */
@@ -965,7 +965,7 @@ export async function POST(req: Request) {
 							await failApp(appId, effectiveRunId, holderNonce, failure.type);
 						}
 					} else if (!failure && !paused && heldApp && appReady) {
-						/* Clean, non-paused EDIT completion — release the `run_lock` AND
+						/* Clean, non-paused EDIT completion: release the `run_lock` AND
 						 * settle the kept charge in ONE transaction (`clearRunLockAndSettle`).
 						 * The atomicity is load-bearing: clearing the lock is what makes the
 						 * edit claimable, so settling in the same commit closes the window
@@ -975,7 +975,7 @@ export async function POST(req: Request) {
 						 * on the marker (the askQuestions flow is multi-POST). Best-effort: a
 						 * failure logs and the reaper stays the backstop.
 						 *
-						 * A clean BUILD completion is NOT handled here — `completeAndSettleRun`
+						 * A clean BUILD completion is NOT handled here: `completeAndSettleRun`
 						 * in the drain-end build-finalize block already flipped status→complete
 						 * AND settled atomically (a build has no `run_lock` to release), for the
 						 * same window-closing reason. */
@@ -1001,7 +1001,7 @@ export async function POST(req: Request) {
 						}
 					}
 					await logWriter.flush();
-					/* Terminate the durable chunk log LAST — every user-visible write on
+					/* Terminate the durable chunk log LAST: every user-visible write on
 					 * every terminal path (the failure funnel's error event + refund
 					 * toast, the clean build's `data-done`) precedes its path's
 					 * `finalizeRun` call, so the terminal row seals a complete stream. A
@@ -1011,25 +1011,25 @@ export async function POST(req: Request) {
 					 * row is durable. */
 					await writer.close();
 
-					/* Durable conversation history — append the assistant message this
+					/* Durable conversation history: append the assistant message this
 					 * run streamed and clear the thread's live-stream marker, in one
 					 * write. Assembled from the now-sealed chunk log (the single source
 					 * of truth for what streamed, including retry closures), so the
 					 * persisted message is byte-for-byte what a live client assembled.
 					 * AFTER `writer.close()`: the log must be fully flushed to read it
 					 * back. A paused (askQuestions) run appends its question round with
-					 * the tool part still `input-available` — exactly what a refreshed
+					 * the tool part still `input-available`: exactly what a refreshed
 					 * page needs to re-render the interactive card. Best-effort: history
 					 * persistence must never take down run finalization (the failure is
 					 * error-logged; the thread converges on the next turn's upsert). */
 					if (threadPersisted) {
 						/* A history ending in an ASSISTANT message (an answered
 						 * askQuestions round) streams its response as a CONTINUATION of
-						 * that message — seed the assembly with it so the persisted
+						 * that message: seed the assembly with it so the persisted
 						 * transcript keeps ONE merged message, exactly as the client
 						 * does. `streamId` scopes the marker clear to THIS run: the app
 						 * was released above, so a competing POST may already own a
-						 * fresh claim on this thread — its marker and turns must survive
+						 * fresh claim on this thread, its marker and turns must survive
 						 * this late write (the append merges; it never rewrites). */
 						const trailing = messages.at(-1);
 						const responseMessage = await assembleResponseMessage(
@@ -1037,12 +1037,12 @@ export async function POST(req: Request) {
 							trailing?.role === "assistant" ? trailing : undefined,
 						);
 						/* One retry, then a marker-only fallback. The response text is
-						 * best-effort history — but the MARKER must not survive a
+						 * best-effort history, but the MARKER must not survive a
 						 * finalized run: a stranded `active_stream_id` on an at-rest app
 						 * reads as an instance death on the next load, and the client
 						 * auto-RE-DRIVES (re-claims, RE-CHARGES) a turn that already
 						 * completed. The fallback clears just the marker (null response,
-						 * same `streamId` guard) — the smallest write that closes that
+						 * same `streamId` guard): the smallest write that closes that
 						 * hole; if even that fails, the log line names the consequence
 						 * for the operator. */
 						let appended = false;
@@ -1075,7 +1075,7 @@ export async function POST(req: Request) {
 								});
 							} catch (err) {
 								log.error(
-									"[chat] thread marker clear failed — a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+									"[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
 									err,
 									{ appId, threadId },
 								);
@@ -1085,7 +1085,7 @@ export async function POST(req: Request) {
 				};
 
 				/**
-				 * Classify + surface a generation error, then finalize the run as failed —
+				 * Classify + surface a generation error, then finalize the run as failed:
 				 * the single failure funnel for both an init/build throw and a streamed
 				 * model error. Finalization first proves the exact holder and settles its
 				 * refund; only then does it emit the classified error and, for a chargeable
@@ -1109,13 +1109,13 @@ export async function POST(req: Request) {
 				/**
 				 * Persist a BAILED POST's incoming history before it closes. A bail
 				 * (a serialize-wait gate rejection or timeout, a superseded resume)
-				 * runs nothing and must not claim the thread — but its history is
+				 * runs nothing and must not claim the thread, but its history is
 				 * real client state: an answered askQuestions round exists only in
 				 * the client's memory until a write lands, and every bail message
 				 * tells the user to refresh, which would erase it. Merge-only: the
 				 * thread's `run_id` / live-stream marker belong to the run that owns
 				 * the app and are not touched. (The RE-DRIVE bail deliberately skips
-				 * this — its history is the same unanswered turn the winning
+				 * this, its history is the same unanswered turn the winning
 				 * re-drive already persisted when it claimed.)
 				 */
 				const persistBailedHistory = async (): Promise<void> => {
@@ -1134,7 +1134,7 @@ export async function POST(req: Request) {
 					}
 				};
 
-				/* Serialize-with-wait — the pre-stream claim CONFLICTED (another run
+				/* Serialize-with-wait: the pre-stream claim CONFLICTED (another run
 				 * holds this app). Rather than 429, poll `claimAndReserveRun` until the
 				 * holder releases (or the wait times out). Each poll attempt is the
 				 * whole atomic claim+reserve, so a win arrives fully gated (concurrency
@@ -1146,12 +1146,12 @@ export async function POST(req: Request) {
 					/* A RE-DRIVE that lost the claim race bails instead of queueing:
 					 * the conflict means another session already re-drove this turn
 					 * (or a real run holds the app), and a serialize-wait winner would
-					 * RE-RUN the same turn — a second charge for a duplicate response.
+					 * RE-RUN the same turn: a second charge for a duplicate response.
 					 * The clean close (the durable writer seals a terminal `finish`)
 					 * ends the client's send; its post-close heal re-fetches the
 					 * thread and attaches to whatever the winner is streaming. */
 					if (parsed.data.redrive) {
-						log.info("[chat] re-drive lost the claim race — bailing clean", {
+						log.info("[chat] re-drive lost the claim race. Bailing clean", {
 							appId,
 							threadId,
 						});
@@ -1159,10 +1159,10 @@ export async function POST(req: Request) {
 						return;
 					}
 					/* A same-actor conflict is real (the requester's OWN still-running
-					 * request from another tab, or one whose tab they closed — a closed
+					 * request from another tab, or one whose tab they closed: a closed
 					 * tab neither cancels nor finalizes a run), and naming the user to
 					 * themselves reads as a phantom collaborator. Their own PAUSED run
-					 * never reaches here — the claim supersedes it. Re-resolved per
+					 * never reaches here: the claim supersedes it. Re-resolved per
 					 * message rather than captured once: the holder can change while we
 					 * wait (a release + another claim), and the timeout toast two
 					 * minutes in must not name a long-gone holder. */
@@ -1175,13 +1175,13 @@ export async function POST(req: Request) {
 					/* User-visible busy indicator: a non-fatal (recoverable) conversation
 					 * event the client toasts + shows in the signal panel, so the waiter
 					 * sees WHY nothing is happening yet. `recoverable: true` renders it as
-					 * a warning, not an error — the request hasn't failed, it's queued
+					 * a warning, not an error: the request hasn't failed, it's queued
 					 * behind the holder. (A `data-phase` pulse was tried here but no client
-					 * reducer renders it — this conversation event IS the busy signal.) */
+					 * reducer renders it: this conversation event IS the busy signal.) */
 					ctx.emitError(
 						{
 							type: "generation_in_progress",
-							message: `Waiting — ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
+							message: `Waiting: ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
 							recoverable: true,
 						},
 						"route:serialize-wait",
@@ -1189,8 +1189,8 @@ export async function POST(req: Request) {
 
 					const deadline = Date.now() + CLAIM_WAIT_MAX_MS;
 					let claimError: unknown;
-					/* A gate rejection from a WON poll (concurrency cap / out of credits)
-					 * — terminal for this POST, and it held nothing (the claim+reserve
+					/* A gate rejection from a WON poll (concurrency cap / out of credits):
+					 * terminal for this POST, and it held nothing (the claim+reserve
 					 * transaction rolled back). */
 					let gateBail:
 						| {
@@ -1218,7 +1218,7 @@ export async function POST(req: Request) {
 							holderNonce = claimedRun.holderNonce;
 							break;
 						} catch (err) {
-							if (err instanceof RunConflictError) continue; // still held — keep waiting
+							if (err instanceof RunConflictError) continue; // still held: keep waiting
 							if (err instanceof AppProjectChangedError) {
 								gateBail = {
 									type: "app_changed",
@@ -1268,7 +1268,7 @@ export async function POST(req: Request) {
 
 					if (!claimedRun) {
 						/* Timed out still-busy, or the claim write itself faulted. Emit a
-						 * friendly close and end — nothing was claimed or reserved, so
+						 * friendly close and end: nothing was claimed or reserved, so
 						 * there is no window to restore and no charge to refund. The
 						 * `finally` still flushes (a no-op refund) + drains the log. */
 						if (claimError) {
@@ -1285,19 +1285,19 @@ export async function POST(req: Request) {
 								type: claimError ? "internal" : "generation_in_progress",
 								message: claimError
 									? "Couldn't start your request just now. Please try again shortly."
-									: `Still busy — ${await holderLabel()} is taking a while. Please try again in a moment.`,
+									: `Still busy: ${await holderLabel()} is taking a while. Please try again in a moment.`,
 								recoverable: false,
 							},
 							"route:serialize-wait-timeout",
 						);
-						/* Held nothing (never won the claim) — flush + log only, and do NOT
+						/* Held nothing (never won the claim): flush + log only, and do NOT
 						 * touch the marker/lock (the app is still held by the OTHER run). */
 						await persistBailedHistory();
 						await finalizeRun(undefined, { heldApp: false });
 						return;
 					}
 
-					/* Won the claim after waiting — the win arrived fully gated and
+					/* Won the claim after waiting: the win arrived fully gated and
 					 * reserved (the claim+reserve transaction is atomic). Tell the
 					 * accumulator so the flush-time refund/settle targets the right
 					 * period (the seed left these unset for the wait path). A free
@@ -1349,12 +1349,12 @@ export async function POST(req: Request) {
 					}
 				}
 
-				/* Paused-run resume re-acquire — UNIFORM across both modes. A
+				/* Paused-run resume re-acquire: UNIFORM across both modes. A
 				 * free-continuation resume of a paused run (build OR edit) must still OWN
 				 * that run AND renew its liveness horizon before proceeding: a paused run's
 				 * lease lapses while the user answers (no heartbeat during a pause), so it
 				 * may have been REAPED and the freed app claimed by another run.
-				 * `reacquireLease` does BOTH atomically — asserts ownership
+				 * `reacquireLease` does BOTH atomically: asserts ownership
 				 * (`runLeaseState().ownedByResume`, keyed on the resume's own mode), and on
 				 * success re-establishes the mode's horizon (edit → renew
 				 * `run_lock.expireAt`; build → re-arm `updated_at`) AND clears
@@ -1432,7 +1432,7 @@ export async function POST(req: Request) {
 						}
 						/* The lost shapes read very differently to the person answering, so
 						 * tell the truth per shape: "superseded" means another run actually
-						 * holds the app now — the requester's OWN newer request (a paused
+						 * holds the app now: the requester's OWN newer request (a paused
 						 * round the same actor's claim superseded) or a co-member's;
 						 * "released" means the run simply timed out waiting and a scan
 						 * reaped it (refund + free) with no re-claim. The holder read is a
@@ -1483,18 +1483,18 @@ export async function POST(req: Request) {
 				}
 
 				/* Every path past this point OWNS the run (pre-stream claim,
-				 * serialize-wait win, or re-acquired resume) — persist the turn onto
+				 * serialize-wait win, or re-acquired resume): persist the turn onto
 				 * its thread NOW: the full incoming history (already carrying the new
 				 * user turn / answered askQuestions parts) plus the live-stream marker
 				 * (`active_stream_id` = this POST's chunk-log stream). From this write
 				 * on, a page refresh hydrates the user's turn and reconnects to the
-				 * run by THREAD id. Rejection paths above never CLAIM the thread —
-				 * `run_id` and the live-stream marker stay the owning run's — but
+				 * run by THREAD id. Rejection paths above never CLAIM the thread:
+				 * `run_id` and the live-stream marker stay the owning run's, but
 				 * they do merge the incoming messages (`persistBailedHistory`) so an
 				 * answered question round survives the refresh their bail messages
 				 * recommend.
 				 * `false` means the id belongs to another app (the pre-stream guard
-				 * catches this before any claim; this is the structural backstop) —
+				 * catches this before any claim; this is the structural backstop):
 				 * surfaced as a failed run rather than silently streaming a
 				 * conversation that will never persist. A holder lost between claim
 				 * and this write throws after preserving any mergeable transcript; it
@@ -1537,7 +1537,7 @@ export async function POST(req: Request) {
 
 				/* Build the SA's working doc. For an existing app the seed is the
 				 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
-				 * no `fieldParent`), loaded off the authorization read above — never
+				 * no `fieldParent`), loaded off the authorization read above, never
 				 * shipped per-turn from the client. We deep-clone so in-flight
 				 * mutations never touch the loaded doc, then rebuild the
 				 * reverse-parent index the SA's mutation helpers rely on.
@@ -1563,7 +1563,7 @@ export async function POST(req: Request) {
 				const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
 					persistedSessionBlueprint as PersistableDoc,
 				);
-				/* Hydrate the reference index alongside — the SA's tool layer
+				/* Hydrate the reference index alongside: the SA's tool layer
 				 * answers "who references / declares X" through it (retirement
 				 * planning, rename verdicts, the rename cascade) from the first
 				 * tool call. */
@@ -1572,7 +1572,7 @@ export async function POST(req: Request) {
 				/* Persist the current request's user message as the first
 				 * conversation event of the run. Emitting through the context
 				 * (rather than directly via `logWriter.logEvent`) keeps seq
-				 * management inside a single counter — the context owns seq,
+				 * management inside a single counter: the context owns seq,
 				 * and every subsequent event (mutations, assistant text, tool
 				 * calls) naturally follows from seq=1.
 				 *
@@ -1597,7 +1597,7 @@ export async function POST(req: Request) {
 					 * conversation write: this call runs BEFORE the main try below, so an
 					 * escaping throw would skip the `finally` and leak the credit
 					 * reservation (no flush → no refund of a run that never started). A
-					 * failed user-message log is non-fatal to the request — log it and
+					 * failed user-message log is non-fatal to the request: log it and
 					 * proceed; the SA still runs and the reservation still finalizes. */
 					try {
 						ctx.emitConversation({
@@ -1612,15 +1612,15 @@ export async function POST(req: Request) {
 					/* The answered-askQuestions auto-resend: the last message is the
 					 * ASSISTANT message whose askQuestions tool part now carries the
 					 * user's answers as its output. The SA's own step handler only logs
-					 * results produced by live steps, and askQuestions has no execute —
-					 * its result exists only in this incoming history — so this is the
+					 * results produced by live steps, and askQuestions has no execute:
+					 * its result exists only in this incoming history, so this is the
 					 * one place the answers can be logged. Paired to the original
 					 * tool-call event by toolCallId.
 					 *
 					 * Only the FINAL step's parts are new this turn: consecutive
 					 * question rounds append to the same trailing assistant message
 					 * (`toUIMessageStream({ originalMessages })` continues it), so an
-					 * earlier round's answered part is still `output-available` here —
+					 * earlier round's answered part is still `output-available` here:
 					 * but it was harvested on the POST that answered IT. askQuestions
 					 * stalls its run, so an answered round always sits after the
 					 * message's last `step-start`; scoping to that suffix logs each
@@ -1654,7 +1654,7 @@ export async function POST(req: Request) {
 						}
 					}
 					if (answeredQuestions === 0) {
-						/* Defensive — a trailing assistant message should be an answered
+						/* Defensive: a trailing assistant message should be an answered
 						 * question round; a caller bypassing the client could send a
 						 * malformed history that would silently drop its event. Warn so
 						 * the skip is visible; the request still proceeds. */
@@ -1668,7 +1668,7 @@ export async function POST(req: Request) {
 				}
 
 				try {
-					/* Editing vs. build — determined by appReady alone. If the app
+					/* Editing vs. build: determined by appReady alone. If the app
 					 * exists (builder phase Ready/Completed), the SA gets the editing
 					 * prompt + medium reasoning effort; a build gets the build prompt
 					 * at the xhigh ceiling. This holds for the entire edit session,
@@ -1680,7 +1680,7 @@ export async function POST(req: Request) {
 
 					/* Backfill the accumulator seed now that we know the real
 					 * editing signals. These fields land on the per-run
-					 * summary doc via `usage.flush()` — replaces the deleted
+					 * summary doc via `usage.flush()`: replaces the deleted
 					 * `logger.logConfig` call (ConfigEvent removed in T3). */
 					usage.configureRun({
 						promptMode: editing ? "edit" : "build",
@@ -1690,13 +1690,13 @@ export async function POST(req: Request) {
 
 					const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
-					/* Start the wall-clock run-lease heartbeat now the run is live — an
+					/* Start the wall-clock run-lease heartbeat now the run is live, an
 					 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`
 					 * staleness clock. It guarantees a run that sits in a single long model
 					 * turn (or a long no-commit stretch) with no intermediate step-finish
 					 * still refreshes its liveness horizon, so a LIVE run can't lapse and
 					 * be reaped mid-run. Stopped in `finalizeRun` (the finally always runs
-					 * it — a paused run must stop beating so an abandoned pause lapses for
+					 * it: a paused run must stop beating so an abandoned pause lapses for
 					 * the reapers); the timer is `.unref()`ed so it never keeps the process
 					 * alive. */
 					ctx.startRunLeaseHeartbeat();
@@ -1705,7 +1705,7 @@ export async function POST(req: Request) {
 					 * expired-cache one-shot trim (edit + lapsed prompt cache → last user
 					 * message only) is retired: threads resume across page loads and
 					 * days now, and a resumed conversation the SA can't see isn't a
-					 * conversation. A cold-cache turn pays one cache re-write — the
+					 * conversation. A cold-cache turn pays one cache re-write: the
 					 * price of the chat behaving like a chat. */
 					const messagesToSend = messages;
 
@@ -1719,7 +1719,7 @@ export async function POST(req: Request) {
 					 * reservation) rather than escaping as an unhandled stream error.
 					 *
 					 * Bracket the resolve with `attachment-prep` lifecycle events so the
-					 * signal grid can show a "reading documents" status — but ONLY when a
+					 * signal grid can show a "reading documents" status, but ONLY when a
 					 * document still needs reading: an already-extracted doc resolves from
 					 * its stored extract instantly and must not flash the status (an image /
 					 * doc-free turn does no narrate-worthy work either). The events also land
@@ -1734,7 +1734,7 @@ export async function POST(req: Request) {
 					}
 					const preparedMessages = await resolveAttachments(
 						messagesToSend,
-						// The app's Project scopes attachment resolution — a chat document
+						// The app's Project scopes attachment resolution: a chat document
 						// lives in the Project it was uploaded under (the composer stamps
 						// it). Set in both the new-build + existing-app branches above;
 						// `loadedApp.project_id` is the existing-app fallback.
@@ -1742,7 +1742,7 @@ export async function POST(req: Request) {
 						ctx,
 						// Pulse the signal grid with real read progress while a
 						// not-yet-extracted document is read here. `transient` keeps these
-						// frequent parts off the persisted thread + event log — they're
+						// frequent parts off the persisted thread + event log: they're
 						// energy, not content. Fires only when the backstop actually runs the
 						// model (a reused eager extraction emits nothing); the "Reading your
 						// documents" status still shows either way.
@@ -1759,16 +1759,16 @@ export async function POST(req: Request) {
 
 					/* Repair deploy-crossing histories BEFORE validation: drop tool
 					 * parts naming a tool absent from THIS request's tool set (the
-					 * provider would reject the whole request — "tool not found in
+					 * provider would reject the whole request: "tool not found in
 					 * tools array") AND parts whose recorded input the current
 					 * schema no longer parses (a deploy that narrowed a `.strict()`
-					 * tool input — `validateUIMessages` below would throw,
+					 * tool input: `validateUIMessages` below would throw,
 					 * fail+refund the run, and re-poison every retry with the same
 					 * history). The full contract, the drop semantics, and the
 					 * validation mirror live on `sanitizeHistoricalToolParts`. The
 					 * repair runs on EVERY turn: every request sends full history,
 					 * and resumed threads routinely carry parts recorded under
-					 * earlier deploys — or under the OTHER tool set entirely (an
+					 * earlier deploys, or under the OTHER tool set entirely (an
 					 * edit turn continuing a build thread drops the generation-tool
 					 * parts; the dialogue survives). Keyed on `sa.tools` so
 					 * the filter never drifts from the active set. */
@@ -1779,10 +1779,10 @@ export async function POST(req: Request) {
 
 					/* Apply the reasoning-part wire contract AFTER the tool repair
 					 * (what pairing survives depends on which tool parts did):
-					 * historical assistant messages drop their reasoning parts —
+					 * historical assistant messages drop their reasoning parts:
 					 * prior-turn reasoning is ignored server-side, bills as input
 					 * every turn, and is model-bound (one model change would 400
-					 * every old thread) — while a trailing answered-askQuestions
+					 * every old thread), while a trailing answered-askQuestions
 					 * continuation keeps its reasoning (the wire REQUIRES it beside
 					 * the function call whose output this turn submits) unless the
 					 * pause crossed a model change, in which case the round rides as
@@ -1799,11 +1799,11 @@ export async function POST(req: Request) {
 					 * re-bill the static tail + the tool rendering + the history on
 					 * every doc-mutating turn. Appended after the full history, the
 					 * cached prefix survives through the previous user turn; the
-					 * re-billed suffix is the prior turn's response — which replay
-					 * re-bills regardless, since history drops its reasoning items —
+					 * re-billed suffix is the prior turn's response, which replay
+					 * re-bills regardless, since history drops its reasoning items:
 					 * plus this snapshot. Rendered from the same doc the SA booted
 					 * with, so it reflects builder-side and co-member edits the
-					 * conversation never saw. Ephemeral by construction — a
+					 * conversation never saw. Ephemeral by construction: a
 					 * ModelMessage appended past `validated` never reaches the thread
 					 * transcript, so each turn carries exactly one fresh snapshot. */
 					const appStateMessage = buildAppStateMessage(sessionDoc);
@@ -1812,7 +1812,7 @@ export async function POST(req: Request) {
 					 * log: how many messages were actually sent (after the sanitizer's
 					 * drops + the resolve, plus the app-state message) and their
 					 * serialized size. The system prompt is static, so this is the
-					 * variable part of the per-request input cost — the lever the
+					 * variable part of the per-request input cost: the lever the
 					 * cost investigation needs visibility into. */
 					usage.configureRun({
 						sentMessageCount:
@@ -1828,7 +1828,7 @@ export async function POST(req: Request) {
 					 * loop to its terminal state even with no reader, so a closed tab no
 					 * longer stalls the build via response backpressure and finalization keys
 					 * off the drain rather than the browser connection. The UIMessage handling
-					 * replicates `createAgentUIStream` exactly — validate against the SA's
+					 * replicates `createAgentUIStream` exactly: validate against the SA's
 					 * tools, convert to ModelMessages, and thread the validated set back as
 					 * `originalMessages` (the response-message-id continuity the client
 					 * relies on). */
@@ -1844,7 +1844,7 @@ export async function POST(req: Request) {
 						tools: sa.tools,
 					});
 					/* Mark the stable-prefix boundary (the message before the latest
-					 * user message) with an explicit cache breakpoint — GPT-5.6's
+					 * user message) with an explicit cache breakpoint: GPT-5.6's
 					 * implicit mode only auto-caches at the LATEST message, an entry
 					 * the next turn's changed tail can never match; the explicit
 					 * marker is what gives the next turn a readable entry. Full
@@ -1856,7 +1856,7 @@ export async function POST(req: Request) {
 					);
 					/* The full per-turn prompt: converted history, then the app-state
 					 * snapshot. A retry/redrive attempt REPLACES the
-					 * snapshot with the turn-retry continuation below — the
+					 * snapshot with the turn-retry continuation below: the
 					 * continuation embeds its own, fresher committed-state summary,
 					 * and the model must see exactly one authoritative snapshot (a
 					 * stale summary beside the fresh one invites re-planning against
@@ -1867,26 +1867,26 @@ export async function POST(req: Request) {
 
 					/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
 					 * provider fault mid-generation (a 500 halfway through a step, a
-					 * dropped provider connection) re-drives the SAME turn — same POST,
-					 * same claim + lease + charge, same open stream — instead of failing
+					 * dropped provider connection) re-drives the SAME turn: same POST,
+					 * same claim + lease + charge, same open stream: instead of failing
 					 * the run and making the user retry by hand. This is safe because it
 					 * IS the manual retry, performed early: every tool batch committed
 					 * inline before the failure (nothing is lost or replayed), the SA
 					 * continues against that committed doc, and the validity gate rejects
-					 * duplicate structural work at commit — the same guarantees a user's
+					 * duplicate structural work at commit: the same guarantees a user's
 					 * own re-send has always relied on. Non-transient failures
 					 * (`shouldRetryTurn`) and deauthorized runs never loop. Each retry
 					 * appends ONE continuation message carrying the committed-state
 					 * summary to the UNCHANGED base prompt (cache-friendly; never
 					 * stacked), and surfaces on the wire + event log as a RECOVERABLE
-					 * conversation event — visible in admin inspect, invisible as a
+					 * conversation event: visible in admin inspect, invisible as a
 					 * failure to the user. */
 					let pendingError: unknown;
 					let sawFatalError = false;
 					let turnRetries = 0;
 					/* Mirrors the client's part-lifetime state over the forwarded chunks
 					 * so a retried attempt can CLOSE the aborted attempt's dangling parts
-					 * (`closures()` below) — the client accumulates the whole response
+					 * (`closures()` below): the client accumulates the whole response
 					 * into one assistant message, so without explicit closure a text
 					 * part interrupted mid-stream renders stuck-streaming above the
 					 * retried answer, live and on every replay. */
@@ -1897,7 +1897,7 @@ export async function POST(req: Request) {
 						/* The attempt's `finish` chunk, held back until the retry decision:
 						 * whether an errored stream emits one is SDK-internal, and
 						 * forwarding attempt N's finish before re-running would put TWO
-						 * finish chunks on one response — the client finalizes on the
+						 * finish chunks on one response: the client finalizes on the
 						 * first. Written through on every non-retry exit, so a clean turn's
 						 * wire is byte-identical to before. */
 						let heldFinish: Parameters<typeof writer.write>[0] | undefined;
@@ -1907,7 +1907,7 @@ export async function POST(req: Request) {
 						 * transcript died with it), so without the committed-state message
 						 * the SA re-plans from the conversation and burns its early calls
 						 * re-creating work the validity gate then rejects. Same recovery
-						 * shape as the in-route retry — attempt-N's retry continuation
+						 * shape as the in-route retry: attempt-N's retry continuation
 						 * (built from the run's own latest commit) supersedes it. */
 						const continuation =
 							turnRetries > 0
@@ -1929,7 +1929,7 @@ export async function POST(req: Request) {
 						/* Drive the drain UN-awaited so the loop advances to its terminal state
 						 * even when the forward loop below stalls (client gone). Awaiting it
 						 * before forwarding would buffer the whole run and kill live streaming.
-						 * Swallow its rejection — a failure surfaces as the UI error chunk below,
+						 * Swallow its rejection: a failure surfaces as the UI error chunk below,
 						 * not as a thrown drain. */
 						const drained = Promise.resolve(result.consumeStream()).catch(
 							() => {},
@@ -1947,8 +1947,8 @@ export async function POST(req: Request) {
 						 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
 						 * chunk is dropped; tool-error chunks forward like any other. A gone
 						 * client never surfaces here: the durable writer absorbs the failed
-						 * live forward internally and keeps appending to the chunk log — which
-						 * is exactly what a later resume replays — so this loop runs to the
+						 * live forward internally and keeps appending to the chunk log, which
+						 * is exactly what a later resume replays, so this loop runs to the
 						 * stream's end either way (the catch is a last-resort guard). */
 						for await (const chunk of result.toUIMessageStream({
 							originalMessages: validated,
@@ -1956,7 +1956,7 @@ export async function POST(req: Request) {
 							 * `start` chunk into the client, the chunk log, and the thread
 							 * transcript). `sanitizeHistoricalReasoningParts` reads it on
 							 * later turns to decide whether a paused round's reasoning is
-							 * still replayable — encrypted reasoning is model-bound. */
+							 * still replayable: encrypted reasoning is model-bound. */
 							messageMetadata: ({ part }) =>
 								part.type === "start" ? { model: saModel } : undefined,
 							onError: (error) => {
@@ -1974,8 +1974,8 @@ export async function POST(req: Request) {
 							}
 							/* A retried attempt continues the SAME assistant message (the
 							 * client keeps one accumulating message per response), so its
-							 * fresh `start` — carrying a new message id that would strand
-							 * the first attempt's content under the old id — is dropped;
+							 * fresh `start`: carrying a new message id that would strand
+							 * the first attempt's content under the old id: is dropped;
 							 * everything else appends after the closures written below. */
 							if (chunk.type === "start" && turnRetries > 0) continue;
 							openParts.observe(chunk);
@@ -1990,13 +1990,13 @@ export async function POST(req: Request) {
 						 * state even if forwarding broke off early when the client left. */
 						await drained;
 
-						/* Clean, paused, or deauthorized — the post-loop arms own all three.
+						/* Clean, paused, or deauthorized: the post-loop arms own all three.
 						 * A deauthorized run must never re-drive (the retry would run more
 						 * gated commits as an actor who lost access), and neither must a
 						 * PAUSED one: `pausedOnInput` is a one-way latch, so an
 						 * askQuestions round that completed before a trailing transient
 						 * error must keep today's semantics (the failure funnel) rather
-						 * than carry a stale pause latch into a retried attempt — a clean
+						 * than carry a stale pause latch into a retried attempt: a clean
 						 * attempt 2 would then wrongly park a finished run as
 						 * awaiting-input. */
 						if (
@@ -2014,7 +2014,7 @@ export async function POST(req: Request) {
 								new Error("The generation stream ended in an error."),
 						);
 						if (!shouldRetryTurn(classified, turnRetries)) {
-							/* Exhausted or non-transient — the failure funnel takes it from
+							/* Exhausted or non-transient: the failure funnel takes it from
 							 * here. Restore the held finish first so the failing wire matches
 							 * the pre-retry-loop encoding exactly. */
 							if (heldFinish !== undefined) writer.write(heldFinish);
@@ -2023,14 +2023,14 @@ export async function POST(req: Request) {
 						turnRetries += 1;
 						/* Close the aborted attempt's dangling parts BEFORE anything else
 						 * lands on the wire: the transcript then reads as a step that
-						 * stopped cleanly, followed by the retried step — nothing stuck
+						 * stopped cleanly, followed by the retried step: nothing stuck
 						 * in a streaming state, live or on replay. (The held finish is
-						 * deliberately discarded — the message is not done.) */
+						 * deliberately discarded: the message is not done.) */
 						for (const closure of openParts.closures()) {
 							writer.write(closure);
 						}
 						/* Recoverable, not fatal: renders as a warning in the signal panel
-						 * and lands in the event log with the REAL classified type — the
+						 * and lands in the event log with the REAL classified type, the
 						 * admin-inspect breadcrumb for diagnosing in-flight provider
 						 * faults. The user-facing message says work is preserved. */
 						ctx.emitError(
@@ -2044,7 +2044,7 @@ export async function POST(req: Request) {
 
 					/* A guarded commit that observed revoked access or a moved Project is
 					 * a FATAL run failure that must take
-					 * precedence over the clean-completion writers (`completeAndSettleRun` / `clearRunLockAndSettle`) / `awaiting_input` / the edit arm — a
+					 * precedence over the clean-completion writers (`completeAndSettleRun` / `clearRunLockAndSettle`) / `awaiting_input` / the edit arm, a
 					 * stale-scope run must refund and end in `error`, never report
 					 * success and keep its charge. The AI SDK turns the tool `execute()`
 					 * throw into a NON-fatal chunk (so `sawFatalError` stays false), which
@@ -2107,12 +2107,12 @@ export async function POST(req: Request) {
 					} else if (editing) {
 						/* Tripwire, not a gate: with every committed batch gated against
 						 * introducing findings, an edit run that ends with a NEW
-						 * completeness finding is unreachable except through a bug — the
+						 * completeness finding is unreachable except through a bug, the
 						 * warn is how one would surface in production. */
 						ctx.warnIfEditRunIncomplete();
 						/* An edit run can land case-type records (`generateSchema`
 						 * declaring a new type), and the chat surface's inline guarded
-						 * commits never touch Postgres — so sync the case-store schemas
+						 * commits never touch Postgres, so sync the case-store schemas
 						 * here, the same "any case-store action after a commit sees a
 						 * synced schema" contract the build arm holds. Idempotent upsert;
 						 * `materializeCaseStoreSchemas` swallows a TRANSIENT blip and
@@ -2120,14 +2120,14 @@ export async function POST(req: Request) {
 						 * does NOT fail the run on that throw: the edit's blueprint already
 						 * committed (awaited, durable) and its 5-credit charge stands, so a
 						 * deterministic schema fault is logged at `error` (Sentry-visible)
-						 * but the run stays successful — the case-store consumers self-heal
+						 * but the run stays successful: the case-store consumers self-heal
 						 * a MISSING (`SchemaNotSyncedError`) / STALE-drift
 						 * (`CasePropertiesValidationError` with `additionalProperty`) row at
 						 * the point of use (`withSchemaHeal`). */
 						const editDoc = ctx.latestPersistedDoc();
 						if (editDoc) {
 							// Every commit was awaited inline through `commitGuardedBatch`,
-							// so `latestPersistedDoc()` is already durable — no save chain
+							// so `latestPersistedDoc()` is already durable: no save chain
 							// to drain. `syncedSeq` is the committed seq of THAT doc (feeds
 							// the monotone `synced_seq` gate, so a concurrent additive sync
 							// converges rather than clobbers).
@@ -2145,18 +2145,18 @@ export async function POST(req: Request) {
 							}
 						}
 					} else {
-						/* BUILD finalization — the drain ended cleanly, so the run is
+						/* BUILD finalization: the drain ended cleanly, so the run is
 						 * done and the app is at rest. There is no finishing tool: the
 						 * route owns the two finishing moves, in this order.
 						 *
 						 *  1. Materialize the case-store schemas for whatever the run
-						 *     persisted (awaited) — a user-initiated case-store action
+						 *     persisted (awaited): a user-initiated case-store action
 						 *     sub-second after the celebration (sample-data populate,
 						 *     form submit, live preview) must see a synced Postgres
 						 *     schema. The case-store consumers don't gate on status, so
 						 *     this MUST precede `data-done`. Every commit was awaited
 						 *     inline through `commitGuardedBatch`, so the stored blueprint
-						 *     is already the run's final snapshot — no save chain to drain.
+						 *     is already the run's final snapshot: no save chain to drain.
 						 *  2. Flip `generating → complete` AND settle the kept charge in
 						 *     ONE transaction (`completeAndSettleRun`), then emit `data-done`,
 						 *     the celebration + doc-reconciliation signal. The atomicity is
@@ -2169,12 +2169,12 @@ export async function POST(req: Request) {
 						 *     editor.
 						 *
 						 * A run that persisted nothing (a purely conversational build
-						 * turn) still flips to complete — its canonical starter remains
-						 * the valid persisted app and status never feeds gating — but
+						 * turn) still flips to complete, its canonical starter remains
+						 * the valid persisted app and status never feeds gating, but
 						 * emits no `data-done`: the SA changed nothing, so there is
 						 * nothing to celebrate or reconcile.
 						 *
-						 * A throw out of any step funnels through `failRun` — the same
+						 * A throw out of any step funnels through `failRun`: the same
 						 * infrastructure arm a mid-run fault takes (the app flips to
 						 * `error`, the reservation refunds, the user sees the classified
 						 * error). */
@@ -2182,12 +2182,12 @@ export async function POST(req: Request) {
 							const finalDoc = ctx.latestPersistedDoc();
 							const finalSeq = ctx.latestCommittedSeq();
 							if (finalDoc) {
-								// `syncedSeq` is the committed seq of THIS doc — feeds the
+								// `syncedSeq` is the committed seq of THIS doc: feeds the
 								// monotone `synced_seq` gate so a concurrent additive sync
 								// converges. `materializeCaseStoreSchemas` swallows a
 								// TRANSIENT per-type blip (`warn`; the point-of-use
 								// `withSchemaHeal` closes the gap) but RETHROWS a
-								// DETERMINISTIC fault — that throw funnels through the
+								// DETERMINISTIC fault: that throw funnels through the
 								// `failRun` below, so a build never completes-and-charges
 								// over a permanently-unusable schema.
 								await materializeCaseStoreSchemas({
@@ -2223,13 +2223,13 @@ export async function POST(req: Request) {
 				} finally {
 					/* The single finalize call for the CLEAN path (the charge stands;
 					 * `flush()` still refunds a zero-cost run on its own gating). On a failed
-					 * run this is a no-op — `failRun` already finalized. Awaited so the
+					 * run this is a no-op: `failRun` already finalized. Awaited so the
 					 * response can't resolve before persistence lands; Cloud Run can kill the
 					 * container the instant the final byte is written.
 					 *
 					 * Thread `paused`: a run that paused on `askQuestions` is alive (a later
 					 * POST resumes it), so its kept charge must NOT settle and its edit
-					 * `run_lock` must NOT release here — its marker is a live hold the
+					 * `run_lock` must NOT release here, its marker is a live hold the
 					 * resume's failure funnel may still refund, and its lock is held for the
 					 * resume. `ctx.pausedOnInput()` is the same signal the paused arm above
 					 * keys on. */
@@ -2237,9 +2237,9 @@ export async function POST(req: Request) {
 				}
 			} finally {
 				/* Last-resort safety net for a throw in the execute PRELUDE (before
-				 * the main try) that skips `finalizeRun` — e.g. the serialize-wait /
+				 * the main try) that skips `finalizeRun`: e.g. the serialize-wait /
 				 * reacquire / thread-upsert / seed-build stretch. It lives in
-				 * execute's OWN `finally` — never an SDK `onEnd`/`onFinish`, which
+				 * execute's OWN `finally`: never an SDK `onEnd`/`onFinish`, which
 				 * also fire on client cancel and would run this teardown against a
 				 * live run mid-refresh (see the disconnect-handling note above the
 				 * stream). On every path that DID finalize it degrades to no-ops:
@@ -2254,16 +2254,16 @@ export async function POST(req: Request) {
 				await writer.close().catch(() => {});
 				/* Flush next: a prelude-throw edit's `flush()` refunds+SETTLES its
 				 * marker (zero-cost run), so the run-lock release below never leaves the
-				 * app lock-absent-while-unsettled — the same "clear the lock only once
+				 * app lock-absent-while-unsettled: the same "clear the lock only once
 				 * the marker is settled" invariant the failure funnel upholds. Awaited
 				 * (not fire-and-forget) so the settle precedes the clear. */
 				await usage.flush().catch(() => {});
 				void logWriter.flush();
 				/* A prelude throw AFTER an EDIT claimed the `run_lock` would otherwise
-				 * strand that lock until its 15-min lease — locking the whole shared app
+				 * strand that lock until its 15-min lease: locking the whole shared app
 				 * for every other member (RunConflictError → the 120s wait → "still
 				 * busy"). Release it, but ONLY when `finalizeRun` never ran (the
-				 * prelude-throw case) — a run that DID finalize already made the right
+				 * prelude-throw case): a run that DID finalize already made the right
 				 * lock decision, and a PAUSED edit deliberately keeps its lock. Also
 				 * exact-holder gated on this run's `runId` INSIDE the app-row-locked
 				 * clear: a superseded/taken-over app now carries a co-member's lock this
@@ -2276,7 +2276,7 @@ export async function POST(req: Request) {
 			}
 		},
 		onError: (error) => {
-			// Safety net — a model error is surfaced to the user as an error
+			// Safety net: a model error is surfaced to the user as an error
 			// conversation event via `ctx.emitError` in the execute block; this only
 			// catches an unexpected throw out of `execute` itself.
 			log.error("[chat] stream error", error);
