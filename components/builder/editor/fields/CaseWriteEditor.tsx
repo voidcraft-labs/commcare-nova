@@ -439,7 +439,7 @@ export function CaseWriteEditor<F extends Field>(
 
 			{context !== null && writableTypes.length === 0 && (
 				<p className="text-[13px] leading-5 text-nova-text-muted">
-					This form does not save case data.
+					No case type is available here yet.
 				</p>
 			)}
 

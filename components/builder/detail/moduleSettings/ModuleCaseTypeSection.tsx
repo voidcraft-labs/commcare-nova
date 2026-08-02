@@ -131,8 +131,11 @@ export function ModuleCaseTypeSection({
 						setClearOpen(true);
 					}}
 				/>
+				{/* The section label and the picker's own placeholder both already
+				    name the choice, so this line says what CHOOSING one gets you
+				    rather than asking for it a third time in one block. */}
 				<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
-					Choose the kind of case this module works with
+					Forms here can then read and save that case's data
 				</p>
 				{error && (
 					<p

@@ -39,7 +39,12 @@ const buttonVariants = cva(
 				secondary: "nova-keycap nova-keycap-surface",
 				// The quiet page-level action (the calm sibling of the primary
 				// CTA): violet-wash crown on the bright border.
-				outline: "nova-keycap nova-keycap-outline border-nova-border-bright",
+				/* Rests on the DEFAULT hairline and brightens on hover.
+				 * `--nova-border-bright` is the hover/focus edge, so resting
+				 * there reads as permanently hovered and leaves hover with
+				 * nothing left to say. */
+				outline:
+					"nova-keycap nova-keycap-outline border-nova-border not-disabled:hover:border-nova-border-bright",
 				// Tinted rose keycap with rose text: calm, not alarming.
 				destructive: "nova-keycap nova-keycap-rose",
 				// Amber keycap, dusk text (light accents carry dark text).

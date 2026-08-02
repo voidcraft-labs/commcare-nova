@@ -120,10 +120,10 @@ function PendingSection({
 }) {
 	return (
 		<section aria-labelledby={`app-setup-${section}-heading`}>
-			<h2
-				id={`app-setup-${section}-heading`}
-				className="text-base font-semibold text-nova-text"
-			>
+			{/* Named three times in 135px: breadcrumb, selected tab, heading.
+			    The tab already carries current-screen semantics, so this stays
+			    as the section's accessible name and leaves the eye alone. */}
+			<h2 id={`app-setup-${section}-heading`} className="sr-only">
 				{APP_SETUP_SECTION_LABELS[section]}
 			</h2>
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">

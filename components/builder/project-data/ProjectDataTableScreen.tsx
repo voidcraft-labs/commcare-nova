@@ -144,7 +144,7 @@ export function ProjectDataTableScreen() {
 			</h1>
 			<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
 				{formatLookupCount(table.columns.length, "column")} ·{" "}
-				{formatLookupCount(table.rowCount, "row")} of{" "}
+				{table.rowCount.toLocaleString()} of{" "}
 				{formatLookupCount(capacity.rowLimit, "row")} ·{" "}
 				{formatLookupBytes(table.dataBytes)} of{" "}
 				{formatLookupBytes(capacity.byteLimit)}

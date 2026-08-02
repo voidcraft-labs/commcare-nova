@@ -223,7 +223,7 @@ export function CommCareSettings({
 						CommCare HQ
 					</h2>
 					<p className="text-xs text-nova-text-muted">
-						Upload apps directly from Nova
+						Publish apps directly from Nova
 					</p>
 				</div>
 
