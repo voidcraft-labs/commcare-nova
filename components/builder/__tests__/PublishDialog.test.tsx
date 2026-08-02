@@ -135,6 +135,15 @@ describe("PublishDialog", () => {
 			name: "Publish option",
 		});
 		expect(publishOption.textContent).toContain("CommCare HQ");
+		const selectedValueRow = publishOption.querySelector(
+			"[data-slot=select-value] > span",
+		);
+		expect(selectedValueRow?.classList.contains("whitespace-nowrap")).toBe(
+			true,
+		);
+		expect(
+			selectedValueRow?.querySelector("span")?.classList.contains("truncate"),
+		).toBe(true);
 		const publishDescriptionId = publishOption.getAttribute("aria-describedby");
 		expect(publishDescriptionId).toBe("publish-target-description");
 		expect(

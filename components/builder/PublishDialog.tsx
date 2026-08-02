@@ -460,9 +460,11 @@ export function PublishDialog({
 									aria-labelledby="publish-target-label"
 									aria-describedby="publish-target-description"
 								>
-									<SelectValue>
-										<Icon icon={targetOption.icon} className="size-4" />
-										{targetOption.label}
+									<SelectValue className="min-w-0">
+										<span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+											<Icon icon={targetOption.icon} className="size-4" />
+											<span className="truncate">{targetOption.label}</span>
+										</span>
 									</SelectValue>
 								</SelectTrigger>
 								<SelectContent align="start">
