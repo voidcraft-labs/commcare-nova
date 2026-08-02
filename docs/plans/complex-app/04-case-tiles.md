@@ -40,10 +40,11 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
   (`models/case_list.py::CaseTileGroupConfig.header_rows`) — so Nova always
   emits the attribute explicitly; relying on either default silently halves or
   doubles the header depending on which side you read. **Three of the four
-  `<group>` fixtures in the checkouts misspell it `grid-header-rows`** —
+  `<group>` fixtures in the source trees misspell it `grid-header-rows`** —
   `commcare-core/src/test/resources/app_structure/suite.xml` and
   `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
-  among them, plus vendored/build copies — which parses as an unknown attribute
+  among them (the vendored and build copies duplicate these same files) —
+  which parses as an unknown attribute
   and silently takes the default, so those fixtures prove nothing about
   header-row behavior; do not copy that spelling. The one correctly-spelled
   fixture, and therefore the byte oracle this unit asserts against, is

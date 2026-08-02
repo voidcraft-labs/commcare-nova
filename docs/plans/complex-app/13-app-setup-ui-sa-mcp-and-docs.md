@@ -1,4 +1,4 @@
-# Unit 13 — App setup's remaining sections, SA, MCP, and docs
+# Unit 13 — App setup UI, SA, MCP, and docs
 
 **PR:** `App setup: organization, automations, and deployment`
 

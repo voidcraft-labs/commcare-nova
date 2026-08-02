@@ -83,8 +83,9 @@ enums, with the module/case-list family and the form family separately closed.
 There is no placeholder identity anywhere: a constructor with no eligible
 target is unavailable rather than seeded with an empty or fixture UUID, and a
 source tripwire (`lib/domain/__tests__/authoredIdentitySourceTripwire.test.ts`)
-fails the build on `asUuid("")`, an `as Uuid`-family assertion, or a
-hard-coded authored UUID in production roots.
+fails the build on `asUuid("")` (the parse-and-throw narrowing helper), an
+`as Uuid`-family assertion, or a hard-coded authored UUID in production
+roots — narrowing helpers validate, they do not cast.
 
 **Topology is closed as well as typed.**
 `lib/domain/blueprint.ts::blueprintTopologyIssues` is the one closure proof:
@@ -407,23 +408,26 @@ The form-condition evaluation locus for a case-first module is the case-list
 screen after selection — including suppressing the single-form auto-continue;
 the module screen's form list is a gating site only for the forms-first flow.
 That locus is a product requirement as well as a validator rule, because it
-decides what the editor may offer: `CaseDataScope` is `per-case`,
-`selected-case` (one chosen case's own properties — relationship walks,
-counts, and presence tests withheld with the scope's own explanation), or
-`global`. A module condition and a forms-first form condition are `global`; a
-case-first form condition is `selected-case`. `PredicateEditProvider` composes
-the matching admission oracle in front of any caller oracle, so no surface can
-silently offer a read the commit gate would reject.
+decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
+and their relatives), `selected-case` (one chosen case's own properties —
+relationship walks, counts, and presence tests withheld with the scope's own
+explanation), or `global` (no case at all). A module condition and a
+forms-first form condition are `global`; a case-first form condition is
+`selected-case`. `PredicateEditProvider` composes the matching admission
+oracle in front of any caller oracle, so no surface can silently offer a read
+the commit gate would reject.
 
-A second, independent axis governs **Never match**: `allowsNeverMatch` stands
-apart from `CaseDataScope` because the always-false shape
-`DISPLAY_CONDITION_ALWAYS_FALSE` refuses on a navigation condition is
+A second, independent axis governs **Never match**.
+`DISPLAY_CONDITION_ALWAYS_FALSE` refuses a navigation condition nobody could
+satisfy, so the editor withholds `match-none` there — but the same shape is
 legitimate authored data in the Search-action carrier, which shares the
-`global` scope. A saved `match-none` always renders and re-emits — the flag
-governs the add and replace menus, never round-tripping. Every *single* choice
-the editors offer is admissible, but "can never match" is a property of the
-whole tree, so the condition canvas commits through the inline gate flavor and
-shows a refusal beside the rule.
+`global` scope, so `allowsNeverMatch` is its own axis rather than a reading of
+the scope. A saved `match-none` always renders and re-emits — the flag governs
+the add and replace menus, never round-tripping. Every *single* choice the
+editors offer is admissible, but "can never match" is a property of the whole
+tree — an author can still compose one deliberately by excluding an
+always-true rule — so the condition canvas commits through the inline gate
+flavor and shows a refusal beside the rule.
 
 Display conditions are UX, not access control: a deep link with
 `respect-relevancy="false"` traverses menus and cases that conditions would
@@ -543,10 +547,13 @@ and write-property/link-identifier sets through the batch, rejecting
 peer-deleted targets and same-key peer adds instead of allowing a total
 reducer no-op to report success. No tool-side slug/path/id projection or
 rewrite layer exists. The operation id, write property, and link identifier
-vocabularies share their validator-owned grammar with the builder and tool
-schemas (ASCII letters, digits, underscores; a write property starts with a
-letter), so action-illegal facet combinations, platform-owned case types, and
-reserved write properties are unconstructible at the shared tool boundary.
+vocabularies share one domain-owned grammar
+(`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
+tool schemas — ASCII letters, digits, and underscores throughout; an operation
+id or link identifier starts with a letter or underscore, a write property
+with a letter only — so action-illegal facet combinations, platform-owned case
+types, and reserved write properties are unconstructible at the shared tool
+boundary.
 
 Lookup-backed predicates and expressions use that same complete canonical AST
 on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
@@ -923,10 +930,8 @@ hardcoded profile-image cell and a literal `m0-f0` registration action. Layout
 presets are builder gestures that fill per-column placement; there is no template
 slug in the schema, so a preset and a hand-drawn layout take one wire path. HQ's
 regeneration is not toggle-gated — `suite_xml/sections/details.py::DetailContributor.build_detail`
-fires `CaseTileHelper` on a bare truthiness check of `detail.case_tile_template`,
-and `feature_support.py::CommCareFeatureSupportMixin.supports_grouped_case_tiles`
-gates only HQ's own authoring template — so an uploaded Nova tile emits on any
-domain with no setup artifact first.
+fires `CaseTileHelper` on a bare truthiness check of `detail.case_tile_template`
+— so an uploaded Nova tile emits on any domain with no setup artifact first.
 
 The wire facts that shape the emitter:
 
@@ -1106,8 +1111,8 @@ cloudcare — `entry_file.html` binds only `accept` on its file input, and
 signature is the OS file picker. CommCare Android is the contrast, and that
 contrast is a docs fact rather than a Nova behavior.
 
-`lib/commcare/validator/rules/form.ts::mediaCaseProperty` keeps rejecting a
-capture kind carrying `caseWrite`, and `formActions.ts` skips capture
+`lib/commcare/validator/rules/form.ts` rejects a capture kind carrying
+`caseWrite` (`MEDIA_CASE_PROPERTY`), and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
 inseparable from emitting its URL column, so the two ship together (unit 6).
 
@@ -1141,12 +1146,11 @@ a consumer must still not assume a capture answer splits on a dot, because a
 submission that went through Formplayer can carry it.
 
 **Accepted means the bytes are already durable.** Before any case effect, the
-server builds capture authority from the authorized committed document, locks
-the entry, validates the selected rows against that server-built intent, and
-moves them from `staged` to `preparing`; only then may a bounded worker copy
-each immutable, generation-pinned source to its deterministic create-only
-durable key, verifying size, CRC32C, content type, and concrete generation
-before recording `prepared`. The later case-store transaction independently
+server builds capture authority from the authorized committed document and
+moves the selected rows to `preparing`; a row reaches `prepared` only after
+its bytes are verified at a durable key outside the staging TTL's reach
+(`lib/db/CLAUDE.md` owns the copy-and-verify mechanics). The case-store
+transaction independently
 requires every selected row to be `prepared`, applies every case effect, and
 stores the replay result atomically — a case failure rolls back to `prepared`,
 a matching retry returns the stored result, and a different payload under the
@@ -1274,10 +1278,11 @@ units never renumber.
 · depends on nothing · blocks nothing
 
 Group a child case list under its shared parent, with the header rows drawn from
-the group's first case. **The file holds** the `header-rows` attribute and the
-core fixture that misspells it, the companion entry datum, why grouping must
-happen at the data layer rather than after a page is fetched, and why the group
-key must be a real case index.
+the group's first case. **The file holds** the `header-rows` attribute, which
+fixtures misspell it and the one that is therefore the real byte oracle, the
+companion entry datum, why grouping must happen at the data layer rather than
+after a page is fetched, and why Nova narrows the group key to a case index — a
+Nova choice, not a platform rule.
 
 ### 6 — Attachment target-aware emission and link UX
 
@@ -1406,13 +1411,13 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
-| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
+| [6 attachment emission and link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
 | [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
 | [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
 | [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
-| [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
+| [13 App setup UI, SA, MCP, and docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
 | [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
 | [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
@@ -1423,7 +1428,7 @@ Three units have no outstanding prerequisites and can start in any order: 4,
 from one of them.
 
 The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates
-units 6, 13, and 16, so anything needing a real HQ target waits on it. The
+units 6, 13, 16, and 17, so anything needing a real HQ target waits on it. The
 navigation chain (14 → 15) runs independently until unit 16, which needs both.
 
 Units 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
@@ -1437,7 +1442,7 @@ it, so it can follow unit 8 without holding up unit 11.
 
 ## Keeping these files honest
 
-These files change in the same PR as the behavior they describe. Five rules:
+These files change in the same PR as the behavior they describe. The rules:
 
 - **Present tense only.** Describe what the system does. If a sentence needs a
   date, a PR number, a revision, or a branch name to make sense, it belongs in the

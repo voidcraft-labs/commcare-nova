@@ -264,6 +264,15 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
  * `::CouchUser._get_user_type` returns it for every mobile worker. Nova
  * provisions mobile workers only, so the value is knowable rather than
  * invented.
+ *
+ * HQ has THREE same-named `COMMCARE_USER` constants with three different
+ * values, and this one deliberately matches only the first:
+ * `users/models.py::COMMCARE_USER` = `'commcare'` (this value),
+ * `UserFieldsView.COMMCARE_USER` = `'commcare_user'` (the spelling
+ * `required_for` uses to name the mobile-worker user type), and
+ * `change_feed/topics.py::COMMCARE_USER` = `'commcare-user'` (a change-feed
+ * topic). The spellings genuinely differ per context — "fixing" one to match
+ * another breaks the side that reads it.
  */
 export const COMMCARE_MOBILE_WORKER_USER_TYPE = "commcare";
 

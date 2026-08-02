@@ -20,14 +20,13 @@ unit 12), and automations. It regenerates from the document on every export behi
 a push port.
 
 Its user-data half is already modeled. Each authored user property renders one
-`Field` row on the target domain's `UserFields` definition, and `required_for` is
-`["commcare_user"]`: HQ enforces `is_required` only when the pushed field's
-`required_for` names the user type being created
-(`custom_data_fields/edit_model.py::UserFieldsView.is_field_required`), and Nova
-provisions mobile workers only. Whether a given persona actually satisfies a
-required property is deliberately **not** a document finding — it depends on the
-target, and gating the document on it would make marking an existing property
-required impossible. It is a preflight check here.
+`Field` row on the target domain's `UserFields` definition, and `required_for`
+is `["commcare_user"]`, because Nova provisions mobile workers only. Whether a
+given persona actually satisfies a required property is deliberately **not** a
+document finding — it depends on the target, and
+[what is built](../complex-app-plan.md#user-properties-user-types-and-preview-personas)
+holds the enforcement site, including the same-named HQ function that is the
+wrong one to read. It is a preflight check here.
 
 Two other target-dependent values are absent from Preview until this unit
 supplies them, and the authoring surface already says so: `commcare_project` (the
