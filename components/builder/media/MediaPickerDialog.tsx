@@ -494,7 +494,9 @@ function PickerBody({
 		<>
 			<header className="flex shrink-0 items-start justify-between gap-4 border-b border-nova-border px-5 py-4">
 				<div className="min-w-0 space-y-1">
-					<DialogTitle className="font-display">{title}</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						{title}
+					</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</div>
 				<DialogClose
@@ -1294,7 +1296,7 @@ function MediaDeleteConfirmDialog({
 		>
 			<AlertDialogContent className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						This file will be deleted
 					</AlertDialogTitle>
 					<AlertDialogDescription>

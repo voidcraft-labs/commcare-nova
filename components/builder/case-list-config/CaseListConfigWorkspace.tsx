@@ -2292,7 +2292,7 @@ function ColumnInspectorBody({
 			<AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Delete {columnDisplayLabel(column)}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>{deleteDescription}</AlertDialogDescription>
@@ -2447,7 +2447,7 @@ function SearchInputInspectorBody({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							This field is used in other rules
 						</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -2503,7 +2503,7 @@ function SearchInputInspectorBody({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Remove the last Search field?
 						</AlertDialogTitle>
 						<AlertDialogDescription>

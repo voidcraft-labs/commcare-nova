@@ -56,8 +56,17 @@ const ANCESTOR_CLASS = `${SEGMENT_BASE} shrink-0 whitespace-nowrap text-nova-tex
 
 /** Current segment: bright text, non-interactive. It owns the flexible slot
  * and truncates before it can paint underneath contextual actions at the end
- * of the strip (Case data, presence, etc.). */
-const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-nova-text cursor-default`;
+ * of the strip (Case data, presence, etc.).
+ *
+ * The ellipsis lives on the inner span, not here: `text-overflow` applies to a
+ * block container with inline content and does nothing on a flex container, so
+ * declaring it alongside `SEGMENT_BASE`'s `flex` clipped the name mid-word
+ * instead. This element keeps the flex box for the 44px height and the
+ * vertical centring; `CURRENT_LABEL_CLASS` does the truncating. */
+const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden whitespace-nowrap text-nova-text cursor-default`;
+
+/** The text inside the current segment: a block, so the ellipsis renders. */
+const CURRENT_LABEL_CLASS = "min-w-0 truncate";
 
 /** Current-location text is ordinarily inert. It becomes a keyboard-accessible
  * tooltip trigger only when the bar actually clips it; a static breadcrumb that
@@ -108,7 +117,7 @@ function CurrentBreadcrumbSegment({ label }: { label: string }) {
 					/>
 				}
 			>
-				{label}
+				<span className={CURRENT_LABEL_CLASS}>{label}</span>
 			</TooltipTrigger>
 			<TooltipContent side="bottom">{label}</TooltipContent>
 		</Tooltip>

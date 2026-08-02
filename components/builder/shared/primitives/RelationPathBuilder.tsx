@@ -716,7 +716,7 @@ export function RelationPathBuilder({
 			>
 				<AlertDialogContent finalFocus={kindTriggerRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{pendingKindChangeCopy?.title ?? "Change where this value looks?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
@@ -757,7 +757,7 @@ export function RelationPathBuilder({
 			>
 				<DialogContent finalFocus={kindTriggerRef} className="text-left">
 					<DialogHeader>
-						<DialogTitle className="font-display">
+						<DialogTitle className="font-display tracking-tighter">
 							Use a saved connection
 						</DialogTitle>
 						<DialogDescription className="text-left">
@@ -1171,7 +1171,7 @@ function AncestorSteps({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Remove this connection?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">

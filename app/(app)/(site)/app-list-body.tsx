@@ -79,7 +79,7 @@ export function AppListBody({
 				) : (
 					<ul className="grid gap-3">
 						{active.map((app, i) => (
-							<li key={app.id}>
+							<li key={app.id} className="min-w-0">
 								<AppCard
 									app={app}
 									index={i}
@@ -96,7 +96,7 @@ export function AppListBody({
 			) : (
 				<ul className="grid gap-3">
 					{deleted.map((app, i) => (
-						<li key={app.id}>
+						<li key={app.id} className="min-w-0">
 							<DeletedAppCard
 								app={app}
 								index={i}

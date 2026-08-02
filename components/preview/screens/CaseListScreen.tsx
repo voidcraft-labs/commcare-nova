@@ -905,7 +905,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						/>
 						<div
 							data-search-pane-title
-							className="min-w-0 flex-1 whitespace-normal break-words font-display text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
+							className="min-w-0 flex-1 whitespace-normal break-words font-display tracking-tighter text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
 						>
 							{title}
 						</div>

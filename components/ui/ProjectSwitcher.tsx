@@ -163,7 +163,7 @@ export function ProjectSwitcher({
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
+					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
 						<div style={{ minWidth: "248px" }}>
 							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium text-nova-text-muted">
 								Projects

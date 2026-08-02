@@ -568,7 +568,7 @@ function Section({
 		<section className="mb-6 rounded-2xl border border-white/[0.08] bg-nova-surface/25 p-4 @sm:p-5">
 			<div className="mb-4 flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
-					<h2 className="font-display text-[17px] font-semibold text-nova-text">
+					<h2 className="font-display tracking-tighter text-[17px] font-semibold text-nova-text">
 						{title}
 					</h2>
 					<p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-nova-text-muted">

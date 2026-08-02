@@ -817,7 +817,7 @@ function WelcomeIntro() {
 						initial={{ opacity: 0, y: 6 }}
 						animate={{ opacity: 1, y: 0 }}
 						transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-						className="text-lg font-display font-medium text-nova-text"
+						className="text-lg font-display tracking-tighter font-medium text-nova-text"
 					>
 						What would you like to build?
 					</motion.h1>

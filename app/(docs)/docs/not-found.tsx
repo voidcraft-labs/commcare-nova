@@ -11,7 +11,7 @@ export default function DocsNotFound() {
 	return (
 		<main className="flex flex-col items-center justify-center gap-4 px-6 py-24 text-center">
 			<p className="text-sm text-fd-muted-foreground">404</p>
-			<h1 className="font-display text-3xl text-fd-foreground">
+			<h1 className="font-display tracking-tighter text-3xl text-fd-foreground">
 				I couldn&rsquo;t find that page
 			</h1>
 			<p className="max-w-md text-fd-muted-foreground">

@@ -161,7 +161,7 @@ export function SearchableChoiceCombobox<T>({
 				<header className="flex shrink-0 items-start gap-2 px-3 pb-2.5 pt-3">
 					{headerAction?.(() => setQuery(""))}
 					<div className="min-w-0">
-						<h3 className="font-display text-[15px] font-semibold text-nova-text">
+						<h3 className="font-display tracking-tighter text-[15px] font-semibold text-nova-text">
 							{heading}
 						</h3>
 						{description !== undefined && (

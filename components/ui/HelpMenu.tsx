@@ -67,14 +67,14 @@ export function HelpMenu() {
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
+					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
 						<div style={{ minWidth: "200px" }}>
 							<Link
 								href={DOCS_HREF}
 								target="_blank"
 								rel="noopener noreferrer"
 								onClick={() => setOpen(false)}
-								className={`${ITEM_CLS} rounded-t-xl`}
+								className={`${ITEM_CLS}`}
 							>
 								<Icon
 									icon={tablerBook}
@@ -95,7 +95,7 @@ export function HelpMenu() {
 								target="_blank"
 								rel="noopener noreferrer"
 								onClick={() => setOpen(false)}
-								className={`${ITEM_CLS} rounded-b-xl`}
+								className={`${ITEM_CLS}`}
 							>
 								<Icon
 									icon={tablerMessage}

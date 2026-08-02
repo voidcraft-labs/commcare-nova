@@ -378,7 +378,7 @@ export function ExpressionPicker({
 						className="text-left"
 					>
 						<AlertDialogHeader>
-							<AlertDialogTitle className="font-display">
+							<AlertDialogTitle className="font-display tracking-tighter">
 								Use “
 								{pendingTermReplacement?.target.label ?? "a calculated value"}”
 								instead?
@@ -803,7 +803,7 @@ function KindReplaceMenu({
 					className="text-left"
 				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Replace “{pendingSourceLabel}” with “{pendingTargetLabel}”?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">

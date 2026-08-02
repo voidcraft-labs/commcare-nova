@@ -198,7 +198,7 @@ export function SearchCanvas({
 					<div className="mb-4">
 						<h2
 							id="search-fields-heading"
-							className="font-display text-[17px] font-semibold text-nova-text"
+							className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 						>
 							Search fields
 						</h2>
@@ -238,7 +238,7 @@ export function SearchCanvas({
 								</span>
 								<div className="min-w-0 flex-1">
 									<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-										<h3 className="min-w-0 break-words font-display text-[16px] font-semibold text-nova-text">
+										<h3 className="min-w-0 break-words font-display tracking-tighter text-[16px] font-semibold text-nova-text">
 											{searchEnabled
 												? title
 												: opensResultsAutomatically

@@ -31,7 +31,7 @@ export function ModuleSettingsPanel({
 		<div className="flex max-h-[calc(var(--available-height)-0.5rem)] min-h-0 w-full flex-col">
 			{/* Header */}
 			<div className="flex min-h-14 shrink-0 items-center justify-between border-b border-nova-border px-4">
-				<PopoverTitle className="font-display text-base font-semibold text-nova-text">
+				<PopoverTitle className="font-display tracking-tighter text-base font-semibold text-nova-text">
 					Module settings
 				</PopoverTitle>
 				<Button

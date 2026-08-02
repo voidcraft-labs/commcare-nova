@@ -156,7 +156,7 @@ export function CaseListCanvas({
 							<div className="min-w-0 flex-1">
 								<h2
 									id="results-information-heading"
-									className="font-display text-[17px] font-semibold text-nova-text"
+									className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 								>
 									Information shown
 								</h2>
@@ -235,7 +235,7 @@ export function CaseListCanvas({
 						<div className="mb-4">
 							<h2
 								id="results-availability-heading"
-								className="font-display text-[17px] font-semibold text-nova-text"
+								className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 							>
 								Cases available
 							</h2>
@@ -268,7 +268,7 @@ export function CaseListCanvas({
 						<div className="mb-4">
 							<h2
 								id="results-order-heading"
-								className="font-display text-[17px] font-semibold text-nova-text"
+								className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 							>
 								Default order
 							</h2>

@@ -715,7 +715,7 @@ export function SearchInputEditor({
 			>
 				<AlertDialogContent finalFocus={matchTriggerRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{pendingStandardReplacement === null
 								? "Replace the custom condition?"
 								: `Replace the custom condition with “${SEARCH_MODE_LABELS[pendingStandardReplacement.resultingMode]}”?`}

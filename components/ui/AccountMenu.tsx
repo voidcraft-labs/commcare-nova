@@ -173,7 +173,7 @@ export function AccountMenu({
 					side="bottom"
 					align="end"
 					sideOffset={6}
-					className="w-64 gap-0 p-0"
+					className="w-64 gap-0 p-1"
 				>
 					<PopoverTitle className="sr-only">Account</PopoverTitle>
 					<PopoverDescription className="sr-only">
@@ -181,7 +181,7 @@ export function AccountMenu({
 					</PopoverDescription>
 					<div className="w-full overflow-hidden">
 						{/* ── Profile ────────────────────────────────────── */}
-						<div className="px-4 pt-4 pb-3 flex items-center gap-3">
+						<div className="px-3 pt-3 pb-3 flex items-center gap-3">
 							<UserAvatar user={user} size="md" />
 							<div className="min-w-0">
 								<p className="break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
@@ -195,7 +195,7 @@ export function AccountMenu({
 
 						{/* ── Credit bar ─────────────────────────────────── */}
 						{usage && (
-							<div className="px-4 pb-3">
+							<div className="px-3 pb-3">
 								<div className="flex items-baseline justify-between mb-1.5">
 									<span className="text-[11px] text-nova-text-muted">
 										Credits this month
@@ -220,7 +220,7 @@ export function AccountMenu({
 						)}
 
 						{/* ── Divider ────────────────────────────────────── */}
-						<div className="border-t border-white/[0.06]" />
+						<div className="mx-2 my-1 border-t border-white/[0.06]" />
 
 						{/* ── Files (file manager) ─────────────────────── */}
 						{/* Opens the media dialog as a standalone manager: the only
@@ -250,7 +250,7 @@ export function AccountMenu({
 						</Link>
 
 						{/* ── Divider ────────────────────────────────────── */}
-						<div className="border-t border-white/[0.06]" />
+						<div className="mx-2 my-1 border-t border-white/[0.06]" />
 
 						{/* ── Sign out ──────────────────────────────────── */}
 						<div>
@@ -260,7 +260,7 @@ export function AccountMenu({
 									signOut();
 									setOpen(false);
 								}}
-								className={`${POPOVER_ROW_CLS} rounded-b-xl not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose`}
+								className={`${POPOVER_ROW_CLS} not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose`}
 							>
 								<Icon
 									icon={tablerLogout}

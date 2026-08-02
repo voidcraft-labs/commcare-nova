@@ -65,7 +65,7 @@ export function InspectorPanel({
 						</div>
 						<h2
 							id={titleId}
-							className="truncate font-display text-[16px] font-semibold leading-5 text-nova-text"
+							className="truncate font-display tracking-tighter text-[16px] font-semibold leading-5 text-nova-text"
 						>
 							{title}
 						</h2>

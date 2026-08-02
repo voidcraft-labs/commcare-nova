@@ -1018,7 +1018,9 @@ function ConnectEnableBody({
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-2">
-					<DialogTitle className="font-display">Set up Connect</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						Set up Connect
+					</DialogTitle>
 					<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
 						{mode === "learn" ? "Learn" : "Deliver"}
 					</span>

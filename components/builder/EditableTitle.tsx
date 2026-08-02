@@ -14,9 +14,9 @@ import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 // properties that must be identical across the readOnly and editable render paths.
 // Any divergence here would produce a layout shift when toggling between design/preview.
 const MEASURE_SPAN_CLASS =
-	"text-lg font-display font-semibold px-1 border border-transparent absolute invisible whitespace-pre";
+	"text-lg font-display tracking-tighter font-semibold px-1 border border-transparent absolute invisible whitespace-pre";
 const INPUT_BASE_CLASS =
-	"nova-focusable min-h-11 text-lg font-display font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text";
+	"nova-focusable min-h-11 text-lg font-display tracking-tighter font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text text-ellipsis";
 
 interface EditableTitleBaseProps {
 	value: string;
@@ -145,7 +145,7 @@ export function EditableTitle({
 					onClick={frozen ? undefined : (event) => event.stopPropagation()}
 					onAnimationEnd={frozen ? undefined : shakeProps.onAnimationEnd}
 					aria-invalid={rejection ? true : undefined}
-					className={`min-h-11 w-full min-w-0 max-w-full resize-none overflow-hidden break-words whitespace-pre-wrap rounded px-1 py-2 pr-8 text-left text-lg leading-snug font-display font-semibold text-nova-text ${shakeProps.className} ${
+					className={`min-h-11 w-full min-w-0 max-w-full resize-none overflow-hidden break-words whitespace-pre-wrap rounded px-1 py-2 pr-8 text-left text-lg leading-snug font-display tracking-tighter font-semibold text-nova-text ${shakeProps.className} ${
 						frozen
 							? "pointer-events-none border-transparent bg-transparent"
 							: focused

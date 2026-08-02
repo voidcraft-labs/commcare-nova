@@ -121,7 +121,7 @@ export function DisplayConditionCanvas({
 			>
 				<h2
 					id="display-condition-locus-heading"
-					className="flex items-center gap-2 font-display text-[15px] font-semibold text-nova-text"
+					className="flex items-center gap-2 font-display tracking-tighter text-[15px] font-semibold text-nova-text"
 				>
 					<Icon
 						icon={tablerEye}
@@ -151,7 +151,7 @@ export function DisplayConditionCanvas({
 				<div className="mb-4 flex flex-wrap items-start justify-between gap-3">
 					<h2
 						id="display-condition-heading"
-						className="font-display text-[17px] font-semibold text-nova-text"
+						className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 					>
 						{copy.sectionTitle}
 					</h2>

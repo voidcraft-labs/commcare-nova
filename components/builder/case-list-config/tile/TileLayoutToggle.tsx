@@ -97,7 +97,7 @@ export function TileLayoutToggle({
 			<AlertDialog open={confirmingRows} onOpenChange={setConfirmingRows}>
 				<AlertDialogContent finalFocus={rowsRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Show Results as rows?
 						</AlertDialogTitle>
 						<AlertDialogDescription>{rowsConsequence}</AlertDialogDescription>

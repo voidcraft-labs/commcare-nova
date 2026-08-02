@@ -392,7 +392,9 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-3">
-					<DialogTitle className="font-display">CommCare Connect</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						CommCare Connect
+					</DialogTitle>
 					{/* Mode selector: the active mode carries a dot. */}
 					<div
 						className="flex items-center gap-1 rounded-lg bg-white/[0.04] p-0.5"

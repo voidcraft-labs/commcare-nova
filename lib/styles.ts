@@ -76,11 +76,12 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opa
  * highlight), and rendering one of the three through the Button primitive put
  * a 15px secondary-coloured label beside two 14px ones in the same header.
  *
- * A full-bleed row is not a Button: it has no radius of its own and its
- * highlight runs edge to edge, which is why it composes from the same base as
- * the real menu items rather than from a variant.
+ * A menu row is not a Button: it composes from the same base as the real menu
+ * items, so its highlight is the same inset 12px row rather than a square
+ * stripe running edge to edge. The panel supplies the inset with `p-1`, the
+ * way `MENU_POPUP_CLS` does.
  */
-export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} rounded-none cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
+export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
 
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =

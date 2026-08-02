@@ -248,7 +248,7 @@ export function ConvertImpactDialog({
 		>
 			<AlertDialogContent className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						Convert to {toLabel}?
 					</AlertDialogTitle>
 					{state.kind === "checking" && (

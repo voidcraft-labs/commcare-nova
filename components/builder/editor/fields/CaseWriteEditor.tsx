@@ -358,7 +358,7 @@ export function CaseWriteEditor<F extends Field>(
 					className="w-80"
 				>
 					<header className="px-3 pb-2.5 pt-3">
-						<h3 className="font-display text-[15px] font-semibold text-nova-text">
+						<h3 className="font-display tracking-tighter text-[15px] font-semibold text-nova-text">
 							Choose case information
 						</h3>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">

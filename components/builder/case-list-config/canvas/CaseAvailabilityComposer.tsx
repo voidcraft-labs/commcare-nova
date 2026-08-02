@@ -320,7 +320,7 @@ export function CaseAvailabilityComposer({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{hasAssignedCaseRule
 								? "Remove these conditions?"
 								: "Show all cases in Results?"}

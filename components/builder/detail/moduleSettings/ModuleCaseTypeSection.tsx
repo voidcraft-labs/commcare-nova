@@ -155,7 +155,7 @@ export function ModuleCaseTypeSection({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{pendingSwitch
 								? `Switch to ${humanizeId(pendingSwitch.to)} cases?`
 								: "Switch case type?"}
@@ -197,7 +197,7 @@ export function ModuleCaseTypeSection({
 			>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							{hasForms ? "Stop managing cases?" : "Add a form first"}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">

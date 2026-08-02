@@ -112,7 +112,7 @@ export function SearchConditionCanvas({
 				<div className="mb-4">
 					<h2
 						id="search-condition-heading"
-						className="font-display text-[17px] font-semibold text-nova-text"
+						className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 					>
 						{sectionTitle}
 					</h2>

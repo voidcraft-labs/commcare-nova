@@ -173,7 +173,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					 *  drops to a small subline aligned under it. Without an extracted
 					 *  title (media, or a not-yet-extracted doc) the filename IS the
 					 *  title, and the subline is omitted so nothing repeats. */}
-					<DialogTitle className="flex min-w-0 items-center gap-2 font-display">
+					<DialogTitle className="flex min-w-0 items-center gap-2 font-display tracking-tighter">
 						<Icon
 							icon={ASSET_KIND_META[target.kind].icon}
 							className="size-4 shrink-0 text-nova-text-muted"

@@ -55,7 +55,7 @@ export function CanvasNotice({
 				children
 			) : (
 				<>
-					<p className="font-display text-base font-semibold text-nova-text">
+					<p className="font-display tracking-tighter text-base font-semibold text-nova-text">
 						{title}
 					</p>
 					<p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed">

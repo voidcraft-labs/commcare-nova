@@ -111,7 +111,7 @@ export function ConsentForm({
 				<div className="flex flex-col items-start gap-5">
 					<IconChip tone="error" icon={tablerAlertTriangle} />
 					<div className="flex flex-col gap-2">
-						<h1 className="font-display text-2xl font-semibold leading-tight text-nova-text">
+						<h1 className="font-display tracking-tighter text-2xl font-semibold leading-tight text-nova-text">
 							This authorization link isn&rsquo;t valid anymore
 						</h1>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
@@ -194,7 +194,7 @@ export function ConsentForm({
 						</span>
 					</div>
 					<div className="flex flex-col gap-3">
-						<h1 className="font-display text-[1.65rem] font-medium leading-[1.08] text-nova-text">
+						<h1 className="font-display tracking-tighter text-[1.65rem] font-medium leading-[1.08] text-nova-text">
 							Connect to{" "}
 							<span
 								data-testid="consent-nova-mark"
@@ -211,7 +211,7 @@ export function ConsentForm({
 								</div>
 								<div
 									data-testid="consent-app-name"
-									className="min-w-0 break-words font-display text-[1.05rem] font-semibold leading-tight text-nova-orchid"
+									className="min-w-0 break-words font-display tracking-tighter text-[1.05rem] font-semibold leading-tight text-nova-orchid"
 								>
 									{disclosure.appName}
 								</div>

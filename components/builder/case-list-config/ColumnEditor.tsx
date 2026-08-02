@@ -470,7 +470,7 @@ function KindPicker({
 			>
 				<AlertDialogContent finalFocus={triggerRef} className="text-left">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
+						<AlertDialogTitle className="font-display tracking-tighter">
 							Change display to {pendingSchema?.label ?? "another style"}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>

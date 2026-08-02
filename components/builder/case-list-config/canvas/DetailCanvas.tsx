@@ -76,7 +76,7 @@ export function DetailCanvas({
 					<div className="mb-4">
 						<h2
 							id="details-information-heading"
-							className="font-display text-[17px] font-semibold text-nova-text"
+							className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 						>
 							Information shown
 						</h2>

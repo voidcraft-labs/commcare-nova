@@ -252,7 +252,7 @@ export function UploadToHqDialog({
 			<DialogContent className="gap-0 p-0">
 				{/* ── Header ───────────────────────────────────── */}
 				<div className="px-5 pt-5">
-					<DialogTitle className="font-display">
+					<DialogTitle className="font-display tracking-tighter">
 						Upload to CommCare HQ
 					</DialogTitle>
 				</div>

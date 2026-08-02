@@ -542,7 +542,7 @@ export function PredicateTransitionAlert({
 		>
 			<AlertDialogContent finalFocus={finalFocus} className="text-left">
 				<AlertDialogHeader>
-					<AlertDialogTitle className="font-display">
+					<AlertDialogTitle className="font-display tracking-tighter">
 						{plan?.confirmation?.title}
 					</AlertDialogTitle>
 					<AlertDialogDescription className="text-left">

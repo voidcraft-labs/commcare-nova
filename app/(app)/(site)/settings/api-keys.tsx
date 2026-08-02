@@ -927,7 +927,9 @@ function MintForm({
 		>
 			<div className="flex shrink-0 items-start justify-between border-b border-nova-border/40 px-6 py-4">
 				<div>
-					<DialogTitle className="font-display">New API key</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						New API key
+					</DialogTitle>
 					<DialogDescription className="mt-0.5 text-xs text-nova-text-muted">
 						You'll see the full key once. Store it somewhere safe.
 					</DialogDescription>
@@ -1097,7 +1099,9 @@ function RevealedKey({
 						height="16"
 						className="text-nova-violet-bright"
 					/>
-					<DialogTitle className="font-display">Key created</DialogTitle>
+					<DialogTitle className="font-display tracking-tighter">
+						Key created
+					</DialogTitle>
 				</div>
 				<DialogDescription className="mt-1 text-xs text-nova-text-muted leading-relaxed">
 					Copy this key now. Nova won't keep the full value. Close this and it's
@@ -1266,7 +1270,9 @@ function EditScopesDialog({
 			<DialogContent showCloseButton={false} className="gap-0 p-0">
 				<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
 					<div className="min-w-0">
-						<DialogTitle className="font-display">Edit scopes</DialogTitle>
+						<DialogTitle className="font-display tracking-tighter">
+							Edit scopes
+						</DialogTitle>
 						<DialogDescription className="mt-0.5 text-xs text-nova-text-muted truncate">
 							{target.name}
 						</DialogDescription>
