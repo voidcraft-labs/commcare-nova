@@ -153,7 +153,7 @@ export const ModuleCard = memo(function ModuleCard({
 						</div>
 					)}
 					<div className="min-w-0">
-						<h3 className="font-medium text-sm truncate">
+						<h3 className="font-medium text-sm truncate" title={mod.name}>
 							{nameIndices ? (
 								<HighlightedText text={mod.name} indices={nameIndices} />
 							) : (

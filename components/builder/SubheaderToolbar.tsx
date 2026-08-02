@@ -73,18 +73,23 @@ const CURRENT_LABEL_CLASS = "min-w-0 truncate";
  * already fits should not add a mystery stop to the tab order. */
 function CurrentBreadcrumbSegment({ label }: { label: string }) {
 	const [clipped, setClipped] = useState(false);
-	const elementRef = useRef<HTMLSpanElement | null>(null);
+	const labelRef = useRef<HTMLSpanElement | null>(null);
 
+	// Measure the LABEL, never its wrapper. The ellipsis lives on the inner
+	// span (see `CURRENT_LABEL_CLASS`), so the inner span always fits its
+	// parent exactly and the wrapper can never report overflow. Measuring the
+	// wrapper leaves `clipped` false forever, which silently costs a truncated
+	// authored name both its tooltip and its tab stop.
 	const measure = useCallback(() => {
-		const element = elementRef.current;
+		const element = labelRef.current;
 		if (element === null) return;
 		const hasLayout = element.clientWidth > 0 || element.scrollWidth > 0;
 		setClipped(hasLayout && element.scrollWidth > element.clientWidth + 1);
 	}, []);
 
-	const setElementRef = useCallback(
+	const setLabelRef = useCallback(
 		(element: HTMLSpanElement | null) => {
-			elementRef.current = element;
+			labelRef.current = element;
 			if (element === null) return;
 			const observer = new ResizeObserver(measure);
 			observer.observe(element);
@@ -107,7 +112,6 @@ function CurrentBreadcrumbSegment({ label }: { label: string }) {
 				disabled={!clipped}
 				render={
 					<span
-						ref={setElementRef}
 						aria-current="location"
 						className={CURRENT_CLASS}
 						// When clipped, focus opens the same full-text disclosure
@@ -117,7 +121,9 @@ function CurrentBreadcrumbSegment({ label }: { label: string }) {
 					/>
 				}
 			>
-				<span className={CURRENT_LABEL_CLASS}>{label}</span>
+				<span ref={setLabelRef} className={CURRENT_LABEL_CLASS}>
+					{label}
+				</span>
 			</TooltipTrigger>
 			<TooltipContent side="bottom">{label}</TooltipContent>
 		</Tooltip>

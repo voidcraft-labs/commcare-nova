@@ -56,9 +56,13 @@ export const FLOATING_LAYER_CLS = "z-modal";
  *  content stays vertically centered at every height — so a one-line item in a
  *  menu whose other items are taller does not sit top-heavy in its own row.
  *  Call sites style content, never this box: an item that re-aligns or re-pads
- *  itself is the bug this centralizes away. */
+ *  itself is the bug this centralizes away.
+ *
+ *  `text-left` is not decoration. A row rendered as a native `<button>` gets
+ *  the UA's `text-align: center`, which is invisible on a single-line item
+ *  that shrinks to fit and unmistakable on a two-line one. */
 export const MENU_ITEM_BASE =
-	"flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm whitespace-normal outline-none select-none transition-colors";
+	"flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm whitespace-normal outline-none select-none transition-colors";
 
 /** Interactive item: subtle highlight on hover / keyboard focus. */
 export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text data-[highlighted]:bg-white/[0.06] data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity)`;

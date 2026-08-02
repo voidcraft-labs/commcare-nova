@@ -175,11 +175,18 @@ describe("CollapsibleBreadcrumb", () => {
 			'[data-breadcrumb-trail] [aria-current="location"]',
 		);
 		if (!current) throw new Error("Current breadcrumb did not render");
-		Object.defineProperty(current, "clientWidth", {
+		// Stub the LABEL, never its wrapper. The label carries the ellipsis, so
+		// it is the only element that can overflow; the wrapper is sized by the
+		// label self-clipping inside it and reports a perfect fit no matter how
+		// long the name is. Stubbing the wrapper makes this test pass against a
+		// component that shows no disclosure at all in a browser.
+		const label = current.querySelector<HTMLElement>("span");
+		if (!label) throw new Error("Current breadcrumb label did not render");
+		Object.defineProperty(label, "clientWidth", {
 			configurable: true,
 			value: 180,
 		});
-		Object.defineProperty(current, "scrollWidth", {
+		Object.defineProperty(label, "scrollWidth", {
 			configurable: true,
 			value: 520,
 		});

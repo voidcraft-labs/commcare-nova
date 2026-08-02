@@ -153,7 +153,12 @@ export function CaseListCanvas({
 				<div className="space-y-10">
 					<section aria-labelledby="results-information-heading">
 						<div className="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-							<div className="min-w-0 flex-1">
+							{/* Asks for a readable column before the switch beside it
+							 * gets to take room. Without a basis the heading block
+							 * shrinks toward nothing and the row never wraps, so the
+							 * helper sentence breaks into four lines in ~110px while
+							 * the switch keeps its full width. */}
+							<div className="min-w-0 grow basis-72">
 								<h2
 									id="results-information-heading"
 									className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"

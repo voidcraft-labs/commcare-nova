@@ -78,6 +78,7 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { selectableSegmentCls } from "@/lib/styles";
 import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
@@ -1126,10 +1127,11 @@ function LibraryTab({
 /**
  * One choice in the Library's type filter.
  *
- * It is an ordinary Button and wears the button's own anatomy: a full pill is
- * the badge's shape, and a badge is a 22px borderless status tint, not
- * something you press. These are 44px controls that select a filter, so they
- * take the keycap the rest of the dialog's actions take.
+ * It holds a state rather than performing an action, so it wears the same
+ * skin as every other selectable control: violet means chosen. Drawing it
+ * out of two button variants inverted that, because `outline` is the quiet
+ * violet-wash ACTION, so the one chosen chip came out grey in a row of
+ * violet ones and violet read as "not selected" here alone.
  */
 function FilterChip({
 	active,
@@ -1141,14 +1143,14 @@ function FilterChip({
 	children: React.ReactNode;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant={active ? "secondary" : "outline"}
 			aria-pressed={active}
 			onClick={onClick}
+			className={selectableSegmentCls(active)}
 		>
 			{children}
-		</Button>
+		</button>
 	);
 }
 

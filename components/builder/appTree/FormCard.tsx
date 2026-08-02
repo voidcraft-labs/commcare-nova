@@ -145,7 +145,11 @@ export const FormCard = memo(function FormCard({
 								className="text-nova-text-muted shrink-0"
 							/>
 						)}
-						<span className="text-sm font-medium truncate">
+						{/* An authored name is content. The row's accessible name
+						 * already carries it whole, so this is the disclosure for
+						 * the one person truncation actually costs: someone
+						 * reading two forms whose names diverge past the clip. */}
+						<span className="text-sm font-medium truncate" title={form.name}>
 							{nameIndices ? (
 								<HighlightedText text={form.name} indices={nameIndices} />
 							) : (
