@@ -67,14 +67,12 @@ const PUBLISH_TARGET_OPTIONS = {
 	},
 	web: {
 		label: "CommCare HQ app file",
-		description:
-			"Download a JSON file to import into CommCare HQ. Apps with media download as a ZIP file with import instructions",
+		description: "Download a JSON file to import into CommCare HQ",
 		icon: tablerBrowser,
 	},
 	mobile: {
 		label: "CommCare mobile app file",
-		description:
-			"Download a CCZ package for CommCare Android or another mobile deployment process",
+		description: "Download a CCZ package for CommCare Android",
 		icon: tablerDeviceMobile,
 	},
 } as const;
