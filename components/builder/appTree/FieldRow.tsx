@@ -141,7 +141,7 @@ export const FieldRow = memo(function FieldRow({
 					locked
 						? "text-nova-text-secondary"
 						: isSelected
-							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
+							? "cursor-pointer bg-nova-violet/[0.08] hover:bg-nova-violet/[0.15] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
 							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
 				} ${editingColor ? `ring-1 ring-inset ${editingColor.ring}` : ""}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}

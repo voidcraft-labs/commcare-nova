@@ -25,7 +25,7 @@ describe("GenerationProgressCard", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Set Up")).toBeTruthy();
+		expect(screen.getByText("Set up")).toBeTruthy();
 		expect(screen.getByText("Build")).toBeTruthy();
 		expect(screen.getByText("Done")).toBeTruthy();
 		expect(screen.queryByText("Fix")).toBeNull();
@@ -41,7 +41,7 @@ describe("GenerationProgressCard", () => {
 		).toBe(0);
 		expect(
 			screen
-				.getByText("Set Up")
+				.getByText("Set up")
 				.closest("[data-stage]")
 				?.getAttribute("data-status"),
 		).toBe("active");
@@ -64,7 +64,7 @@ describe("GenerationProgressCard", () => {
 
 		expect(
 			screen
-				.getByText("Set Up")
+				.getByText("Set up")
 				.closest("[data-stage]")
 				?.getAttribute("data-status"),
 		).toBe("done");

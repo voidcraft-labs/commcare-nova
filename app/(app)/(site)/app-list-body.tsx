@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import { AppCard, type AppProjectMoveTarget } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
+import { selectableSegmentCls } from "@/lib/styles";
 import { deleteApp, moveApp, restoreApp } from "./app-actions";
 
 interface AppListBodyProps {
@@ -158,19 +159,24 @@ function TabButton({ active, onClick, label, count }: TabButtonProps) {
 			role="tab"
 			aria-selected={active}
 			onClick={onClick}
-			className={`cursor-pointer rounded-md px-3 py-1 text-sm transition-colors ${
-				active
-					? "bg-nova-surface text-nova-text shadow-sm"
-					: "text-nova-text-muted hover:text-nova-text"
-			}`}
+			/* The shared selected treatment, not a hand-rolled one. Drawn by
+			 * hand this pair sat at 28px on a 10px radius, which is on no rung
+			 * of the scale, and the SELECTED segment carried no hover at all:
+			 * pointing at the tab you were already on did nothing, while the
+			 * unselected one lit brighter than the selected one, so the
+			 * lightness ladder ran backwards. */
+			className={selectableSegmentCls(active)}
 		>
 			{label}
 			{count !== undefined && count > 0 && (
-				<span
-					className={`ml-1.5 ${active ? "text-nova-text-muted" : "text-nova-text-muted"}`}
-				>
-					{count}
-				</span>
+				/* The space is real text, not a margin. `ml-1.5` separates the
+				 * two visually and leaves the text layer reading "Recently
+				 * deleted2", which is what an accessible name and any
+				 * text-content assertion actually see. */
+				<>
+					{" "}
+					<span className="text-nova-text-muted">{count}</span>
+				</>
 			)}
 		</button>
 	);

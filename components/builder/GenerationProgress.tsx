@@ -25,7 +25,7 @@ const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
 		{
 			key: "foundation",
 			stages: [GenerationStage.Foundation],
-			label: "Set Up",
+			label: "Set up",
 		},
 		{
 			key: "build",

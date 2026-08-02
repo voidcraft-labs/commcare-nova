@@ -281,7 +281,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 										navigate.push(`/admin/users/${row.original.id}`);
 									}
 								}}
-								className="border-b border-nova-border/50 hover:bg-nova-surface/50 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-nova-violet/50"
+								className="nova-focusable-inset border-b border-nova-border/50 hover:bg-nova-surface/50 transition-colors cursor-pointer"
 							>
 								{row.getVisibleCells().map((cell) => (
 									<td key={cell.id} className="px-4 py-3 text-sm">

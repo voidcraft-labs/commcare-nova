@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { ToastContainer } from "@/components/ui/ToastContainer";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	type GenerationError,
@@ -541,6 +542,13 @@ export default function ErrorTestPage() {
 					</div>
 				</div>
 			</div>
+			{/* The toast gallery had no surface to render into. `ToastContainer`
+			    mounts in the `(app)` layout, and this page is in `(dev-only)`,
+			    which does not, so every trigger here pushed a toast into the
+			    store and nothing appeared — the whole toast catalogue was
+			    unreviewable. A dev page is exempt from pixel polish, not from
+			    working. */}
+			<ToastContainer />
 		</div>
 	);
 }

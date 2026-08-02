@@ -1795,7 +1795,7 @@ const INTERACTIVE_RESULT_CELL_CLASSES =
 	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
 
 const INTERACTIVE_RESULT_ROW_CLASSES =
-	"nova-focusable cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]: [&_a]: [&_a]: [&_a]: [&_a]:";
+	"nova-focusable cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-lg";
 
 function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	if (columnCount <= 3) return XL_RESULTS;
