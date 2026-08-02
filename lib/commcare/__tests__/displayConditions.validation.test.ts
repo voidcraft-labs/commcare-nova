@@ -6,6 +6,7 @@ import {
 	actingUser,
 	ancestorPath,
 	count,
+	dateAdd,
 	eq,
 	formField,
 	gt,
@@ -21,6 +22,7 @@ import {
 	selfPath,
 	sessionUser,
 	tableLookup,
+	term,
 	unowned,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -83,6 +85,16 @@ function validateFormFindings(
 				properties: [
 					{ name: "status", label: proseText("Status") },
 					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{
+						name: "visited_on",
+						label: proseText("Visited on"),
+						data_type: "date",
+					},
+					{
+						name: "visited_at",
+						label: proseText("Visited at"),
+						data_type: "datetime",
+					},
 				],
 			},
 		],
@@ -176,6 +188,36 @@ describe("form display-condition validation", () => {
 		expect(
 			validateForm(match(prop("patient", "status"), literal("open"), "fuzzy")),
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
+	});
+
+	it("rejects date arithmetic that would discard a property's time", () => {
+		expect(
+			validateForm(
+				eq(
+					dateAdd(
+						term(prop("patient", "visited_at")),
+						"days",
+						term(literal(1)),
+					),
+					term(prop("patient", "visited_at")),
+				),
+			),
+		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
+	});
+
+	it("allows fixed-duration arithmetic over a whole-date property", () => {
+		expect(
+			validateForm(
+				eq(
+					dateAdd(
+						term(prop("patient", "visited_on")),
+						"weeks",
+						term(literal(1)),
+					),
+					term(prop("patient", "visited_on")),
+				),
+			),
+		).toEqual([]);
 	});
 
 	it("accepts a table lookup as an on-device navigation condition", () => {

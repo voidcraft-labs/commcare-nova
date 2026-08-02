@@ -20,13 +20,15 @@
  * blanket presence guard that would change equality or inequality semantics.
  */
 
-import { findOnDeviceScalarExpressionIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
+import {
+	findOnDeviceScalarExpressionIssue,
+	onDeviceDateAddIssue,
+} from "@/lib/commcare/expression/onDeviceCompatibility";
 import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Form, Module, Uuid } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";
 import {
-	checkExpression,
 	checkPredicate,
 	isMatchNone,
 	type Predicate,
@@ -141,17 +143,15 @@ function firstPortabilityIssue(
 
 	walkPredicateExpressionNodes(condition, (node) => {
 		if (issue !== undefined) return;
-		if (node.kind === "date-add") {
-			if (node.interval === "months" || node.interval === "years") {
-				issue = `adds calendar-relative ${node.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`;
-				return;
-			}
-			const operandErrors: Parameters<typeof checkExpression>[2] = [];
-			if (checkExpression(node.date, ctx, operandErrors, []) === "datetime") {
-				issue =
-					"adds to a date-and-time value, which would discard the time on device";
-				return;
-			}
+		const dateAddIssue = onDeviceDateAddIssue(node, ctx);
+		if (dateAddIssue?.reason === "calendar-interval") {
+			issue = `adds calendar-relative ${dateAddIssue.expression.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`;
+			return;
+		}
+		if (dateAddIssue?.reason === "datetime-base") {
+			issue =
+				"adds to a date-and-time value, which would discard the time on device";
+			return;
 		}
 		const scalarIssue = findOnDeviceScalarExpressionIssue(node, ctx);
 		if (scalarIssue !== undefined) {
