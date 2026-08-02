@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import {
+	DEFAULT_LEARN_TIME_ESTIMATE_HOURS,
 	DraftField,
 	parseTimeEstimate,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
@@ -27,13 +28,6 @@ import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
 import { useConnectLintContext } from "./useConnectLintContext";
-
-/**
- * Default minutes-to-complete for a freshly enabled Connect learn module.
- * Seeds the staged draft's time-estimate field: a config value with a
- * sensible default, unlike the name/description content the user writes.
- */
-export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
 
 /**
  * Shared prop contract for connect-mode sub-config components. `connect`
@@ -169,7 +163,7 @@ export function LearnConfig({
 				setStagedLearn({
 					name: "",
 					description: "",
-					timeEstimate: String(DEFAULT_LEARN_TIME_ESTIMATE),
+					timeEstimate: String(DEFAULT_LEARN_TIME_ESTIMATE_HOURS),
 				});
 			}
 		}
@@ -278,7 +272,7 @@ export function LearnConfig({
 											required
 										/>
 										<InlineField
-											label="Time estimate"
+											label="Time estimate (hours)"
 											value={String(lm.time_estimate)}
 											onChange={(v) =>
 												updateLearnModule(
@@ -286,7 +280,7 @@ export function LearnConfig({
 													Math.max(1, parseInt(v, 10) || 1),
 												)
 											}
-											suffix="min"
+											suffix="hr"
 											type="number"
 											required
 										/>
@@ -313,12 +307,12 @@ export function LearnConfig({
 											multiline
 										/>
 										<DraftField
-											label="Time estimate"
+											label="Time estimate (hours)"
 											value={stagedLearn.timeEstimate}
 											onChange={(v) =>
 												setStagedLearn((d) => d && { ...d, timeEstimate: v })
 											}
-											suffix="min"
+											suffix="hr"
 										/>
 										<StagedCommitRow
 											ready={stagedLearnReady}
