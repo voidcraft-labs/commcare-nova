@@ -31,6 +31,7 @@ import {
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { caseTypeNameVerdict } from "@/lib/doc/identifierVerdicts";
 import { humanizeId, slugifyId } from "@/lib/domain";
+import { SELECTED_TINT_CLS } from "@/lib/styles";
 
 const ROW_BASE =
 	"h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left text-sm whitespace-normal";
@@ -228,7 +229,7 @@ export function CaseTypePickerContent({
 										? `${display.label}, saved as ${ct.name}`
 										: display.label
 								}
-								className={`${ROW_BASE} ${active ? "bg-nova-violet/10 text-nova-violet-bright not-disabled:hover:bg-nova-violet/15" : "text-nova-text not-disabled:hover:bg-white/[0.06]"}`}
+								className={`${ROW_BASE} ${active ? `${SELECTED_TINT_CLS} text-nova-violet-bright` : "text-nova-text not-disabled:hover:bg-white/[0.06]"}`}
 							>
 								<Icon
 									icon={tablerDatabase}

@@ -161,6 +161,15 @@ export function selectableIconCls(selected: boolean): string {
 	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl outline-none transition-colors ${skin(selected)}`;
 }
 
+/** The selected skin's fill alone, for a control whose GEOMETRY is its own but
+ *  whose selected state still has to read as the same idea: a full-bleed thread
+ *  row carrying its own left rail, a picker row inside a popover. Colouring the
+ *  content stays with the call site; this is the tint and its hover step, so a
+ *  bespoke row cannot end up with a selected weight nothing else uses, and
+ *  cannot end up with no hover answer at all. */
+export const SELECTED_TINT_CLS =
+	"bg-nova-violet/15 not-disabled:hover:bg-nova-violet/25";
+
 /** One item in a menu, when the menu records a choice.
  *
  *  Base UI drives menu rows through `data-highlighted` rather than `:hover`, so
