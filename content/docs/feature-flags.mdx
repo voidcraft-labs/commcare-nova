@@ -8,18 +8,25 @@ space. It lets that space use a feature that is not yet available everywhere.
 You do not turn these switches on inside Nova or in the ordinary CommCare HQ
 settings.
 
+An agent connected to Nova can call `get_app_feature_flags` before publishing.
+The result includes only the flags the app currently uses, the app setting that
+caused each requirement, a plain-language explanation, and the public link for
+that flag. The agent can pass those details to you or include them in an
+existing deliverable without first publishing the app or loading this page.
+
 Your Nova app can still be complete and upload successfully when a required
 flag is off. The problem appears later: a worker may not see the expected
 behavior, or a feature such as case search may fail when they try to use it.
-That is why Nova reports these requirements at publish time.
+That is why Nova reports these requirements before and at publish time.
 
 ## What to do
 
-When Nova uploads directly to CommCare HQ, it checks the selected project space
-and tells you which required flags are not enabled. A downloaded JSON, ZIP, or
-CCZ file has no connected destination, so Nova instead lists the flags that the
-eventual destination needs. That list does **not** mean Nova checked and found
-them off.
+When you open Publish, Nova shows the flags the app requires before you take an
+action. For a connected CommCare HQ project space, Nova checks that space right
+away; you can refresh the check, and Nova checks again after upload. A
+downloaded JSON, ZIP, or CCZ file has no connected destination, so the Web and
+Mobile tabs instead list the flags that the eventual destination needs before
+you download. That list does **not** mean Nova checked and found them off.
 
 If a required flag is missing, email
 [support@dimagi.com](mailto:support@dimagi.com). Include:

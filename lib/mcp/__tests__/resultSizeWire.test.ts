@@ -125,4 +125,12 @@ describe("result-size declarations over the wire", () => {
 		const tool = tools.find((t) => t.name === "get_agent_prompt");
 		expect(tool?.description ?? "").toContain("NOVA-PROMPT-END");
 	});
+
+	it("registers the read-only app feature-flag inspection tool", () => {
+		const tool = tools.find((t) => t.name === "get_app_feature_flags");
+		expect(tool?.description ?? "").toContain("does not compile or upload");
+		expect(tool?.description ?? "").toContain(
+			"does not claim any flag is enabled or missing",
+		);
+	});
 });

@@ -2,9 +2,10 @@
  * Unified publish flow for direct HQ upload, HQ JSON, and mobile CCZ.
  *
  * All three destinations stay in one durable modal because publish results can
- * carry important follow-up information. A dropdown disappears at selection;
- * this dialog can explain confirmed-missing flags after a direct upload and
- * unverified requirements after a file download without relying on a toast.
+ * carry important prerequisite and follow-up information. A dropdown
+ * disappears at selection; this dialog shows app requirements before every
+ * action, probes a connected HQ domain on open/selection/refresh, and retains
+ * the exact post-publish result without relying on a toast.
  */
 
 "use client";
@@ -20,6 +21,7 @@ import tablerDownload from "@iconify-icons/tabler/download";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -59,12 +61,20 @@ export type PublishDownloadOutcome =
 	| { readonly ok: true; readonly featureFlagReport?: HqFeatureFlagReport }
 	| { readonly ok: false };
 
+export type PublishFeatureFlagOutcome =
+	| { readonly ok: true; readonly report: HqFeatureFlagReport }
+	| { readonly ok: false; readonly message: string };
+
 interface PublishDialogProps {
 	open: boolean;
 	onClose: () => void;
 	getAppId: () => string;
 	availableDomains: Domain[];
 	canUploadToHq: boolean;
+	onLoadFeatureFlags: (
+		domain: string | undefined,
+		signal: AbortSignal,
+	) => Promise<PublishFeatureFlagOutcome>;
 	onDownloadJson: () => Promise<PublishDownloadOutcome>;
 	onDownloadCcz: () => Promise<PublishDownloadOutcome>;
 }
@@ -86,12 +96,18 @@ type PublishStatus =
 	  }
 	| { type: "error"; message: string; status: number; details: string[] };
 
+type FeatureFlagState =
+	| { type: "loading" }
+	| { type: "ready"; report: HqFeatureFlagReport }
+	| { type: "error"; message: string };
+
 export function PublishDialog({
 	open,
 	onClose,
 	getAppId,
 	availableDomains,
 	canUploadToHq,
+	onLoadFeatureFlags,
 	onDownloadJson,
 	onDownloadCcz,
 }: PublishDialogProps) {
@@ -100,6 +116,7 @@ export function PublishDialog({
 	const session = useBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
+	const featureFlagControllerRef = useRef<AbortController | null>(null);
 	const operationGenerationRef = useRef(0);
 	const storeAppName = useAppName();
 	const [target, setTarget] = useState<PublishTarget>(
@@ -108,6 +125,9 @@ export function PublishDialog({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const [featureFlagState, setFeatureFlagState] = useState<FeatureFlagState>({
+		type: "loading",
+	});
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
 		uploadControllerRef.current?.abort();
@@ -161,11 +181,49 @@ export function PublishDialog({
 		);
 	}, [open, storeAppName, availableDomains, canUploadToHq]);
 
+	const featureFlagDomain =
+		target === "hq"
+			? selectedDomain ||
+				(availableDomains.length === 1 ? availableDomains[0].name : undefined)
+			: undefined;
+	const loadFeatureFlagReport = useCallback(() => {
+		featureFlagControllerRef.current?.abort();
+		const controller = new AbortController();
+		featureFlagControllerRef.current = controller;
+		setFeatureFlagState({ type: "loading" });
+		void onLoadFeatureFlags(featureFlagDomain, controller.signal).then(
+			(outcome) => {
+				if (featureFlagControllerRef.current !== controller) return;
+				featureFlagControllerRef.current = null;
+				setFeatureFlagState(
+					outcome.ok
+						? { type: "ready", report: outcome.report }
+						: { type: "error", message: outcome.message },
+				);
+			},
+		);
+	}, [featureFlagDomain, onLoadFeatureFlags]);
+	useEffect(() => {
+		if (!open) {
+			featureFlagControllerRef.current?.abort();
+			featureFlagControllerRef.current = null;
+			return;
+		}
+		loadFeatureFlagReport();
+		return () => {
+			featureFlagControllerRef.current?.abort();
+			featureFlagControllerRef.current = null;
+		};
+	}, [open, loadFeatureFlagReport]);
+
 	const handleTargetChange = useCallback((next: PublishTarget) => {
 		operationGenerationRef.current += 1;
 		setTarget(next);
 		setStatus({ type: "idle" });
 	}, []);
+	const handleRefreshFeatureFlags = useCallback(() => {
+		loadFeatureFlagReport();
+	}, [loadFeatureFlagReport]);
 
 	const handleUpload = useCallback(async () => {
 		if (!selectedDomain || !appName.trim()) return;
@@ -272,12 +330,14 @@ export function PublishDialog({
 
 	const isWorking =
 		status.type === "uploading" || status.type === "downloading";
+	const isCheckingFeatureFlags = featureFlagState.type === "loading";
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
 		!notConfigured &&
 		!!selectedDomain &&
 		!isWorking &&
+		!isCheckingFeatureFlags &&
 		appName.trim().length > 0;
 
 	if (accessPhase !== "authorized") return null;
@@ -331,7 +391,11 @@ export function PublishDialog({
 										onClose={handleClose}
 									/>
 								) : notConfigured ? (
-									<NotConfigured onClose={handleClose} />
+									<NotConfigured
+										onClose={handleClose}
+										featureFlagState={featureFlagState}
+										onRefreshFeatureFlags={handleRefreshFeatureFlags}
+									/>
 								) : (
 									<UploadForm
 										availableDomains={availableDomains}
@@ -344,6 +408,8 @@ export function PublishDialog({
 										status={status}
 										canUpload={canUpload}
 										onUpload={handleUpload}
+										featureFlagState={featureFlagState}
+										onRefreshFeatureFlags={handleRefreshFeatureFlags}
 									/>
 								)}
 							</TabsContent>
@@ -366,6 +432,8 @@ export function PublishDialog({
 										status.type === "downloading" && status.target === "web"
 									}
 									onDownload={() => handleDownload("web")}
+									featureFlagState={featureFlagState}
+									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
 							)}
 						</TabsContent>
@@ -388,6 +456,8 @@ export function PublishDialog({
 										status.type === "downloading" && status.target === "mobile"
 									}
 									onDownload={() => handleDownload("mobile")}
+									featureFlagState={featureFlagState}
+									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
 							)}
 						</TabsContent>
@@ -409,6 +479,8 @@ function UploadForm({
 	status,
 	canUpload,
 	onUpload,
+	featureFlagState,
+	onRefreshFeatureFlags,
 }: {
 	availableDomains: Domain[];
 	domainItems: { label: string; value: string }[];
@@ -420,6 +492,8 @@ function UploadForm({
 	status: PublishStatus;
 	canUpload: boolean;
 	onUpload: () => void;
+	featureFlagState: FeatureFlagState;
+	onRefreshFeatureFlags: () => void;
 }) {
 	const uploading = status.type === "uploading";
 	return (
@@ -490,16 +564,16 @@ function UploadForm({
 					/>
 				</label>
 
-				<div className="flex items-start gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5">
-					<Icon
-						icon={tablerInfoCircle}
-						className="mt-0.5 size-4 shrink-0 text-nova-text-muted"
-					/>
-					<p className="text-xs leading-relaxed text-nova-text-muted">
-						Creates a new app in the selected project space. After upload, Nova
-						checks the HQ feature flags this app needs.
-					</p>
-				</div>
+				<p className="text-xs leading-relaxed text-nova-text-muted">
+					Creates a new app in the selected project space. Nova checks the
+					required feature flags now and checks again after upload.
+				</p>
+
+				<FeatureFlagPreflight
+					state={featureFlagState}
+					domainChecked={Boolean(selectedDomain)}
+					onRefresh={onRefreshFeatureFlags}
+				/>
 			</div>
 
 			{status.type === "error" && (
@@ -552,12 +626,16 @@ function DownloadForm({
 	buttonLabel,
 	working,
 	onDownload,
+	featureFlagState,
+	onRefreshFeatureFlags,
 }: {
 	title: string;
 	description: string;
 	buttonLabel: string;
 	working: boolean;
 	onDownload: () => void;
+	featureFlagState: FeatureFlagState;
+	onRefreshFeatureFlags: () => void;
 }) {
 	return (
 		<div>
@@ -565,20 +643,19 @@ function DownloadForm({
 			<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 				{description}
 			</p>
-			<div className="mt-4 flex items-start gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5">
-				<Icon
-					icon={tablerInfoCircle}
-					className="mt-0.5 size-4 shrink-0 text-nova-text-muted"
-				/>
-				<p className="text-xs leading-relaxed text-nova-text-muted">
-					A downloaded file has no connected destination for Nova to check.
-					After the download, this dialog will list any feature flags the
-					destination project space needs.
-				</p>
-			</div>
+			<FeatureFlagPreflight
+				state={featureFlagState}
+				onRefresh={
+					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
+				}
+			/>
 			<div className="mt-5 flex justify-end gap-2">
 				<DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-				<Button type="button" onClick={onDownload} disabled={working}>
+				<Button
+					type="button"
+					onClick={onDownload}
+					disabled={working || featureFlagState.type === "loading"}
+				>
 					{working ? (
 						<>
 							<Icon icon={tablerLoader2} className="size-4 animate-spin" />
@@ -592,6 +669,98 @@ function DownloadForm({
 					)}
 				</Button>
 			</div>
+		</div>
+	);
+}
+
+function FeatureFlagPreflight({
+	state,
+	domainChecked = false,
+	onRefresh,
+}: {
+	state: FeatureFlagState;
+	domainChecked?: boolean;
+	onRefresh?: () => void;
+}) {
+	if (state.type === "loading") {
+		return (
+			<div className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5">
+				<Icon
+					icon={tablerLoader2}
+					className="size-4 shrink-0 animate-spin text-nova-violet-bright"
+				/>
+				<p className="text-xs text-nova-text-secondary">
+					{domainChecked
+						? "Checking feature flags for this project space..."
+						: "Checking this app's feature-flag requirements..."}
+				</p>
+			</div>
+		);
+	}
+
+	if (state.type === "error") {
+		return (
+			<div className="mt-3 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5">
+				<p className="text-xs leading-relaxed text-nova-text-secondary">
+					{state.message}
+				</p>
+				{onRefresh && (
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={onRefresh}
+						className="mt-1"
+					>
+						<Icon icon={tablerRefresh} className="size-4" />
+						Retry check
+					</Button>
+				)}
+			</div>
+		);
+	}
+
+	const report = state.report;
+	const refreshLabel = report.target_domain
+		? "Refresh check"
+		: "Refresh requirements";
+	if (report.required_flags.length === 0) {
+		return (
+			<div className="mt-3">
+				<div className="flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5">
+					<Icon
+						icon={tablerCircleCheck}
+						className="mt-0.5 size-4 shrink-0 text-nova-emerald"
+					/>
+					<p className="text-xs leading-relaxed text-nova-text-secondary">
+						This app does not require a CommCare HQ feature flag.
+					</p>
+				</div>
+				{onRefresh && (
+					<div className="flex justify-end">
+						<Button type="button" variant="ghost" onClick={onRefresh}>
+							<Icon icon={tablerRefresh} className="size-4" />
+							{refreshLabel}
+						</Button>
+					</div>
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<div>
+			<FeatureFlagNotice
+				report={report}
+				mode={report.target_domain ? "domain-check" : "prepublish"}
+			/>
+			{onRefresh && (
+				<div className="flex justify-end">
+					<Button type="button" variant="ghost" onClick={onRefresh}>
+						<Icon icon={tablerRefresh} className="size-4" />
+						{refreshLabel}
+					</Button>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -669,11 +838,12 @@ function FeatureFlagNotice({
 	mode,
 }: {
 	report: HqFeatureFlagReport;
-	mode: "upload" | "download";
+	mode: "upload" | "download" | "prepublish" | "domain-check";
 }) {
 	if (report.required_flags.length === 0) return null;
 	const needsAttention =
 		mode === "download" ||
+		mode === "prepublish" ||
 		report.missing_flags.length > 0 ||
 		report.unverified_flags.length > 0;
 	if (!needsAttention) {
@@ -700,7 +870,7 @@ function FeatureFlagNotice({
 	}
 
 	const flags =
-		mode === "download"
+		mode === "download" || mode === "prepublish"
 			? report.required_flags
 			: [
 					...report.missing_flags,
@@ -718,7 +888,7 @@ function FeatureFlagNotice({
 				/>
 				<div className="min-w-0">
 					<p className="text-xs font-semibold text-nova-text">
-						{mode === "download"
+						{mode === "download" || mode === "prepublish"
 							? "Required in the destination project space"
 							: "CommCare HQ settings need attention"}
 					</p>
@@ -763,12 +933,26 @@ function FeatureFlagNotice({
 	);
 }
 
-function NotConfigured({ onClose }: { onClose: () => void }) {
+function NotConfigured({
+	onClose,
+	featureFlagState,
+	onRefreshFeatureFlags,
+}: {
+	onClose: () => void;
+	featureFlagState: FeatureFlagState;
+	onRefreshFeatureFlags: () => void;
+}) {
 	return (
 		<div className="py-2">
 			<p className="text-sm text-nova-rose">
 				CommCare HQ is not configured. Add your API key in Settings.
 			</p>
+			<FeatureFlagPreflight
+				state={featureFlagState}
+				onRefresh={
+					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
+				}
+			/>
 			<div className="mt-4 flex items-center justify-between">
 				<Link
 					href="/settings"

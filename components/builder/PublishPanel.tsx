@@ -23,6 +23,7 @@ import {
 import {
 	PublishDialog,
 	type PublishDownloadOutcome,
+	type PublishFeatureFlagOutcome,
 } from "@/components/builder/PublishDialog";
 import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -31,6 +32,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	decodeHqFeatureFlagReport,
 	HQ_FEATURE_FLAG_REPORT_HEADER,
+	type HqFeatureFlagReport,
 } from "@/lib/publish/hqFeatureFlags";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -262,6 +264,68 @@ export const PublishPanel = memo(function PublishPanel({
 			});
 		}, [docStore, runDownload]);
 
+	const loadFeatureFlags = useCallback(
+		async (
+			domain: string | undefined,
+			signal: AbortSignal,
+		): Promise<PublishFeatureFlagOutcome> => {
+			const start = session.getState();
+			const appId = docStore?.getState().appId;
+			if (start.accessPhase !== "authorized" || !appId) {
+				return {
+					ok: false,
+					message: "Feature-flag requirements are not available right now.",
+				};
+			}
+			const scopeEpoch = start.scopeEpoch;
+			try {
+				const response = await fetch("/api/commcare/feature-flags", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ appId, ...(domain && { domain }) }),
+					signal,
+				});
+				const current = session.getState();
+				if (
+					signal.aborted ||
+					current.accessPhase !== "authorized" ||
+					current.scopeEpoch !== scopeEpoch
+				) {
+					return {
+						ok: false,
+						message: "Feature-flag check was cancelled.",
+					};
+				}
+				const body = (await response.json().catch(() => null)) as {
+					feature_flag_requirements?: HqFeatureFlagReport;
+					error?: string;
+				} | null;
+				if (!response.ok || !body?.feature_flag_requirements) {
+					return {
+						ok: false,
+						message:
+							body?.error ??
+							"Nova could not check feature-flag requirements. You can retry without leaving this dialog.",
+					};
+				}
+				return { ok: true, report: body.feature_flag_requirements };
+			} catch (error) {
+				if (
+					signal.aborted ||
+					(error instanceof DOMException && error.name === "AbortError")
+				) {
+					return { ok: false, message: "Feature-flag check was cancelled." };
+				}
+				return {
+					ok: false,
+					message:
+						"Nova could not check feature-flag requirements. You can retry without leaving this dialog.",
+				};
+			}
+		},
+		[docStore, session],
+	);
+
 	/* Stable callbacks prevent cascading re-renders through PublishDialog when
 	 * PublishPanel re-renders from parent cascade.
 	 * Without these, inline arrow functions create new refs on every render,
@@ -289,6 +353,7 @@ export const PublishPanel = memo(function PublishPanel({
 				getAppId={getAppId}
 				availableDomains={commcareConfigured ? commcareAvailableDomains : []}
 				canUploadToHq={canEdit}
+				onLoadFeatureFlags={loadFeatureFlags}
 				onDownloadJson={handleDownloadJson}
 				onDownloadCcz={handleDownloadCcz}
 			/>

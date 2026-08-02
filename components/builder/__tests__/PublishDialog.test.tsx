@@ -57,6 +57,27 @@ const downloadReport: HqFeatureFlagReport = {
 		"This app requires Simple Case Search. Nova cannot check a downloaded file's destination.",
 };
 
+const prepublishReport: HqFeatureFlagReport = {
+	...downloadReport,
+	message:
+		"This app requires Simple Case Search. No project space has been checked yet, so these are requirements, not flags known to be off.",
+};
+
+function featureFlagPreflight(domain?: string) {
+	return Promise.resolve({
+		ok: true as const,
+		report: domain
+			? {
+					...prepublishReport,
+					verification: "verified" as const,
+					target_domain: domain,
+					unverified_flags: [],
+					message: `Nova verified that every required feature flag is enabled for the “${domain}” project space.`,
+				}
+			: prepublishReport,
+	});
+}
+
 function renderDialog(
 	overrides: Partial<React.ComponentProps<typeof PublishDialog>> = {},
 ) {
@@ -66,6 +87,9 @@ function renderDialog(
 		getAppId: () => "app-1",
 		availableDomains: [{ name: "project-space", displayName: "Project Space" }],
 		canUploadToHq: true,
+		onLoadFeatureFlags: vi.fn((domain?: string) =>
+			featureFlagPreflight(domain),
+		),
 		onDownloadJson: vi.fn().mockResolvedValue({
 			ok: true,
 			featureFlagReport: downloadReport,
@@ -96,15 +120,17 @@ describe("PublishDialog", () => {
 		expect(screen.getByRole("tab", { name: "CommCare HQ" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Mobile" })).toBeTruthy();
+		await screen.findByText("Required feature flags verified");
 	});
 
-	it("keeps file publishing available to viewers without exposing HQ writes", () => {
+	it("keeps file publishing available to viewers without exposing HQ writes", async () => {
 		mocks.renderCanEdit = false;
 		mocks.sessionState.canEdit = false;
 		renderDialog({ canUploadToHq: false });
 		expect(screen.queryByRole("tab", { name: "CommCare HQ" })).toBeNull();
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
+		await screen.findByText("Required in the destination project space");
 	});
 
 	it("rechecks the live Project capability before starting an HQ upload", async () => {
@@ -117,14 +143,21 @@ describe("PublishDialog", () => {
 		view.unmount();
 	});
 
-	it("explains unverified file requirements without calling them missing", async () => {
+	it("explains unverified file requirements before download without calling them missing", async () => {
 		const { props } = renderDialog();
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+
+		await screen.findByText("Required in the destination project space");
+		expect(props.onDownloadJson).not.toHaveBeenCalled();
+		expect(screen.getByText("search_claim")).toBeTruthy();
+		expect(screen.getByText("support@dimagi.com")).toBeTruthy();
+		expect(screen.queryByText(/is not enabled/i)).toBeNull();
+
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);
 
-		await screen.findByText("Required in the destination project space");
+		await screen.findByText("Web app file downloaded");
 		expect(
 			screen.getByText(/cannot check a downloaded file's destination/i),
 		).toBeTruthy();
@@ -136,6 +169,21 @@ describe("PublishDialog", () => {
 			name: /Learn more about Simple Case Search/,
 		});
 		expect(learnMore.getAttribute("target")).toBe("_blank");
+	});
+
+	it("checks the selected HQ project space on open and refreshes on request", async () => {
+		const onLoadFeatureFlags = vi.fn((domain?: string) =>
+			featureFlagPreflight(domain),
+		);
+		renderDialog({ onLoadFeatureFlags });
+
+		await screen.findByText("Required feature flags verified");
+		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
+			"project-space",
+			expect.any(AbortSignal),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Refresh check" }));
+		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
 	});
 
 	it("surfaces flags HQ confirmed missing after a successful upload", async () => {
@@ -161,6 +209,7 @@ describe("PublishDialog", () => {
 		);
 
 		renderDialog();
+		await screen.findByText("Required feature flags verified");
 		fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
 		await screen.findByText("CommCare HQ settings need attention");
 		expect(
@@ -195,6 +244,9 @@ describe("PublishDialog", () => {
 							{ name: "project-space", displayName: "Project Space" },
 						]}
 						canUploadToHq
+						onLoadFeatureFlags={(domain, _signal) =>
+							featureFlagPreflight(domain)
+						}
 						onDownloadJson={onDownloadJson}
 						onDownloadCcz={vi.fn().mockResolvedValue({ ok: true })}
 					/>
@@ -204,6 +256,7 @@ describe("PublishDialog", () => {
 
 		render(<Harness />);
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await screen.findByText("Required in the destination project space");
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);

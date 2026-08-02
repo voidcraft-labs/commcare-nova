@@ -142,8 +142,13 @@ export type HqFeatureFlagProbe = Readonly<{
 /** Report for an artifact whose eventual HQ domain is unknown. */
 export function featureFlagReportForUnverifiedRequirements(
 	required: readonly HqFeatureFlagRequirement[],
+	context: "download" | "prepublish" = "download",
 ): HqFeatureFlagReport {
 	if (required.length === 0) return noRequirementsReport();
+	const message =
+		context === "download"
+			? `This app requires ${flagNames(required)} in the CommCare HQ project space where it will be used. Nova cannot check a downloaded file's destination. If a required flag is not enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`
+			: `This app requires ${flagNames(required)} in the CommCare HQ project space where it will be used. No project space has been checked yet, so these are requirements, not flags known to be off. If a required flag is not enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`;
 	return {
 		verification: "not_checked",
 		required_flags: required,
@@ -151,7 +156,7 @@ export function featureFlagReportForUnverifiedRequirements(
 		unverified_flags: required,
 		support_email: HQ_FEATURE_FLAG_SUPPORT_EMAIL,
 		docs_url: HQ_FEATURE_FLAGS_DOCS_URL,
-		message: `This app requires ${flagNames(required)} in the CommCare HQ project space where it will be used. Nova cannot check a downloaded file's destination. If a required flag is not enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`,
+		message,
 	};
 }
 
@@ -159,6 +164,7 @@ export function featureFlagReportForUnverifiedRequirements(
 export function featureFlagReportForUpload(
 	domain: string,
 	probes: readonly HqFeatureFlagProbe[],
+	context: "after_upload" | "prepublish" = "after_upload",
 ): HqFeatureFlagReport {
 	if (probes.length === 0) return noRequirementsReport(domain);
 	const required = probes.map((probe) => probe.requirement);
@@ -188,7 +194,9 @@ export function featureFlagReportForUpload(
 		if (unverified.length > 0) {
 			parts.push(`Nova could not verify ${flagNames(unverified)}`);
 		}
-		message = `${parts.join(". ")}. The app was still published. Contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL}, name the “${domain}” project space, and include the flags above.`;
+		const outcome =
+			context === "after_upload" ? " The app was still published." : "";
+		message = `${parts.join(". ")}.${outcome} Contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL}, name the “${domain}” project space, and include the flags above.`;
 	}
 
 	return {

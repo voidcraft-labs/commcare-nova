@@ -19,12 +19,18 @@ actual Nova emitter and exact current HQ source evidence. Remove or update it
 when the upstream flag graduates or changes; never leave a retired flag as
 historical documentation.
 
-Direct HQ upload probes the selected domain only after `import_app` succeeds.
-Each required domain-only flag is queried through the paginated
+The publish modal's read-only preflight probes a selected HQ domain on open,
+selection, and explicit refresh; direct HQ upload probes the selected domain
+again only after `import_app` succeeds. Each required domain-only flag is
+queried through the paginated
 `UserDomainsResource` feature-flag filter. A negative result is confirmed
 missing; an HTTP/shape/namespace failure is unverified and never blocks or
 relabels the successful upload. JSON and CCZ have no target domain, so their
 report is always `not_checked`: the flags are requirements, not known missing.
+The MCP-only `get_app_feature_flags` tool exposes the same detector before any
+publish: each requirement carries app-specific reasons and inline public docs
+content/links, but never a domain-state claim. Keep it MCP-only; Nova's internal
+SA speaks domain vocabulary and does not own CommCare deployment concerns.
 The weekly `commcare-hq-feature-flags` workflow runs
 `scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
 fails when symbols, slugs, namespaces, tags, or the recorded emitter evidence

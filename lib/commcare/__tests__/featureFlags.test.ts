@@ -8,6 +8,7 @@ import {
 	featureFlagReportForDownload,
 	featureFlagReportForUpload,
 	requiredHqFeatureFlags,
+	requiredHqFeatureFlagUses,
 } from "../featureFlags";
 
 function doc(overrides: Partial<BlueprintDoc> = {}): BlueprintDoc {
@@ -102,6 +103,48 @@ describe("requiredHqFeatureFlags", () => {
 		expect(
 			requiredHqFeatureFlags(doc({ connectType: "learn" })).map((f) => f.slug),
 		).toEqual(["commcare_connect"]);
+	});
+
+	it("explains the authored settings behind each ordered requirement", () => {
+		const patient = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [
+					{
+						uuid: testUuid("search-name-explanation"),
+						kind: "simple",
+						type: "text",
+						name: "name_query",
+						label: "Name",
+						property: "name",
+					},
+				],
+			},
+		});
+		const uses = requiredHqFeatureFlagUses(
+			doc({
+				connectType: "learn",
+				modules: { [patient.uuid]: patient },
+			}),
+		);
+
+		expect(uses.map((use) => use.requirement.slug)).toEqual([
+			"search_claim",
+			"case_search_advanced",
+			"commcare_connect",
+		]);
+		expect(uses[0]?.reasons).toEqual([
+			"The “Patients” module has a Case Search action or Search inputs.",
+		]);
+		expect(uses[1]?.reasons).toEqual([
+			"The “Patients” module uses a Search input whose matching behavior needs Advanced Case Search.",
+		]);
+		expect(uses[2]?.reasons).toEqual([
+			"The app is configured for CommCare Connect Learn.",
+		]);
 	});
 });
 
