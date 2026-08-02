@@ -20,15 +20,19 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 
 ## Publishing
 
-`PublishPanel` owns one `PublishDialog` with CommCare HQ, Web, and Mobile tabs.
+`PublishPanel` owns one `PublishDialog` with a single destination selector for
+direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
+selector's supporting line explains the current option; only its fields and
+action change below, while shared prerequisite information keeps one stable
+place in the dialog.
 Show feature-flag information before the action, never for the first time after
-the user commits: Web/Mobile show exact app requirements with unknown domain
+the user commits: file options show exact app requirements with unknown domain
 state, while HQ probes the selected project space on open/selection and on an
 explicit Refresh. Keep publish outcomes in this durable modal too: direct
 upload re-probes after import and reports flags Nova confirmed missing (or could
 not verify) for the exact target; download success retains the artifact's exact
-requirements. Viewers may use the file tabs but never receive the HQ tab. The
-dialog consumes the shared report from
+requirements. Viewers may use the file options but never receive the direct HQ
+option. The dialog consumes the shared report from
 `lib/publish/hqFeatureFlags.ts`; do not re-detect app features or copy the flag
 catalog into React. Every actionable flag notice names `support@dimagi.com`, the
 target project space when known, and links to the public feature-flag guide in a

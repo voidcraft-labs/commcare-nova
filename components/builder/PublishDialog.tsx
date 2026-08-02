@@ -2,10 +2,10 @@
  * Unified publish flow for direct HQ upload, HQ JSON, and mobile CCZ.
  *
  * All three destinations stay in one durable modal because publish results can
- * carry important prerequisite and follow-up information. A dropdown
- * disappears at selection; this dialog shows app requirements before every
- * action, probes a connected HQ domain on open/selection/refresh, and retains
- * the exact post-publish result without relying on a toast.
+ * carry important prerequisite and follow-up information. One selector changes
+ * the destination-specific fields and action while shared app requirements keep
+ * one stable place before every action. Connected HQ domains are probed on open,
+ * selection, refresh, and upload; exact post-publish results remain in the modal.
  */
 
 "use client";
@@ -34,6 +34,12 @@ import {
 	DialogFooter,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import {
+	Field,
+	FieldDescription,
+	FieldLabel,
+	FieldTitle,
+} from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
 	Select,
@@ -42,12 +48,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import {
-	Tabs,
-	TabsContent,
-	TabsList,
-	TabsTrigger,
-} from "@/components/shadcn/tabs";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
@@ -57,6 +57,27 @@ import { describeApiFailure } from "@/lib/ui/apiFailure";
 
 type Domain = { name: string; displayName: string };
 type PublishTarget = "hq" | "web" | "mobile";
+
+const PUBLISH_TARGET_ORDER: readonly PublishTarget[] = ["hq", "web", "mobile"];
+const PUBLISH_TARGET_OPTIONS = {
+	hq: {
+		label: "CommCare HQ",
+		description: "Upload directly to a connected project space",
+		icon: tablerCloudUpload,
+	},
+	web: {
+		label: "CommCare HQ app file",
+		description:
+			"Download a JSON file to import into CommCare HQ. Apps with media download as a ZIP file with import instructions",
+		icon: tablerBrowser,
+	},
+	mobile: {
+		label: "CommCare mobile app file",
+		description:
+			"Download a CCZ package for CommCare Android or another mobile deployment process",
+		icon: tablerDeviceMobile,
+	},
+} as const;
 
 export type PublishDownloadOutcome =
 	| { readonly ok: true; readonly featureFlagReport?: HqFeatureFlagReport }
@@ -171,6 +192,17 @@ export function PublishDialog({
 			})),
 		[availableDomains],
 	);
+	const publishTargetItems = useMemo(
+		() =>
+			PUBLISH_TARGET_ORDER.filter(
+				(candidate) => candidate !== "hq" || canUploadToHq,
+			).map((candidate) => ({
+				label: PUBLISH_TARGET_OPTIONS[candidate].label,
+				value: candidate,
+			})),
+		[canUploadToHq],
+	);
+	const targetOption = PUBLISH_TARGET_OPTIONS[target];
 
 	const wasOpenRef = useRef(false);
 	useEffect(() => {
@@ -389,49 +421,78 @@ export function PublishDialog({
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
 		status.type === "download-success" && status.target === downloadTarget;
+	const showFeatureFlagPreflight =
+		status.type !== "upload-success" &&
+		!downloadComplete &&
+		(target !== "hq" || (!notConfigured && Boolean(selectedDomain)));
 
 	if (accessPhase !== "authorized") return null;
 
 	return (
 		<Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
 			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
-				<div className="border-b border-nova-border px-5 pb-3 pt-5">
+				<div className="shrink-0 border-b border-nova-border px-5 pb-3 pt-5">
 					<DialogTitle className="font-display tracking-tighter">
 						Publish app
 					</DialogTitle>
 					<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-						Upload to CommCare HQ, or download a file to publish elsewhere
+						Choose where to publish or which file to download
 					</p>
 				</div>
 
-				<Tabs
-					value={target}
-					onValueChange={(value) => handleTargetChange(value as PublishTarget)}
-					className="min-h-0 flex-1 gap-0 overflow-hidden"
-				>
-					<div className="shrink-0 border-b border-nova-border px-5">
-						<TabsList variant="line" className="h-12 w-full">
-							{canUploadToHq && (
-								<TabsTrigger value="hq" disabled={isWorking}>
-									<Icon icon={tablerCloudUpload} className="size-4" />
-									CommCare HQ
-								</TabsTrigger>
-							)}
-							<TabsTrigger value="web" disabled={isWorking}>
-								<Icon icon={tablerBrowser} className="size-4" />
-								Web
-							</TabsTrigger>
-							<TabsTrigger value="mobile" disabled={isWorking}>
-								<Icon icon={tablerDeviceMobile} className="size-4" />
-								Mobile
-							</TabsTrigger>
-						</TabsList>
-					</div>
+				<DialogBody className="mx-0 px-0">
+					<div className="px-5 py-4">
+						<Field className="gap-1.5">
+							<FieldLabel htmlFor="publish-target">Publish option</FieldLabel>
+							<Select
+								items={publishTargetItems}
+								value={target}
+								onValueChange={(value) =>
+									value && handleTargetChange(value as PublishTarget)
+								}
+								disabled={isWorking}
+							>
+								<SelectTrigger
+									id="publish-target"
+									className="w-full"
+									aria-label="Publish option"
+								>
+									<SelectValue>
+										<Icon icon={targetOption.icon} className="size-4" />
+										{targetOption.label}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent align="start">
+									{PUBLISH_TARGET_ORDER.map((candidate) => {
+										if (candidate === "hq" && !canUploadToHq) return null;
+										const option = PUBLISH_TARGET_OPTIONS[candidate];
+										return (
+											<SelectItem
+												key={candidate}
+												value={candidate}
+												aria-label={option.label}
+												wrap
+											>
+												<Icon icon={option.icon} className="mt-0.5 size-4" />
+												<span className="min-w-0">
+													<span className="block text-sm font-medium text-nova-text">
+														{option.label}
+													</span>
+													<span className="mt-0.5 block text-xs leading-snug text-nova-text-muted">
+														{option.description}
+													</span>
+												</span>
+											</SelectItem>
+										);
+									})}
+								</SelectContent>
+							</Select>
+							<FieldDescription>{targetOption.description}</FieldDescription>
+						</Field>
 
-					<DialogBody className="mx-0 px-0">
-						{canUploadToHq && (
-							<TabsContent value="hq" className="px-5 py-4">
-								{status.type === "upload-success" ? (
+						<div className="mt-5 border-t border-nova-border pt-5">
+							{target === "hq" ? (
+								status.type === "upload-success" ? (
 									<PublishSuccess
 										title="App uploaded successfully"
 										warnings={status.warnings}
@@ -453,108 +514,66 @@ export function PublishDialog({
 										appName={appName}
 										onAppNameChange={setAppName}
 										status={status}
-										featureFlagState={featureFlagState}
-										onRefreshFeatureFlags={handleRefreshFeatureFlags}
 									/>
-								)}
-							</TabsContent>
-						)}
-
-						<TabsContent value="web" className="px-5 py-4">
-							{status.type === "download-success" && status.target === "web" ? (
+								)
+							) : downloadComplete && status.type === "download-success" ? (
 								<PublishSuccess
-									title="Web app file downloaded"
+									title={
+										target === "web"
+											? "CommCare HQ app file downloaded"
+											: "Mobile app file downloaded"
+									}
 									featureFlagReport={status.featureFlagReport}
 									mode="download"
 								/>
-							) : (
-								<DownloadForm
-									title="CommCare HQ app file"
-									description="Download a JSON file to import into CommCare HQ. Apps with media download as a ZIP file with import instructions."
-									featureFlagState={featureFlagState}
-									onRefreshFeatureFlags={handleRefreshFeatureFlags}
+							) : null}
+
+							{showFeatureFlagPreflight && (
+								<FeatureFlagPreflight
+									state={featureFlagState}
+									domainChecked={target === "hq"}
+									onRefresh={
+										target === "hq" || featureFlagState.type === "error"
+											? handleRefreshFeatureFlags
+											: undefined
+									}
 								/>
 							)}
-						</TabsContent>
+						</div>
+					</div>
+				</DialogBody>
 
-						<TabsContent value="mobile" className="px-5 py-4">
-							{status.type === "download-success" &&
-							status.target === "mobile" ? (
-								<PublishSuccess
-									title="Mobile app file downloaded"
-									featureFlagReport={status.featureFlagReport}
-									mode="download"
-								/>
-							) : (
-								<DownloadForm
-									title="CommCare mobile app file"
-									description="Download a CCZ package for CommCare Android or another mobile deployment process"
-									featureFlagState={featureFlagState}
-									onRefreshFeatureFlags={handleRefreshFeatureFlags}
-								/>
-							)}
-						</TabsContent>
-					</DialogBody>
-
-					<DialogFooter
-						className={`border-t border-nova-border px-5 py-4 ${
-							target === "hq" && status.type === "upload-success"
-								? "justify-between"
-								: ""
-						}`}
-					>
-						{target === "hq" ? (
-							status.type === "upload-success" ? (
-								<>
-									{status.appUrl ? (
-										<a
-											href={status.appUrl}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="inline-flex items-center gap-1 text-sm text-nova-violet-bright hover:underline"
-										>
-											Open in CommCare HQ
-											<Icon icon={tablerExternalLink} className="size-3.5" />
-										</a>
-									) : (
-										<span />
-									)}
-									<Button type="button" variant="outline" onClick={handleClose}>
-										Done
-									</Button>
-								</>
-							) : notConfigured ? (
-								<DialogClose render={<Button variant="outline" />}>
-									Close
-								</DialogClose>
-							) : (
-								<>
-									<DialogClose render={<Button variant="outline" />}>
-										Cancel
-									</DialogClose>
-									<Button
-										type="button"
-										onClick={handleUpload}
-										disabled={!canUpload}
+				<DialogFooter
+					className={`border-t border-nova-border px-5 py-4 ${
+						target === "hq" && status.type === "upload-success"
+							? "justify-between"
+							: ""
+					}`}
+				>
+					{target === "hq" ? (
+						status.type === "upload-success" ? (
+							<>
+								{status.appUrl ? (
+									<a
+										href={status.appUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="inline-flex items-center gap-1 text-sm text-nova-violet-bright hover:underline"
 									>
-										{status.type === "uploading" ? (
-											<>
-												<Icon
-													icon={tablerLoader2}
-													className="size-4 animate-spin"
-												/>
-												Uploading
-											</>
-										) : (
-											"Upload"
-										)}
-									</Button>
-								</>
-							)
-						) : downloadComplete ? (
-							<Button type="button" variant="outline" onClick={handleClose}>
-								Done
-							</Button>
+										Open in CommCare HQ
+										<Icon icon={tablerExternalLink} className="size-3.5" />
+									</a>
+								) : (
+									<span />
+								)}
+								<Button type="button" variant="outline" onClick={handleClose}>
+									Done
+								</Button>
+							</>
+						) : notConfigured ? (
+							<DialogClose render={<Button variant="outline" />}>
+								Close
+							</DialogClose>
 						) : (
 							<>
 								<DialogClose render={<Button variant="outline" />}>
@@ -562,30 +581,57 @@ export function PublishDialog({
 								</DialogClose>
 								<Button
 									type="button"
-									onClick={() => handleDownload(downloadTarget)}
-									disabled={isWorking || isCheckingFeatureFlags}
+									onClick={handleUpload}
+									disabled={!canUpload}
 								>
-									{status.type === "downloading" ? (
+									{status.type === "uploading" ? (
 										<>
 											<Icon
 												icon={tablerLoader2}
 												className="size-4 animate-spin"
 											/>
-											Preparing
+											Uploading
 										</>
 									) : (
-										<>
-											<Icon icon={tablerDownload} className="size-4" />
-											{downloadTarget === "web"
-												? "Download JSON"
-												: "Download CCZ"}
-										</>
+										"Upload"
 									)}
 								</Button>
 							</>
-						)}
-					</DialogFooter>
-				</Tabs>
+						)
+					) : downloadComplete ? (
+						<Button type="button" variant="outline" onClick={handleClose}>
+							Done
+						</Button>
+					) : (
+						<>
+							<DialogClose render={<Button variant="outline" />}>
+								Cancel
+							</DialogClose>
+							<Button
+								type="button"
+								onClick={() => handleDownload(downloadTarget)}
+								disabled={isWorking || isCheckingFeatureFlags}
+							>
+								{status.type === "downloading" ? (
+									<>
+										<Icon
+											icon={tablerLoader2}
+											className="size-4 animate-spin"
+										/>
+										Preparing
+									</>
+								) : (
+									<>
+										<Icon icon={tablerDownload} className="size-4" />
+										{downloadTarget === "web"
+											? "Download JSON"
+											: "Download CCZ"}
+									</>
+								)}
+							</Button>
+						</>
+					)}
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -600,8 +646,6 @@ function UploadForm({
 	appName,
 	onAppNameChange,
 	status,
-	featureFlagState,
-	onRefreshFeatureFlags,
 }: {
 	availableDomains: Domain[];
 	domainItems: { label: string; value: string }[];
@@ -611,17 +655,13 @@ function UploadForm({
 	appName: string;
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
-	featureFlagState: FeatureFlagState;
-	onRefreshFeatureFlags: () => void;
 }) {
 	const uploading = status.type === "uploading";
 	return (
 		<>
 			<div className="space-y-4">
-				<div className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium text-nova-text-secondary">
-						Project space
-					</span>
+				<Field className="gap-1.5">
+					<FieldTitle>Project space</FieldTitle>
 					{isMultiSpace ? (
 						<>
 							<Select
@@ -630,7 +670,11 @@ function UploadForm({
 								onValueChange={(next) => onSelectedDomainChange(next ?? "")}
 								disabled={uploading}
 							>
-								<SelectTrigger className="w-full" aria-label="Project space">
+								<SelectTrigger
+									id="hq-project-space"
+									className="w-full"
+									aria-label="Project space"
+								>
 									<SelectValue placeholder="Choose a project space" />
 								</SelectTrigger>
 								<SelectContent>
@@ -642,9 +686,9 @@ function UploadForm({
 								</SelectContent>
 							</Select>
 							{selectedDomain && (
-								<span className="text-[11px] text-nova-text-muted">
+								<FieldDescription className="text-xs">
 									Uploads to {selectedDomain}
-								</span>
+								</FieldDescription>
 							)}
 						</>
 					) : (
@@ -665,12 +709,10 @@ function UploadForm({
 							</div>
 						</div>
 					)}
-				</div>
+				</Field>
 
-				<label htmlFor="hq-upload-app-name" className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium text-nova-text-secondary">
-						App name
-					</span>
+				<Field className="gap-1.5">
+					<FieldLabel htmlFor="hq-upload-app-name">App name</FieldLabel>
 					<Input
 						id="hq-upload-app-name"
 						type="text"
@@ -679,22 +721,13 @@ function UploadForm({
 						disabled={uploading}
 						autoComplete="off"
 						data-1p-ignore
-						className="h-auto px-4 py-2.5"
 					/>
-				</label>
+				</Field>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
 					Uploading creates a new app in the selected project space. This window
 					checks its feature flags now and again after upload.
 				</p>
-
-				{selectedDomain && (
-					<FeatureFlagPreflight
-						state={featureFlagState}
-						domainChecked
-						onRefresh={onRefreshFeatureFlags}
-					/>
-				)}
 			</div>
 
 			{status.type === "error" && (
@@ -739,33 +772,6 @@ function UploadForm({
 				</div>
 			)}
 		</>
-	);
-}
-
-function DownloadForm({
-	title,
-	description,
-	featureFlagState,
-	onRefreshFeatureFlags,
-}: {
-	title: string;
-	description: string;
-	featureFlagState: FeatureFlagState;
-	onRefreshFeatureFlags: () => void;
-}) {
-	return (
-		<div>
-			<h3 className="text-sm font-semibold text-nova-text">{title}</h3>
-			<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
-				{description}
-			</p>
-			<FeatureFlagPreflight
-				state={featureFlagState}
-				onRefresh={
-					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
-				}
-			/>
-		</div>
 	);
 }
 
@@ -1101,7 +1107,7 @@ function NotConfigured({
 						from commcare nova
 					</p>
 					<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
-						You can still download your app from the Web or Mobile tab
+						You can still choose a CommCare HQ app file or mobile app file above
 					</p>
 				</div>
 			</div>

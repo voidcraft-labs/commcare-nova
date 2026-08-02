@@ -102,6 +102,15 @@ function renderDialog(
 	return { view: render(<PublishDialog {...props} />), props };
 }
 
+async function choosePublishOption(name: string) {
+	fireEvent.click(screen.getByRole("combobox", { name: "Publish option" }));
+	await settleBaseUiTransitions();
+	const option = screen.getByRole("option", { name });
+	fireEvent.pointerDown(option, { pointerType: "mouse" });
+	fireEvent.click(option);
+	await settleBaseUiTransitions();
+}
+
 describe("PublishDialog", () => {
 	beforeEach(() => {
 		mocks.fetch.mockReset();
@@ -117,27 +126,62 @@ describe("PublishDialog", () => {
 	});
 
 	it("keeps all publish destinations in one modal", async () => {
-		renderDialog();
+		const onLoadFeatureFlags = vi.fn((domain?: string) =>
+			featureFlagPreflight(domain),
+		);
+		renderDialog({ onLoadFeatureFlags });
 		expect(screen.getByRole("dialog").textContent).toContain("Publish app");
-		expect(screen.getByRole("tab", { name: "CommCare HQ" })).toBeTruthy();
-		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
-		expect(screen.getByRole("tab", { name: "Mobile" })).toBeTruthy();
+		expect(
+			screen.getByRole("combobox", { name: "Publish option" }).textContent,
+		).toContain("CommCare HQ");
 		await screen.findByText("Feature flags are ready");
 		expect(
 			screen
 				.getByRole("button", { name: "Upload" })
 				.closest("[data-slot=dialog-footer]"),
 		).not.toBeNull();
+
+		await choosePublishOption("CommCare HQ app file");
+		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
+		await screen.findByText("This app uses CommCare HQ feature flags");
+		expect(
+			screen.getAllByText("This app uses CommCare HQ feature flags"),
+		).toHaveLength(1);
+		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
+		expect(
+			screen.getByText(/Download a JSON file to import into CommCare HQ/i, {
+				selector: 'p[data-slot="field-description"]',
+			}),
+		).toBeTruthy();
+
+		await choosePublishOption("CommCare mobile app file");
+		expect(screen.getByRole("button", { name: "Download CCZ" })).toBeTruthy();
+		expect(
+			screen.getAllByText("This app uses CommCare HQ feature flags"),
+		).toHaveLength(1);
+		expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2);
 	});
 
 	it("keeps file publishing available to viewers without exposing HQ writes", async () => {
 		mocks.renderCanEdit = false;
 		mocks.sessionState.canEdit = false;
 		renderDialog({ canUploadToHq: false });
-		expect(screen.queryByRole("tab", { name: "CommCare HQ" })).toBeNull();
-		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
+		expect(
+			screen.getByRole("combobox", { name: "Publish option" }).textContent,
+		).toContain("CommCare HQ app file");
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
 		await screen.findByText("This app uses CommCare HQ feature flags");
+
+		fireEvent.click(screen.getByRole("combobox", { name: "Publish option" }));
+		await settleBaseUiTransitions();
+		expect(screen.queryByRole("option", { name: "CommCare HQ" })).toBeNull();
+		const mobileOption = screen.getByRole("option", {
+			name: "CommCare mobile app file",
+		});
+		fireEvent.pointerDown(mobileOption, { pointerType: "mouse" });
+		fireEvent.click(mobileOption);
+		await settleBaseUiTransitions();
+		expect(screen.getByRole("button", { name: "Download CCZ" })).toBeTruthy();
 	});
 
 	it("keeps HQ requirements hidden until HQ is connected and offers recovery", async () => {
@@ -153,7 +197,9 @@ describe("PublishDialog", () => {
 
 		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
 		expect(
-			screen.getByText(/still download your app from the Web or Mobile tab/i),
+			screen.getByText(
+				/still choose a CommCare HQ app file or mobile app file/i,
+			),
 		).toBeTruthy();
 		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
 		expect(
@@ -166,13 +212,13 @@ describe("PublishDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
 		expect(onRefreshHqConnection).toHaveBeenCalledOnce();
 
-		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await choosePublishOption("CommCare HQ app file");
 		await screen.findByText("This app uses CommCare HQ feature flags");
 		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
 			undefined,
 			expect.any(AbortSignal),
 		);
-		fireEvent.click(screen.getByRole("tab", { name: "CommCare HQ" }));
+		await choosePublishOption("CommCare HQ");
 		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
 		expect(
 			screen.queryByText("This app uses CommCare HQ feature flags"),
@@ -191,7 +237,7 @@ describe("PublishDialog", () => {
 
 	it("explains unverified file requirements before download without calling them missing", async () => {
 		const { props } = renderDialog();
-		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await choosePublishOption("CommCare HQ app file");
 
 		await screen.findByText("This app uses CommCare HQ feature flags");
 		expect(screen.getByRole("status").textContent).toContain(
@@ -210,7 +256,7 @@ describe("PublishDialog", () => {
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);
 
-		await screen.findByText("Web app file downloaded");
+		await screen.findByText("CommCare HQ app file downloaded");
 		expect(
 			screen.getByText(/destination project space hasn't been checked/i),
 		).toBeTruthy();
@@ -388,7 +434,7 @@ describe("PublishDialog", () => {
 		}
 
 		render(<Harness />);
-		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await choosePublishOption("CommCare HQ app file");
 		await screen.findByText("This app uses CommCare HQ feature flags");
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
@@ -396,14 +442,14 @@ describe("PublishDialog", () => {
 		expect(onDownloadJson).toHaveBeenCalledOnce();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		fireEvent.click(screen.getByRole("button", { name: "Reopen publish" }));
-		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await choosePublishOption("CommCare HQ app file");
 
 		await act(async () => {
 			resolveDownload?.({ ok: true, featureFlagReport: downloadReport });
 			await Promise.resolve();
 		});
 
-		expect(screen.queryByText("Web app file downloaded")).toBeNull();
+		expect(screen.queryByText("CommCare HQ app file downloaded")).toBeNull();
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
 	});
 });
