@@ -49,7 +49,6 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 						onClick={onExpand}
 						aria-label="Expand structure sidebar"
 						data-builder-sidebar-toggle="expand-structure"
-						className="text-nova-text-muted hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
 					</Button>

@@ -207,7 +207,6 @@ export function BuilderHeader({
 											size="icon"
 											onClick={undo}
 											disabled={!canUndo}
-											className="text-nova-text-muted not-disabled:hover:bg-white/5"
 											aria-label="Undo"
 										>
 											<Icon icon={tablerArrowBackUp} width="18" height="18" />
@@ -222,7 +221,6 @@ export function BuilderHeader({
 											size="icon"
 											onClick={redo}
 											disabled={!canRedo}
-											className="text-nova-text-muted not-disabled:hover:bg-white/5"
 											aria-label="Redo"
 										>
 											<Icon

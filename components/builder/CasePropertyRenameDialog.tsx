@@ -623,7 +623,7 @@ export function CasePropertyRenameDialog({
 												type="button"
 												variant="ghost"
 												size="icon"
-												className="min-w-11 self-end text-nova-text-muted"
+												className="min-w-11 self-end"
 												aria-label={`Remove rename for ${row.property}`}
 												onClick={() =>
 													setRows((current) =>

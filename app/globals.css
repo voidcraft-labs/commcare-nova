@@ -148,6 +148,7 @@
 	--nova-amber: #eaa06a;
 	--nova-amber-hover: color-mix(in oklch, var(--nova-amber), white 10%);
 	--nova-rose: #d4708f;
+	--nova-rose-hover: color-mix(in oklch, var(--nova-rose), white 10%);
 	--nova-orchid: #cda0d4; /* code strings · peer presence; NOT an accent */
 
 	/* Peer-presence hues, drawn from the XPath editor's syntax family so
@@ -368,6 +369,7 @@
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-amber-hover: var(--nova-amber-hover);
 	--color-nova-rose: var(--nova-rose);
+	--color-nova-rose-hover: var(--nova-rose-hover);
 	--color-nova-orchid: var(--nova-orchid);
 	--color-nova-periwinkle: var(--nova-periwinkle);
 	--color-nova-iris: var(--nova-iris);

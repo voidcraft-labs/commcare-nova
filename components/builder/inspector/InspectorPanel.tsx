@@ -74,12 +74,12 @@ export function InspectorPanel({
 				<SimpleTooltip content="Close properties" side="left">
 					<Button
 						type="button"
-						variant="outline"
+						variant="ghost"
 						size="icon"
 						onClick={onClose}
 						aria-label="Close properties"
 						aria-keyshortcuts="Escape"
-						className="shrink-0 border-nova-border bg-transparent text-nova-text-muted hover:border-nova-border-bright hover:text-nova-text dark:bg-transparent"
+						className="shrink-0"
 					>
 						<Icon icon={tablerX} width="16" height="16" />
 					</Button>

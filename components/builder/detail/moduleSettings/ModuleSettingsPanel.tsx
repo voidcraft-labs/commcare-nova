@@ -40,7 +40,7 @@ export function ModuleSettingsPanel({
 					size="icon"
 					onClick={onClose}
 					aria-label="Close module settings"
-					className="-mr-2 text-nova-text-muted"
+					className="-mr-2"
 				>
 					<Icon icon={tablerX} className="size-4" />
 				</Button>

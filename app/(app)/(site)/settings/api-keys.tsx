@@ -636,7 +636,6 @@ function RowActions({
 						variant="ghost"
 						size="icon"
 						aria-label="Actions for this key"
-						className="text-nova-text-muted"
 					/>
 				}
 			>

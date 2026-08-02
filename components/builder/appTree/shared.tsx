@@ -32,7 +32,7 @@ export function CollapseChevron({
 			size="icon"
 			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
 			aria-expanded={!isCollapsed}
-			className="shrink-0 text-nova-text-muted hover:bg-white/[0.05]"
+			className="shrink-0"
 			onClick={onClick}
 			onKeyDown={(event) => event.stopPropagation()}
 		>

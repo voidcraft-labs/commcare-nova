@@ -540,7 +540,7 @@ export function StagedUploadChip({
 			<SimpleTooltip content={failed ? "Dismiss" : "Cancel upload"}>
 				<Button
 					type="button"
-					variant="ghost"
+					variant="ghost-destructive"
 					size="icon"
 					onClick={failed ? onDismiss : onCancel}
 					aria-label={
@@ -548,7 +548,7 @@ export function StagedUploadChip({
 							? `Dismiss failed upload of ${upload.filename}`
 							: `Cancel upload of ${upload.filename}`
 					}
-					className="shrink-0 text-nova-text-muted not-disabled:hover:text-nova-rose"
+					className="shrink-0"
 				>
 					<Icon icon={tablerX} className="size-4" />
 				</Button>
@@ -603,7 +603,6 @@ function AssetChip({
 							size="icon"
 							onClick={onReplace}
 							aria-label={`Replace ${noun}`}
-							className="text-nova-text-muted"
 						>
 							<Icon icon={tablerReplace} className="size-4" />
 						</Button>
@@ -611,11 +610,10 @@ function AssetChip({
 					<SimpleTooltip content={`Remove ${noun}`}>
 						<Button
 							type="button"
-							variant="ghost"
+							variant="ghost-destructive"
 							size="icon"
 							onClick={onRemove}
 							aria-label={`Remove ${noun}`}
-							className="text-nova-text-muted not-disabled:hover:text-nova-rose"
 						>
 							<Icon icon={tablerTrash} className="size-4" />
 						</Button>
