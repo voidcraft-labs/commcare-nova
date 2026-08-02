@@ -284,7 +284,16 @@ export function CommCareSettings({
 							}}
 							disabled={fieldsLocked}
 						>
-							<SelectTrigger className="w-full" aria-label="CommCare HQ server">
+							{/* `wrapValue` because this value is a URL, and at 320px
+							    "US: www.commcarehq.org" is 5px wider than the trigger
+							    and lost its tail with no ellipsis. The primitive's
+							    wrapping variant lets it take a second line instead of
+							    silently truncating an address. */}
+							<SelectTrigger
+								className="w-full"
+								wrapValue
+								aria-label="CommCare HQ server"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>

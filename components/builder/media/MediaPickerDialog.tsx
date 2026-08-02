@@ -631,7 +631,12 @@ function describeKinds(kinds: readonly AssetKind[]): {
 	nounPhrase: string;
 	accept: string;
 } {
-	const labels = kinds.map((k) => ASSET_KIND_META[k].label.toLowerCase());
+	/* Verbatim, never lowercased. These are initialisms and product names
+	 * (PDF, Word, Excel), so folding their case produced "an excel" and
+	 * "or word" in the sentence while the dialog's own list two inches
+	 * below still said "PDF" and "DOCX". Sentence case governs sentences;
+	 * it does not lowercase a proper noun. */
+	const labels = kinds.map((k) => ASSET_KIND_META[k].label);
 	const accept = kinds.map((k) => ASSET_KIND_META[k].accept).join(",");
 	// "image" → "an image"; "image"/"audio" → "an image or audio";
 	// "image"/"audio"/"video" → "an image, audio, or video".
