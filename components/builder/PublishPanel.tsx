@@ -272,7 +272,11 @@ export const PublishPanel = memo(function PublishPanel({
 			setPublishDialogOpen(true);
 		}
 	}, [session]);
-	const handleClosePublish = useCallback(() => setPublishDialogOpen(false), []);
+	const handleClosePublish = useCallback(() => {
+		for (const controller of downloadControllersRef.current) controller.abort();
+		downloadControllersRef.current.clear();
+		setPublishDialogOpen(false);
+	}, []);
 
 	return (
 		<>

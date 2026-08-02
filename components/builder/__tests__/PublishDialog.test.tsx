@@ -1,9 +1,19 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
-import { PublishDialog } from "@/components/builder/PublishDialog";
+import {
+	PublishDialog,
+	type PublishDownloadOutcome,
+} from "@/components/builder/PublishDialog";
 import {
 	HQ_FEATURE_FLAG_REQUIREMENTS,
 	type HqFeatureFlagReport,
@@ -157,5 +167,57 @@ describe("PublishDialog", () => {
 			screen.getByText(/is not enabled for the project-space/i),
 		).toBeTruthy();
 		expect(screen.getByText("support@dimagi.com")).toBeTruthy();
+	});
+
+	it("ignores a download completion from a closed dialog after it reopens", async () => {
+		let resolveDownload:
+			| ((outcome: PublishDownloadOutcome) => void)
+			| undefined;
+		const onDownloadJson = vi.fn(
+			() =>
+				new Promise<PublishDownloadOutcome>((resolve) => {
+					resolveDownload = resolve;
+				}),
+		);
+
+		function Harness() {
+			const [open, setOpen] = useState(true);
+			return (
+				<>
+					<button type="button" onClick={() => setOpen(true)}>
+						Reopen publish
+					</button>
+					<PublishDialog
+						open={open}
+						onClose={() => setOpen(false)}
+						getAppId={() => "app-1"}
+						availableDomains={[
+							{ name: "project-space", displayName: "Project Space" },
+						]}
+						canUploadToHq
+						onDownloadJson={onDownloadJson}
+						onDownloadCcz={vi.fn().mockResolvedValue({ ok: true })}
+					/>
+				</>
+			);
+		}
+
+		render(<Harness />);
+		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Download JSON" }),
+		);
+		expect(onDownloadJson).toHaveBeenCalledOnce();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		fireEvent.click(screen.getByRole("button", { name: "Reopen publish" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+
+		await act(async () => {
+			resolveDownload?.({ ok: true, featureFlagReport: downloadReport });
+			await Promise.resolve();
+		});
+
+		expect(screen.queryByText("Web app file downloaded")).toBeNull();
+		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
 	});
 });

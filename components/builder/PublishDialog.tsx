@@ -100,6 +100,7 @@ export function PublishDialog({
 	const session = useBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
+	const operationGenerationRef = useRef(0);
 	const storeAppName = useAppName();
 	const [target, setTarget] = useState<PublishTarget>(
 		canUploadToHq ? "hq" : "web",
@@ -107,16 +108,20 @@ export function PublishDialog({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const handleClose = useCallback(() => {
+		operationGenerationRef.current += 1;
+		uploadControllerRef.current?.abort();
+		uploadControllerRef.current = null;
+		onClose();
+	}, [onClose]);
 
 	useEffect(
 		() =>
 			reconciler?.subscribeProjectScopeReset(() => {
-				uploadControllerRef.current?.abort();
-				uploadControllerRef.current = null;
 				setStatus({ type: "idle" });
-				onClose();
+				handleClose();
 			}),
-		[onClose, reconciler],
+		[handleClose, reconciler],
 	);
 	useEffect(() => {
 		if (open) return;
@@ -147,6 +152,7 @@ export function PublishDialog({
 		const justOpened = open && !wasOpenRef.current;
 		wasOpenRef.current = open;
 		if (!justOpened) return;
+		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setTarget(canUploadToHq ? "hq" : "web");
 		setAppName(storeAppName);
@@ -156,18 +162,21 @@ export function PublishDialog({
 	}, [open, storeAppName, availableDomains, canUploadToHq]);
 
 	const handleTargetChange = useCallback((next: PublishTarget) => {
+		operationGenerationRef.current += 1;
 		setTarget(next);
 		setStatus({ type: "idle" });
 	}, []);
 
 	const handleUpload = useCallback(async () => {
 		if (!selectedDomain || !appName.trim()) return;
+		const generation = ++operationGenerationRef.current;
 		const start = session.getState();
 		if (start.accessPhase !== "authorized" || !start.canEdit) return;
 		const uploadScopeEpoch = start.scopeEpoch;
 		const isCurrent = () => {
 			const current = session.getState();
 			return (
+				operationGenerationRef.current === generation &&
 				current.accessPhase === "authorized" &&
 				current.canEdit &&
 				current.scopeEpoch === uploadScopeEpoch
@@ -242,10 +251,12 @@ export function PublishDialog({
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
+			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (downloadTarget === "web"
 				? onDownloadJson()
 				: onDownloadCcz());
+			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
 				return;
@@ -272,7 +283,7 @@ export function PublishDialog({
 	if (accessPhase !== "authorized") return null;
 
 	return (
-		<Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+		<Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
 			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
 				<div className="border-b border-nova-border px-5 pb-3 pt-5">
 					<DialogTitle className="font-display tracking-tighter">
@@ -317,10 +328,10 @@ export function PublishDialog({
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
-										onClose={onClose}
+										onClose={handleClose}
 									/>
 								) : notConfigured ? (
-									<NotConfigured onClose={onClose} />
+									<NotConfigured onClose={handleClose} />
 								) : (
 									<UploadForm
 										availableDomains={availableDomains}
@@ -344,7 +355,7 @@ export function PublishDialog({
 									title="Web app file downloaded"
 									featureFlagReport={status.featureFlagReport}
 									mode="download"
-									onClose={onClose}
+									onClose={handleClose}
 								/>
 							) : (
 								<DownloadForm
@@ -366,7 +377,7 @@ export function PublishDialog({
 									title="Mobile app file downloaded"
 									featureFlagReport={status.featureFlagReport}
 									mode="download"
-									onClose={onClose}
+									onClose={handleClose}
 								/>
 							) : (
 								<DownloadForm

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { probeHqFeatureFlags } from "../client";
+import {
+	HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS,
+	probeHqFeatureFlags,
+} from "../client";
 import { HQ_FEATURE_FLAG_REQUIREMENTS } from "../featureFlags";
 
 const CREDS = {
@@ -27,7 +30,10 @@ function domains(slugs: string[]) {
 	};
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 describe("probeHqFeatureFlags", () => {
 	it("uses one filtered user-domains request per requirement", async () => {
@@ -103,5 +109,58 @@ describe("probeHqFeatureFlags", () => {
 
 		expect(result[0]?.state).toBe("enabled");
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("degrades a hung diagnostic to unavailable within a fixed deadline", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener(
+							"abort",
+							() => reject(init.signal?.reason),
+							{ once: true },
+						);
+					}),
+			),
+		);
+
+		const pending = probeHqFeatureFlags(
+			CREDS,
+			"clinic-space",
+			HQ_FEATURE_FLAG_REQUIREMENTS.slice(0, 1),
+		);
+		await vi.advanceTimersByTimeAsync(HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS);
+
+		await expect(pending).resolves.toMatchObject([{ state: "unavailable" }]);
+	});
+
+	it("treats a foreign pagination pointer as unavailable, not missing", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() =>
+				Promise.resolve(
+					response(200, {
+						meta: {
+							limit: 1,
+							next: "https://attacker.example/steal",
+							offset: 0,
+							total_count: 2,
+						},
+						objects: [],
+					}),
+				),
+			),
+		);
+
+		const result = await probeHqFeatureFlags(
+			CREDS,
+			"clinic-space",
+			HQ_FEATURE_FLAG_REQUIREMENTS.slice(0, 1),
+		);
+
+		expect(result[0]?.state).toBe("unavailable");
 	});
 });

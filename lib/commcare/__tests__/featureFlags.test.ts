@@ -3,6 +3,8 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import {
+	decodeHqFeatureFlagReport,
+	encodeHqFeatureFlagReport,
 	featureFlagReportForDownload,
 	featureFlagReportForUpload,
 	requiredHqFeatureFlags,
@@ -138,5 +140,26 @@ describe("feature flag reports", () => {
 			"commcare_connect",
 		]);
 		expect(report.message).toContain("The app was still published");
+	});
+
+	it("ignores syntactically valid but structurally malformed report headers", () => {
+		expect(decodeHqFeatureFlagReport(encodeURIComponent("{}"))).toBeUndefined();
+		expect(
+			decodeHqFeatureFlagReport(
+				encodeURIComponent(
+					JSON.stringify({
+						verification: "not_checked",
+						required_flags: "not-an-array",
+					}),
+				),
+			),
+		).toBeUndefined();
+	});
+
+	it("round-trips a valid report header", () => {
+		const report = featureFlagReportForDownload(doc({ connectType: "learn" }));
+		expect(
+			decodeHqFeatureFlagReport(encodeHqFeatureFlagReport(report)),
+		).toEqual(report);
 	});
 });

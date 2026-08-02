@@ -50,6 +50,22 @@ const registryPath = resolve(hqRoot, manifest.source.toggleRegistryPath);
 const registry = readFileSync(registryPath, "utf8");
 const failures = [];
 
+const probeResourcePath = resolve(hqRoot, manifest.source.probeResourcePath);
+if (!existsSync(probeResourcePath)) {
+	failures.push(
+		`Feature-flag probe resource disappeared: ${manifest.source.probeResourcePath}`,
+	);
+} else {
+	const probeResource = readFileSync(probeResourcePath, "utf8");
+	for (const expected of manifest.source.probeEvidence) {
+		if (!probeResource.includes(expected)) {
+			failures.push(
+				`Feature-flag probe behavior changed in ${manifest.source.probeResourcePath}: ${JSON.stringify(expected)}`,
+			);
+		}
+	}
+}
+
 for (const flag of manifest.flags) {
 	const block = extractStaticToggleBlock(registry, flag.symbol);
 	if (!block) {

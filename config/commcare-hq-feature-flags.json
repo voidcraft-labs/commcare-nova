@@ -1,7 +1,13 @@
 {
 	"source": {
 		"repository": "dimagi/commcare-hq",
-		"toggleRegistryPath": "corehq/toggles/__init__.py"
+		"toggleRegistryPath": "corehq/toggles/__init__.py",
+		"probeResourcePath": "corehq/apps/api/resources/v0_5.py",
+		"probeEvidence": [
+			"feature_flag = request.GET.get(\"feature_flag\")",
+			"feature_flag not in toggles.all_toggle_slugs()",
+			"toggles.toggles_dict(username=username, domain=domain)"
+		]
 	},
 	"flags": [
 		{

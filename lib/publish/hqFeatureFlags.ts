@@ -75,10 +75,63 @@ export function decodeHqFeatureFlagReport(
 ): HqFeatureFlagReport | undefined {
 	if (!value) return undefined;
 	try {
-		return JSON.parse(decodeURIComponent(value)) as HqFeatureFlagReport;
+		const parsed: unknown = JSON.parse(decodeURIComponent(value));
+		return isHqFeatureFlagReport(parsed) ? parsed : undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+const HQ_FEATURE_FLAG_VERIFICATIONS = new Set<HqFeatureFlagVerification>([
+	"not_required",
+	"not_checked",
+	"verified",
+	"partial",
+	"unavailable",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHqFeatureFlagRequirement(
+	value: unknown,
+): value is HqFeatureFlagRequirement {
+	return (
+		isRecord(value) &&
+		typeof value.id === "string" &&
+		typeof value.slug === "string" &&
+		typeof value.label === "string" &&
+		typeof value.description === "string" &&
+		typeof value.required_for === "string" &&
+		typeof value.docs_url === "string" &&
+		Array.isArray(value.namespaces) &&
+		value.namespaces.every((namespace) => typeof namespace === "string")
+	);
+}
+
+function isRequirementList(
+	value: unknown,
+): value is HqFeatureFlagRequirement[] {
+	return Array.isArray(value) && value.every(isHqFeatureFlagRequirement);
+}
+
+function isHqFeatureFlagReport(value: unknown): value is HqFeatureFlagReport {
+	return (
+		isRecord(value) &&
+		typeof value.verification === "string" &&
+		HQ_FEATURE_FLAG_VERIFICATIONS.has(
+			value.verification as HqFeatureFlagVerification,
+		) &&
+		(value.target_domain === undefined ||
+			typeof value.target_domain === "string") &&
+		isRequirementList(value.required_flags) &&
+		isRequirementList(value.missing_flags) &&
+		isRequirementList(value.unverified_flags) &&
+		value.support_email === HQ_FEATURE_FLAG_SUPPORT_EMAIL &&
+		value.docs_url === HQ_FEATURE_FLAGS_DOCS_URL &&
+		typeof value.message === "string"
+	);
 }
 
 export type HqFeatureFlagProbe = Readonly<{

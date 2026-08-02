@@ -184,6 +184,7 @@ export async function listDomains(
 async function listDomainsMatching(
 	creds: CommCareCredentials,
 	featureFlag?: string,
+	signal?: AbortSignal,
 ): Promise<CommCareDomain[] | CommCareApiError> {
 	const domains: CommCareDomain[] = [];
 	const base = baseUrl(creds);
@@ -198,6 +199,7 @@ async function listDomainsMatching(
 		page++;
 		const res = await fetch(url, {
 			headers: { Authorization: authHeader(creds) },
+			signal,
 		});
 
 		if (!res.ok) {
@@ -218,8 +220,14 @@ async function listDomainsMatching(
 		 * API key via the Authorization header. */
 		if (data.meta.next) {
 			const resolved = new URL(data.meta.next, base);
-			url =
-				resolved.origin === new URL(base).origin ? resolved.toString() : null;
+			if (resolved.origin !== new URL(base).origin) {
+				log.warn("[commcare/feature-flags] rejected foreign pagination URL", {
+					featureFlag,
+					origin: resolved.origin,
+				});
+				return { success: false, status: 502 };
+			}
+			url = resolved.toString();
 		} else {
 			url = null;
 		}
@@ -268,9 +276,8 @@ export async function probeHqFeatureFlags(
 			}
 
 			try {
-				const enabledDomains = await listDomainsMatching(
-					creds,
-					requirement.slug,
+				const enabledDomains = await runBoundedFeatureFlagProbe((signal) =>
+					listDomainsMatching(creds, requirement.slug, signal),
 				);
 				if (!Array.isArray(enabledDomains)) {
 					log.warn("[commcare/feature-flags] HQ probe unavailable", {
@@ -296,6 +303,25 @@ export async function probeHqFeatureFlags(
 			}
 		}),
 	);
+}
+
+/** A diagnostic must never hold open an already-successful HQ import. */
+export const HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS = 5_000;
+
+async function runBoundedFeatureFlagProbe<T>(
+	probe: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => {
+		controller.abort(
+			new DOMException("HQ feature-flag probe timed out", "TimeoutError"),
+		);
+	}, HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS);
+	try {
+		return await probe(controller.signal);
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 /**

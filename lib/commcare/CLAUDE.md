@@ -28,7 +28,9 @@ report is always `not_checked`: the flags are requirements, not known missing.
 The weekly `commcare-hq-feature-flags` workflow runs
 `scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
 fails when symbols, slugs, namespaces, tags, or the recorded emitter evidence
-drift. That failure is the retirement/GA review signal.
+drift. It also pins the shared `UserDomainsResource` filter/unknown-slug probe
+contract. That failure is the retirement/GA or probe-compatibility review
+signal.
 
 ### Shared field-string accessor
 
