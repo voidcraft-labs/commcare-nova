@@ -255,6 +255,16 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
+	it("instructs bare MCP clients to disclose requirements before upload", () => {
+		const { server, registeredConfig } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const config = registeredConfig() as { description?: string };
+		expect(config.description).toContain("call `get_app_feature_flags`");
+		expect(config.description).toContain("not flags known to be off");
+		expect(config.description).toContain("checked against that exact domain");
+	});
+
 	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,

@@ -171,7 +171,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one, a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` reports the required flags Nova checked against that domain, including any confirmed missing flags and a support@dimagi.com contact instruction. The diagnostic never blocks an otherwise successful upload.",
+				"Upload an owned app to CommCare HQ as a new app. Before asking the user to confirm or invoking this tool, call `get_app_feature_flags` and relay its `required_flags` as requirements for the destination, not flags known to be off. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one, a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` reports the required flags Nova checked against that exact domain, including any confirmed missing flags and a support@dimagi.com contact instruction. The diagnostic never blocks an otherwise successful upload.",
 			inputSchema: {
 				app_id: z
 					.string()

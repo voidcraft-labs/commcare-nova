@@ -207,6 +207,18 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerCompileApp — happy path, json format", () => {
+	it("instructs bare MCP clients to disclose requirements before export", () => {
+		const { server, registeredConfig } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const config = registeredConfig() as { description?: string };
+		expect(config.description).toContain("call `get_app_feature_flags`");
+		expect(config.description).toContain("before export");
+		expect(config.description).toContain(
+			"not flags Nova has confirmed missing",
+		);
+	});
+
 	it("returns the HqApplication JSON for an owned app", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
