@@ -612,6 +612,15 @@ body {
 	initial-value: 34deg;
 }
 
+/* How far in from the world's edge the dawn reaches. 100% is the edge
+   itself, so SMALLER is deeper: the crescent grows inward, toward the
+   middle, and never outward past the silhouette. */
+@property --nova-logo-dawn-depth {
+	syntax: "<percentage>";
+	inherits: false;
+	initial-value: 62%;
+}
+
 /* Every layer is sized in `em` against the mark's own font-size, which
    `Logo` sets to the mark's diameter. One rule then serves a 14px docs
    mark and a 44px header mark with no per-size arithmetic anywhere. */
@@ -649,26 +658,30 @@ body {
 		filter var(--duration-slow) var(--ease-default);
 }
 
-/* The warm arc. `--nova-logo-dawn-arc` is the half-width of the dawn,
-   measured out from 147deg (the lower-right limb), and it is the only
-   thing the standby animation touches besides the layer's own opacity.
-   `screen` because dawn is light in this system and never paint: it
-   adds to the violet under it instead of covering it. */
+/* The warm crescent, and it lives INSIDE the world.
+ *
+ * It shares the disc's box (`inset: 12%`) and paints over it, exactly
+ * the way the flattened sibling puts its dawn inside the circle rather
+ * than around it. Two things animate and they are the two ways a
+ * crescent can grow: `--nova-logo-dawn-arc` sweeps it further around
+ * the limb, and `--nova-logo-dawn-depth` carries it further in toward
+ * the middle.
+ *
+ * The softness is in the MASK, not in a `filter`. A blur filter renders
+ * past the element's own box, which would spill the warmth back outside
+ * the silhouette and undo the whole point; a mask ramping from the
+ * depth to the edge is soft in the same way and cannot leak, and
+ * `border-radius` clips it to the world's own edge. The ramp lengthens
+ * as the crescent deepens, so reaching further in also softens it.
+ *
+ * `screen` because dawn is light in this system and never paint: it
+ * adds to the dusk body under it instead of covering it. */
 .nova-logo-dawn {
-	/* Wider and softer than the rim's band, and it runs past the edge
-	   rather than stopping at it, so the warmth reads as atmosphere
-	   around the world instead of a second ring drawn on it. */
-	--nova-logo-bloom-mask: radial-gradient(
-		circle closest-side,
-		transparent 52%,
-		#000 72%,
-		#000 86%,
-		transparent 104%
-	);
 	position: absolute;
-	inset: 0;
+	inset: 12%;
 	border-radius: 50%;
 	--nova-logo-dawn-arc: 34deg;
+	--nova-logo-dawn-depth: 62%;
 	background: conic-gradient(
 		from 0deg,
 		transparent calc(147deg - var(--nova-logo-dawn-arc)),
@@ -677,10 +690,14 @@ body {
 		var(--nova-dawn) calc(147deg + var(--nova-logo-dawn-arc) * 0.42),
 		transparent calc(147deg + var(--nova-logo-dawn-arc))
 	);
-	-webkit-mask-image: var(--nova-logo-bloom-mask);
-	mask-image: var(--nova-logo-bloom-mask);
-	filter: blur(0.1em);
-	opacity: 0.62;
+	-webkit-mask-image: var(--nova-logo-crescent);
+	mask-image: var(--nova-logo-crescent);
+	--nova-logo-crescent: radial-gradient(
+		circle closest-side,
+		transparent var(--nova-logo-dawn-depth),
+		#000 100%
+	);
+	opacity: 0.72;
 	mix-blend-mode: screen;
 }
 
@@ -723,11 +740,12 @@ body {
 /* Two crests of unequal height per cycle, so the warmth reads as
    weather rather than as a metronome.
 
-   Blur travels WITH the swell, tightening as the arc widens. A dawn
-   that only spread would just get hazier; tightening as it grows is
-   what carries it toward the bold crescent the flattened sibling
-   draws, which is the shape this wave is reaching for. At its calmest
-   it is the opposite: narrow, dim, and diffuse, barely there.
+   Arc and depth swell TOGETHER, because a crescent that only spread
+   sideways would read as a smear rather than as light arriving: the
+   dawn reaches further around the limb and further in toward the
+   middle at the same time, which is the shape the flattened sibling
+   draws and the shape this wave is reaching for. At its calmest it is
+   the opposite of that: a narrow, shallow line on the edge.
 
    Nothing rests at either extreme. The values on `.nova-logo-dawn`
    itself sit mid-wave and are what a reduced-motion viewer sees. */
@@ -735,23 +753,23 @@ body {
 	0%,
 	100% {
 		--nova-logo-dawn-arc: 22deg;
-		opacity: 0.48;
-		filter: blur(0.12em);
+		--nova-logo-dawn-depth: 80%;
+		opacity: 0.55;
 	}
 	38% {
 		--nova-logo-dawn-arc: 58deg;
-		opacity: 0.86;
-		filter: blur(0.08em);
+		--nova-logo-dawn-depth: 52%;
+		opacity: 0.9;
 	}
 	62% {
 		--nova-logo-dawn-arc: 41deg;
-		opacity: 0.68;
-		filter: blur(0.1em);
+		--nova-logo-dawn-depth: 66%;
+		opacity: 0.72;
 	}
 	80% {
 		--nova-logo-dawn-arc: 66deg;
-		opacity: 0.94;
-		filter: blur(0.07em);
+		--nova-logo-dawn-depth: 42%;
+		opacity: 1;
 	}
 }
 

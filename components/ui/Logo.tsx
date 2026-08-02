@@ -123,14 +123,19 @@ export function Logo({
 					/>
 				) : (
 					<>
-						{/* Paint order is the order light arrives: the energy ring,
-						    the dawn warming it, the hover highlight over both, and
-						    the world's own body last, covering the middle so only
-						    the limb shows. Each layer's appearance lives in
-						    `globals.css`, which is also where the standby wave and
-						    the hover rim are defined. */}
+						{/* Paint order matters, and the dawn's place in it is the
+						    whole difference between a halo and a crescent. The
+						    energy ring and the hover highlight sit OUTSIDE the
+						    body and are painted under it, so the body hides their
+						    middles and leaves a lit limb. The dawn is painted
+						    LAST, over the body, because it belongs inside the
+						    world the way the flattened sibling's crescent does.
+						    Under the body it would only ever show as the spill
+						    past the edge, which is a halo around the sphere and
+						    not first light on it. Each layer's appearance, the
+						    standby wave, and the hover rim all live in
+						    `globals.css`. */}
 						<span className="nova-logo-rim" />
-						<span className="nova-logo-dawn" />
 						<span className="nova-logo-pulse" />
 						<span
 							className="absolute rounded-full"
@@ -140,6 +145,7 @@ export function Logo({
 								boxShadow: MARK_DISC_SHADOW,
 							}}
 						/>
+						<span className="nova-logo-dawn" />
 					</>
 				)}
 			</span>
