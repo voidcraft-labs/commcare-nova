@@ -297,15 +297,17 @@ const connectFormConfigShape = z
 				name: z.string().min(1),
 				description: z.string().min(1),
 				// Match the domain's `connectLearnModuleSchema`: time estimate is
-				// in minutes and must be a positive integer. The reducer applies
+				// in hours and must be a positive integer. The reducer applies
 				// the patch via `Object.assign` without a Zod re-parse, so the
 				// SA-facing schema is the only gate against `0` / negatives /
 				// floats landing on the persisted doc.
 				time_estimate: z
 					.number()
-					.int("time_estimate must be a whole number of minutes.")
-					.min(1, "time_estimate must be at least 1 minute.")
-					.describe("Estimated minutes to complete the module's content."),
+					.int("time_estimate must be a whole number of hours.")
+					.min(1, "time_estimate must be at least 1 hour.")
+					.describe(
+						"Estimated whole hours to complete the module's content; round up and use at least 1.",
+					),
 			})
 			.strict()
 			.nullable()

@@ -167,13 +167,16 @@ on it is cleared.
         "learn_module": {
           "name": "Health basics",
           "description": "Introduction and guided practice",
-          "time_estimate": 15
+          "time_estimate": 1
         }
       }
     }
   ]
 }
 ```
+
+`time_estimate` is the estimated whole hours needed to complete the module.
+Round up and use at least `1`.
 
 The Connect sub-block `id` is an emitted Connect identifier, not the address of
 the Commcare Nova form. Usually omit it: Commcare Nova derives it once and stores the final value.

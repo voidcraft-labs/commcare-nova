@@ -15,8 +15,8 @@ import { useRejectionShake } from "@/lib/ui/hooks/useShake";
  *
  * Renders `<input type="text" | "number">` or `<textarea>` depending on
  * whether `multiline` is set. The `mono` flag switches to a violet
- * monospace font for id-style values; `suffix` renders a trailing badge
- * (e.g. "min") inside the input with inner padding.
+ * monospace font for id-style values; `suffix` renders a trailing unit badge
+ * inside the input with inner padding.
  */
 export function InlineField({
 	label,

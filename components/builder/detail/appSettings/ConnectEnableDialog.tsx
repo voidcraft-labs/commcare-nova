@@ -105,11 +105,14 @@ export interface BlockDraft {
 	taskId: string;
 }
 
+/** Connect stores and renders this value as a positive whole-hour count. */
+export const DEFAULT_LEARN_TIME_ESTIMATE_HOURS = 1;
+
 export const EMPTY_DRAFT: BlockDraft = {
 	learnOn: false,
 	learnName: "",
 	learnDescription: "",
-	learnTimeEstimate: "",
+	learnTimeEstimate: String(DEFAULT_LEARN_TIME_ESTIMATE_HOURS),
 	learnId: "",
 	assessmentOn: false,
 	assessmentId: "",
@@ -172,7 +175,7 @@ export function configToDraft(
 	};
 }
 
-/** Parse the time-estimate buffer: a positive integer (minutes) or null. */
+/** Parse the time-estimate buffer: a positive integer (hours) or null. */
 export function parseTimeEstimate(raw: string): number | null {
 	const n = Number(raw.trim());
 	return Number.isInteger(n) && n >= 1 ? n : null;
@@ -746,10 +749,10 @@ export function FormSubConfigs({
 						required
 					/>
 					<DraftField
-						label="Time estimate"
+						label="Time estimate (hours)"
 						value={draft.learnTimeEstimate}
 						onChange={(v) => onPatch({ learnTimeEstimate: v })}
-						suffix="min"
+						suffix="hr"
 						required
 					/>
 					<AdvancedDisclosure>
