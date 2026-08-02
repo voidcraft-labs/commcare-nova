@@ -277,7 +277,7 @@ describe("FormEngine", () => {
 			engine.setValue("/data/wake", "2:3");
 			expect(engine.getState("/data/wake").valid).toBe(false);
 			expect(engine.getState("/data/wake").errorMessage).toBe(
-				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+				"“2:3” isn't a time yet. Enter a clock time like 2:30 PM.",
 			);
 		});
 
@@ -348,7 +348,7 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/wake", "2:3");
 			expect(engine.getState("/data/wake").errorMessage).toBe(
-				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+				"“2:3” isn't a time yet. Enter a clock time like 2:30 PM.",
 			);
 
 			engine.setValue("/data/wake", "07:30:00.000Z");
@@ -419,7 +419,7 @@ describe("FormEngine", () => {
 			// standalone time question, quoting only the clock.
 			engine.setValue("/data/seen", "2026-01-15T2:3");
 			expect(engine.getState("/data/seen").errorMessage).toBe(
-				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+				"“2:3” isn't a time yet. Enter a clock time like 2:30 PM.",
 			);
 		});
 

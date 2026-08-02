@@ -162,7 +162,7 @@ export function previewBreadcrumbTrail(
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
-		// Preview shows the running case list for the data review screen’s
+		// Preview shows the running case list for the data review screen's
 		// URL (like the config kinds), so its trail follows the same
 		// running-app rewrite.
 		loc.kind === "data-review"

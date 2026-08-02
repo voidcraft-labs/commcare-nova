@@ -165,7 +165,7 @@ export function buildRuntimeCsqlPromptValidations(
 					);
 				}
 				if (kinds.has("quote")) {
-					instructions.push("don’t use both kinds of quotation mark");
+					instructions.push("don't use both kinds of quotation mark");
 				}
 				return instructions.join(", and ");
 			})(),

@@ -31,7 +31,7 @@ export type SetFieldOptionsSourceResult = MutationSuccess | { error: string };
 
 export const setFieldOptionsSourceTool = {
 	description:
-		"Atomically replace a single- or multiple-choice field’s complete choice source. The source is either inline choices or a Project data table; there is no retained inactive source.",
+		"Atomically replace a single- or multiple-choice field's complete choice source. The source is either inline choices or a Project data table; there is no retained inactive source.",
 	inputSchema: setFieldOptionsSourceInputSchema,
 	async execute(
 		input: SetFieldOptionsSourceInput,

@@ -28,7 +28,7 @@ export type GetLookupTablesResult =
  * and wire names are current readable/external projections. */
 export const getLookupTablesTool = {
 	description:
-		"List this app Project’s data tables and columns. Copy table and column uuids into lookup-backed fields and expressions; names, tags, labels, and wire names are metadata.",
+		"List this app Project's data tables and columns. Copy table and column uuids into lookup-backed fields and expressions; names, tags, labels, and wire names are metadata.",
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		_input: GetLookupTablesInput,

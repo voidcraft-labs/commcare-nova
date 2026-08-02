@@ -2260,7 +2260,7 @@ export class FormEngine {
 		if (isReadableTemporalValue(kind, value)) return undefined;
 		switch (kind) {
 			case "date":
-				return `“${value}” isn’t a date. Pick one from the calendar.`;
+				return `“${value}” isn't a date. Pick one from the calendar.`;
 			case "time":
 				return clockShapeMessage(value);
 			case "datetime":
@@ -2627,7 +2627,7 @@ function isCaseLoadingFormType(formType: FormType): boolean {
  */
 /** The one sentence a clock that isn't a clock gets, wherever it appears. */
 function clockShapeMessage(clock: string): string {
-	return `“${clock}” isn’t a time yet. Enter a clock time like 2:30 PM.`;
+	return `“${clock}” isn't a time yet. Enter a clock time like 2:30 PM.`;
 }
 
 /**
@@ -2648,7 +2648,7 @@ function datetimeShapeMessage(value: string): string {
 	}
 	if (clock === "") return "Enter a clock time: this question needs both.";
 	if (datePart === "") return "Pick a date: this question needs both.";
-	return `“${value}” isn’t a date and time.`;
+	return `“${value}” isn't a date and time.`;
 }
 
 function coerceValueForProperty(

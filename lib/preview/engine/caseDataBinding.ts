@@ -769,7 +769,7 @@ export async function loadParkedValuesAction(args: {
 			message:
 				err instanceof Error
 					? err.message
-					: "Couldn’t load the data to review.",
+					: "Couldn't load the data to review.",
 		};
 	}
 }
