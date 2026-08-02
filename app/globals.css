@@ -2050,9 +2050,12 @@ html.dark {
 	min-width: 0;
 }
 .nova-docs :is(#nd-subnav, #nd-nav) > a:first-child {
+	/* Shrinks, but never CLIPS: an `overflow: hidden` here cut the
+	   wordmark to "commc" at 375px. The lockup drops its trailing word
+	   instead (see `lib/docs/layoutProps.tsx`), which is a smaller
+	   lockup rather than a broken one. */
 	min-width: 0;
 	flex-shrink: 1;
-	overflow: hidden;
 }
 .nova-docs :is(#nd-subnav, #nd-nav) button {
 	flex-shrink: 0;
