@@ -579,7 +579,7 @@ function AssetChip({
 		<div className="flex min-h-11 items-center gap-1 self-start rounded-lg border border-nova-border bg-nova-surface p-1">
 			<Popover>
 				<PopoverTrigger
-					render={<Button variant="ghost" className="gap-2 px-1.5" />}
+					render={<Button variant="ghost" />}
 					aria-label={`Preview ${noun}`}
 				>
 					<ThumbBox kind={kind} assetId={assetId} />

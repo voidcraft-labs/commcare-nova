@@ -106,6 +106,7 @@ import {
 	relationStep,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import { summarizeFilter } from "../predicateSummary";
 import {
 	buildMode,
@@ -842,13 +843,7 @@ function AdvancedInputSettings({
 				}}
 			>
 				<CollapsibleTrigger
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
-						/>
-					}
+					render={<button type="button" className={DISCLOSURE_ROW_CLS} />}
 				>
 					<Icon
 						icon={tablerChevronRight}

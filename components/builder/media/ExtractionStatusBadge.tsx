@@ -110,12 +110,7 @@ export function ExtractionStatusBadgeView({
 		// that happens to be clickable.
 		return (
 			<SimpleTooltip content="Try reading this file again">
-				<Button
-					type="button"
-					variant="destructive"
-					className="px-3"
-					onClick={retry}
-				>
+				<Button type="button" variant="destructive" onClick={retry}>
 					<Icon icon={tablerAlertTriangle} />
 					Retry
 				</Button>

@@ -109,3 +109,12 @@ export const POPOVER_POSITIONER_ELEVATED_CLS =
 /** Popup animation — scale + fade, same motion language as menus. */
 export const POPOVER_POPUP_CLS =
 	"rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0";
+
+/* ── Disclosure row ───────────────────────────────────────────────────────
+ * The full-bleed "More settings" trigger that opens a collapsible section.
+ * It is deliberately NOT a Button: it spans its container edge to edge, has
+ * no inset padding, and stays flat on hover, so dressing a keycap up as one
+ * meant overriding its padding, its hover, and its text on every call site.
+ * It keeps the 44px floor and the one focus ring; its content styles itself. */
+export const DISCLOSURE_ROW_CLS =
+	"nova-focusable group flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl text-left";

@@ -188,9 +188,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 						</p>
 					)}
 				</div>
-				<DialogClose
-					render={<Button variant="ghost" className="shrink-0 px-3" />}
-				>
+				<DialogClose render={<Button variant="ghost" className="shrink-0" />}>
 					<Icon icon={tablerX} className="size-4" />
 					Close
 				</DialogClose>
@@ -335,11 +333,7 @@ function DownloadOriginal({
 				<span className="text-nova-text">What Nova reads</span> to see what Nova
 				extracted.
 			</p>
-			<Button
-				nativeButton={false}
-				render={<a href={src} download={name} />}
-				className="px-4"
-			>
+			<Button nativeButton={false} render={<a href={src} download={name} />}>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original
 			</Button>
@@ -489,12 +483,7 @@ function ExtractStatePanel({
 					{description}
 				</p>
 			</div>
-			<Button
-				type="button"
-				variant="outline"
-				className="px-4"
-				onClick={onAction}
-			>
+			<Button type="button" variant="outline" onClick={onAction}>
 				{action}
 			</Button>
 		</div>

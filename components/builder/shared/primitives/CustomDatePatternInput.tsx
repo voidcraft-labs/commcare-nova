@@ -351,7 +351,7 @@ function DatePieceBuilder({
 					<Button
 						type="button"
 						variant="outline"
-						className="group w-full justify-between whitespace-normal px-3 text-left"
+						className="group w-full justify-between whitespace-normal text-left"
 					/>
 				}
 			>

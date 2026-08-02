@@ -31,7 +31,6 @@ import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow"
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
-import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -44,6 +43,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
@@ -205,13 +205,7 @@ function AdvancedSearchSettings({
 		>
 			<Collapsible open={open} onOpenChange={setOpen}>
 				<CollapsibleTrigger
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
-						/>
-					}
+					render={<button type="button" className={DISCLOSURE_ROW_CLS} />}
 				>
 					<Icon
 						icon={tablerChevronRight}

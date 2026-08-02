@@ -499,9 +499,7 @@ function PickerBody({
 					</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</div>
-				<DialogClose
-					render={<Button variant="ghost" className="shrink-0 px-3" />}
-				>
+				<DialogClose render={<Button variant="ghost" className="shrink-0" />}>
 					<Icon icon={tablerX} className="size-4" />
 					Close
 				</DialogClose>
@@ -765,7 +763,6 @@ function UploadTab({
 				</div>
 				<Button
 					type="button"
-					className="px-4"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
 				>
@@ -1108,7 +1105,7 @@ function LibraryTab({
 				<Button
 					type="button"
 					variant="outline"
-					className="self-center px-4"
+					className="self-center"
 					onClick={loadMore}
 					disabled={isLoading}
 				>
@@ -1178,12 +1175,7 @@ function LibraryState({
 				<p className="text-[13px] text-nova-text-secondary">{description}</p>
 			</div>
 			{action && onAction ? (
-				<Button
-					type="button"
-					variant="outline"
-					className="px-4"
-					onClick={onAction}
-				>
+				<Button type="button" variant="outline" onClick={onAction}>
 					{action}
 				</Button>
 			) : null}
