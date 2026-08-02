@@ -26,7 +26,6 @@ import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
-import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
@@ -38,6 +37,7 @@ import {
 	useIsModuleSelected,
 	useNavigate,
 } from "@/lib/routing/hooks";
+import { selectableRowCls } from "@/lib/styles";
 
 /** Keep the structure tree useful without exposing Nova's stored identifier. */
 export function moduleCaseTypeLabel(caseType: string): string {
@@ -252,12 +252,11 @@ function CaseListNode({
 }) {
 	return (
 		<li>
-			<Button
+			<button
 				type="button"
-				variant="outline"
 				onClick={onClick}
 				aria-current={selected ? "page" : undefined}
-				className={`group mx-4 mb-3 h-auto min-h-14 w-[calc(100%-2rem)] justify-start gap-3 whitespace-normal rounded-xl px-3 py-2.5 text-left ${selected ? "border-nova-violet/50 bg-nova-violet/[0.08]" : "border-white/[0.06] bg-white/[0.02] hover:border-nova-violet/30 hover:bg-nova-violet/[0.04] dark:bg-white/[0.02] dark:hover:bg-nova-violet/[0.04]"}`}
+				className={`group mx-4 mb-3 w-[calc(100%-2rem)] gap-3 ${selectableRowCls(selected)}`}
 			>
 				<span
 					className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
@@ -281,7 +280,7 @@ function CaseListNode({
 						Search · Results · Details
 					</span>
 				</span>
-			</Button>
+			</button>
 		</li>
 	);
 }

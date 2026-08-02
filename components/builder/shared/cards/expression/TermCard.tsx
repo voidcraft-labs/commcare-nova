@@ -1358,13 +1358,12 @@ function TableColumnRefMenu({
 			<DropdownMenuTrigger
 				ref={triggerRef}
 				aria-label={`Data table column: ${label}${missing ? ", no longer available" : ""}`}
-				aria-invalid={invalid || undefined}
+				/* A column that no longer exists is an invalid value in this
+				 * control, the same as one the checker refused, and the button
+				 * draws that state itself. */
+				aria-invalid={invalid || missing || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						className={`group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${invalid || missing ? "border-nova-rose/40 text-nova-rose" : "border-white/[0.06] text-nova-text not-disabled:hover:border-nova-violet/30"}`}
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">

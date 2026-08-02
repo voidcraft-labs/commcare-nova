@@ -26,6 +26,7 @@ import tablerPencil from "@iconify-icons/tabler/pencil";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { CaseOperation } from "@/lib/domain";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import type { ReorderKey } from "./keyboardMove";
 import {
 	type OperationSentenceContext,
@@ -159,16 +160,15 @@ export function CaseOperationRow({
 				</SimpleTooltip>
 			)}
 
-			<Button
+			<button
 				type="button"
-				variant="ghost"
 				onClick={onSelect}
 				aria-label={`${spoken}. Open this change.`}
 				data-case-operation-select={operation.uuid}
-				className="nova-focusable-inset h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+				className={`flex-1 ${LIST_ROW_CLS}`}
 			>
 				{body}
-			</Button>
+			</button>
 		</div>
 	);
 }

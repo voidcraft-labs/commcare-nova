@@ -18,7 +18,6 @@
 
 "use client";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
-import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
 	PopoverContent,
@@ -559,10 +558,12 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 		<Popover>
 			<PopoverTrigger
 				render={
-					<Button
+					// The value itself is the affordance: a cell reads as its own
+					// text, and a keycap around it would claim the row. The dotted
+					// underline is what says there is more to see.
+					<button
 						type="button"
-						variant="link"
-						className="h-auto min-h-11 min-w-11 max-w-full justify-start whitespace-normal rounded-sm p-0 text-left font-normal text-inherit underline decoration-dotted decoration-nova-text-muted [overflow-wrap:anywhere]"
+						className="nova-focusable inline-flex min-h-11 min-w-11 max-w-full cursor-pointer items-center rounded-lg text-left underline decoration-nova-text-muted decoration-dotted [overflow-wrap:anywhere]"
 					/>
 				}
 				aria-label={`${value.text}. More information`}

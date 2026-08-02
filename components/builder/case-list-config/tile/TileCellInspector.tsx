@@ -108,12 +108,12 @@ export function TileCellInspector({
 				{canEdit && (
 					<Button
 						type="button"
-						variant="outline"
+						variant="field"
 						onClick={() => {
 							setFocusPlaceOnMount(true);
 							onPutOnTile();
 						}}
-						className="w-full gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+						className="w-full"
 					>
 						<Icon icon={tablerLayoutGrid} width="15" height="15" />
 						Put it on the tile
@@ -311,9 +311,9 @@ function SavedPlaceSection({
 					/>
 					<Button
 						type="button"
-						variant="outline"
+						variant="field"
 						onClick={onClearPlace}
-						className="w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+						className="w-full"
 					>
 						Remove the saved place
 					</Button>

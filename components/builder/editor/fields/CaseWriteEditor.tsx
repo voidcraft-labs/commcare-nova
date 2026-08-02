@@ -319,11 +319,7 @@ export function CaseWriteEditor<F extends Field>(
 					}}
 					id={triggerId}
 					render={
-						<Button
-							type="button"
-							variant="outline"
-							className="h-auto min-h-11 w-full min-w-0 justify-between rounded-lg border-white/[0.06] bg-nova-deep/50 px-3 py-2.5 text-left"
-						/>
+						<Button type="button" variant="field" className="w-full min-w-0" />
 					}
 					aria-label={`${label}: ${displayLabel}, ${displayDetail}`}
 				>

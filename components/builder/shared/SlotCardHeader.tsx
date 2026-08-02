@@ -23,6 +23,7 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { Button } from "@/components/shadcn/button";
+import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -92,16 +93,15 @@ export function SlotCardHeader({
 			<div className="flex items-center gap-2">
 				{collapse ? (
 					<h3 className="min-w-0 flex-1">
-						<Button
+						<button
 							type="button"
-							variant="ghost"
 							onClick={collapse.onToggle}
 							aria-expanded={collapse.isOpen}
 							aria-controls={collapse.controlsId}
 							aria-label={
 								collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
 							}
-							className="w-full min-w-0 justify-start gap-2 rounded-lg px-1 text-left not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+							className={`group/button min-w-0 ${DISCLOSURE_ROW_CLS}`}
 						>
 							<Icon
 								icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
@@ -114,7 +114,7 @@ export function SlotCardHeader({
 							>
 								{title}
 							</span>
-						</Button>
+						</button>
 					</h3>
 				) : (
 					<h3 className={`min-w-0 flex-1 ${SECTION_LABEL_CLS}`}>{title}</h3>
@@ -127,7 +127,7 @@ export function SlotCardHeader({
 						type="button"
 						variant="destructive"
 						onClick={clear.onClick}
-						className="shrink-0 gap-1 rounded-lg px-2.5 text-sm"
+						className="shrink-0"
 						aria-label={clear.ariaLabel}
 					>
 						<Icon icon={tablerX} width="13" height="13" />

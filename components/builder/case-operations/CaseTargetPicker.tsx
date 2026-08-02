@@ -173,11 +173,7 @@ export function CaseTargetPicker({
 				disabled={disabled}
 				aria-label={`${ariaLabel}: ${current}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
-					/>
+					<Button type="button" variant="field" className="group w-full" />
 				}
 			>
 				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">

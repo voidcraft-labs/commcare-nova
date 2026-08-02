@@ -107,12 +107,15 @@ function DatePicker({
 				aria-describedby={ariaDescribedBy}
 				onBlur={onBlur}
 				disabled={disabled}
+				// A date picker presents a value and opens a surface to change it,
+				// which is what `field` is: the input's anatomy, growing for a
+				// date that has to wrap rather than truncating it.
 				render={
 					<Button
 						data-slot="date-picker"
-						variant="outline"
+						variant="field"
 						className={cn(
-							"min-h-11 min-w-0 justify-between text-left text-[14px] leading-snug font-normal whitespace-normal data-placeholder:text-muted-foreground",
+							"min-w-0 leading-snug data-placeholder:text-nova-text-muted",
 							className,
 						)}
 						data-placeholder={selected === undefined ? "" : undefined}

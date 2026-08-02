@@ -46,6 +46,7 @@ import {
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -573,16 +574,15 @@ function InputRow({
 				</SimpleTooltip>
 			)}
 			{canEdit ? (
-				<Button
+				<button
 					type="button"
-					variant="ghost"
 					onClick={onClick}
 					aria-pressed={selected}
 					data-case-search-field={input.uuid}
-					className="nova-focusable-inset h-auto min-w-0 flex-1 items-stretch justify-start rounded-none px-3 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className={`flex-1 items-stretch ${LIST_ROW_CLS}`}
 				>
 					{content}
-				</Button>
+				</button>
 			) : (
 				<div className="min-w-0 flex-1 px-3 py-3 text-left">{content}</div>
 			)}

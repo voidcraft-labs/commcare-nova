@@ -56,11 +56,11 @@ export function ImpersonationBanner({
 			</span>
 			<Button
 				type="button"
-				variant="ghost"
+				variant="secondary"
 				onClick={handleStopImpersonating}
 				disabled={loading}
 				aria-busy={loading || undefined}
-				className="ml-1 shrink-0 gap-1 rounded-md bg-nova-orchid/15 px-2 text-xs font-medium text-nova-orchid not-disabled:hover:bg-nova-orchid/25 not-disabled:hover:text-nova-orchid"
+				className="ml-1 shrink-0"
 			>
 				<Icon icon={tablerArrowBackUp} width="14" height="14" />
 				{loading ? "Switching" : "Switch back"}

@@ -134,7 +134,7 @@ export function RemoveRow({
 				onClick={onClick}
 				disabled={disabledReason !== undefined}
 				aria-describedby={disabledReason === undefined ? undefined : reasonId}
-				className="w-full rounded-lg px-3 text-[14px]"
+				className="w-full"
 			>
 				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>

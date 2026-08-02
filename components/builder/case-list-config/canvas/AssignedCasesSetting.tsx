@@ -14,7 +14,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
-import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -32,6 +31,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { LIST_ROW_INTERACTIVE_CLS } from "@/lib/styles";
 
 export type AssignedCasesMode = "all" | "current-user" | "custom";
 type StandardAssignedCasesMode = Exclude<AssignedCasesMode, "custom">;
@@ -144,11 +144,10 @@ export function AssignedCasesSetting({
 			<Collapsible open={open} onOpenChange={setOpen}>
 				<CollapsibleTrigger
 					render={
-						<Button
+						<button
 							ref={disclosureTriggerRef}
 							type="button"
-							variant="ghost"
-							className="w-full justify-start gap-2 rounded-none px-4 text-left not-disabled:hover:bg-white/[0.025] dark:not-disabled:hover:bg-white/[0.025]"
+							className={LIST_ROW_INTERACTIVE_CLS}
 							aria-invalid={hasError || undefined}
 						/>
 					}

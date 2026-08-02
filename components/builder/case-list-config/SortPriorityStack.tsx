@@ -659,11 +659,10 @@ function CaseOrderingRuleRow({
 				<SimpleTooltip content={`Remove ${label} from the default order`}>
 					<Button
 						type="button"
-						variant="ghost"
+						variant="ghost-destructive"
 						size="icon"
 						onClick={onRemove}
 						aria-label={`Remove ${label} from default order`}
-						className="w-11 rounded-l-none rounded-r-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="15" height="15" />
 					</Button>

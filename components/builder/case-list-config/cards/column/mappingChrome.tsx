@@ -119,7 +119,6 @@ export function MappingRowShell({
 						aria-label={`Move value ${index + 1} earlier`}
 						onClick={onMoveUp}
 						disabled={isFirst}
-						className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</Button>
@@ -132,7 +131,6 @@ export function MappingRowShell({
 						aria-label={`Move value ${index + 1} later`}
 						onClick={onMoveDown}
 						disabled={isLast}
-						className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</Button>
@@ -140,11 +138,10 @@ export function MappingRowShell({
 				<SimpleTooltip content="Remove value">
 					<Button
 						type="button"
-						variant="ghost"
+						variant="ghost-destructive"
 						size="icon"
 						aria-label={`Remove value ${index + 1}`}
 						onClick={onRemove}
-						className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerTrash} width="13" height="13" />
 					</Button>

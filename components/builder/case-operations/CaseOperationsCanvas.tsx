@@ -68,6 +68,7 @@ import {
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { CaseOperationRow } from "./CaseOperationRow";
 import { planKeyboardMove, type ReorderKey } from "./keyboardMove";
 import { moveRefusalReason } from "./refusalCopy";
@@ -634,12 +635,11 @@ function IntentRow({
 	readonly onClick: () => void;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant="ghost"
 			disabled={disabledReason !== undefined}
 			onClick={onClick}
-			className="h-auto min-h-11 w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-left whitespace-normal"
+			className={POPOVER_ROW_CLS}
 		>
 			<Icon
 				icon={icon}
@@ -655,6 +655,6 @@ function IntentRow({
 					{detail}
 				</span>
 			</span>
-		</Button>
+		</button>
 	);
 }

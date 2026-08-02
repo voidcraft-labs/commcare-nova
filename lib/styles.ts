@@ -147,3 +147,22 @@ export function selectableSegmentCls(selected: boolean): string {
 export function selectableIconCls(selected: boolean): string {
 	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors ${skin(selected)}`;
 }
+
+/* ── Full-bleed list row ──────────────────────────────────────────────────
+ * The primary target filling a card row edge to edge: a case change, a
+ * display field, a search field, the assigned-cases setting.
+ *
+ * Not a Button. Its corners are square because the card around it does the
+ * clipping, and its focus ring is inset for the same reason. It grows with
+ * its content and keeps the 44px floor.
+ *
+ * Pick by who owns the hover: `LIST_ROW_CLS` stays flat because the row it
+ * fills lights up around it, while `LIST_ROW_INTERACTIVE_CLS` is the whole
+ * row and lights up itself. Two rows both lighting up is the seam this
+ * distinction exists to prevent. */
+const LIST_ROW_BASE =
+	"nova-focusable-inset flex min-h-11 w-full min-w-0 cursor-pointer items-center gap-2 px-4 py-3 text-left whitespace-normal outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)";
+
+export const LIST_ROW_CLS = LIST_ROW_BASE;
+
+export const LIST_ROW_INTERACTIVE_CLS = `${LIST_ROW_BASE} not-disabled:hover:bg-white/[0.03]`;

@@ -90,7 +90,7 @@ function InputGroupButton({
 			type={type}
 			variant={variant}
 			size={size}
-			className={cn("shadow-none", className)}
+			className={className}
 			{...props}
 		/>
 	);
