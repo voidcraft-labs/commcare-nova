@@ -54,7 +54,7 @@ const NAV_ITEMS: NavItem[] = [
  *  1px nudge text-tier controls use, not a scale. */
 function navLinkClass(active: boolean): string {
 	const base =
-		"nova-focusable flex min-h-11 items-center gap-1.5 px-3 text-sm rounded-xl transition-all active:translate-y-px cursor-pointer";
+		"nova-focusable flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-3 text-sm rounded-xl transition-all active:translate-y-px cursor-pointer sm:justify-start";
 	return active
 		? `${base} text-nova-text bg-white/[0.08]`
 		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06]`;
@@ -82,11 +82,12 @@ export function HeaderNavLinks({ isAdmin }: HeaderNavProps) {
 					<Link
 						key={item.href}
 						href={item.href}
+						aria-label={item.label}
 						className={navLinkClass(isActive)}
 						{...(isActive ? { "aria-current": "page" as const } : {})}
 					>
 						<Icon icon={item.icon} width="16" height="16" />
-						{item.label}
+						<span className="hidden sm:inline">{item.label}</span>
 					</Link>
 				);
 			})}

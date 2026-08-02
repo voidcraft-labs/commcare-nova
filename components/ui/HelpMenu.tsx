@@ -51,7 +51,7 @@ export function HelpMenu() {
 					height="16"
 					className="shrink-0"
 				/>
-				<span className="font-medium">Help</span>
+				<span className="hidden font-medium sm:inline">Help</span>
 				<Icon
 					icon={tablerChevronDown}
 					width="14"

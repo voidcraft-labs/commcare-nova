@@ -103,7 +103,10 @@ export function Logo({
 					</>
 				)}
 			</span>
-			<span className={markOnly ? "sr-only" : undefined}>
+			{/* One lockup, one line: without this the two tones wrap onto
+			    separate lines in a narrow header and the mark reads as a
+			    stacked logo it is not. */}
+			<span className={markOnly ? "sr-only" : "whitespace-nowrap"}>
 				<span className="text-nova-text">commcare </span>
 				<span className="text-nova-violet-bright">nova</span>
 			</span>

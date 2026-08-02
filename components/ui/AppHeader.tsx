@@ -57,13 +57,22 @@ export function AppHeader({
 
 	return (
 		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
+			{/* On a phone the header has room for the mark or the nav, not
+			    both, so the wordmark steps aside and the sphere carries the
+			    brand. `markOnly` keeps the accessible name. */}
 			<Link
 				href="/"
-				className="nova-focusable flex min-h-11 items-center rounded-xl px-1"
+				aria-label="commcare nova"
+				className="nova-focusable flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-1 sm:justify-start"
 			>
-				<Logo size="sm" />
+				<span className="sm:hidden">
+					<Logo size="sm" markOnly />
+				</span>
+				<span className="hidden sm:block">
+					<Logo size="sm" />
+				</span>
 			</Link>
-			<div className="ml-4">
+			<div className="ml-2 sm:ml-4">
 				<HeaderNavLinks isAdmin={isAdmin} />
 			</div>
 
