@@ -62,8 +62,17 @@ const ANCESTOR_CLASS = `${SEGMENT_BASE} shrink-0 whitespace-nowrap text-nova-tex
  * block container with inline content and does nothing on a flex container, so
  * declaring it alongside `SEGMENT_BASE`'s `flex` clipped the name mid-word
  * instead. This element keeps the flex box for the 44px height and the
- * vertical centring; `CURRENT_LABEL_CLASS` does the truncating. */
-const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden whitespace-nowrap text-nova-text cursor-default`;
+ * vertical centring; `CURRENT_LABEL_CLASS` does the truncating.
+ *
+ * The transparent border is load-bearing and is NOT decoration. An ancestor
+ * segment is a `Button`, whose base carries `border border-transparent`, so its
+ * glyphs start one pixel in from its box edge. This segment is a plain element,
+ * so without a matching border the SAME name slid 1px left the moment it
+ * stopped being a link and became the current item: click the middle crumb of a
+ * three-deep trail and the word you clicked lands one pixel from where you
+ * clicked it. Measured with a Range over the text node, because the two boxes
+ * already line up at 506.5 and only the glyphs move. */
+const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden border border-transparent whitespace-nowrap text-nova-text cursor-default`;
 
 /** The text inside the current segment: a block, so the ellipsis renders. */
 const CURRENT_LABEL_CLASS = "min-w-0 truncate";

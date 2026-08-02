@@ -917,15 +917,18 @@ body {
 	 * changed in 2 frames while its shadow spent 15 crawling after it, so
 	 * hover read as the cap lighting up and its glow catching up.
 	 *
-	 * So the whole skin — fill, border, shadow — is pinned to one frame
-	 * and lands together. `transform` keeps the full duration because it
-	 * is the one thing here that genuinely tweens, and it is the press
-	 * travel, which is the motion the keycap exists to have. */
+	 * So the whole CAP is pinned to one frame and lands together: fill,
+	 * border, shadow and travel. Leaving `transform` eased was the same
+	 * mistake one step down, because a press changes the travel AND the
+	 * wall shadow together, so an eased transform crawled for 200ms while
+	 * the wall it sinks into snapped. A key press is instant anyway; what
+	 * reads as travel is the sunk cap being held, not the journey down.
+	 * Only `opacity` still eases, because nothing un-tweenable moves
+	 * beside it. */
 	transition-property:
 		background-color, background-image, border-color, box-shadow, transform,
 		opacity;
-	transition-duration:
-		0s, 0s, 0s, 0s, var(--duration-default), var(--duration-default);
+	transition-duration: 0s, 0s, 0s, 0s, 0s, var(--duration-default);
 	transition-timing-function: var(--ease-default);
 }
 .nova-keycap:active:not(:disabled):not([data-disabled]) {
