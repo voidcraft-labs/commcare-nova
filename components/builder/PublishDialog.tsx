@@ -1116,7 +1116,7 @@ function NotConfigured({
 					</h3>
 					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 						You can add your CommCare HQ API key in Settings to upload directly
-						from commcare nova
+						from Commcare Nova
 					</p>
 					<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
 						You can still choose a CommCare HQ app file or mobile app file above
