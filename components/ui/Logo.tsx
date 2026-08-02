@@ -1,11 +1,18 @@
 /**
  * The CommCare Nova logo: the "first light sphere" logomark + the
  * lowercase wordmark. The mark is a dusk world whose limb catches first
- * light: a violet energy ring warming to dawn at the lower right,
- * softly breathing (light waxes and wanes; nothing moves, nothing
- * pings): with the sphere's own edge lit to match. The wordmark is
- * two-tone, no gradient: "commcare" in the text tier, "nova" in
- * violet-bright.
+ * light: a violet energy ring warming to dawn at the lower right, with
+ * the sphere's own edge lit to match. The wordmark is two-tone, no
+ * gradient: "commcare" in the text tier, "nova" in violet-bright.
+ *
+ * At rest the dawn WIDENS and narrows along the limb, the way a sunrise
+ * lamp comes up: nothing moves, resizes, spins, or blinks, and the
+ * standby state never fades the mark out. Pointing at it is the rim's
+ * job instead, and only where the lockup is genuinely a link or a
+ * button. All of it is CSS, and it lives in `globals.css` beside the
+ * keyframes, because none of it is per-call-site and half of it is a
+ * hover state this component cannot see. `animate={false}` stops the
+ * standby wave; the reduced-motion preference is handled globally.
  *
  * The flattened sibling, a violet body with a bold dawn crescent, is the
  * mark below `FULL_MARK_MIN`: two flat shapes that still read at 16px,
@@ -21,10 +28,6 @@
  * line box it is set in.
  */
 
-const MARK_ENERGY =
-	"conic-gradient(from 0deg,#7c5fd0 0deg,var(--nova-violet) 92deg,var(--nova-dawn) 130deg,#fbd0bf 147deg,var(--nova-dawn) 164deg,#8a6ce0 225deg,#b6a0fb 315deg,#7c5fd0 360deg)";
-const MARK_MASK =
-	"radial-gradient(circle closest-side,transparent 62%,#000 74%,#000 80%,transparent 90%)";
 const MARK_DISC_SHADOW =
 	"inset -0.06em -0.09em 0.15em -0.02em var(--nova-dawn),inset -0.02em -0.03em 0.04em -0.01em #fbd0bf,inset 0.07em 0.1em 0.2em -0.02em rgba(150,120,242,0.55),0 0.07em 0.3em -0.05em rgba(245,176,165,0.45)";
 const MARK_FLAT =
@@ -98,11 +101,17 @@ export function Logo({
 				lineHeight: 1,
 			}}
 		>
+			{/* `fontSize` is the mark's own diameter, so every layer of the
+			    mark (the limb light, the dawn bloom, the disc's lit edge)
+			    sizes itself in `em` against the SPHERE rather than against
+			    the word beside it. Without it a 44px mark next to 32px type
+			    lights its edge as if it were 32px across. */}
 			<span
-				className="relative shrink-0"
+				className={`relative shrink-0 ${animate ? "nova-logo-waving" : ""}`}
 				style={{
 					width: s.mark,
 					height: s.mark,
+					fontSize: s.mark,
 					transform:
 						markOnly || !markDrops ? undefined : `translateY(${inkOffset})`,
 				}}
@@ -114,19 +123,15 @@ export function Logo({
 					/>
 				) : (
 					<>
-						<span
-							className={`absolute inset-0 rounded-full opacity-80 ${
-								animate
-									? "animate-[nova-logo-breathe_var(--duration-breathe)_ease-in-out_infinite]"
-									: ""
-							}`}
-							style={{
-								background: MARK_ENERGY,
-								WebkitMaskImage: MARK_MASK,
-								maskImage: MARK_MASK,
-								filter: `blur(${(s.mark * 0.045).toFixed(1)}px)`,
-							}}
-						/>
+						{/* Paint order is the order light arrives: the energy ring,
+						    the dawn warming it, the hover highlight over both, and
+						    the world's own body last, covering the middle so only
+						    the limb shows. Each layer's appearance lives in
+						    `globals.css`, which is also where the standby wave and
+						    the hover rim are defined. */}
+						<span className="nova-logo-rim" />
+						<span className="nova-logo-dawn" />
+						<span className="nova-logo-pulse" />
 						<span
 							className="absolute rounded-full"
 							style={{

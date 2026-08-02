@@ -575,14 +575,195 @@ body {
 	}
 }
 
-/* The logomark's limb-light variant: light waxes and wanes in place. */
-@keyframes nova-logo-breathe {
+/* ── The logomark's light ────────────────────────────────────────────
+   The mark is a dusk world whose limb catches first light, so its
+   ambient state is that light MOVING: the dawn on the lower-right limb
+   widens and narrows the way a sunrise lamp comes up. What animates is
+   the ARC the warmth covers, not the whole mark's opacity, so the mark
+   never blinks and never spins, and at its widest it reaches the bold
+   crescent the flattened sibling draws. Nothing moves or resizes, so
+   the lockup holds its box in every header at every size.
+
+   Three layers, one job each, and they divide standby from hover:
+     .nova-logo-dawn   the warm arc: this is the standby animation
+     .nova-logo-rim    the violet energy ring: steady until pointed at
+     .nova-logo-pulse  a rim highlight: absent until pointed at
+
+   Hover belongs to the rim, because hover means "this does something"
+   and the rim is the part that reads as a control lighting up. It
+   brightens and SHARPENS (the blur closes toward the edge) rather than
+   fading in and out, so the hover state is a rim that is on, with the
+   pulse riding over it as a much quieter swell.
+
+   Only a mark inside a link or a button answers the pointer at all. A
+   logo sitting on a landing page or an error page is not a control, and
+   lighting it under the cursor would promise a click that does nothing.
+
+   Reduced motion is served by the global rule at the foot of this file:
+   it runs every animation once at 0.01ms, after which each layer falls
+   back to the values declared HERE. Each resting value below is
+   therefore the entire reduced-motion appearance, and each is picked
+   from the middle of its wave rather than from either end, so a
+   still mark looks settled rather than caught at a peak. */
+
+@property --nova-logo-dawn-arc {
+	syntax: "<angle>";
+	inherits: false;
+	initial-value: 34deg;
+}
+
+/* Every layer is sized in `em` against the mark's own font-size, which
+   `Logo` sets to the mark's diameter. One rule then serves a 14px docs
+   mark and a 44px header mark with no per-size arithmetic anywhere. */
+.nova-logo-rim {
+	/* Confines the energy to the limb: a band from 62% to 90% of the
+	   radius, straddling the disc's edge so its inner half is hidden by
+	   the body and its outer half reads as light escaping past it. */
+	--nova-logo-limb: radial-gradient(
+		circle closest-side,
+		transparent 62%,
+		#000 74%,
+		#000 80%,
+		transparent 90%
+	);
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: conic-gradient(
+		from 0deg,
+		#7c5fd0 0deg,
+		var(--nova-violet) 92deg,
+		var(--nova-dawn) 130deg,
+		#fbd0bf 147deg,
+		var(--nova-dawn) 164deg,
+		#8a6ce0 225deg,
+		#b6a0fb 315deg,
+		#7c5fd0 360deg
+	);
+	-webkit-mask-image: var(--nova-logo-limb);
+	mask-image: var(--nova-logo-limb);
+	filter: blur(0.045em);
+	opacity: 0.68;
+	transition:
+		opacity var(--duration-slow) var(--ease-default),
+		filter var(--duration-slow) var(--ease-default);
+}
+
+/* The warm arc. `--nova-logo-dawn-arc` is the half-width of the dawn,
+   measured out from 147deg (the lower-right limb), and it is the only
+   thing the standby animation touches besides the layer's own opacity.
+   `screen` because dawn is light in this system and never paint: it
+   adds to the violet under it instead of covering it. */
+.nova-logo-dawn {
+	/* Wider and softer than the rim's band, and it runs past the edge
+	   rather than stopping at it, so the warmth reads as atmosphere
+	   around the world instead of a second ring drawn on it. */
+	--nova-logo-bloom-mask: radial-gradient(
+		circle closest-side,
+		transparent 52%,
+		#000 72%,
+		#000 86%,
+		transparent 104%
+	);
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	--nova-logo-dawn-arc: 34deg;
+	background: conic-gradient(
+		from 0deg,
+		transparent calc(147deg - var(--nova-logo-dawn-arc)),
+		var(--nova-dawn) calc(147deg - var(--nova-logo-dawn-arc) * 0.42),
+		#fbd0bf 147deg,
+		var(--nova-dawn) calc(147deg + var(--nova-logo-dawn-arc) * 0.42),
+		transparent calc(147deg + var(--nova-logo-dawn-arc))
+	);
+	-webkit-mask-image: var(--nova-logo-bloom-mask);
+	mask-image: var(--nova-logo-bloom-mask);
+	filter: blur(0.1em);
+	opacity: 0.62;
+	mix-blend-mode: screen;
+}
+
+.nova-logo-pulse {
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: radial-gradient(
+		circle closest-side,
+		transparent 66%,
+		var(--nova-violet-bright) 80%,
+		transparent 93%
+	);
+	filter: blur(0.05em);
+	opacity: 0;
+	mix-blend-mode: screen;
+	transition: opacity var(--duration-default) var(--ease-default);
+}
+
+.nova-logo-waving .nova-logo-dawn {
+	/* Twice the presence pulse, derived from it rather than a new number:
+	   this is weather on a limb, not a heartbeat, and at 3.6s a swell
+	   this wide reads as a flicker. */
+	animation: nova-logo-dawn-wave calc(var(--duration-breathe) * 2) ease-in-out
+		infinite;
+}
+
+:where(a, button):hover .nova-logo-rim,
+:where(a, button):focus-visible .nova-logo-rim {
+	opacity: 1;
+	filter: blur(0.025em);
+}
+
+:where(a, button):hover .nova-logo-waving .nova-logo-pulse,
+:where(a, button):focus-visible .nova-logo-waving .nova-logo-pulse {
+	animation: nova-logo-rim-pulse calc(var(--duration-breathe) / 2) ease-in-out
+		infinite;
+}
+
+/* Two crests of unequal height per cycle, so the warmth reads as
+   weather rather than as a metronome.
+
+   Blur travels WITH the swell, tightening as the arc widens. A dawn
+   that only spread would just get hazier; tightening as it grows is
+   what carries it toward the bold crescent the flattened sibling
+   draws, which is the shape this wave is reaching for. At its calmest
+   it is the opposite: narrow, dim, and diffuse, barely there.
+
+   Nothing rests at either extreme. The values on `.nova-logo-dawn`
+   itself sit mid-wave and are what a reduced-motion viewer sees. */
+@keyframes nova-logo-dawn-wave {
 	0%,
 	100% {
-		opacity: 0.55;
+		--nova-logo-dawn-arc: 22deg;
+		opacity: 0.48;
+		filter: blur(0.12em);
+	}
+	38% {
+		--nova-logo-dawn-arc: 58deg;
+		opacity: 0.86;
+		filter: blur(0.08em);
+	}
+	62% {
+		--nova-logo-dawn-arc: 41deg;
+		opacity: 0.68;
+		filter: blur(0.1em);
+	}
+	80% {
+		--nova-logo-dawn-arc: 66deg;
+		opacity: 0.94;
+		filter: blur(0.07em);
+	}
+}
+
+/* Starts and ends at nothing, so pointing at the mark and leaving it
+   both begin from the resting state and neither jumps. */
+@keyframes nova-logo-rim-pulse {
+	0%,
+	100% {
+		opacity: 0;
 	}
 	50% {
-		opacity: 0.95;
+		opacity: 0.5;
 	}
 }
 
