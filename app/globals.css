@@ -2039,6 +2039,25 @@ html.dark {
 	white-space: nowrap;
 }
 
+/* The docs header row must yield to its own controls.
+ *
+ * At 320px the brand lockup held its full width and pushed the search
+ * and sidebar buttons past the edge — off a page that does not scroll
+ * sideways and has no ancestor that scrolls either, so they could not
+ * be reached at all. The title is the flexible part and the 44px
+ * controls are not, exactly as in the app's own header. */
+.nova-docs :is(#nd-subnav, #nd-nav) {
+	min-width: 0;
+}
+.nova-docs :is(#nd-subnav, #nd-nav) > a:first-child {
+	min-width: 0;
+	flex-shrink: 1;
+	overflow: hidden;
+}
+.nova-docs :is(#nd-subnav, #nd-nav) button {
+	flex-shrink: 0;
+}
+
 /* ─── shadcn token bindings → Nova color system ─────────────────────
  * shadcn writes neutral oklch defaults during init. Nova runs dark-
  * only (html.dark is hard-set in the root layout), so the .dark

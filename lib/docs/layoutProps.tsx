@@ -14,8 +14,16 @@ export const docsLayoutProps = {
 		 * the two-tone wordmark. `animate={false}` because a breathing mark
 		 * in a dense docs rail is noise rather than presence. */
 		title: (
-			<span className="flex items-center gap-2">
-				<Logo size="sm" animate={false} />
+			/* `min-w-0` so this lockup is what yields when the row is narrow.
+			 * Without it the title holds its full width and pushes the search
+			 * and sidebar controls clean off a 320px screen, where nothing can
+			 * scroll to them.
+			 *
+			 * The space before "docs" is real text, not the gap: `gap-2`
+			 * separates them visually and leaves the text layer reading
+			 * "commcare novadocs", which is what the accessible name is. */
+			<span className="flex min-w-0 items-center gap-2">
+				<Logo size="sm" animate={false} />{" "}
 				<span className="text-nova-text-secondary">docs</span>
 			</span>
 		),
