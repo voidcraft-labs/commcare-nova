@@ -1,8 +1,9 @@
-# Unit 9 — Usercase, owner sets, restore scope, and wire
+# Usercase, owner sets, restore scope, and wire
 
 **PR:** `Usercase materialization, owner sets, restore closure, and the location fixture`
 
-**Depends on:** unit 8. · **Blocks:** unit 13.
+**Depends on:** [the organization model](organization-model-and-locations-store.md).
+· **Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the restore-scope
 > contract there (authoritative Postgres revision, measured CTE before
@@ -85,47 +86,32 @@ directions.
   data (filtered to valid XML element names) and adds `name`, `username`,
   `email`, `language`, `phone_number`, `last_device_id_used`, `first_name`,
   `last_name`, `hq_user_id`, and `commcare_project` — the unprefixed spellings,
-  where the registration block writes `commcare_first_name` and friends. It also
-  writes all three location keys **unconditionally**, taking an explicit `else`
-  branch to `''` when the worker has no location, where
-  `get_user_session_data` omits them entirely — an asymmetry that is easy to
-  state backwards. `ResolvedPreviewIdentity` already carries both projections
-  separately and reproduces that difference
-  (`lib/preview/engine/identity.ts`: `session` and `usercase`), and
-  `#user/<prop>` already reads the usercase one, so this unit materializes an
-  existing projection rather than deriving a new one.
+  where the registration block writes `commcare_first_name` and friends. The
+  location-key asymmetry between the two projections is shipped behavior
+  ([what is built](../complex-app-plan.md#preview-identity)), and
+  `ResolvedPreviewIdentity` already carries both projections separately
+  (`lib/preview/engine/identity.ts`) with `#user/<prop>` reading the usercase
+  one — so this unit materializes an existing projection rather than deriving
+  a new one.
 - A **declared** user property with no value is present-and-empty on the wire,
   not absent: `users/user_data.py::UserData.to_dict` seeds
   `{field: '' for field in self._schema_fields}` before layering authored values.
   An undeclared key is genuinely absent. The materialized usercase must reproduce
   that split — a `= ''` comparison depends on it.
 
-**Persona deletion never deletes case data.** That half is decided and shipped:
-removing a persona leaves every row it owns in place with `owner_id` still
-naming it, and the confirmation states the row count instead of offering to
-reassign or remove them.
+**Persona deletion never deletes case data** — that half is decided and
+shipped, and [what is built](../complex-app-plan.md#preview-identity) holds
+the policy plus the two HQ worker-lifecycle behaviors it deliberately does not
+copy (deactivation closes the usercase and leaves cases alone; worker deletion
+soft-deletes every owned case).
 
-**Do not read that as HQ parity — HQ has two answers and neither transfers.**
-Deactivating a worker, or removing them from the domain, closes their usercase
-and leaves their cases alone:
-`sync_usercase.py::_get_sync_usercase_helper` computes
-`close = user.to_be_deleted() or not user.is_active_in_domain(domain) or domain
-not in user.get_domains()` and calls `update_user_case(..., close_case)`,
-re-opening a closed one (by archiving the closing transactions) if the user
-returns. DELETING a worker is destructive: `users/models.py::CommCareUser.retire`
-→ `::delete_user_data` walks every case the worker owns
-(`get_case_ids_in_domain_by_owners`) and dispatches
-`tag_cases_as_deleted_and_remove_indices`, soft-deleting them and stripping
-indices — the usercase among them, since the worker owns it.
-
-So this unit owns a real decision rather than inheriting one: **what happens to
-a materialized usercase when its persona is deleted.** Nova has already chosen
-to preserve the persona's ordinary case rows, on the grounds that a persona is a
-design and test actor rather than a person who left an organization, and its
-cases are the author's own test data. Closing the usercase is the option
-consistent with that (the deactivation path, and a persona UUID is never
-reissued so there is no reopen case); deleting it is the option consistent with
-HQ's own delete. Pick one deliberately and record it here.
+So this unit owns a real decision rather than inheriting one: **what happens
+to a materialized usercase when its persona is deleted.** Closing the usercase
+is the option consistent with the shipped preserve-the-rows policy — the
+deactivation path, noting that HQ re-opens a closed usercase (by archiving the
+closing transactions) if the worker returns, while a persona UUID is never
+reissued, so no reopen case exists here. Deleting it is the option consistent
+with HQ's own worker delete. Pick one deliberately and record it here.
 
 One delivery precondition is easy to miss and silently breaks the whole fixture:
 a form only carries the `locations` instance if something in it **references**

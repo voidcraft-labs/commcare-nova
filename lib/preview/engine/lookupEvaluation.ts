@@ -1,6 +1,6 @@
 // lib/preview/engine/lookupEvaluation.ts
 //
-// Client-side evaluation of the S05 lookup-table carriers over one
+// Client-side evaluation of the lookup-table carriers over one
 // loaded fixture snapshot: `table-lookup` first-match values and
 // lookup-backed select choices.
 //

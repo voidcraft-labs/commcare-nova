@@ -86,8 +86,8 @@ function appIdentity(row: PersistedAppRow): LookupReferenceScanApp {
 /**
  * Assemble and hydrate through the same stored-blueprint boundary production
  * uses, then invoke the shared production extractor. The extractor's default
- * registry is intentional: S05 carrier registration must automatically become
- * visible to this durable inspector.
+ * registry is intentional: a newly registered carrier kind must automatically
+ * become visible to this durable inspector.
  */
 async function readStructuralTargets(
 	tx: Transaction<AppDatabase>,

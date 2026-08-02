@@ -1,4 +1,4 @@
-# Unit 4 — Grouped case tiles
+# Grouped case tiles
 
 **PR:** `Grouped case tiles`
 
@@ -35,23 +35,34 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
 - The attribute is `header-rows`
   (`commcare-core/.../org/commcare/xml/DetailGroupParser.java::DetailGroupParser.ATTRIBUTE_NAME_HEADER_ROWS`).
   `function` is required and must parse as XPath; `header-rows` is optional and
-  the CLIENT defaults a missing one to `1`, while HQ's
-  `models/case_list.py::CaseTileGroupConfig.header_rows` defaults to `2` — the two
-  defaults disagree, so Nova always emits the attribute explicitly. **Three
-  fixtures misspell it `grid-header-rows`** — `commcare-core/src/test/resources/app_structure/suite.xml`
-  and `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
-  among them — which silently reads as one header row. Do not copy that spelling.
+  the two sides default it differently — the CLIENT falls back to `1`
+  (`DetailGroupParser::parse`), while HQ's model defaults to `2`
+  (`models/case_list.py::CaseTileGroupConfig.header_rows`) — so Nova always
+  emits the attribute explicitly; relying on either default silently halves or
+  doubles the header depending on which side you read. **Three of the four
+  `<group>` fixtures in the source trees misspell it `grid-header-rows`** —
+  `commcare-core/src/test/resources/app_structure/suite.xml` and
+  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
+  among them (the vendored and build copies duplicate these same files) —
+  which parses as an unknown attribute
+  and silently takes the default, so those fixtures prove nothing about
+  header-row behavior; do not copy that spelling. The one correctly-spelled
+  fixture, and therefore the byte oracle this unit asserts against, is
+  `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
 - A grouped list additionally needs the companion entry datum
   `<datum id="<caseDatumId>_parent_ids" function="join(' ', distinct-values(instance('casedb')/casedb/case[<predicate>]/index/<id>))"/>`,
   emitted by
   `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`.
   The predicate is `@case_id = instance('commcaresession')/session/data/<caseDatumId>`
-  for a single-select datum. Unit 17 later adds the multi-select variant
+  for a single-select datum. The
+  [multi-select unit](multi-select-related-cases-and-profile.md) later adds the
+  multi-select variant
   (`selected(join(' ', instance('<caseDatumId>')/results/value), @case_id)`) when
   it swaps the datum class to `<instance-datum>`; land the datum builder so that
-  variant is an added arm rather than a reshape. Unit 16 must also describe every
-  selection-requiring datum as an endpoint `<argument>`, so a new datum is a new
-  endpoint obligation.
+  variant is an added arm rather than a reshape. The
+  [session-endpoints unit](session-endpoints-and-deep-links.md) must also
+  describe every selection-requiring datum as an endpoint `<argument>`, so a new
+  datum is a new endpoint obligation.
 - **Nova narrows the group key to a case index. That is Nova's choice, not the
   platform's rule.** The group header is the top N rows of the same tile taken
   from the group's **first** case, so a header cell is only honest when its value
@@ -113,20 +124,6 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
   the *settled* server offset, Previous is disabled at offset 0, Next is disabled
   once `pageEnd >= totalMatchingCases`, the setter clamps at `Math.max(0, index)`,
   and no URL path seeds a page index.
-- **`header-rows` has two different defaults, so Nova always emits it
-  explicitly.** The client parser falls back to `1`
-  (`DetailGroupParser::parse`), while HQ's model defaults to `2`
-  (`models/case_list.py::CaseTileGroupConfig.header_rows`). Relying on either
-  silently halves or doubles the header depending on which side you read.
-- **Fixture evidence, and which fixture is actually evidence.** Three of the four
-  `<group>` fixtures in the checkouts misspell the attribute as
-  `grid-header-rows` — it parses as an unknown attribute and silently takes the
-  default — so they prove nothing about header-row behavior. The misspelling is
-  in `commcare-core/src/test/resources/app_structure/suite.xml` and
-  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
-  (plus vendored/build copies). The one correctly-spelled fixture, and therefore
-  the byte oracle this unit asserts against, is
-  `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
 - **Grouped tiles are a Web Apps capability only.** CommCare Android parses
   `<group>` and ignores it, degrading to an ungrouped tile list. That belongs
   where the author chooses grouping, not in a footnote.

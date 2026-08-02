@@ -186,7 +186,7 @@ export interface TermCompileContext {
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	/**
 	 * Rows-free lookup-table definitions (table id → column id →
-	 * declared data type) for the S05 lookup carriers. Optional —
+	 * declared data type) for the lookup-table carriers. Optional —
 	 * compile sites whose slots the validator keeps carrier-free omit
 	 * it, and a carrier reaching such a site throws a missing-context
 	 * invariant instead of guessing a cast.

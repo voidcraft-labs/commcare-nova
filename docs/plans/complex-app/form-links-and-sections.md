@@ -1,10 +1,11 @@
-# Unit 14 — Exclusive form links and sections
+# Exclusive form links and sections
 
 **PRs:**
 1. `Durable form-link identity and exclusive link projection`
 2. `Durable form-section identity and form-owned sequences`
 
-**Depends on:** nothing outstanding. · **Blocks:** unit 15.
+**Depends on:** nothing outstanding. · **Blocks:**
+[nested menus](nested-menus-and-linked-form-reuse.md).
 
 > Read [the binding contracts](00-contracts.md) first — the instant-migration and
 > identity rules there are what forbid the legacy array-order bridge below.

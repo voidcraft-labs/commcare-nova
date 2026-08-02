@@ -1,9 +1,12 @@
-# Unit 11 — Deployment core and artifact
+# Deployment core and artifact
 
 **PR:** `Durable deployment records, ownership mappings, and the setup artifact`
 
-**Depends on:** units 8 and 10 for artifact content. · **Blocks:** units 6, 12,
-and 13.
+**Depends on:** [the organization model](organization-model-and-locations-store.md)
+and [automations](automations-and-setup-guidance.md) for artifact content.
+· **Blocks:** [attachment emission](attachment-emission-and-link-ux.md),
+[push and provisioning](push-and-provisioning-drivers.md), and
+[App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the HQ deployment safety
 > contract there (dependency graph, record keys, no auto-adoption, idempotent
@@ -16,18 +19,17 @@ endpoint URLs or dependent drivers consume it.
 
 The setup artifact is the regenerated, human-applied half of deployment: the user-
 data field schema, the organization model (level definitions are UI-only — see
-unit 12), and automations. It regenerates from the document on every export behind
-a push port.
+[push and provisioning](push-and-provisioning-drivers.md)), and automations. It
+regenerates from the document on every export behind a push port.
 
 Its user-data half is already modeled. Each authored user property renders one
-`Field` row on the target domain's `UserFields` definition, and `required_for` is
-`["commcare_user"]`: HQ enforces `is_required` only when the pushed field's
-`required_for` names the user type being created
-(`custom_data_fields/edit_model.py::UserFieldsView.is_field_required`), and Nova
-provisions mobile workers only. Whether a given persona actually satisfies a
-required property is deliberately **not** a document finding — it depends on the
-target, and gating the document on it would make marking an existing property
-required impossible. It is a preflight check here.
+`Field` row on the target domain's `UserFields` definition, and `required_for`
+is `["commcare_user"]`, because Nova provisions mobile workers only. Whether a
+given persona actually satisfies a required property is deliberately **not** a
+document finding — it depends on the target, and
+[what is built](../complex-app-plan.md#user-properties-user-types-and-preview-personas)
+holds the enforcement site, including the same-named HQ function that is the
+wrong one to read. It is a preflight check here.
 
 Two other target-dependent values are absent from Preview until this unit
 supplies them, and the authoring surface already says so: `commcare_project` (the
@@ -42,8 +44,8 @@ fails lands there and withholds both `released` and `runnable`, and it is reache
 from any earlier state. Every phase is independently retryable from the state it
 failed in, and retrying never requires re-importing the app.
 
-Existing export guards stay until unit 12 can satisfy them: you cannot upload an
-app that references a resource you have not pushed.
+Existing export guards stay until push and provisioning can satisfy them: you
+cannot upload an app that references a resource you have not pushed.
 
 **Observed:** an author connects an HQ domain, sees exactly what Nova will create
 there and what they must set up by hand, and can retry a failed phase without

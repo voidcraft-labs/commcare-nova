@@ -2,8 +2,10 @@ import { z } from "zod";
 import { AUTHORED_CASE_ID_VERSION } from "@/lib/domain";
 
 /** Client-originated data. It carries one opaque CommCare identity only,
- * never authority. Case ids are strings by wire contract; S06 widens the
- * current UUID-backed storage family before this dormant seam activates. */
+ * never authority. Case ids are strings by wire contract, matching the
+ * text-wide storage identity family; this request shape has no live consumer
+ * yet — the envelope executor's expression-target arms resolve rows
+ * server-side and validate the resulting descriptors directly. */
 export const caseOperationTargetRequestSchema = z
 	.object({ caseId: z.string().min(1) })
 	.strict();
@@ -109,7 +111,8 @@ export type ResolvedCaseOperationTypeSequenceVerdict =
 /**
  * Runtime complement to the static alias proof in `caseOperationOrder.ts`.
  *
- * S06 expands repeated operations into actual physical execution order, folds
+ * The envelope executor (`postgres/submissionEnvelope.ts`) expands repeated
+ * operations into actual physical execution order, folds
  * their separately authorized snapshot descriptors through this function,
  * and only then writes. Keying rolling state by the resolved opaque id catches
  * aliases the AST cannot prove (two fields, session vs property expression,

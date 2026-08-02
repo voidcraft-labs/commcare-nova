@@ -25,7 +25,7 @@ The program spans three kinds of file, and each answers exactly one question:
 | --- | --- |
 | this one | what Nova builds today, and which unit owns what remains |
 | [`complex-app/00-contracts.md`](complex-app/00-contracts.md) | the delivery, product, architecture, and UX rules that bind every unit |
-| `complex-app/NN-*.md` | one remaining unit: its contract, its binding CommCare facts, what a user observes |
+| the other `complex-app/*.md` files | one remaining unit each: its contract, its binding CommCare facts, what a user observes |
 
 Three rules govern reading them, in order:
 
@@ -53,16 +53,20 @@ authoritative for how.
 
 ## What is built
 
+Each section states what exists, why it takes the shape it does, and the
+CommCare wire facts that bind future work — with a pointer to the subtree
+`CLAUDE.md` that owns the implementation detail. Where a section and a subtree
+doc both speak, the subtree doc and the code are the authority for how.
+
 ### Canonical authored identity
 
 A Nova UUID has exactly one spelling: lowercase, hyphenated, RFC version 1–8,
-with the RFC variant. `lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` states that
-as a string regex rather than a Zod refinement, because `z.toJSONSchema()`
-carries a `pattern` into the generated SA and MCP schemas and would silently
-drop a refinement — so a model client is admitted against the same rule the
-store is. Nil and max need no special case: their version and variant nibbles
-fail. Uppercase is rejected, never normalized. `asUuid` parses and throws rather
-than casting, and `lib/domain/lookupIds.ts` keeps the three lookup identities on
+with the RFC variant (`lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` — a string
+regex rather than a Zod refinement, because `z.toJSONSchema()` carries a
+`pattern` into the generated SA and MCP schemas and would silently drop a
+refinement, so a model client is admitted against the same rule the store is).
+Uppercase is rejected, never normalized; nil and max fail on their version and
+variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
 Ten authorable kinds share ONE global identity namespace — modules, forms,
@@ -70,37 +74,28 @@ fields, select options, case-list columns, Search inputs, case operations,
 worker properties, user types, and personas
 (`lib/domain/authoredIdentities.ts`) — because `blueprint_entities` keys every
 entity row by `(app_id, uuid)`, and because a nested identity is both an SA/MCP
-address and an expression leaf. Letting one collide with another would make what
-a UUID means depend on which kind you thought to ask about. App, case, Project,
-actor/owner, thread, run, batch, capture-attachment, form-entry, and
-submission-intent ids stay opaque protocol or storage values and are not
-authoring addresses; `form_submission_intents.form_uuid` and
-`form_attachments.field_uuid` are strict because those two columns name authored
-entities. Uploaded assets carry their own strict `MediaAssetId`, and built-in
-menu icons are closed `nova-icon:` enums generated from the catalog, with the
-module/case-list family and the form family separately closed — a valid built-in
-in one is not automatically valid in the other, and no schema spans both.
+address and an expression leaf. App, case, Project, actor/owner, thread, run,
+batch, capture-attachment, form-entry, and submission-intent ids stay opaque
+protocol or storage values, not authoring addresses. Uploaded assets carry
+their own strict `MediaAssetId`; built-in menu icons are closed `nova-icon:`
+enums, with the module/case-list family and the form family separately closed.
 
-There is no placeholder identity anywhere. A constructor with no eligible target
-is unavailable rather than seeded with an empty or fixture UUID, and
-`lib/domain/__tests__/authoredIdentitySourceTripwire.test.ts` fails the build on
-`asUuid("")`, an `as Uuid`-family assertion, or a hard-coded authored UUID
-across sixteen production roots — narrowing helpers validate, they do not cast.
+There is no placeholder identity anywhere: a constructor with no eligible
+target is unavailable rather than seeded with an empty or fixture UUID, and a
+source tripwire (`lib/domain/__tests__/authoredIdentitySourceTripwire.test.ts`)
+fails the build on `asUuid("")` (the parse-and-throw narrowing helper), an
+`as Uuid`-family assertion, or a hard-coded authored UUID in production
+roots — narrowing helpers validate, they do not cast.
 
 **Topology is closed as well as typed.**
 `lib/domain/blueprint.ts::blueprintTopologyIssues` is the one closure proof:
-every module, form, field, worker property, user type, and persona appears
-exactly once in the membership array that owns it; every membership entry
-resolves to the expected record kind and a valid parent; a parent is required
-for an owned or nested kind and exactly null for a root or flat one; and every
-record key equals its entity's embedded UUID. Orphans, cycles, wrong-kind
-parents, duplicate memberships, stray sequence keys, and record/sequence
-disagreement all reject. `blueprintDocSchema` runs it in a `superRefine`, and
-both ends of `lib/db/blueprintRows.ts` parse through that same schema —
-`decomposeBlueprint` before it writes a row, `assembleBlueprint` before it
-returns one — so the domain parser, the commit gate, and persistence cannot
-disagree about which topology is constructible. There is no orphan sentinel and
-no authorable entity outside the runnable tree.
+every entity appears exactly once in the membership array that owns it, every
+membership entry resolves to the expected record kind and a valid parent, and
+every record key equals its entity's embedded UUID. Both ends of
+`lib/db/blueprintRows.ts` parse through the same schema, so the domain parser,
+the commit gate, and persistence cannot disagree about which topology is
+constructible. There is no orphan sentinel and no authorable entity outside
+the runnable tree. `lib/domain/CLAUDE.md` owns the detail.
 
 ### Expressions and prose store identity; text is a projection
 
@@ -109,23 +104,19 @@ Every XPath-bearing slot holds the canonical `XPathExpression` AST
 leaves that carry identity — `field-ref` and `path-ref` hold the target field's
 UUID, `user-property-ref` a Nova worker-property UUID, `case-ref` a
 `(caseType, property)` pair, `user-ref` an external CommCare/session name.
-`path-ref` is `{ kind, uuid }` and nothing else: depth-dependent separator bytes
-are not persisted, so a move that changes a field's depth changes only the
-printed `/data/<current path>`, and reparsing that projection reproduces the
-identical leaf. There is no stored arm for an unresolved, contextual, or
-malformed hashtag — the parse boundary reports those and the gate rejects them,
-so a dangling reference can never sit in a document as UUID-shaped authored
-XPath.
+`path-ref` persists no depth-dependent bytes, so a move that changes a field's
+depth changes only the printed projection. There is no stored arm for an
+unresolved, contextual, or malformed hashtag — the parse boundary reports
+those and the gate rejects them, so a dangling reference can never sit in a
+document as UUID-shaped authored XPath.
 
 Every reference-capable field label, hint, help, validation message,
 select-option label, and case-property catalog display default holds a
-`ProseTemplate` (`lib/domain/prose.ts`) — an array over five typed parts:
-`text`, `field-ref`, `case-ref`, `user-property-ref`, and external `user-ref`.
-Markdown stays text. A literal hashtag is text; a reference is a part. Adjacent
-text runs are noncanonical and reject, so one authored value has one
-representation. Reference indexing, validation, rename and move, case
-retirement, Preview, and CommCare emission all walk those parts structurally —
-nothing scans a string.
+`ProseTemplate` (`lib/domain/prose.ts`) — typed parts over `text` plus the
+four reference kinds. A literal hashtag is text; a reference is a part;
+adjacent text runs are noncanonical and reject, so one authored value has one
+representation. Indexing, validation, rename and move, retirement, Preview,
+and emission all walk those parts structurally — nothing scans a string.
 
 `(caseType, property)` pairs and external CommCare/session names are the two
 deliberate name-backed references: they are identities Nova does not own.
@@ -134,292 +125,193 @@ reordering an object rewrites no stored expression.
 
 **A person still types and reads `#form/first_name`.** The CodeMirror surface
 prints current names from identity and parses once, at commit
-(`lib/doc/expressionText.ts::parseXPathForField`); nothing parses on a
-keystroke. Nobody is asked to type, read, or repair `#form/<uuid>`.
-`lib/domain/xpath/print.ts::projectXPath` and
-`lib/domain/prose.ts::projectProseTemplate` are the human projections: each
-takes the owning document and, for a reference it cannot resolve, returns
-`{ ok: false, unresolved }` with `[reference needs repair]` in the text — never
-the UUID. `printXPath` and `printProseTemplate` are the strict twins wire and
-runtime callers use, and they throw on the same identity rather than emit a
-guess. `proseTemplateText` returns only the literal typed characters and is
-documented as NOT a projection: it exists for search indexing and comparison,
-where matching what was typed is the point and inventing a rendered spelling
-would be wrong.
-
-The prose editor is structural rather than a lossy flat-text round trip. A
-TipTap inline atom (`lib/tiptap/commcareRefNode.ts`) stores the exact typed
-reference part and re-projects its friendly label on every render, so a peer's
-rename shows immediately. The atom registers no input rule and no paste rule,
-and its `parseHTML` matches only its own encoded carrier — so ordinary typing
-and paste always produce text, including text that looks like `#form/question`,
-and the `#` suggestion menu is the one path that inserts a reference.
-`lib/tiptap/proseTemplateCodec.ts` maps template ⇄ TipTap nodes both ways, and
-that round trip is a validator finding rather than an assumption: a value that
-does not survive it is refused with "This text does not survive Nova's canonical
-reference-editor round trip."
+(`lib/doc/expressionText.ts`); nobody is asked to type, read, or repair
+`#form/<uuid>`. `projectXPath` and `projectProseTemplate` are the human
+projections and render `[reference needs repair]` for a reference they cannot
+resolve — never the UUID; `printXPath` and `printProseTemplate` are the strict
+twins wire and runtime callers use, and throw on the same identity rather than
+emit a guess. `proseTemplateText` returns only the literal typed characters
+and is documented as NOT a projection — it exists for search and comparison,
+where matching what was typed is the point. The prose editor is structural
+(`lib/tiptap` — one inline atom per reference part; ordinary typing and paste
+always produce text, and the `#` suggestion menu is the one path that inserts
+a reference), and a value that does not survive the template ⇄ editor round
+trip is a validator finding rather than an assumption.
 
 Search-input references are identity too: Predicate and ValueExpression store
-`{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`), and
-Preview, SQL, and CommCare emission resolve that to the input's current saved
-wire name — so renaming a prompt rewrites no rule, and removing one goes through
-the reference index like any other referenced entity. Which runtime evaluates a
-rule is a separate authoring axis: `EvaluationTarget`
-(`components/builder/shared/editorSchemas.ts`) is `on-device`, `case-search`, or
-`on-device-and-case-search`, and an absent value means the STRICT `on-device`
-one, because a surface that forgets it then offers less — visible and
-repairable — rather than offering a choice the gate would bounce. A case-list
-filter in a search-enabled module carries the both-runtimes value, since the
-same stored rule emits to the device nodeset and the remote CSQL query and must
-satisfy both oracles.
+`{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`),
+resolved to the input's current saved wire name only at projection. Which
+runtime evaluates a rule is a separate authoring axis: `EvaluationTarget`
+(`components/builder/shared/editorSchemas.ts`) is `on-device`, `case-search`,
+or both, and an absent value means the STRICT `on-device` one — a surface that
+forgets it then offers less, visible and repairable, rather than offering a
+choice the gate would bounce. A case-list filter in a search-enabled module
+carries the both-runtimes value, since the same stored rule emits to the
+device nodeset and the remote CSQL query and must satisfy both oracles.
 
 Standard case metadata has one Nova vocabulary — `case_name`, `date_opened`,
-`external_id`, `last_modified`, `owner_id`, `status`, `case_id`, and `case_type`
-(`lib/domain/standardCaseProperties.ts`).
+`external_id`, `last_modified`, `owner_id`, `status`, `case_id`, and
+`case_type` (`lib/domain/standardCaseProperties.ts`).
 `lib/domain/casePropertyName.ts::authoredCasePropertyNameSchema` owns the
 grammar and rejects CommCare's detail aliases `name`, `date-opened`, and
-`external-id` outright; there is no `canonicalize` or alias-coalescing helper
-anywhere, because a runtime that accepts two spellings has two representations.
-Catalog declarations, every Predicate / ValueExpression / XPath / Prose case
-leaf, field `caseWrite` destinations, case-operation writes, case-list columns,
-simple Search properties, and every SA/MCP projection use that one schema. A
-field's local `id` does not, so any survey question may still be named `name`. A
-different CommCare spelling exists only as a one-way `lib/commcare` output
-projection.
+`external-id` outright; there is no alias-coalescing helper anywhere, because
+a runtime that accepts two spellings has two representations. Every catalog,
+expression-leaf, writer, column, Search, and SA/MCP surface uses that one
+schema; a field's local `id` does not, so any survey question may still be
+named `name`. A different CommCare spelling exists only as a one-way
+`lib/commcare` output projection.
 
 ### Field id, case writes, and app-wide property rename
 
 A field carries three independent facts: its immutable `uuid`, its local
 question/path `id`, and — on eligible kinds — an optional
-`caseWrite: { caseType, property }` (`lib/domain/fields/base.ts`). Changing `id`
-changes the question node and the friendly `#form/<id>` projection and nothing
-else. Changing or clearing `caseWrite` retargets exactly one writer: the old
-property, its peer writers, its typed references, its catalog declaration, and
-its saved values all remain. `updateField.patch.id` is the one field-id command
-— there is no `renameField` mutation arm and no before/after heuristic that
-reads a local edit as global rename intent — and `moveField` preserves `id`,
-rejecting a destination sibling collision instead of auto-renaming.
+`caseWrite: { caseType, property }` (`lib/domain/fields/base.ts`). Changing
+`id` changes the question node and the friendly projection and nothing else;
+changing or clearing `caseWrite` retargets exactly one writer; `moveField`
+preserves `id` and rejects a destination sibling collision instead of
+auto-renaming. There is no `renameField` mutation arm and no before/after
+heuristic that reads a local edit as global rename intent.
 
-`lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory` is the one form-tree
-walk that assigns writers to case actions, and it stays entirely in Nova
-vocabulary: each writer carries its field UUID and current id, the explicit
-destination pair, every ordered path segment as
-`{ fieldUuid, fieldId, queryBoundIteration }`, and the nearest repeat's UUID,
-id, and path. It groups them into the primary action or a child-create action
-identified by `(caseType, nearest repeat UUID)` — stable UUID identity, never a
-rendered path or mutable id. Validator, builder, SA/MCP admission, FormActions,
-and Preview consume those exact writers and buckets rather than reclassifying
-fields again. `lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory`
-is the sole semantic-plus-wire bridge: it adds only the CommCare reserved-name
-rule and projects each writer and repeat path exactly once into private
-`FormPath` values.
+`lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory` is the one
+form-tree walk that assigns writers to case actions, grouping them into the
+primary action or a child-create action identified by
+`(caseType, nearest repeat UUID)` — stable UUID identity, never a rendered
+path or mutable id. Every consumer takes those exact writers and buckets
+rather than reclassifying fields;
+`lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory` is
+the sole semantic-plus-wire bridge. Admission is closed over the bucket that
+is actually emitted:
 
-Admission is closed over the action bucket that is actually emitted. A survey,
-or any form with no case action, rejects every binding instead of storing a
-writer the wire would ignore. At most one field may write each property per
-bucket. Registration and every derived child-create bucket require exactly one
-`case_name`, emitted in `<create>`, and admit at most one `external_id`, emitted
-in the same block's `<update>`. Followup and close forms may bind exactly one
-primary `case_name`, emitted as `<update><case_name>`, because CommCare accepts
-a name update on an existing case. A writable destination is exactly the
-module's own case type or a declared type whose `parent_type` is that module
-type; a sibling, parent, grandchild, unrelated, or unknown type rejects and
-never becomes a child bucket.
+- A survey, or any form with no case action, rejects every binding instead of
+  storing a writer the wire would ignore. At most one field may write each
+  property per bucket.
+- Registration and every derived child-create bucket require exactly one
+  `case_name`, emitted in `<create>`, and admit at most one `external_id`,
+  emitted in the same block's `<update>`. Followup and close forms may bind
+  exactly one primary `case_name`, emitted as `<update><case_name>`, because
+  CommCare accepts a name update on an existing case.
+- A writable destination is exactly the module's own case type or a declared
+  type whose `parent_type` is that module type; a sibling, parent, grandchild,
+  unrelated, or unknown type rejects and never becomes a child bucket.
 
 Two projections are deliberately one-way. Nova's `case_name` becomes HQ
-FormActions' private `name` key (`lib/commcare/formActions.ts`), which the XForm
-lowering turns back into `<case_name>` (`lib/commcare/xform/caseBlocks.ts`);
-`name` is never accepted as Nova input. `case_name` and `external_id` both route
-to dedicated `cases` columns and never the JSONB document — the stored-schema
-decoder throws if either appears as a JSON property. Both pass one value
-contract before wire or storage (`lib/domain/caseScalarText.ts`): strip boundary
-UTF-16 code units U+0000 through U+0020 exactly as Java `String.trim()` does,
-then enforce CommCare Core's 255 UTF-16-unit cap. A normalized blank `case_name`
-rejects; an active blank `external_id` is a real `""` scalar write, distinct
-from no write at all.
+FormActions' private `name` key (`lib/commcare/formActions.ts`), which the
+XForm lowering turns back into `<case_name>`; `name` is never accepted as Nova
+input. `case_name` and `external_id` both route to dedicated `cases` columns
+and never the JSONB document. Both pass one value contract before wire or
+storage (`lib/domain/caseScalarText.ts`): strip boundary UTF-16 code units
+U+0000 through U+0020 exactly as Java `String.trim()` does, then enforce
+CommCare Core's 255 UTF-16-unit cap. A normalized blank `case_name` rejects;
+an active blank `external_id` is a real `""` scalar write, distinct from no
+write at all.
 
 **App-wide case-property rename is one explicit semantic command.**
-`renameCaseProperties { renames: [{ caseType, from, to }, …] }` is the only
-mutation allowed in its batch — admission enforces that, not a convention — and
-its relation is interpreted simultaneously against the batch-start document
-(`lib/doc/casePropertyRenames.ts`). Within a case type, sources and destinations
-are unique, `from !== to`, and an occupied destination is legal only when it
-moves away in the same relation, so chains, swaps, and cycles are valid while
-many-to-one merges are not. Standard scalar metadata cannot participate. One
-command rewrites every carrier at once: field `caseWrite`, case-operation
-writes, typed Predicate / ValueExpression / XPath / Prose leaves, catalog
-declarations and defaults, case-list and Search configuration, materialized
-schema intent, `cases.properties` keys, and `parked_case_values.property`. Field
-`id` never changes. The inverse relation is itself a valid partial bijection and
-is the sole undo command.
+`renameCaseProperties` is the only mutation allowed in its batch, its relation
+is interpreted simultaneously against the batch-start document
+(`lib/doc/casePropertyRenames.ts`), and one command rewrites every carrier at
+once — writers, operation writes, typed leaves, catalog, case-list and Search
+configuration, schema intent, and saved rows. Chains, swaps, and cycles are
+valid; many-to-one merges are not; the inverse relation is the sole undo
+command. Because two Blueprint snapshots cannot prove that intent,
+`lib/doc/diffDocsToMutations.ts` refuses to guess — a rename-shaped endpoint
+diff throws unless the caller supplies the recorded command — and the store
+keeps admitted command batches as an ordered queue, so document equality can
+never elide a rename followed by its inverse. The binding rule lives in
+[the contracts](complex-app/00-contracts.md#identity-and-references);
+`lib/doc/CLAUDE.md` and `lib/case-store/CLAUDE.md` own the mechanics.
 
-Two Blueprint snapshots cannot prove that intent, so
-`lib/doc/diffDocsToMutations.ts` refuses to guess: a before/after pair that is
-exactly the same carrier-wide rename-shaped transformation throws
-`CasePropertySemanticProvenanceRequiredError` unless the caller supplies the
-recorded command, and provenance is a mutually exclusive union whose non-rename
-arm categorically rejects a `renameCaseProperties` in its forward batch.
-Ordinary writer retargets, catalog adds/removes/edits, and typed-reference edits
-still diff to their granular commands and deliberately leave saved rows
-untouched. Because a swap or cycle can be a Blueprint byte no-op while saved-row
-keys still move, the store keeps admitted command batches as an ordered queue
-with its own monotonic notification — document equality can never elide either
-half of a rename followed by its inverse.
-
-The builder keeps the two gestures in different homes. The selected field's Data
-section owns one composite **Saves to** chooser over complete
-`{ caseType, property }` pairs, every candidate dry-run through the real
-candidate gate (`lib/doc/caseWriteChoices.ts::caseWriteChoiceVerdict`), while
-Field ID stays in the identity section. The app-wide **Case data** manager owns
-the **Case properties** dialog (`components/builder/CaseDataManager.tsx`,
-`CasePropertyRenameDialog.tsx`) — the only builder surface that changes property
-identity. `content/docs/mcp/tools.mdx` carries the callable contract, including
-the exact `caseWrite` payload and the complete `rename_case_properties`
-relation; the ordinary guides teach only the visible Saves-to and rename
+The builder keeps the two gestures in different homes: the selected field's
+**Saves to** chooser retargets one writer (every candidate dry-run through
+`lib/doc/caseWriteChoices.ts::caseWriteChoiceVerdict`), while the app-wide
+**Case data** manager owns the **Case properties** rename dialog — the only
+builder surface that changes property identity. `content/docs/mcp/tools.mdx`
+carries the callable contract; the ordinary guides teach only the visible
 workflow and carry no UUID material.
 
 ### One mutation dialect
 
-`mutationSchema` (`lib/doc/types.ts`) is the single grammar for the builder, SA,
-MCP, commits, durable rows, events, streams, diffs, undo, and replay. There is
-no second canonical schema, no carrier-blind or rolling-compatibility family,
-and no whole-catalog `setCaseTypes` — catalog creation and edits use only the
-granular kinds. `lib/doc/mutationWireRegistry.ts` derives every semantic leaf and
-every nullable slot from that schema and pins both inventories in checked-in
-snapshots, so a new kind, patch key, nested case-operation arm, column payload,
-select source, or nullable leaf fails CI until its final meaning is reviewed.
+`mutationSchema` (`lib/doc/types.ts`) is the single grammar for the builder,
+SA, MCP, commits, durable rows, events, streams, diffs, undo, and replay.
+There is no second canonical schema and no whole-catalog `setCaseTypes` —
+catalog creation and edits use only the granular kinds.
+`lib/doc/mutationWireRegistry.ts` derives every semantic leaf and nullable
+slot from that schema and pins both inventories in checked-in snapshots, so a
+new kind or patch key fails CI until its final meaning is reviewed.
 
-`lib/doc/mutationAdmission.ts::admitMutationBatch(value: unknown)` is the one
-shared boundary in front of it, and on every path it is the outermost mutation
-operation: nothing — route schema, dedup latch, target or sequence check,
-reducer, saga, DDL, or side effect — observes a raw batch first. It walks
-property descriptors with `Reflect.ownKeys` and `getOwnPropertyDescriptor`,
-never ordinary property access, a getter, a setter, `toJSON`, or an iterator,
-and builds a detached tree; accessors, custom prototypes, cycles, sparse arrays,
-`undefined`, non-finite numbers, and negative zero all reject there. It then
-serializes that tree exactly once through module-captured intrinsics, reparses,
-runs the array through `mutationSchema`, and compares the schema's output to the
-reparsed tree as an exact JSON value: `Object.is` for primitives, unordered key
-SETS, dense ordered arrays. The schema may validate; it may not default, coerce,
-strip, or transform. What travels onward is the reparsed tree —
-re-detached, `toJSON`-shadowed, deep-frozen, and branded through a
-module-private symbol and `WeakSet` — never Zod's output and never a
-caller-owned object. `admitMutationStages` does the same for a staged call and
-returns one admitted batch plus immutable ordered `{ stage, start, end }`
-slices. Object-key order, a null prototype, a frozen input, and acyclic shared
-references are therefore semantic non-differences, while caller mutation after
-admission, a transaction retry, prototype pollution, and a delayed event flush
-cannot change what gets persisted.
+`lib/doc/mutationAdmission.ts::admitMutationBatch` is the one shared boundary
+in front of it, and on every path it is the outermost mutation operation:
+nothing — route schema, dedup latch, reducer, saga, DDL, or side effect —
+observes a raw batch first. It safely detaches the proposed batch without
+invoking accessors or serialization hooks, proves it is a JSON data tree,
+round-trips it through JSON and the schema, and requires the schema output to
+be exactly the same JSON value — the schema may validate, never default,
+coerce, strip, or transform. What travels onward is the detached, deep-frozen,
+branded tree, never Zod's output and never a caller-owned object. Failure is
+`MUTATION_WIRE_CANONICALITY_INVALID` (soundness), whose safe details are a
+nullable `mutationIndex`, an RFC 6901 pointer, and one of six stable reasons;
+the HTTP surface answers `400` non-retryable, and the reconciler maps it to a
+protocol failure — retain every local edit, retry nothing, advance no cursor,
+freeze editing. It is never a retryable collaborator conflict.
 
-Failure is `MUTATION_WIRE_CANONICALITY_INVALID`, classified `soundness` in
-`VALIDITY_CLASS_BY_CODE`. Its safe details are a nullable `mutationIndex`, an
-RFC 6901 `pointer` (the empty string at the root), and one of six stable
-reasons: `non-json-value`, `sparse-array`, `schema-default`, `schema-strip`,
-`schema-coercion`, `schema-parse`. No label, value, prose, or arbitrary unknown
-key name reaches a message or a log. The HTTP surface answers `400` with
-`type: "mutation_wire_canonicality_invalid", retryable: false`, and the
-reconciler maps only that type to a protocol failure — retain every local edit,
-retry nothing, drop nothing, advance no cursor, freeze editing. It is never a
-retryable collaborator conflict.
-
-`prepareMutationCandidate(prevDoc, admitted)` accepts only the opaque type and
-recomputes a fresh candidate for each authoritative transaction attempt, and
-`evaluateCommit` (`lib/commcare/validator/gate.ts`) takes the complete candidate
-plus the exact Project lookup snapshot — no previous document, no error-identity
-diff, and no allowance for a finding that happened to exist before this commit.
-An empty batch does not bypass validation. `(app_id, batch_id)` idempotency is
-content-bound: `lib/db/commitGuard.ts` compares the stored row against
-`{ mutations, actorUserId, kind, runId ?? null }` under the app lock, returns
-the existing sequence on an exact match with no second reducer run, event, or
-notification, and raises `MutationBatchIdCollisionError`
-(wire `type: "mutation_batch_id_collision"`, terminal, non-retryable) on any
-difference. Clearing an optional slot is always an explicit `null`; an own
-`undefined` is invalid everywhere, because `JSON.stringify` drops it and the
-stale value would reappear on the next save.
-
-`lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts` holds that boundary
-open. It classifies every production admission/reducer/writer entrypoint as
-`admits-proposal` or `consumes-durable-admitted` and fails CI on a new
-unclassified one, and it pins the twenty lifecycle families — app-creation seeds
-through post-reload replay — to real files.
+`evaluateCommit` (`lib/commcare/validator/gate.ts`) takes the complete
+candidate plus the exact Project lookup snapshot — no previous document and no
+allowance for a finding that happened to exist before this commit. An empty
+batch does not bypass validation. `(app_id, batch_id)` idempotency is
+content-bound (`lib/db/commitGuard.ts`): an exact match returns the existing
+sequence with no second reducer run, and any difference raises a terminal
+`mutation_batch_id_collision`. Clearing an optional slot is always an explicit
+`null`; an own `undefined` is invalid everywhere, because `JSON.stringify`
+drops it and the stale value would reappear on the next save.
+`lib/doc/CLAUDE.md` owns the write surface, and a lifecycle source tripwire
+(`lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts`) classifies every
+production admission/reducer/writer entrypoint and fails CI on a new
+unclassified one.
 
 ### The permanent app-change log
 
 `app_changes` is the durable, append-only edit history and the multiplayer
 stream. It has exactly six kinds — `autosave`, `mcp`, `chat`,
 `blueprint-migration`, `fold-baseline`, and `project-move`
-(`lib/db/types.ts::APP_CHANGE_KINDS`) — and their shape is enforced in Postgres,
-not only in TypeScript. A `BEFORE INSERT` admission trigger rejects an unknown
-kind, a blank batch/actor/run identity, a `fold-baseline` whose mutations are
-not exactly `[]`, a non-baseline non-move change with an empty batch, and a
-`project-move` that does not start at the locked app's current Project and head.
-One CHECK constraint requires `project-move` to carry distinct nonblank
-`from_project_id` / `to_project_id` and every other kind to carry both as null.
-Deferred constraint triggers pair a Project change on `apps` with its exact
-same-sequence `project-move` row in both directions. Runtime holds `SELECT,
-INSERT` and nothing more.
-
-`app_change_fold_baselines` stores the complete canonical `PersistableDoc`
-snapshot, a lowercase SHA-256 digest over PostgreSQL's own `snapshot::text`, and
-the app's Project at that sequence, keyed `(app_id, seq)` to the matching
-`fold-baseline` change. Its insert trigger recomputes both the snapshot and the
-digest in the database and requires the marker row to be written in the same
-transaction; any UPDATE or DELETE raises, and runtime holds `SELECT` only.
-Canonical folding (`lib/db/canonicalMutationFold.ts`) starts from the greatest
-baseline and its stored Project, strictly parses and applies every later
-mutation-bearing row, applies each Project move only when its source matches the
-rolling Project, and must finish at the current state and `apps.project_id`.
+(`lib/db/types.ts::APP_CHANGE_KINDS`) — and their shape is enforced in
+Postgres by admission trigger and CHECK constraint, not only in TypeScript;
+runtime holds `SELECT, INSERT` and nothing more.
+`app_change_fold_baselines` stores the complete canonical snapshot, a
+database-computed digest, and the app's Project at that sequence; any UPDATE
+or DELETE raises, and runtime holds `SELECT` only. Canonical folding
+(`lib/db/canonicalMutationFold.ts`) starts from the greatest baseline and its
+stored Project, strictly replays every later mutation-bearing row, applies
+each Project move only when its source matches the rolling Project, and must
+finish at the current state and `apps.project_id`.
 
 The browser frame is deliberately narrower: reconciliation accepts only
-`autosave | mcp | chat` (`lib/collab/mutationFrame.ts`). The stream route parses
-the complete post-cursor suffix before emitting anything, and a suffix
-containing `blueprint-migration`, `fold-baseline`, or `project-move` emits zero
-mutation frames from it — it reauthorizes and sends one terminal,
-sequence-less reload instead, without advancing the delivered cursor. A client
-therefore never learns a server-only kind.
+`autosave | mcp | chat` (`lib/collab/mutationFrame.ts`), and a post-cursor
+suffix containing a server-only kind emits zero mutation frames — the client
+reauthorizes and reloads instead, without advancing the delivered cursor, so
+it never learns a server-only kind. `lib/db/CLAUDE.md` owns the trigger,
+grant, and folding detail.
 
 ### The frozen cutover migration
 
 `lib/case-store/migrations/20260728000000_canonical_identity_foundation/` is a
-self-contained historical unit: its own Lezer grammar and generated parser,
-occurrence manifest and dispatcher, transform, repair authority, cutover plan,
-and a generated `frozenPersistableBlueprintValidator.generated.mjs` bundling the
-persisted-schema decoder, the absolute commit gate, the lookup-reference
-extractors, the mutation reducer, and the strict app-change suffix replayer. Its
-sibling `20260728000000_canonical_identity_foundation.ts` is the directory's one
-public door — the Kysely entrypoint — and its `down` throws a forward-only error
-so Kysely can never remove the ledger row while leaving the new shape in place.
-
-Two tripwires keep it history rather than a second live dialect, and both must
-keep passing. `lib/case-store/migrations/__tests__/frozenPersistableBlueprintArtifact.test.ts`
-pins the generated validator's exact SHA-256 and proves the whole tree plus its
-wrapper import nothing outside themselves but `@lezer/common`, `@lezer/lr`,
-`kysely`, and `node:crypto` — so the frozen authority cannot drift as live
-semantics move. `lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts`
-proves the reverse: no steady-state source may import anything BEHIND that door.
-It resolves specifiers rather than matching text, because a substring test on
-the repo-relative path silently passes every relative import — which is exactly
-how the modules physically next to the tree, the ones most able to reach into
-it, were the ones the check could never see.
+self-contained historical unit — its own grammar, occurrence manifest,
+transform, repair authority, and a generated frozen validator — with one
+public door, the sibling Kysely entrypoint, whose `down` throws a forward-only
+error. Two tripwires keep it history rather than a second live dialect, and
+both must keep passing:
+`lib/case-store/migrations/__tests__/frozenPersistableBlueprintArtifact.test.ts`
+pins the generated validator's exact SHA-256 and proves the tree imports
+nothing outside itself but four allowed packages, and
+`lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts` proves the
+reverse — no steady-state source may import anything BEHIND that door,
+resolving specifiers rather than matching text, because a substring test
+silently passes the relative imports of the modules physically next to the
+tree.
 
 That separation is the whole point. Steady state has one representation: the
 frozen tree may recognize a historical byte shape, and every live schema,
 reader, reducer, writer, UI, Preview, SA/MCP surface, and emitter rejects it.
 Runtime code and documentation do not call a supported shape "legacy" — an old
 shape is either consumed once, there, or it is refused.
-
-The forensic repair that precedes the transform runs inside the same migration
-transaction, so an ordinary deploy applies the whole cutover: the deploy identity
-already holds the write authority the repair needs, and no interval exists where
-the repair has landed and the transform has not. Both hold a
-`SHARE ROW EXCLUSIVE` lock over every occurrence table plus `SELECT ... FOR
-UPDATE` over `apps`, which is what makes the transaction safe; a concurrent
-writer blocks on that lock or fails against it, and a request already in flight
-against the old shape may error. Lease, stream-chunk, and presence counts are
-recorded but are deliberately not preconditions — they describe who happened to
-be mid-request, and gating on them would buy nothing except the requirement to
-take the service down first. `block-current` rows remain a hard stop, because
-those are data the migration genuinely cannot transform.
 
 ### Lookup tables
 
@@ -442,138 +334,43 @@ governed actions in `lib/lookup/actions.ts`.
 ### The Project data workspace
 
 Project data is a URL-owned builder workspace at
-`/build/{appId}/project-data[/{tableId}]`, reachable from the expanded structure
-sidebar's footer, the collapsed rail's footer, and therefore the handset
-structure drawer. It is deliberately not a child of the structure tree: the tree
-represents the runnable app, and a lookup table belongs to the Project and is
-shared by every app in it. The `Location` kind carries no `moduleUuid` at all, so
-every module-keyed helper branches on it explicitly and the boundary is enforced
-by the compiler rather than by convention. `project-data` is a reserved first
-path segment matched before any uuid lookup; the location names no blueprint
-entity, so it is always valid and always survives recovery, and the workspace
-itself owns the "that table is gone" state. Preview from the workspace leaves for
-the app home — nobody using the app opens a lookup table. Every screen states
-that a change affects every app in the Project, as a permanent subtitle rather
-than a dismissible notice, because a deep link never passes the door.
+`/build/{appId}/project-data[/{tableId}]`, reachable from the expanded
+structure sidebar's footer, the collapsed rail's footer, and therefore the
+handset structure drawer. It is deliberately not a child of the structure
+tree: the tree represents the runnable app, and a lookup table belongs to the
+Project and is shared by every app in it. The `Location` kind carries no
+`moduleUuid` at all, so the boundary is enforced by the compiler rather than
+by convention; `project-data` is a reserved first path segment that names no
+blueprint entity, so it is always valid and always survives recovery. Preview
+from the workspace leaves for the app home — nobody using the app opens a
+lookup table. Every screen states that a change affects every app in the
+Project, as a permanent subtitle rather than a dismissible notice, because a
+deep link never passes the door.
 
-The controller (`ProjectDataWorkspaceProvider`, mounted above the builder row)
-owns one read plus scope-keyed selections, dirty row drafts, and conflicts,
-shared by the centre canvas and the inspector rail. Closing Properties, Escape,
-selecting another row or column, and leaving the table only hide an edit; they
-never discard it. A retained draft is marked in the grid, while the table list's
-**Row work to review** section links to every retained draft or conflict across
-the Project — including a pristine save/delete conflict and work whose table was
-deleted while another route was open. If realtime removes its row, the recovery
-surface offers Save as new; if the whole table disappears, the last authorized
-table/column snapshot becomes a read-only local row copy whose only destructive
-choice says **Discard local copy**. Same-named recreation does not rebind it:
-table UUID is identity. A user who loses edit access still sees copyable
-read-only retained values and can explicitly discard the local copy. Close and
-Escape return focus to the exact stable row/column control that opened
-Properties across desktop, narrow, and handset layouts, with the table's back
-control as the fallback when a peer removed that origin.
+**Editing is row-shaped, and the row is the unit of concurrency.** The grid is
+a real `<table>` in pages of 50; a selected row edits in the rail with one
+correctly-typed control per column; bulk change goes through atomic CSV
+replacement. A table's optimistic token is
+`max(definitionRevision, rowsRevision)`, so any concurrent change invalidates
+it; a refused write retries only when a fresh read proves the edit is still
+the same edit — byte-identical row AND unmoved column definitions — while CSV
+replacement never retries against a moving target, and a retained draft or
+conflict survives every branch, including deletion of its row or its whole
+table. Same-named recreation does not rebind anything: table UUID is identity.
 
-Reads are generation-keyed on the reconciler runtime scope, the Project scope
-epoch, and the Project lookup clock, so a co-member's edit refetches exactly
-what it changed and a cross-Project move invalidates everything; the pushed
-manifest is the invalidation signal rather than the data, because a session
-with a dormant reconciler receives no frames and must still load. The render
-path also fences the resource's Project/table owner synchronously, before the
-dependency effect, so direct navigation and browser history never paint the
-previous table's snapshot under the new URL.
+**A destructive change names the apps it would break, before it happens**
+(`lib/db/lookupReferenceEdges.ts::readLookupReferencingApps`; a soft-deleted
+app still holds its edges, so it is named with its trashed state rather than
+omitted). That read is advisory by construction — a scan races a concurrent
+app commit — and the transactional edge check under the table lock remains the
+authority. The advisory preflight fails closed: a failed reference query never
+becomes an empty blocker list, and the UI never contradicts a refusal with
+"No app uses it."
 
-**Editing is row-shaped.** The grid is a real `<table>` in pages of 50 with a
-search box over the text it displays — paging keeps native row and column header
-semantics that a virtualized ARIA grid would have to hand-roll, and the running
-case list already pages at 50. A selected row opens in the rail, where each value
-gets the control its type deserves; bulk change goes through CSV replacement.
-That also makes the unit of concurrency the row, which is the unit `lib/lookup`'s
-row API and its optimistic revisions already work in.
-
-**The conflict policy is the reason the row is the unit.** A table's optimistic
-token is `max(definitionRevision, rowsRevision)`, so any concurrent change
-invalidates it — including one to a row nobody in this session touched. Retrying
-every drift would let one author overwrite a co-member's edit to the same row;
-asking about every drift would put a dialog in front of edits that do not
-conflict. So a refused write re-reads the table and
-`projectDataModel.ts::rowWriteConflictVerdict` retries only when the fresh state
-proves the edit is still the same edit — byte-identical row AND unmoved column
-definitions, compared with the immutable row/column/revision baseline captured
-when editing began rather than a realtime-refreshed snapshot. Otherwise the
-resolution surface is rebuilt against the exact fresh generation the author
-reviews. Current columns are editable with their current types, new columns are
-present, and retyped values must pass the new control. Values from removed
-columns remain separately visible and cannot be silently submitted: the author
-copies what they need and explicitly acknowledges that those values have
-nowhere to be stored before Keep mine or Save as new enables. A row deleted
-underneath is its own verdict and offers the retained draft as a new row; the
-returned row id is selected and revealed on its page.
-
-CSV selection is one atomic value carrying the File, copied bytes, filename,
-row count, checked schema, Project/table identity, and optimistic revisions.
-Last-started file read wins. Any later definition or row-generation drift
-disables replacement until the same bytes are checked and explicitly confirmed
-against the current table. `replacementConflictVerdict` is unconditionally
-"ask": a replacement discards every row by definition, so it never retries
-against a moving target. The draft survives every branch.
-
-Text edits preserve empty strings, surrounding whitespace, line breaks, and
-missing-cell identity, including in conflict comparisons. Temporal controls
-project strict timezone-bearing stored values — including fractional seconds —
-into human clock/date controls while retaining the exact offset and stored
-spelling for an unchanged round trip; typing away and back to the original clock
-is still an unchanged round trip. A new temporal value uses UTC because Nova has
-no authored app timezone. Table and column naming drafts capture their optimistic
-generation: pristine drafts follow realtime changes, while dirty drift requires
-an explicit use-current/keep-mine decision. Table export tags render on the list
-and detail screens and are admin-editable through the same policy as established
-wire names.
-
-The options-source picker reads a rows-free definition snapshot, never a full
-table body. Its optimistic context remains unavailable until the current
-Project, manifest Project, definition Project, Project revision, table id, and
-definition revision all agree. Equal Project revisions make a double omission a
-real deletion; independently settled mismatches fail with **Try again**, whose
-gesture reloads both resources, rather than staying on Loading forever or
-masquerading as an empty/deleted list. A failed table-list read also keeps the
-closed picker neutral instead of labelling the saved table deleted.
-
-**A destructive change names the apps it would break, before it happens.**
-`lib/db/lookupReferenceEdges.ts::readLookupReferencingApps` joins the edge tables
-to `apps` for names; a soft-deleted app still holds its edges and still blocks
-the change, so it is named with its trashed state rather than omitted. That read
-is advisory by construction — a scan races a concurrent app commit — and the
-transactional edge check under the table lock remains the authority; a refusal
-resolves its own returned app-id set to the same named shape, so the warning and
-the refusal cannot disagree. Naming leaks nothing: every edge for a
-`(project_id, table_id)` belongs to an app in the Project the caller was already
-authorized against.
-
-The advisory preflight fails closed: loading, named success, and error-with-retry
-are distinct states. A failed reference query never becomes an empty blocker
-list and never enables the governed action. If the transactional writer proves
-a reference exists but the secondary app-name lookup fails, that unnamed
-reference remains an authoritative block and **Check references again** reruns
-the advisory scan; the UI never contradicts the refusal with “No app uses it.”
-An optimistic refusal refreshes the table generation and reruns the advisory
-scan before the author can confirm again; the governed write never repeats
-against its stale captured revision.
-
-Create-table and add-column dialogs own their in-flight gesture. Escape, outside
-press, and Cancel cannot dismiss while the write is pending; transport rejection
-renders in the dialog; and an authority-driven unmount or Project switch cannot
-later close, refresh, or navigate a different Project from a stale completion.
-Create-table freezes the Project identity it opened under. CSV file selection
-clears the native input after capturing the `File`, so the same path can be
-chosen again after a read failure, and capped diagnostic lists report the count
-hidden after the eight entries actually rendered.
-
-Cap refusals name the size that was actually measured — an oversized CSV reports
-its own size, one over the row cap reports its exact row count and how many rows
-to remove — through one formatter (`lib/lookup/format.ts`) shared by the service,
-the CSV route, and the workspace.
-
-`content/docs/project-data.mdx` is the user-facing guide.
+`components/builder/CLAUDE.md` (§ Project data) owns the controller, draft,
+conflict, CSV, temporal-control, and dialog mechanics; `lib/lookup/CLAUDE.md`
+is the persistence contract. `content/docs/project-data.mdx` is the
+user-facing guide.
 
 ### Exact reference edges
 
@@ -608,60 +405,40 @@ The validator's restrictions are wire-forced, not stylistic:
 - Counts, `exists`/`missing`, and non-self reads are refused.
 
 The form-condition evaluation locus for a case-first module is the case-list
-screen after selection — including suppressing the single-form auto-continue. The
-module screen's form list is a gating site only for the forms-first flow, where
-the validator already rejects `prop` reads.
+screen after selection — including suppressing the single-form auto-continue;
+the module screen's form list is a gating site only for the forms-first flow.
+That locus is a product requirement as well as a validator rule, because it
+decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
+and their relatives), `selected-case` (one chosen case's own properties —
+relationship walks, counts, and presence tests withheld with the scope's own
+explanation), or `global` (no case at all). A module condition and a
+forms-first form condition are `global`; a case-first form condition is
+`selected-case`. `PredicateEditProvider` composes the matching admission
+oracle in front of any caller oracle, so no surface can silently offer a read
+the commit gate would reject.
+
+A second, independent axis governs **Never match**.
+`DISPLAY_CONDITION_ALWAYS_FALSE` refuses a navigation condition nobody could
+satisfy, so the editor withholds `match-none` there — but the same shape is
+legitimate authored data in the Search-action carrier, which shares the
+`global` scope, so `allowsNeverMatch` is its own axis rather than a reading of
+the scope. A saved `match-none` always renders and re-emits — the flag governs
+the add and replace menus, never round-tripping. Every *single* choice the
+editors offer is admissible, but "can never match" is a property of the whole
+tree — an author can still compose one deliberately by excluding an
+always-true rule — so the condition canvas commits through the inline gate
+flavor and shows a refusal beside the rule.
 
 Display conditions are UX, not access control: a deep link with
-`respect-relevancy="false"` traverses menus and cases that conditions would hide.
-The authoring surfaces say so in as many words rather than letting an author read
-a condition as a permission.
+`respect-relevancy="false"` traverses menus and cases that conditions would
+hide, and the authoring surfaces say so in as many words.
 
-Each carrier is authored on its own URL — `/{moduleUuid}/condition` and
-`/{formUuid}/condition` — whose centre-canvas screen leads with where the
-condition takes effect and then hosts the shared `PredicateWorkbench`. The module
-and form settings panels own the setting itself: a plain-language summary plus
-Add / Edit / Clear, through the shared `ConditionSlotSetting`. Adding is one
-gesture that commits a valid seed and opens the editor on it, so an author never
-lands on an empty screen.
-
-The evaluation locus above is a product requirement, not just a validator rule,
-because it decides what the editor may offer. `CaseDataScope` therefore has three
-values: `per-case` (case rows and their relatives), `selected-case` (one chosen
-case's own properties — relationship walks, relationship counts, and presence
-tests are withheld with the scope's own explanation), and `global` (no case at
-all). A module condition and a forms-first form condition are `global`; a
-case-first form condition is `selected-case`. `PredicateEditProvider` composes
-the matching admission oracle in front of any caller oracle, so no surface can
-silently offer a read the commit gate would reject.
-
-A second, independent axis governs **Never match**. `DISPLAY_CONDITION_ALWAYS_FALSE`
-refuses a navigation condition nobody could satisfy, so the editor withholds
-`match-none` there — but the same shape is legitimate authored data in the
-Search-action carrier, which shares the `global` scope. `allowsNeverMatch`
-therefore stands apart from `CaseDataScope`, defaults to allowed, and governs
-exactly one kind; reading it off the scope would have made an existing document
-uneditable. A saved `match-none` always renders and re-emits: the flag governs
-the add and replace menus, never round-tripping.
-
-Every *single* choice these editors offer is admissible, but "can never match" is
-a property of the whole tree — an author can still compose one deliberately by
-excluding an always-true rule. The condition canvas therefore commits through the
-inline gate flavor and shows a refusal beside the rule, rather than a toast over
-a silently reverted edit.
-
-Preview from a condition URL runs the surface the condition governs — the home
-screen for a module (entering the module would route straight past the screen the
-condition decides), the form itself for a form — and leaves the URL alone, so
-exiting Preview returns to the condition being edited.
-
-Removing a condition is an explicit `null` on the `updateModule` / `updateForm`
-patch (`lib/doc/displayConditionMutations.ts`), never an omitted key or
-`undefined`. The canonical mutation admission boundary rejects an own
-`undefined` before reduction; reducers therefore implement only the explicit
-`null` clear spelling that survives JSONB, SSE, replay, and every authoring
-surface unchanged.
-
+Removing a condition is an explicit `null` on the `updateModule` /
+`updateForm` patch (`lib/doc/displayConditionMutations.ts`), never an omitted
+key or `undefined`. Each carrier is authored on its own URL
+(`/{moduleUuid}/condition`, `/{formUuid}/condition`) with the shared
+`PredicateWorkbench`; `components/builder/CLAUDE.md` (§ Display conditions)
+owns the surface and Preview-entry behavior.
 `content/docs/display-conditions.mdx` is the user-facing guide.
 
 ### Case operations
@@ -677,8 +454,8 @@ forbids a new target and a name; `close` forbids a new target, name, owner,
 rename, retype, **and** links — so unlinking is always a separate operation from
 closing, while close may still carry final property writes. There is no
 load-tolerant legacy operation arm in the live domain schema; pre-cutover bytes
-are transformed before this schema is installed. This restriction is on the
-Unit 14 case-operation `name` facet, not on the independent field `caseWrite`
+are transformed before this schema is installed. The `name` restriction is on
+the case-operation facet, not on the independent field `caseWrite`
 binding: CommCare accepts `case_name` in an existing case's `<update>`, so a
 followup/close field may explicitly save that standard property under the
 unique-writer admission rules above.
@@ -734,77 +511,21 @@ the only server-side check is length ≤ 255. Typed owner addressing is entirely
 Nova's guarantee.
 
 Operations are authored on the form's own URL — `/{formUuid}/operations`, with
-`/{operationUuid}` selecting one — reached from the form settings panel, whose
-row states how many changes the form makes. The list is the answer to "what does
-submitting this form do to the case universe?", the question the platform's own
-question-scoped surface never puts on a screen: one row per change, in execution
-order, each a sentence (`operationSentence.ts`, a display projection that forks
-no semantics). A row shows the conditions it inherits from earlier changes at
-rest, not on hover.
-
-**Both reorder gestures read one map.** `caseOperationMoveVerdicts`
-(`lib/doc/caseOperationReview.ts`) asks the move planner about every destination
-at once; drag feeds it to `useReorderableList`'s `canDropAtIndex` — capturing the
-source on the handle's pointer-down, so the first pointer move is already gated —
-and the keyboard asks the same map before committing. Neither gesture can commit
-what the other would refuse, and `view.move` re-plans from the invocation-time
-document so a peer edit mid-gesture cannot slip one through. The move mutation
-names the operation this one now follows.
-
-**An anchor cannot be shifted by a peer's insert**, which is what removed a
-whole layer here. A fractional key named an ABSOLUTE position, so a peer
-inserting above the destination moved it out from under the author — hence a
-requested-rank fence on the mutation, an authoritative check that the key still
-landed where the author asked, and a ranked-move planner that re-keyed tied
-siblings to open a gap a single key could not reach. Sequence is array position
-now: the move says "after this one", the reducer splices, and a peer's insert
-simply lands somewhere else in the same list. There is no rank to fence, no gap
-to open, and no tie to break. Successful pointer, keyboard, SA, and MCP outcomes
-all report the rank in the committed document. Moving to the rank the operation
-already occupies is a true no-op: it reports that rank without persisting an
-event or adding undo history. A refused keyboard
-move ANNOUNCES why and names the operations involved (`keyboardMove.ts`), which
-is the whole point:
-a pointer author reads a refusal off a drop zone that will not open, and a
-keyboard author would otherwise get a key that silently does nothing. Refusals
-go to `role="alert"` (the screen is otherwise unchanged, so the press would read
-as a no-op) and the polite region carries only outcomes that did something.
-`dependent-reference` and `execution-order` stay distinct: the second is a
-property of the submitted form, not the author's mistake, and never says
-otherwise. A dependency refusal additionally carries WHICH kind it is —
-`reference` for an `id-of` edge, `target-type` for a dependent left acting on a
-type the move or removal would stop establishing. The planner's refusal arm is a
-discriminated split rather than an optional field, so a dependency refusal with
-no cause is un-constructible: the copy layer reads the cause instead of
-re-deriving it by walking `id-of` edges, which is how a target-type refusal used
-to name an unrelated create the operation was already after. A target-type
-sentence claims no direction, because a retype moved either way can leave a
-neighbour mistyped.
-
-The rail owns the discrete choices — name, action, case type, target, identity
-key, multiplicity, retype, removal — and the centre canvas owns every recursive
-AST, the same split the case-list workspace keeps. Adding is chooser-first and
-lands a complete operation the commit gate already accepts
-(`components/builder/case-operations/seeds.ts`, proved against
-`mutationCommitVerdict`). Existing-operation choices ask
-`caseOperationEditVerdict` — the real mutation planner plus that same commit
-gate — before they are offered. Changing a create into an update/close retargets
-both the case identity and its proven rolling type; case-type, retype, link-type,
-identity-key, and multiplicity pickers disable every impossible choice
-with the gate's exact reason, and omit the three platform-owned types
-everywhere. Removal asks `removalPlan` first and, when something depends on the
-operation, names each consumer and the exact slot holding the reference instead
-of offering a delete that would bounce. Viewer mode renders these controls as
-explicit disabled triggers. Choosing the already-active target is also a true
-no-op; a keyed new target retains `idFrom`, and an expression target retains its
-exact AST rather than being replaced by that choice's creation seed.
-Link targets use the same atomic-intent rule: choosing the session case or a
-prior create carries the type established by all earlier retypes in the same
-edit, unlinking stores the required `target: null` without clearing or
-overwriting peer facets, and a runtime-expression target immediately mounts the
-full text-scoped expression editor beneath the picker. A blank or inaccessible
-runtime id stays repairable as authored expression state, but Preview/device
-submission refuses the complete transaction before any case effect executes.
+`/{operationUuid}` selecting one — reached from the form settings panel. The
+list is the answer to "what does submitting this form do to the case
+universe?", the question the platform's own question-scoped surface never puts
+on a screen: one row per change, in execution order, each a sentence
+(`operationSentence.ts`, a display projection that forks no semantics),
+showing the conditions it inherits from earlier changes at rest. The rail owns
+the discrete choices and the centre canvas owns every recursive AST; adding is
+chooser-first and lands a complete operation the commit gate already accepts,
+every existing choice is dry-run through the real planners before it is
+offered, and removal names each dependent consumer and the exact slot instead
+of offering a delete that would bounce. Sequence is array position: a move
+names the operation this one now follows, so a peer's insert cannot shift an
+anchor and there is no rank to fence. `components/builder/CLAUDE.md`
+(§ Case changes) and `lib/doc/CLAUDE.md` own the gesture, verdict, refusal,
+and announcement mechanics.
 
 Which form answers an operation may read is ONE rule with two callers:
 `lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
@@ -817,45 +538,27 @@ exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
 
 The same vocabulary is authorable through the Solutions Architect and MCP.
 `getCaseOperations`/`get_case_operations` projects the ordered sequence with
-immutable operation UUIDs and canonical identity-backed ASTs; the editable
-operation id remains readable wire metadata. Batch add plus singular update,
-move, and remove address operations by UUID. Same-call references predeclare
-their final operation UUIDs, and batch add resolves earlier creates within its
-working overlay before committing the complete sequence atomically. Full-shape
-updates emit only
-identity-keyed scalar, write-property, link-identifier, and order mutations, so
-unrelated concurrent edits compose. Builder full-shape edits additionally
-rebase only the slots changed from their render snapshot onto the
-invocation-time operation; peer-deleted targets and same-key write/link adds
-fail before local state changes. There is one mutation dialect:
-`caseOperationPatch` carries granular edits, while `caseOperationChange`
-contains only add/remove. A scalar update carries the required destination
-`targetAction` exactly once and a patch drawn from that action's legal slots;
-the reducer builds and parses the complete prospective operation before
-installing it, so an action transition cannot leave forbidden facets behind or
-temporarily persist an incomplete destination arm. Moves name the UUID the
-operation should follow, so there is no numeric rank or whole-operation
-fallback to race with peer inserts.
-The authoritative commit guard tracks operation UUIDs and
-write-property/link-identifier sets through the batch, rejecting peer-deleted
-targets and same-key peer adds instead of allowing a total reducer no-op to
-report success. No tool-side slug/path/id projection or rewrite layer exists.
+immutable operation UUIDs and canonical identity-backed ASTs; batch add plus
+singular update, move, and remove address operations by UUID, and same-call
+references predeclare their final operation UUIDs. There is one mutation
+dialect — `caseOperationPatch` carries granular edits, `caseOperationChange`
+only add/remove — and the authoritative commit guard tracks operation UUIDs
+and write-property/link-identifier sets through the batch, rejecting
+peer-deleted targets and same-key peer adds instead of allowing a total
+reducer no-op to report success. No tool-side slug/path/id projection or
+rewrite layer exists. The operation id, write property, and link identifier
+vocabularies share one domain-owned grammar
+(`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
+tool schemas — ASCII letters, digits, and underscores throughout; an operation
+id or link identifier starts with a letter or underscore, a write property
+with a letter only — so action-illegal facet combinations, platform-owned case
+types, and reserved write properties are unconstructible at the shared tool
+boundary.
 
-The operation id, write property, and link identifier vocabularies share their
-validator-owned grammar with the builder and tool schemas: ASCII letters,
-digits, and underscores only; an operation id or link identifier starts with a
-letter or underscore, and a write property starts with a letter. Action-illegal
-facet combinations, platform-owned case types, and reserved write properties
-are unconstructible at the shared tool boundary, with the validator as the
-replay/import backstop. Case types separately admit hyphens, so chooser-created
-operation ids normalize each hyphen to an underscore for every create, update,
-and close seed before the first commit.
-
-Lookup-backed predicates and expressions use that same complete canonical AST on
-the builder, SA, and MCP surfaces. The carrier inventory remains the exhaustive
-export-boundary oracle, but is not an authoring restriction: reads return the
-lookup UUID leaves and all three editors may update them without hiding or
-partially projecting the operation.
+Lookup-backed predicates and expressions use that same complete canonical AST
+on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
+all three editors may update them without hiding or partially projecting the
+operation.
 
 `content/docs/case-changes.mdx` is the user-facing guide.
 
@@ -881,47 +584,31 @@ owns at least two fully UUID-identified options, or `lookup`, which owns the
 table UUID, value-column UUID, label-column UUID, and optional row filter.
 Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
-The builder binds one in the select's own editor (`OptionsSourceEditor`).
-
-Source switching is a complete atomic replacement. The editor stages the target
-source, opens that source's editor, and commits only a complete valid
-replacement; cancelling leaves the current source untouched. No inactive inline
-list or lookup source survives a switch, and there is no precedence, clear, or
-fallback state. Field duplication remints every inline option UUID while lookup
-table and column UUIDs remain references to the same Project resources.
+Source switching is a complete atomic replacement — no inactive source survives
+a switch, and there is no precedence, clear, or fallback state. Field
+duplication remints every inline option UUID while lookup table and column
+UUIDs remain references to the same Project resources.
 
 `LookupOptionsSource.filter` is authored in a first-class table-row evaluation
-scope. The shared predicate editor receives the rows-free table catalog, the
-active table UUID, and exactly the form answers the carrier rule admits. Its
-table-column source lists only columns from the active table. Form-answer
-sources name fields by UUID and include only answers earlier than the select in
-effective `(order, uuid)` DFS from the form root or the current/enclosing repeat;
-later answers and child/sibling-repeat answers are withheld. Case properties,
-relations, and Search answers are not available in a lookup row. The mounting
-surface composes that admission oracle with every caller oracle, and
-`lib/commcare/validator/rules/lookupOptionsSource.ts` independently enforces the
-same boundary at commit.
-
-Preview evaluates the filter against every lookup row and recomputes the choice
-set when an earlier referenced answer changes. A single-select value no longer
-offered is cleared; a multi-select keeps only tokens still offered, and
-dependent calculations cascade in the same engine pass. The XForm emitter
-prints the same rule in the itemset nodeset with `current()` contextualized to
-the active repeat. Tests pin root-form, same-repeat, and session-user spellings
-and run the XForm oracle.
+scope: columns from the active table, session/current-user values, and form
+answers earlier than the select in effective `(order, uuid)` DFS from the form
+root or the current/enclosing repeat. Case properties, relations, and Search
+answers are not available in a lookup row. The mounting surface composes that
+admission oracle with every caller oracle, and the validator independently
+enforces the same boundary at commit. Preview evaluates the filter against
+every lookup row and recomputes the choice set when an earlier referenced
+answer changes — a value no longer offered is cleared (token-wise for
+multi-select) — and the XForm emitter prints the same rule in the itemset
+nodeset with `current()` contextualized to the active repeat.
 
 The Solutions Architect and MCP share the canonical identity-bearing domain
-schemas for every display condition, case-list/search rule, case-operation
-expression, table lookup, and options source. `getLookupTables` /
-`get_lookup_tables` returns table and column UUIDs alongside readable names,
-tags, labels, wire names, and data types; only the UUIDs are addresses.
-`setFieldOptionsSource` / `set_field_options_source` names the field by
-`moduleUuid`, `formUuid`, and `fieldUuid`, takes the complete canonical source,
-and atomically replaces it. All UUID-backed Predicate /
-ValueExpression leaves pass through unchanged. Mutable field paths, operation
-ids, Search names, worker slugs, lookup tags, column wire names, and positional
-module/form addresses reject at the strict schema boundary rather than being
-resolved into identity.
+schemas: `getLookupTables` / `get_lookup_tables` returns table and column
+UUIDs alongside readable names, tags, labels, wire names, and data types —
+only the UUIDs are addresses — and `setFieldOptionsSource` /
+`set_field_options_source` takes the complete canonical source and atomically
+replaces it. Mutable field paths, operation ids, Search names, worker slugs,
+lookup tags, column wire names, and positional module/form addresses reject at
+the strict schema boundary rather than being resolved into identity.
 
 The local `.ccz` emits the preservable lookup wire. The binding facts:
 
@@ -956,7 +643,8 @@ cell cap is what bounds that cardinality.
 Lookup references execute in the preview but have no wire spelling on the HQ
 paths yet, so `lib/export/boundaryValidation.ts` refuses `hq-json` and `hq-upload`
 export for a carrier-bearing document (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). Local
-`.ccz` export carries them. That refusal lifts when resource push exists.
+`.ccz` export carries them. That refusal lifts when the
+push-and-provisioning-drivers unit's resource push exists.
 
 ### Atomic submission and resolved identity
 
@@ -964,38 +652,15 @@ One submission is one transaction. The preview store exposes a single envelope
 carrying ordinary form behavior plus advanced operations; the server builds the
 `CaseOperationProgram` from the **committed** document, and identity resolves
 server-side at the action boundary rather than being folded into a
-client-supplied literal. Every `SubmissionMutation` arm carries the final
-plain-JSON protocol: form UUID, controller-owned UUID entry key, and exact
-structured attachment references (including explicit `[]`), plus complete
-per-scope operation answer bags when the committed form has operations. The
-Server Action imperatively validates and normalizes that required projection
-before receipt, program, or effect derivation; the retired name-only projection
-is rejected. A `Map`, `Set`, or `File` argument would make React encode
-multipart, which the edge WAF blocks.
-
-The membership gate precedes the program build, closing a one-bit cross-tenant
-survey oracle. If a freshly authorized committed form has operations but the
-submission lacks its answer bags, the entire request rejects as stale/skewed:
-empty bindings would blank-write and an ordinary-only fallback would silently
-skip committed semantics.
-
-Two finer skews reject for the same reason. **A repeat scope the committed
-document requires, absent from the payload, is provable staleness rather than an
-empty repeat** — `computeOperationAnswers` registers a scope for every repeat in
-the client's own document *before* counting instances, so a worker who added no
-rows still sends it carrying an empty iteration list. Only a client that never
-knew the repeat omits it, and reading that as zero iterations would run the
-operation zero times and report success. **A missing form answer rejects too**,
-checked per scope against the iterations that will actually compile: a field
-inside a repeat the worker left empty is never read, so demanding it would refuse
-an honest submission. Without that check the reference reaches `compileBoundRef`,
-which deliberately has no fallback for a form field — a blank would change a
-predicate's truth value — and its developer-voiced invariant became the worker's
-error text plus an alert, for an ordinary multiplayer race. That same authorized boundary projects canonical
-lookup-reference occurrences onto the committed form's operation UUIDs and
-threads one exact rows-free definition snapshot through the immutable envelope;
-carrier-free programs perform no lookup-definition read, while lookup rows
-remain current transactional inputs.
+client-supplied literal. The membership gate precedes the program build,
+closing a one-bit cross-tenant survey oracle. Staleness rejects wholesale
+rather than degrading: a committed operation-bearing form whose submission
+lacks its answer bags, a repeat scope the committed document requires but the
+payload omits (a client that knew the repeat always sends it, even empty), and
+a missing form answer for an iteration that will actually compile all reject
+as stale/skewed — empty bindings would blank-write, and an ordinary-only
+fallback would silently skip committed semantics. `lib/preview/CLAUDE.md` and
+`lib/case-store/CLAUDE.md` own the envelope protocol and executor detail.
 
 Wire facts the envelope rests on:
 
@@ -1037,106 +702,44 @@ and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
 The current app export/upload path does not configure HQ's project-level custom
 user-data schema, role templates, role/persona values, or worker accounts; these
-collections remain Nova authoring and Preview state until unit 12's explicit
-provisioning driver applies them.
+collections remain Nova authoring and Preview state until the
+push-and-provisioning-drivers unit's explicit provisioning driver applies
+them.
 
 The builder, Solutions Architect, and MCP API author all three collections
-through the same granular mutations and commit gate. The builder's names and
-saved property keys draft locally and commit on blur or Enter; accepted-value
-lists commit on blur, Apply, or Command/Ctrl+Enter. Each passes its inline
-verdict first, so ordinary typing never saves an invalid intermediate or loses
-refused text. Each entry disclosure stays mounted while collapsed, so an
-invalid or refused name, saved key, or accepted-value draft and its explanation
-survive both collapse and switching between entries; Base UI still owns hidden
-panel focus and inertness. The shared agent tools expose
-`getUsers` plus add/update/remove operations for each collection (snake_case on
-MCP); values cross those JSON tool boundaries as
-`{ userPropertyUuid, value }[]` and bridge to the UUID-keyed document record at
-one boundary. On an initial build, custom properties land immediately after the
-app name and before the data model, modules, forms, conditions, or calculations
-can reference them; roles and personas may follow the reference-bearing app
-structure. Update omission keeps a slot and explicit `null` clears one.
-Role/persona updates accept one UUID-addressed `valuePatch` at a time, and each
-changed value persists as its own semantic mutation, so concurrent edits to
-different properties merge instead of replacing one another. In the
-builder an absent persona value inherits its role, an explicit `""` overrides
-the role with blank, and a nonempty value overrides it with that value; control
-item identities are separate from authored strings, so no valid choice is
-reserved as a sentinel. Preview identity, expression source, and custom worker-
-information choices expose their selected state as checked radio-menu items;
-color is only a secondary cue.
-
-All normalized identity-keyed records use own membership and a null prototype,
-never prototype lookup or the legacy `__proto__` assignment setter. That
-includes the six entity maps, structural membership and reverse maps, every
-reference-index root and nested bucket, and role/persona value bags. JSON and
-structured-clone hydration rebuilds that representation before any mutation,
-diff, query, or projection reads it. Thus schema-valid keys such as
-`__proto__` and `constructor` survive persistence and projection without
-inherited properties masquerading as members. Accepted choices are unique by
-exact value at construction, and duplicate property slugs, user-type names,
-and persona names report every member of the duplicate group in deterministic
-collection-sequence order, independent of record insertion order. Each flat
-collection has its own membership array (`userPropertyOrder`,
-`userTypeOrder`, or `personaOrder`); that array is the only sequence and is
-walked rather than sorted. The document schema uses the shared
-`ownRecordSchema` rather than Zod's native record parser, which intentionally
-drops `__proto__`; persistence hydration rebuilds every normalized record
-through the same prototype-safe record helpers. All six normalized entity
-kinds — module, form, field, user property, user type, and persona — share one
-global UUID namespace because `blueprint_entities` keys them all by
-`(app_id, uuid)`. The commit validator reports every member of a collision, and
-`decomposeBlueprint` repeats both global uniqueness and
-record-key/embedded-UUID agreement as a persistence tripwire before any rows
-can collapse.
+through the same granular mutations and commit gate. Values cross the JSON
+tool boundaries as `{ userPropertyUuid, value }[]` and bridge to the
+UUID-keyed document record at one boundary; update omission keeps a slot and
+explicit `null` clears one, and each changed role/persona value persists as
+its own semantic mutation, so concurrent edits to different properties merge
+instead of replacing one another. In the builder an absent persona value
+inherits its role, an explicit `""` overrides the role with blank, and a
+nonempty value overrides it with that value. All normalized identity-keyed
+records use own membership and a null prototype, so schema-valid keys such as
+`__proto__` and `constructor` survive persistence without inherited properties
+masquerading as members; each flat collection's membership array is the only
+sequence and is walked, never sorted (`lib/domain/CLAUDE.md`,
+`lib/doc/CLAUDE.md`).
 
 Custom worker-information references follow the same stable identity as
 role/persona values. Predicate / ValueExpression stores
 `session-user-property { userPropertyUuid }`; XPath stores
-`user-property-ref { userPropertyUuid }`. Every Preview, Postgres, local-wire,
-and HQ-wire target resolves the property's current saved slug only when it
-projects the AST, so a rename rewrites nothing and takes effect everywhere
-immediately. The parallel name-backed `session-user { field }` and XPath
-`user-ref { property }` arms are the final vocabulary for
-CommCare-provided or external fields that have no Nova entity — they are not
-compatibility spellings of the identity arm. The builder exposes those as two
-explicit sources: **Worker information** selects only from the UUID catalog,
-while **Other user field** authors only the external name-backed arm, admits
-hyphens after an XML-safe first character, and never infers identity from its
-text. An unavailable custom UUID stays visible as a recovery state rather than
-falling back to text or exposing the UUID.
-
-Textual XPath parsing converts a custom `#user/<slug>` match to identity only
-when the authored capitalization matches exactly, the case-insensitive catalog
-has exactly one match, and the slug passes the same reserved-name/format
-verdict as construction. A built-in, reserved/invalid legacy custom,
-case-insensitive duplicate, case-only match, missing, or external spelling
-remains name-backed permanently; a later catalog rename cannot retarget that
-external leaf. While an XPath editor is open, a clean draft adopts a peer's identity
-rename. A dirty draft rebases only when the peer projection changes exactly one
-complete `#user/<slug>` token and no other byte, that rename is the catalog's
-only identity change, the before/after entries prove the same unique
-custom-property UUID, and the cleanly parsed local and base texts each contain
-the complete old token exactly once. The editor subscribes to the custom-worker
-catalog independently of printed text; a catalog-only change that could alter a
-dirty token's identity interpretation therefore fails closed immediately.
-Namespace matches, bare-slug guesses, parser recovery, token extensions,
-deletions, repetitions, and broader peer edits fail closed too. When both edits
-replace the same text, CodeMirror preserves the local draft and refuses save
-until Escape reloads the shared projection instead of overwriting either edit.
-That conflict is sticky for the lifetime of the mounted draft: every later
-projection advances the shared base but neither clears the warning nor enables
-save.
-
-The reference index records both custom AST arms under one `p:<uuid>` target.
-Removing worker information therefore refuses while any condition,
-calculation, default, case-list rule, or navigation rule still reads it and
-names every exact `(carrier, slot)` occurrence to update. Relevant and required
-conditions on the same field remain two settings; friendly descriptions never
-deduplicate distinct slots. It never silently deletes those
-expressions or degrades their identity to mutable text. Once no reference
-remains, the same gated batch clears every role/persona value for the property
-and removes it.
+`user-property-ref { userPropertyUuid }`; every target resolves the property's
+current saved slug only when it projects the AST, so a rename rewrites nothing
+and takes effect everywhere immediately. The parallel name-backed
+`session-user { field }` and XPath `user-ref { property }` arms are the final
+vocabulary for CommCare-provided or external fields that have no Nova entity —
+not compatibility spellings of the identity arm. The builder exposes the two
+as **Worker information** (UUID catalog only) and **Other user field**
+(external name only, never inferring identity from text); textual XPath
+parsing converts a custom `#user/<slug>` to identity only on an exact, unique,
+valid match, and every other spelling stays name-backed permanently
+(`components/builder/CLAUDE.md` holds the editor's concurrent-rename rebase
+rules). The reference index records both custom arms under one `p:<uuid>`
+target, so removing worker information refuses while anything still reads it,
+names every exact `(carrier, slot)` occurrence, and never silently deletes
+expressions or degrades identity to mutable text; once unreferenced, the same
+gated batch clears every role/persona value and removes the property.
 
 The wire facts the shape rests on:
 
@@ -1228,118 +831,69 @@ required impossible. The authoring surface says so inline instead.
 ### Preview identity
 
 `lib/preview/engine/identity.ts` carries **two ids that are not
-interchangeable**. `actorUserId` is the signed-in member and the only thing that
-ever authorizes; `ownerId` is the CommCare worker the preview acts as — the
-`owner_id` stamp on rows it writes and the value `session/context/userid`
-resolves to. Previewing as a persona makes `ownerId` that persona's UUID while
-the member still authorizes, so a case list filtered to the current user shows
-that persona's caseload. Keying authorization on `ownerId` would let authored
-blueprint content choose whose data a request reads;
-`lib/preview/engine/__tests__/identity.test.ts` pins that the two cannot be
-re-conflated, and `withProjectContext(projectId, actorUserId, ownerId)` carries
-the split into the case store, where authorization fences read the member and
-`owner_id` / `acting-user` read the worker.
+interchangeable**. `actorUserId` is the signed-in member and the only thing
+that ever authorizes; `ownerId` is the CommCare worker the preview acts as —
+the `owner_id` stamp on rows it writes and the value
+`session/context/userid` resolves to. Keying authorization on `ownerId` would
+let authored blueprint content choose whose data a request reads; the split is
+pinned by test and carried into the case store, where authorization fences
+read the member and `owner_id` / `acting-user` read the worker. Every
+persona-aware action authorizes the member, resolves the selected persona once
+from the committed blueprint under the same locks, and binds the explicit
+pair; a stale or missing persona is a typed refusal behind an explicit
+**Preview as me** recovery — never an anonymous or one-frame member fallback.
 
 The identity carries **two projections of one worker**, because the wire has
-two. `session` is `instance('commcaresession')/session/…`, built by
-`commcare-core .../SessionInstanceBuilder.java::addMetadata` +
-`::addUserProperties`. `usercase` is the `commcare-user` case `#user/<prop>`
-reads, built independently by `callcenter/sync_usercase.py::_get_user_case_fields`
-— same authored data, different built-in keys (`first_name` there,
-`commcare_first_name` in the session block). The serializable session
-projection additionally carries a custom-property UUID→current-slug binding
-map for Predicate/SQL/wire emission; it is projection metadata, not worker
-data. Both projections and every evaluator perform own-key reads, so a valid
-property named `__proto__` or `constructor` behaves as authored data rather
-than inherited prototype state.
-
-**The three location keys diverge between the two projections**, and the
+two: `session` (`SessionInstanceBuilder.java::addMetadata` +
+`::addUserProperties`) and `usercase`
+(`callcenter/sync_usercase.py::_get_user_case_fields`) — same authored data,
+different built-in keys (`first_name` there, `commcare_first_name` in the
+session block). The three location keys diverge between them, and the
 asymmetry is easy to state backwards: `get_user_session_data` writes all three
 or none, so the session block omits them while nobody is assigned anywhere,
-while `_get_user_case_fields` takes an explicit `else` branch to `''` for all
-three, so the usercase always carries them. `commcare_profile` likewise appears
-on both.
+while `_get_user_case_fields` takes an explicit `else` branch to `''`, so the
+usercase always carries them. Preview values are otherwise honest:
+`commcare_project` is **absent** until a deployment target supplies a domain,
+always-written HQ keys are present-and-empty rather than absent, `user_type`
+is `"standard"`, and a **declared** property with no value is
+present-and-empty while an undeclared key is genuinely absent — the split a
+`= ''` comparison depends on. `lib/preview/CLAUDE.md` (§ Resolved preview
+identity) owns the full contract and citations.
 
-Preview values are otherwise honest. `commcare_project` is **absent** until a
-deployment target supplies a domain. The session's
-`commcare_first_name`/`commcare_last_name`/`commcare_phone_number` keys and the
-usercase's `first_name`/`last_name`/`phone_number`/`email` keys are always
-present because HQ writes them unconditionally; Nova derives values it knows
-and preserves the rest as empty rather than changing the node shape.
-`commcare_user_type` is `'commcare'`
-(`users/models.py::COMMCARE_USER` — not the same-named
-`UserFieldsView.COMMCARE_USER`, which is `'commcare_user'`, nor
-`change_feed/topics.py::COMMCARE_USER`, which is `'commcare-user'`),
-`commcare_profile` is empty, and `user_type` is `"standard"`, because all three
-are knowable rather than invented. A **declared** property with no value is
-present-and-empty, matching `users/user_data.py::UserData.to_dict`'s
-`{field: '' for field in self._schema_fields}` seed, while an undeclared key is
-genuinely absent — the split a `= ''` comparison depends on.
-
-Every persona-aware case-data action authorizes `actorUserId` against the app
-before it exposes the committed blueprint, resolves the selected persona once
-from the blueprint loaded under the same app-row and membership locks, and
-binds the resulting
-`(actorUserId, ownerId)` pair explicitly. A stale or missing persona returns a
-typed refusal; it never changes the write to the signed-in member. The selector
-rides Results/Details reads, sample populate/reset, and form submission, while
-Project lookup reads continue to authorize as the member. Thus sample rows and
-submitted cases are owned by the selected worker, but membership and lookup
-access can never be asserted by authored persona identity. The case-store
-constructor rejects every blank or undefined supplied Project, actor, or owner
-identifier before a query can exist, so a malformed selector cannot degrade
-into an ownerless write.
-
-The selected-but-missing state is explicit on the client too: the running shell
-replaces every Preview surface with a blocked explanation and **Preview as me**
-recovery, and the engine controller refuses activation behind it. It never
-renders an anonymous or one-frame member fallback. Leaving Preview clears the
-persona selection before edit-only sample/data surfaces become active, so the
-next run starts as the signed-in member unless the author chooses a persona
-again.
-
-Deleting a persona never deletes case data: rows it owns keep naming it, and the
-confirmation must successfully count every retained row for that owner across
-current and retired case types before enabling Remove. Held rows are included;
-the result is the exact population that stays stored and may remain visible in
-unfiltered data views. A failed count offers retry rather than allowing an
-unknown-impact removal, and the dialog offers neither reassignment nor row
-removal. **This is Nova's own rule, not HQ parity** — HQ has two different
-answers and neither is a template for it. Deactivating a worker, or removing
-them from the domain, closes their usercase and leaves their cases alone
-(`sync_usercase.py::_get_sync_usercase_helper` computes
-`close = to_be_deleted or not is_active_in_domain or domain not in domains`).
-DELETING one is destructive: `users/models.py::CommCareUser.retire` →
-`::delete_user_data` soft-deletes every case the worker owns via
-`tag_cases_as_deleted_and_remove_indices` and strips their indices. A persona is
-a design and test actor rather than a person who left an organization, and the
-cases it created are the author's own test data, so silently soft-deleting them
-would be a destructive surprise. Preserving them is the deliberate choice.
+Deleting a persona never deletes case data: rows it owns keep naming it, and
+the confirmation must successfully count every retained row for that owner —
+including held rows and retired case types — before enabling Remove; the
+dialog offers neither reassignment nor row removal. **This is Nova's own rule,
+not HQ parity** — HQ has two different answers and neither is a template for
+it. Deactivating a worker, or removing them from the domain, closes their
+usercase and leaves their cases alone
+(`sync_usercase.py::_get_sync_usercase_helper`). DELETING one is destructive:
+`users/models.py::CommCareUser.retire` → `::delete_user_data` soft-deletes
+every case the worker owns via `tag_cases_as_deleted_and_remove_indices`. A
+persona is a design and test actor rather than a person who left an
+organization, and the cases it created are the author's own test data, so
+preserving them is the deliberate choice.
 
 ### Preview execution
 
 The running preview executes the blueprint in a client-side engine
 (`lib/preview/engine`) over real Postgres case rows. There is no mock mode.
+`lib/preview/CLAUDE.md` is the engine contract.
 
-- Display conditions evaluate live (`displayConditionEvaluation.ts`). The preview
-  hides conditioned items exactly as a device would, and offers a "hidden items
-  (N)" reveal with ghosted entries and a person-readable condition summary. That
-  summary printer is display-only and forks no predicate semantics. Authoring
-  surfaces — canvas, tree, flipbook — never hide conditioned items.
-- Lookup-backed selects render live filtered choices
-  (`lib/preview/engine/lookupEvaluation.ts` resolves them,
-  `lib/preview/engine/formEngine.ts` materializes them into the running form, and
-  `lib/preview/engine/useLookupPreviewData.tsx` holds the builder-session table
-  cache). Choice rows hold stable within one form session: a
-  row edited mid-entry appears on the next form entry, matching the wire's
-  install/upgrade fixture semantic, while the builder-session cache refreshes on
-  the Project realtime clock between sessions.
+- Display conditions evaluate live (`displayConditionEvaluation.ts`), hiding
+  conditioned items exactly as a device would, with a "hidden items (N)"
+  reveal and a person-readable summary (display-only; forks no predicate
+  semantics). Authoring surfaces never hide conditioned items.
+- Lookup-backed selects render live filtered choices. Choice rows hold stable
+  within one form session, matching the wire's install/upgrade fixture
+  semantic, while the builder-session cache refreshes on the Project realtime
+  clock between sessions.
 - The AST→Kysely compiler (`lib/case-store/sql`) carries `table-lookup` and
   `table-column` arms, so a lookup-bearing case-list filter compiles to SQL.
-- Preview runs as the signed-in member or as a named persona, and the two modes
-  never blend: the running app always states which identity it is showing, and
-  an unavailable selected persona blocks execution until the author explicitly
-  switches back.
+- Preview runs as the signed-in member or as a named persona, and the two
+  modes never blend: the running app always states which identity it is
+  showing, and an unavailable selected persona blocks execution until the
+  author explicitly switches back.
 
 ### Case lists, search, and the case workspace
 
@@ -1377,10 +931,8 @@ hardcoded profile-image cell and a literal `m0-f0` registration action. Layout
 presets are builder gestures that fill per-column placement; there is no template
 slug in the schema, so a preset and a hand-drawn layout take one wire path. HQ's
 regeneration is not toggle-gated — `suite_xml/sections/details.py::DetailContributor.build_detail`
-fires `CaseTileHelper` on a bare truthiness check of `detail.case_tile_template`,
-and `feature_support.py::CommCareFeatureSupportMixin.supports_grouped_case_tiles`
-gates only HQ's own authoring template — so an uploaded Nova tile emits on any
-domain with no setup artifact first.
+fires `CaseTileHelper` on a bare truthiness check of `detail.case_tile_template`
+— so an uploaded Nova tile emits on any domain with no setup artifact first.
 
 The wire facts that shape the emitter:
 
@@ -1429,6 +981,7 @@ Emitted bytes are asserted against HQ's own fixtures —
 `suite-case-tiles.xml` for the `<style>`/`<grid>` shape,
 `case-tile-case-detail.xml` for `show-border` / `show-shading`, and
 `case_tile_pulldown_session.xml` for `detail-persistent`.
+`lib/commcare/CLAUDE.md` (§ Case-tile emission) owns the emitter detail.
 
 Two scope fences are deliberate. Long-detail tiles stay out: CommCare allows
 `custom` on the case-detail screen, and Nova keeps that screen a field list.
@@ -1471,21 +1024,17 @@ catch it, because that check deliberately walks only the columns the tile shows.
 
 **The decision therefore has exactly one home**:
 `lib/domain/modules.ts::tileCellFor` answers "does this column hold a square?"
-and all three emission paths call it — the suite emitter
+and every emission path calls it — the suite emitter
 (`suite/case-list/columns.ts::tileStyleChildren`), the HQ JSON writer
-(`hqJson/caseList.ts::applyTileLayoutToShortDetail`), and the preview
-(`lib/preview/caseTileRendering.ts::tileResultsColumns`). It is one predicate
-because it was briefly three: each path decided independently, and the HQ JSON
-writer — the **primary** delivery path — decided wrongly while the other two
-were right, so an uploaded app drew a different tile from the local `.ccz` and
-the preview. Three paths agreeing by hand is not an invariant, it is a
-coincidence with a short half-life. `lib/commcare/__tests__/tileEmissionParity.test.ts`
-asserts the agreement directly on one document carrying that exact shape, and
-the suite fuzz now generates hidden sort carriers that retain their placement,
-which it never did while the divergence shipped.
+(`hqJson/caseList.ts::applyTileLayoutToShortDetail`), the preview
+(`lib/preview/caseTileRendering.ts::tileResultsColumns`), and the SA read
+surface. Paths agreeing by hand is not an invariant, it is a coincidence with
+a short half-life; `lib/commcare/__tests__/tileEmissionParity.test.ts` asserts
+the agreement directly on one document carrying that exact shape, and the
+suite fuzz generates hidden sort carriers that retain their placement.
 
 The validator's visible-only overlap walk is sound **only** while that predicate
-governs every path; a fourth delivery path or renderer must call it rather than
+governs every path; a new delivery path or renderer must call it rather than
 re-derive it.
 
 The fact reaches past tiles. Any column that must ride the detail without being
@@ -1563,10 +1112,11 @@ cloudcare — `entry_file.html` binds only `accept` on its file input, and
 signature is the OS file picker. CommCare Android is the contrast, and that
 contrast is a docs fact rather than a Nova behavior.
 
-`lib/commcare/validator/rules/form.ts::mediaCaseProperty` keeps rejecting a
-capture kind carrying `caseWrite`, and `formActions.ts` skips capture
+`lib/commcare/validator/rules/form.ts` rejects a capture kind carrying
+`caseWrite` (`MEDIA_CASE_PROPERTY`), and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
-inseparable from emitting its URL column, so the two ship together (unit 6).
+inseparable from emitting its URL column, so the two ship together (the
+attachment-emission-and-link-ux unit).
 
 ### Attachments a worker captures
 
@@ -1582,11 +1132,11 @@ The acceptance lifecycle is
 `preparing`/`prepared` row through `discarding` instead. A form answer may name
 an attachment only once it is `staged`, because a `pending` row's object may
 never have been PUT. Bytes take the media lane's initiate → signed-PUT →
-confirm shape so they never travel through Cloud Run, and the routes nest under
-`/api/apps/[id]/attachments`, which needs no `lib/hostnames.ts` entry because
-allowlist matching is segment-anchored. The signed PUT binds the exact declared
-byte length and creation generation zero; confirm records the immutable GCS
-generation, CRC32C, size, and content type.
+confirm shape so they never travel through Cloud Run. Two tenancy axes:
+`project_id` is the tenant, matching case rows, so every member of an app's
+Project sees the same submissions; `created_by` is narrower and scopes the
+writes, because reservation is keyed on a client-minted `entry_key` — without
+it a co-member could reserve or delete another member's in-flight attachments.
 
 **Names are server-minted and derived from nothing about the question** — not
 the field id, not the node path, not the repeat index — because
@@ -1597,74 +1147,23 @@ extension), since an unrecognized extension is rejected before an id is minted;
 a consumer must still not assume a capture answer splits on a dot, because a
 submission that went through Formplayer can carry it.
 
-Two tenancy axes. `project_id` is the tenant, matching case rows, so every
-member of an app's Project sees the same submissions. `created_by` is narrower
-and scopes the writes: reservation is keyed on a client-minted `entry_key`, so
-without it a co-member in a shared Project could reserve or delete another
-member's in-flight attachments by sending their key.
-
-**Accepted means the bytes are already durable.** The client submits exact
-`{ attachmentName, fieldUuid, instancePath }` references. Before any case
-effect, the server builds capture authority from the authorized committed
-document. A DB transaction then locks that entry, validates the selected rows
-against that server-built intent, and moves them from `staged` to `preparing`.
-Only then may a bounded worker copy each immutable,
-generation-pinned source to its deterministic create-only durable key and
-verify size, CRC32C, content type, and concrete generation. The worker records
-`prepared` only after that proof. If the request dies after the copy but before
-the row update, the deterministic destination plus the prior `preparing` row
-lets the scheduled five-minute worker rediscover and verify the exact copy.
-There is no cross-system interval in which external bytes exist without a DB
-recovery record. Scheduled failures use backoff; pressing Submit again may make
-a recorded failure due immediately, but never steals an active copy lease.
-
-The later case-store transaction independently requires every selected row to
-be `prepared`, inserts the idempotency intent, moves those rows to `submitted`,
-applies every case effect, and stores the replay result atomically. A case
-failure rolls all of that back to `prepared`; a matching retry returns the
-stored result; a different payload under the same entry key is rejected. No GCS
-operation or other post-commit attachment await remains, so an accepted form
-cannot be reported failed by a hung copy and cannot point at bytes still
-subject to the staging TTL.
-The client also emits this intent with `attachments: []` when the committed
-form is capture-capable but the current projection is empty. The prior receipt
-check therefore still runs before case effects after a worker clears an answer,
-a condition hides it, or a repeat removes it: an identical accepted request
-replays and a changed digest rejects instead of applying the form twice. Every
-submission envelope also carries the actor/app/entry/form identity plus the
-canonical payload digest independently of current capture structure. The Server
-Action's one authorization transaction locks the app `FOR SHARE`, proves fresh
-Project membership, and reads a durable receipt before hydrating the current
-blueprint. A receipt returns the stored result without topology access; a new
-submission receives its program and capture authority from the committed app
-snapshot read in that transaction. Preparation and the entry-locked case-store
-transaction each reauthorize again at their mutation boundary and adjudicate
-the receipt before current topology or case effects. Exact retries therefore
-replay after the form or its capture fields are deleted or converted; a changed
-digest rejects before any case effect.
-
-There is deliberately no destructive hook on value change or repeat removal.
-Clear/replace deletes `pending`/`staged` metadata directly, moves
-`preparing`/`prepared` rows to `discarding`, and can never delete `submitted`
-state. The preparation worker observes Clear through the row's serialized
-terminal transition, then deletes the exact source and durable generations
-before removing the discard row. Unselected attempts expire through the same
-distinction. The Project move protocol blocks under the app lock whenever
-capture rows or submission intents exist, because no partial move may strand
-their rows or bytes in the source tenant.
-
-Initiate is also a lifecycle boundary: once POST has minted a pending row, a
-failed/aborted signed PUT or confirm schedules a bounded compensating DELETE.
-Signed-URL creation and the final response handoff both remain fenced by the
-request abort signal after the insert. If either fails or the request aborts,
-the route runs a bounded pending-only compare-and-delete using the full
-server-created attempt identity; a row that advanced is preserved, and cleanup
-failure leaves the expiry sweep as the explicit backstop without masking the
-signing error.
-That cleanup, replacement cleanup, explicit removal, repeat deletion, and entry
-retirement are all detached from the entry's critical mutation queue. A slow or
-hung DELETE can therefore leave only an expiring orphan; it can never hold a
-confirmed replacement, answer clear, or Submit behind it.
+**Accepted means the bytes are already durable.** Before any case effect, the
+server builds capture authority from the authorized committed document and
+moves the selected rows to `preparing`; a row reaches `prepared` only after
+its bytes are verified at a durable key outside the staging TTL's reach
+(`lib/db/CLAUDE.md` owns the copy-and-verify mechanics). The case-store
+transaction independently
+requires every selected row to be `prepared`, applies every case effect, and
+stores the replay result atomically — a case failure rolls back to `prepared`,
+a matching retry returns the stored result, and a different payload under the
+same entry key is rejected. The client emits the intent with
+`attachments: []` even when the current projection is empty, so replay
+protection still runs after a worker clears an answer, a condition hides it,
+or a repeat removes it. There is no cross-system interval in which external
+bytes exist without a DB recovery record, and no post-commit attachment await
+can make an accepted form appear failed. The Project move protocol blocks
+whenever capture rows or submission intents exist, because no partial move may
+strand their rows or bytes in the source tenant.
 
 Nova diverges from the platform in exactly two places, both toward correctness:
 
@@ -1679,34 +1178,14 @@ Nova diverges from the platform in exactly two places, both toward correctness:
 Retention has two traffic-independent mechanisms with deliberately different
 authority. The GCS lifecycle TTL reaps ordinary staged and browser-abandoned
 source bytes even if the app receives no traffic, but GCS-only policy cannot
-atomically distinguish a DB-accepted submission; therefore an accepted
-generation must first live at a durable prefix the lifecycle never matches.
-The scheduled bounded worker owns the cross-system `preparing`/`prepared`/
-`discarding` recovery and the row `expires_at` sweep, including exact
-destination verification after a crash before the row update. Accepted
-durability takes priority over staging cleanup.
-Cloud Scheduler invokes one Cloud Run cleanup Job every five minutes. A session
-advisory lock collapses at-least-once or overlapping delivery to one active
-worker; a held lock or pre-lock connection saturation skips only that dispatch.
-After winning, the worker prewarms its work connection and then performs the
-same bounded preparation, verification, discard, and expiry sweep every time.
-There is no deploy-time execution, alternate mode, probe, or release gate. The
-IAM condition and its domain mirror reject empty or double-slash segments in
-either allowed prefix. The cleanup database login
-inherits no application role and holds only public-schema `USAGE` plus
-`SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Its custom storage role is
-only object get/create/delete, IAM-condition-limited to `captures-staged/` and
-`projects/<project>/captures/`; the media-policy identity separately holds only
-bucket metadata get/update.
-`applyMediaBucketStoragePolicy` converges the bucket's whole temporary-object
-retention policy in one metageneration-fenced patch: the exact prefix lifecycle,
-soft delete disabled, versioning disabled, and default event holds disabled. It
-refuses to remove any operator retention policy and verifies the fresh bucket
-metadata after the write. `lib/storage/__tests__/mediaBucketPolicy.test.ts`
-pins that complete contract and concurrent-edit fence. The seven-day staging
-TTL therefore remains a hard byte-retention backstop for source objects, while
-acceptance requires the exact verified copy outside that prefix before the
-submission transaction can commit.
+atomically distinguish a DB-accepted submission — so an accepted generation
+must first live at a durable prefix the lifecycle never matches. A scheduled
+bounded worker (a Cloud Run Job every five minutes, collapsed to one active
+worker by a session advisory lock) owns the cross-system
+`preparing`/`prepared`/`discarding` recovery and the row expiry sweep.
+`lib/db/CLAUDE.md` owns the worker, IAM, and bucket-policy detail;
+`lib/preview/CLAUDE.md` owns the client capture queue, retarget recovery,
+signature draft, topology-move, and write-authority mechanics.
 
 Clear and Replace carry no confirmation on the picked kinds, deliberately:
 the device does not confirm either, and nothing is actually lost — the file
@@ -1723,136 +1202,15 @@ action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
 thumbnail, no playback, no way to reopen the file — and Formplayer declares no
 route serving a staged capture back. The preview could render a thumbnail,
 which is why it must not; an author laying out a form against a preview that
-confirms attachments would ship a form whose workers cannot. The filename lives
-in the entry's stable-slot registry, so
-relevance, collapse, repeat compaction, and Preview/Edit remounts do not erase it;
-it still dies with the page/entry, the same lifetime `form_ui.js`'s in-memory
-`fileNameCache` gives it. Action rows wrap at compact widths, arbitrary filenames
-break rather than overflow, and every Submit/Clear/Retry/Remove/Cancel action
-retains at least a 44 CSS-pixel target.
+confirms attachments would ship a form whose workers cannot.
 
 **The preview does not resume a partially-filled form** — nothing persists
 runtime answers and `deactivate` wipes the store — so the entry key is minted
-per `activateForm` and lives on the `EngineController`, not the engine. It
-survives cold identity/lookup/case-data rebuilds and a same-Project access
-refresh. Confirmed app/form/Project changes, materially different workers,
-terminal revoke/upgrade states, and **Clear form** retire the old entry.
-`FormScreen` installs the exact `{ appId, entryKey, formUuid, projectId,
-actorUserId, ownerId, scopeEpoch, accessPhase, canEdit }` write-authority tuple
-above every capture field, including when all of them are hidden or unmounted.
-Every queued capture/maintenance operation also carries the exact stable slot
-key and checks the current controller/session coordinates before and after its
-awaited work. Missing authority, response methods, instance paths, or stable
-slot identity reject in production; test doubles must implement the real
-contract. A tuple change aborts the old network generation without erasing
-stable slots, drafts, diagnostics, or Submit blockers. The mounted answer tree,
-focus, File controls, case/persona binding, and entry key also survive the
-uncertain refresh. Even if React coalesces refreshing and same-Project
-authorization into one render, active file drafts become retained recovery
-state and dirty signature ink is adopted and encoded exactly once under the new
-generation.
-
-Capture mutations share one entry-wide serialized queue; same-slot replacement
-is latest-wins, but deletion is never queue-critical. Submit classifies every
-known/running capture **before** it joins the queue, then keeps reclassifying
-while it waits: ordinary signal-aware work for a dormant question is cancelled
-without losing its draft/diagnostic, removed work is retired, and only
-effectively visible `notReady` state can block. An explicit queued Clear remains
-owned and runs despite dormancy, ahead of Submit, so an older answer cannot
-revive later. This preflight includes queued retarget maintenance, so a hidden
-or removed question cannot
-starve Submit behind a never-settling upload or PATCH. A destructive Clear has
-a private serialization key but carries its real stable slot, concrete path,
-and field UUID into that classification, so an active Clear stays ahead of
-Submit. Initiate, PUT, confirm, and retarget each have a 30-second foreground
-deadline covering both the fetch and success/error response-body read. A
-visible Cancel aborts a file upload generation while preserving the previous
-confirmed owner and answer; a late completion is generation-fenced and cleaned
-up.
-A confirmed retarget cancelled by dormancy keeps a suspended, generation-tagged
-blocker. If relevance returns, the next barrier mints a newer generation and
-repairs or CAS-converges the owner before Submit; a late cancelled response
-cannot clear that repair. A non-abort retarget failure remains failed and does
-not auto-retry from barrier polling, preserving the worker's explicit
-Retry/replace/remove choice.
-
-Repeat instances keep stable render keys through index compaction. A failed
-retarget is recoverable, not destructive: the confirmed row, answer, filename,
-signature ink, desired path, and a generation-tagged blocker remain owned by the
-slot. Picked-file save diagnostics live in that same stable slot rather than
-component-local state, so they survive ordinary remounts and still offer
-**Retry** of the exact retained `File`, plus choose-a-different-file/remove.
-The structural Remove control stays visible but disabled without current write
-authority. At its imperative boundary it requires the exact coordinator
-authority generation captured by the handler and rechecks both the controller
-entry key and target repeat instance's stable key before compaction; a stale
-handler cannot retire a successor or its capture after authority restoration.
-Retarget recovery offers Retry plus
-replace/remove for picked files; Signature keeps Retry beside its single
-**Clear signature** action, and every message names that exact action. Every
-recovery action has a question-qualified accessible name. Retry
-compare-and-sets the retained row in place; a newer replacement/drawing
-generation wins and clears only the older diagnostic. No failed retarget deletes
-the only recoverable row or silently submits it under the wrong path. A CAS
-mismatch returns the locked server row's authoritative path. The client adopts
-that coordinate and converges toward the slot's newest desired path, so a
-successful A→B move whose response was lost can continue as B→C rather than
-remaining permanently stuck on expected A.
-
-Live authoring topology changes travel from `EngineController` to that same
-coordinator as one atomic pre/post batch. Every retained/deleted move includes
-the stable identity of each path segment, so capture and ancestor swaps,
-cross-parent moves, different-depth moves, group↔repeat conversion, and nested
-retained repeats preserve only their real instance indices. Projection is
-tri-state: mapped slots retarget; an explicit field deletion or a proven
-higher repeat instance with no destination may retire; malformed paths,
-missing/duplicate identities, and mismatched events preserve the exact owner,
-picked `File`, signature ink, and an invariant Submit blocker. All mapped
-destinations install synchronously before any PATCH or DELETE, so simultaneous
-swaps never observe a half-migrated topology. Capture-kind changes remain
-incompatible and require a replacement at the mapped destination. A malformed
-slot with no valid rendered path appears in a form-level, question-qualified
-recovery surface; Submit focuses **Remove attachment** or **Clear signature**
-there without registering a guessed path. An explicit deleted-field event for
-the same stable UUID takes precedence over an unusable old-path projection and
-retires only that slot.
-Those form-level recovery controls are also destructive authority boundaries:
-they disable during access refresh or viewer mode and pass the exact current
-coordinator generation into discard. A missing or stale token fails closed
-before the owner, retained File/signature ink, or invariant blocker can be
-removed.
-
-Signature strokes and the last successfully encoded CSS dimensions, device pixel
-ratio, and backing-store dimensions live together in stable draft state. A
-material change — including DPR-only change or a remount at a different width —
-generation-fences stale `toBlob` callbacks, redraws normalized ink, and re-encodes
-before Submit. A failed encode/upload retains both ink and an actionable
-Retry/**Clear signature** error across remounts. Clear's inverse stroke buffer
-also lives in stable draft state, so Undo survives ordinary remounts until new
-ink supersedes it. `pointercancel` and `lostpointercapture` settle the dirty
-drawing, and a dirty draft interrupted by unmount starts encoding when the pad
-returns.
-DPR-only detection uses a self-rearming resolution media query rather than
-relying on a resize event; an interaction-blocked canvas exposes
-disabled/read-only semantics. Clear is an explicit newer intent even during
-an active upload: it cancels that generation and composes exactly one queued
-answer-clear transition. The pad does not erase pixels or publish Undo until
-that transition explicitly reports `committed`; `canceled` or `refused`
-restores the action, retains the ink and blocker, and re-arms the current
-authority generation when it is writable. Invalid Submit expands every
-collapsed group/repeat ancestor, announces the validation failure, scrolls the
-first invalid question, and focuses its actual control (including the signature
-canvas). An attachment blocker carries its stable slot, field UUID, and concrete
-path through the same reveal flow, which focuses that question's uniquely named
-Retry action. Both flows switch to non-animated scrolling when reduced motion is
-requested. A kind-change replacement has no Retry action, so its recovery marker
-lives on
-the new control itself and Submit focuses the blank signature canvas.
-
-Those rules also mean the runtime's blank-pad-over-live-signature behavior has
-no Nova counterpart to be faithful to; the comment on
-`EngineController.currentEntryKey` is where a future resume story will need to
-carry the key forward and leave the pad blank.
+per activation and lives on the `EngineController`, not the engine. That is
+also why the runtime's blank-pad-over-live-signature behavior has no Nova
+counterpart to be faithful to; a future resume story must carry the entry key
+forward with the answers, and leave the signature pad blank rather than
+helpfully restoring it.
 
 ### Export and HQ upload
 
@@ -1876,36 +1234,31 @@ composite foreign key binds every case row's `(project_id, app_id)` to the same
 app tenant, so Project moves may change the complete closure in one transaction
 without admitting a mismatched row.
 
-Cross-Project moves are live. An admin/owner of both ends moves an app plus its
-case, media, and conversation history — including chat-attached files. Media
-bytes copy into the destination Project first — content-addressed, so a retry
-dedups rather than duplicating — and the blueprint repoint plus every row move
-then commit as one transaction, retrying if the app's run holder or media closure
-changed underneath (`lib/db/moveAppToProject.ts::runCrossProjectMove`). The
-destination picker is an inline radio list over the Projects
-where the member also governs placement, because a second floating surface opened
-from inside the popover renders beneath it. Governance requires `delete` on both
-ends, `deleted_at IS NULL`, owner retention, and an exact empty lookup closure:
-an app whose blueprint references lookup tables or has capture rows or
-capture-submission intents cannot move, and stored lookup edges that disagree
-with the blueprint are themselves a refusal until repaired. Same-Project
-case-data recovery is a separate, always-available repair.
-
-Project deletion is globally disabled until Nova has an audited whole-tenant
-deletion lifecycle.
+Cross-Project moves are live. An admin/owner of both ends moves an app plus
+its case, media, and conversation history — including chat-attached files — as
+one transaction (`lib/db/moveAppToProject.ts::runCrossProjectMove`; media
+bytes copy content-addressed into the destination first, so a retry dedups).
+Governance requires `delete` on both ends, `deleted_at IS NULL`, owner
+retention, and an exact empty lookup closure: an app whose blueprint
+references lookup tables or has capture rows or capture-submission intents
+cannot move, and stored lookup edges that disagree with the blueprint are
+themselves a refusal until repaired. Same-Project case-data recovery is a
+separate, always-available repair. Project deletion is globally disabled until
+Nova has an audited whole-tenant deletion lifecycle. `lib/db/CLAUDE.md` owns
+the move protocol and lock discipline.
 
 ### Run holders and the app-write surface
 
-A run holds its app through a server-minted nonce; every claim mints one and every
-terminal write compare-and-sets against it exactly. Only `lib/db/apps.ts` and
-`lib/db/credits.ts` may issue `apps` DML, and
+A run holds its app through a server-minted nonce; every claim mints one and
+every terminal write compare-and-sets against it exactly. Only
+`lib/db/apps.ts` and `lib/db/credits.ts` may issue `apps` DML, and
 `lib/db/__tests__/runHolderWriteGuard.test.ts` pins that structurally — a new
-writer outside those two files fails the build rather than quietly skipping the
-holder proof. Operator recovery (`scripts/recover-app.ts`) delegates to
-`recoverAppStatus` behind paired explicit token flags and never writes directly.
-
-Request and run timings are three independently authored fields in
+writer outside those two files fails the build rather than quietly skipping
+the holder proof. Operator recovery (`scripts/recover-app.ts`) delegates to
+`recoverAppStatus` behind paired explicit token flags and never writes
+directly. Request and run timings are three independently authored fields in
 `config/runtime-capabilities.json`; none derives from another.
+`lib/db/CLAUDE.md` owns the run lifecycle.
 
 ---
 
@@ -1917,21 +1270,25 @@ observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
 
-### 4 — Grouped case tiles
+Units are named, not numbered: the file's name is the unit's identity, so a
+unit that ships leaves no gap and nothing ever renumbers.
 
-[`complex-app/04-case-tiles.md`](complex-app/04-case-tiles.md)
+### Grouped case tiles
+
+[`complex-app/grouped-case-tiles.md`](complex-app/grouped-case-tiles.md)
 · depends on nothing · blocks nothing
 
 Group a child case list under its shared parent, with the header rows drawn from
-the group's first case. **The file holds** the `header-rows` attribute and the
-core fixture that misspells it, the companion entry datum, why grouping must
-happen at the data layer rather than after a page is fetched, and why the group
-key must be a real case index.
+the group's first case. **The file holds** the `header-rows` attribute, which
+fixtures misspell it and the one that is therefore the real byte oracle, the
+companion entry datum, why grouping must happen at the data layer rather than
+after a page is fetched, and why Nova narrows the group key to a case index — a
+Nova choice, not a platform rule.
 
-### 6 — Attachment target-aware emission and link UX
+### Attachment target-aware emission and link UX
 
-[`complex-app/06-attachment-emission-and-link-ux.md`](complex-app/06-attachment-emission-and-link-ux.md)
-· depends on unit 11 · blocks nothing
+[`complex-app/attachment-emission-and-link-ux.md`](complex-app/attachment-emission-and-link-ux.md)
+· depends on deployment core · blocks nothing
 
 Save-to-case attachment shapes, target-aware URL-column emission, explicit link
 presentation, and the opt-in legacy attachment mode. **The file holds** the exact
@@ -1939,10 +1296,11 @@ bytes endpoint and the HTML viewer route that must never be linked instead, the
 calculate that builds the URL, and why Web Apps never displays a case attachment
 in-app.
 
-### 8 — Organization model and locations store
+### Organization model and locations store
 
-[`complex-app/08-organization-model-and-locations-store.md`](complex-app/08-organization-model-and-locations-store.md)
-· depends on nothing · blocks units 9, 10, 11, 13
+[`complex-app/organization-model-and-locations-store.md`](complex-app/organization-model-and-locations-store.md)
+· depends on nothing · blocks the usercase, automations, deployment-core, and
+app-setup-UI units
 
 The app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, archive and reassignment rules, and role-aware owner validation.
@@ -1950,10 +1308,10 @@ location rows, archive and reassignment rules, and role-aware owner validation.
 the owner-set assembly with its two easily-dropped filters, and what actually
 happens to cases when a location loses its last worker.
 
-### 9 — Usercase, owner sets, restore scope, and wire
+### Usercase, owner sets, restore scope, and wire
 
-[`complex-app/09-usercase-owner-sets-and-wire.md`](complex-app/09-usercase-owner-sets-and-wire.md)
-· depends on unit 8 · blocks unit 13
+[`complex-app/usercase-owner-sets-and-wire.md`](complex-app/usercase-owner-sets-and-wire.md)
+· depends on the organization model · blocks the app-setup-UI unit
 
 Usercase materialization, owner-set derivation, tenant-complete restore closure,
 and the flat location fixture. **The file holds** the three-rule liveness fixpoint
@@ -1961,10 +1319,11 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### 10 — Representable automations and setup guidance
+### Representable automations and setup guidance
 
-[`complex-app/10-automations-and-setup-guidance.md`](complex-app/10-automations-and-setup-guidance.md)
-· depends on unit 8 · blocks units 11 and 13
+[`complex-app/automations-and-setup-guidance.md`](complex-app/automations-and-setup-guidance.md)
+· depends on the organization model · blocks the deployment-core and
+app-setup-UI units
 
 Automation schemas limited to what HQ can represent, plus regenerated setup
 guidance. **The file holds** the closed criteria, action, recipient, and content
@@ -1972,41 +1331,44 @@ vocabularies, the real cadence and cap (and the widely cited figure that is
 wrong), the total absence of a REST surface, and which criteria are constructible
 versus setup-artifact-only.
 
-### 11 — Deployment core and artifact
+### Deployment core and artifact
 
-[`complex-app/11-deployment-core-and-artifact.md`](complex-app/11-deployment-core-and-artifact.md)
-· depends on units 8 and 10 · blocks units 6, 12, 13
+[`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
+· depends on the organization model and automations · blocks the
+attachment-emission, push-and-provisioning, and app-setup-UI units
 
 Durable deployment and resource-mapping records, preflight, ownership and
 adoption, independently retryable phases, and the target-aware setup artifact.
 **The file holds** the state machine enumerated end to end, including which state
 a required-phase failure lands in and what it withholds.
 
-### 12 — Push and provisioning drivers
+### Push and provisioning drivers
 
-[`complex-app/12-push-and-provisioning-drivers.md`](complex-app/12-push-and-provisioning-drivers.md)
-· depends on unit 11 · blocks units 13, 16, 17
+[`complex-app/push-and-provisioning-drivers.md`](complex-app/push-and-provisioning-drivers.md)
+· depends on deployment core · blocks the app-setup-UI, session-endpoints, and
+multi-select units
 
 Referenced-table push, location push, and explicit worker provisioning against
-unit 11's ownership mappings. **The file holds** the fixapi workbook's actual
+deployment core's ownership mappings. **The file holds** the fixapi workbook's actual
 format, why a tag rename cannot be an in-place PUT, the v0.6 location API's
 semantics and caps, the user resource's create-only identity, and which part of
 the org model is not pushable at all.
 
-### 13 — App setup UI, SA, MCP, and docs
+### App setup UI, SA, MCP, and docs
 
-[`complex-app/13-app-setup-ui-sa-mcp-and-docs.md`](complex-app/13-app-setup-ui-sa-mcp-and-docs.md)
-· depends on units 8, 9, 10, 11, 12 · blocks nothing
+[`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
+· depends on every other unit in the deployment chain plus the usercase unit
+· blocks nothing
 
 The App setup workspace's three remaining sections — Organization, Automations,
-and Deployment — plus the SA and MCP surfaces and public docs for units 8 through
-12. **The file is deliberately short**: its substance is the prerequisite units'
-files and the baseline UI review in the contracts.
+and Deployment — plus the SA and MCP surfaces and public docs for the five
+prerequisite units. **The file is deliberately short**: its substance is the
+prerequisite units' files and the baseline UI review in the contracts.
 
-### 14 — Exclusive form links and sections
+### Exclusive form links and sections
 
-[`complex-app/14-form-links-and-sections.md`](complex-app/14-form-links-and-sections.md)
-· depends on nothing · blocks unit 15
+[`complex-app/form-links-and-sections.md`](complex-app/form-links-and-sections.md)
+· depends on nothing · blocks the nested-menus unit
 
 An exhaustive-`else` link projection with durable link identity in one release,
 then form sections in authored order. **The file holds** the six end-of-form
@@ -2014,20 +1376,20 @@ workflow mappings and their traps, the closed stack vocabulary, the negative swe
 proving sections have no wire notion, the no-expression-slots design fence, and
 the verified mechanics that make sections beat multi-form chains.
 
-### 15 — Nested menus and linked-form reuse
+### Nested menus and linked-form reuse
 
-[`complex-app/15-nested-menus-and-linked-form-reuse.md`](complex-app/15-nested-menus-and-linked-form-reuse.md)
-· depends on unit 14 · blocks unit 16
+[`complex-app/nested-menus-and-linked-form-reuse.md`](complex-app/nested-menus-and-linked-form-reuse.md)
+· depends on form links and sections · blocks the session-endpoints unit
 
 One-tier menu nesting and native linked-form reuse. **The file holds** what
 `root_module_id` and `put_in_root` each emit, and why shadow modules are
 wire-level duplication rather than reference — which is what lets Nova emit the
 shape with no shadow authoring object and no domain toggle.
 
-### 16 — Session endpoints and deep links
+### Session endpoints and deep links
 
-[`complex-app/16-session-endpoints-and-deep-links.md`](complex-app/16-session-endpoints-and-deep-links.md)
-· depends on units 12 and 15 · blocks nothing
+[`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)
+· depends on push-and-provisioning and nested menus · blocks nothing
 
 Session endpoints and shareable deep links resolved against the selected HQ
 server. **The file holds** the emission shape and why it pushes rather than
@@ -2035,10 +1397,10 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
-### 17 — Multi-select, related cases, and profile extensions
+### Multi-select, related cases, and profile extensions
 
-[`complex-app/17-multi-select-related-cases-and-profile.md`](complex-app/17-multi-select-related-cases-and-profile.md)
-· depends on unit 12 · blocks nothing
+[`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
+· depends on push-and-provisioning · blocks nothing
 
 Three independent vocabularies that ship as three PRs because they share only a
 dependency. **The file holds** the multi-select datum and its virtual instance,
@@ -2054,39 +1416,43 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
-| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
-| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
-| [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
-| [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
-| [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
-| [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
-| [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
-| [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
-| [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
-| [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
-| [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
+| [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
+| [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
+| [organization model and locations store](complex-app/organization-model-and-locations-store.md) | — |
+| [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | organization model |
+| [automations](complex-app/automations-and-setup-guidance.md) | organization model |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | organization model, automations |
+| [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | organization model, usercase, automations, deployment core, push and provisioning |
+| [form links and sections](complex-app/form-links-and-sections.md) | — |
+| [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
+| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
+| [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Three units have no outstanding prerequisites and can start in any order: 4,
-8, and 14. They are the independent entry points — every other unit descends
-from one of them.
+Three units have no outstanding prerequisites and can start in any order:
+grouped case tiles, the organization model, and form links and sections. They
+are the independent entry points — every other unit descends from one of them.
 
-The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates
-units 6, 13, and 16, so anything needing a real HQ target waits on it. The
-navigation chain (14 → 15) runs independently until unit 16, which needs both.
+The deployment chain (organization model → automations → deployment core →
+push and provisioning) is the critical path: it gates attachment emission, the
+App setup UI, session endpoints, and multi-select, so anything needing a real
+HQ target waits on it. The navigation chain (form links → nested menus) runs
+independently until session endpoints, which needs both.
 
-Units 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
-whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
-entry point and a leaf: nothing blocks them and nothing waits on them, which makes
-them the natural filler whenever the deployment chain is blocked on something
-external. Unit 9 sits off the critical path too — only the App setup UI waits on
-it, so it can follow unit 8 without holding up unit 11.
+Grouped case tiles, attachment emission, the App setup UI, session endpoints,
+and multi-select are leaves — nothing waits on them, so each can land whenever
+its own prerequisites are met. Grouped case tiles are both an entry point and
+a leaf: nothing blocks them and nothing waits on them, which makes them the
+natural filler whenever the deployment chain is blocked on something external.
+The usercase unit sits off the critical path too — only the App setup UI waits
+on it, so it can follow the organization model without holding up deployment
+core.
 
 ---
 
 ## Keeping these files honest
 
-These files change in the same PR as the behavior they describe. Five rules:
+These files change in the same PR as the behavior they describe. The rules:
 
 - **Present tense only.** Describe what the system does. If a sentence needs a
   date, a PR number, a revision, or a branch name to make sense, it belongs in the
@@ -2095,6 +1461,15 @@ These files change in the same PR as the behavior they describe. Five rules:
   [What is built](#what-is-built) rewritten as current behavior, and its unit
   file, its entry under [What remains](#what-remains), and its dependency row all
   disappear together. No "shipped" markers, no status column, no changelog entry.
+  When several units ship together — one PR or a stacked train — each still
+  moves on its own: its own rewrite into What is built, its own removals, never
+  one unit's record dispersed through another's.
+- **What is built states the what and the why, and points at the how.** A
+  section there carries the capability, the reasons for its shape, and the
+  binding CommCare wire facts — not the implementation mechanics, which belong
+  to the nearest subtree `CLAUDE.md` and the code. Moving a shipped unit in is a
+  rewrite to that altitude, never a paste of the unit file or the PR
+  description.
 - **One home per fact.** A binding CommCare fact lives in exactly one place: this
   file once it is shipped behavior, or one unit file while it is not. The index
   entries and the dependency table restate nothing — a fact duplicated into the
@@ -2102,6 +1477,8 @@ These files change in the same PR as the behavior they describe. Five rules:
 - **Anchor every platform claim.** A CommCare constraint carries its
   `file::function` when it is load-bearing. A claim with no anchor is a claim
   nobody can re-verify when upstream moves.
-- **A new unit is a new file.** Adding one means a file under `complex-app/`, an
-  entry under [What remains](#what-remains), and a dependency row — never a
-  section grafted into this file.
+- **A new unit is a new file, and its name is its identity.** Adding one means
+  a slug-named file under `complex-app/`, an entry under
+  [What remains](#what-remains), and a dependency row — never a section
+  grafted into this file, and never a numeric label: units are referenced by
+  name everywhere, so shipping one leaves no gap and nothing ever renumbers.

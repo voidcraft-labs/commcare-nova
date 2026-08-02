@@ -3,7 +3,7 @@
  *
  * The rows-free commit validator proves identity and typing; only the export
  * boundary sees rows, so this module owns the checks a definition snapshot
- * cannot prove. Per the S05 contract a select source rejects, across the
+ * cannot prove. A select source rejects, across the
  * COMPLETE source table (never merely the filtered result):
  *
  * - a missing or empty value cell, and any value containing XML whitespace

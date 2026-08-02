@@ -1,7 +1,7 @@
 // The per-scope operation answer collector: complete-per-iteration
 // lists (root + enclosing concrete instances + own), parent-major
 // flattening, multi-select token arrays, and the operation-free
-// undefined — the client half of the S07b program-builder contract.
+// undefined — the client half of the submission program-builder contract.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";

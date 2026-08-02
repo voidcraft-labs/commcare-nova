@@ -176,7 +176,8 @@ interface LookupRowVerdictInput {
  * the carrier rejection for the row-dependent checks a definitions snapshot
  * cannot prove: select-source option validity over complete tables and the
  * aggregate embedded-fixture budget. `hq-json` and `hq-upload` keep rejecting
- * every carrier until S20 pushes and maps the resources.
+ * every carrier until the complex-app plan's push-and-provisioning unit
+ * pushes and maps the resources.
  */
 function lookupExportFindings(
 	doc: BlueprintDoc,
@@ -409,9 +410,10 @@ function assertImmutableSyntheticRegistry(
 }
 
 /**
- * Synthetic-carrier seam for S02 races and boundary tests. Production export
- * entry points must use {@link prepareExportBoundary}; S05 changes the shared
- * production registry instead of injecting a caller-owned one.
+ * Synthetic-carrier seam for race and boundary tests. Production export
+ * entry points must use {@link prepareExportBoundary}; a new carrier kind
+ * joins the shared production registry instead of injecting a caller-owned
+ * one.
  *
  * @internal
  */

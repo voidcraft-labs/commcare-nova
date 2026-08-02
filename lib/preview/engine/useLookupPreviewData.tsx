@@ -5,8 +5,7 @@
 // for client evaluation. Generation-keyed exactly like the case-data
 // hooks — the request identity carries the reconciler's runtime scope
 // id and the Project scope epoch, so the reconciler reset registry's
-// epoch advance invalidates it (the recorded "S05 definition cache
-// joins the registry" obligation), and readiness requires an
+// epoch advance invalidates it, and readiness requires an
 // authorized access phase. Freshness rides the Project realtime
 // lookup clock: the manifest broker replays the latest validated
 // manifest and every referenced table's revision joins the key, so a

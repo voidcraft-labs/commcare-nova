@@ -62,8 +62,9 @@ const SOURCE_CLASSIFICATION = {
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 
 /**
- * Named lifecycle families from the binding Unit 18 contract. Several share a
- * source file deliberately; the inventory is about ownership, not file count.
+ * The named production mutation-lifecycle families this tripwire pins. Several
+ * share a source file deliberately; the inventory is about ownership, not
+ * file count.
  */
 const MUTATION_LIFECYCLE_FAMILIES = [
 	["app creation seeds/templates", ["lib/db/apps.ts"]],

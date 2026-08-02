@@ -1,7 +1,7 @@
 /**
  * Stored lookup cell → fixture text.
  *
- * S01 owns storage coercion; this boundary only projects the stored value to
+ * `lib/lookup` owns storage coercion; this boundary only projects the stored value to
  * its wire lexical form and may not reinterpret it. Text and temporal cells
  * are stored as their canonical strings and pass through byte-identically.
  * Int and decimal cells are stored as JS numbers; their wire form is the

@@ -64,7 +64,7 @@ const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
 
 /**
  * On-device half of the shared authored-key identity contract. Invalid keys
- * calculate to the empty id, which Core and HQ both reject atomically; S07's
+ * calculate to the empty id, which Core and HQ both reject atomically; the
  * Preview executor uses `deriveAuthoredCaseId` to surface the same failure
  * before submission.
  */
@@ -617,7 +617,8 @@ export function buildCaseOperations(
 			// Core trims these fixed-column values and caps them at 255 UTF-16
 			// code units, while Nova additionally requires every authored facet to
 			// remain nonblank. The calculate binds above establish one normalized
-			// value for Core, HQ, and S06; this trailing no-op block makes the
+			// value for Core, HQ, and the authoritative submission executor; this
+			// trailing no-op block makes the
 			// submission fail atomically before an invalid value can diverge.
 			const guardId = `__nova_guard_${operation.uuid.replaceAll("-", "_")}_text`;
 			const guardPath = location.parentPath

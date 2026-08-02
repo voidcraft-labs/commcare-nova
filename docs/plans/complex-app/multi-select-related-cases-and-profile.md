@@ -1,11 +1,12 @@
-# Unit 17 — Multi-select, related cases, and profile extensions
+# Multi-select, related cases, and profile extensions
 
 **PRs:**
 1. `Multi-select case lists and selected-case operation semantics`
 2. `Related-case pulls in case search`
 3. `Authored app-profile properties`
 
-**Depends on:** unit 12 — the profile PR needs a live push path to confirm that
+**Depends on:** [push and provisioning](push-and-provisioning-drivers.md) —
+the profile PR needs a live push path to confirm that
 the `CUSTOM_PROPERTIES` toggle is present on the target before offering authored
 properties that HQ would otherwise merge away silently. · **Blocks:** nothing.
 

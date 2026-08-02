@@ -1,8 +1,12 @@
-# Unit 8 — Organization model and locations store
+# Organization model and locations store
 
 **PR:** `Organization levels, the app-scoped locations store, and owner validation`
 
-**Depends on:** nothing outstanding. · **Blocks:** units 9, 10, 11, and 13.
+**Depends on:** nothing outstanding. · **Blocks:**
+[usercase & wire](usercase-owner-sets-and-wire.md),
+[automations](automations-and-setup-guidance.md),
+[deployment core](deployment-core-and-artifact.md), and
+[App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the locations and
 > restore-scope architecture contract there governs the lock discipline, the
@@ -13,7 +17,8 @@ Land the app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, realtime revisions, cross-store lock discipline, row integrity,
 archive and reassignment rules, Project-move handling, and role-aware owner
 validation. The model validates whether a fixed destination can belong to each
-applicable persona's address-book footprint; unit 9 proves the emitted fixture
+applicable persona's address-book footprint; the
+[usercase unit](usercase-owner-sets-and-wire.md) proves the emitted fixture
 actually carries it.
 
 **Location assignment lands on the persona.** `Persona` is a flat blueprint
@@ -24,7 +29,8 @@ Two shapes are already decided: `commcare_location_id`,
 properties whose availability is `needs-organization`, so filling them is this
 unit's job and the Users & Personas surface already explains their absence; and
 HQ's `CommCareUserResource` rejects a primary location without its list and
-requires the primary to appear in it (unit 12), so the two slots must stay
+requires the primary to appear in it
+([push and provisioning](push-and-provisioning-drivers.md)), so the two slots must stay
 adjacent and be validated together rather than drifting into separate edits.
 
 The **app-wide user-data property catalog** is the shape to mirror for
