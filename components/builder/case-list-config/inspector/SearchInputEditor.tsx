@@ -881,7 +881,14 @@ function FieldRow({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<div className="space-y-2">
+		/* `gap`, not `space-y`. This row holds popup TRIGGERS, and Base UI mounts
+		 * `position: fixed` focus guards as their siblings while a popup is open.
+		 * Tailwind's space utilities are sibling-counting (`> :not(:last-child)`),
+		 * so those guards change which children are "last" and the spacing moves
+		 * under the open popup. `gap` spaces the children of a flex container
+		 * without reference to their count or order, so an out-of-flow helper
+		 * appearing mid-row cannot shift anything. */
+		<div className="flex flex-col gap-2">
 			<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
 				{label}
 			</div>

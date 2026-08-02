@@ -634,6 +634,27 @@ body {
 	initial-value: 34%;
 }
 
+/* ─── A choice row's touch target, without touching its box ─────────
+ * A multiple-choice row in the running form sits at 38px, under the
+ * 44px floor, and it cannot simply be made taller: the flipbook
+ * requires edit and live to land every row at identical X/Y, and
+ * growing the row drifts one of them by 1px. Measured twice, with two
+ * different height strategies, so the row box is not available to us.
+ *
+ * The LAYOUT therefore stays exactly as it is and only the hit area
+ * grows. An absolutely positioned pseudo-element contributes nothing to
+ * layout and cannot move a row; it reaches out by half the shortfall on
+ * each side. Pointer-only, and invisible to paint and the a11y tree. */
+.pv-choice-row {
+	position: relative;
+}
+.pv-choice-row::after {
+	content: "";
+	position: absolute;
+	inset: calc((var(--hit-target) - 100%) / -2) 0;
+	pointer-events: auto;
+}
+
 /* Every layer is sized in `em` against the mark's own font-size, which
    `Logo` sets to the mark's diameter. One rule then serves a 14px docs
    mark and a 44px header mark with no per-size arithmetic anywhere. */
@@ -2154,12 +2175,22 @@ html.dark {
    is open (the popup itself is portaled and unaffected). The helpers are out of
    flow; the trigger is not, so it is the one that takes the margin. Match an
    in-flow element that is immediately followed by a focus guard (the trigger and
-   its fixed helper run, never a real earlier sibling) AND whose container ends in
-   a focus guard (so no real content follows it), then restore the zero end margin
-   it carries while closed. Unlayered on purpose: it must outrank the
-   zero-specificity `:where(...)` space utility. */
-:not([data-base-ui-focus-guard]):has(+ [data-base-ui-focus-guard]):has(
-	~ [data-base-ui-focus-guard]:last-child
+   its fixed helper run, never a real earlier sibling), then restore the zero end
+   margin it carries while closed. Unlayered on purpose: it must outrank the
+   zero-specificity `:where(...)` space utility.
+
+   The second half of the selector is the whole correctness argument, and the
+   first version of this rule got it wrong. It asked whether the CONTAINER ends
+   in a focus guard, which is true for every element in that container — so a
+   LABEL sitting above a trigger matched it too, and had the margin that
+   separates it from its own control zeroed. That is the inverse bug: instead of
+   a gap opening below the trigger, the gap above it collapsed the moment the
+   popup opened. What the closed state actually means by "last" is "nothing real
+   follows me", so that is what this asks: every sibling after this element is a
+   guard. A label followed by its trigger fails that test and keeps its
+   spacing. */
+:not([data-base-ui-focus-guard]):has(+ [data-base-ui-focus-guard]):not(
+	:has(~ :not([data-base-ui-focus-guard]))
 ) {
 	margin-block-end: 0;
 	margin-inline-end: 0;
