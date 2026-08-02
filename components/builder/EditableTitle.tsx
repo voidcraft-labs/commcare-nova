@@ -166,7 +166,7 @@ export function EditableTitle({
 					onClick={frozen ? undefined : (event) => event.stopPropagation()}
 					onAnimationEnd={frozen ? undefined : shakeProps.onAnimationEnd}
 					aria-invalid={rejection ? true : undefined}
-					className={`min-h-11 w-full min-w-0 max-w-full resize-none overflow-hidden break-words whitespace-pre-wrap rounded px-1 py-2 pr-8 text-left text-lg leading-snug font-display tracking-tighter font-semibold text-nova-text ${shakeProps.className} ${
+					className={`min-h-11 w-full min-w-0 max-w-full resize-none overflow-hidden break-words whitespace-pre-wrap rounded-lg px-1 py-2 pr-8 text-left text-lg leading-snug font-display tracking-tighter font-semibold text-nova-text ${shakeProps.className} ${
 						frozen
 							? "pointer-events-none border-transparent bg-transparent"
 							: focused

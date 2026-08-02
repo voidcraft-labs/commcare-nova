@@ -522,10 +522,10 @@ export function StagedUploadChip({
 						aria-valuemin={0}
 						aria-valuemax={100}
 						aria-valuenow={Math.round(status.progress * 100)}
-						className="mt-1 h-1 w-full min-w-20 overflow-hidden rounded bg-nova-deep"
+						className="mt-1 h-1 w-full min-w-20 overflow-hidden rounded-full bg-nova-deep"
 					>
 						<div
-							className="h-full rounded bg-nova-violet transition-[width]"
+							className="h-full rounded-full bg-nova-violet transition-[width]"
 							style={{ width: `${status.progress * 100}%` }}
 						/>
 					</div>
@@ -658,7 +658,7 @@ function AssetPreview({
 			<ProjectMediaImage
 				assetId={assetId}
 				alt=""
-				className="max-h-48 w-full rounded object-contain"
+				className="max-h-48 w-full rounded-lg object-contain"
 			/>
 		);
 	}
@@ -674,7 +674,7 @@ function AssetPreview({
 		<ProjectMediaVideo
 			assetId={assetId}
 			controls
-			className="max-h-48 w-full rounded"
+			className="max-h-48 w-full rounded-lg"
 		/>
 	);
 }

@@ -176,7 +176,7 @@ function RailFormButton({
 				<ProjectMediaImage
 					assetId={form.icon}
 					alt=""
-					className="size-5 rounded object-cover"
+					className="size-5 rounded-sm object-cover"
 				/>
 			) : (
 				<Icon icon={formTypeIcons[form.type]} width="15" height="15" />

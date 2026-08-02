@@ -117,7 +117,7 @@ export function GroupField({
 						<button
 							type="button"
 							onClick={onToggle}
-							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-text"
+							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:text-nova-text"
 							aria-expanded={!collapsed}
 							aria-controls={contentId}
 							aria-labelledby={[toggleActionId, accessibleContext, headerId]

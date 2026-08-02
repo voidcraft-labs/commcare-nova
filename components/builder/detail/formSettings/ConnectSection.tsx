@@ -187,7 +187,7 @@ export function ConnectSection({
 					<span className="text-xs font-medium text-nova-text-secondary">
 						Connect
 					</span>
-					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
+					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded-full bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
 						{connectType}
 					</span>
 				</div>

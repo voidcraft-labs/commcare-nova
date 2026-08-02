@@ -135,7 +135,7 @@ export const FormCard = memo(function FormCard({
 							<ProjectMediaImage
 								assetId={form.icon}
 								alt=""
-								className="size-3.5 rounded object-cover shrink-0"
+								className="size-3.5 rounded-sm object-cover shrink-0"
 							/>
 						) : (
 							<Icon

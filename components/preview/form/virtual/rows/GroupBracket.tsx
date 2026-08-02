@@ -193,7 +193,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									onToggleCollapse();
 								}}
 								data-no-drag
-								className="pointer-events-auto text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
+								className="pointer-events-auto text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded-sm"
 								aria-label={collapsed ? "Expand group" : "Collapse group"}
 							>
 								<Icon

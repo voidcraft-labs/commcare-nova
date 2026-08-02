@@ -120,7 +120,7 @@ export function AskQuestionsCard({
 					{isLoading && (
 						<div className="space-y-2.5 animate-pulse">
 							{/* Question text skeleton */}
-							<div className="h-4 w-3/4 rounded bg-nova-violet/10" />
+							<div className="h-4 w-3/4 rounded-sm bg-nova-violet/10" />
 							{/* Option skeletons */}
 							<div className="space-y-1.5">
 								<div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />

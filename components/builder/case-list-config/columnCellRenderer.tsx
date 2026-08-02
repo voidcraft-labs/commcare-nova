@@ -541,7 +541,7 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 				<ProjectMediaImage
 					assetId={value.assetId}
 					alt={value.text}
-					className="inline-block size-5 rounded object-cover"
+					className="inline-block size-5 rounded-sm object-cover"
 				/>
 			</SimpleTooltip>
 		);

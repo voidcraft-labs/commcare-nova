@@ -118,7 +118,7 @@ export function SelectOneField({
 							<MediaDisplay
 								media={opt.media}
 								interactive={!isEditMode}
-								imageClassName="max-h-24 max-w-full rounded object-contain"
+								imageClassName="max-h-24 max-w-full rounded-lg object-contain"
 							/>
 						</label>
 					);

@@ -28,7 +28,7 @@ export function AppDataSourcesSection() {
 							<span className="text-xs font-medium text-nova-text-secondary">
 								Data sources
 							</span>
-							<span className="flex h-[18px] items-center rounded border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
+							<span className="flex h-[18px] items-center rounded-full border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
 								{cards.length}
 							</span>
 						</div>

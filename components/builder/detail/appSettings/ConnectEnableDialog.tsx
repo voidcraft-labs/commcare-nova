@@ -1021,7 +1021,7 @@ function ConnectEnableBody({
 					<DialogTitle className="font-display tracking-tighter">
 						Set up Connect
 					</DialogTitle>
-					<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
+					<span className="flex h-[18px] items-center rounded-full border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
 						{mode === "learn" ? "Learn" : "Deliver"}
 					</span>
 				</div>
