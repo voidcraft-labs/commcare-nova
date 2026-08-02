@@ -128,10 +128,10 @@ function CaseUnavailableNotice({
 				{kind === "missing"
 					? "This case is no longer available."
 					: kind === "unauthenticated"
-						? "You’re signed out, so this case’s information isn’t showing."
+						? "You're signed out, so this case's information isn't showing."
 						: kind === "persona-unavailable"
-							? "Choose another worker to show this case’s information."
-							: "This case’s information didn’t load."}
+							? "Choose another worker to show this case's information."
+							: "This case's information didn't load."}
 			</p>
 			{kind === "error" && (
 				<Button

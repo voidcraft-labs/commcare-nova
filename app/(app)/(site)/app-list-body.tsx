@@ -195,9 +195,9 @@ function DeletedEmptyState() {
 			/>
 			<p className="text-sm text-nova-text">Nothing in your trash</p>
 			<p className="max-w-sm text-xs leading-relaxed text-nova-text-muted">
-				Deleted apps stay here for 30 days before they&rsquo;re permanently
-				removed by an automated cleanup. Anything restored within that window
-				comes back exactly as it was.
+				Deleted apps stay here for 30 days before they're permanently removed by
+				an automated cleanup. Anything restored within that window comes back
+				exactly as it was.
 			</p>
 		</div>
 	);

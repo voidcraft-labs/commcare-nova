@@ -8,8 +8,8 @@ describe("predicate authoring labels", () => {
 	it("uses the same friendly inequality contraction in menus and focus summaries", () => {
 		const condition = neq(prop("patient", "status"), literal("closed"));
 
-		expect(predicateCardSchemas.neq.label).toBe("Isn’t");
-		expect(predicateFocusTitle(condition)).toBe("Isn’t");
+		expect(predicateCardSchemas.neq.label).toBe("Isn't");
+		expect(predicateFocusTitle(condition)).toBe("Isn't");
 	});
 
 	it("reuses Search's outcome labels for forgiving matches", () => {

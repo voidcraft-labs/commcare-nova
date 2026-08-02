@@ -327,7 +327,7 @@ export function CaseAvailabilityComposer({
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{hasAssignedCaseRule
-								? "Cases hidden by these conditions can appear in Results. Your assigned cases setting won’t change. You can undo this change."
+								? "Cases hidden by these conditions can appear in Results. Your assigned cases setting won't change. You can undo this change."
 								: "Your current conditions will be removed. You can undo this change."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
@@ -543,7 +543,7 @@ function MatchCount({
 			{unavailable ? (
 				<>
 					<p className="min-w-0 flex-1 text-[13px] leading-relaxed text-nova-text-muted">
-						The number of matching cases isn’t available
+						The number of matching cases isn't available
 					</p>
 					<Button
 						ref={retryButtonRef}

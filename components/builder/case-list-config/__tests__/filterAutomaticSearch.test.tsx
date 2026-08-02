@@ -404,7 +404,7 @@ describe("Results Cases available composer", () => {
 		renderComposer({ config: { ...EMPTY_CONFIG, filter: NORTH } });
 
 		expect(
-			await screen.findByText("The number of matching cases isn’t available"),
+			await screen.findByText("The number of matching cases isn't available"),
 		).toBeDefined();
 		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
 			true,
@@ -428,7 +428,7 @@ describe("Results Cases available composer", () => {
 			resolveRetry({ kind: "error", message: "Preview unavailable" }),
 		);
 		expect(
-			await screen.findByText("The number of matching cases isn’t available"),
+			await screen.findByText("The number of matching cases isn't available"),
 		).toBeDefined();
 		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
 			true,
@@ -637,7 +637,7 @@ describe("Results Cases available composer", () => {
 		);
 		expect(
 			screen.getByText(
-				"Cases hidden by these conditions can appear in Results. Your assigned cases setting won’t change. You can undo this change.",
+				"Cases hidden by these conditions can appear in Results. Your assigned cases setting won't change. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(screen.queryByText(/Search screen .* removed/i)).toBeNull();
@@ -833,7 +833,7 @@ describe("Results Cases available composer", () => {
 		renderComposer({ config: { ...EMPTY_CONFIG, filter: NORTH } });
 		fireEvent.click(screen.getByRole("button", { name: "Condition is" }));
 		const alternative = await screen.findByRole("menuitem", {
-			name: /^isn’t/i,
+			name: /^isn't/i,
 		});
 		expect(
 			screen.queryByRole("menuitem", { name: /All conditions match/ }),
@@ -841,7 +841,7 @@ describe("Results Cases available composer", () => {
 		expect(screen.getByRole("button", { name: "Add condition" })).toBeDefined();
 		fireEvent.click(alternative);
 		await waitFor(() => {
-			expect(screen.queryByRole("menuitem", { name: /^isn’t/i })).toBeNull();
+			expect(screen.queryByRole("menuitem", { name: /^isn't/i })).toBeNull();
 		});
 	});
 

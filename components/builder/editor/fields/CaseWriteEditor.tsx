@@ -160,7 +160,7 @@ export function CaseWriteEditor<F extends Field>(
 			{
 				id: "__clear__",
 				group: "Case data",
-				label: "Don’t save to case data",
+				label: "Don't save to case data",
 				detail: clearVerdict.ok
 					? "Keep this answer only in the form"
 					: clearVerdict.reason,
@@ -258,7 +258,7 @@ export function CaseWriteEditor<F extends Field>(
 
 	const displayLabel =
 		current === undefined
-			? "Don’t save to case data"
+			? "Don't save to case data"
 			: (selected?.label ?? humanizeId(current.property));
 	const displayDetail =
 		current === undefined

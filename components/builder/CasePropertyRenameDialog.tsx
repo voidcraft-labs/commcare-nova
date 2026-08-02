@@ -123,7 +123,7 @@ function preflightError(result: CasePropertyRenamePreflightResult): string {
 		case "forbidden":
 			return "You no longer have access to review this app.";
 		case "unauthenticated":
-			return "You’re signed out. Reload the page, then try again.";
+			return "You're signed out. Reload the page, then try again.";
 		case "not-found":
 			return "This app is no longer available.";
 		case "ok":
@@ -359,7 +359,7 @@ export function CasePropertyRenameDialog({
 					);
 					break;
 				case "error":
-					setError("Nova couldn’t save this rename. Try again.");
+					setError("Nova couldn't save this rename. Try again.");
 					break;
 				case "cancelled":
 					setError("Saving was interrupted. Review the rename again.");

@@ -355,7 +355,7 @@ export function computeTypeCouplingErrors(
 				.map((m) => SEARCH_MODE_LABELS[m])
 				.join(" or ");
 			errors.push(
-				`“${SEARCH_MODE_LABELS[modeKind]}” doesn’t work with ${SEARCH_INPUT_TYPE_LABELS[row.type]}. Choose ${allowedLabels}.`,
+				`“${SEARCH_MODE_LABELS[modeKind]}” doesn't work with ${SEARCH_INPUT_TYPE_LABELS[row.type]}. Choose ${allowedLabels}.`,
 			);
 		}
 	}
@@ -367,7 +367,7 @@ export function computeTypeCouplingErrors(
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
 	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
-			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
+			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can't search ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
 		);
 	}
 
@@ -375,7 +375,7 @@ export function computeTypeCouplingErrors(
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
 		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
 			errors.push(
-				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
+				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can't match ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
 			);
 		}
 	}

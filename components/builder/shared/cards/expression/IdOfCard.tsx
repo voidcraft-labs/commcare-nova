@@ -63,7 +63,7 @@ export function IdOfCard({
 					aria-label="Referenced case change"
 				/>
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
-					Uses the case an earlier change creates. Open the form’s case changes
+					Uses the case an earlier change creates. Open the form's case changes
 					to choose a different one.
 				</p>
 			</div>

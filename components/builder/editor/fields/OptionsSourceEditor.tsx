@@ -236,7 +236,7 @@ export function OptionsSourceEditor<
 									return "Loading Project data tables…";
 								}
 								if (catalog.kind === "error") {
-									return "Project data tables didn’t load";
+									return "Project data tables didn't load";
 								}
 								return "A data table that is no longer available";
 							}}
@@ -258,7 +258,7 @@ export function OptionsSourceEditor<
 					role="status"
 					className="text-[12px] leading-snug text-nova-text-muted"
 				>
-					Loading this Project’s data-table definitions…
+					Loading this Project's data-table definitions…
 				</p>
 			) : catalog.kind === "error" ? (
 				<div
@@ -323,7 +323,7 @@ export function OptionsSourceEditor<
 						role="alert"
 						className="text-[13px] leading-relaxed text-nova-rose"
 					>
-						This question points at a data table that isn’t in this Project
+						This question points at a data table that isn't in this Project
 						anymore. Choose another table or author new inline options.
 					</p>
 				) : null
@@ -446,7 +446,7 @@ export function OptionsSourceEditor<
 							<>
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Every row of “{table.name}” is offered. Add a rule to match
-									this table’s columns against an earlier answer, fixed value,
+									this table's columns against an earlier answer, fixed value,
 									or current-user information.
 								</p>
 								{table.columns.length === 0 ? (

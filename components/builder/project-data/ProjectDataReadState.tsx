@@ -56,7 +56,7 @@ export function ProjectDataFailure({
 			<p className="font-medium text-nova-text">{title}</p>
 			<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 				{signedOut
-					? "You’re signed out. Reload the page to sign in again."
+					? "You're signed out. Reload the page to sign in again."
 					: failure.message}
 			</p>
 			{failure.details !== undefined && failure.details.length > 0 && (

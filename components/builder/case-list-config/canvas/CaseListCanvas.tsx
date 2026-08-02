@@ -179,7 +179,7 @@ export function CaseListCanvas({
 									tileDisabledReason={tileDisabledReason}
 									rowsConsequence={
 										tile?.persistOnForms === true
-											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module’s forms."
+											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module's forms."
 											: undefined
 									}
 									onChange={onArrangementChange}
@@ -192,7 +192,7 @@ export function CaseListCanvas({
 								<CanvasNotice tone="muted" title="No case information is shown">
 									{canEdit
 										? "Add the information people need to recognize a case"
-										: "People can’t recognize a case from this screen. Ask someone who can edit the app to add information."}
+										: "People can't recognize a case from this screen. Ask someone who can edit the app to add information."}
 								</CanvasNotice>
 							</div>
 						) : tile !== undefined ? (
@@ -247,7 +247,7 @@ export function CaseListCanvas({
 							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 								{canEdit
 									? "Choose which cases can appear in Results"
-									: "Your app’s rules determine which cases can appear in Results"}
+									: "Your app's rules determine which cases can appear in Results"}
 							</p>
 						</div>
 

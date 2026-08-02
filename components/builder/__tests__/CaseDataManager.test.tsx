@@ -81,7 +81,7 @@ const scopeDescription =
 	(_content: string, element: Element | null) =>
 		element?.tagName === "P" &&
 		element.textContent ===
-			`${verb} the cases saved for the ${label} case type. They’re used throughout your app and in Preview.`;
+			`${verb} the cases saved for the ${label} case type. They're used throughout your app and in Preview.`;
 
 beforeEach(() => {
 	mocks.countState = { kind: "count", count: 0 };
@@ -259,7 +259,7 @@ describe("CaseDataManager", () => {
 
 		expect(
 			screen.getByText(
-				/Linked cases will stay, but they’ll lose their links to the cases you’re replacing/i,
+				/Linked cases will stay, but they'll lose their links to the cases you're replacing/i,
 			),
 		).toBeTruthy();
 	});
@@ -283,7 +283,7 @@ describe("CaseDataManager", () => {
 		).toBeNull();
 		expect(
 			screen.getByText(
-				"You can view case data, but you can’t add or replace it",
+				"You can view case data, but you can't add or replace it",
 			),
 		).toBeTruthy();
 		expect(
@@ -312,7 +312,7 @@ describe("CaseDataManager", () => {
 			}),
 		);
 
-		expect(screen.getByText("Case data didn’t load")).toBeTruthy();
+		expect(screen.getByText("Case data didn't load")).toBeTruthy();
 		expect(screen.getByText("Try again to view case data")).toBeTruthy();
 		expect(screen.queryByText(/password authentication/i)).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));

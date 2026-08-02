@@ -123,10 +123,10 @@ export function ProjectDataTableListScreen() {
 			)}
 
 			{state.kind === "loading" || state.kind === "idle" ? (
-				<ProjectDataLoading label="Loading this Project’s data tables…" />
+				<ProjectDataLoading label="Loading this Project's data tables…" />
 			) : state.kind === "failed" ? (
 				<ProjectDataFailure
-					title="These tables didn’t load"
+					title="These tables didn't load"
 					failure={state.failure}
 					onRetry={() => void reload()}
 				/>

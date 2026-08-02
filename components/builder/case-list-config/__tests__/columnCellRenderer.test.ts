@@ -101,7 +101,7 @@ describe("case-list Preview cell formatting", () => {
 			expect(formatDateForPreview("2026-02-31", "%Y-%m-%d")).toEqual({
 				kind: "fallback",
 				text: "2026-02-31",
-				message: "Showing the original value because it isn’t a valid date",
+				message: "Showing the original value because it isn't a valid date",
 			});
 		});
 	});
@@ -231,7 +231,7 @@ describe("case-list Preview cell formatting", () => {
 				kind: "fallback",
 				text: "not-a-date",
 				message:
-					"Preview can’t calculate this interval because the value isn’t a valid date",
+					"Preview can't calculate this interval because the value isn't a valid date",
 			});
 		});
 	});
@@ -446,7 +446,7 @@ describe("case-list Preview cell formatting", () => {
 		expect(await screen.findByText("Why this value is shown")).toBeDefined();
 		expect(
 			screen.getByText(
-				"Showing the original value because it isn’t a valid date",
+				"Showing the original value because it isn't a valid date",
 			),
 		).toBeDefined();
 	});

@@ -213,7 +213,7 @@ export function CaseDetailDialog({
 						</div>
 					) : row === null ? (
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							This case isn’t here anymore. It may have been removed or
+							This case isn't here anymore. It may have been removed or
 							replaced.
 						</p>
 					) : (

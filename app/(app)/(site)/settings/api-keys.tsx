@@ -548,7 +548,7 @@ function ScopeCheckboxGrid({
 						checked={selectedScopes.has(scope)}
 						disabled={locked}
 						onCheckedChange={() => onToggle(scope)}
-						className="nova-focusable group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity)"
+						className="nova-focusable group flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity)"
 					>
 						<span
 							aria-hidden
@@ -963,7 +963,7 @@ function MintForm({
 						maxLength={32}
 						autoComplete="off"
 						data-1p-ignore
-						className="mt-1.5 w-full rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-all focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)]"
+						className="nova-focusable mt-1.5 min-h-11 w-full rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text outline-none transition-colors placeholder:text-nova-text-muted"
 					/>
 				</Field.Root>
 

@@ -182,7 +182,7 @@ describe("CustomDatePatternInput — custom style", () => {
 		expect(input.getAttribute("aria-invalid")).toBe("true");
 		expect(
 			screen.getByText(
-				"%Q isn’t a date piece. Choose another piece or remove it",
+				"%Q isn't a date piece. Choose another piece or remove it",
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();

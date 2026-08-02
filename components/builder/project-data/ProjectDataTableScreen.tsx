@@ -95,7 +95,7 @@ export function ProjectDataTableScreen() {
 							/>
 						</span>
 						<p className="font-medium text-nova-text">
-							This table isn’t here anymore
+							This table isn't here anymore
 						</p>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							It may have been deleted, or it may belong to a different project.
@@ -117,7 +117,7 @@ export function ProjectDataTableScreen() {
 					</div>
 				) : (
 					<ProjectDataFailure
-						title="This table didn’t load"
+						title="This table didn't load"
 						failure={state.failure}
 						onRetry={() => void reload()}
 					/>

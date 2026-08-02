@@ -273,7 +273,7 @@ function PropertyRow({
 							) : (
 								<div className="space-y-2">
 									<p className="text-[13px] font-medium text-nova-text">
-										Can’t remove {property.label} yet
+										Can't remove {property.label} yet
 									</p>
 									<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 										{removalPlan.referenceCount} saved{" "}

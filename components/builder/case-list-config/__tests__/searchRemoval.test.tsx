@@ -1377,7 +1377,7 @@ describe("Search field removal", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				/custom title will also be removed.*custom Search action label will stay in More settings.*Cases available and the Results layout won’t change.*assigned cases setting won’t change/i,
+				/custom title will also be removed.*custom Search action label will stay in More settings.*Cases available and the Results layout won't change.*assigned cases setting won't change/i,
 			),
 		).toBeDefined();
 
@@ -1424,7 +1424,7 @@ describe("Search field removal", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				/Search screen will be removed.*browse Results without searching first.*Cases available and the Results layout won’t change/i,
+				/Search screen will be removed.*browse Results without searching first.*Cases available and the Results layout won't change/i,
 			),
 		).toBeDefined();
 		expect(mutationApi.commitMany).not.toHaveBeenCalled();
