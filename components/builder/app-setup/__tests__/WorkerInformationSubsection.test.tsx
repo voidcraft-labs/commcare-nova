@@ -88,7 +88,7 @@ describe("WorkerInformationSubsection", () => {
 		fireEvent.click(removeTrigger);
 		await settleBaseUiTransitions();
 
-		expect(screen.getByText("Can’t remove Region yet")).toBeDefined();
+		expect(screen.getByText("Can't remove Region yet")).toBeDefined();
 		expect(screen.getByText(/2 saved settings use/)).toBeDefined();
 		expect(screen.getByText("condition in module “Patients”")).toBeDefined();
 		expect(screen.getByText("condition on “supervisor_note”")).toBeDefined();

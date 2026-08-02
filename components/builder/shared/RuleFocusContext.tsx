@@ -198,7 +198,7 @@ export function predicateFocusTitle(value: Predicate): string {
 		case "eq":
 			return "Is";
 		case "neq":
-			return "Isn’t";
+			return "Isn't";
 		case "gt":
 			return "Is more than";
 		case "gte":

@@ -147,7 +147,7 @@ describe("predicate transition planning", () => {
 		expect(plan.confirmation).toEqual({
 			title: "Change to “is”?",
 			description:
-				"This removes one range bound and the range boundary choices. Saved case data won’t change. You can undo this change.",
+				"This removes one range bound and the range boundary choices. Saved case data won't change. You can undo this change.",
 		});
 	});
 
@@ -174,7 +174,7 @@ describe("predicate transition planning", () => {
 		).toEqual({
 			title: "Change to “is any of”?",
 			description:
-				"This removes the comparison value. Saved case data won’t change. You can undo this change.",
+				"This removes the comparison value. Saved case data won't change. You can undo this change.",
 		});
 	});
 
@@ -256,7 +256,7 @@ describe("predicate transition planning", () => {
 		expect(plan.confirmation).toEqual({
 			title: "Change to “is”?",
 			description:
-				"This removes the distance and unit. Saved case data won’t change. You can undo this change.",
+				"This removes the distance and unit. Saved case data won't change. You can undo this change.",
 		});
 	});
 
@@ -297,7 +297,7 @@ describe("predicate transition planning", () => {
 		expect(planPredicateTransition(current, next, "Is").confirmation).toEqual({
 			title: "Change to “Is”?",
 			description:
-				"This removes the search answer. Saved case data won’t change. You can undo this change.",
+				"This removes the search answer. Saved case data won't change. You can undo this change.",
 		});
 	});
 });
@@ -418,7 +418,7 @@ describe("predicate transition confirmation", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Condition is" }));
-		fireEvent.click(await screen.findByRole("menuitem", { name: /^isn’t\b/i }));
+		fireEvent.click(await screen.findByRole("menuitem", { name: /^isn't\b/i }));
 
 		expect(screen.queryByRole("alertdialog")).toBeNull();
 		expect(onChange).toHaveBeenCalledWith({

@@ -65,7 +65,7 @@ export function IsBlankCard({ value, onChange, path }: IsBlankCardProps) {
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 			<div className="text-[13px] leading-relaxed text-nova-text-muted">
-				Matches when this information is blank or hasn’t been recorded
+				Matches when this information is blank or hasn't been recorded
 			</div>
 		</div>
 	);

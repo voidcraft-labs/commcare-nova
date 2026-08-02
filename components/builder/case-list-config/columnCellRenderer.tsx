@@ -317,7 +317,7 @@ function unsupportedStoredValue(): PreviewFormattedValue {
 	return {
 		kind: "fallback",
 		text: "Unavailable",
-		message: "Preview can’t display this saved value in a case list",
+		message: "Preview can't display this saved value in a case list",
 	};
 }
 
@@ -369,7 +369,7 @@ function projectCalculatedValue(
 			return {
 				kind: "fallback",
 				text: "Invalid date",
-				message: "Preview can’t display this calculated date",
+				message: "Preview can't display this calculated date",
 			};
 		}
 		const iso = value.toISOString();
@@ -396,7 +396,7 @@ function projectCalculatedValue(
 	return {
 		kind: "fallback",
 		text: "Unavailable",
-		message: "Preview can’t display this calculated value in a case list",
+		message: "Preview can't display this calculated value in a case list",
 	};
 }
 
@@ -453,7 +453,7 @@ export function formatDateForPreview(
 		return {
 			kind: "fallback",
 			text: raw,
-			message: "Showing the original value because it isn’t a valid date",
+			message: "Showing the original value because it isn't a valid date",
 		};
 	}
 	const formatted = formatConcreteCommCareDate(parsed, pattern);
@@ -495,7 +495,7 @@ export function formatIntervalForPreview(
 			kind: "fallback",
 			text: raw,
 			message:
-				"Preview can’t calculate this interval because the value isn’t a valid date",
+				"Preview can't calculate this interval because the value isn't a valid date",
 		};
 	}
 	// Both sides of the difference must sit on the LOCAL calendar-day axis:

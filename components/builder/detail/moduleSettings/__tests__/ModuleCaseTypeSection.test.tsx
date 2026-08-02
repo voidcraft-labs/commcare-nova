@@ -167,7 +167,7 @@ describe("ModuleCaseTypeSection", () => {
 			screen.getByText(/current layout and rules will stay/i),
 		).toBeDefined();
 		expect(
-			screen.getByText(/existing Client cases won’t be deleted/i),
+			screen.getByText(/existing Client cases won't be deleted/i),
 		).toBeDefined();
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

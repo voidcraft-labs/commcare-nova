@@ -51,7 +51,7 @@ export function RowConflictBody({
 				: "Someone deleted this row while you were editing it."
 			: conflict.verdict.kind === "ask" &&
 					conflict.verdict.reason === "columns-changed"
-				? "Someone changed this table’s columns while you were working. Reconcile your values with the current columns before saving."
+				? "Someone changed this table's columns while you were working. Reconcile your values with the current columns before saving."
 				: deleting
 					? "Someone else changed this row while you were deleting it."
 					: "Someone else saved this row while you were editing it.";
@@ -117,8 +117,8 @@ export function RowConflictBody({
 							: deleting
 								? gone
 									? "This row was already deleted"
-									: "This row wasn’t deleted"
-								: "This row wasn’t saved"}
+									: "This row wasn't deleted"
+								: "This row wasn't saved"}
 					</p>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 						{reason}{" "}
@@ -158,7 +158,7 @@ export function RowConflictBody({
 			) : (
 				<div className="space-y-4">
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						These fields match the table’s current columns. Review them, then
+						These fields match the table's current columns. Review them, then
 						keep this row or save it as a new one.
 					</p>
 					<div className="space-y-3">

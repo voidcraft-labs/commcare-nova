@@ -112,7 +112,7 @@ export function ConsentForm({
 					<IconChip tone="error" icon={tablerAlertTriangle} />
 					<div className="flex flex-col gap-2">
 						<h1 className="font-display tracking-tighter text-2xl font-semibold leading-tight text-nova-text">
-							This authorization link isn&rsquo;t valid anymore
+							This authorization link isn't valid anymore
 						</h1>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							It may have expired, already been used, or arrived here without
@@ -633,7 +633,7 @@ function HqPendingFootnote() {
 								<span className="font-medium text-nova-text">
 									Settings &rarr; CommCare HQ
 								</span>{" "}
-								you won&rsquo;t need to come back here.
+								you won't need to come back here.
 							</Popover.Description>
 						</div>
 					</Popover.Popup>

@@ -412,7 +412,7 @@ describe("case workspace chrome", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"Your app’s rules determine which cases can appear in Results",
+				"Your app's rules determine which cases can appear in Results",
 			),
 		).toBeDefined();
 		expect(
@@ -454,7 +454,7 @@ describe("case workspace chrome", () => {
 		expect(screen.getByText("No case information is shown")).toBeDefined();
 		expect(
 			screen.getByText(
-				"People can’t recognize a case from this screen. Ask someone who can edit the app to add information.",
+				"People can't recognize a case from this screen. Ask someone who can edit the app to add information.",
 			),
 		).toBeDefined();
 		expect(
@@ -1237,7 +1237,7 @@ describe("case workspace chrome", () => {
 			screen.queryByRole("button", { name: "Add search field" }),
 		).toBeNull();
 		expect(
-			screen.getByText("This module doesn’t ask for search information"),
+			screen.getByText("This module doesn't ask for search information"),
 		).toBeDefined();
 		expect(
 			screen.getByText("Results opens without asking for search information"),
@@ -1975,7 +1975,7 @@ describe("case workspace chrome", () => {
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Sounds like” will become “Exact value”. The starting value will be removed because Date picker can’t use it. You can undo this change.",
+			"“Sounds like” will become “Exact value”. The starting value will be removed because Date picker can't use it. You can undo this change.",
 		);
 		expect(onChange).not.toHaveBeenCalled();
 
@@ -2283,7 +2283,7 @@ describe("case workspace chrome", () => {
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"The starting value will be removed because Case name can’t use it. You can undo this change.",
+			"The starting value will be removed because Case name can't use it. You can undo this change.",
 		);
 		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -2355,7 +2355,7 @@ describe("case workspace chrome", () => {
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"The new condition will start with “Exact value” because it can’t keep both dates in the range.",
+			"The new condition will start with “Exact value” because it can't keep both dates in the range.",
 		);
 		expect(onChange).not.toHaveBeenCalled();
 		expect(onEditCondition).not.toHaveBeenCalled();
@@ -2432,7 +2432,7 @@ describe("case workspace chrome", () => {
 		).toBeDefined();
 		expect(
 			within(dialog).getByText(
-				/Some parts of the custom condition don’t fit “Exact value” and will be removed\. You can undo this change\./,
+				/Some parts of the custom condition don't fit “Exact value” and will be removed\. You can undo this change\./,
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -2493,14 +2493,14 @@ describe("case workspace chrome", () => {
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Between dates” can’t search Case status (open or closed), so the replacement will use “Exact value”.",
+			"“Between dates” can't search Case status (open or closed), so the replacement will use “Exact value”.",
 		);
 		const footer = within(dialog)
 			.getByRole("button", { name: "Replace" })
 			.closest('[data-slot="alert-dialog-footer"]');
 		expect(footer?.className).toContain("flex-row");
 		expect(dialog.textContent).toContain(
-			"The starting value will also be removed because Text box can’t use it.",
+			"The starting value will also be removed because Text box can't use it.",
 		);
 
 		fireEvent.click(within(dialog).getByRole("button", { name: "Replace" }));

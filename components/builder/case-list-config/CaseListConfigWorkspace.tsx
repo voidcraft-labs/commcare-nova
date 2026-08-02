@@ -973,7 +973,7 @@ function useController(
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
 		setWorkspaceAnnouncement(
-			`${columnDisplayLabel(column)} removed${displayedOn.length === 0 ? "" : ` from ${displayedOn.join(" and ")}`}. Saved case data wasn’t deleted.`,
+			`${columnDisplayLabel(column)} removed${displayedOn.length === 0 ? "" : ` from ${displayedOn.join(" and ")}`}. Saved case data wasn't deleted.`,
 		);
 		deselect();
 	};
@@ -2227,7 +2227,7 @@ function ColumnInspectorBody({
 		displayedOn.length === 0
 			? "This deletes its saved label and formatting"
 			: `This removes it from ${displayedOn.join(" and ")}`
-	}. Saved case data won’t change${
+	}. Saved case data won't change${
 		column.sort !== undefined
 			? ". It will also be removed from the default order."
 			: "."
@@ -2289,7 +2289,7 @@ function ColumnInspectorBody({
 			/>
 			{!deleteWouldRemoveLastResult && (
 				<p className="-mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-					Deleting this information won’t delete saved case data
+					Deleting this information won't delete saved case data
 				</p>
 			)}
 			<AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
@@ -2409,9 +2409,9 @@ function SearchInputInspectorBody({
 		searchActionSettingsPreserved.length > 0
 			? `Your ${actionSettingsList} will stay in More settings.`
 			: undefined,
-		"Cases available and the Results layout won’t change.",
+		"Cases available and the Results layout won't change.",
 		preservesAssignedCaseRule
-			? "The assigned cases setting won’t change."
+			? "The assigned cases setting won't change."
 			: undefined,
 	]
 		.filter((part): part is string => part !== undefined)
@@ -2454,7 +2454,7 @@ function SearchInputInspectorBody({
 							This field is used in other rules
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Open each rule and remove or replace {inputLabel}’s answer. Then
+							Open each rule and remove or replace {inputLabel}'s answer. Then
 							you can remove the field.
 						</AlertDialogDescription>
 					</AlertDialogHeader>

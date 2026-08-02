@@ -95,7 +95,7 @@ function ToastItem({
 				hovering.current = false;
 				startTimer();
 			}}
-			className={`relative flex gap-3 w-[22rem] rounded-xl bg-nova-deep/95 backdrop-blur-xl border ${chrome.border} p-3.5 pr-9 shadow-[0_8px_32px_rgba(0,0,0,0.45)]`}
+			className={`relative flex w-[min(22rem,calc(100vw-2rem))] gap-3 rounded-xl bg-nova-deep/95 backdrop-blur-xl border ${chrome.border} p-3.5 pr-9 shadow-[0_8px_32px_rgba(0,0,0,0.45)]`}
 		>
 			<div
 				className={`shrink-0 flex items-center justify-center size-7 rounded-lg ${chrome.chip}`}
@@ -139,17 +139,23 @@ function ToastItem({
 					<button
 						type="button"
 						onClick={() => onAction(toast.id)}
-						className="mt-1 -ml-2 min-h-11 cursor-pointer rounded-md px-2 text-xs font-semibold text-nova-violet-bright hover:text-nova-text"
+						className="nova-focusable mt-1 -ml-2 min-h-11 cursor-pointer rounded-xl px-2 text-xs font-semibold text-nova-violet-bright hover:text-nova-text"
 					>
 						{toast.action.label}
 					</button>
 				)}
 			</div>
 
+			{/* A real 44px target with a real name. This was a 22px square at a
+			    10px radius with no accessible name at all (its only child is an
+			    `aria-hidden` glyph) and no focus ring, which made the toast's
+			    ONE control both the smallest thing in the product and invisible
+			    to the keyboard. */}
 			<button
 				type="button"
 				onClick={() => onDismiss(toast.id)}
-				className="absolute top-2.5 right-2.5 p-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+				aria-label="Dismiss"
+				className="nova-focusable absolute top-0.5 right-0.5 flex size-11 cursor-pointer items-center justify-center rounded-xl text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
 			>
 				<Icon icon={tablerX} width={14} height={14} />
 			</button>
@@ -192,7 +198,11 @@ export function ToastContainer() {
 	}, []);
 
 	return (
-		<div className="fixed top-4 right-4 z-system flex flex-col gap-2 pointer-events-none">
+		<div
+			role="status"
+			aria-live="polite"
+			className="pointer-events-none fixed top-4 right-4 z-system flex flex-col gap-2"
+		>
 			<AnimatePresence mode="popLayout">
 				{store.toasts.map((toast) => (
 					<div

@@ -136,7 +136,7 @@ export function TileCellInspector({
 				canEdit={canEdit}
 				explanation={
 					tileOn
-						? "This field is hidden from Results, so it isn’t on the tile. Its saved place comes back if you show it in Results again."
+						? "This field is hidden from Results, so it isn't on the tile. Its saved place comes back if you show it in Results again."
 						: "Results shows rows right now. This place is used whenever the tile is on."
 				}
 				onPlace={onPlace}
@@ -213,7 +213,7 @@ export function TileCellInspector({
 						{mode === "boxed" && (
 							<InspectorHint>
 								This field fills its box, so its position inside the square
-								doesn’t change how it looks.
+								doesn't change how it looks.
 							</InspectorHint>
 						)}
 

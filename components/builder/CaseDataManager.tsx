@@ -452,7 +452,7 @@ export function CaseDataManager({
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
 							{canEdit ? "Add or replace" : "View"} the cases saved for the{" "}
-							<NameChip label={caseType.name} /> case type. They’re used
+							<NameChip label={caseType.name} /> case type. They're used
 							throughout your app and in Preview.
 						</PopoverDescription>
 						{caseTypes.length > 1 && (
@@ -640,7 +640,7 @@ export function CaseDataManager({
 									)
 								) : (
 									<p className="mt-4 rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
-										You can view case data, but you can’t add or replace it
+										You can view case data, but you can't add or replace it
 									</p>
 								)}
 							</div>
@@ -650,7 +650,7 @@ export function CaseDataManager({
 								className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
 							>
 								<p className="font-medium text-nova-text">
-									Case data didn’t load
+									Case data didn't load
 								</p>
 								<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 									Try again to view case data
@@ -667,7 +667,7 @@ export function CaseDataManager({
 							</div>
 						) : countState.kind === "unauthenticated" ? (
 							<div className="rounded-lg border border-nova-border bg-nova-elevated p-3">
-								<p className="font-medium text-nova-text">You’re signed out</p>
+								<p className="font-medium text-nova-text">You're signed out</p>
 								<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 									Reload the page to sign in again and view case data
 								</p>
@@ -742,8 +742,8 @@ export function CaseDataManager({
 							{hasLinkedChildren && (
 								<>
 									{" "}
-									Linked cases will stay, but they’ll lose their links to the
-									cases you’re replacing.
+									Linked cases will stay, but they'll lose their links to the
+									cases you're replacing.
 								</>
 							)}{" "}
 							You can't undo this.

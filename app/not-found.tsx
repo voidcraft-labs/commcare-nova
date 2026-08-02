@@ -20,7 +20,7 @@ export default function NotFound() {
 			<Logo size="lg" />
 			<div className="max-w-md space-y-2 text-center">
 				<h1 className="font-display text-lg font-semibold tracking-tighter text-nova-text">
-					I couldn&rsquo;t find that page
+					I couldn't find that page
 				</h1>
 				<p className="text-sm text-nova-text-secondary">
 					The link may be out of date, or the page may have moved.

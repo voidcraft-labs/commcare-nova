@@ -165,7 +165,7 @@ export function ModuleCaseTypeSection({
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{pendingSwitch
-								? `Search, Results, and Details will use ${humanizeId(pendingSwitch.to)} cases. The current layout and rules will stay. Existing ${humanizeId(pendingSwitch.from)} cases won’t be deleted and will remain available to other modules that use them.`
+								? `Search, Results, and Details will use ${humanizeId(pendingSwitch.to)} cases. The current layout and rules will stay. Existing ${humanizeId(pendingSwitch.from)} cases won't be deleted and will remain available to other modules that use them.`
 								: "Search, Results, and Details will use the new case type."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
@@ -205,7 +205,7 @@ export function ModuleCaseTypeSection({
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{hasForms
-								? `This removes Search, Results, and Details from this module, leaving only its forms. Existing ${humanizeId(module.caseType ?? "case")} cases won’t be deleted and will remain available to other modules that use them. Forms that use cases may need changes first.`
+								? `This removes Search, Results, and Details from this module, leaving only its forms. Existing ${humanizeId(module.caseType ?? "case")} cases won't be deleted and will remain available to other modules that use them. Forms that use cases may need changes first.`
 								: "This module has no forms, so stopping case management would leave it empty. Add a form first."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>

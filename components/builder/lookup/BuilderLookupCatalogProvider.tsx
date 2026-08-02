@@ -127,7 +127,7 @@ export function BuilderLookupCatalogProvider({
 		toError: () => ({
 			kind: "error",
 			message:
-				"Nova could not load this Project’s data-table definitions. Try again.",
+				"Nova could not load this Project's data-table definitions. Try again.",
 		}),
 		keepStale: (previous) =>
 			previous.kind === "data" &&

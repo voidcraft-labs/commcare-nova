@@ -379,7 +379,7 @@ export function TileGridEditor({
 					<p className="text-[13px] leading-relaxed text-nova-text-muted">
 						{extent.columns === 0
 							? "Nothing is placed on the tile yet."
-							: `This tile uses ${describeExtent(extent.columns, extent.rows)}. On a worker’s screen it fills the full width of the list, however many columns it uses.`}
+							: `This tile uses ${describeExtent(extent.columns, extent.rows)}. On a worker's screen it fills the full width of the list, however many columns it uses.`}
 					</p>
 				)}
 				{canEdit && (

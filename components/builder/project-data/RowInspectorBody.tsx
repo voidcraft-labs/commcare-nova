@@ -234,7 +234,7 @@ export function RowInspectorBody({
 							Delete this row?
 						</p>
 						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							Every app in this Project that offers this table’s values stops
+							Every app in this Project that offers this table's values stops
 							offering this one.
 						</p>
 						<div className="flex flex-wrap gap-2">

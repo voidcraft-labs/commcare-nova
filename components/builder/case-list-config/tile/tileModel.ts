@@ -199,7 +199,7 @@ export function evaluateTilePlacement(args: {
 		if (!tileCellsOverlap(cell, other.cell)) continue;
 		return {
 			ok: false,
-			reason: `${label} would sit on top of ${other.label}. Two fields can’t share a square on a tile: one would be drawn over the other.`,
+			reason: `${label} would sit on top of ${other.label}. Two fields can't share a square on a tile: one would be drawn over the other.`,
 		};
 	}
 

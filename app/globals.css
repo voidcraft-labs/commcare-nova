@@ -2005,7 +2005,15 @@ html.dark {
  * tabbing from the app into the docs sees the same thing, so this
  * states it for every focusable the docs own and turns the borrowed
  * outline off. Keyboard-only, like everywhere else. */
-.nova-docs :is(a, button, summary):focus-visible {
+.nova-docs :is(a, button, summary):focus-visible,
+/* The ACTIVE sidebar item and the scrollable code blocks each carry their
+   own box-shadow, and a shadow is one property: whichever rule wins writes
+   the whole thing, so the active page's link showed a ring identical to its
+   rest state (no ring at all) and code blocks showed a solid 2px inset one.
+   Both are named here so the shared ring is what lands on top. */
+	.nova-docs #nd-sidebar
+	a[data-active="true"]:focus-visible,
+.nova-docs figure > div[tabindex="0"]:focus-visible {
 	outline: none;
 	border-radius: var(--radius-lg);
 	box-shadow: 0 0 0 3px color-mix(in oklch, var(--nova-ring), transparent 55%);
@@ -2039,6 +2047,15 @@ html.dark {
 	white-space: nowrap;
 }
 
+/* The docs 404 is a bare `main` dropped straight into the layout grid,
+   so it landed in the SIDEBAR track: a 184px column of content beside
+   two thirds of empty screen at every width below the sidebar's own
+   breakpoint. Real docs pages avoid it by going through fumadocs' page
+   wrapper, which places itself. This one says where it belongs. */
+.nova-docs #nd-docs-layout > main {
+	grid-column: 1 / -1;
+}
+
 /* The docs header row must yield to its own controls.
  *
  * At 320px the brand lockup held its full width and pushed the search
@@ -2050,9 +2067,12 @@ html.dark {
 	min-width: 0;
 }
 .nova-docs :is(#nd-subnav, #nd-nav) > a:first-child {
+	/* Shrinks, but never CLIPS: an `overflow: hidden` here cut the
+	   wordmark to "commc" at 375px. The lockup drops its trailing word
+	   instead (see `lib/docs/layoutProps.tsx`), which is a smaller
+	   lockup rather than a broken one. */
 	min-width: 0;
 	flex-shrink: 1;
-	overflow: hidden;
 }
 .nova-docs :is(#nd-subnav, #nd-nav) button {
 	flex-shrink: 0;

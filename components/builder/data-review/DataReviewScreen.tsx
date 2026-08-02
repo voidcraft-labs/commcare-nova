@@ -195,8 +195,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			// toast, nothing changed on screen).
 			projectToast(
 				"error",
-				"That didn’t go through",
-				"The server couldn’t be reached. Check your connection and try again.",
+				"That didn't go through",
+				"The server couldn't be reached. Check your connection and try again.",
 			);
 		} finally {
 			if (isCurrent()) {
@@ -216,10 +216,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "restored") {
 				projectToast(
 					"error",
-					"Couldn’t put the value back",
+					"Couldn't put the value back",
 					result.kind === "error"
 						? result.message
-						: "You’re signed out. Reload the page to sign in again.",
+						: "You're signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -232,13 +232,13 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					"info",
 					"Value put back",
 					result.displaced > 0
-						? "It’s saved on its case again. The value it replaced is under Dismissed."
-						: "It’s saved on its case again.",
+						? "It's saved on its case again. The value it replaced is under Dismissed."
+						: "It's saved on its case again.",
 				);
 			} else {
 				projectToast(
 					"warning",
-					"It can’t go back right now",
+					"It can't go back right now",
 					"The property or the case changed since this list loaded.",
 				);
 			}
@@ -251,10 +251,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "toggled") {
 				projectToast(
 					"error",
-					"Couldn’t move it back",
+					"Couldn't move it back",
 					result.kind === "error"
 						? result.message
-						: "You’re signed out. Reload the page to sign in again.",
+						: "You're signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -274,10 +274,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "toggled") {
 				projectToast(
 					"error",
-					"Couldn’t dismiss",
+					"Couldn't dismiss",
 					result.kind === "error"
 						? result.message
-						: "You’re signed out. Reload the page to sign in again.",
+						: "You're signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -342,8 +342,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				);
 				projectToast(
 					"error",
-					"Couldn’t overwrite the value",
-					"The server couldn’t be reached. Your new value is still here. Try again.",
+					"Couldn't overwrite the value",
+					"The server couldn't be reached. Your new value is still here. Try again.",
 				);
 				return;
 			}
@@ -377,10 +377,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			}
 			projectToast(
 				"error",
-				"Couldn’t overwrite the value",
+				"Couldn't overwrite the value",
 				result.kind === "error"
 					? result.message
-					: "You’re signed out. Reload the page to sign in again.",
+					: "You're signed out. Reload the page to sign in again.",
 			);
 		})();
 	};
@@ -432,10 +432,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					role="alert"
 					className="mt-8 max-w-md rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-4"
 				>
-					<p className="font-medium text-nova-text">This list didn’t load</p>
+					<p className="font-medium text-nova-text">This list didn't load</p>
 					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 						{state.kind === "unauthenticated"
-							? "You’re signed out. Reload the page to sign in again."
+							? "You're signed out. Reload the page to sign in again."
 							: state.message}
 					</p>
 					<Button
@@ -456,7 +456,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					<p className="font-medium text-nova-text">Nothing to review</p>
 					<p className="text-sm leading-relaxed text-nova-text-secondary">
 						If a property change ever leaves a saved value that no longer fits,
-						it’s kept here for you to review.
+						it's kept here for you to review.
 					</p>
 				</div>
 			) : (

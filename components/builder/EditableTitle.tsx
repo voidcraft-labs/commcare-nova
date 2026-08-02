@@ -22,33 +22,11 @@ const INPUT_BASE_CLASS =
  *  a 1px border each side, plus a pixel for sub-pixel rounding. */
 const TITLE_WIDTH_ALLOWANCE = 6;
 
-/** Narrower than this and the box is not bounding anything, it has collapsed
- *  onto the very input we are about to size. Two characters of a title is not
- *  a cap a real layout would ask for. */
-const MIN_CREDIBLE_BOUND = 64;
-
-/**
- * The width the title may grow into.
- *
- * It walks OUT to the first ancestor wide enough to be a real bound instead of
- * trusting a fixed number of levels up. The title sits in a chain of
- * shrink-to-fit boxes that the input itself sizes, and which box first escapes
- * that chain is a function of the layout: on a roomy canvas the grandparent is
- * the row and bounds it honestly, while on a narrow one the same grandparent is
- * shrink-wrapped around the input, reports a couple of pixels, and caps the
- * input to nothing. That is the whole bug: an object's own title rendered 10px
- * wide, invisible and uneditable, on every builder screen under 600px.
- *
- * Falling back to unbounded is deliberate. An uncapped title can overhang; a
- * title capped to two pixels cannot be read or fixed, so when no ancestor can
- * answer, the safe direction is too wide.
- */
-function boundingWidth(input: HTMLElement): number {
-	for (let box = input.parentElement; box; box = box.parentElement) {
-		if (box.clientWidth >= MIN_CREDIBLE_BOUND) return box.clientWidth;
-	}
-	return Number.POSITIVE_INFINITY;
-}
+/** The face the mirror span actually renders in, spelled the way
+ *  `FontFaceSet.load` wants it: `text-lg` + `font-semibold` + `font-display`.
+ *  Keep it in step with `MEASURE_SPAN_CLASS` above, or the measurement waits
+ *  on a font the span is not using. */
+const MEASURE_FONT = "600 18px Outfit";
 
 interface EditableTitleBaseProps {
 	value: string;
@@ -119,11 +97,16 @@ export function EditableTitle({
 	/* The input sizes itself to its text so the control hugs the name rather
 	 * than sitting in a fixed field.
 	 *
-	 * The cap is applied HERE rather than as `max-w-full` on the input: the
-	 * wrapper is an inline-flex box sized by this very input, so a percentage
-	 * max-width on the input resolves against its own result and collapses the
-	 * box, which clipped even an eight-character name. Measuring the row that
-	 * actually bounds the title breaks that loop.
+	 * The CAP is CSS, not arithmetic. `max-w-full` on the input used to be
+	 * impossible because the wrapper shrink-wrapped around the input, so a
+	 * percentage resolved against the input's own result and collapsed the box.
+	 * The wrapper fills its row now (`flex-1 min-w-0`), which gives that
+	 * percentage something independent to resolve against and retires the whole
+	 * question. Measuring an ancestor in JS could never be made reliable: the
+	 * shrink-wrapped parent's width TRACKS the input's, so it read 62px on one
+	 * navigation and 70px on the next, and any threshold telling a real bound
+	 * from a collapsed one is a coin flip. That is what clipped "Modal QA" to
+	 * "Mod…" on roughly one load in three.
 	 *
 	 * The mirror span carries the same padding, but `scrollWidth` excludes
 	 * borders, so the allowance covers the input's 1px on each side plus a
@@ -133,9 +116,8 @@ export function EditableTitle({
 		const measure = measureRef.current;
 		const input = inputElRef.current;
 		if (!measure || !input) return;
-		const available = boundingWidth(input);
 		const wanted = measure.scrollWidth + TITLE_WIDTH_ALLOWANCE;
-		input.style.width = `${Math.min(wanted, available)}px`;
+		input.style.width = `${wanted}px`;
 	}, []);
 
 	const {
@@ -163,7 +145,25 @@ export function EditableTitle({
 		(el: HTMLInputElement | HTMLTextAreaElement | null) => {
 			hookRef(el);
 			inputElRef.current = el;
-			if (!wrap) syncWidth();
+			if (wrap || !el) return;
+			syncWidth();
+
+			/* Then measure again once the real face is in. The mirror reports
+			 * 80px in the fallback and 88px in Outfit, so a measurement taken
+			 * before the swap pins the input two characters short and it never
+			 * recovers. `fonts.load` for the EXACT face rather than
+			 * `fonts.ready`: `ready` resolves when PENDING loads finish, which
+			 * says nothing about a face that has not been requested yet. */
+			let live = true;
+			void document.fonts
+				?.load(MEASURE_FONT)
+				.then(() => {
+					if (live) syncWidth();
+				})
+				.catch(() => {});
+			return () => {
+				live = false;
+			};
 		},
 		[hookRef, syncWidth, wrap],
 	);
@@ -238,7 +238,7 @@ export function EditableTitle({
 					readOnly
 					tabIndex={-1}
 					aria-label={ariaLabel}
-					className={`${INPUT_BASE_CLASS} border-transparent bg-transparent pointer-events-none`}
+					className={`${INPUT_BASE_CLASS} max-w-full border-transparent bg-transparent pointer-events-none`}
 					autoComplete="off"
 					data-1p-ignore
 					data-testid="editable-title"
@@ -248,7 +248,7 @@ export function EditableTitle({
 	}
 
 	return (
-		<span className="relative inline-flex min-w-0 max-w-full items-center gap-2">
+		<span className="relative flex min-w-0 flex-1 items-center gap-2">
 			{/* Hidden span that mirrors the input text for pixel-accurate width measurement */}
 			<span
 				ref={(el) => {
@@ -273,7 +273,7 @@ export function EditableTitle({
 				onKeyDown={handleKeyDown}
 				onClick={(e) => e.stopPropagation()}
 				onAnimationEnd={shakeProps.onAnimationEnd}
-				className={`${INPUT_BASE_CLASS} transition-colors min-w-0 ${shakeProps.className} ${
+				className={`${INPUT_BASE_CLASS} transition-colors min-w-0 max-w-full ${shakeProps.className} ${
 					focused
 						? rejection
 							? "border-nova-rose/60 bg-nova-surface"

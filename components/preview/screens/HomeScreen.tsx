@@ -160,7 +160,7 @@ export function HomeScreen() {
 									? navigate.openCaseList(mod.uuid)
 									: navigate.openModule(mod.uuid)
 							}
-							className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
+							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (
 								// Module menu-tile icon: CommCare shows it on the

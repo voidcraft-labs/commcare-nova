@@ -130,20 +130,26 @@ export const FormCard = memo(function FormCard({
 				)}
 				<div className="flex-1 min-w-0">
 					<div className="flex items-center gap-2 min-w-0">
+						{/* The same 32px box the module row uses. A form's mark was a
+						    bare 14px glyph beside a module's 32px tile, so the child
+						    row read as a different KIND of thing rather than one level
+						    down. Depth is already carried by the indent. */}
 						{form.icon ? (
 							// Form menu-tile icon, shown on the tree row too.
 							<ProjectMediaImage
 								assetId={form.icon}
 								alt=""
-								className="size-3.5 rounded-sm object-cover shrink-0"
+								className="size-8 shrink-0 rounded-lg object-cover"
 							/>
 						) : (
-							<Icon
-								icon={formIcon}
-								width="14"
-								height="14"
-								className="text-nova-text-muted shrink-0"
-							/>
+							<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
+								<Icon
+									icon={formIcon}
+									width="16"
+									height="16"
+									className="text-nova-text-muted"
+								/>
+							</div>
 						)}
 						{/* An authored name is content. The row's accessible name
 						 * already carries it whole, so this is the disclosure for

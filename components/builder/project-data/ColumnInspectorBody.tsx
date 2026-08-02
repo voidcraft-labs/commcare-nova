@@ -392,7 +392,7 @@ function ColumnDraftDriftNotice({
 			className="rounded-lg border border-nova-amber/30 bg-nova-amber/[0.08] p-3"
 		>
 			<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-				This table changed while you were editing the column’s {subject}. Review
+				This table changed while you were editing the column's {subject}. Review
 				the current value before saving your draft.
 			</p>
 			<p className="mt-1 font-mono text-[12px] text-nova-text-muted [overflow-wrap:anywhere]">

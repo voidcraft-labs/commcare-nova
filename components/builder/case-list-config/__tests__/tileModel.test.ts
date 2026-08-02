@@ -165,7 +165,7 @@ describe("planTilePlacement", () => {
 		});
 		expect(verdict.ok).toBe(false);
 		expect(verdict.ok === false && verdict.reason).toBe(
-			"Patient name would sit on top of Village. Two fields can’t share a square on a tile: one would be drawn over the other.",
+			"Patient name would sit on top of Village. Two fields can't share a square on a tile: one would be drawn over the other.",
 		);
 	});
 
