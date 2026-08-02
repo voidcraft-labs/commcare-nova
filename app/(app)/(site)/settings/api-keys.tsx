@@ -298,7 +298,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 								target="_blank"
 								rel="noopener noreferrer"
 								aria-label="Learn more about API keys"
-								className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright underline-offset-2 hover:underline"
+								className="nova-focusable inline-flex items-center gap-0.5 rounded-lg text-nova-violet-bright transition-colors underline-offset-2 hover:text-nova-violet-bright hover:underline"
 							>
 								Learn more
 								<Icon icon={tablerExternalLink} width="11" height="11" />

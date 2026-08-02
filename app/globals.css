@@ -2017,6 +2017,33 @@ html.dark {
 	color: var(--nova-violet-bright);
 }
 
+/* ─── The docs search dialog is a control surface, not a widget ─────
+ * Fumadocs ships its search dialog at its own scale: a 28px input, a
+ * 30px close at a 10px radius, and 36px result rows. Nova's floor is
+ * 44px and its radii are 12 / 18 / 24, so the one dialog a reader
+ * reaches for by keyboard was the smallest thing in the product. The
+ * rows are the reason to care: they are the actual targets, and a 36px
+ * row is a miss on a phone. */
+.nova-docs [role="dialog"] input,
+#nd-search-dialog input {
+	min-height: var(--hit-target);
+}
+.nova-docs [role="dialog"] button[aria-label*="lose"],
+#nd-search-dialog button[aria-label*="lose"] {
+	min-height: var(--hit-target);
+	min-width: var(--hit-target);
+	border-radius: var(--radius-xl);
+}
+.nova-docs [role="dialog"] [cmdk-item],
+.nova-docs [role="dialog"] [role="option"],
+.nova-docs [role="dialog"] a,
+#nd-search-dialog [role="option"],
+#nd-search-dialog a {
+	min-height: var(--hit-target);
+	display: flex;
+	align-items: center;
+}
+
 /* ─── The docs wear the product's own keyboard focus ────────────────
  * Fumadocs ships its links with the browser's default outline, and
  * remapping `--color-fd-ring` only recolours that outline: the docs
@@ -2047,7 +2074,13 @@ html.dark {
    `rounded-md`, which is 10px and on no rung of the scale. Buttons are
    18px; the sidebar and search controls around them are already 12px. */
 .nova-docs :is(#nd-page, #nd-subnav) button[class*="rounded-md"],
-.nova-docs #nd-page a[class*="rounded-md"] {
+.nova-docs #nd-page a[class*="rounded-md"],
+/* The sidebar's own collapse control is the same 10px, and on
+   `/docs/case-workspace` it sits beside a second control with the SAME
+   name at 12px, so the pair disagreed with each other as well as with
+   the scale. */
+.nova-docs button[class*="rounded-md"][aria-label*="ollapse"],
+.nova-docs button[class*="rounded-md"][aria-label*="idebar"] {
 	border-radius: var(--radius-xl);
 }
 
