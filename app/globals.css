@@ -2005,7 +2005,15 @@ html.dark {
  * tabbing from the app into the docs sees the same thing, so this
  * states it for every focusable the docs own and turns the borrowed
  * outline off. Keyboard-only, like everywhere else. */
-.nova-docs :is(a, button, summary):focus-visible {
+.nova-docs :is(a, button, summary):focus-visible,
+/* The ACTIVE sidebar item and the scrollable code blocks each carry their
+   own box-shadow, and a shadow is one property: whichever rule wins writes
+   the whole thing, so the active page's link showed a ring identical to its
+   rest state (no ring at all) and code blocks showed a solid 2px inset one.
+   Both are named here so the shared ring is what lands on top. */
+	.nova-docs #nd-sidebar
+	a[data-active="true"]:focus-visible,
+.nova-docs figure > div[tabindex="0"]:focus-visible {
 	outline: none;
 	border-radius: var(--radius-lg);
 	box-shadow: 0 0 0 3px color-mix(in oklch, var(--nova-ring), transparent 55%);
