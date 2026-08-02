@@ -14,8 +14,8 @@ Every CommCare citation uses stable names (`file::function`), never line numbers
 **Ship the end state.** A unit ships what it will finally be and nothing else. No
 version floors, capability leases, reader-version gates, staged activation flags,
 traffic-split controllers, or compatibility shims between a unit's own PRs. Work
-splits across PRs for review, but no PR carries code that exists only because of
-the split.
+splits across PRs for review — including a stacked-PR train that lands in
+order — but no PR carries code that exists only because of the split.
 
 **Instant live.** A merge to `main` builds one image, runs pending migrations as a
 blocking Cloud Run Job, and deploys one revision. That is the entire release

@@ -25,7 +25,8 @@ seeded S02 tests; production callers use the immutable shared registry.
 
 The lookup verdict is mode-split. `hq-json` and `hq-upload` reject every
 authored carrier with the mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
-finding until S20 pushes and maps the resources. `ccz` instead builds the
+finding until the complex-app plan's push-and-provisioning unit pushes and
+maps the resources. `ccz` instead builds the
 fixture blocks up front (`lookupWire` carries the naming and the exact
 serialized elements the budget measured) and adds the row-dependent findings a
 definitions snapshot cannot prove: select-source option validity over complete

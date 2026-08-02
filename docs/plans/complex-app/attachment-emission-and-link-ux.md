@@ -1,8 +1,9 @@
-# Unit 6 — Attachment target-aware emission and link UX
+# Attachment target-aware emission and link UX
 
 **PR:** `Attachment URL columns, link presentation, and the opt-in legacy attachment mode`
 
-**Depends on:** the deployment target from unit 11. · **Blocks:** nothing.
+**Depends on:** the deployment target from
+[deployment core](deployment-core-and-artifact.md). · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the link-first
 > case-attachment gap there is the product decision this unit implements.
@@ -57,7 +58,7 @@ The emitted value is a calculate over the submission's own metadata —
 `concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/',
 '<attachment name>')` — so `instance_id` comes from the form instance and the
 attachment name from the capture field. Both halves of the origin come from the
-deployment record, which is why this unit waits on unit 11. A local `.ccz` export
+deployment record, which is why this unit waits on deployment core. A local `.ccz` export
 has no origin or domain to resolve, so it emits the field without the URL column
 and says so at export time rather than writing a URL that resolves nowhere.
 
