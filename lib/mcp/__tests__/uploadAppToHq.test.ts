@@ -260,9 +260,13 @@ describe("registerUploadAppToHq — happy path", () => {
 		registerUploadAppToHq(server, toolCtx);
 
 		const config = registeredConfig() as { description?: string };
-		expect(config.description).toContain("call `get_app_feature_flags`");
-		expect(config.description).toContain("not flags known to be off");
-		expect(config.description).toContain("checked against that exact domain");
+		expect(config.description).toContain("call `get_app_hq_feature_flags`");
+		expect(config.description).toContain("with that explicit domain");
+		expect(config.description).toContain(
+			"must not cause requested app features to be changed or removed",
+		);
+		expect(config.description).toContain("confirmed `missing_flags`");
+		expect(config.description).toContain("against the exact target");
 	});
 
 	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {

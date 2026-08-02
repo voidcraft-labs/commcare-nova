@@ -212,7 +212,7 @@ describe("registerCompileApp — happy path, json format", () => {
 		registerCompileApp(server, toolCtx);
 
 		const config = registeredConfig() as { description?: string };
-		expect(config.description).toContain("call `get_app_feature_flags`");
+		expect(config.description).toContain("call `get_app_hq_feature_flags`");
 		expect(config.description).toContain("before export");
 		expect(config.description).toContain(
 			"not flags Nova has confirmed missing",

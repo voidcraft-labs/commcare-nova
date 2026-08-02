@@ -11,7 +11,7 @@
  * Two categories of tool, two registration paths:
  *
  *   1. **MCP-only tools** (`lib/mcp/tools/*`) — `list_apps`, `get_app`,
- *      `create_app`, `delete_app`, `get_app_feature_flags`, `compile_app`,
+ *      `create_app`, `delete_app`, `get_app_hq_feature_flags`, `compile_app`,
  *      `upload_app_to_hq`, and `get_agent_prompt`. Each owns request-shaped logic the chat
  *      surface never needed: cross-app ownership scans, HQ REST client
  *      calls, compile format branching, CCZ streaming, prompt templating
@@ -51,7 +51,7 @@ import { registerCreateApp } from "./tools/createApp";
 import { registerDeleteApp } from "./tools/deleteApp";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
-import { registerGetAppFeatureFlags } from "./tools/getAppFeatureFlags";
+import { registerGetAppHqFeatureFlags } from "./tools/getAppHqFeatureFlags";
 import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerListApps } from "./tools/listApps";
 import { registerSearchApps } from "./tools/searchApps";
@@ -84,7 +84,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerListApps(server, ctx);
 	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
-	registerGetAppFeatureFlags(server, ctx);
+	registerGetAppHqFeatureFlags(server, ctx);
 	registerCreateApp(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);

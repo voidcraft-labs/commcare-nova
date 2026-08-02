@@ -72,10 +72,11 @@ export class McpInvalidInputError extends Error {
 }
 
 /**
- * Errors produced by `upload_app_to_hq`'s validation chain. Exported so the
- * tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-check against the union —
- * a new bucket without a corresponding entry here becomes a compile error
- * rather than a silent wire drift.
+ * Errors produced by CommCare HQ connection/target gates and upload. Exported
+ * so `upload_app_to_hq`'s `UPLOAD_ERROR_TAGS` record can `satisfies`-check
+ * against the complete union. The domain-aware `get_app_hq_feature_flags`
+ * path reuses the applicable read-only subset (`hq_not_configured` and
+ * `domain_not_authorized`) rather than inventing a second taxonomy.
  *
  * Four buckets:
  *   - `hq_not_configured` — the user has no stored HQ credentials.
@@ -87,7 +88,7 @@ export class McpInvalidInputError extends Error {
  *     the bug this whole surface exists to prevent) and names the spaces so the
  *     caller can ask the user and pass one.
  */
-export type UploadErrorType =
+export type HqToolErrorType =
 	| "hq_not_configured"
 	| "hq_upload_failed"
 	| "domain_not_authorized"
@@ -110,11 +111,12 @@ export type UploadErrorType =
  *   - `"scope_missing"` — the caller's access token lacks an OAuth
  *     scope a specific tool requires (orthogonal to the route-layer
  *     `nova.read` + `nova.write` floor). Today only the HQ tools
- *     (`get_hq_connection`, `upload_app_to_hq`) gate this way; see
+ *     (`get_hq_connection`, `upload_app_to_hq`, and domain-aware
+ *     `get_app_hq_feature_flags`) gate this way; see
  *     `assertScope` / `McpScopeError` in `./scopes`. Distinct from
- *     `UploadErrorType` because scope failure is a token-shape problem,
+ *     `HqToolErrorType` because scope failure is a token-shape problem,
  *     not a per-tool gate, and surfaces across multiple tools.
- *   - `UploadErrorType` — upload-tool-specific gate rejections.
+ *   - `HqToolErrorType` — HQ connection, target, and upload rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
  *
@@ -125,7 +127,7 @@ export type McpErrorType =
 	| "not_found"
 	| "invalid_input"
 	| "scope_missing"
-	| UploadErrorType
+	| HqToolErrorType
 	| AgentErrorType;
 
 /**

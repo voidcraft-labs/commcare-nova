@@ -27,10 +27,12 @@ queried through the paginated
 missing; an HTTP/shape/namespace failure is unverified and never blocks or
 relabels the successful upload. JSON and CCZ have no target domain, so their
 report is always `not_checked`: the flags are requirements, not known missing.
-The MCP-only `get_app_feature_flags` tool exposes the same detector before any
-publish: each requirement carries app-specific reasons and inline public docs
-content/links, but never a domain-state claim. Keep it MCP-only; Nova's internal
-SA speaks domain vocabulary and does not own CommCare deployment concerns.
+The MCP-only `get_app_hq_feature_flags` tool exposes the same detector before
+any publish: each requirement carries app-specific reasons and inline public
+docs content/links. With no domain it makes no state claim; with one explicit
+connected domain it uses the same probe and missing/unverified distinction as
+the modal. Keep it MCP-only; Nova's internal SA speaks domain vocabulary and
+does not own CommCare deployment concerns.
 The weekly `commcare-hq-feature-flags` workflow runs
 `scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
 fails when symbols, slugs, namespaces, tags, or the recorded emitter evidence

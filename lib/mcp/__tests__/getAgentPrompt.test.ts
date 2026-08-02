@@ -233,12 +233,16 @@ describe("registerGetAgentPrompt — build modes", () => {
 		const text = out.content[0]?.text ?? "";
 
 		expect(text).toContain("Publishing FYI");
-		expect(text).toContain("call get_app_feature_flags exactly once");
-		expect(text).toContain("sole authority");
+		expect(text).toContain("call get_app_hq_feature_flags exactly once");
+		expect(text).toContain("terminal handoff");
+		expect(text).toContain("Do not call it after individual mutations");
+		expect(text).toContain("never a Nova authoring gate");
+		expect(text).toContain("do not remove, undo, avoid, or revise");
+		expect(text).toContain("feature_flag_requirements.required_flags");
 		expect(text).toContain("domain_checked: false");
 		expect(text).toContain("normal completion message");
 		expect(text).toContain("support@dimagi.com");
-		expect(text).toContain("do not create a document");
+		expect(text).toContain("creating a document");
 		expect(text).not.toContain("Simple Case Search (search_claim)");
 		expect(text).toContain("NOVA-PROMPT-END");
 	});

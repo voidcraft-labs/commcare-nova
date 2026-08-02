@@ -83,7 +83,7 @@ never table tags, export names, or display labels.
 | `list_apps` | List your apps with optional status filter, sort, and pagination. |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. |
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, and personas. |
-| `get_app_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. This does not check whether a flag is enabled for any project space. |
+| `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
 
 ## Creating and deleting apps
 
@@ -454,12 +454,15 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 Feature-flag checks are advisory and never make a valid publish fail. The
-read-only `get_app_feature_flags` tool can be called at any time. Its
-`required_flags` include app-specific `reasons`, a plain-language
-`description`, and a stable `docs_url`, so an agent can explain or document the
-requirements without loading the docs page itself. It does not inspect a
-project space: `domain_checked` is always `false`, and the returned flags are
-not known to be off.
+read-only `get_app_hq_feature_flags` tool can be called at any time. Its
+`feature_flag_requirements.required_flags` include app-specific `reasons`, a
+plain-language `description`, and a stable `docs_url`, so an agent can explain
+or document the requirements without loading the docs page itself. With no
+`domain`, `domain_checked` is `false` and the returned flags are not known to
+be off. With an explicit domain from `get_hq_connection`, `domain_checked` is
+`true`; `missing_flags` contains only flags HQ confirmed are off, while
+`unverified_flags` contains checks the diagnostic endpoint could not answer.
+The domain-aware path requires `nova.hq.read`.
 
 The
 `compile_app` result uses `verification: "not_checked"`: Nova does not know

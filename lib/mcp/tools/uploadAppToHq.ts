@@ -88,11 +88,11 @@ import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { initMcpCall } from "../context";
 import {
+	type HqToolErrorType,
 	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
-	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId, timestampToMillis } from "../runId";
@@ -101,8 +101,8 @@ import type { ToolContext } from "../types";
 
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
- * `satisfies Record<UploadErrorType, UploadErrorType>` forces every
- * variant of `UploadErrorType` to appear as a key — adding a new
+ * `satisfies Record<HqToolErrorType, HqToolErrorType>` forces every
+ * variant of `HqToolErrorType` to appear as a key — adding a new
  * variant to the union without a matching entry here is a compile
  * error, so the wire taxonomy cannot silently drift.
  *
@@ -121,7 +121,7 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_not_authorized: "domain_not_authorized",
 	/** Multi-space key with no `domain` supplied — caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
-} as const satisfies Record<UploadErrorType, UploadErrorType>;
+} as const satisfies Record<HqToolErrorType, HqToolErrorType>;
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -135,7 +135,7 @@ export const UPLOAD_ERROR_TAGS = {
  * model branching) and the user-actionable `message` (for display).
  */
 function makeGateError(
-	errorType: UploadErrorType,
+	errorType: HqToolErrorType,
 	message: string,
 	appId: string,
 ): McpToolErrorResult {
@@ -171,7 +171,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Before asking the user to confirm or invoking this tool, call `get_app_feature_flags` and relay its `required_flags` as requirements for the destination, not flags known to be off. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one, a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` reports the required flags Nova checked against that exact domain, including any confirmed missing flags and a support@dimagi.com contact instruction. The diagnostic never blocks an otherwise successful upload.",
+				"Upload an owned app to CommCare HQ as a new app. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
 			inputSchema: {
 				app_id: z
 					.string()

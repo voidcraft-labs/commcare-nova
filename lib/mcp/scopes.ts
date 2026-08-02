@@ -23,8 +23,9 @@ import type { AuthKind } from "./types";
  *      `nova.hq.write` are *orthogonal* to read/write — they gate access
  *      to a separate third-party system (CommCare HQ), not Nova-internal
  *      operations. Tools that touch HQ (`get_hq_connection`,
- *      `upload_app_to_hq`) call `assertScope` at the top of their
- *      handler; a token lacking the HQ scope produces a structured
+ *      `upload_app_to_hq`, and the domain-aware path of
+ *      `get_app_hq_feature_flags`) call `assertScope` before any protected
+ *      data read; a token lacking the HQ scope produces a structured
  *      `scope_missing` envelope through the shared error serializer,
  *      but can still call non-HQ tools.
  *

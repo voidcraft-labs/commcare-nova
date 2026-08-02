@@ -8,11 +8,15 @@ space. It lets that space use a feature that is not yet available everywhere.
 You do not turn these switches on inside Nova or in the ordinary CommCare HQ
 settings.
 
-An agent connected to Nova can call `get_app_feature_flags` before publishing.
-The result includes only the flags the app currently uses, the app setting that
-caused each requirement, a plain-language explanation, and the public link for
-that flag. The agent can pass those details to you or include them in an
-existing deliverable without first publishing the app or loading this page.
+An agent connected to Nova can call `get_app_hq_feature_flags` before
+publishing. The result includes only the CommCare HQ flags the app currently
+uses, the app setting that caused each requirement, a plain-language
+explanation, and the public link for that flag. Without a project space, it
+reports requirements without claiming they are off. When the agent supplies
+one of your connected project spaces, the same tool checks that exact space and
+separates flags confirmed missing from checks HQ could not answer. The agent
+can pass those details to you or include them in an existing deliverable
+without first publishing the app or loading this page.
 
 Your Nova app can still be complete and upload successfully when a required
 flag is off. The problem appears later: a worker may not see the expected

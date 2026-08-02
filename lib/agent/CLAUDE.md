@@ -31,10 +31,12 @@ Every case-writing field carries one complete `caseWrite: { caseType, property }
 CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). The commit gate feeds `BlueprintDoc` through the validator directly — no wire-format round-trip inside the agent layer.
 
 MCP feature-flag tools return deployment follow-up without changing artifact
-validity. The MCP-only `get_app_feature_flags` read reports the current app's
-requirements, app-specific reasons, inline descriptions, and public docs links
-before publish, with `domain_checked: false`; it never infers HQ state and does
-not belong on the internal SA surface. `compile_app` keeps the artifact as its
+validity. The MCP-only `get_app_hq_feature_flags` read reports the current
+app's requirements, app-specific reasons, inline descriptions, and public docs
+links before publish. With no domain it does not access HQ or infer HQ state;
+with an explicit connected domain it performs the same read-only preflight as
+the UI and separates confirmed missing flags from checks that were unavailable.
+It does not belong on the internal SA surface. `compile_app` keeps the artifact as its
 first content block and adds a
 model-visible destination-unknown requirement report only when the app needs
 flags. `upload_app_to_hq` returns the known target's post-import report,

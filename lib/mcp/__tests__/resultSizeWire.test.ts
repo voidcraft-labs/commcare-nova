@@ -127,10 +127,14 @@ describe("result-size declarations over the wire", () => {
 	});
 
 	it("registers the read-only app feature-flag inspection tool", () => {
-		const tool = tools.find((t) => t.name === "get_app_feature_flags");
+		const tool = tools.find((t) => t.name === "get_app_hq_feature_flags");
 		expect(tool?.description ?? "").toContain("does not compile or upload");
 		expect(tool?.description ?? "").toContain(
-			"does not claim any flag is enabled or missing",
+			"without claiming any flag is off",
+		);
+		expect(tool?.description ?? "").toContain("confirmed `missing_flags`");
+		expect(tool?.description ?? "").toContain(
+			"must never cause an agent to remove, undo, or avoid",
 		);
 	});
 });

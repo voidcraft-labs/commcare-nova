@@ -73,7 +73,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_feature_flags` if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a second text block repeats the requirements; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
+				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a second text block repeats the requirements; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
 			inputSchema: {
 				app_id: z
 					.string()
