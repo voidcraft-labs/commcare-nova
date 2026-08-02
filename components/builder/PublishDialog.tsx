@@ -950,13 +950,25 @@ function FeatureFlagNotice({
 							!report.missing_flags.some((missing) => missing.id === flag.id),
 					),
 				];
+	const confirmedMissing =
+		(mode === "upload" || mode === "domain-check") &&
+		report.missing_flags.length > 0;
 	const noticeMessage = featureFlagNoticeMessage(report, mode);
 	return (
-		<div className="mt-3 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-3">
+		<div
+			role={confirmedMissing ? "alert" : "status"}
+			className={`mt-3 rounded-lg border px-3 py-3 ${
+				confirmedMissing
+					? "border-nova-amber/25 bg-nova-amber/[0.06]"
+					: "border-nova-violet/25 bg-nova-violet/[0.05]"
+			}`}
+		>
 			<div className="flex items-start gap-2">
 				<Icon
-					icon={tablerInfoCircle}
-					className="mt-0.5 size-4 shrink-0 text-nova-amber"
+					icon={confirmedMissing ? tablerAlertCircle : tablerInfoCircle}
+					className={`mt-0.5 size-4 shrink-0 ${
+						confirmedMissing ? "text-nova-amber" : "text-nova-violet-bright"
+					}`}
 				/>
 				<div className="min-w-0">
 					<p className="text-xs font-semibold text-nova-text">
@@ -988,8 +1000,17 @@ function FeatureFlagNotice({
 				))}
 			</ul>
 			<p className="mt-2 pl-6 text-xs text-nova-text-secondary">
-				To have {flags.length === 1 ? "this flag" : "these flags"} enabled,
-				contact{" "}
+				{confirmedMissing ? (
+					<>
+						To have {flags.length === 1 ? "this flag" : "these flags"} enabled,
+						contact{" "}
+					</>
+				) : (
+					<>
+						If {flags.length === 1 ? "this flag needs" : "any flags need"} to be
+						enabled, contact{" "}
+					</>
+				)}
 				<a
 					href={`mailto:${report.support_email}`}
 					className="text-nova-violet-bright hover:underline"
@@ -1012,7 +1033,7 @@ function featureFlagNoticeMessage(
 	mode: "upload" | "download" | "prepublish" | "domain-check",
 ): string {
 	if (mode === "download" || mode === "prepublish") {
-		return "The destination project space needs these feature flags before workers use the app. That space hasn't been checked. If the flags aren't enabled, workers might not see the features or might get an error.";
+		return "The destination project space hasn't been checked. It needs the feature flags below before workers use the app. If they aren't enabled, workers might not see these features or might get an error.";
 	}
 
 	const target = report.target_domain
@@ -1047,7 +1068,7 @@ function featureFlagNoticeTitle(
 	mode: "upload" | "download" | "prepublish" | "domain-check",
 ): string {
 	if (mode === "download" || mode === "prepublish") {
-		return "Feature flags needed in CommCare HQ";
+		return "This app uses CommCare HQ feature flags";
 	}
 	if (report.missing_flags.length > 0) {
 		return report.unverified_flags.length > 0

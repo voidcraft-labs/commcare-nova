@@ -137,7 +137,7 @@ describe("PublishDialog", () => {
 		expect(screen.queryByRole("tab", { name: "CommCare HQ" })).toBeNull();
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
-		await screen.findByText("Feature flags needed in CommCare HQ");
+		await screen.findByText("This app uses CommCare HQ feature flags");
 	});
 
 	it("keeps HQ requirements hidden until HQ is connected and offers recovery", async () => {
@@ -157,7 +157,7 @@ describe("PublishDialog", () => {
 		).toBeTruthy();
 		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
 		expect(
-			screen.queryByText("Feature flags needed in CommCare HQ"),
+			screen.queryByText("This app uses CommCare HQ feature flags"),
 		).toBeNull();
 		const settings = screen.getByRole("link", { name: "Open Settings" });
 		expect(settings.getAttribute("href")).toBe("/settings");
@@ -167,7 +167,7 @@ describe("PublishDialog", () => {
 		expect(onRefreshHqConnection).toHaveBeenCalledOnce();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
-		await screen.findByText("Feature flags needed in CommCare HQ");
+		await screen.findByText("This app uses CommCare HQ feature flags");
 		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
 			undefined,
 			expect.any(AbortSignal),
@@ -175,7 +175,7 @@ describe("PublishDialog", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "CommCare HQ" }));
 		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
 		expect(
-			screen.queryByText("Feature flags needed in CommCare HQ"),
+			screen.queryByText("This app uses CommCare HQ feature flags"),
 		).toBeNull();
 	});
 
@@ -193,7 +193,14 @@ describe("PublishDialog", () => {
 		const { props } = renderDialog();
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
 
-		await screen.findByText("Feature flags needed in CommCare HQ");
+		await screen.findByText("This app uses CommCare HQ feature flags");
+		expect(screen.getByRole("status").textContent).toContain(
+			"The destination project space hasn't been checked",
+		);
+		expect(screen.getByRole("status").textContent).toContain(
+			"If this flag needs to be enabled",
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
 		expect(props.onDownloadJson).not.toHaveBeenCalled();
 		expect(screen.queryByText("search_claim")).toBeNull();
 		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
@@ -204,7 +211,9 @@ describe("PublishDialog", () => {
 		);
 
 		await screen.findByText("Web app file downloaded");
-		expect(screen.getByText(/That space hasn't been checked/i)).toBeTruthy();
+		expect(
+			screen.getByText(/destination project space hasn't been checked/i),
+		).toBeTruthy();
 		expect(screen.queryByText("search_claim")).toBeNull();
 		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
 		expect(screen.queryByText(/isn't enabled/i)).toBeNull();
@@ -252,13 +261,13 @@ describe("PublishDialog", () => {
 
 		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
 		expect(
-			screen.queryByText("Feature flags needed in CommCare HQ"),
+			screen.queryByText("This app uses CommCare HQ feature flags"),
 		).toBeNull();
 		fireEvent.click(screen.getByRole("combobox", { name: "Project space" }));
 		fireEvent.click(await screen.findByRole("option", { name: "Alpha Space" }));
 
 		expect(
-			screen.queryByText("Feature flags needed in CommCare HQ"),
+			screen.queryByText("This app uses CommCare HQ feature flags"),
 		).toBeNull();
 		expect(
 			screen.getByText("Checking feature flags for this project space"),
@@ -279,6 +288,30 @@ describe("PublishDialog", () => {
 			);
 		});
 		await screen.findByText("Feature flags are ready");
+	});
+
+	it("keeps an inconclusive HQ check informational", async () => {
+		const inconclusiveReport: HqFeatureFlagReport = {
+			...prepublishReport,
+			verification: "unavailable",
+			target_domain: "project-space",
+			missing_flags: [],
+			unverified_flags: [caseSearch],
+			message:
+				"CommCare HQ could not confirm whether Simple Case Search is enabled for the project-space project space.",
+		};
+		renderDialog({
+			onLoadFeatureFlags: vi.fn(async () => ({
+				ok: true as const,
+				report: inconclusiveReport,
+			})),
+		});
+
+		await screen.findByText("Feature flag check incomplete");
+		expect(screen.getByRole("status").textContent).toContain(
+			"CommCare HQ couldn't confirm",
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
 	it("surfaces flags HQ confirmed missing after a successful upload", async () => {
@@ -307,6 +340,8 @@ describe("PublishDialog", () => {
 		await screen.findByText("Feature flags are ready");
 		fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
 		await screen.findByText("Feature flags aren't enabled");
+		expect(screen.getByRole("alert")).toBeTruthy();
+		expect(screen.queryByRole("status")).toBeNull();
 		expect(
 			screen.getByText(/isn't enabled for the “project-space” project space/i),
 		).toBeTruthy();
@@ -354,7 +389,7 @@ describe("PublishDialog", () => {
 
 		render(<Harness />);
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
-		await screen.findByText("Feature flags needed in CommCare HQ");
+		await screen.findByText("This app uses CommCare HQ feature flags");
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);
