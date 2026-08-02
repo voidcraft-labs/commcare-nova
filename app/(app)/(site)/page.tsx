@@ -116,7 +116,7 @@ function InvitationsBanner({ count }: { count: number }) {
 function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 	return (
 		<div className="flex flex-col items-center text-center">
-			<h1 className="text-3xl font-display font-semibold mb-3">
+			<h1 className="text-3xl font-display font-semibold tracking-tighter mb-3">
 				{canCreateApp ? "Build your first app" : "No apps yet"}
 			</h1>
 			<p className="text-nova-text-muted mb-8 max-w-md">

@@ -39,16 +39,16 @@ export function AdminContentSkeleton() {
 			<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 				{/* Stat card skeletons: first card is the primary count (no subtitle),
             remaining two include a subtitle line to match the real layout. */}
-				<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+				<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 					<Skeleton className="w-20 h-3" />
 					<Skeleton className="w-24 h-9 mt-2" />
 				</div>
-				<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+				<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 					<Skeleton className="w-20 h-3" />
 					<Skeleton className="w-24 h-9 mt-2" />
 					<Skeleton className="w-16 h-3 mt-1.5" />
 				</div>
-				<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+				<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 					<Skeleton className="w-20 h-3" />
 					<Skeleton className="w-24 h-9 mt-2" />
 					<Skeleton className="w-16 h-3 mt-1.5" />
@@ -61,7 +61,7 @@ export function AdminContentSkeleton() {
 				<div className="w-full h-10 bg-nova-deep border border-nova-border rounded-lg" />
 
 				{/* Table */}
-				<div className="rounded-xl border border-nova-border overflow-hidden">
+				<div className="rounded-lg border border-nova-border overflow-hidden">
 					{/* Header row: widths mirror the 7 real table columns */}
 					<div className="flex gap-4 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
 						{ADMIN_TABLE_HEADER_WIDTHS.map(({ id, width }) => (

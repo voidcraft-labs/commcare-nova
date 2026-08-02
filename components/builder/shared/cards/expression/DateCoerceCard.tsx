@@ -34,8 +34,8 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** Both coercion operators read a text-shaped or date-shaped operand
- * : module-const for a stable identity across renders. */
+/** Both coercion operators read a text-shaped or date-shaped operand:
+ * module-const for a stable identity across renders. */
 const OPERAND_CONSTRAINT = coerceOperandConstraint();
 
 /** Default `date-coerce`: `date-coerce(literal(""))`. The empty

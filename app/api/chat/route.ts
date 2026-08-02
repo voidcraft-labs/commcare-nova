@@ -1189,8 +1189,8 @@ export async function POST(req: Request) {
 
 					const deadline = Date.now() + CLAIM_WAIT_MAX_MS;
 					let claimError: unknown;
-					/* A gate rejection from a WON poll (concurrency cap / out of credits)
-					 *: terminal for this POST, and it held nothing (the claim+reserve
+					/* A gate rejection from a WON poll (concurrency cap / out of credits):
+					 * terminal for this POST, and it held nothing (the claim+reserve
 					 * transaction rolled back). */
 					let gateBail:
 						| {

@@ -234,8 +234,8 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// Arithmetic card label appears on the right-side expression
-		//: the registry surfaced the arith arm via its dedicated
+		// Arithmetic card label appears on the right-side expression:
+		// the registry surfaced the arith arm via its dedicated
 		// card rather than through the old badge.
 		expect(container.textContent).toMatch(/Math/i);
 		expect(onChange).not.toHaveBeenCalled();

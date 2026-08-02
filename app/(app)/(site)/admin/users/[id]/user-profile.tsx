@@ -28,7 +28,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 	const isSelf = session?.user?.id === userId;
 
 	return (
-		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+		<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-4">
 					{user.image ? (
@@ -47,7 +47,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 					<div>
 						<h2
 							data-user-content
-							className="text-lg font-display font-semibold"
+							className="text-lg font-display font-semibold tracking-tighter"
 						>
 							{user.name}
 						</h2>

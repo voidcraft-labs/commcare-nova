@@ -357,8 +357,8 @@ function rangeFromSource(value: Predicate): {
 // ── Reseed helpers ────────────────────────────────────────────────
 //
 // Changing the verb carries the subject (and the value where the
-// target holds one), but the carried VALUE may not fit the new shape
-//: `is any of` over an int subject can't seed a text literal, a
+// target holds one), but the carried VALUE may not fit the new shape:
+// `is any of` over an int subject can't seed a text literal, a
 // fuzzy-date value can't carry into a fuzzy match. Each builder reseeds
 // a now-incompatible carried object in the same step so the emitted
 // predicate is valid by construction. The subject-type gate on the

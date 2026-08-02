@@ -84,8 +84,8 @@ export function EditableText({
 	const fontClass = mono ? "font-mono" : "";
 	// Recessed well matching the shared inspector input (INSPECTOR_INPUT_CLS).
 	// EditableText builds the focused class by hand rather than reusing that
-	// constant's `focus:` ring because a refused commit paints the border rose
-	//: the focus pseudo-class would otherwise repaint it violet.
+	// constant's `focus:` ring because a refused commit paints the border rose:
+	// the focus pseudo-class would otherwise repaint it violet.
 	const baseCls = `w-full min-h-11 text-[13px] ${fontClass} rounded-lg px-3 border outline-none transition-colors ${shakeProps.className}`;
 	const focusedCls = `${baseCls} bg-nova-deep/50 text-nova-text ${
 		rejection

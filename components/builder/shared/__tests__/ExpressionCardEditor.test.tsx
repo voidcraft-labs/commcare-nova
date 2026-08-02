@@ -182,8 +182,8 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 	});
 
 	it("renders a `count` card with a where clause that pins the destination scope", () => {
-		// `count(subcasePath("parent"), eq(prop("visit", "kind"), ...))`
-		//: the where-clause property reference resolves against the
+		// `count(subcasePath("parent"), eq(prop("visit", "kind"), ...))`:
+		// the where-clause property reference resolves against the
 		// destination scope (`visit`, the subcase walk's destination).
 		// The editor flips `currentCaseType` for the inner clause.
 		const value = count(subcasePath("parent"));

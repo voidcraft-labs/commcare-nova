@@ -63,8 +63,8 @@ interface LiteralValueInputProps {
 	/**
 	 * The case-type-property this input is constrained to. Drives
 	 * the `data_type` lookup and the option list (for select-typed
-	 * properties). Pass undefined when no property is selected yet
-	 *: the input renders a disabled placeholder.
+	 * properties). Pass undefined when no property is selected yet:
+	 * the input renders a disabled placeholder.
 	 */
 	readonly caseTypeName: string;
 	readonly propertyName: string | undefined;

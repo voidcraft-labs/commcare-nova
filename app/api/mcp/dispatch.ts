@@ -8,8 +8,8 @@
  * computed `${basePath}/mcp` endpoint. The route shim in `route.ts`
  * synthesizes a new Request with URL `/api/auth/mcp` before handing
  * it to Better Auth's `auth.handler`, so by the time the request
- * reaches `dispatchMcpTools` the pathname is always `/api/auth/mcp`
- *: independent of wire path. Hence `basePath: "/api/auth"` here is
+ * reaches `dispatchMcpTools` the pathname is always `/api/auth/mcp`:
+ * independent of wire path. Hence `basePath: "/api/auth"` here is
  * a stable literal; no more dev-vs-prod branching on
  * `MCP_RESOURCE_PATH`.
  *

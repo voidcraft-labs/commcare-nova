@@ -12,7 +12,7 @@ import { AdminContentSkeleton } from "./skeletons";
 export default function AdminDashboardPage() {
 	return (
 		<main className="max-w-6xl mx-auto px-6 py-12">
-			<h1 className="text-2xl font-display font-semibold mb-8">
+			<h1 className="text-2xl font-display font-semibold tracking-tighter mb-8">
 				Admin dashboard
 			</h1>
 

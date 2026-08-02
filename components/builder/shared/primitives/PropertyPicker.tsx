@@ -80,8 +80,8 @@ interface PropertyPickerProps {
 	/** Optional whole-rule admission for a concrete property choice. */
 	readonly admit?: (property: CaseProperty) => ExpressionChangeAdmission;
 	/**
-	 * Optional accessibility label override. Defaults to "Case information"
-	 *: cards that have multiple property slots (none today, but
+	 * Optional accessibility label override. Defaults to "Case information":
+	 * cards that have multiple property slots (none today, but
 	 * the contract is forward-looking) can disambiguate via the
 	 * override.
 	 */

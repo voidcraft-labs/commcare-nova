@@ -91,8 +91,8 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 		// The mapped-type `Record<Predicate["kind"], ...>` enforces
 		// this at compile time, but the runtime guard catches an
 		// `as` cast bypassing the type system. The check reads
-		// each entry's `kind` field and confirms the key matches
-		//: drift between key + entry would be an authoring bug.
+		// each entry's `kind` field and confirms the key matches:
+		// drift between key + entry would be an authoring bug.
 		for (const kind of Object.keys(
 			predicateCardSchemas,
 		) as Predicate["kind"][]) {

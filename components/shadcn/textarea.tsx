@@ -13,8 +13,8 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
 		<textarea
 			data-slot="textarea"
 			className={cn(
-				"flex field-sizing-content min-h-16 w-full rounded-lg border border-nova-border-bright bg-nova-violet/[0.09] px-3.5 py-2.5 text-[15px] transition-colors outline-none",
-				"not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] placeholder:text-nova-text-muted",
+				"flex field-sizing-content min-h-16 w-full rounded-lg border border-nova-border bg-nova-violet/[0.09] px-3.5 py-2.5 text-[15px] transition-colors outline-none",
+				"not-disabled:not-focus-visible:hover:border-nova-border-bright not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] placeholder:text-nova-text-muted",
 				"nova-focusable",
 				"disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)",
 				"aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",

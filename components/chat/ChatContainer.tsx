@@ -1521,8 +1521,8 @@ export function ChatContainer({
 	 * reached a run gives the escape hatch back. */
 	const agentEngaged = messages.length > 0 && !sendFailedBeforeApp;
 
-	/* Only on a brand-new build, and only where the composer itself is offered
-	 *: a surface that can't send can't create either. `/build/new` is seeded
+	/* Only on a brand-new build, and only where the composer itself is offered:
+	 * a surface that can't send can't create either. `/build/new` is seeded
 	 * from the active Project's server-resolved role, so a viewer never sees this
 	 * authoring action; the create route remains the enforcement authority. */
 	const showFromScratch = centered && !isExistingApp && !readOnly;

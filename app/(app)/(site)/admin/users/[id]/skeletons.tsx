@@ -30,7 +30,7 @@ const APP_CARD_KEYS = ["app-a", "app-b", "app-c"] as const;
 /** Profile card skeleton: matches avatar + name + email + dates + badge. */
 export function ProfileSkeleton() {
 	return (
-		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+		<div className="bg-nova-surface border border-nova-border rounded-lg p-6">
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-4">
 					<Skeleton className="rounded-full w-12 h-12" />
@@ -58,7 +58,7 @@ export function CreditsSkeleton() {
 	return (
 		<section className="space-y-4">
 			<Skeleton className="w-20 h-5" />
-			<div className="bg-nova-deep border border-nova-border rounded-xl p-6 space-y-6">
+			<div className="bg-nova-surface border border-nova-border rounded-lg p-6 space-y-6">
 				{/* Headline balance + supporting figures */}
 				<div className="flex flex-wrap items-end justify-between gap-6">
 					<div className="space-y-2">
@@ -87,7 +87,7 @@ export function UsageSkeleton() {
 	return (
 		<section>
 			<Skeleton className="w-32 h-5 mb-4" />
-			<div className="rounded-xl border border-nova-border overflow-hidden">
+			<div className="rounded-lg border border-nova-border overflow-hidden">
 				{/* Header row: widths mirror real usage table columns */}
 				<div className="flex gap-8 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
 					{USAGE_HEADER_WIDTHS.map(({ id, width }) => (

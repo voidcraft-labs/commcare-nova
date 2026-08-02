@@ -38,7 +38,9 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 
 	return (
 		<section>
-			<h3 className="text-lg font-display font-semibold mb-4">Usage history</h3>
+			<h3 className="text-lg font-display font-semibold tracking-tighter mb-4">
+				Usage history
+			</h3>
 			{usage.length === 0 ? (
 				<p className="text-sm text-nova-text-secondary">
 					No usage recorded yet.

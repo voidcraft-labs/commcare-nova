@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
 		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
 
-		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical
-		//: it's the artifact the user hands to HQ, and HQ's importer owns its
+		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical:
+		// it's the artifact the user hands to HQ, and HQ's importer owns its
 		// version slots. The blueprint's `mutation_seq` rides out-of-band in the
 		// `X-Compiled-At-Seq` response header so the export still names its
 		// document version without perturbing the body.

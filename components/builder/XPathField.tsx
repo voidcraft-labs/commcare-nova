@@ -663,8 +663,8 @@ function InlineXPathEditor({
 					const errors = getErrorsRef.current();
 					if (errors.length > 0) {
 						/* If the edit guard already warned on this interaction (user
-						 * clicked a navigation target), skip the duplicate shake/tooltip
-						 *: the guard already provided the visual feedback. */
+						 * clicked a navigation target), skip the duplicate shake/tooltip:
+						 * the guard already provided the visual feedback. */
 						if (!warnedRef.current) {
 							shakeRef.current();
 							setTooltipMessage(errors[0]);

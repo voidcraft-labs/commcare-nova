@@ -195,16 +195,18 @@ export function CreditControls({
 
 	return (
 		<section className="space-y-4">
-			<h3 className="text-lg font-display font-semibold">Credits</h3>
+			<h3 className="text-lg font-display font-semibold tracking-tighter">
+				Credits
+			</h3>
 
-			<div className="bg-nova-deep border border-nova-border rounded-xl p-6 space-y-6">
+			<div className="bg-nova-surface border border-nova-border rounded-lg p-6 space-y-6">
 				{/* ── Balance summary: remaining is the headline figure ───────── */}
 				<div className="flex flex-wrap items-end justify-between gap-6">
 					<div>
 						<p className="text-xs font-medium text-nova-text-muted">
 							Remaining this month
 						</p>
-						<p className="mt-1 text-3xl font-display font-semibold tabular-nums">
+						<p className="mt-1 text-3xl font-display font-semibold tracking-tighter tabular-nums">
 							{credits.balance.toLocaleString()}
 						</p>
 						<p className="mt-1 text-sm text-nova-text-muted">
@@ -381,7 +383,7 @@ export function CreditControls({
 
 			{/* ── Audit trail: every reset/grant, newest first ──────────────── */}
 			<div>
-				<h4 className="text-sm font-display font-semibold text-nova-text-secondary mb-3">
+				<h4 className="text-sm font-display font-semibold tracking-tighter text-nova-text-secondary mb-3">
 					Credit interventions
 				</h4>
 				{grants.length === 0 ? (

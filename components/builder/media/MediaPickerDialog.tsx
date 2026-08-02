@@ -11,8 +11,8 @@
 // The dialog serves slots that allow ONE kind (a module icon, the app
 // logo) and slots that allow several (a question's display media can
 // be image / audio / video). When more than one kind is allowed the
-// Library tab shows a type filter, and Upload accepts any allowed kind
-//: the picked file's sniffed kind routes it to the right sub-slot in
+// Library tab shows a type filter, and Upload accepts any allowed kind:
+// the picked file's sniffed kind routes it to the right sub-slot in
 // the carrier. The dialog speaks only `MediaAssetView` to its caller;
 // the carrier decides what to store (the asset id).
 

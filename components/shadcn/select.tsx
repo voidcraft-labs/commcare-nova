@@ -52,7 +52,7 @@ function SelectTrigger({
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			className={cn(
-				"nova-focusable flex w-fit justify-between gap-1.5 rounded-lg border border-nova-border-bright bg-nova-violet/[0.09] py-2 pr-2.5 pl-3.5 text-sm transition-colors outline-none select-none not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-nova-text-muted *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"nova-focusable flex w-fit justify-between gap-1.5 rounded-lg border border-nova-border bg-nova-violet/[0.09] py-2 pr-2.5 pl-3.5 text-sm transition-colors outline-none select-none not-disabled:not-focus-visible:hover:border-nova-border-bright not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-nova-text-muted *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				// A wrapping trigger grows past its fixed height, but it still
 				// CENTERS its value and chevron: an authored value that happens
 				// to fit on one line must not sit top-heavy in a trigger sized by

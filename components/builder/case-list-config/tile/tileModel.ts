@@ -1,7 +1,7 @@
 // components/builder/case-list-config/tile/tileModel.ts
 //
-// The pure placement model behind the tile layout editor. Every gesture
-//: a pointer drag, an arrow key, a typed number, a preset, resolves to
+// The pure placement model behind the tile layout editor. Every gesture:
+// a pointer drag, an arrow key, a typed number, a preset, resolves to
 // the same verdict here: one placement, or one refusal stated in the
 // author's words. The editor never lands a refused placement, which is
 // what keeps the `CASE_LIST_TILE_*` validator findings unreachable from

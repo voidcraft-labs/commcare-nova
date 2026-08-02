@@ -1,7 +1,7 @@
 // components/builder/shared/cards/MatchCard.tsx
 //
-// Renders the `match` predicate. Property dropdown (text-shaped or
-//: for `fuzzy-date`, date / datetime), value input (typed by
+// Renders the `match` predicate. Property dropdown (text-shaped or:
+// for `fuzzy-date`, date / datetime), value input (typed by
 // the property), and mode dropdown (fuzzy / phonetic / fuzzy-date
 // / starts-with).
 
@@ -125,8 +125,8 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 			? MATCH_FUZZY_DATE_FILTER
 			: MATCH_TEXT_SHAPED_FILTER;
 
-	// The value slot takes a non-empty term whose type the mode admits
-	//: `matchValueConstraint` carries the mode's allow-list, the
+	// The value slot takes a non-empty term whose type the mode admits:
+	// `matchValueConstraint` carries the mode's allow-list, the
 	// term-only flag (the wire match emitter consumes terms), and the
 	// non-empty flag (every mode collapses an empty value to a
 	// non-match). Memoized on the mode so the term editor's source

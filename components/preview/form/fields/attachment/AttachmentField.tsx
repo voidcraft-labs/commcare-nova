@@ -53,8 +53,8 @@ import { SignaturePad } from "./SignaturePad";
  *
  * ## What this deliberately does NOT show
  *
- * No thumbnail, no playback, no way to reopen the file. That is not a gap
- *: it is what CommCare Web Apps shows. `entry_file.html` is a Browse
+ * No thumbnail, no playback, no way to reopen the file. That is not a gap:
+ * it is what CommCare Web Apps shows. `entry_file.html` is a Browse
  * button, a filename text node, and a Clear button; there is no `<img>`,
  * no `<audio>`, no `<video>`, and Formplayer declares no route that serves
  * a staged capture back (`FormController` has one GET mapping,

@@ -56,8 +56,8 @@ export interface ColumnWrites {
 		wireName: string,
 		expectedTableRevision: LookupRevision,
 	) => Promise<boolean>;
-	/** Resolves `null` when the change landed, or the refusal that stopped it
-	 * : the dialog renders its blocking apps. */
+	/** Resolves `null` when the change landed, or the refusal that stopped it:
+	 * the dialog renders its blocking apps. */
 	readonly removeColumn: (
 		column: LookupColumn,
 		expectedTableRevision: LookupRevision,

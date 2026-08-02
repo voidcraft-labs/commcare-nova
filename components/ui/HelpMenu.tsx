@@ -19,6 +19,7 @@ import {
 	FLOATING_LAYER_CLS,
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
+	POPOVER_ROW_CLS,
 } from "@/lib/styles";
 
 const FEEDBACK_FORM_URL =
@@ -33,8 +34,7 @@ const DOCS_HREF =
 		? "/docs"
 		: "https://docs.commcare.app/";
 
-const ITEM_CLS =
-	"flex min-h-11 w-full items-center gap-2.5 px-3 text-sm text-nova-text transition-colors hover:bg-white/[0.06] cursor-pointer";
+const ITEM_CLS = POPOVER_ROW_CLS;
 
 export function HelpMenu() {
 	const [open, setOpen] = useState(false);

@@ -128,7 +128,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 					/>
 				</div>
 				<div className="min-w-0">
-					<h2 className="text-base font-display font-semibold text-nova-text">
+					<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 						Connected applications
 					</h2>
 					<p className="text-xs text-nova-text-muted">
@@ -373,7 +373,7 @@ function EmptyState() {
 			<p className="text-sm text-nova-text">No connected applications</p>
 			<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
 				Apps appear here after you authorize them via OAuth, for example when
-				you connect a coding agent.
+				you connect a coding agent
 			</p>
 		</div>
 	);

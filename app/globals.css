@@ -658,7 +658,7 @@ body {
    `components/shadcn/button.tsx` composes these; a call-site className
    may set layout (width, margin, grid placement), never anatomy. */
 .nova-keycap {
-	transition: all 0.15s var(--ease-default);
+	transition: all var(--duration-default) var(--ease-default);
 }
 .nova-keycap:active:not(:disabled):not([data-disabled]) {
 	transform: translateY(var(--key-wall));

@@ -288,7 +288,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 						/>
 					</div>
 					<div className="min-w-0 flex-1">
-						<h2 className="text-base font-display font-semibold text-nova-text">
+						<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 							API keys
 						</h2>
 						<p className="text-xs text-nova-text-muted">
@@ -674,7 +674,7 @@ function EmptyState() {
 			<div className="space-y-1">
 				<p className="text-sm text-nova-text">No API keys yet</p>
 				<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
-					Mint one to connect a tool to Nova on your behalf.
+					Mint one to connect a tool to Nova on your behalf
 				</p>
 			</div>
 		</div>

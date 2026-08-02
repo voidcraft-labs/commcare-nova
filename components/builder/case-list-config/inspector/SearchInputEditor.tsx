@@ -931,8 +931,8 @@ interface BindingPickerProps {
  * separate control, no walk vocabulary.
  *
  * A row whose walk was authored elsewhere with a shape this picker
- * can't express (a child-case walk, a multi-step walk) keeps working
- *: the picker says so in plain words and offers the way back.
+ * can't express (a child-case walk, a multi-step walk) keeps working:
+ * the picker says so in plain words and offers the way back.
  */
 function BindingPicker({
 	row,

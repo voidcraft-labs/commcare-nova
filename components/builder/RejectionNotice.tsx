@@ -17,8 +17,8 @@ import { AnimatePresence, motion } from "motion/react";
  *   speaks person-to-person prose; a wall of rose text reads as scolding,
  *   calm neutral reads as explanation.
  * - The user's draft is always still in the input when one of these
- *   shows (the `useCommitField` contract), so the label says "Not saved"
- *  : present state, not accusation.
+ *   shows (the `useCommitField` contract), so the label says "Not saved":
+ * present state, not accusation.
  */
 
 interface RejectionBodyProps {

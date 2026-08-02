@@ -31,7 +31,9 @@ export default async function SettingsPage() {
 
 	return (
 		<main className="max-w-2xl mx-auto px-6 py-12">
-			<h1 className="text-2xl font-display font-semibold mb-8">Settings</h1>
+			<h1 className="text-2xl font-display font-semibold tracking-tighter mb-8">
+				Settings
+			</h1>
 			<div className="space-y-6">
 				<CommCareSettings
 					initial={initialSettings}

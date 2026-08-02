@@ -38,8 +38,8 @@ import {
  *
  * A drawing surface cannot be operated by keyboard, so the pad is not the
  * only way to answer: `Clear` is a real button, and the surface itself is
- * reachable and describable. This is the honest limit of the interaction
- *: a signature is a physical gesture, and it matches the device, where
+ * reachable and describable. This is the honest limit of the interaction:
+ * a signature is a physical gesture, and it matches the device, where
  * the canvas is equally pointer-only. What must NOT happen is the pad
  * silently swallowing focus with no way out, so it is focusable and followed
  * by ordinary keyboard actions.

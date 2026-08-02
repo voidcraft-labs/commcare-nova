@@ -17,7 +17,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
-import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
 	PopoverContent,
@@ -29,6 +28,7 @@ import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { ASSET_KINDS } from "@/lib/domain/multimedia";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { getInitials } from "@/lib/utils";
 
 /**
@@ -127,8 +127,8 @@ export function AccountMenu({
 	/* Hold the placeholder until mounted to avoid an SSR/client hydration
 	 * mismatch: the auth client resolves the session synchronously on the client
 	 * (`isPending` false on first paint) while SSR has none (`isPending` true),
-	 * so the server renders the placeholder and the client would render the menu
-	 *: a mismatch React has to discard. Gating the first client render on mount
+	 * so the server renders the placeholder and the client would render the menu:
+	 * a mismatch React has to discard. Gating the first client render on mount
 	 * makes it match the server, then it swaps to the resolved menu. */
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => {
@@ -227,45 +227,40 @@ export function AccountMenu({
 						 *  entry to it outside the chat composer's attach flow. Close
 						 *  the menu first, then open the dialog (a sibling of this
 						 *  Popover, so it outlives the menu). */}
-						<Button
+						<button
 							type="button"
-							variant="ghost"
 							onClick={() => {
 								setOpen(false);
 								setFileManagerOpen(true);
 							}}
-							className="w-full justify-start gap-2.5 rounded-none px-3 dark:not-disabled:hover:bg-white/[0.06]"
+							className={POPOVER_ROW_CLS}
 						>
 							<Icon icon={tablerFiles} width="16" height="16" />
 							Files
-						</Button>
+						</button>
 
 						{/* ── Settings link ────────────────────────────── */}
-						<Button
-							render={<Link href="/settings" />}
-							nativeButton={false}
-							role="link"
-							variant="ghost"
+						<Link
+							href="/settings"
 							onClick={() => setOpen(false)}
-							className="w-full justify-start gap-2.5 rounded-none px-3 dark:not-disabled:hover:bg-white/[0.06]"
+							className={POPOVER_ROW_CLS}
 						>
 							<Icon icon={tablerSettings} width="16" height="16" />
 							Settings
-						</Button>
+						</Link>
 
 						{/* ── Divider ────────────────────────────────────── */}
 						<div className="border-t border-white/[0.06]" />
 
 						{/* ── Sign out ──────────────────────────────────── */}
 						<div>
-							<Button
+							<button
 								type="button"
-								variant="ghost"
 								onClick={() => {
 									signOut();
 									setOpen(false);
 								}}
-								className="w-full justify-start gap-2.5 rounded-t-none rounded-b-xl px-3 not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.06]"
+								className={`${POPOVER_ROW_CLS} rounded-b-xl not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose`}
 							>
 								<Icon
 									icon={tablerLogout}
@@ -274,7 +269,7 @@ export function AccountMenu({
 									className="transition-colors"
 								/>
 								Sign out
-							</Button>
+							</button>
 						</div>
 					</div>
 				</PopoverContent>

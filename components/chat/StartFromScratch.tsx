@@ -5,8 +5,8 @@
  * It shares the centered column with the hero logo and the chat card, so its
  * presence pushes the chat above true center. Sending a message is the user
  * choosing the SA instead: the card collapses (`height → 0`) and the column,
- * being `justify-center`, reflows the logo + chat back to center every frame
- *: no layout animation to coordinate, and nothing to race.
+ * being `justify-center`, reflows the logo + chat back to center every frame:
+ * no layout animation to coordinate, and nothing to race.
  *
  * While it animates out the button stays visually enabled ON PURPOSE. The
  * click is already inert (the parent latches the moment the message is sent),

@@ -219,7 +219,7 @@ export function CommCareSettings({
 					/>
 				</div>
 				<div className="min-w-0">
-					<h2 className="text-base font-display font-semibold text-nova-text">
+					<h2 className="text-base font-display font-semibold tracking-tighter text-nova-text">
 						CommCare HQ
 					</h2>
 					<p className="text-xs text-nova-text-muted">
@@ -298,7 +298,7 @@ export function CommCareSettings({
 						{!fieldsLocked && (
 							<span className="text-xs text-nova-text-muted">
 								Pick where your CommCare account lives: an API key only works on
-								the server that issued it.
+								the server that issued it
 							</span>
 						)}
 					</div>

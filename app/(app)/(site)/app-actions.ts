@@ -65,8 +65,8 @@ export type MoveAppResult =
 
 /**
  * Discriminated authorization result. Returns the same `App not found`
- * message whether the row is genuinely missing or owned by another user
- *: surfacing a different message on cross-tenant probes would leak
+ * message whether the row is genuinely missing or owned by another user:
+ * surfacing a different message on cross-tenant probes would leak
  * existence information about other users' apps.
  */
 type AuthResult = { ok: true } | { ok: false; error: string };

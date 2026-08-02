@@ -116,8 +116,8 @@ export function SwitchCard({
 	constraint = ANY_CONSTRAINT,
 }: SwitchCardProps) {
 	// Per-slot errors at `[..., "switch", "on" | "fallback"]` render
-	// via the matching `ExpressionPicker` shells' `CardShell` footers
-	//: no parallel `<InlineError>` is needed here. The `[...,
+	// via the matching `ExpressionPicker` shells' `CardShell` footers:
+	// no parallel `<InlineError>` is needed here. The `[...,
 	// "switch", "cases", i, "when"]` errors fall on the inner `when`
 	// literal input (which has no shell of its own), so the per-row
 	// `InlineError` for `whenErrors` STAYS in `CaseRow`.

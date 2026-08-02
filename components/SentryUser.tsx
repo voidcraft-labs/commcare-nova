@@ -2,8 +2,8 @@
 
 /**
  * Attaches the signed-in user to the Sentry browser scope so client-side
- * errors: error-boundary catches, unhandled rejections, the replay session
- *: are attributed to a person (name + email) rather than just an IP.
+ * errors: error-boundary catches, unhandled rejections, the replay session:
+ * are attributed to a person (name + email) rather than just an IP.
  *
  * Mounted once alongside `ErrorReporter` in the authenticated app layout.
  * Renders nothing: a pure side-effect component. The browser SDK runs with

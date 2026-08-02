@@ -323,8 +323,8 @@ export function canSeedColumnKind(
 /**
  * Resolve the effective `data_type` of the column's referenced
  * property against the editor context. Returns `undefined` when
- * the field references a property the case type doesn't declare
- *: the inline-validity surface uses this to render an "Unknown
+ * the field references a property the case type doesn't declare:
+ * the inline-validity surface uses this to render an "Unknown
  * property" hint without blocking the kind picker.
  *
  * Calculated columns have no `field` slot; callers must guard

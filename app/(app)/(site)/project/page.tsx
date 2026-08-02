@@ -43,7 +43,7 @@ export default async function ProjectSettingsPage() {
 				<p className="text-xs font-medium text-nova-text-muted">
 					Project settings
 				</p>
-				<h1 className="text-2xl font-display font-semibold">
+				<h1 className="text-2xl font-display font-semibold tracking-tighter">
 					{activeProject.name}
 				</h1>
 			</div>

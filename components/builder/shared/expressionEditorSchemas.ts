@@ -299,8 +299,8 @@ function applicableAlways(): boolean {
 /**
  * Per-kind editor schema keyed by `ValueExpression["kind"]`. The
  * mapped-type shape forces TypeScript to fail compilation if a new
- * kind lands in the ValueExpression union without a parallel entry
- *: the registry's exhaustivity is the structural guarantee that
+ * kind lands in the ValueExpression union without a parallel entry:
+ * the registry's exhaustivity is the structural guarantee that
  * the editor never silently bypasses a kind.
  */
 export const expressionCardSchemas: {

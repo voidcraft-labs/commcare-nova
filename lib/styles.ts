@@ -66,6 +66,22 @@ export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text da
 /** Disabled item: muted and non-interactive. */
 export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opacity) cursor-not-allowed`;
 
+/**
+ * A row inside a POPOVER that acts as a menu item.
+ *
+ * Base UI menus get their items from `MENU_ITEM_CLS` above, but the account,
+ * Project and Help menus are popovers whose rows are plain buttons and links.
+ * They are the same affordance and must read the same: the design system
+ * publishes one menu-item treatment (14px, `--nova-text`, a white/0.06
+ * highlight), and rendering one of the three through the Button primitive put
+ * a 15px secondary-coloured label beside two 14px ones in the same header.
+ *
+ * A full-bleed row is not a Button: it has no radius of its own and its
+ * highlight runs edge to edge, which is why it composes from the same base as
+ * the real menu items rather than from a variant.
+ */
+export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} rounded-none cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
+
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =
 	"nova-floating outline-none rounded-xl bg-nova-glass backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-nova-glass-border outline-1 shadow-glass";

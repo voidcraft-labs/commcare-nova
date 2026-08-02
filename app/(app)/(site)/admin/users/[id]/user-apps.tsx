@@ -18,7 +18,7 @@ export async function UserAppsSection({ userId }: UserAppsSectionProps) {
 
 	return (
 		<section>
-			<h3 className="text-lg font-display font-semibold mb-4">
+			<h3 className="text-lg font-display font-semibold tracking-tighter mb-4">
 				Apps ({apps.length})
 			</h3>
 			<AppCardList apps={apps} />

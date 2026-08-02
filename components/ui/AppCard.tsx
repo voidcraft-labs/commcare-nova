@@ -81,8 +81,8 @@ interface AppCardProps {
 /**
  * App card for live (non-deleted) rows. Used by the home active list
  * and the admin user-detail page. Each card owns its own delete state
- * (idle → confirming → deleting → unmount-on-success / error → idle)
- *: there is no parent-level orchestration. On a successful delete
+ * (idle → confirming → deleting → unmount-on-success / error → idle):
+ * there is no parent-level orchestration. On a successful delete
  * the Server Action's `revalidatePath` re-runs the parent RSC and the
  * card naturally unmounts when the row drops off the active query.
  *

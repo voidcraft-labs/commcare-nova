@@ -233,7 +233,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 			/>
 
 			{/* Table */}
-			<div className="rounded-xl border border-nova-border overflow-x-auto">
+			<div className="rounded-lg border border-nova-border overflow-x-auto">
 				<table className="w-full">
 					<thead>
 						{table.getHeaderGroups().map((headerGroup) => (
