@@ -17,7 +17,8 @@
  * Alignment: the mark's box is centered on the lowercase ink band, which
  * sits 0.132em below the line-box center in Outfit bold (baseline at
  * 0.875em with line-height 1, minus half the 0.486em x-height); the
- * translateY carries that offset.
+ * translateY carries that offset, bounded so the mark stays inside the
+ * line box it is set in.
  */
 
 const MARK_ENERGY =
@@ -30,18 +31,23 @@ const MARK_FLAT =
 	"radial-gradient(ellipse 50% 50% at 37% 34%,var(--nova-violet) 0 99%,rgba(150,120,242,0) 100%),var(--nova-dawn)";
 
 /**
- * One lockup, five sizes: the wordmark is ~1.3× the mark's diameter and the
- * gap ~0.35×, at every rung. `chrome` is the app's own header, sized so the
- * mark exactly fills the 44px control band every other header control stands
- * in; it is the largest rung because a header is the one place the logo is
- * asked to be the brand rather than an illustration.
+ * One lockup, five sizes. Four of them hold the illustration's proportion,
+ * where the wordmark is ~1.3× the mark's diameter and the gap ~0.35×.
+ *
+ * `chrome` is the app's own header, and it inverts that proportion on purpose.
+ * The mark is 44px because that is the control band every other header control
+ * stands in, and the wordmark does NOT come with it: scaled proportionally the
+ * type would be 57px, which makes the lockup taller than the buttons beside it
+ * and turns the header into a title card. Here the sphere is the brand and the
+ * word is its label, so the type stays near its reading size and the lockup is
+ * exactly as tall as a button.
  */
 const SIZES = {
 	sm: { font: 18, mark: 14, gap: 5 },
 	md: { font: 20, mark: 15, gap: 5 },
 	lg: { font: 30, mark: 23, gap: 8 },
 	hero: { font: 48, mark: 37, gap: 13 },
-	chrome: { font: 57, mark: 44, gap: 15 },
+	chrome: { font: 22, mark: 44, gap: 12 },
 } as const;
 
 /**
@@ -73,6 +79,14 @@ export function Logo({
 }) {
 	const s = SIZES[size];
 	const flat = variant === "flat" || s.mark < FULL_MARK_MIN;
+	/* The lockup aligns on the lowercase INK, never on the two boxes: the ink
+	 * band sits 0.132em below the text box's center, so centering the boxes
+	 * leaves the mark visibly high. Move whichever box has the room. The mark
+	 * drops when the type is the taller of the two; the type rises when the
+	 * mark is. Moving the wrong one carries it outside the lockup, which is how
+	 * a 44px mark ends up hanging below the header row it belongs to. */
+	const inkOffset = `${(0.132 * s.font).toFixed(1)}px`;
+	const markDrops = s.mark < s.font;
 
 	return (
 		<div
@@ -89,9 +103,8 @@ export function Logo({
 				style={{
 					width: s.mark,
 					height: s.mark,
-					transform: markOnly
-						? undefined
-						: `translateY(${(0.132 * s.font).toFixed(1)}px)`,
+					transform:
+						markOnly || !markDrops ? undefined : `translateY(${inkOffset})`,
 				}}
 			>
 				{flat ? (
@@ -128,7 +141,13 @@ export function Logo({
 			{/* One lockup, one line: without this the two tones wrap onto
 			    separate lines in a narrow header and the mark reads as a
 			    stacked logo it is not. */}
-			<span className={markOnly ? "sr-only" : "whitespace-nowrap"}>
+			<span
+				className={markOnly ? "sr-only" : "whitespace-nowrap"}
+				style={{
+					transform:
+						markOnly || markDrops ? undefined : `translateY(-${inkOffset})`,
+				}}
+			>
 				<span className="text-nova-text">commcare </span>
 				<span className="text-nova-violet-bright">nova</span>
 			</span>
