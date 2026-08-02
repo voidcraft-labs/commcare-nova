@@ -57,7 +57,7 @@ export interface ConvertImpactRequest {
 }
 
 /** What saved values would have to become, per destination type, the
- *  plural noun the "can’t become …" sentence hangs on. Sentence
+ *  plural noun the "can't become …" sentence hangs on. Sentence
  *  vocabulary only: the property CHIP keeps announcing data-review's
  *  `DATA_TYPE_LABELS`, so the same chip reads identically on every
  *  surface that renders it. */
@@ -174,7 +174,7 @@ export function ConvertImpactDialog({
 				answer({
 					kind: "error",
 					message:
-						err instanceof Error ? err.message : "The check didn’t complete.",
+						err instanceof Error ? err.message : "The check didn't complete.",
 				});
 			},
 		);
@@ -266,14 +266,14 @@ export function ConvertImpactDialog({
 								icon={DATA_TYPE_ICONS[request.fromType]}
 								iconLabel={DATA_TYPE_LABELS[request.fromType]}
 							/>{" "}
-							can’t become {noun}. Each one moves to Data to review, and its
+							can't become {noun}. Each one moves to Data to review, and its
 							case is held out of the app until you decide it there. Convert
 							back and the values return automatically.
 						</AlertDialogDescription>
 					)}
 					{state.kind === "error" && (
 						<AlertDialogDescription className="text-left">
-							Nova couldn’t check what this conversion would do to saved data.{" "}
+							Nova couldn't check what this conversion would do to saved data.{" "}
 							{state.message}
 						</AlertDialogDescription>
 					)}

@@ -680,7 +680,7 @@ export function useParkedValues(args: {
 		...args,
 		fetcher: loadParkedValuesAction,
 		settledKind: "entries",
-		errorMessage: "Couldn’t load the data to review.",
+		errorMessage: "Couldn't load the data to review.",
 	});
 }
 

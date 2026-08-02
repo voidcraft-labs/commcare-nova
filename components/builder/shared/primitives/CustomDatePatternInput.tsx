@@ -439,5 +439,5 @@ function unsupportedPatternMessage(
 ): string {
 	return problem.escape === undefined
 		? "Finish the date piece after % or remove it"
-		: `${problem.escape} isn’t a date piece. Choose another piece or remove it`;
+		: `${problem.escape} isn't a date piece. Choose another piece or remove it`;
 }

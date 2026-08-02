@@ -713,7 +713,7 @@ describe("CaseListScreen — empty case type", () => {
 
 		expect(
 			await screen.findByText(
-				"No cases match this app’s availability settings",
+				"No cases match this app's availability settings",
 			),
 		).toBeDefined();
 		expect(
@@ -897,7 +897,7 @@ describe("CaseListScreen — empty case type", () => {
 			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
-		expect(await screen.findByText("This case list didn’t load")).toBeDefined();
+		expect(await screen.findByText("This case list didn't load")).toBeDefined();
 		expect(screen.getByText("Try again to view cases")).toBeDefined();
 		expect(screen.queryByText(/cases_private_idx/i)).toBeNull();
 
@@ -912,7 +912,7 @@ describe("CaseListScreen — empty case type", () => {
 			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
-		expect(await screen.findByText("You’re signed out")).toBeDefined();
+		expect(await screen.findByText("You're signed out")).toBeDefined();
 		expect(
 			screen.getByText("To view these cases, sign in again"),
 		).toBeDefined();
@@ -939,7 +939,7 @@ describe("CaseListScreen — empty case type", () => {
 		});
 
 		expect(
-			await screen.findByText("Nova couldn’t check why no cases are showing"),
+			await screen.findByText("Nova couldn't check why no cases are showing"),
 		).toBeDefined();
 		expect(
 			screen.getByText(
@@ -1479,7 +1479,7 @@ describe("CaseListScreen — bounded result pages", () => {
 		expect(await screen.findByText("Case 1")).toBeDefined();
 		expect(screen.getByText("5 cases")).toBeDefined();
 		expect(screen.queryByText("No cases yet")).toBeNull();
-		expect(screen.queryByText("Cases aren’t available right now")).toBeNull();
+		expect(screen.queryByText("Cases aren't available right now")).toBeNull();
 		expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
 			expect.objectContaining({ page: { offset: 50, limit: 50 } }),
 		);
@@ -2883,7 +2883,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		expect(
 			await screen.findByRole("heading", {
 				level: 1,
-				name: "This case didn’t load",
+				name: "This case didn't load",
 			}),
 		).toBeDefined();
 		expect(screen.getByText("Try again to view this case")).toBeDefined();

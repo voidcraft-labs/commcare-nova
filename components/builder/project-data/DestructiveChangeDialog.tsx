@@ -216,10 +216,10 @@ export function DestructiveChangeDialog({
 									aria-hidden="true"
 								/>
 								{unnamedReferenceRefusal
-									? "An app still uses this, so it can’t be changed"
+									? "An app still uses this, so it can't be changed"
 									: named.length === 1
-										? "One app still uses this, so it can’t be changed"
-										: `${named.length} apps still use this, so it can’t be changed`}
+										? "One app still uses this, so it can't be changed"
+										: `${named.length} apps still use this, so it can't be changed`}
 							</p>
 							{!unnamedReferenceRefusal && (
 								<ul className="space-y-1 text-[13px] text-nova-text-secondary">
@@ -238,7 +238,7 @@ export function DestructiveChangeDialog({
 							)}
 							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 								{unnamedReferenceRefusal
-									? "Nova could not load the app’s name. Nothing changed. Check references again before trying this action."
+									? "Nova could not load the app's name. Nothing changed. Check references again before trying this action."
 									: `Point ${named.length === 1 ? "that app" : "those apps"} somewhere else first, then come back.`}
 							</p>
 							{unnamedReferenceRefusal && (

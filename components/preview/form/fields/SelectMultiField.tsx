@@ -87,7 +87,7 @@ export function SelectMultiField({
 						<label
 							key={opt.key}
 							htmlFor={inputId}
-							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+							className={`pv-choice-row flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								checked
 									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"
 									: showError

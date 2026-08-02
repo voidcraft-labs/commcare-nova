@@ -153,7 +153,7 @@ export function CreateTableDialog({
 				<DialogHeader>
 					<DialogTitle>Create a data table</DialogTitle>
 					<DialogDescription>
-						Every app in this Project will be able to use this table’s values.
+						Every app in this Project will be able to use this table's values.
 					</DialogDescription>
 				</DialogHeader>
 

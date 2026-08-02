@@ -36,6 +36,7 @@ import {
 	POPOVER_POSITIONER_GLASS_CLS,
 	POPOVER_ROW_CLS,
 } from "@/lib/styles";
+import { useMenuArrowKeys } from "@/lib/ui/hooks/useMenuArrowKeys";
 import { showToast } from "@/lib/ui/toastStore";
 
 interface ProjectSwitcherProps {
@@ -63,6 +64,7 @@ export function ProjectSwitcher({
 }: ProjectSwitcherProps) {
 	const navigate = useExternalNavigate();
 	const [open, setOpen] = useState(false);
+	const onArrowKeys = useMenuArrowKeys();
 	const [creating, setCreating] = useState(false);
 	const [newName, setNewName] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -165,7 +167,10 @@ export function ProjectSwitcher({
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
+					<Popover.Popup
+						className={`${POPOVER_POPUP_CLS} p-1`}
+						onKeyDown={onArrowKeys}
+					>
 						<div style={{ minWidth: "248px" }}>
 							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium text-nova-text-muted">
 								Projects

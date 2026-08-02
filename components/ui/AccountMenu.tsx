@@ -29,6 +29,7 @@ import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { ASSET_KINDS } from "@/lib/domain/multimedia";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
+import { useMenuArrowKeys } from "@/lib/ui/hooks/useMenuArrowKeys";
 import { getInitials } from "@/lib/utils";
 
 /**
@@ -103,6 +104,7 @@ export function AccountMenu({
 } = {}) {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
+	const onArrowKeys = useMenuArrowKeys();
 	/* File-manager dialog open state. The "Files" item opens the same media
 	 * dialog the chat composer uses, but with no pick target: a standalone
 	 * manager for browsing, uploading, previewing, and deleting your files. */
@@ -174,6 +176,7 @@ export function AccountMenu({
 					align="end"
 					sideOffset={6}
 					className="w-64 gap-0 p-1"
+					onKeyDown={onArrowKeys}
 				>
 					<PopoverTitle className="sr-only">Account</PopoverTitle>
 					<PopoverDescription className="sr-only">

@@ -640,7 +640,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const lines = [
 						lookupCommitState.kind === "loading"
 							? "Project data is still loading. Wait for it to finish before editing this app."
-							: "Nova could not load this Project’s data-table definitions. Try again before editing this app.",
+							: "Nova could not load this Project's data-table definitions. Try again before editing this app.",
 					];
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };

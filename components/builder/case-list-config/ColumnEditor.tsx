@@ -132,7 +132,7 @@ export function ColumnEditor({
 				? "Choose information saved as text or a choice."
 				: "Choose information saved as a date or date and time.";
 		return [
-			`${information} can’t use ${schema.label.toLowerCase()} formatting. ${guidance}`,
+			`${information} can't use ${schema.label.toLowerCase()} formatting. ${guidance}`,
 		] as const;
 	}, [ctx, value, projectProse]);
 
@@ -475,7 +475,7 @@ function KindPicker({
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingConsequence ?? "This replaces the current display setup"}.
-							Saved case information won’t change.
+							Saved case information won't change.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

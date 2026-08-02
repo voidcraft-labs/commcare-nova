@@ -210,7 +210,7 @@ export function SearchCanvas({
 									? "Search can continue without asking for information"
 									: canEdit
 										? "Add fields when people should narrow Results before choosing a case"
-										: "This module doesn’t ask for search information"}
+										: "This module doesn't ask for search information"}
 						</p>
 					</div>
 

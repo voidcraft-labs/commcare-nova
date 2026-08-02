@@ -1050,7 +1050,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				) : routeCaseState.kind === "error" ? (
 					<CaseListEmptyNotice
 						headingLevel={1}
-						title="This case didn’t load"
+						title="This case didn't load"
 						description="Try again to view this case"
 						tone="error"
 						action={{
@@ -1666,7 +1666,7 @@ function AvailabilityConditionsEmptyNotice({
 			title={
 				canEdit
 					? "Your availability settings hide every case"
-					: "No cases match this app’s availability settings"
+					: "No cases match this app's availability settings"
 			}
 			description={
 				canEdit
@@ -1684,7 +1684,7 @@ function CasesLoadFailureNotice({
 }) {
 	return (
 		<CaseListEmptyNotice
-			title="This case list didn’t load"
+			title="This case list didn't load"
 			description="Try again to view cases"
 			tone="error"
 			action={{ label: "Try again", onClick: () => void onRetry() }}
@@ -1699,7 +1699,7 @@ function CaseCountFailureNotice({
 }) {
 	return (
 		<CaseListEmptyNotice
-			title="Nova couldn’t check why no cases are showing"
+			title="Nova couldn't check why no cases are showing"
 			description="Try again to check whether cases need to be created or your availability settings are hiding them"
 			tone="error"
 			action={{ label: "Try again", onClick: () => void onRetry() }}
@@ -1719,7 +1719,7 @@ function SessionEndedNotice({
 	return (
 		<CaseListEmptyNotice
 			headingLevel={headingLevel}
-			title="You’re signed out"
+			title="You're signed out"
 			description={description}
 			tone="error"
 			action={{ label: "Sign in", onClick: onSignIn, icon: tablerLogin2 }}

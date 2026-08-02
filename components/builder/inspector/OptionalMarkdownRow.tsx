@@ -471,7 +471,7 @@ function ImageFormattingDialog({
 								className="min-h-11"
 							/>
 							<p className="text-[13px] leading-relaxed text-nova-text-muted">
-								Helps people who can’t see the image
+								Helps people who can't see the image
 							</p>
 						</div>
 					</DialogBody>

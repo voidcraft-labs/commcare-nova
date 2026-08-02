@@ -279,7 +279,7 @@ export function SearchInputEditor({
 		}
 		if (meaningfulDefaultRemoved) {
 			consequences.push(
-				`The starting value will be removed because ${targetDescription} can’t use it.`,
+				`The starting value will be removed because ${targetDescription} can't use it.`,
 			);
 		}
 		consequences.push("You can undo this change.");
@@ -549,7 +549,7 @@ export function SearchInputEditor({
 			...(resultingMode === kind
 				? {}
 				: {
-						modeAdjustment: `“${SEARCH_MODE_LABELS[kind]}” can’t search ${targetPropertyLabel}, so the replacement will use “${SEARCH_MODE_LABELS[resultingMode]}”.`,
+						modeAdjustment: `“${SEARCH_MODE_LABELS[kind]}” can't search ${targetPropertyLabel}, so the replacement will use “${SEARCH_MODE_LABELS[resultingMode]}”.`,
 					}),
 			meaningfulDefaultRemoved:
 				!keepDefault &&
@@ -881,7 +881,14 @@ function FieldRow({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<div className="space-y-2">
+		/* `gap`, not `space-y`. This row holds popup TRIGGERS, and Base UI mounts
+		 * `position: fixed` focus guards as their siblings while a popup is open.
+		 * Tailwind's space utilities are sibling-counting (`> :not(:last-child)`),
+		 * so those guards change which children are "last" and the spacing moves
+		 * under the open popup. `gap` spaces the children of a flex container
+		 * without reference to their count or order, so an out-of-flow helper
+		 * appearing mid-row cannot shift anything. */
+		<div className="flex flex-col gap-2">
 			<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
 				{label}
 			</div>
@@ -1175,9 +1182,9 @@ function standardReplacementConsequence(
 	const match = SEARCH_MODE_LABELS[pending.resultingMode];
 	const modeAdjustment = pending.modeAdjustment ?? "";
 	const defaultConsequence = pending.meaningfulDefaultRemoved
-		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can’t use it.`
+		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can't use it.`
 		: "";
-	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don’t fit “${match}” and will be removed.${defaultConsequence} You can undo this change.`;
+	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don't fit “${match}” and will be removed.${defaultConsequence} You can undo this change.`;
 }
 
 function customConversionConsequence(row: SimpleSearchInputDef | null): string {
@@ -1185,9 +1192,9 @@ function customConversionConsequence(row: SimpleSearchInputDef | null): string {
 		return "This replaces the saved match. You can undo this change.";
 	}
 	if (effectiveModeKind(row) === "range") {
-		return "The new condition will start with “Exact value” because it can’t keep both dates in the range. You can edit it next. You can undo this change.";
+		return "The new condition will start with “Exact value” because it can't keep both dates in the range. You can edit it next. You can undo this change.";
 	}
-	return `The new condition will start with “Exact value” because it can’t keep the full list from ${customConversionModeLabel(row)}. You can edit it next. You can undo this change.`;
+	return `The new condition will start with “Exact value” because it can't keep the full list from ${customConversionModeLabel(row)}. You can edit it next. You can undo this change.`;
 }
 
 // ── Row rebuild helper ────────────────────────────────────────────
@@ -1352,7 +1359,7 @@ function TypePicker({
 									>
 										{admitted
 											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-											: "This field type doesn’t work with this information"}
+											: "This field type doesn't work with this information"}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -1467,7 +1474,7 @@ function MatchPicker({
 									>
 										{admitted
 											? SEARCH_MODE_DESCRIPTIONS[kind]
-											: "This match doesn’t work with this information"}
+											: "This match doesn't work with this information"}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>

@@ -137,9 +137,9 @@ export function SearchPanelInspectorBody({
 			) : (
 				<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
 					{opensResultsAutomatically
-						? "There’s nothing to fill in. Results opens automatically when Search is available, and Cases available decides what people see."
+						? "There's nothing to fill in. Results opens automatically when Search is available, and Cases available decides what people see."
 						: searchActionIsActive
-							? "There’s nothing to fill in. Search is available from Results, so people can continue without entering search information."
+							? "There's nothing to fill in. Search is available from Results, so people can continue without entering search information."
 							: "People can browse the case list without filling in a Search screen. Add Search from Results when they need a separate continue action."}
 				</p>
 			)}

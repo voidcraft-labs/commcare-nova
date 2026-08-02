@@ -385,7 +385,7 @@ export function ExpressionPicker({
 							</AlertDialogTitle>
 							<AlertDialogDescription className="text-left">
 								This replaces the saved {pendingTermSourceLabel} and removes its
-								current settings. Saved case data won’t change. You can undo
+								current settings. Saved case data won't change. You can undo
 								this change.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
@@ -802,7 +802,7 @@ function KindReplaceMenu({
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							Its current values and settings will be removed. Saved case data
-							won’t change. You can undo this change.
+							won't change. You can undo this change.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

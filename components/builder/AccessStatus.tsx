@@ -25,13 +25,13 @@ const ACCESS_COPY: Record<
 		label: "Reconnecting…",
 		heading: "Reconnecting",
 		detail:
-			"Nova couldn’t refresh access yet. It will keep trying, and changes waiting to save remain in this tab.",
+			"Nova couldn't refresh access yet. It will keep trying, and changes waiting to save remain in this tab.",
 	},
 	upgradeRequired: {
 		label: "Refresh needed",
 		heading: "Nova needs to refresh",
 		detail:
-			"A newer version is required to keep this app in sync. Refresh when you’re ready to continue.",
+			"A newer version is required to keep this app in sync. Refresh when you're ready to continue.",
 	},
 	revoked: {
 		label: "App unavailable",

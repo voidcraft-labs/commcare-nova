@@ -119,7 +119,7 @@ describe("table-row comparison seeds", () => {
 				false,
 			);
 			expect(predicateUnavailableReason(kind, TABLE_ROW_CONTEXT)).toBe(
-				"This condition requires case information and isn’t available in a data-table row rule",
+				"This condition requires case information and isn't available in a data-table row rule",
 			);
 		}
 	});

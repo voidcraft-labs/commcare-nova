@@ -375,7 +375,7 @@ describe("ColumnEditor — applicability errors", () => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
 		expect(container.textContent).toMatch(
-			/Name can’t use time since formatting.*saved as a date or date and time/i,
+			/Name can't use time since formatting.*saved as a date or date and time/i,
 		);
 		expect(container.textContent).not.toContain('"name"');
 	});
@@ -396,7 +396,7 @@ describe("ColumnEditor — applicability errors", () => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
 		expect(container.textContent).toMatch(
-			/Name can’t use date formatting.*saved as a date or date and time/i,
+			/Name can't use date formatting.*saved as a date or date and time/i,
 		);
 	});
 
@@ -416,7 +416,7 @@ describe("ColumnEditor — applicability errors", () => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
 		expect(container.textContent).toMatch(
-			/Date of birth can’t use phone number formatting.*saved as text or a choice/i,
+			/Date of birth can't use phone number formatting.*saved as text or a choice/i,
 		);
 	});
 
@@ -461,7 +461,7 @@ describe("ColumnEditor — applicability errors", () => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
 		expect(container.textContent).toMatch(
-			/Name can’t use time since formatting.*saved as a date or date and time/i,
+			/Name can't use time since formatting.*saved as a date or date and time/i,
 		);
 	});
 
@@ -580,7 +580,7 @@ describe("ColumnEditor — round-trip preservation", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"The custom date format will be removed. Saved case information won’t change.",
+				"The custom date format will be removed. Saved case information won't change.",
 			),
 		).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

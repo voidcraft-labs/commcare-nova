@@ -603,7 +603,7 @@ const COMPARISON_VERBS: ReadonlyArray<{
 	},
 	{
 		kind: "neq",
-		label: "isn’t",
+		label: "isn't",
 		description: "Anything except this value",
 		icon: tablerEqualNot,
 	},

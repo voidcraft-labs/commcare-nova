@@ -24,7 +24,7 @@ export const docsLayoutProps = {
 			 * "commcare novadocs", which is what the accessible name is. */
 			<span className="flex min-w-0 items-center gap-2">
 				<Logo size="sm" animate={false} />{" "}
-				<span className="text-nova-text-secondary">docs</span>
+				<span className="hidden text-nova-text-secondary sm:inline">docs</span>
 			</span>
 		),
 		/* Anchored to the same root fumadocs uses for page-tree hrefs so

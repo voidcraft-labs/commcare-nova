@@ -137,7 +137,7 @@ export const SELECTED_CASE_SCOPE_RELATED_DATA_REASON =
 	"This is decided for one already-chosen case, so it can read that case's own information but not connected cases or their counts";
 
 export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
-	"This rule runs against one data-table row, so it can use that table’s columns, earlier form answers, fixed values, and current-user information";
+	"This rule runs against one data-table row, so it can use that table's columns, earlier form answers, fixed values, and current-user information";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -436,7 +436,7 @@ export function predicateUnavailableReason(
 			case "within-distance":
 			case "exists":
 			case "missing":
-				return "This condition requires case information and isn’t available in a data-table row rule";
+				return "This condition requires case information and isn't available in a data-table row rule";
 			case "lt":
 			case "lte":
 			case "gt":
@@ -517,7 +517,7 @@ export const predicateCardSchemas: {
 	},
 	neq: {
 		kind: "neq",
-		label: "Isn’t",
+		label: "Isn't",
 		icon: tablerEqualNot,
 		description: "The property is anything except a value",
 		component: ComparisonCard,

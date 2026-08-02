@@ -762,7 +762,7 @@ export function RelationPathBuilder({
 							Use a saved connection
 						</DialogTitle>
 						<DialogDescription className="text-left">
-							Nova can’t choose a connection automatically. Choose the saved
+							Nova can't choose a connection automatically. Choose the saved
 							connection and the case type it reaches.
 						</DialogDescription>
 					</DialogHeader>
