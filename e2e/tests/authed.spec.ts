@@ -957,7 +957,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: /^Case data for / }).click();
 		const caseData = page.getByRole("dialog", { name: "Case data" });
 		const caseDataDescription = caseData.getByText(
-			"Add or replace the cases saved for the patient case type. They’re used throughout your app and in Preview.",
+			"Add or replace the cases saved for the patient case type. They're used throughout your app and in Preview.",
 		);
 		await expect(caseDataDescription).toBeVisible();
 		const countValue = caseData.getByText("8", { exact: true });
@@ -1177,7 +1177,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Delete information" }).click();
 		const deletionDialog = page.getByRole("alertdialog");
 		await expect(
-			deletionDialog.getByText("Saved case data won’t change"),
+			deletionDialog.getByText("Saved case data won't change"),
 		).toBeVisible();
 		await deletionDialog.getByRole("button", { name: "Delete" }).click();
 		await expect(
@@ -1459,7 +1459,7 @@ test.describe("authenticated builder", () => {
 			await expect(clocks.nth(1)).toHaveAttribute("aria-invalid", "true");
 			await expect(
 				page.getByText(
-					"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+					"“2:3” isn't a time yet. Enter a clock time like 2:30 PM.",
 				),
 			).toBeVisible();
 
@@ -1679,7 +1679,7 @@ test.describe("authenticated builder", () => {
 			// is looking, and the live region announces the same words.
 			await expect(
 				page.getByText(
-					"Patient would sit on top of Village. Two fields can’t share a square on a tile: one would be drawn over the other.",
+					"Patient would sit on top of Village. Two fields can't share a square on a tile: one would be drawn over the other.",
 				),
 			).toHaveCount(2);
 			// Refused means unmoved, not moved-and-reverted.
@@ -3153,7 +3153,7 @@ test.describe("authenticated builder", () => {
 		await expect(recoveryPage.getByText("Delete this row?")).toBeVisible();
 		await recoveryPage.getByRole("button", { name: "Delete row" }).click();
 		await expect(
-			recoveryPage.getByText("This row wasn’t deleted"),
+			recoveryPage.getByText("This row wasn't deleted"),
 		).toBeVisible();
 
 		// Leave the conflicted table, reconnect this page's stream, and delete
