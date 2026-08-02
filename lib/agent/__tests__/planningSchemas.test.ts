@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -229,6 +230,19 @@ describe("connectFormConfigSchema", () => {
 		).toBe(true);
 	});
 
+	it("publishes time_estimate as whole hours in the tool schema", () => {
+		const schema = JSON.stringify(
+			z.toJSONSchema(connectFormConfigSchema, {
+				target: "draft-7",
+				io: "input",
+			}),
+		);
+		expect(schema).toContain(
+			"Estimated whole hours to complete the module's content; round up and use at least 1.",
+		);
+		expect(schema).not.toMatch(/\bminutes?\b/i);
+	});
+
 	it("accepts null sub-configs beside a real one", () => {
 		expect(
 			connectFormConfigSchema.safeParse({
@@ -266,17 +280,30 @@ describe("connectFormConfigSchema", () => {
 		).toBe(false);
 	});
 
-	it("rejects a zero or fractional time_estimate", () => {
-		for (const time_estimate of [0, 1.5, -3]) {
-			const result = connectFormConfigSchema.safeParse({
+	it("rejects a zero or fractional time_estimate in hours", () => {
+		const parse = (time_estimate: number) =>
+			connectFormConfigSchema.safeParse({
 				learn_module: {
 					name: "Module",
 					description: "Content",
 					time_estimate,
 				},
 			});
-			expect(result.success).toBe(false);
+		const zero = parse(0);
+		const fractional = parse(1.5);
+		const negative = parse(-3);
+		expect(zero.success).toBe(false);
+		expect(fractional.success).toBe(false);
+		expect(negative.success).toBe(false);
+		if (zero.success || fractional.success) {
+			throw new Error("expected invalid hour estimates");
 		}
+		expect(zero.error.issues[0]?.message).toBe(
+			"time_estimate must be at least 1 hour.",
+		);
+		expect(fractional.error.issues[0]?.message).toBe(
+			"time_estimate must be a whole number of hours.",
+		);
 	});
 });
 

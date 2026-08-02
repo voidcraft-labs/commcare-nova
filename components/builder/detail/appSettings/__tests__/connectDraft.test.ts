@@ -17,8 +17,10 @@ import {
 import type { ConnectConfig } from "@/lib/domain";
 import {
 	configToDraft,
+	DEFAULT_LEARN_TIME_ESTIMATE_HOURS,
 	draftToConfig,
 	EMPTY_DRAFT,
+	parseTimeEstimate,
 } from "../ConnectEnableDialog";
 
 /** A print/parse pair that must never run: proves a config with no XPath
@@ -31,6 +33,14 @@ const noExpr = (): never => {
 const derivedId = (kind: string) => `derived_${kind}`;
 
 describe("Connect draft round-trip", () => {
+	it("uses positive whole hours with a one-hour new-module default", () => {
+		expect(DEFAULT_LEARN_TIME_ESTIMATE_HOURS).toBe(1);
+		expect(EMPTY_DRAFT.learnTimeEstimate).toBe("1");
+		expect(parseTimeEstimate("1")).toBe(1);
+		expect(parseTimeEstimate("1.5")).toBeNull();
+		expect(parseTimeEstimate("0")).toBeNull();
+	});
+
 	it("preserves ids + core content for a config with no XPath", () => {
 		const config: ConnectConfig = {
 			learn_module: {
