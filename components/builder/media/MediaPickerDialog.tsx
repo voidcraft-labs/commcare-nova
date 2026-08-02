@@ -340,15 +340,15 @@ function PickerBody({
 	const { nounPhrase } = describeKinds(kinds);
 	const description = manage
 		? canWrite
-			? "Upload, preview, or remove files in this project"
-			: "Preview files in this project"
+			? "Upload, preview, or remove files in this Project"
+			: "Preview files in this Project"
 		: showIcons
 			? canWrite
 				? "Choose an icon, upload an image, or use a file you already added"
-				: "Preview icons and files in this project"
+				: "Preview icons and files in this Project"
 			: canWrite
 				? `Choose a file you already added, or upload ${nounPhrase}`
-				: "Preview files in this project";
+				: "Preview files in this Project";
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -1126,7 +1126,14 @@ function LibraryTab({
 	);
 }
 
-/** A small segmented-control chip for the Library type filter. */
+/**
+ * One choice in the Library's type filter.
+ *
+ * It is an ordinary Button and wears the button's own anatomy: a full pill is
+ * the badge's shape, and a badge is a 22px borderless status tint, not
+ * something you press. These are 44px controls that select a filter, so they
+ * take the keycap the rest of the dialog's actions take.
+ */
 function FilterChip({
 	active,
 	onClick,
@@ -1142,7 +1149,6 @@ function FilterChip({
 			variant={active ? "secondary" : "outline"}
 			aria-pressed={active}
 			onClick={onClick}
-			className="rounded-full px-4 text-sm"
 		>
 			{children}
 		</Button>

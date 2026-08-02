@@ -6,7 +6,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
@@ -102,6 +102,54 @@ export function AppCard({
 	const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
 	const moveTriggerRef = useRef<HTMLButtonElement>(null);
 	const moveTitleRef = useRef<HTMLHeadingElement>(null);
+	const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+	const confirmDeleteRef = useRef<HTMLButtonElement>(null);
+	/* Armed when the confirmation takes focus, consumed when it gives it back.
+	 * The trash control is UNMOUNTED while the confirmation is up, so focusing
+	 * it has to wait for the render that brings it back rather than happening
+	 * in the handler that asked for it. */
+	const restoreDeleteFocusRef = useRef(false);
+
+	/* Backing out of the delete confirmation. `returnFocus` is true when the
+	 * person dismissed it deliberately (Cancel, Escape) and false when they
+	 * simply clicked somewhere else, where pulling focus back to the trash
+	 * would fight whatever they just reached for. */
+	const cancelConfirmDelete = useCallback((returnFocus: boolean) => {
+		if (!returnFocus) restoreDeleteFocusRef.current = false;
+		setCardState((s) => (s.type === "confirmingDelete" ? { type: "idle" } : s));
+	}, []);
+
+	const confirmingDelete = cardState.type === "confirmingDelete";
+	useEffect(() => {
+		if (confirmingDelete || !restoreDeleteFocusRef.current) return;
+		restoreDeleteFocusRef.current = false;
+		deleteTriggerRef.current?.focus();
+	}, [confirmingDelete]);
+
+	/* The confirmation replaces the trash control in place rather than opening
+	 * a dialog, so it has to grow the affordances a dialog owns for free:
+	 * focus lands on the confirm instead of falling to the document body, and
+	 * both Escape and a click anywhere outside back out. Without them the only
+	 * way out of a destructive question is one specific 44px target. */
+	const confirmDeleteClusterRef = useCallback(
+		(node: HTMLSpanElement | null) => {
+			if (!node) return;
+			confirmDeleteRef.current?.focus();
+			const onPointerDown = (event: PointerEvent) => {
+				if (!node.contains(event.target as Node)) cancelConfirmDelete(false);
+			};
+			const onKeyDown = (event: KeyboardEvent) => {
+				if (event.key === "Escape") cancelConfirmDelete(true);
+			};
+			document.addEventListener("pointerdown", onPointerDown, true);
+			document.addEventListener("keydown", onKeyDown);
+			return () => {
+				document.removeEventListener("pointerdown", onPointerDown, true);
+				document.removeEventListener("keydown", onKeyDown);
+			};
+		},
+		[cancelConfirmDelete],
+	);
 
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
@@ -158,7 +206,11 @@ export function AppCard({
 	};
 
 	const content = (
-		<div className="flex items-center justify-between gap-3">
+		/* Below 480px the status badge and the action controls take more room
+		 * than the name has to give (they squeezed an 8-character title down to
+		 * "Mod…"), so they drop to their own row and the name gets the width
+		 * back. Wider than that the card stays the single row it reads best as. */
+		<div className="flex flex-wrap items-center justify-between gap-3">
 			{app.logo ? (
 				// The app's web-apps logo, denormalized onto the list summary.
 				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
@@ -181,16 +233,20 @@ export function AppCard({
 				>
 					{app.app_name || "Untitled"}
 				</h3>
-				<p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
+				{/* Each fragment is one phrase, so the row wraps BETWEEN them rather
+				 * than breaking "24m ago" or "2 modules · 2 forms" across lines.
+				 * On a handset there isn't room for both beside the status badge,
+				 * and a metadata line broken mid-phrase reads as damage. */}
+				<p className="text-sm text-nova-text-secondary mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
 					{isFailed ? (
 						<span className="text-nova-rose">Generation failed</span>
 					) : (
 						<>
 							<RelativeTime
 								date={updatedAt}
-								className="first-letter:uppercase"
+								className="whitespace-nowrap first-letter:uppercase"
 							/>
-							<span className="text-nova-text-muted">
+							<span className="whitespace-nowrap text-nova-text-muted">
 								{app.module_count} module
 								{app.module_count !== 1 ? "s" : ""}
 								{" · "}
@@ -215,21 +271,25 @@ export function AppCard({
 					)}
 				</AnimatePresence>
 			</div>
-			<div className="pointer-events-auto relative z-10 shrink-0 flex items-center gap-2">
+			<div className="pointer-events-auto relative z-10 flex w-full shrink-0 items-center justify-end gap-2 min-[480px]:w-auto">
 				{cardState.type === "confirmingDelete" ? (
-					<>
+					<span
+						ref={confirmDeleteClusterRef}
+						className="flex items-center gap-2"
+					>
 						<Button
 							type="button"
 							variant="ghost"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
-								setCardState({ type: "idle" });
+								cancelConfirmDelete(true);
 							}}
 						>
 							Cancel
 						</Button>
 						<Button
+							ref={confirmDeleteRef}
 							type="button"
 							variant="destructive"
 							onClick={(e) => {
@@ -240,7 +300,7 @@ export function AppCard({
 						>
 							Confirm delete
 						</Button>
-					</>
+					</span>
 				) : cardState.type === "deleting" || cardState.type === "movingApp" ? (
 					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
 						<Icon
@@ -361,10 +421,15 @@ export function AppCard({
 						{onDelete && (
 							<SimpleTooltip content="Move to recently deleted">
 								<button
+									ref={deleteTriggerRef}
 									type="button"
 									onClick={(e) => {
 										e.preventDefault();
 										e.stopPropagation();
+										/* The confirmation is about to take focus, so whichever
+										 * way it leaves (Cancel, Escape, a refused delete) hands
+										 * focus back here rather than to the document. */
+										restoreDeleteFocusRef.current = true;
 										setCardState({ type: "confirmingDelete" });
 									}}
 									className="nova-focusable inline-flex size-11 cursor-pointer items-center justify-center rounded-xl text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"

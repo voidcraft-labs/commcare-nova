@@ -125,7 +125,7 @@ export function RowInspectorBody({
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
 					{dirty
 						? "Your edit access changed, so this local row draft cannot be saved. Nova kept it here for you to copy or explicitly discard."
-						: "You can read this row. Changing it needs edit access to this project."}
+						: "You can read this row. Changing it needs edit access to this Project."}
 				</p>
 			)}
 			{canEdit ? (
@@ -234,7 +234,7 @@ export function RowInspectorBody({
 							Delete this row?
 						</p>
 						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							Every app in this project that offers this table’s values stops
+							Every app in this Project that offers this table’s values stops
 							offering this one.
 						</p>
 						<div className="flex flex-wrap gap-2">

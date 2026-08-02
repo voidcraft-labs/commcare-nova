@@ -108,7 +108,7 @@ export function DestructiveChangeDialog({
 			setPreflight({
 				kind: "failed",
 				message:
-					"Nova cannot verify which apps use this yet. Wait for the project to finish loading, then try again.",
+					"Nova cannot verify which apps use this yet. Wait for the Project to finish loading, then try again.",
 			});
 			return;
 		}
@@ -263,7 +263,7 @@ export function DestructiveChangeDialog({
 							role="status"
 							className="text-[13px] leading-relaxed text-nova-text-secondary"
 						>
-							No app in this project uses it right now.
+							No app in this Project uses it right now.
 						</p>
 					)}
 

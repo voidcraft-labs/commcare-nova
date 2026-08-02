@@ -1114,7 +1114,7 @@ body {
 	font-size: 0.85em;
 	background: rgba(150, 120, 242, 0.1);
 	border: 1px solid rgba(150, 120, 242, 0.15);
-	border-radius: 4px;
+	border-radius: var(--radius-md);
 	padding: 0.1em 0.35em;
 }
 .chat-markdown pre {
@@ -1247,7 +1247,7 @@ body {
 	font-size: 0.85em;
 	background: var(--pv-input-bg);
 	border: 1px solid var(--pv-input-border);
-	border-radius: 4px;
+	border-radius: var(--radius-md);
 	padding: 0.15em 0.4em;
 }
 .preview-markdown pre {

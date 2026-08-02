@@ -123,7 +123,7 @@ export function ProjectDataTableListScreen() {
 			)}
 
 			{state.kind === "loading" || state.kind === "idle" ? (
-				<ProjectDataLoading label="Loading this project’s data tables…" />
+				<ProjectDataLoading label="Loading this Project’s data tables…" />
 			) : state.kind === "failed" ? (
 				<ProjectDataFailure
 					title="These tables didn’t load"
@@ -144,7 +144,7 @@ export function ProjectDataTableListScreen() {
 					<p className="text-sm leading-relaxed text-nova-text-secondary">
 						{canEdit
 							? "Create one when you have a list that more than one question, or more than one app, should share."
-							: "Nobody has added a shared list to this project yet."}
+							: "Nobody has added a shared list to this Project yet."}
 					</p>
 				</div>
 			) : (

@@ -438,7 +438,7 @@ export function CommCareSettings({
 				/>
 				<p className="text-xs text-nova-text-muted">
 					Your credentials are encrypted in transit and at rest, stored
-					server-side.
+					server-side
 				</p>
 			</div>
 		</section>

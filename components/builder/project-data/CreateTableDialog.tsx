@@ -153,7 +153,7 @@ export function CreateTableDialog({
 				<DialogHeader>
 					<DialogTitle>Create a data table</DialogTitle>
 					<DialogDescription>
-						Every app in this project will be able to use this table’s values.
+						Every app in this Project will be able to use this table’s values.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -362,7 +362,7 @@ export function CreateTableDialog({
 								working
 							) {
 								setFailure(
-									"This project changed while the dialog was open. Close it and create the table in the project you are viewing.",
+									"This Project changed while the dialog was open. Close it and create the table in the Project you are viewing.",
 								);
 								return;
 							}
@@ -405,7 +405,7 @@ export function CreateTableDialog({
 							if (latestProject.current !== scopedProject) {
 								setWorking(false);
 								setFailure(
-									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+									"The table was created in the Project where you opened this dialog. Close this dialog to continue in the Project you are now viewing.",
 								);
 								return;
 							}
@@ -424,7 +424,7 @@ export function CreateTableDialog({
 							if (latestProject.current !== scopedProject) {
 								setWorking(false);
 								setFailure(
-									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+									"The table was created in the Project where you opened this dialog. Close this dialog to continue in the Project you are now viewing.",
 								);
 								return;
 							}

@@ -51,6 +51,18 @@ export function TreeRowDelete({
 	// A view-only Project member can't delete rows: render nothing.
 	if (!canEdit) return null;
 
+	/* Escape backs out, the way it dismisses any other transient confirmation:
+	 * a pointer user already has mouse-leave, so without this the keyboard is
+	 * the one route into the armed state with no route out but the X. Every
+	 * other key stays inside the cluster so the tree's row navigation doesn't
+	 * also act on what the confirmation is reading. */
+	const onConfirmKeyDown = (event: React.KeyboardEvent) => {
+		event.stopPropagation();
+		if (event.key !== "Escape") return;
+		restoreFocusRef.current = true;
+		setArmed(false);
+	};
+
 	if (armed) {
 		return (
 			// Leaving the confirm cluster cancels the pending delete, so an armed
@@ -65,7 +77,7 @@ export function TreeRowDelete({
 					type="button"
 					variant="destructive"
 					aria-label={`Confirm ${label.toLowerCase()}`}
-					onKeyDown={(event) => event.stopPropagation()}
+					onKeyDown={onConfirmKeyDown}
 					onClick={(e) => {
 						e.stopPropagation();
 						if (!onDelete()) setArmed(false);
@@ -78,9 +90,10 @@ export function TreeRowDelete({
 					variant="ghost"
 					size="icon"
 					aria-label="Cancel delete"
-					onKeyDown={(event) => event.stopPropagation()}
+					onKeyDown={onConfirmKeyDown}
 					onClick={(e) => {
 						e.stopPropagation();
+						restoreFocusRef.current = true;
 						setArmed(false);
 					}}
 					className="text-nova-text-muted"

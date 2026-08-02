@@ -82,7 +82,9 @@ export const CHIP = {
 	height: 18,
 	fontSize: 11,
 	iconSize: 11,
-	borderRadius: 4,
+	/* `--radius-sm`, the design system's step for a field id or reference
+	 * chip. The scale has no 4px rung, which is what this used to sit on. */
+	borderRadius: 8,
 	paddingX: 5,
 	gap: 3,
 	maxLabelWidth: 140,

@@ -349,7 +349,7 @@ export function OptionsEditor<F extends Field>(
 			>
 				<p className={INSPECTOR_LABEL_CLS}>Options</p>
 				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-					These choices come from a project data table. Change the table,
+					These choices come from a Project data table. Change the table,
 					columns, or row filter in the table-source editor.
 				</p>
 			</div>

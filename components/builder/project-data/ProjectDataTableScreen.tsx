@@ -99,7 +99,7 @@ export function ProjectDataTableScreen() {
 						</p>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							It may have been deleted, or it may belong to a different project.
-							Go back to see the tables this project has.
+							Go back to see the tables this Project has.
 						</p>
 						{workspace !== null && workspace.pendingDraftCount > 0 && (
 							<Button

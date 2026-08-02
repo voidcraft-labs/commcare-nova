@@ -2637,7 +2637,7 @@ test.describe("authenticated builder", () => {
 			page.getByRole("heading", { name: "Data tables", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(
-			page.getByText("shared with every app in this project", { exact: false }),
+			page.getByText("shared with every app in this Project", { exact: false }),
 		).toBeVisible();
 
 		// Export identity is visible before opening a table; authors do not need
@@ -3093,7 +3093,7 @@ test.describe("authenticated builder", () => {
 				.click();
 			const confirmation = peerPage.getByRole("alertdialog");
 			await expect(
-				confirmation.getByText("No app in this project uses it right now."),
+				confirmation.getByText("No app in this Project uses it right now."),
 			).toBeVisible();
 			await confirmation.getByRole("button", { name: "Change type" }).click();
 			await expect(confirmation).toBeHidden();
@@ -3169,7 +3169,7 @@ test.describe("authenticated builder", () => {
 		await peerPage.getByRole("button", { name: "Delete table" }).click();
 		const peerDeleteTable = peerPage.getByRole("alertdialog");
 		await expect(
-			peerDeleteTable.getByText("No app in this project uses it right now."),
+			peerDeleteTable.getByText("No app in this Project uses it right now."),
 		).toBeVisible();
 		await peerDeleteTable.getByRole("button", { name: "Delete table" }).click();
 		await expect(
@@ -3253,7 +3253,7 @@ test.describe("authenticated builder", () => {
 			),
 		).toBeVisible();
 		await expect(
-			selfDeleteTable.getByText("No app in this project uses it right now."),
+			selfDeleteTable.getByText("No app in this Project uses it right now."),
 		).toBeVisible();
 		await selfDeleteTable.getByRole("button", { name: "Delete table" }).click();
 		const selfDeleteRecovery = recoveryPage.getByRole("region", {

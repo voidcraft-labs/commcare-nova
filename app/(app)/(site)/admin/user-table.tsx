@@ -97,14 +97,14 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		// This month's true dollar cost: tracked for tuning + backstop, no
 		// longer the user-facing gate (the credit columns are the gate now).
 		accessorKey: "cost",
-		header: "$ this month",
+		header: "Cost this month",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),
 	},
 	{
 		accessorKey: "cost_lifetime",
-		header: "$ lifetime",
+		header: "Lifetime cost",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),

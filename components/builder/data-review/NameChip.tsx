@@ -34,8 +34,8 @@ export const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
 /**
  * A case identifier: a property id, a case-type name, rendered as a
  * variant of the typed case-property reference chip (`lib/references`):
- * the case family's violet tint, mono id, and 4px radius, sharing the
- * `CHIP` dimension constants so the two can't drift. Two deliberate
+ * the case family's violet tint and mono id, sharing the `CHIP`
+ * dimension constants so the two can't drift. Two deliberate
  * departures from the editor chip: the label wraps instead of
  * ellipsizing (review surfaces must keep long authored ids legible),
  * and text stays selectable (these are data screens, not documents).

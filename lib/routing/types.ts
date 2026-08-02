@@ -46,7 +46,7 @@ export const PROJECT_DATA_LABEL = "Project data";
  * author happens to have open.
  */
 export const PROJECT_DATA_SHARED_NOTICE =
-	"These tables are shared with every app in this project. A change here affects all of them.";
+	"These tables are shared with every app in this Project. A change here affects all of them.";
 
 /**
  * The App setup workspace's sections, in the order they appear.
