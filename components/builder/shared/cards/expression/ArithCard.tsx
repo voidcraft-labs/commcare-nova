@@ -128,8 +128,8 @@ function OpMenu({ op, setOp }: OpMenuProps) {
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						className="group min-w-12 border-white/[0.06] bg-nova-deep/50 px-3 text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 @max-md:justify-self-start"
+						variant="field"
+						className="group min-w-12 @max-md:justify-self-start"
 					/>
 				}
 			>

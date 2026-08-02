@@ -23,13 +23,13 @@ import tablerClockBolt from "@iconify-icons/tabler/clock-bolt";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import { Button } from "@/components/shadcn/button";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	APP_SETUP_SECTION_LABELS,
 	APP_SETUP_SECTIONS,
 	type AppSetupSection,
 } from "@/lib/routing/types";
+import { selectableSegmentCls } from "@/lib/styles";
 import { UsersSection } from "./UsersSection";
 
 const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
@@ -63,20 +63,23 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 		<div className="@container flex h-full min-h-0 flex-col">
 			<div className="relative z-raised shrink-0 border-b border-nova-border bg-pv-bg py-2.5">
 				<ContentFrame width="3xl" className="px-3 @sm:px-6">
+					{/* Section names are how you know where you are, so they stay
+					 * whole. When four of them plus a chat panel and a structure
+					 * tree leave no room, the strip scrolls sideways rather than
+					 * shortening "Users and personas" to "Users an". */}
 					<nav
 						aria-label="App setup sections"
-						className="flex min-w-0 items-center gap-1 @sm:gap-1.5 @2xl:gap-2"
+						className="flex items-center gap-1 overflow-x-auto @sm:gap-1.5 @2xl:gap-2"
 					>
 						{APP_SETUP_SECTIONS.map((id) => {
 							const active = section === id;
 							return (
-								<Button
+								<button
 									key={id}
 									type="button"
-									variant="ghost"
 									aria-current={active ? "page" : undefined}
 									onClick={() => navigate.openAppSetup(id)}
-									className={`min-w-0 shrink gap-2 rounded-lg px-2.5 text-[13px] font-medium @sm:px-3 ${active ? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"}`}
+									className={`shrink-0 ${selectableSegmentCls(active)}`}
 								>
 									<Icon
 										icon={SECTION_ICONS[id]}
@@ -85,10 +88,8 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 										className="hidden shrink-0 @sm:block"
 										aria-hidden="true"
 									/>
-									<span className="truncate">
-										{APP_SETUP_SECTION_LABELS[id]}
-									</span>
-								</Button>
+									{APP_SETUP_SECTION_LABELS[id]}
+								</button>
 							);
 						})}
 					</nav>

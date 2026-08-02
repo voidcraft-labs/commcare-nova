@@ -47,6 +47,13 @@
 	   DUSK text (--nova-action-ink), never white. */
 	--nova-violet: #9678f2;
 	--nova-violet-bright: #b6a0fb;
+	/* The hairline drawn INSIDE a selected row or segment, so selecting one
+	   never changes its size. */
+	--nova-violet-hairline: color-mix(
+		in srgb,
+		var(--nova-violet) 35%,
+		transparent
+	);
 	/* Solid-fill hover = one perceptual step toward LIGHT (10% white in
 	   oklch — the hue holds, nothing washes out). In Nova, light is action:
 	   hover is always more light, never less. */

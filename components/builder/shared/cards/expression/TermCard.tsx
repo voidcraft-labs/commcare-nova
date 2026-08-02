@@ -1086,8 +1086,8 @@ function ModeMenu({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						className="group justify-start border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 not-disabled:hover:text-nova-text dark:bg-nova-deep/50"
+						variant="field"
+						className="group justify-start"
 					/>
 				}
 			>

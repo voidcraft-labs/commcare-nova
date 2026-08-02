@@ -24,11 +24,9 @@ import { cn } from "@/lib/utils";
  * every hover is gated off while disabled.
  *
  * The design system names seven variants. `ghost-destructive` and
- * `ghost-action` are Nova's two additions, and they exist for the same
- * reason the rule against call-site colors exists: this app is full of
- * inline text and icon actions whose intent is destructive or
- * constructive, and before these they each spelled that out in a
- * `className`. A variant is where intent belongs.
+ * `ghost-action` are Nova's two additions: this app is full of inline text
+ * and icon actions whose intent is destructive or constructive, and a
+ * variant is where intent belongs.
  */
 const buttonVariants = cva(
 	"group/button inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-transparent text-[15px] font-medium whitespace-nowrap transition-all outline-none select-none disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -51,14 +49,22 @@ const buttonVariants = cva(
 					"nova-focusable text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text aria-expanded:bg-white/[0.06] aria-expanded:text-nova-text not-disabled:active:not-aria-[haspopup]:translate-y-px",
 				// Ghost's two semantic siblings. A remove sitting inline beside
 				// neutral icon controls, or an Apply beside a Cancel, needs to
-				// say which one it is; the rose and lilac KEYCAPS shout in that
-				// company. Same text-tier anatomy as ghost, with the hue as the
-				// only difference, so the intent lives in the variant and no
-				// call site reaches for a color. Hover brightens, as everywhere.
+				// say which one it is, and the rose and lilac KEYCAPS shout in
+				// that company. Same text-tier anatomy as ghost, with the hue as
+				// the only difference. Hover brightens, as everywhere.
 				"ghost-destructive":
 					"nova-focusable text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose-hover aria-expanded:bg-nova-rose/[0.08] not-disabled:active:not-aria-[haspopup]:translate-y-px",
 				"ghost-action":
 					"nova-focusable text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-action-hover aria-expanded:bg-nova-violet/[0.08] not-disabled:active:not-aria-[haspopup]:translate-y-px",
+				// A trigger that PRESENTS as a field rather than an action: the
+				// value pickers in the expression cards, "which case does this
+				// change", "saves to". It holds a value and opens a menu, so it
+				// wears the INPUT's anatomy (12px radius, violet wash on the
+				// violet-tinted border, hover lifting one step toward light)
+				// instead of a keycap crown, and it grows rather than truncating
+				// because an authored name has to stay legible.
+				field:
+					"nova-focusable h-auto min-h-11 justify-between gap-2 rounded-lg border-nova-border bg-nova-violet/[0.09] px-3.5 text-left whitespace-normal not-disabled:hover:border-nova-border-bright not-disabled:hover:bg-nova-violet/[0.14]",
 				link: "nova-focusable text-nova-violet-bright underline-offset-4 not-disabled:hover:underline not-disabled:active:translate-y-px",
 			},
 			size: {

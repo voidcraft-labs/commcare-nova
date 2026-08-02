@@ -27,6 +27,7 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { POPOVER_ROW_CLS } from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
@@ -187,12 +188,7 @@ function ArchetypeRow({
 	onClick: () => void;
 }) {
 	return (
-		<Button
-			type="button"
-			variant="ghost"
-			onClick={onClick}
-			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left"
-		>
+		<button type="button" onClick={onClick} className={POPOVER_ROW_CLS}>
 			<div className="w-7 h-7 shrink-0 rounded-lg bg-nova-violet/10 flex items-center justify-center">
 				<Icon
 					icon={icon}
@@ -207,6 +203,6 @@ function ArchetypeRow({
 					{subtitle}
 				</div>
 			</div>
-		</Button>
+		</button>
 	);
 }

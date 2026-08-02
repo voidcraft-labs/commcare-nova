@@ -32,6 +32,7 @@ import {
 	useNavigate,
 } from "@/lib/routing/hooks";
 import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
+import { selectableIconCls } from "@/lib/styles";
 
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
@@ -197,16 +198,14 @@ function RailButton({
 }) {
 	return (
 		<SimpleTooltip content={label} side="right">
-			<Button
+			<button
 				type="button"
-				variant="ghost"
-				size="icon"
 				onClick={onClick}
 				aria-label={label}
-				className={`${active ? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05]"}`}
+				className={selectableIconCls(active)}
 			>
 				{children}
-			</Button>
+			</button>
 		</SimpleTooltip>
 	);
 }

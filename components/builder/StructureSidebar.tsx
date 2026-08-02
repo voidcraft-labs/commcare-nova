@@ -23,6 +23,7 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
+import { selectableRowCls } from "@/lib/styles";
 
 export function StructureSidebar() {
 	const isReady = useBuilderIsReady();
@@ -124,12 +125,11 @@ function WorkspaceNavEntry({
 	onClick: () => void;
 }) {
 	return (
-		<Button
+		<button
 			type="button"
-			variant="ghost"
 			aria-current={active ? "page" : undefined}
 			onClick={onClick}
-			className={`w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${active ? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"}`}
+			className={selectableRowCls(active)}
 		>
 			<Icon
 				icon={icon}
@@ -139,6 +139,6 @@ function WorkspaceNavEntry({
 				className="shrink-0"
 			/>
 			{label}
-		</Button>
+		</button>
 	);
 }

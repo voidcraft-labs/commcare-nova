@@ -662,7 +662,7 @@ export function SearchInputEditor({
 								type="button"
 								variant="outline"
 								onClick={onEditCondition}
-								className="mt-3 w-full border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+								className="mt-3 w-full"
 							>
 								Edit condition
 							</Button>

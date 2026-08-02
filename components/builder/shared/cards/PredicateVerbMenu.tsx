@@ -1141,9 +1141,12 @@ export function PredicateVerbMenu({
 					render={
 						<Button
 							type="button"
-							variant="outline"
+							variant="field"
 							data-predicate-verb-trigger
-							className={`group border bg-nova-deep/50 px-3 text-sm dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start ${invalid ? "border-nova-rose/40 text-nova-rose not-disabled:hover:border-nova-rose/60" : "border-white/[0.06] text-nova-violet-bright not-disabled:hover:border-nova-violet/30"}`}
+							/* The trigger already carries `aria-invalid`, and the
+							 * button styles that state itself, so the invalid look
+							 * needs no branch here. */
+							className="group @max-md:justify-self-start"
 						/>
 					}
 				>

@@ -1230,13 +1230,7 @@ function GroupConnectorMenu({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
-				render={
-					<Button
-						type="button"
-						variant="outline"
-						className="w-full justify-between border-white/[0.09] px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
-					/>
-				}
+				render={<Button type="button" variant="field" className="w-full" />}
 			>
 				{kind === "and"
 					? "All conditions must match"

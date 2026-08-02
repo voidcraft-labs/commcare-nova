@@ -112,9 +112,38 @@ export const POPOVER_POPUP_CLS =
 
 /* ── Disclosure row ───────────────────────────────────────────────────────
  * The full-bleed "More settings" trigger that opens a collapsible section.
- * It is deliberately NOT a Button: it spans its container edge to edge, has
- * no inset padding, and stays flat on hover, so dressing a keycap up as one
- * meant overriding its padding, its hover, and its text on every call site.
- * It keeps the 44px floor and the one focus ring; its content styles itself. */
+ * It is not a Button: it spans its container edge to edge, carries no inset
+ * padding, and stays flat on hover, because it reveals content rather than
+ * performing an action. It keeps the 44px floor and the one focus ring; its
+ * content styles itself. */
 export const DISCLOSURE_ROW_CLS =
 	"nova-focusable group flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl text-left";
+
+/* ── Selectable rows, segments, and icons ─────────────────────────────────
+ * A control that carries a SELECTED state: the structure sidebar's footer
+ * destinations, the collapsed rail's icons, the App setup section tabs, the
+ * inspector's segmented controls, the tile layout switch.
+ *
+ * None of these is a Button. A button performs an action and returns to
+ * rest; these hold a state, and they are shaped by the strip or column they
+ * live in rather than by the keycap. Three boxes share one skin, so a
+ * selected tab and a selected sidebar row read as the same idea in
+ * different geometry. Call sites style content, never the box. */
+const SELECTED_SKIN = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)]`;
+const IDLE_SKIN = `text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`;
+const skin = (selected: boolean) => (selected ? SELECTED_SKIN : IDLE_SKIN);
+
+/** Full-width row in a vertical list. Content aligns to the start and wraps. */
+export function selectableRowCls(selected: boolean): string {
+	return `${MENU_ITEM_BASE} nova-focusable cursor-pointer ${skin(selected)}`;
+}
+
+/** One segment of a horizontal strip. Shares the strip's width, never wraps. */
+export function selectableSegmentCls(selected: boolean): string {
+	return `nova-focusable flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-sm whitespace-nowrap outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) ${skin(selected)}`;
+}
+
+/** Square icon control, for a collapsed rail where there is no room for a label. */
+export function selectableIconCls(selected: boolean): string {
+	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors ${skin(selected)}`;
+}

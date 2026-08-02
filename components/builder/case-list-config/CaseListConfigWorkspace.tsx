@@ -2264,7 +2264,9 @@ function ColumnInspectorBody({
 					disabled={keepLastResult}
 					aria-disabled={keepLastResult}
 					variant="outline"
-					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${keepLastResult ? "border-white/[0.04] text-nova-text-muted" : "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"}`}
+					/* The disabled branch only restated what `disabled` already
+					 * does: one 0.6 opacity, hover gated off. */
+					className="w-full"
 				>
 					<Icon icon={tablerEyeOff} width="15" height="15" />
 					Hide from {screenName}

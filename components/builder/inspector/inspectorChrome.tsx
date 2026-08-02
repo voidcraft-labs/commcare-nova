@@ -13,6 +13,7 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Switch } from "@/components/shadcn/switch";
+import { selectableSegmentCls } from "@/lib/styles";
 
 /** Full-width picker trigger: the recessed well every dropdown in
  *  the rail uses. Pair with `CONSOLE_MENU_ITEM_CLS` for the items. */
@@ -177,16 +178,15 @@ export function SegmentedRow<T extends string>({
 			{options.map((opt) => {
 				const active = opt.value === value;
 				return (
-					<Button
+					<button
 						key={opt.value}
 						type="button"
-						variant="ghost"
 						onClick={() => onChange(opt.value)}
 						aria-pressed={active}
-						className={`min-w-0 flex-1 rounded-md px-2 text-[14px] active:translate-y-0 ${active ? "bg-nova-violet/[0.18] text-nova-violet-bright font-medium shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted not-disabled:hover:bg-white/[0.04] dark:not-disabled:hover:bg-white/[0.04]"}`}
+						className={`flex-1 ${selectableSegmentCls(active)}`}
 					>
 						{opt.label}
-					</Button>
+					</button>
 				);
 			})}
 		</fieldset>

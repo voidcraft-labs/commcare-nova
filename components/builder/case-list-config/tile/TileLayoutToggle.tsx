@@ -23,8 +23,8 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
-import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { selectableSegmentCls } from "@/lib/styles";
 
 export type CaseListArrangement = "rows" | "tile";
 
@@ -138,18 +138,17 @@ function ArrangementOption({
 }) {
 	return (
 		<SimpleTooltip content={hint}>
-			<Button
+			<button
 				ref={ref}
 				type="button"
-				variant="ghost"
 				onClick={onClick}
 				disabled={disabled}
 				aria-pressed={active}
-				className={`gap-2 rounded-md px-3 text-[14px] active:translate-y-0 ${active ? "bg-nova-violet/[0.18] font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted not-disabled:hover:bg-white/[0.04] dark:not-disabled:hover:bg-white/[0.04]"}`}
+				className={selectableSegmentCls(active)}
 			>
 				<Icon icon={icon} width="15" height="15" />
 				{label}
-			</Button>
+			</button>
 		</SimpleTooltip>
 	);
 }

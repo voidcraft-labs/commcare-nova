@@ -231,8 +231,8 @@ function KindMenu({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						className="group gap-1.5 border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start"
+						variant="field"
+						className="group @max-md:justify-self-start"
 					/>
 				}
 			>
