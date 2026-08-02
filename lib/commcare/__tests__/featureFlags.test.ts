@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Module } from "@/lib/domain";
+import { type BlueprintDoc, type Module, plainColumn } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import {
 	decodeHqFeatureFlagReport,
@@ -52,8 +52,38 @@ describe("requiredHqFeatureFlags", () => {
 		).toEqual([]);
 	});
 
-	it("requires Simple Case Search for a zero-input Search action", () => {
+	it("requires Advanced Case Search for the zero-input match-all query", () => {
 		const patient = module({ caseSearchConfig: {} });
+		expect(
+			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })).map(
+				(flag) => flag.slug,
+			),
+		).toEqual(["search_claim", "case_search_advanced"]);
+	});
+
+	it("does not mistake ordinary Results ordering for custom search sorting", () => {
+		const nameColumn = plainColumn(testUuid("column-name"), "name", "Name", {
+			sort: { direction: "asc", priority: 0 },
+		});
+		const patient = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [nameColumn],
+				listColumnOrder: [nameColumn.uuid],
+				detailColumnOrder: [nameColumn.uuid],
+				searchInputs: [
+					{
+						uuid: testUuid("search-name-exact"),
+						kind: "simple",
+						type: "text",
+						name: "name",
+						label: "Name",
+						property: "name",
+					},
+				],
+			},
+		});
+
 		expect(
 			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })).map(
 				(flag) => flag.slug,
@@ -163,10 +193,28 @@ describe("feature flag reports", () => {
 	});
 
 	it("distinguishes confirmed missing flags from diagnostic failures", () => {
+		const patientSearch = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [
+					{
+						uuid: testUuid("report-search-name"),
+						kind: "simple",
+						type: "text",
+						name: "name",
+						label: "Name",
+						property: "name",
+					},
+				],
+			},
+		});
 		const required = requiredHqFeatureFlags(
 			doc({
 				connectType: "learn",
-				modules: { a: module({ caseSearchConfig: {} }) },
+				modules: { a: patientSearch },
 			}),
 		);
 		const report = featureFlagReportForUpload("clinic-space", [

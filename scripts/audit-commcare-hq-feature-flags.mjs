@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Detect upstream lifecycle drift in every CommCare HQ feature flag Nova uses.
+ * Detect upstream lifecycle drift in every CommCare HQ feature flag used by
+ * Commcare Nova.
  *
  * This intentionally reads source instead of importing CommCare HQ: the audit
  * runs in Nova CI without bootstrapping HQ's Python/Django environment. It
@@ -138,7 +139,7 @@ if (failures.length > 0) {
 	process.exitCode = 1;
 } else {
 	console.log(
-		`Verified ${manifest.flags.length} Nova feature-flag requirement(s) against ${hqRoot}`,
+		`Verified ${manifest.flags.length} CommCare HQ feature-flag requirement(s) used by Commcare Nova against ${hqRoot}`,
 	);
 }
 

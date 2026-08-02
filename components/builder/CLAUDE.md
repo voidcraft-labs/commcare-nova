@@ -28,7 +28,9 @@ place in the dialog.
 Show feature-flag information before the action, never for the first time after
 the user commits: file options show exact app requirements with unknown domain
 state, while HQ probes the selected project space on open/selection and on an
-explicit Refresh. Keep publish outcomes in this durable modal too: direct
+explicit Refresh. A preflight that does not return a report keeps its publish
+action disabled and offers an in-place retry. Keep publish outcomes in this
+durable modal too: direct
 upload re-probes after import and reports flags Nova confirmed missing (or could
 not verify) for the exact target; download success retains the artifact's exact
 requirements. Viewers may use the file options but never receive the direct HQ

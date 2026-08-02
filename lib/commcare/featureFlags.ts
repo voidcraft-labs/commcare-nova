@@ -1,5 +1,5 @@
 /**
- * CommCare HQ feature-flag requirements for wire features Nova emits today.
+ * CommCare HQ feature-flag requirements for wire features Commcare Nova emits.
  *
  * The JSON manifest is the lifecycle source of truth. The client-safe public
  * catalog/report vocabulary lives in `lib/publish/hqFeatureFlags.ts`; this
@@ -27,7 +27,8 @@ export * from "@/lib/publish/hqFeatureFlags";
  * Whether the module crosses HQ's Advanced Case Search boundary.
  *
  * The HQ toggle does not gate the base search action. It covers the pieces
- * Nova projects into `_xpath_query`, prompt defaults, and custom search sort.
+ * Nova projects into `_xpath_query` and prompt defaults. Ordinary Results
+ * ordering lives in `case_details.short.sort_elements`, outside this toggle.
  * `excludedOwnerIds` and Search-action display copy deliberately do not count:
  * current HQ emits those without consulting CASE_SEARCH_ADVANCED.
  */
@@ -36,7 +37,11 @@ function moduleRequiresAdvancedCaseSearch(module: Module): boolean {
 	const list = module.caseListConfig;
 	if (!list) return false;
 	if (list.filter !== undefined) return true;
-	if (list.columns.some((column) => column.sort !== undefined)) return true;
+	// HQ JSON preserves a deliberate zero-input Search action with a neutral
+	// `_xpath_query = 'match-all()'` default property. HQ checks every
+	// `_xpath_query` criterion against CASE_SEARCH_ADVANCED, including this
+	// identity query.
+	if (list.searchInputs.length === 0) return true;
 
 	return list.searchInputs.some((input) => {
 		if (input.kind === "advanced") return true;
@@ -63,8 +68,8 @@ function advancedCaseSearchReasons(module: Module): string[] {
 	if (list.filter !== undefined) {
 		reasons.push(`${prefix} filters case-search results.`);
 	}
-	if (list.columns.some((column) => column.sort !== undefined)) {
-		reasons.push(`${prefix} sorts case-search results.`);
+	if (list.searchInputs.length === 0) {
+		reasons.push(`${prefix} opens Search without asking for any inputs.`);
 	}
 	if (list.searchInputs.some((input) => input.kind === "advanced")) {
 		reasons.push(`${prefix} uses an advanced Search input.`);

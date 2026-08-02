@@ -36,10 +36,10 @@ app's requirements, app-specific reasons, inline descriptions, and public docs
 links before publish. With no domain it does not access HQ or infer HQ state;
 with an explicit connected domain it performs the same read-only preflight as
 the UI and separates confirmed missing flags from checks that were unavailable.
-It does not belong on the internal SA surface. `compile_app` keeps the artifact as its
-first content block and adds a
-model-visible destination-unknown requirement report only when the app needs
-flags. `upload_app_to_hq` returns the known target's post-import report,
+It does not belong on the internal SA surface. When the app needs flags,
+`compile_app` puts the model-visible destination-unknown requirement report
+before the artifact so a large base64 payload cannot hide it from a host's
+initial preview. `upload_app_to_hq` returns the known target's post-import report,
 distinguishing confirmed `missing_flags` from `unverified_flags`. Both carry
 the central flag labels/slugs, docs URL, and `support@dimagi.com`; clients must
 relay that distinction rather than infer state. The server-fetched

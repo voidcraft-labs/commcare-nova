@@ -312,6 +312,43 @@ describe("PublishDialog", () => {
 		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
 	});
 
+	it("keeps publish actions blocked until a failed preflight succeeds", async () => {
+		let attempts = 0;
+		const onLoadFeatureFlags = vi.fn((domain?: string) => {
+			attempts += 1;
+			if (attempts <= 2) {
+				return Promise.resolve({
+					ok: false as const,
+					message:
+						"The feature flag check didn't finish. Try again in this window",
+				});
+			}
+			return featureFlagPreflight(domain);
+		});
+		const { props } = renderDialog({ onLoadFeatureFlags });
+
+		await screen.findByText(
+			"The feature flag check didn't finish. Try again in this window",
+		);
+		const upload = screen.getByRole("button", { name: "Upload" });
+		expect(upload.hasAttribute("disabled")).toBe(true);
+		fireEvent.click(upload);
+		expect(mocks.fetch).not.toHaveBeenCalled();
+
+		await choosePublishOption("CommCare HQ app file");
+		await screen.findByText(
+			"The feature flag check didn't finish. Try again in this window",
+		);
+		const download = screen.getByRole("button", { name: "Download JSON" });
+		expect(download.hasAttribute("disabled")).toBe(true);
+		fireEvent.click(download);
+		expect(props.onDownloadJson).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		await screen.findByText("This app uses CommCare HQ feature flags");
+		await waitFor(() => expect(download.hasAttribute("disabled")).toBe(false));
+	});
+
 	it("waits for an explicit project space before checking HQ flags", async () => {
 		type FeatureFlagOutcome = Awaited<ReturnType<typeof featureFlagPreflight>>;
 		const domainResolvers = new Map<

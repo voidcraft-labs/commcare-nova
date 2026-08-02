@@ -407,14 +407,14 @@ export function PublishDialog({
 
 	const isWorking =
 		status.type === "uploading" || status.type === "downloading";
-	const isCheckingFeatureFlags = featureFlagState.type === "loading";
+	const hasFeatureFlagPreflight = featureFlagState.type === "ready";
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
 		!notConfigured &&
 		!!selectedDomain &&
 		!isWorking &&
-		!isCheckingFeatureFlags &&
+		hasFeatureFlagPreflight &&
 		appName.trim().length > 0;
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
@@ -622,7 +622,7 @@ export function PublishDialog({
 							<Button
 								type="button"
 								onClick={() => handleDownload(downloadTarget)}
-								disabled={isWorking || isCheckingFeatureFlags}
+								disabled={isWorking || !hasFeatureFlagPreflight}
 							>
 								{status.type === "downloading" ? (
 									<>
