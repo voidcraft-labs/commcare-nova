@@ -22,7 +22,7 @@ import {
 } from "@/lib/domain/predicate";
 import type { LookupRevision } from "@/lib/lookup/types";
 
-// One hand-built table, tag "regions", with the four columns the S05b
+// One hand-built table, tag "regions", with the four columns the
 // lowering contract exercises: a select value/label pair plus a `name`
 // result column and an `int` `pop` column.
 const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;

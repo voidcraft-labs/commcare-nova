@@ -21,7 +21,8 @@ On success, emitters consume the returned `lookupSnapshot` / `lookupContext`,
 the ccz-only `lookupWire`, and media `assets`. Never perform a second lookup
 read: the returned definitions and fixture blocks are the exact generation
 that passed validation. The synthetic registry entry point exists only for
-seeded S02 tests; production callers use the immutable shared registry.
+seeded boundary-race tests (`__tests__/boundaryValidation.test.ts`);
+production callers use the immutable shared registry.
 
 The lookup verdict is mode-split. `hq-json` and `hq-upload` reject every
 authored carrier with the mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`

@@ -1,7 +1,7 @@
 // lib/case-store/sql/__tests__/compileLookup.harness.test.ts
 //
 // Execute-against-real-Postgres tests for the lookup-carrier compiler
-// arms. The S05 selection semantics are the contract under test:
+// arms. The lookup-carrier selection semantics are the contract under test:
 // first matching row in authored `(order_key, id)` order; no match is
 // SQL NULL (the wire's empty node-set), never manufactured empty
 // text; a matched row's absent cell reads NULL while a stored empty

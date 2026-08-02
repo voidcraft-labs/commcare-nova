@@ -107,10 +107,10 @@ export function planCaseRetype(
 }
 
 function isRequiredCaseProperty(property: CaseProperty): boolean {
-	// `required` is an authored XPath, not a static boolean. S04 has no case
-	// snapshot with which to prove a conditional requirement false, so any
-	// non-empty requirement is conservatively treated as active. S07 may refine
-	// this with the shared evaluator, but it must never weaken atomic safety by
-	// guessing from expression text here.
+	// `required` is an authored XPath, not a static boolean. This plan holds no
+	// case snapshot with which to prove a conditional requirement false, so any
+	// non-empty requirement is conservatively treated as active. Refining that
+	// verdict takes a real snapshot and the shared evaluator — never a weakening
+	// of atomic safety by guessing from expression text here.
 	return property.required !== undefined && property.required.parts.length > 0;
 }
