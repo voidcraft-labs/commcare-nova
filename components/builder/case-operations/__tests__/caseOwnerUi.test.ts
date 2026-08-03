@@ -3,6 +3,7 @@ import {
 	caseOwnerCopy,
 	fixedOwnerModeIssue,
 	organizationOwnerModeIssue,
+	pendingFixedOwnerLabel,
 } from "../caseOwnerUi";
 
 const ready = {
@@ -39,5 +40,12 @@ describe("case owner authoring copy", () => {
 		);
 		expect(fixedOwnerModeIssue(ready, 1)).toBeUndefined();
 		expect(organizationOwnerModeIssue(ready)).toBeUndefined();
+		expect(pendingFixedOwnerLabel({ ...ready, loading: true })).toBe(
+			"Loading saved place",
+		);
+		expect(
+			pendingFixedOwnerLabel({ ...ready, error: "Connection failed." }),
+		).toBe("Saved place unavailable until places reload");
+		expect(pendingFixedOwnerLabel(ready)).toBeUndefined();
 	});
 });

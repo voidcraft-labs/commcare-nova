@@ -92,6 +92,7 @@ import {
 	caseOwnerCopy,
 	fixedOwnerModeIssue,
 	organizationOwnerModeIssue,
+	pendingFixedOwnerLabel,
 } from "./caseOwnerUi";
 import {
 	caseOperationRuntimeTargetConstraint,
@@ -600,7 +601,7 @@ function locationOwnerExpression(
  * their picker instead of teaching the generic expression menu to fetch an
  * app-scoped store it otherwise never needs.
  */
-function CaseOwnerSection({
+export function CaseOwnerSection({
 	action,
 	value,
 	canEdit,
@@ -666,6 +667,17 @@ function CaseOwnerSection({
 					? "Add a case-owning level beneath another case-owning level first."
 					: undefined);
 	const selected = locationOwnerExpression(value);
+	const selectedFixedLocationUuid =
+		selected?.term.kind === "fixed-location"
+			? selected.term.locationUuid
+			: undefined;
+	const fixedOwnerPendingLabel =
+		selectedFixedLocationUuid !== undefined &&
+		!fixedLocationCandidates.some(
+			(location) => location.id === selectedFixedLocationUuid,
+		)
+			? pendingFixedOwnerLabel(organization)
+			: undefined;
 	const selectedLevelUuid =
 		selected?.term.kind === "owner-location-at-level"
 			? selected.term.levelUuid
@@ -825,6 +837,11 @@ function CaseOwnerSection({
 								ariaLabel="Place that owns the case"
 								placeholder="Choose a place"
 								disabled={!canEdit || fixedModeIssue !== undefined}
+								triggerContent={
+									fixedOwnerPendingLabel === undefined ? undefined : (
+										<span>{fixedOwnerPendingLabel}</span>
+									)
+								}
 								issueFor={(location) =>
 									fixedLocationOwnerIssue(
 										doc,

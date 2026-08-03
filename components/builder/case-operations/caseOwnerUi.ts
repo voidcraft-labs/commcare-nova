@@ -53,3 +53,19 @@ export function fixedOwnerModeIssue(
 			: undefined)
 	);
 }
+
+/** Copy for a controlled fixed-owner UUID while the row catalog is not yet an
+ * authoritative answer. `undefined` means a completed read may truthfully use
+ * LocationChoiceSelect's ordinary unavailable-state copy. */
+export function pendingFixedOwnerLabel(
+	organization: OrganizationReadState,
+): string | undefined {
+	if (organization.loading) return "Loading saved place";
+	if (organization.error !== undefined) {
+		return "Saved place unavailable until places reload";
+	}
+	if (organization.warning !== undefined || organization.refreshing) {
+		return "Refreshing saved place";
+	}
+	return undefined;
+}
