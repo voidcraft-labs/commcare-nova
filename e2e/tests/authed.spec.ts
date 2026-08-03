@@ -2993,15 +2993,23 @@ test.describe("authenticated builder", () => {
 				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
 			})
 			.click();
+		/* Wait for the first picker to commit and its popup to leave before
+		 * opening the second. Both list the SAME table's columns, so while a
+		 * closing popup is still mounted for its exit animation every column
+		 * name matches twice and the next click is ambiguous. Asserting the
+		 * committed value and an empty listbox says exactly that, rather than
+		 * hoping the animation lost the race. */
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(page.getByRole("listbox")).toHaveCount(0);
+
 		await shownValue.click();
 		await page
 			.getByRole("option", {
 				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 			})
 			.click();
-		await expect(savedValue).toHaveText(
-			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
-		);
 		await expect(shownValue).toHaveText(
 			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 		);
