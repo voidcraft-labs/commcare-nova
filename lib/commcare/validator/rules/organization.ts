@@ -208,9 +208,14 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 			for (const uuid of book.levelUuids) {
 				if (levels[uuid] === undefined) {
 					errors.push(unknown(level, "limits its address book to"));
+				} else if (!isSelfOrBelow(level, uuid)) {
+					errors.push(notBelow(level, uuid, "limits its address book to"));
 				}
 			}
-		} else if (book.downToLevelUuid !== undefined) {
+		} else if (
+			book.reach === "own-branch" &&
+			book.downToLevelUuid !== undefined
+		) {
 			if (levels[book.downToLevelUuid] === undefined) {
 				errors.push(unknown(level, "stops its address book at"));
 			} else if (!isSelfOrBelow(level, book.downToLevelUuid)) {
@@ -235,6 +240,27 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 					),
 				);
 			}
+			if (book.downToLevelUuid !== undefined) {
+				const from = levels[book.fromLevelUuid];
+				if (levels[book.downToLevelUuid] === undefined) {
+					errors.push(unknown(level, "stops its address book at"));
+				} else if (
+					from !== undefined &&
+					!isSelfOrBelow(from, book.downToLevelUuid)
+				) {
+					errors.push(
+						notBelow(from, book.downToLevelUuid, "stops its address book at"),
+					);
+				}
+			}
+		}
+
+		if (
+			book.reach === "whole-organization" &&
+			book.downToLevelUuid !== undefined &&
+			levels[book.downToLevelUuid] === undefined
+		) {
+			errors.push(unknown(level, "stops its address book at"));
 		}
 
 		if (

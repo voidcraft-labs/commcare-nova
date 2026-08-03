@@ -69,6 +69,13 @@ within signed-int64 range on every boundary. Never convert one through
 `Number`, serialize a native `bigint`, or compare two lexically without
 comparing length first.
 
+Row updates have two explicit custom-value dialects. `values` is a complete
+replacement bag, while `valuePatch` changes UUID-addressed entries and uses
+`null` to remove one value without clearing its siblings. They are mutually
+exclusive in one request. Coordinates are canonical decimal strings and the
+database stores the HQ-compatible `numeric(20,10)` precision; do not introduce
+a floating-point conversion on either boundary.
+
 ## The two directions of cross-store reference
 
 `commitIntegrity.ts` holds both, and both run **inside the blueprint commit's
@@ -119,6 +126,13 @@ surface's provenance (`chat` with the exact holder, `mcp`, or browser
 SA/MCP tool adopts that fresh document as a mutating result; it must not keep
 reasoning from its pre-archive working copy.
 
+Archive is a two-step public operation. `describeArchiveImpact` returns the
+locked revision and the exact subtree, displaced personas, owned-case count,
+and blocking owner forms. The committing call supplies that complete payload;
+the transaction recomputes it after taking its locks and refuses any mismatch.
+Neither the SA/MCP tool nor the browser action may turn a stale impact summary
+into consent for a different archive.
+
 Three behaviours are HQ parity, each verified rather than assumed:
 
 - Archiving walks **descendants** (`SQLLocation.archive` takes
@@ -151,7 +165,9 @@ inside the transaction. A move also changes ancestry for otherwise untouched
 rows. Create, retype, move, unarchive, and blueprint commits additionally prove
 that each authored reverse owner hop remains scalar: below any applicable
 case-owning ancestor there may be at most one live destination at the requested
-level. Any failure rolls back the row and revision together.
+level. The same check proves the destination is present in every applicable
+persona's exact address-book footprint. Any failure rolls back the row and
+revision together.
 
 Unarchiving deliberately does **not** restore assignments. The archive removed
 them and they are ordinary authored data now; silently re-adding a persona to a
@@ -198,11 +214,19 @@ a memory of an older one.
 - `actions.ts` authenticates, runtime-parses untrusted arguments, authorizes
   the explicit app id the displayed state named, and maps typed errors to
   discriminated results.
+- Shared SA/MCP reads are bounded projections. `getOrganization` returns at
+  most 50 rows, a stable cursor, total/matching counts, and a completeness bit;
+  custom values are omitted unless explicitly requested. Every SA/MCP row
+  write requires the exact revision it read.
 - `countCasesOwnedBy` in `service.ts` is the one place this package reads case
   rows, and it is raw SQL because `cases` belongs to the case store's schema
   rather than `AppDatabase`. It is advisory only — never a gate.
 - Do not import `lib/commcare` here. Unit 9 owns the fixture's meaning and its
   budget; it may refuse to emit a footprint but cannot reinterpret these rows.
+- The compiler can lower fixed-place and reverse-hop owner terms, but every
+  export mode remains closed while the persona-scoped device location fixture
+  and HQ location map are absent. Do not describe an authored owner term as
+  deployable until that boundary opens.
 
 Keep pure schema/derivation/plan tests separate from Postgres integration
 tests, and bundle the Postgres-focused ones into one invocation so local and

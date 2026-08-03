@@ -168,42 +168,49 @@ async function collectViolationsWithRegistry(
 	];
 }
 
-/**
- * A local place UUID is the right identity in a `.ccz`, whose embedded
- * locations fixture is compiled from the same rows. HQ creates different
- * location ids, so HQ artifacts stay closed until deployment supplies and
- * verifies the local-to-remote mapping.
- */
+/** Location-owner terms remain closed at every export boundary. The domain
+ * terms and Preview behavior are complete, but the exact persona-scoped
+ * `locations` fixture and HQ identity mapping ship with deployment/usercase.
+ * Printing an expression without that data would create a valid-looking app
+ * whose owner lookup resolves to nothing on a device. */
 function organizationExportFindings(
 	doc: BlueprintDoc,
 	mode: ExportMode | undefined,
 ): ValidationError[] {
-	if (mode === undefined || mode === "ccz") return [];
+	if (mode === undefined) return [];
 	const findings: ValidationError[] = [];
 	for (const form of Object.values(doc.forms)) {
 		for (const [operationIndex, operation] of (
 			form.caseOperations ?? []
 		).entries()) {
 			if (operation.owner === undefined) continue;
-			let fixedLocationUuid: string | undefined;
+			let ownerTarget: Record<string, string> | undefined;
 			walkExpressionTerms(operation.owner, (term) => {
 				if (term.kind === "fixed-location") {
-					fixedLocationUuid = term.locationUuid;
+					ownerTarget = {
+						ownerKind: term.kind,
+						locationUuid: term.locationUuid,
+					};
+				} else if (term.kind === "owner-location-at-level") {
+					ownerTarget = {
+						ownerKind: term.kind,
+						levelUuid: term.levelUuid,
+					};
 				}
 			});
-			if (fixedLocationUuid === undefined) continue;
+			if (ownerTarget === undefined) continue;
 			findings.push(
 				validationError(
-					"FIXED_LOCATION_EXPORT_NOT_ACTIVE",
+					"LOCATION_OWNER_EXPORT_NOT_ACTIVE",
 					"form",
-					`A fixed place owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} until Deployment has created and mapped that place in HQ. Choose an owner-relative rule or remove the fixed owner before exporting.`,
+					`A place-based case owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} until Nova ships the matching device location data and HQ identity mapping. Choose a non-location owner or remove this owner rule before exporting.`,
 					{
 						formUuid: form.uuid,
 					},
 					{
 						exportMode: mode,
 						operationIndex: String(operationIndex),
-						locationUuid: fixedLocationUuid,
+						...ownerTarget,
 					},
 				),
 			);

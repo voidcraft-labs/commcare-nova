@@ -25,6 +25,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	archiveImpactSchema,
 	createLocationInputSchema,
 	organizationRevisionSchema,
 	updateLocationInputSchema,
@@ -110,10 +111,34 @@ const levelCreateSchema = organizationLevelSchema.omit({ uuid: true }).extend({
 	/** Optional predeclared identity lets one atomic call add a parent and
 	 * children that reference it. Omitted identities remain server-minted. */
 	uuid: uuidSchema.optional(),
+	description: organizationLevelSchema.shape.description.nullable(),
+	parentLevelUuid: uuidSchema.nullable().optional(),
 });
-const propertyCreateSchema = locationPropertySchema.omit({ uuid: true });
+const propertyCreateSchema = locationPropertySchema
+	.omit({ uuid: true })
+	.extend({
+		required: locationPropertySchema.shape.required.nullable(),
+		choices: locationPropertySchema.shape.choices.nullable(),
+		levelUuids: locationPropertySchema.shape.levelUuids.nullable(),
+	});
 
-export const getOrganizationInputSchema = z.object({}).strict();
+const ORGANIZATION_PAGE_SIZE = 25;
+const ORGANIZATION_PAGE_MAX = 50;
+export const getOrganizationInputSchema = z
+	.object({
+		query: z.string().trim().max(255).nullable().optional(),
+		/** Zero-based offset in the current filtered result. */
+		cursor: z.number().int().nonnegative().optional(),
+		limit: z
+			.number()
+			.int()
+			.min(1)
+			.max(ORGANIZATION_PAGE_MAX)
+			.default(ORGANIZATION_PAGE_SIZE),
+		/** Saved custom values can be large; request them only when needed. */
+		includeValues: z.boolean().default(false),
+	})
+	.strict();
 export const addOrganizationLevelsInputSchema = z
 	.object({ levels: z.array(levelCreateSchema).min(1).max(50) })
 	.strict();
@@ -126,7 +151,10 @@ export const updateOrganizationLevelInputSchema = z
 		caseFlow: levelCaseFlowSchema.optional(),
 		addressBook: levelAddressBookSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.refine((input) => Object.keys(input).length > 1, {
+		message: "Change at least one organization-level setting.",
+	});
 export const removeOrganizationLevelInputSchema = z
 	.object({ uuid: uuidSchema })
 	.strict();
@@ -139,54 +167,107 @@ export const updateLocationPropertyInputSchema = z
 		slug: propertyCreateSchema.shape.slug.optional(),
 		label: propertyCreateSchema.shape.label.optional(),
 		required: z.boolean().nullable().optional(),
-		choices: z.array(z.string().min(1)).min(1).nullable().optional(),
+		choices: locationPropertySchema.shape.choices.nullable(),
 		levelUuids: z.array(uuidSchema).min(1).nullable().optional(),
 	})
-	.strict();
+	.strict()
+	.refine((input) => Object.keys(input).length > 1, {
+		message: "Change at least one place-information setting.",
+	});
 export const removeLocationPropertyInputSchema = z
 	.object({ uuid: uuidSchema })
 	.strict();
 export const createLocationToolInputSchema = createLocationInputSchema.extend({
-	expectedRevision: organizationRevisionSchema.optional(),
+	expectedRevision: organizationRevisionSchema,
 });
-export const updateLocationToolInputSchema = updateLocationInputSchema.extend({
-	locationUuid: uuidSchema,
-	expectedRevision: organizationRevisionSchema.optional(),
-});
+export const updateLocationToolInputSchema = updateLocationInputSchema
+	.safeExtend({
+		locationUuid: uuidSchema,
+		expectedRevision: organizationRevisionSchema,
+	})
+	.refine(
+		(input) =>
+			Object.keys(input).some(
+				(key) => key !== "locationUuid" && key !== "expectedRevision",
+			),
+		{ message: "Change at least one place field." },
+	);
 export const moveLocationToolInputSchema = z
 	.object({
 		locationUuid: uuidSchema,
 		parentUuid: uuidSchema.nullable(),
 		/** null means first; omitted means append. */
 		afterSiblingUuid: uuidSchema.nullable().optional(),
-		expectedRevision: organizationRevisionSchema.optional(),
+		expectedRevision: organizationRevisionSchema,
 	})
 	.strict();
 export const setLocationArchivedToolInputSchema = z
 	.object({
 		locationUuid: uuidSchema,
 		archived: z.boolean(),
-		expectedRevision: organizationRevisionSchema.optional(),
+		expectedRevision: organizationRevisionSchema,
+		/** Archive is two-step: omit/false to read impact, then true with the
+		 * exact returned payload to commit. Unarchive does not need it. */
+		confirm: z.boolean().optional(),
+		confirmedImpact: archiveImpactSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((input, ctx) => {
+		if (
+			input.archived &&
+			input.confirm === true &&
+			input.confirmedImpact === undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["confirmedImpact"],
+				message:
+					"Confirming an archive requires the exact impact payload returned by its preflight.",
+			});
+		}
+	});
 
 export const getOrganizationTool = {
 	description:
-		"Read organization levels, place-information fields, the current revision, and all places (including archived) with stable uuids.",
+		"Read organization levels, place-information fields, the current revision, and a bounded page of places (including archived) with stable uuids. Use query/cursor until page.complete is true; request includeValues only when saved custom values are needed.",
 	inputSchema: getOrganizationInputSchema,
 	async execute(
-		_input: z.infer<typeof getOrganizationInputSchema>,
+		input: z.infer<typeof getOrganizationInputSchema>,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<unknown>> {
 		try {
 			const snapshot = await readOrganization(scope(ctx));
+			const needle = input.query?.toLocaleLowerCase();
+			const matching =
+				needle === undefined || needle === ""
+					? snapshot.locations
+					: snapshot.locations.filter((location) =>
+							[location.name, location.siteCode, location.externalId]
+								.filter((value): value is string => value !== null)
+								.some((value) => value.toLocaleLowerCase().includes(needle)),
+						);
+			const start = input.cursor ?? 0;
+			const end = Math.min(start + input.limit, matching.length);
+			const locations = matching.slice(start, end).map((location) => {
+				if (input.includeValues) return location;
+				const { values: _values, ...projection } = location;
+				return projection;
+			});
 			return {
 				kind: "read",
 				data: {
 					levels: orderedOrganizationLevels(doc),
 					placeInformation: orderedLocationProperties(doc),
-					...snapshot,
+					revision: snapshot.revision,
+					locations,
+					page: {
+						returned: locations.length,
+						matching: matching.length,
+						total: snapshot.locations.length,
+						complete: end >= matching.length,
+						nextCursor: end < matching.length ? end : null,
+					},
 				},
 			};
 		} catch (error) {
@@ -208,13 +289,41 @@ export const addOrganizationLevelsTool = {
 			const uuids = input.levels.map(
 				(level) => level.uuid ?? asUuid(crypto.randomUUID()),
 			);
+			const knownLevels = new Set(Object.keys(organizationLevelsOf(doc)));
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, level] of input.levels.entries()) {
-				const { uuid: _uuid, ...body } = level;
+				if (
+					level.parentLevelUuid !== null &&
+					level.parentLevelUuid !== undefined &&
+					!knownLevels.has(level.parentLevelUuid)
+				) {
+					return toToolErrorResult(
+						new Error(
+							"Add a parent organization level before any child that names it in the same call.",
+						),
+						doc,
+					);
+				}
+				const {
+					uuid: _uuid,
+					description,
+					parentLevelUuid,
+					...required
+				} = level;
+				const body = {
+					...required,
+					...(description === null || description === undefined
+						? {}
+						: { description }),
+					...(parentLevelUuid === null || parentLevelUuid === undefined
+						? {}
+						: { parentLevelUuid }),
+				};
 				const next = addOrganizationLevelMutations(cursor, uuids[index], body);
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
+				knownLevels.add(uuids[index]);
 			}
 			const outcome = await guardedMutate(
 				ctx,
@@ -323,10 +432,23 @@ export const addLocationPropertiesTool = {
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, property] of input.properties.entries()) {
+				const normalized = {
+					slug: property.slug,
+					label: property.label,
+					...(property.required === null || property.required === undefined
+						? {}
+						: { required: property.required }),
+					...(property.choices === null || property.choices === undefined
+						? {}
+						: { choices: property.choices }),
+					...(property.levelUuids === null || property.levelUuids === undefined
+						? {}
+						: { levelUuids: property.levelUuids }),
+				};
 				const next = addLocationPropertyMutations(
 					cursor,
 					uuids[index],
-					property,
+					normalized,
 				);
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
@@ -498,7 +620,7 @@ export const moveLocationTool = {
 
 export const setLocationArchivedTool = {
 	description:
-		"Archive or unarchive a place. Archiving affects its subtree, reports owned cases, and atomically removes persona assignments; it never reassigns case owners.",
+		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive the exact impact; after the user agrees, call with confirm=true and that unchanged confirmedImpact. It never reassigns case owners.",
 	inputSchema: setLocationArchivedToolInputSchema,
 	async execute(
 		input: z.infer<typeof setLocationArchivedToolInputSchema>,
@@ -506,14 +628,27 @@ export const setLocationArchivedTool = {
 		_doc: BlueprintDoc,
 	) {
 		try {
-			const impact = input.archived
-				? await describeArchiveImpact(scope(ctx), input.locationUuid)
-				: undefined;
+			if (input.archived && input.confirm !== true) {
+				const impact = await describeArchiveImpact(
+					scope(ctx),
+					input.locationUuid,
+				);
+				return {
+					kind: "read" as const,
+					data: {
+						confirmationRequired: true,
+						message:
+							"Review this archive impact with the user, then repeat the call with confirm=true and the unchanged confirmedImpact payload.",
+						impact,
+					},
+				};
+			}
 			const result = await setLocationArchived(
 				scope(ctx),
 				input.locationUuid,
 				input.archived,
 				input.expectedRevision,
+				input.confirmedImpact,
 			);
 			if (result.blueprintChange !== undefined) {
 				const { blueprintChange, ...organization } = result;
@@ -523,14 +658,13 @@ export const setLocationArchivedTool = {
 					newDoc: blueprintChange.committedDoc,
 					result: {
 						message: `Archived ${result.archivedIds.length} ${result.archivedIds.length === 1 ? "place" : "places"} and updated ${result.unassignedPersonas.length} persona ${result.unassignedPersonas.length === 1 ? "assignment" : "assignments"}.`,
-						impact,
 						organization,
 					},
 				};
 			}
 			return {
 				kind: "read" as const,
-				data: { impact, result },
+				data: { result },
 			};
 		} catch (error) {
 			if (error instanceof RunHolderLostError) throw error;

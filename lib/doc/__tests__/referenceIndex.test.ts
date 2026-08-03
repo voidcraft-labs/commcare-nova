@@ -35,6 +35,7 @@ import {
 	caseTypeTargetKey,
 	entityTargetKey,
 	expressionSource,
+	locationTargetKey,
 	printProseTemplate,
 	type Uuid,
 	userPropertyTargetKey,
@@ -244,7 +245,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		expect(slotsFor(doc, entityTargetKey(facility))[formUuid]).toEqual({
 			case_operation_owner: true,
 		});
-		const placeSlots = slotsFor(doc, entityTargetKey(place));
+		const placeSlots = slotsFor(doc, locationTargetKey(place));
 		expect(placeSlots[persona]).toEqual({ persona_location: true });
 		expect(placeSlots[formUuid]).toEqual({ case_operation_owner: true });
 	});

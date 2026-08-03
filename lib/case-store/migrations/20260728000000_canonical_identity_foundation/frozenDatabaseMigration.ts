@@ -9,7 +9,6 @@
 
 import { createHash } from "node:crypto";
 import { type Kysely, sql } from "kysely";
-import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "../postFrozenCanonicalIdentityRelations";
 import {
 	captureFrozenCutoverCatalogEvidence,
 	captureFrozenCutoverLeaseState,
@@ -68,6 +67,7 @@ import {
 	rewriteFrozenCaseTypeSchema,
 	scanLookupIdentities,
 } from "./frozenTransform";
+import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "./postFrozenCanonicalIdentityRelations";
 
 const HORIZON_BATCH_ID = "fold-baseline:canonical-identity-foundation";
 const HORIZON_ACTOR_ID = "system:canonical-identity-foundation";

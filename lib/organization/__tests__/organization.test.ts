@@ -21,6 +21,7 @@ import {
 import { fixedLocation, term } from "@/lib/domain/predicate";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
 import {
+	canonicalCoordinate,
 	createLocationInputSchema,
 	deriveSiteCode,
 	organizationRevisionSchema,
@@ -192,6 +193,48 @@ describe("organization authoring input identity", () => {
 		expect(
 			locationPropertySchema.safeParse({ ...base, label: "a".repeat(256) })
 				.success,
+		).toBe(false);
+	});
+
+	it("canonicalizes coordinates to the matching numeric(20,10) spelling", () => {
+		const parsed = createLocationInputSchema.parse({
+			levelUuid: lower,
+			name: "North",
+			latitude: "-0.0000000000",
+			longitude: "12.3400000000",
+		});
+		expect(parsed.latitude).toBe("0");
+		expect(parsed.longitude).toBe("12.34");
+		expect(canonicalCoordinate("180.0000000000")).toBe("180");
+		expect(
+			createLocationInputSchema.safeParse({
+				levelUuid: lower,
+				name: "North",
+				latitude: "1.12345678901",
+			}).success,
+		).toBe(false);
+	});
+
+	it("supports UUID-addressed value edits and atomic retype/move patches", () => {
+		expect(
+			updateLocationInputSchema.parse({
+				valuePatch: { [lower]: null },
+				levelUuid: lower,
+				parentId: null,
+				afterSiblingId: null,
+			}),
+		).toMatchObject({
+			valuePatch: { [lower]: null },
+			levelUuid: lower,
+			parentId: null,
+			afterSiblingId: null,
+		});
+		expect(updateLocationInputSchema.safeParse({}).success).toBe(false);
+		expect(
+			updateLocationInputSchema.safeParse({
+				values: { [lower]: "all" },
+				valuePatch: { [lower]: "one" },
+			}).success,
 		).toBe(false);
 	});
 });

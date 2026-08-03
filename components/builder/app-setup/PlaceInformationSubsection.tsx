@@ -12,7 +12,7 @@
  */
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import { Label } from "@/components/shadcn/label";
@@ -32,6 +32,7 @@ import { locationValueCatalogIssueForProperties } from "@/lib/organization/value
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { DraftCommitInput, DraftLinesField } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
@@ -46,6 +47,8 @@ export function PlaceInformationSubsection({
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
+	const rowFocus = useRemovedRowFocus(properties.length);
 
 	const add = () => {
 		if (!sessionApi.getState().canEdit) return;
@@ -54,7 +57,10 @@ export function PlaceInformationSubsection({
 			label,
 			slug: uniqueSlug(label, properties),
 		});
-		if (result.ok) setOpenUuid(result.uuid);
+		if (result.ok) {
+			setOpenUuid(result.uuid);
+			setFocusUuid(result.uuid);
+		}
 	};
 
 	return (
@@ -65,6 +71,7 @@ export function PlaceInformationSubsection({
 			addLabel="Add information"
 			onAdd={add}
 			canEdit={canEdit && levels.length > 0}
+			addButtonRef={rowFocus.addRef}
 		>
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
@@ -77,7 +84,7 @@ export function PlaceInformationSubsection({
 					information here only when workers or expressions need more.
 				</SubsectionEmpty>
 			) : (
-				properties.map((property) => (
+				properties.map((property, index) => (
 					<PropertyRow
 						key={property.uuid}
 						property={property}
@@ -88,6 +95,10 @@ export function PlaceInformationSubsection({
 						onOpenChange={(next) =>
 							setOpenUuid(next ? property.uuid : undefined)
 						}
+						focusOnMount={focusUuid === property.uuid}
+						onFocused={() => setFocusUuid(undefined)}
+						rowFocusRef={rowFocus.register(index)}
+						onRemove={() => rowFocus.onRemoved(index)}
 					/>
 				))
 			)}
@@ -128,6 +139,10 @@ function PropertyRow({
 	locations,
 	open,
 	onOpenChange,
+	focusOnMount,
+	onFocused,
+	rowFocusRef,
+	onRemove,
 }: {
 	property: LocationProperty;
 	peers: readonly LocationProperty[];
@@ -135,6 +150,10 @@ function PropertyRow({
 	locations: readonly StoredLocation[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	focusOnMount: boolean;
+	onFocused: () => void;
+	rowFocusRef: (element: HTMLButtonElement | null) => void;
+	onRemove: () => void;
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
@@ -143,6 +162,12 @@ function PropertyRow({
 	const requiredId = useId();
 	const choicesId = useId();
 	const [message, setMessage] = useState<string | undefined>(undefined);
+	const nameRef = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (!focusOnMount) return;
+		nameRef.current?.focus();
+		onFocused();
+	}, [focusOnMount, onFocused]);
 
 	const claimed = new Set(
 		peers.filter((p) => p.uuid !== property.uuid).map((p) => p.slug),
@@ -179,6 +204,7 @@ function PropertyRow({
 
 	return (
 		<EntryRow
+			triggerRef={rowFocusRef}
 			summary={property.label}
 			detail={
 				appliesEverywhere
@@ -199,6 +225,7 @@ function PropertyRow({
 						Name
 					</Label>
 					<DraftCommitInput
+						inputRef={nameRef}
 						id={labelId}
 						value={property.label}
 						disabled={!canEdit}
@@ -319,7 +346,7 @@ function PropertyRow({
 					</p>
 				)}
 
-				{canEdit && <RemoveProperty property={property} />}
+				{canEdit && <RemoveProperty property={property} onRemove={onRemove} />}
 			</div>
 		</EntryRow>
 	);
@@ -352,7 +379,13 @@ function LevelToggle({
 	);
 }
 
-function RemoveProperty({ property }: { property: LocationProperty }) {
+function RemoveProperty({
+	property,
+	onRemove,
+}: {
+	property: LocationProperty;
+	onRemove: () => void;
+}) {
 	const mutations = useBlueprintMutations();
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
@@ -388,6 +421,7 @@ function RemoveProperty({ property }: { property: LocationProperty }) {
 					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
 						setConfirming(false);
+						onRemove();
 						mutations.removeLocationProperty(property.uuid as Uuid);
 					}}
 				>

@@ -71,6 +71,7 @@ import {
 	isXPathExpression,
 	type LocationProperty,
 	locationPropertiesOf,
+	locationTargetKey,
 	MODULE_REFERENCE_SLOTS,
 	type Module,
 	type OrganizationLevel,
@@ -415,7 +416,7 @@ function extractLocationPropertyEdges(
 
 function extractPersonaLocationEdges(sink: EdgeSink, persona: Persona): void {
 	for (const locationUuid of assignedLocationUuids(persona.locations)) {
-		sink.edge(entityTargetKey(locationUuid), "persona_location");
+		sink.edge(locationTargetKey(locationUuid), "persona_location");
 	}
 }
 
@@ -715,7 +716,7 @@ function termEdges(sink: EdgeSink, slot: string, term: Term): void {
 		return;
 	}
 	if (term.kind === "fixed-location") {
-		sink.edge(entityTargetKey(term.locationUuid), slot);
+		sink.edge(locationTargetKey(term.locationUuid), slot);
 		return;
 	}
 	if (term.kind === "owner-location-at-level") {

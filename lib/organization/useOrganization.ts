@@ -34,6 +34,9 @@ export interface OrganizationView {
 	/** Set when the last read failed, so the surface can say so rather than
 	 *  render an empty organization that is not empty. */
 	readonly error: string | undefined;
+	/** A failed background refresh. The last complete snapshot remains usable. */
+	readonly warning: string | undefined;
+	readonly refreshing: boolean;
 	readonly reload: () => void;
 }
 
@@ -57,6 +60,7 @@ export interface OrganizationWriter {
 	setArchived: (
 		locationId: string,
 		archived: boolean,
+		confirmedImpact?: ArchiveImpact,
 	) => Promise<{
 		ok: boolean;
 		message?: string;
@@ -71,27 +75,42 @@ export function useOrganization(
 	const [revision, setRevision] = useState("0");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | undefined>(undefined);
+	const [warning, setWarning] = useState<string | undefined>(undefined);
+	const [refreshing, setRefreshing] = useState(false);
 	// Guards against a slow first read resolving after a faster second one and
 	// overwriting it — the classic stale-response race on a re-readable view.
 	const generation = useRef(0);
+	const loaded = useRef(false);
+	const revisionRef = useRef("0");
+	const writeTail = useRef<Promise<void>>(Promise.resolve());
 
-	const reload = useCallback(() => {
+	const refresh = useCallback(async (): Promise<void> => {
 		const mine = ++generation.current;
-		setLoading(true);
-		void readOrganizationAction(appId).then((result) => {
-			if (mine !== generation.current) return;
-			setLoading(false);
-			if (!result.success) {
-				setError(result.message);
-				return;
-			}
-			setError(undefined);
-			setLocations(result.data.locations);
-			setRevision(result.data.revision);
-		});
+		if (loaded.current) setRefreshing(true);
+		else setLoading(true);
+		const result = await readOrganizationAction(appId);
+		if (mine !== generation.current) return;
+		setLoading(false);
+		setRefreshing(false);
+		if (!result.success) {
+			if (loaded.current) setWarning(result.message);
+			else setError(result.message);
+			return;
+		}
+		loaded.current = true;
+		setError(undefined);
+		setWarning(undefined);
+		setLocations(result.data.locations);
+		revisionRef.current = result.data.revision;
+		setRevision(result.data.revision);
 	}, [appId]);
+	const reload = useCallback(() => {
+		void refresh();
+	}, [refresh]);
 
-	useEffect(reload, [reload]);
+	useEffect(() => {
+		void refresh();
+	}, [refresh]);
 
 	// A co-editor's change arrives as a payload-free poke on the shared builder
 	// stream and re-reads through the same authorized action as every other
@@ -118,30 +137,15 @@ export function useOrganization(
 	 * against the committed document is correct, and relaxing it to paper over
 	 * a timing problem would trade a visible failure for an invisible one.
 	 *
-	 * `dispatchHumanBatch` returns the minted batch id, or `undefined` when the
-	 * delta is empty — which does NOT mean "committed", because autosave may
-	 * already have a batch in flight. So the caller retries once on the typed
-	 * `not-committed` rejection rather than trusting an empty delta.
+	 * The reconciler's save barrier includes both newly dispatched changes and
+	 * batches that were already in flight. Waiting only for a newly minted batch
+	 * id misses the common case where autosave won the dispatch race by a few
+	 * milliseconds but has not received its PUT acknowledgement yet.
 	 */
 	const flushBlueprint = useCallback(async (): Promise<void> => {
 		const reconciler = collab?.reconciler;
 		if (reconciler === undefined) return;
-		await new Promise<void>((resolve) => {
-			let settled = false;
-			const done = () => {
-				if (settled) return;
-				settled = true;
-				resolve();
-			};
-			const batchId = reconciler.dispatchHumanBatch((signal) => {
-				// Any terminal signal releases the wait. A failure resolves rather
-				// than rejects: the write that follows will report the real
-				// problem in the author's own terms, and autosave keeps retrying
-				// the batch on its own schedule regardless.
-				if (signal.kind !== "saving") done();
-			});
-			if (batchId === undefined) done();
-		});
+		await reconciler.waitForHumanSaveBarrier();
 	}, [collab]);
 
 	/**
@@ -159,8 +163,6 @@ export function useOrganization(
 			result: T & { data?: { revision?: string } },
 		): { ok: boolean; message?: string } => {
 			if (result.success) {
-				const next = result.data?.revision;
-				if (next !== undefined) setRevision(next);
 				reload();
 				return { ok: true };
 			}
@@ -181,15 +183,35 @@ export function useOrganization(
 	 */
 	const write = useCallback(
 		async <T extends { success: boolean; message?: string; code?: string }>(
-			run: () => Promise<T>,
+			run: (expectedRevision: string) => Promise<T>,
 		): Promise<T> => {
-			await flushBlueprint();
-			const first = await run();
-			if (first.success || first.code !== "not-committed") return first;
-			await flushBlueprint();
-			return run();
+			const execute = async (): Promise<T> => {
+				await flushBlueprint();
+				let result = await run(revisionRef.current);
+				if (!result.success && result.code === "not-committed") {
+					await flushBlueprint();
+					result = await run(revisionRef.current);
+				}
+				if (result.success) {
+					const next = (result as T & { data?: { revision?: string } }).data
+						?.revision;
+					if (next !== undefined) {
+						revisionRef.current = next;
+						setRevision(next);
+					}
+				} else if (result.code === "conflict") {
+					await refresh();
+				}
+				return result;
+			};
+			const queued = writeTail.current.then(execute, execute);
+			writeTail.current = queued.then(
+				() => undefined,
+				() => undefined,
+			);
+			return queued;
 		},
-		[flushBlueprint],
+		[flushBlueprint, refresh],
 	);
 
 	return {
@@ -197,36 +219,38 @@ export function useOrganization(
 		revision,
 		loading,
 		error,
+		warning,
+		refreshing,
 		reload,
 		create: useCallback(
 			async (input) => {
-				const result = await write(() =>
-					createLocationAction(appId, input, revision),
+				const result = await write((expectedRevision) =>
+					createLocationAction(appId, input, expectedRevision),
 				);
 				const outcome = after(result);
 				return result.success
 					? { ...outcome, id: result.data.location.id }
 					: outcome;
 			},
-			[appId, revision, after, write],
+			[appId, after, write],
 		),
 		update: useCallback(
 			async (locationId, patch) =>
 				after(
-					await write(() =>
-						updateLocationAction(appId, locationId, patch, revision),
+					await write((expectedRevision) =>
+						updateLocationAction(appId, locationId, patch, expectedRevision),
 					),
 				),
-			[appId, revision, after, write],
+			[appId, after, write],
 		),
 		move: useCallback(
 			async (locationId, target) =>
 				after(
-					await write(() =>
-						moveLocationAction(appId, locationId, target, revision),
+					await write((expectedRevision) =>
+						moveLocationAction(appId, locationId, target, expectedRevision),
 					),
 				),
-			[appId, revision, after, write],
+			[appId, after, write],
 		),
 		describeArchive: useCallback(
 			async (locationId) => {
@@ -238,9 +262,15 @@ export function useOrganization(
 			[appId],
 		),
 		setArchived: useCallback(
-			async (locationId, archived) => {
-				const result = await write(() =>
-					setLocationArchivedAction(appId, locationId, archived, revision),
+			async (locationId, archived, confirmedImpact) => {
+				const result = await write((expectedRevision) =>
+					setLocationArchivedAction(
+						appId,
+						locationId,
+						archived,
+						expectedRevision,
+						confirmedImpact,
+					),
 				);
 				const outcome = after(result);
 				return result.success
@@ -250,7 +280,7 @@ export function useOrganization(
 						}
 					: outcome;
 			},
-			[appId, revision, after, write],
+			[appId, after, write],
 		),
 	};
 }

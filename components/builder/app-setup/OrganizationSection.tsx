@@ -72,6 +72,23 @@ export function OrganizationSection() {
 			</section>
 			{status ?? (
 				<>
+					{organization.warning !== undefined && (
+						<p
+							role="status"
+							className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+						>
+							The saved organization could not be refreshed. Your open edits are
+							still here. {organization.warning}{" "}
+							<Button
+								type="button"
+								variant="ghost"
+								className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+								onClick={organization.reload}
+							>
+								Try again
+							</Button>
+						</p>
+					)}
 					<LevelsSubsection occupiedLevelUuids={occupiedLevelUuids} />
 					<PlaceInformationSubsection locations={organization.locations} />
 					<PlacesSubsection organization={organization} />

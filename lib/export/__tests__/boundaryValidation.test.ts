@@ -6,7 +6,11 @@ import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReference
 import type { LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
-import { fixedLocation, term } from "@/lib/domain/predicate";
+import {
+	fixedLocation,
+	ownerLocationAtLevel,
+	term,
+} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
 	getLookupDefinitions,
@@ -190,6 +194,20 @@ function fixedOwnerDoc() {
 			),
 		},
 	];
+	return doc;
+}
+
+function reverseOwnerDoc() {
+	const doc = fixedOwnerDoc();
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const operation = doc.forms[formUuid].caseOperations?.[0];
+	if (operation === undefined) throw new Error("owner operation missing");
+	operation.owner = term(
+		ownerLocationAtLevel(
+			testUuid("33333333-3333-4333-8333-333333333333"),
+			"patient",
+		),
+	);
 	return doc;
 }
 
@@ -404,38 +422,33 @@ describe("prepareExportBoundary", () => {
 		},
 	);
 
-	it.each(["hq-json", "hq-upload"] as const)(
-		"keeps local fixed-place identities closed for %s exports",
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"keeps place-owner terms closed for %s exports until the device fixture ships",
 		async (mode) => {
-			const result = await prepareExportBoundary({
-				mode,
-				access: ACCESS,
-				doc: fixedOwnerDoc(),
-				compiledAtSeq: 16,
-			});
+			for (const [kind, makeDoc] of [
+				["fixed", fixedOwnerDoc],
+				["reverse", reverseOwnerDoc],
+			] as const) {
+				const result = await prepareExportBoundary({
+					mode,
+					access: ACCESS,
+					doc: makeDoc(),
+					compiledAtSeq: 16,
+				});
 
-			expect(result.ok).toBe(false);
-			if (result.ok) throw new Error("expected fixed-owner rejection");
-			expect(result.violations).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						code: "FIXED_LOCATION_EXPORT_NOT_ACTIVE",
-						details: expect.objectContaining({ exportMode: mode }),
-					}),
-				]),
-			);
+				expect(result.ok, `${kind} owner must stay closed`).toBe(false);
+				if (result.ok) throw new Error(`expected ${kind}-owner rejection`);
+				expect(result.violations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							code: "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
+							details: expect.objectContaining({ exportMode: mode }),
+						}),
+					]),
+				);
+			}
 		},
 	);
-
-	it("keeps the local fixed-place identity available for a self-contained ccz", async () => {
-		const result = await prepareExportBoundary({
-			mode: "ccz",
-			access: ACCESS,
-			doc: fixedOwnerDoc(),
-			compiledAtSeq: 17,
-		});
-		expect(result.ok).toBe(true);
-	});
 
 	it("prepares carrier-bearing ccz exports with the budget-checked lookup wire", async () => {
 		vi.mocked(getLookupFixtureData).mockResolvedValue({

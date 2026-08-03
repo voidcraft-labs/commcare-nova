@@ -8,7 +8,6 @@
  */
 
 import { type Kysely, sql } from "kysely";
-import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "../postFrozenCanonicalIdentityRelations";
 import {
 	type FrozenStorageSnapshot,
 	frozenExactTextSequenceDigest,
@@ -25,6 +24,7 @@ import {
 	FROZEN_THREAD_ATTACHMENT_REPAIRS,
 } from "./frozenRepairManifest";
 import { canonicalIdentityDigest } from "./frozenTransform";
+import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "./postFrozenCanonicalIdentityRelations";
 
 export const FROZEN_CUTOVER_LIMITS = Object.freeze({
 	apps: "10000",

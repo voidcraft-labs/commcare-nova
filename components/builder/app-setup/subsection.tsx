@@ -81,6 +81,7 @@ export function EntryRow({
 	children,
 	open,
 	onOpenChange,
+	triggerRef,
 }: {
 	/** The entry's name: the disclosure's accessible label. */
 	summary: ReactNode;
@@ -89,6 +90,7 @@ export function EntryRow({
 	children: ReactNode;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	triggerRef?: Ref<HTMLButtonElement>;
 }) {
 	return (
 		<Collapsible
@@ -97,6 +99,7 @@ export function EntryRow({
 			className="rounded-lg border border-nova-border bg-nova-deep"
 		>
 			<CollapsibleTrigger
+				ref={triggerRef}
 				className="nova-focusable-inset group flex min-h-12 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-white/[0.03]"
 				render={<button type="button" />}
 			>

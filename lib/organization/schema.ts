@@ -56,16 +56,33 @@ const siteCodeSchema = z
 	.regex(SITE_CODE_PATTERN);
 
 /**
- * A coordinate, as an exact decimal string.
+ * A coordinate, as one canonical decimal string.
  *
- * Stored and carried as text rather than a number on purpose: a latitude is
- * an external datum that round-trips through the fixture verbatim
- * (`fixtures.py::_fill_in_location_element` string-coerces it), and parsing
- * it into a float would silently reshape a value Nova did not author.
+ * HQ stores both coordinates as `DecimalField(max_digits=20,
+ * decimal_places=10)`. Nova never parses through a JavaScript number, but it
+ * does canonicalize the spelling: no redundant leading/trailing zeroes and no
+ * negative zero. Postgres uses the matching numeric typmod; reads pass through
+ * the same normalizer because the driver preserves the column scale.
  */
+const COORDINATE_PATTERN = /^-?(?:0|[1-9]\d{0,2})(?:\.\d{1,10})?$/;
+
+export function canonicalCoordinate(value: string): string {
+	const negative = value.startsWith("-");
+	const unsigned = negative ? value.slice(1) : value;
+	const [whole, fraction] = unsigned.split(".");
+	const trimmedFraction = fraction?.replace(/0+$/, "") ?? "";
+	const magnitude =
+		trimmedFraction === "" ? whole : `${whole}.${trimmedFraction}`;
+	return negative && magnitude !== "0" ? `-${magnitude}` : magnitude;
+}
+
 const coordinateSchema = z
 	.string()
-	.regex(/^-?\d{1,3}(\.\d{1,12})?$/, "A coordinate must be a plain decimal.");
+	.regex(
+		COORDINATE_PATTERN,
+		"A coordinate must be a canonical decimal with at most 10 decimal places.",
+	)
+	.transform(canonicalCoordinate);
 
 /**
  * Custom-field values, keyed by location-property UUID.
@@ -110,6 +127,20 @@ const locationValuesSchema = z
 		message: "A place carries more information than Nova stores for one place.",
 	});
 
+const locationValuePatchSchema = z.record(
+	uuidSchema,
+	z
+		.string()
+		.max(4096)
+		.refine((value) => !value.includes("\u0000"), {
+			message: "A value cannot contain a NUL character.",
+		})
+		.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+			message: "A value cannot contain an unpaired surrogate.",
+		})
+		.nullable(),
+);
+
 export const createLocationInputSchema = z
 	.object({
 		levelUuid: uuidSchema,
@@ -147,12 +178,26 @@ export const updateLocationInputSchema = z
 		externalId: z.string().max(EXTERNAL_ID_MAX_LENGTH).nullable().optional(),
 		latitude: coordinateSchema.nullable().optional(),
 		longitude: coordinateSchema.nullable().optional(),
-		/** A whole-bag replacement; a cleared field is an omitted key. */
+		/** A whole-bag replacement; every omitted catalog value is cleared. */
 		values: locationValuesSchema.optional(),
+		/** A UUID-addressed partial edit. `null` clears just that saved value. */
+		valuePatch: locationValuePatchSchema.optional(),
 		/** Retype. Legal only while the place is a leaf — see the service. */
 		levelUuid: uuidSchema.optional(),
+		/** Atomic re-parent/reorder, so a legal retype is not forced through an
+		 * impossible intermediate topology. Omitted keeps the current parent. */
+		parentId: uuidSchema.nullable().optional(),
+		/** null means first; omitted keeps the current order unless parent moves. */
+		afterSiblingId: uuidSchema.nullable().optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(input) => input.values === undefined || input.valuePatch === undefined,
+		{ message: "Use either values or valuePatch, not both." },
+	)
+	.refine((input) => Object.keys(input).length > 0, {
+		message: "Change at least one place field.",
+	});
 export type UpdateLocationInput = z.infer<typeof updateLocationInputSchema>;
 
 /**
@@ -180,6 +225,18 @@ export const organizationRevisionSchema = z
 			(value.length === INT64_MAX.length && value <= INT64_MAX),
 		{ message: "A revision must fit in a signed 64-bit integer." },
 	);
+
+/** Stable payload an archive confirmation binds to. The writer recomputes it
+ * under its own locks and refuses if any consequence changed. */
+export const archiveImpactSchema = z
+	.object({
+		revision: organizationRevisionSchema,
+		locationIds: z.array(uuidSchema),
+		unassignedPersonas: z.array(z.string().max(255)),
+		ownedCases: z.number().int().nonnegative(),
+		blockingOwnerRuleForms: z.array(z.string().max(255)),
+	})
+	.strict();
 
 export function parseOrganizationRevision(
 	value: unknown,

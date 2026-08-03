@@ -338,6 +338,8 @@ test.describe("authenticated builder", () => {
 
 	test("authors and restores a responsive organization hierarchy", async ({
 		page,
+		browser,
+		baseURL,
 	}, testInfo) => {
 		const appId = seed.organizationAppIds[testInfo.retry];
 		expect(appId).toBeTruthy();
@@ -349,16 +351,61 @@ test.describe("authenticated builder", () => {
 		await expect(places.getByText("Add a level first.")).toBeVisible();
 
 		await levels.getByRole("button", { name: "Add level" }).click();
-		await levels.getByLabel("Name").fill("Region");
-		await levels.getByLabel("Name").press("Enter");
+		await expect(levels.getByLabel("Level name")).toBeFocused();
+		await levels.getByLabel("Level name").fill("Region");
+		await levels.getByLabel("Level name").press("Enter");
 		await expect(levels.getByRole("button", { name: /Region/ })).toBeVisible();
 
 		await levels.getByRole("button", { name: "Add level" }).click();
-		await levels.getByLabel("Name").last().fill("District");
-		await levels.getByLabel("Name").last().press("Enter");
+		await expect(levels.getByLabel("Level name")).toBeFocused();
+		await levels.getByLabel("Level name").fill("District");
+		await levels.getByLabel("Level name").press("Enter");
+		const districtLevel = levels.getByRole("button", { name: /District/ });
+		await expect(districtLevel).toBeVisible();
 		await expect(
-			levels.getByRole("button", { name: /District/ }),
-		).toBeVisible();
+			levels
+				.getByRole("checkbox", { name: "Places here own cases" })
+				.filter({ visible: true }),
+		).toBeChecked();
+		await levels.getByRole("button", { name: "Change" }).click();
+		await levels
+			.getByLabel("How much of the organization workers here can see")
+			.filter({ visible: true })
+			.click();
+		await page.getByRole("option", { name: "The whole organization" }).click();
+		await expect(
+			levels
+				.getByLabel("How much of the organization workers here can see")
+				.filter({ visible: true }),
+		).toContainText("The whole organization");
+
+		await levels.getByRole("button", { name: "Add level" }).click();
+		await levels.getByLabel("Level name").fill("Temporary");
+		await levels.getByLabel("Level name").press("Enter");
+		await levels.getByRole("button", { name: "Remove level" }).click();
+		await levels.getByRole("button", { name: "Remove", exact: true }).click();
+		await expect(districtLevel).toBeFocused();
+
+		const placeInformation = page.getByRole("region", {
+			name: "Place information",
+		});
+		await placeInformation
+			.getByRole("button", { name: "Add information" })
+			.click();
+		await expect(placeInformation.getByLabel("Name")).toBeFocused();
+		await placeInformation.getByLabel("Name").fill("Facility kind");
+		await placeInformation.getByLabel("Name").press("Enter");
+		await placeInformation
+			.getByLabel("Accepted values")
+			.fill("Clinic\nHospital");
+		await placeInformation
+			.getByRole("button", { name: "Apply accepted values" })
+			.click();
+		await placeInformation
+			.getByRole("checkbox", {
+				name: "A value is required before a place can be saved",
+			})
+			.click();
 
 		await places.getByRole("button", { name: "Add place" }).click();
 		await places.getByLabel("Name").fill("Coast Region");
@@ -366,10 +413,11 @@ test.describe("authenticated builder", () => {
 		await places.getByLabel("Id in another system").fill("region-001");
 		await places.getByLabel("Latitude").fill("-4.0435");
 		await places.getByLabel("Longitude").fill("39.6682");
+		await places.getByLabel("Facility kind").last().click();
+		await page.getByRole("option", { name: "Hospital" }).click();
 		await places.getByRole("button", { name: "Add place" }).click();
 		const coastRegion = places.getByRole("button", { name: /Coast Region/ });
 		await expect(coastRegion).toBeVisible();
-		await coastRegion.click();
 		await expect(
 			places.getByText("coast-region", { exact: true }),
 		).toBeVisible();
@@ -381,12 +429,42 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "District" }).click();
 		await places.getByLabel("Sits in").click();
 		await page.getByRole("option", { name: "Coast Region" }).click();
+		await places.getByLabel("Facility kind").last().click();
+		await page.getByRole("option", { name: "Clinic" }).click();
 		await places.getByRole("button", { name: "Add place" }).click();
 		const kilifiDistrict = places.getByRole("button", {
 			name: /Kilifi District/,
 		});
 		await expect(kilifiDistrict).toBeVisible();
+
+		await places.getByRole("button", { name: "Add place" }).click();
+		await places.getByLabel("Name").last().fill("Mombasa District");
+		await places.getByLabel("Level").last().click();
+		await page.getByRole("option", { name: "District" }).click();
+		await places.getByLabel("Sits in").last().click();
+		await page.getByRole("option", { name: "Coast Region" }).click();
+		await places.getByLabel("Facility kind").last().click();
+		await page.getByRole("option", { name: "Hospital" }).click();
+		await places.getByRole("button", { name: "Add place" }).click();
 		await kilifiDistrict.click();
+		await places.getByLabel("Position").filter({ visible: true }).click();
+		await page.getByRole("option", { name: "At the end" }).click();
+		await expect(
+			places.getByLabel("Position").filter({ visible: true }),
+		).toContainText("At the end");
+
+		await places.getByLabel("Level").filter({ visible: true }).click();
+		await page.getByRole("option", { name: "Region" }).click();
+		await places.getByRole("button", { name: "Apply level change" }).click();
+		await expect(
+			places.getByLabel("Level").filter({ visible: true }),
+		).toContainText("Region");
+		await places.getByLabel("Level").filter({ visible: true }).click();
+		await page.getByRole("option", { name: "District" }).click();
+		await places.getByRole("button", { name: "Apply level change" }).click();
+		await expect(
+			places.getByLabel("Sits in").filter({ visible: true }),
+		).toContainText("Coast Region");
 
 		await places.getByRole("button", { name: "Archive" }).click();
 		await expect(places.getByText("Checking what this affects…")).toHaveCount(
@@ -394,27 +472,116 @@ test.describe("authenticated builder", () => {
 		);
 		await places.getByRole("button", { name: "Archive" }).click();
 		await expect(places.getByText("Archived", { exact: true })).toBeVisible();
-		await places
-			.getByRole("button", { name: /Kilifi District.*Archived/ })
-			.click();
 		await places.getByRole("button", { name: "Bring back" }).click();
 		await expect(places.getByText("Archived", { exact: true })).toHaveCount(0);
 
-		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`/build/${appId}/setup/users`);
+		const personas = page.getByRole("region", { name: "Personas" });
+		await personas.getByRole("button", { name: "Add persona" }).click();
+		await expect(personas.getByLabel("Name")).toBeFocused();
+		await personas.getByLabel("Name").fill("Asha");
+		await personas.getByLabel("Name").press("Enter");
+		await personas.getByLabel("Add a place").click();
+		await page.getByRole("option", { name: "Kilifi District" }).click();
+		await expect(personas.getByText("Kilifi District")).toBeVisible();
+		await personas
+			.getByRole("button", { name: "Remove Kilifi District" })
+			.click();
+		await expect(personas.getByLabel("Add a place")).toBeFocused();
+		await personas.getByLabel("Add a place").click();
+		await page.getByRole("option", { name: "Kilifi District" }).click();
+
+		await page.goto(`/build/${appId}/setup/organization`);
+		const refreshedPlaces = page.getByRole("region", { name: "Places" });
 		await expect(
-			page.getByRole("navigation", { name: "App setup sections" }),
+			refreshedPlaces.getByRole("button", { name: /Coast Region/ }),
 		).toBeVisible();
-		const addLevelBox = await levels
+		await refreshedPlaces.getByRole("button", { name: /Coast Region/ }).click();
+		const draftName = refreshedPlaces
+			.getByLabel("Name")
+			.filter({ visible: true });
+		await draftName.fill("Coast draft kept locally");
+
+		const peerPage = await page.context().newPage();
+		const peerGuard = attachErrorGuard(peerPage, baseURL);
+		try {
+			await peerPage.goto(`/build/${appId}/setup/organization`);
+			const peerPlaces = peerPage.getByRole("region", { name: "Places" });
+			await peerPlaces.getByRole("button", { name: /Coast Region/ }).click();
+			await peerPlaces
+				.getByLabel("Id in another system")
+				.filter({ visible: true })
+				.fill("region-peer-update");
+			await peerPage.getByRole("heading", { name: "Organization" }).click();
+			await expect(
+				refreshedPlaces.getByText(
+					"This place changed while you were editing. Your draft is still here.",
+				),
+			).toBeVisible();
+			await expect(draftName).toHaveValue("Coast draft kept locally");
+			await refreshedPlaces
+				.getByRole("button", { name: "Use latest saved values" })
+				.click();
+			await expect(draftName).toHaveValue("Coast Region");
+			peerGuard.assertNoErrors();
+		} finally {
+			await peerPage.close();
+		}
+
+		const viewerStateFile = seed.caseChanges[0]?.viewerStateFile;
+		if (viewerStateFile === undefined) throw new Error("viewer state missing");
+		const viewerContext = await browser.newContext({
+			baseURL: baseURL ?? undefined,
+			storageState: viewerStateFile,
+		});
+		const viewerPage = await viewerContext.newPage();
+		const viewerGuard = attachErrorGuard(viewerPage, baseURL);
+		try {
+			await viewerPage.goto(`/build/${appId}/setup/organization`);
+			await expect(
+				viewerPage.getByRole("heading", { name: "Organization" }),
+			).toBeVisible();
+			await expect(
+				viewerPage.getByRole("button", { name: "Add level" }),
+			).toHaveCount(0);
+			await expect(
+				viewerPage.getByRole("button", { name: "Add information" }),
+			).toHaveCount(0);
+			await expect(
+				viewerPage.getByRole("button", { name: "Add place" }),
+			).toHaveCount(0);
+			const viewerPlaces = viewerPage.getByRole("region", { name: "Places" });
+			await viewerPlaces.getByRole("button", { name: /Coast Region/ }).click();
+			await expect(
+				viewerPlaces.getByLabel("Name").filter({ visible: true }),
+			).toBeDisabled();
+			viewerGuard.assertNoErrors();
+		} finally {
+			await viewerContext.close();
+		}
+
+		for (const viewport of [
+			{ width: 1440, height: 900 },
+			{ width: 768, height: 900 },
+			{ width: 390, height: 844 },
+		]) {
+			await page.setViewportSize(viewport);
+			await expect(
+				page.getByRole("navigation", { name: "App setup sections" }),
+			).toBeVisible();
+			await expect
+				.poll(() =>
+					page
+						.locator("body")
+						.evaluate((element) => element.scrollWidth - element.clientWidth),
+				)
+				.toBeLessThanOrEqual(1);
+		}
+		const addLevelBox = await page
+			.getByRole("region", { name: "Levels" })
 			.getByRole("button", { name: "Add level" })
 			.boundingBox();
 		expect(addLevelBox?.height ?? 0).toBeGreaterThanOrEqual(44);
-		await expect
-			.poll(() =>
-				page
-					.locator("body")
-					.evaluate((element) => element.scrollWidth - element.clientWidth),
-			)
-			.toBeLessThanOrEqual(1);
 	});
 
 	test("builder secondary headers stay aligned through sidebar and inspector states", async ({

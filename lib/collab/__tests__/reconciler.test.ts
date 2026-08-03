@@ -486,6 +486,31 @@ describe("reconciler", () => {
 			expect(h.puts).toHaveLength(0);
 		});
 
+		it("holds a save barrier for batches that autosave already dispatched", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "First" }]);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			h.reconciler.dispatchHumanBatch();
+			const barrier = h.reconciler.waitForHumanSaveBarrier();
+			let settled = false;
+			void barrier.then(() => {
+				settled = true;
+			});
+
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(settled).toBe(false);
+			expect(h.puts).toHaveLength(2);
+			await h.resolvePut(1, { ok: true, seq: 2 });
+			await expect(barrier).resolves.toEqual({ kind: "saved" });
+		});
+
 		it("preserves original admitted boundaries around an exclusive rename", async () => {
 			const h = harness({
 				appId: "app-1",

@@ -89,8 +89,8 @@ export async function lockOrganizationForWrite(
 	);
 	if (role === null || !roleAllowsApp(role, options.capability)) {
 		throw new OrganizationError(
-			"forbidden",
-			"You no longer have permission to change this app's organization.",
+			"not_found",
+			"This app's organization isn't available. It may have been deleted, moved, or you may no longer have access to it.",
 		);
 	}
 
@@ -161,6 +161,22 @@ export async function commitOrganizationChange(
 	scope: OrganizationScope,
 	countDelta: number,
 ): Promise<OrganizationRevision> {
+	return advanceOrganizationRevision(tx, scope.appId, countDelta);
+}
+
+/** Advance the organization clock from a transaction that already owns the
+ * app-row serialization prefix, including blueprint commits that shed saved
+ * place values without entering the ordinary organization writer. */
+export async function advanceOrganizationRevision(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	countDelta: number,
+): Promise<OrganizationRevision> {
+	await tx
+		.insertInto("app_organization_state")
+		.values({ app_id: appId })
+		.onConflict((conflict) => conflict.column("app_id").doNothing())
+		.execute();
 	const row = await tx
 		.updateTable("app_organization_state")
 		.set({
@@ -168,7 +184,7 @@ export async function commitOrganizationChange(
 			location_count: sql<number>`location_count + ${countDelta}`,
 			updated_at: new Date(),
 		})
-		.where("app_id", "=", scope.appId)
+		.where("app_id", "=", appId)
 		.returning("revision")
 		.executeTakeFirst();
 	if (row === undefined) {
@@ -177,6 +193,6 @@ export async function commitOrganizationChange(
 		);
 	}
 	const revision = parseOrganizationRevision(row.revision);
-	await notifyAppOrganization(tx, scope.appId, revision);
+	await notifyAppOrganization(tx, appId, revision);
 	return revision;
 }

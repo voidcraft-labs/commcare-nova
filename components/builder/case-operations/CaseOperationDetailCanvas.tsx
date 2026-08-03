@@ -48,6 +48,7 @@ import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
 } from "@/lib/doc/caseOperationIntents";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useModuleCaseType,
 	useModuleSelectsCaseFirst,
@@ -75,6 +76,10 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import {
+	fixedLocationOwnerIssue,
+	reverseLocationOwnerIssue,
+} from "@/lib/organization/ownerTargetVerdicts";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
@@ -603,20 +608,36 @@ function CaseOwnerSection({
 	const organization = useOrganization(appId ?? "");
 	const organizationReady =
 		!organization.loading && organization.error === undefined;
+	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevels();
 	const levelRecord = useMemo(
 		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),
 		[levels],
 	);
-	const locations = organization.locations.filter((location) => {
-		if (location.archivedAt !== null) return false;
-		const level = levelRecord[location.levelUuid];
-		return level !== undefined && levelOwnsCases(level);
-	});
-	const reverseLevels = levels.filter(
-		(level) =>
-			levelOwnsCases(level) &&
-			ancestorLevels(level, levelRecord).some(levelOwnsCases),
+	const locations = useMemo(
+		() =>
+			organization.locations.filter((location) => {
+				if (location.archivedAt !== null) return false;
+				const level = levelRecord[location.levelUuid];
+				return (
+					level !== undefined &&
+					levelOwnsCases(level) &&
+					fixedLocationOwnerIssue(doc, organization.locations, location.id) ===
+						undefined
+				);
+			}),
+		[doc, levelRecord, organization.locations],
+	);
+	const reverseLevels = useMemo(
+		() =>
+			levels.filter(
+				(level) =>
+					levelOwnsCases(level) &&
+					ancestorLevels(level, levelRecord).some(levelOwnsCases) &&
+					reverseLocationOwnerIssue(doc, organization.locations, level.uuid) ===
+						undefined,
+			),
+		[doc, levelRecord, levels, organization.locations],
 	);
 	const reverseAvailable = editorScope.caseDataScope !== "global";
 	const selected = locationOwnerExpression(value);
@@ -626,28 +647,29 @@ function CaseOwnerSection({
 			: selected?.term.kind === "owner-location-at-level"
 				? "reverse"
 				: "expression";
+	const [draftMode, setDraftMode] = useState<
+		"expression" | "fixed" | "reverse" | undefined
+	>();
+	const displayedMode = draftMode ?? mode;
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 
 	const changeMode = (next: unknown) => {
 		if (next === "expression") {
+			setDraftMode(undefined);
 			onChange(actingUser());
 			return;
 		}
 		if (next === "fixed") {
-			if (!organizationReady) return;
-			const first = locations[0];
-			if (first !== undefined) {
-				onChange(term(fixedLocation(asUuid(first.id))));
-			}
+			if (organizationReady && locations.length > 0) setDraftMode("fixed");
 			return;
 		}
 		if (next === "reverse") {
-			if (!organizationReady) return;
-			const first = reverseLevels[0];
-			if (first !== undefined && editorScope.currentCaseType !== "") {
-				onChange(
-					term(ownerLocationAtLevel(first.uuid, editorScope.currentCaseType)),
-				);
+			if (
+				organizationReady &&
+				reverseLevels.length > 0 &&
+				editorScope.currentCaseType !== ""
+			) {
+				setDraftMode("reverse");
 			}
 		}
 	};
@@ -664,6 +686,7 @@ function CaseOwnerSection({
 						consequence="The case will belong to whoever submits the form."
 						finalFocus={() => addRef.current}
 						onConfirm={() => {
+							setDraftMode(undefined);
 							onCleared();
 							onChange(undefined);
 						}}
@@ -687,7 +710,10 @@ function CaseOwnerSection({
 					ref={addRef}
 					label="Choose an owner"
 					disabled={!canEdit}
-					onClick={() => onChange(actingUser())}
+					onClick={() => {
+						setDraftMode(undefined);
+						onChange(actingUser());
+					}}
 				/>
 			) : (
 				<div className="space-y-3">
@@ -695,8 +721,13 @@ function CaseOwnerSection({
 						<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
 							How to choose the owner
 						</p>
-						<Select value={mode} onValueChange={changeMode} disabled={!canEdit}>
+						<Select
+							value={displayedMode}
+							onValueChange={changeMode}
+							disabled={!canEdit}
+						>
 							<SelectTrigger
+								wrapValue
 								className="w-full"
 								aria-label="How to choose the owner"
 							>
@@ -721,27 +752,33 @@ function CaseOwnerSection({
 						</Select>
 					</div>
 
-					{selected?.term.kind === "fixed-location" ? (
+					{displayedMode === "fixed" ? (
 						<div>
 							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
 								Place that owns the case
 							</p>
 							<Select
-								value={selected.term.locationUuid}
-								onValueChange={(locationUuid) =>
-									onChange(term(fixedLocation(asUuid(String(locationUuid)))))
+								value={
+									selected?.term.kind === "fixed-location"
+										? selected.term.locationUuid
+										: ""
 								}
+								onValueChange={(locationUuid) => {
+									setDraftMode(undefined);
+									onChange(term(fixedLocation(asUuid(String(locationUuid)))));
+								}}
 								disabled={!canEdit || !organizationReady}
 							>
 								<SelectTrigger
+									wrapValue
 									className="w-full"
 									aria-label="Place that owns the case"
 								>
-									<SelectValue />
+									<SelectValue placeholder="Choose a place" />
 								</SelectTrigger>
 								<SelectContent>
 									{locations.map((location) => (
-										<SelectItem key={location.id} value={location.id}>
+										<SelectItem wrap key={location.id} value={location.id}>
 											{location.name}
 										</SelectItem>
 									))}
@@ -752,14 +789,19 @@ function CaseOwnerSection({
 								this rule.
 							</p>
 						</div>
-					) : selected?.term.kind === "owner-location-at-level" ? (
+					) : displayedMode === "reverse" ? (
 						<div>
 							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
 								Level to find beneath the current owner
 							</p>
 							<Select
-								value={selected.term.levelUuid}
-								onValueChange={(levelUuid) =>
+								value={
+									selected?.term.kind === "owner-location-at-level"
+										? selected.term.levelUuid
+										: ""
+								}
+								onValueChange={(levelUuid) => {
+									setDraftMode(undefined);
 									onChange(
 										term(
 											ownerLocationAtLevel(
@@ -767,19 +809,20 @@ function CaseOwnerSection({
 												editorScope.currentCaseType,
 											),
 										),
-									)
-								}
+									);
+								}}
 								disabled={!canEdit || !organizationReady}
 							>
 								<SelectTrigger
+									wrapValue
 									className="w-full"
 									aria-label="Level to find beneath the current owner"
 								>
-									<SelectValue />
+									<SelectValue placeholder="Choose a level" />
 								</SelectTrigger>
 								<SelectContent>
 									{reverseLevels.map((level) => (
-										<SelectItem key={level.uuid} value={level.uuid}>
+										<SelectItem wrap key={level.uuid} value={level.uuid}>
 											{level.name}
 										</SelectItem>
 									))}

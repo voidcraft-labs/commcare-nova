@@ -1,19 +1,23 @@
-import { type Selectable, sql, type Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import type { AppDatabase, AppLocationsTable } from "@/lib/db/pg";
+import type { AppDatabase } from "@/lib/db/pg";
 import {
-	ancestorLevels,
 	assignedLocationUuids,
 	type BlueprintDoc,
 	levelHoldsWorkers,
 	levelMayNestUnder,
-	levelOwnsCases,
 	locationPropertiesOf,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
+import {
+	fixedLocationOwnerIssue,
+	type OwnerVerdictLocation,
+	reverseLocationOwnerIssue,
+} from "./ownerTargetVerdicts";
 import { locationValueCatalogIssue } from "./valueCatalog";
+import { advanceOrganizationRevision } from "./writerTransaction";
 
 /**
  * The organization's half of a blueprint commit's integrity, run inside the
@@ -150,21 +154,22 @@ export async function shedRemovedLocationPropertyValues(
 		readonly previousDoc: BlueprintDoc;
 		readonly candidateDoc: BlueprintDoc;
 	},
-): Promise<void> {
+): Promise<boolean> {
 	const { appId, previousDoc, candidateDoc } = args;
 	const surviving = locationPropertiesOf(candidateDoc);
 	const removed = Object.keys(locationPropertiesOf(previousDoc)).filter(
 		(uuid) => surviving[uuid] === undefined,
 	);
-	if (removed.length === 0) return;
+	if (removed.length === 0) return false;
 
-	await sql`
+	const result = await sql`
 		UPDATE app_locations
 		SET "values" = "values" - ${sql.val(removed)}::text[],
 			updated_at = now()
 		WHERE app_id = ${appId}
 			AND "values" ?| ${sql.val(removed)}::text[]
 	`.execute(tx);
+	return (result.numAffectedRows ?? BigInt(0)) > BigInt(0);
 }
 
 /**
@@ -232,7 +237,13 @@ export async function applyOrganizationCommitIntegrity(
 ): Promise<void> {
 	await assertRemovedLevelsUnused(tx, args);
 	await assertLocationPlacementsValid(tx, args);
-	await shedRemovedLocationPropertyValues(tx, args);
+	const shedSavedValues = await shedRemovedLocationPropertyValues(tx, args);
+	if (shedSavedValues) {
+		// Blueprint commits already hold the app-row serialization prefix. The
+		// shed is also a locations-store change, so advance that store's cursor
+		// once and notify open organization views before the transaction commits.
+		await advanceOrganizationRevision(tx, args.appId, 0);
+	}
 	await assertLocationValuesValid(tx, args);
 	await assertPersonaAssignmentsValid(tx, args);
 	await assertLocationOwnerTargetsValid(tx, args);
@@ -369,8 +380,6 @@ export async function assertPersonaAssignmentsValid(
 	}
 }
 
-type LocationRow = Selectable<AppLocationsTable>;
-
 function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
 	const targets = new Set<string>();
 	for (const form of Object.values(doc.forms)) {
@@ -384,108 +393,22 @@ function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
 	return [...targets].sort();
 }
 
-function rowAncestors(
-	row: LocationRow,
-	byId: ReadonlyMap<string, LocationRow>,
-): LocationRow[] {
-	const out: LocationRow[] = [];
-	const seen = new Set<string>([row.id]);
-	let parentId = row.parent_id;
-	while (parentId !== null && !seen.has(parentId)) {
-		seen.add(parentId);
-		const parent = byId.get(parentId);
-		if (parent === undefined) break;
-		out.push(parent);
-		parentId = parent.parent_id;
-	}
-	return out;
-}
-
-function isSameOrDescendant(
-	candidate: LocationRow,
-	root: LocationRow,
-	byId: ReadonlyMap<string, LocationRow>,
-): boolean {
-	return (
-		candidate.id === root.id ||
-		rowAncestors(candidate, byId).some((ancestor) => ancestor.id === root.id)
-	);
-}
-
-function levelIsAtOrAbove(
-	candidateLevelUuid: string,
-	bottomLevelUuid: string,
-	doc: BlueprintDoc,
-): boolean {
-	if (candidateLevelUuid === bottomLevelUuid) return true;
-	const levels = organizationLevelsOf(doc);
-	const bottom = levels[bottomLevelUuid];
-	return (
-		bottom !== undefined &&
-		ancestorLevels(bottom, levels).some(
-			(ancestor) => ancestor.uuid === candidateLevelUuid,
-		)
-	);
-}
-
-function topSliceIncludes(
-	target: LocationRow,
-	downToLevelUuid: string | undefined,
-	doc: BlueprintDoc,
-): boolean {
-	return (
-		downToLevelUuid === undefined ||
-		levelIsAtOrAbove(target.level_uuid, downToLevelUuid, doc)
-	);
-}
-
-function assignmentFootprintIncludes(
-	target: LocationRow,
-	assigned: LocationRow,
-	byId: ReadonlyMap<string, LocationRow>,
-	doc: BlueprintDoc,
-): boolean {
-	const levels = organizationLevelsOf(doc);
-	const assignedLevel = levels[assigned.level_uuid];
-	if (assignedLevel === undefined) return false;
-	const book = assignedLevel.addressBook;
-	const targetIsAncestor = rowAncestors(assigned, byId).some(
-		(ancestor) => ancestor.id === target.id,
-	);
-	const targetInOwnBranch = isSameOrDescendant(target, assigned, byId);
-
-	switch (book.reach) {
-		case "own-branch":
-			return (
-				targetIsAncestor ||
-				(targetInOwnBranch &&
-					(book.downToLevelUuid === undefined ||
-						levelIsAtOrAbove(target.level_uuid, book.downToLevelUuid, doc))) ||
-				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
-					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
-			);
-		case "own-branch-limited":
-			return (
-				targetIsAncestor ||
-				(targetInOwnBranch && book.levelUuids.includes(target.level_uuid)) ||
-				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
-					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
-			);
-		case "shared-branch": {
-			const from = [assigned, ...rowAncestors(assigned, byId)].find(
-				(row) => row.level_uuid === book.fromLevelUuid,
-			);
-			return (
-				targetIsAncestor ||
-				(from !== undefined &&
-					isSameOrDescendant(target, from, byId) &&
-					(book.downToLevelUuid === undefined ||
-						levelIsAtOrAbove(target.level_uuid, book.downToLevelUuid, doc)))
-			);
-		}
-		case "whole-organization":
-			return topSliceIncludes(target, book.downToLevelUuid, doc);
-	}
+function ownerVerdictRows(
+	rows: readonly {
+		readonly id: string;
+		readonly name: string;
+		readonly level_uuid: string;
+		readonly parent_id: string | null;
+		readonly archived_at: unknown | null;
+	}[],
+): OwnerVerdictLocation[] {
+	return rows.map((row) => ({
+		id: row.id,
+		name: row.name,
+		levelUuid: row.level_uuid,
+		parentId: row.parent_id,
+		archivedAt: row.archived_at,
+	}));
 }
 
 function reverseHopDestinationLevelUuids(doc: BlueprintDoc): readonly string[] {
@@ -520,33 +443,16 @@ export async function assertReverseHopTargetsUnambiguous(
 		.selectFrom("app_locations")
 		.selectAll()
 		.where("app_id", "=", args.appId)
-		.where("archived_at", "is", null)
 		.execute();
-	const byId = new Map(rows.map((row) => [row.id, row]));
-	const levels = organizationLevelsOf(args.candidateDoc);
+	const verdictRows = ownerVerdictRows(rows);
 
 	for (const destinationLevelUuid of destinationLevelUuids) {
-		const destinationLevel = levels[destinationLevelUuid];
-		if (destinationLevel === undefined) continue;
-		const sourceLevel = ancestorLevels(destinationLevel, levels).find((level) =>
-			levelOwnsCases(level),
+		const issue = reverseLocationOwnerIssue(
+			args.candidateDoc,
+			verdictRows,
+			destinationLevelUuid,
 		);
-		if (sourceLevel === undefined) continue;
-		const firstBySource = new Map<string, LocationRow>();
-		for (const destination of rows) {
-			if (destination.level_uuid !== destinationLevelUuid) continue;
-			const source = rowAncestors(destination, byId).find(
-				(ancestor) => ancestor.level_uuid === sourceLevel.uuid,
-			);
-			if (source === undefined) continue;
-			const first = firstBySource.get(source.id);
-			if (first !== undefined) {
-				throw new BlueprintCommitRejectedError(
-					`The owner rule for ${destinationLevel.name} is ambiguous below "${source.name}": both "${first.name}" and "${destination.name}" match. Keep one live ${destinationLevel.name.toLowerCase()} there, or choose a fixed place owner.`,
-				);
-			}
-			firstBySource.set(source.id, destination);
-		}
+		if (issue !== undefined) throw new BlueprintCommitRejectedError(issue);
 	}
 }
 
@@ -571,43 +477,13 @@ export async function assertLocationOwnerTargetsValid(
 		.where("app_id", "=", args.appId)
 		.forKeyShare()
 		.execute();
-	const byId = new Map(rows.map((row) => [row.id, row]));
-	const levels = organizationLevelsOf(args.candidateDoc);
+	const verdictRows = ownerVerdictRows(rows);
 	for (const targetId of targets) {
-		const target = byId.get(targetId);
-		const level = target === undefined ? undefined : levels[target.level_uuid];
-		if (
-			target === undefined ||
-			target.archived_at !== null ||
-			level === undefined
-		) {
-			throw new BlueprintCommitRejectedError(
-				"A case owner points at a place that no longer exists or is archived. Reload the organization, then choose a live place.",
-			);
-		}
-		if (!levelOwnsCases(level)) {
-			throw new BlueprintCommitRejectedError(
-				`"${target.name}" is at the ${level.name} level, which does not own cases. Choose a place at a case-owning level.`,
-			);
-		}
-		for (const persona of Object.values(personasOf(args.candidateDoc))) {
-			const assigned = assignedLocationUuids(persona.locations)
-				.map((uuid) => byId.get(uuid))
-				.filter(
-					(row): row is LocationRow =>
-						row !== undefined && row.archived_at === null,
-				);
-			if (assigned.length === 0) continue;
-			if (
-				assigned.some((row) =>
-					assignmentFootprintIncludes(target, row, byId, args.candidateDoc),
-				)
-			) {
-				continue;
-			}
-			throw new BlueprintCommitRejectedError(
-				`"${target.name}" is outside ${persona.name}'s address book. Change that level's visibility or choose a destination this worker can carry on the device.`,
-			);
-		}
+		const issue = fixedLocationOwnerIssue(
+			args.candidateDoc,
+			verdictRows,
+			targetId,
+		);
+		if (issue !== undefined) throw new BlueprintCommitRejectedError(issue);
 	}
 }

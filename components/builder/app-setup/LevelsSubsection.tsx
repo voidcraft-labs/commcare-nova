@@ -15,9 +15,10 @@
  */
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
+import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
 	Select,
@@ -27,15 +28,19 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Textarea } from "@/components/shadcn/textarea";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useLocationProperties,
 	useOrganizationLevels,
 } from "@/lib/doc/hooks/useOrganizationCollections";
+import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	ancestorLevels,
 	type DescendantCaseScope,
+	LEVEL_CODE_MAX_LENGTH,
+	LEVEL_CODE_PATTERN,
 	type LevelAddressBook,
 	type LevelCaseFlow,
 	type OrganizationLevel,
@@ -43,6 +48,7 @@ import {
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { DraftCommitInput } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
@@ -62,13 +68,17 @@ export function LevelsSubsection({
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	const [adding, setAdding] = useState(false);
+	const rowFocus = useRemovedRowFocus(levels.length);
 
-	const add = () => {
-		if (!sessionApi.getState().canEdit) return;
-		const name = uniqueName(levels);
+	const add = (name: string, authoredCode: string) => {
+		if (!sessionApi.getState().canEdit) return false;
 		const result = mutations.addOrganizationLevel({
 			name,
-			code: uniqueCode(name, levels),
+			code:
+				authoredCode.trim() === ""
+					? uniqueCode(name, levels)
+					: authoredCode.trim(),
 			// A new rung goes under the deepest existing one, which is what an
 			// author adding levels top-down means every time. Changing it is one
 			// control away.
@@ -82,7 +92,12 @@ export function LevelsSubsection({
 			},
 			addressBook: { reach: "own-branch" },
 		});
-		if (result.ok) setOpenUuid(result.uuid);
+		if (result.ok) {
+			setAdding(false);
+			setOpenUuid(result.uuid);
+			return true;
+		}
+		return false;
 	};
 
 	return (
@@ -91,8 +106,9 @@ export function LevelsSubsection({
 			title="Levels"
 			description="The rungs of your organization — a district, a facility, a ward. Each one says whether people work there, whether it owns cases, and how much of the organization its workers can see."
 			addLabel="Add level"
-			onAdd={add}
-			canEdit={canEdit}
+			onAdd={() => setAdding(true)}
+			canEdit={canEdit && !adding}
+			addButtonRef={rowFocus.addRef}
 		>
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
@@ -100,7 +116,7 @@ export function LevelsSubsection({
 					or a state — then work downward.
 				</SubsectionEmpty>
 			) : (
-				levels.map((level) => (
+				levels.map((level, index) => (
 					<LevelRow
 						key={level.uuid}
 						level={level}
@@ -108,20 +124,20 @@ export function LevelsSubsection({
 						occupied={occupiedLevelUuids.has(level.uuid)}
 						open={openUuid === level.uuid}
 						onOpenChange={(next) => setOpenUuid(next ? level.uuid : undefined)}
+						rowFocusRef={rowFocus.register(index)}
+						onRemove={() => rowFocus.onRemoved(index)}
 					/>
 				))
 			)}
+			{adding && canEdit && (
+				<AddLevelForm
+					levels={levels}
+					onCancel={() => setAdding(false)}
+					onSubmit={add}
+				/>
+			)}
 		</Subsection>
 	);
-}
-
-function uniqueName(peers: readonly OrganizationLevel[]): string {
-	const taken = new Set(peers.map((p) => p.name.trim().toLowerCase()));
-	if (!taken.has("new level")) return "New level";
-	for (let n = 2; ; n++) {
-		const candidate = `New level ${n}`;
-		if (!taken.has(candidate.toLowerCase())) return candidate;
-	}
 }
 
 function uniqueCode(name: string, peers: readonly OrganizationLevel[]): string {
@@ -139,6 +155,94 @@ function uniqueCode(name: string, peers: readonly OrganizationLevel[]): string {
 		const candidate = `${safe}_${n}`;
 		if (!taken.has(candidate)) return candidate;
 	}
+}
+
+function AddLevelForm({
+	levels,
+	onCancel,
+	onSubmit,
+}: {
+	levels: readonly OrganizationLevel[];
+	onCancel: () => void;
+	onSubmit: (name: string, code: string) => boolean;
+}) {
+	const [name, setName] = useState("");
+	const [code, setCode] = useState("");
+	const [error, setError] = useState<string | undefined>();
+	const nameId = useId();
+	const codeId = useId();
+	const nameRef = useRef<HTMLInputElement>(null);
+	useEffect(() => nameRef.current?.focus(), []);
+
+	const submit = () => {
+		const cleanName = name.trim();
+		const cleanCode = code.trim();
+		if (cleanName === "") {
+			setError("Enter the level's real name before adding it.");
+			return;
+		}
+		if (
+			cleanCode !== "" &&
+			(cleanCode.length > LEVEL_CODE_MAX_LENGTH ||
+				!LEVEL_CODE_PATTERN.test(cleanCode))
+		) {
+			setError(
+				"The saved code must start with a letter or underscore and use only letters, numbers, underscores, or hyphens.",
+			);
+			return;
+		}
+		if (!onSubmit(cleanName, cleanCode)) {
+			setError(
+				"That level could not be added. Check that its name and code are unique.",
+			);
+		}
+	};
+
+	return (
+		<div className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep/40 p-3">
+			<div className="flex flex-col gap-1.5">
+				<Label htmlFor={nameId}>Level name</Label>
+				<Input
+					ref={nameRef}
+					id={nameId}
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") submit();
+					}}
+					placeholder="Facility"
+				/>
+			</div>
+			<div className="flex flex-col gap-1.5">
+				<Label htmlFor={codeId}>Saved code (optional)</Label>
+				<Input
+					id={codeId}
+					value={code}
+					onChange={(event) => setCode(event.target.value)}
+					placeholder={
+						name.trim() === "" ? "facility" : uniqueCode(name, levels)
+					}
+				/>
+				<p className="text-[12px] leading-relaxed text-nova-text-muted">
+					Nova derives this from the name if left blank. It becomes a fixed
+					CommCare identity, so choose it before adding the level.
+				</p>
+			</div>
+			{error !== undefined && (
+				<p role="alert" className="text-[12px] text-nova-red">
+					{error}
+				</p>
+			)}
+			<div className="flex gap-2">
+				<Button type="button" onClick={submit}>
+					Add level
+				</Button>
+				<Button type="button" variant="ghost" onClick={onCancel}>
+					Cancel
+				</Button>
+			</div>
+		</div>
+	);
 }
 
 /** The one-line summary shown on a collapsed row. */
@@ -159,12 +263,16 @@ function LevelRow({
 	occupied,
 	open,
 	onOpenChange,
+	rowFocusRef,
+	onRemove,
 }: {
 	level: OrganizationLevel;
 	peers: readonly OrganizationLevel[];
 	occupied: boolean;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	rowFocusRef: (element: HTMLButtonElement | null) => void;
+	onRemove: () => void;
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
@@ -195,6 +303,7 @@ function LevelRow({
 
 	return (
 		<EntryRow
+			triggerRef={rowFocusRef}
 			summary={level.name}
 			detail={summarize(level)}
 			open={open}
@@ -246,7 +355,7 @@ function LevelRow({
 							});
 						}}
 					>
-						<SelectTrigger id={parentId} className="w-full">
+						<SelectTrigger id={parentId} wrapValue className="w-full">
 							<SelectValue>
 								{level.parentLevelUuid === undefined
 									? "Nothing — this is a top level"
@@ -259,7 +368,7 @@ function LevelRow({
 								Nothing — this is a top level
 							</SelectItem>
 							{parentOptions.map((candidate) => (
-								<SelectItem key={candidate.uuid} value={candidate.uuid}>
+								<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
 									{candidate.name}
 								</SelectItem>
 							))}
@@ -312,7 +421,9 @@ function LevelRow({
 					</p>
 				)}
 
-				{canEdit && <RemoveLevel level={level} occupied={occupied} />}
+				{canEdit && (
+					<RemoveLevel level={level} occupied={occupied} onRemove={onRemove} />
+				)}
 			</div>
 		</EntryRow>
 	);
@@ -398,7 +509,7 @@ function CaseFlowGroup({
 								set({ ...flow, descendantCases: scopeFromValue(value) });
 							}}
 						>
-							<SelectTrigger id={descendantId} className="w-full">
+							<SelectTrigger id={descendantId} wrapValue className="w-full">
 								<SelectValue>
 									{descendantLabel(flow.descendantCases, peers)}
 								</SelectValue>
@@ -408,6 +519,7 @@ function CaseFlowGroup({
 								<SelectItem value="all">Yes — everything below</SelectItem>
 								{peers.map((ancestor) => (
 									<SelectItem
+										wrap
 										key={ancestor.uuid}
 										value={`down-to:${ancestor.uuid}`}
 									>
@@ -556,7 +668,7 @@ function AddressBookGroup({
 						}
 					}}
 				>
-					<SelectTrigger id={reachId} className="w-full">
+					<SelectTrigger id={reachId} wrapValue className="w-full">
 						<SelectValue>{REACH_LABELS[book.reach]}</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
@@ -593,7 +705,7 @@ function AddressBookGroup({
 								set({ ...book, fromLevelUuid: value as Uuid });
 							}}
 						>
-							<SelectTrigger id={fromId} className="w-full">
+							<SelectTrigger id={fromId} wrapValue className="w-full">
 								<SelectValue>
 									{above.find((a) => a.uuid === book.fromLevelUuid)?.name ??
 										"A level that no longer exists"}
@@ -601,7 +713,7 @@ function AddressBookGroup({
 							</SelectTrigger>
 							<SelectContent>
 								{above.map((ancestor) => (
-									<SelectItem key={ancestor.uuid} value={ancestor.uuid}>
+									<SelectItem wrap key={ancestor.uuid} value={ancestor.uuid}>
 										{ancestor.name}
 									</SelectItem>
 								))}
@@ -661,13 +773,13 @@ function AddressBookGroup({
 								);
 							}}
 						>
-							<SelectTrigger id={downToId} className="w-full">
+							<SelectTrigger id={downToId} wrapValue className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value={NO_LEVEL_LIMIT}>No limit</SelectItem>
 								{selfAndBelow.map((candidate) => (
-									<SelectItem key={candidate.uuid} value={candidate.uuid}>
+									<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
 										{candidate.name}
 									</SelectItem>
 								))}
@@ -703,7 +815,7 @@ function AddressBookGroup({
 								);
 							}}
 						>
-							<SelectTrigger id={topSliceId} className="w-full">
+							<SelectTrigger id={topSliceId} wrapValue className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -711,7 +823,7 @@ function AddressBookGroup({
 									Do not add a top slice
 								</SelectItem>
 								{peers.map((candidate) => (
-									<SelectItem key={candidate.uuid} value={candidate.uuid}>
+									<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
 										{candidate.name}
 									</SelectItem>
 								))}
@@ -769,14 +881,22 @@ function Choice({
 function RemoveLevel({
 	level,
 	occupied,
+	onRemove,
 }: {
 	level: OrganizationLevel;
 	occupied: boolean;
+	onRemove: () => void;
 }) {
 	const mutations = useBlueprintMutations();
+	const doc = useBlueprintDoc((state) => state);
 	const [confirming, setConfirming] = useState(false);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
+	const plan = removeOrganizationLevelPlan(
+		doc,
+		level.uuid,
+		occupied ? new Set([level.uuid]) : undefined,
+	);
 
 	if (!confirming) {
 		return (
@@ -788,6 +908,10 @@ function RemoveLevel({
 					className="min-h-11 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
 						setRefusal(undefined);
+						if (!plan.ok) {
+							setRefusal(plan.userMessage);
+							return;
+						}
 						setConfirming(true);
 					}}
 				>
@@ -812,10 +936,8 @@ function RemoveLevel({
 			className="flex flex-col gap-2.5 rounded-lg border border-nova-red/40 bg-nova-red/[0.06] p-3 outline-none"
 		>
 			<p className="text-[13px] leading-relaxed text-nova-text">
-				Remove “{level.name}”?
-				{occupied
-					? " Places still stand at this level, so it can't be removed yet."
-					: " Any place information that applied only to this level will apply everywhere instead."}
+				Remove “{level.name}”? The level and any settings that name it will be
+				removed together.
 			</p>
 			<div className="flex gap-2">
 				<Button
@@ -823,6 +945,7 @@ function RemoveLevel({
 					variant="ghost"
 					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
+						onRemove();
 						const result = mutations.removeOrganizationLevel(
 							level.uuid as Uuid,
 							occupied ? new Set([level.uuid]) : undefined,

@@ -39,7 +39,7 @@
 // consume via `eb(...)` / `where(...)` / `selectFrom(...)`).
 
 import type { AliasableExpression, Kysely } from "kysely";
-import { expressionBuilder, sql } from "kysely";
+import { expressionBuilder } from "kysely";
 import {
 	ancestorLevels,
 	type CasePropertyDataType,
@@ -291,34 +291,61 @@ export function compileTerm(
 					`compileTerm: organization level '${term.levelUuid}' has no resolvable case-owning ancestor.`,
 				);
 			}
-			// Same flat-lineage lookup as the device fixture, expressed over the
-			// local tree. Admission guarantees at most one live destination for a
-			// source, so the scalar result is deterministic.
-			return sql<string | null>`(
-				SELECT destination.id::text
-				FROM app_locations AS destination
-				WHERE destination.app_id = ${ctx.appId}
-					AND destination.archived_at IS NULL
-					AND destination.level_uuid = ${destination.uuid}
-					AND EXISTS (
-						WITH RECURSIVE lineage AS (
-							SELECT parent.id, parent.parent_id, parent.level_uuid
-							FROM app_locations AS parent
-							WHERE parent.app_id = ${ctx.appId}
-								AND parent.id = destination.parent_id
-							UNION ALL
-							SELECT parent.id, parent.parent_id, parent.level_uuid
-							FROM app_locations AS parent
-							JOIN lineage ON parent.id = lineage.parent_id
-							WHERE parent.app_id = ${ctx.appId}
-						)
-						SELECT 1
-						FROM lineage
-						WHERE lineage.level_uuid = ${source.uuid}
-							AND lineage.id::text = ${sql.ref(`${ctx.anchorAlias}.owner_id`)}
-					)
-				LIMIT 1
-			)`;
+			// Same flat-lineage lookup as the device fixture, expressed through
+			// Kysely's typed recursive-query builder. Seed every live destination
+			// together with its parent, then carry the destination id while walking
+			// upward. The recursive CTE cannot reference the destination alias from
+			// the later scalar SELECT; keeping both rows in the seed makes that SQL
+			// scope explicit while the current case remains a valid outer reference.
+			return ctx.db
+				.withRecursive(
+					"location_lineage(destination_id, id, parent_id, level_uuid)",
+					(db) =>
+						db
+							.selectFrom("app_locations as destination")
+							.innerJoin(
+								"app_locations as lineage_parent",
+								"lineage_parent.id",
+								"destination.parent_id",
+							)
+							.select([
+								"destination.id as destination_id",
+								"lineage_parent.id",
+								"lineage_parent.parent_id",
+								"lineage_parent.level_uuid",
+							])
+							.where("destination.app_id", "=", ctx.appId)
+							.where("destination.archived_at", "is", null)
+							.where("destination.level_uuid", "=", destination.uuid)
+							.where("lineage_parent.app_id", "=", ctx.appId)
+							.unionAll(
+								db
+									.selectFrom("app_locations as lineage_parent")
+									.innerJoin(
+										"location_lineage",
+										"lineage_parent.id",
+										"location_lineage.parent_id",
+									)
+									.select([
+										"location_lineage.destination_id",
+										"lineage_parent.id",
+										"lineage_parent.parent_id",
+										"lineage_parent.level_uuid",
+									])
+									.where("lineage_parent.app_id", "=", ctx.appId),
+							),
+				)
+				.selectFrom("location_lineage")
+				.select("location_lineage.destination_id")
+				.where("location_lineage.level_uuid", "=", source.uuid)
+				.where((db) =>
+					db(
+						db.cast("location_lineage.id", "text"),
+						"=",
+						db.ref(`${ctx.anchorAlias}.owner_id` as never),
+					),
+				)
+				.limit(1);
 		}
 		default: {
 			const _exhaustive: never = term;

@@ -141,12 +141,15 @@ Case ownership is typed rather than authored as a free-form location XPath. A
 fixed-place owner stores a place UUID and is admitted only when that live place
 owns cases and lies within every applicable persona's address book. An
 owner-relative destination stores the destination level UUID plus a typed owner
-case expression; admission requires a case-owning destination and the nearest
-case-owning ancestor needed for the reverse hop. Emission resolves those
-identities to either the fixed location id or the exact flat-fixture lineage
-lookup, and declares the `locations` and `casedb` instances only when required.
-Location terms occupy the entire owner rule, so they cannot become a subtly
-wrong arithmetic, name, or nested expression.
+case expression; admission requires a case-owning destination, the nearest
+case-owning ancestor needed for the reverse hop, one scalar destination per
+owner, and a destination present in every applicable persona footprint. The
+wire compiler can lower those identities to a fixed location id or the exact
+flat-fixture lineage lookup, but every export mode remains closed while the
+deployment/usercase work has not yet shipped the matching persona-scoped
+`locations` fixture and HQ identity mapping. Location terms occupy the entire
+owner rule, so they cannot become a subtly wrong arithmetic, name, or nested
+expression.
 
 Blueprint commits and place writes share the app-row-first lock order. Each
 commit replaces the exact set of concrete place-reference edges for persona

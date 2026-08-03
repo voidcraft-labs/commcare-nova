@@ -38,7 +38,7 @@ import {
 	levelMayNestUnder,
 	type OrganizationLevel,
 } from "@/lib/domain";
-import type { StoredLocation } from "@/lib/organization/types";
+import type { ArchiveImpact, StoredLocation } from "@/lib/organization/types";
 import type { useOrganization } from "@/lib/organization/useOrganization";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
@@ -292,6 +292,9 @@ function PlaceRow({
 	const [draftLevelUuid, setDraftLevelUuid] = useState<string>(
 		location.levelUuid,
 	);
+	const [draftParentId, setDraftParentId] = useState<string | null>(
+		location.parentId,
+	);
 	const [message, setMessage] = useState<string | undefined>(undefined);
 	const [dirtyName, setDirtyName] = useState(false);
 	const [dirtyExternalId, setDirtyExternalId] = useState(false);
@@ -303,28 +306,15 @@ function PlaceRow({
 	const sourceRef = useRef(location);
 	const archived = location.archivedAt !== null;
 	const applicableProperties = propertiesForLevel(properties, draftLevelUuid);
-	const level = levels.find(
-		(candidate) => candidate.uuid === location.levelUuid,
-	);
 	const levelRecord = Object.fromEntries(
 		levels.map((candidate) => [candidate.uuid, candidate]),
 	);
-	const parent =
-		location.parentId === null
-			? undefined
-			: locations.find((candidate) => candidate.id === location.parentId);
 	const hasChildren = locations.some(
 		(candidate) => candidate.parentId === location.id,
 	);
-	const retypeOptions = levels.filter(
-		(candidate) =>
-			candidate.uuid === location.levelUuid ||
-			(!hasChildren &&
-				(location.parentId === null
-					? candidate.parentLevelUuid === undefined
-					: parent !== undefined &&
-						levelMayNestUnder(candidate.uuid, parent.levelUuid, levelRecord))),
-	);
+	const retypeOptions = hasChildren
+		? levels.filter((candidate) => candidate.uuid === location.levelUuid)
+		: levels;
 	const siblings = locations.filter(
 		(candidate) =>
 			candidate.parentId === location.parentId && candidate.id !== location.id,
@@ -348,13 +338,7 @@ function PlaceRow({
 			candidate.archivedAt === null &&
 			!descendants.has(candidate.id) &&
 			candidate.id !== location.id &&
-			levelMayNestUnder(
-				location.levelUuid,
-				candidate.levelUuid,
-				Object.fromEntries(
-					levels.map((candidateLevel) => [candidateLevel.uuid, candidateLevel]),
-				),
-			),
+			levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord),
 	);
 
 	useEffect(() => {
@@ -375,6 +359,7 @@ function PlaceRow({
 		setDraftLatitude(location.latitude ?? "");
 		setDraftLongitude(location.longitude ?? "");
 		setDraftLevelUuid(location.levelUuid);
+		setDraftParentId(location.parentId);
 		setDraftValues(
 			valuesForLevel(properties, location.levelUuid, location.values),
 		);
@@ -397,6 +382,7 @@ function PlaceRow({
 		setDraftLatitude(location.latitude ?? "");
 		setDraftLongitude(location.longitude ?? "");
 		setDraftLevelUuid(location.levelUuid);
+		setDraftParentId(location.parentId);
 		setDraftValues(
 			valuesForLevel(properties, location.levelUuid, location.values),
 		);
@@ -568,6 +554,25 @@ function PlaceRow({
 						onValueChange={(value) => {
 							if (typeof value !== "string") return;
 							setDraftLevelUuid(value);
+							const nextLevel = levels.find(
+								(candidate) => candidate.uuid === value,
+							);
+							if (nextLevel?.parentLevelUuid === undefined) {
+								setDraftParentId(null);
+							} else {
+								const compatible = locations.filter(
+									(candidate) =>
+										candidate.archivedAt === null &&
+										candidate.id !== location.id &&
+										!descendants.has(candidate.id) &&
+										levelMayNestUnder(value, candidate.levelUuid, levelRecord),
+								);
+								setDraftParentId(
+									compatible.some((candidate) => candidate.id === draftParentId)
+										? draftParentId
+										: (compatible[0]?.id ?? null),
+								);
+							}
 							const nextValues = valuesForLevel(properties, value, draftValues);
 							setDraftValues(nextValues);
 							setDirtyLevel(value !== location.levelUuid);
@@ -583,12 +588,12 @@ function PlaceRow({
 							);
 						}}
 					>
-						<SelectTrigger id={levelId} className="w-full">
+						<SelectTrigger id={levelId} wrapValue className="w-full">
 							<SelectValue>{levelName(levels, draftLevelUuid)}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							{retypeOptions.map((candidate) => (
-								<SelectItem key={candidate.uuid} value={candidate.uuid}>
+								<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
 									{candidate.name}
 								</SelectItem>
 							))}
@@ -607,7 +612,14 @@ function PlaceRow({
 							className="min-h-11 self-start px-2.5 text-[12px] text-nova-violet-bright"
 							disabled={
 								peerChanged ||
-								!requiredValuesPresent(properties, draftLevelUuid, draftValues)
+								!requiredValuesPresent(
+									properties,
+									draftLevelUuid,
+									draftValues,
+								) ||
+								(levels.find((candidate) => candidate.uuid === draftLevelUuid)
+									?.parentLevelUuid !== undefined &&
+									draftParentId === null)
 							}
 							onClick={async () => {
 								const result = await organization.update(location.id, {
@@ -617,6 +629,7 @@ function PlaceRow({
 										draftLevelUuid,
 										draftValues,
 									),
+									parentId: draftParentId,
 								});
 								if (!result.ok) setMessage(result.message);
 								else {
@@ -710,32 +723,35 @@ function PlaceRow({
 					</div>
 				</div>
 
-				{level?.parentLevelUuid !== undefined && (
+				{levels.find((candidate) => candidate.uuid === draftLevelUuid)
+					?.parentLevelUuid !== undefined && (
 					<div className="flex flex-col gap-1.5">
 						<Label className="text-[12px] font-medium text-nova-text-secondary">
 							Sits in
 						</Label>
 						<Select
-							value={location.parentId ?? ""}
-							disabled={!canEdit || archived || peerChanged || dirtyLevel}
+							value={draftParentId ?? ""}
+							disabled={!canEdit || archived || peerChanged}
 							onValueChange={async (value) => {
 								if (typeof value !== "string" || value === "") return;
+								setDraftParentId(value);
+								if (dirtyLevel) return;
 								const result = await organization.move(location.id, {
 									parentId: value,
 								});
 								if (!result.ok) setMessage(result.message);
 							}}
 						>
-							<SelectTrigger className="w-full" aria-label="Sits in">
+							<SelectTrigger wrapValue className="w-full" aria-label="Sits in">
 								<SelectValue>
 									{parentOptions.find(
-										(candidate) => candidate.id === location.parentId,
+										(candidate) => candidate.id === draftParentId,
 									)?.name ?? "Choose a place"}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{parentOptions.map((candidate) => (
-									<SelectItem key={candidate.id} value={candidate.id}>
+									<SelectItem wrap key={candidate.id} value={candidate.id}>
 										{candidate.name}
 									</SelectItem>
 								))}
@@ -771,14 +787,20 @@ function PlaceRow({
 								else setMessage(undefined);
 							}}
 						>
-							<SelectTrigger id={positionId} className="w-full">
-								<SelectValue />
+							<SelectTrigger id={positionId} wrapValue className="w-full">
+								<SelectValue>
+									{positionValue === FIRST_POSITION
+										? "At the beginning"
+										: positionValue === END_POSITION
+											? "At the end"
+											: `After ${siblings.find((sibling) => sibling.id === positionValue)?.name ?? "another place"}`}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value={END_POSITION}>At the end</SelectItem>
 								<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
 								{siblings.map((sibling) => (
-									<SelectItem key={sibling.id} value={sibling.id}>
+									<SelectItem wrap key={sibling.id} value={sibling.id}>
 										After {sibling.name}
 									</SelectItem>
 								))}
@@ -884,6 +906,7 @@ function PlaceValueField({
 						}}
 					>
 						<SelectTrigger
+							wrapValue
 							id={id}
 							className="min-w-0 flex-1"
 							aria-required={property.required === true}
@@ -894,7 +917,7 @@ function PlaceValueField({
 						</SelectTrigger>
 						<SelectContent>
 							{property.choices.map((choice) => (
-								<SelectItem key={choice} value={choice}>
+								<SelectItem wrap key={choice} value={choice}>
 									{choice}
 								</SelectItem>
 							))}
@@ -939,15 +962,7 @@ function ArchivePlace({
 	onMessage: (message: string | undefined) => void;
 }) {
 	const [confirming, setConfirming] = useState(false);
-	const [impact, setImpact] = useState<
-		| {
-				locations: number;
-				personas: readonly string[];
-				cases: number;
-				blockingOwnerRuleForms: readonly string[];
-		  }
-		| undefined
-	>(undefined);
+	const [impact, setImpact] = useState<ArchiveImpact | undefined>(undefined);
 	const [impactError, setImpactError] = useState<string | undefined>();
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 	const archived = location.archivedAt !== null;
@@ -988,12 +1003,7 @@ function ArchivePlace({
 					setConfirming(true);
 					const described = await organization.describeArchive(location.id);
 					if (described.ok) {
-						setImpact({
-							locations: described.impact.locationIds.length,
-							personas: described.impact.unassignedPersonas,
-							cases: described.impact.ownedCases,
-							blockingOwnerRuleForms: described.impact.blockingOwnerRuleForms,
-						});
+						setImpact(described.impact);
 					} else setImpactError(described.message);
 				}}
 			>
@@ -1023,23 +1033,24 @@ function ArchivePlace({
 				</p>
 			) : (
 				<ul className="flex list-disc flex-col gap-1 pl-4 text-[12px] leading-relaxed text-nova-text-secondary">
-					{impact.locations > 1 && (
+					{impact.locationIds.length > 1 && (
 						<li>
-							{impact.locations} places are archived — this one and everything
-							under it.
+							{impact.locationIds.length} places are archived — this one and
+							everything under it.
 						</li>
 					)}
-					{impact.personas.length > 0 && (
+					{impact.unassignedPersonas.length > 0 && (
 						<li>
-							{impact.personas.join(", ")} stop working there. Their next
-							remaining place becomes their main one.
+							{impact.unassignedPersonas.join(", ")} stop working there. Their
+							next remaining place becomes their main one.
 						</li>
 					)}
-					{impact.cases > 0 && (
+					{impact.ownedCases > 0 && (
 						<li className="text-nova-amber">
-							{impact.cases} {impact.cases === 1 ? "case is" : "cases are"}{" "}
-							owned here and will stop reaching anyone. Nothing moves them —
-							bringing the place back is what makes them reachable again.
+							{impact.ownedCases}{" "}
+							{impact.ownedCases === 1 ? "case is" : "cases are"} owned here and
+							will stop reaching anyone. Nothing moves them — bringing the place
+							back is what makes them reachable again.
 						</li>
 					)}
 					{impact.blockingOwnerRuleForms.length > 0 && (
@@ -1065,7 +1076,11 @@ function ArchivePlace({
 					}
 					onClick={async () => {
 						setConfirming(false);
-						const result = await organization.setArchived(location.id, true);
+						const result = await organization.setArchived(
+							location.id,
+							true,
+							impact,
+						);
 						if (!result.ok) onMessage(result.message);
 					}}
 				>
@@ -1239,7 +1254,7 @@ function AddPlaceForm({
 						setValues((current) => valuesForLevel(properties, value, current));
 					}}
 				>
-					<SelectTrigger id={levelId} className="w-full">
+					<SelectTrigger id={levelId} wrapValue className="w-full">
 						<SelectValue>
 							{levels.find((level) => level.uuid === levelUuid)?.name ??
 								"Choose a level"}
@@ -1247,7 +1262,7 @@ function AddPlaceForm({
 					</SelectTrigger>
 					<SelectContent>
 						{levels.map((level) => (
-							<SelectItem key={level.uuid} value={level.uuid}>
+							<SelectItem wrap key={level.uuid} value={level.uuid}>
 								{level.name}
 							</SelectItem>
 						))}
@@ -1271,7 +1286,7 @@ function AddPlaceForm({
 							}
 						}}
 					>
-						<SelectTrigger id={parentId} className="w-full">
+						<SelectTrigger id={parentId} wrapValue className="w-full">
 							<SelectValue>
 								{parent === ""
 									? "Choose a place"
@@ -1281,7 +1296,7 @@ function AddPlaceForm({
 						</SelectTrigger>
 						<SelectContent>
 							{parentOptions.map((candidate) => (
-								<SelectItem key={candidate.id} value={candidate.id}>
+								<SelectItem wrap key={candidate.id} value={candidate.id}>
 									{candidate.name}
 								</SelectItem>
 							))}
@@ -1320,14 +1335,20 @@ function AddPlaceForm({
 							);
 						}}
 					>
-						<SelectTrigger id={positionId} className="w-full">
-							<SelectValue />
+						<SelectTrigger id={positionId} wrapValue className="w-full">
+							<SelectValue>
+								{afterSiblingId === null
+									? "At the beginning"
+									: afterSiblingId === undefined
+										? "At the end"
+										: `After ${siblings.find((sibling) => sibling.id === afterSiblingId)?.name ?? "another place"}`}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value={END_POSITION}>At the end</SelectItem>
 							<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
 							{siblings.map((sibling) => (
-								<SelectItem key={sibling.id} value={sibling.id}>
+								<SelectItem wrap key={sibling.id} value={sibling.id}>
 									After {sibling.name}
 								</SelectItem>
 							))}

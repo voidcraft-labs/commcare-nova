@@ -206,8 +206,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"Place information applies to a level that no longer exists. Choose current levels or let it apply everywhere.",
 	PERSONA_LOCATION_PRIMARY_REPEATED: () =>
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
-	FIXED_LOCATION_EXPORT_NOT_ACTIVE: (e) =>
-		`${q(formName(e))} assigns new cases to one specific place, but Nova hasn't linked that place to its copy in CommCare yet. Use an owner based on the selected case, or remove the fixed place before publishing.`,
+	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
+		`${q(formName(e))} assigns new cases with a place-based owner, but Nova does not yet ship the matching device location data and CommCare identity mapping. Use a non-location owner, or remove this owner rule before publishing.`,
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>

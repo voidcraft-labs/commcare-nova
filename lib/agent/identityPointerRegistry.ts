@@ -116,7 +116,7 @@ function classifyIdentity(
 	}
 	if (property === "rowId") return "lookup-row";
 	if (
-		property === "values" &&
+		(property === "values" || property === "valuePatch") &&
 		(tool === "create_location" || tool === "update_location")
 	) {
 		return "location-property";
@@ -129,7 +129,9 @@ function classifyIdentity(
 			property === "parentId" ||
 			property === "afterSiblingUuid" ||
 			property === "afterSiblingId") &&
-		(tool === "create_location" || tool === "move_location")
+		(tool === "create_location" ||
+			tool === "update_location" ||
+			tool === "move_location")
 	) {
 		return "location";
 	}
@@ -165,6 +167,7 @@ function classifyIdentity(
 	if (
 		property === "locationUuid" ||
 		property === "locationUuids" ||
+		property === "locationIds" ||
 		property === "parentUuid" ||
 		property === "afterSiblingUuid"
 	) {

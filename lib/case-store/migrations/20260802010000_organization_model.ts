@@ -20,7 +20,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
 		CREATE TABLE app_organization_state (
 			app_id text PRIMARY KEY REFERENCES apps(id) ON DELETE CASCADE,
-			revision bigint NOT NULL DEFAULT 0,
+			revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
 			location_count integer NOT NULL DEFAULT 0 CHECK (location_count >= 0),
 			updated_at timestamptz(3) NOT NULL DEFAULT now()
 		)
@@ -30,13 +30,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		CREATE TABLE app_locations (
 			id uuid NOT NULL DEFAULT uuidv7(),
 			app_id text NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-			level_uuid text NOT NULL,
+			level_uuid uuid NOT NULL,
 			parent_id uuid,
 			site_code text NOT NULL,
 			name text NOT NULL,
 			external_id text,
-			latitude numeric,
-			longitude numeric,
+			latitude numeric(20, 10),
+			longitude numeric(20, 10),
 			"values" jsonb NOT NULL DEFAULT '{}'::jsonb,
 			archived_at timestamptz(3),
 			order_key text COLLATE "C" NOT NULL

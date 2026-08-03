@@ -98,6 +98,8 @@ export interface OrganizationSnapshot {
  * number is the whole warning.
  */
 export interface ArchiveImpact {
+	/** Organization snapshot this preflight was computed against. */
+	readonly revision: OrganizationRevision;
 	readonly locationIds: readonly string[];
 	readonly unassignedPersonas: readonly string[];
 	readonly ownedCases: number;

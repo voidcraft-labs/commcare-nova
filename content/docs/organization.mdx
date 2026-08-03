@@ -99,9 +99,11 @@ the district would find the fake one and give a confident wrong answer, where a
 genuine gap gives an honest empty one.
 
 One thing to know if you plan to publish: CommCare's ordinary place editor cannot
-create a place that skips a level. Nova previews and downloadable exports keep
-the gap accurately. Direct Deployment is not available yet, so Nova does not
-currently provision that hierarchy in an HQ project for you.
+create a place that skips a level. Nova stores and previews the gap accurately,
+but it does not yet include your places in a downloadable app or provision that
+hierarchy in an HQ project. That arrives with Deployment and device location
+data; Nova will block any place-based owner rule at export until both sides are
+present rather than publish a rule whose place is missing on the phone.
 
 Every place gets a **code** when you create it, and that code never changes —
 renaming a place leaves it alone. The code is what bulk uploads and CommCare use
@@ -165,4 +167,6 @@ These are structural references, not pasted expressions. Nova updates their
 printed names from the current organization and refuses a rule whose level or
 place can no longer work. Case flow still decides whether the destination owns
 cases; address-book visibility decides whether a worker can name it. One does
-not substitute for the other.
+not substitute for the other. They work in Preview today. Publishing remains
+blocked for an app that uses either rule until Nova can ship the matching
+persona-scoped place data and map the same identities in CommCare.

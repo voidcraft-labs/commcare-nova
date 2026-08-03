@@ -34,6 +34,7 @@ import {
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 
 export function PersonaLocations({
 	persona,
@@ -51,6 +52,7 @@ export function PersonaLocations({
 	const mutations = useBlueprintMutations();
 	const levels = useOrganizationLevelRecord();
 	const assigned = assignedLocationUuids(persona.locations);
+	const rowFocus = useRemovedRowFocus(assigned.length);
 	const byId = new Map<string, StoredLocation>(
 		locations.map((location) => [location.id, location]),
 	);
@@ -119,6 +121,7 @@ export function PersonaLocations({
 											<>
 												{index > 0 && (
 													<Button
+														ref={rowFocus.register(index)}
 														type="button"
 														variant="ghost"
 														className="min-h-11 shrink-0 px-2 text-[12px]"
@@ -137,9 +140,10 @@ export function PersonaLocations({
 													variant="ghost"
 													aria-label={`Remove ${location?.name ?? "this place"}`}
 													className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
-													onClick={() =>
-														set(assigned.filter((other) => other !== id))
-													}
+													onClick={() => {
+														rowFocus.onRemoved(index);
+														set(assigned.filter((other) => other !== id));
+													}}
 												>
 													<Icon
 														icon={tablerX}
@@ -165,6 +169,8 @@ export function PersonaLocations({
 							}}
 						>
 							<SelectTrigger
+								ref={rowFocus.addRef}
+								wrapValue
 								aria-label="Add a place"
 								className="min-h-11 w-full"
 							>
@@ -183,7 +189,7 @@ export function PersonaLocations({
 							</SelectTrigger>
 							<SelectContent>
 								{available.map((location) => (
-									<SelectItem key={location.id} value={location.id}>
+									<SelectItem wrap key={location.id} value={location.id}>
 										{location.name}
 									</SelectItem>
 								))}

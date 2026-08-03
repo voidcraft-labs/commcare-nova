@@ -533,6 +533,32 @@ describe("locations store — creation and structure", () => {
 			updateLocation(scope(), facility, { levelUuid: DISTRICT }),
 		).rejects.toMatchObject({ code: "rejected" });
 	});
+
+	it("retypes and reparents a leaf atomically without an invalid intermediate tree", async () => {
+		await seedOrgApp();
+		const { district } = await seedChain();
+		const rootLeaf = (
+			await createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "Intake Queue",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location;
+
+		const updated = await updateLocation(scope(), rootLeaf.id, {
+			levelUuid: FACILITY,
+			parentId: district,
+			afterSiblingId: null,
+		});
+		expect(updated.location).toMatchObject({
+			levelUuid: FACILITY,
+			parentId: district,
+		});
+	});
 });
 
 describe("locations store — the optimistic clock", () => {
@@ -630,6 +656,33 @@ describe("locations store — exact chat-run authority", () => {
 });
 
 describe("locations store — the tenant boundary", () => {
+	it("stores level identities as UUIDs and coordinates at HQ precision", async () => {
+		const columns = await sql<{
+			column_name: string;
+			data_type: string;
+			udt_name: string;
+			numeric_precision: number | null;
+			numeric_scale: number | null;
+		}>`
+			SELECT column_name, data_type, udt_name, numeric_precision, numeric_scale
+			FROM information_schema.columns
+			WHERE table_name = 'app_locations'
+				AND column_name IN ('level_uuid', 'latitude', 'longitude')
+		`.execute(h.db());
+		const byName = new Map(columns.rows.map((row) => [row.column_name, row]));
+		expect(byName.get("level_uuid")).toMatchObject({
+			data_type: "uuid",
+			udt_name: "uuid",
+		});
+		for (const coordinate of ["latitude", "longitude"]) {
+			expect(byName.get(coordinate)).toMatchObject({
+				data_type: "numeric",
+				numeric_precision: 20,
+				numeric_scale: 10,
+			});
+		}
+	});
+
 	it("keeps no tenant column at all, which is what makes the move a no-op", async () => {
 		// The structural half of the proof. If either table grew a `project_id`,
 		// a cross-Project move would silently leave these rows behind.
@@ -698,7 +751,7 @@ describe("locations store — the tenant boundary", () => {
 				longitude: null,
 				values: {},
 			}),
-		).rejects.toMatchObject({ code: "forbidden" });
+		).rejects.toMatchObject({ code: "not_found" });
 	});
 
 	it("refuses a viewer, who may read but not write", async () => {
@@ -715,7 +768,7 @@ describe("locations store — the tenant boundary", () => {
 				longitude: null,
 				values: {},
 			}),
-		).rejects.toMatchObject({ code: "forbidden" });
+		).rejects.toMatchObject({ code: "not_found" });
 		// The read-side impact description authorizes at `view`, so it succeeds
 		// — a viewer is entitled to understand the consequences of a change they
 		// cannot make.
@@ -970,6 +1023,35 @@ describe("locations store — persona and fixed-owner validation", () => {
 });
 
 describe("locations store — deterministic reverse-hop owners", () => {
+	it("refuses a reverse destination outside an applicable persona footprint", async () => {
+		await seedWorkflowOrgApp();
+		const { district } = await seedChain();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "limit-district-address-book",
+			mutations: admitMutationBatch([
+				{
+					kind: "updateOrganizationLevel",
+					uuid: DISTRICT,
+					patch: {
+						addressBook: {
+							reach: "own-branch",
+							downToLevelUuid: DISTRICT,
+						},
+					},
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		await assignPersona(PERSONA_ASHA, district);
+
+		await expect(commitReverseOwnerForm(FACILITY)).rejects.toThrow(
+			/outside Asha's address book/,
+		);
+	});
+
 	it("refuses adding a reverse-hop rule to already-ambiguous rows", async () => {
 		await seedWorkflowOrgApp();
 		const { district } = await seedChain();
@@ -1220,8 +1302,15 @@ describe("locations store — the archive cascade", () => {
 		);
 		expect(impact.ownedCases).toBe(0);
 
-		const result = await setLocationArchived(scope(), district, true);
+		const result = await setLocationArchived(
+			scope(),
+			district,
+			true,
+			impact.revision,
+			impact,
+		);
 		expect(new Set(result.archivedIds)).toEqual(new Set([district, facility]));
+		expect(result.impact).toEqual(impact);
 
 		const snapshot = await readOrganization(scope());
 		const byId = new Map(snapshot.locations.map((l) => [l.id, l]));
@@ -1242,6 +1331,23 @@ describe("locations store — the archive cascade", () => {
 			.where("app_id", "=", APP_ID)
 			.execute();
 		expect(edges).toEqual([]);
+	});
+
+	it("refuses when a confirmed archive consequence changed", async () => {
+		await seedOrgApp();
+		const { district } = await seedChain();
+		const impact = await describeArchiveImpact(scope(), district);
+		await expect(
+			setLocationArchived(scope(), district, true, impact.revision, {
+				...impact,
+				ownedCases: impact.ownedCases + 1,
+			}),
+		).rejects.toMatchObject({ code: "conflict" });
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === district,
+			)?.archivedAt,
+		).toBeNull();
 	});
 
 	it("returns and attributes the exact Blueprint change for an SA archive", async () => {
@@ -1398,6 +1504,7 @@ describe("locations store — removing a location property", () => {
 			longitude: null,
 			values: {},
 		});
+		const beforeShed = (await readOrganization(scope())).revision;
 
 		await commitGuardedBatch({
 			appId: APP_ID,
@@ -1413,6 +1520,8 @@ describe("locations store — removing a location property", () => {
 		const byId = new Map(
 			(await readOrganization(scope())).locations.map((l) => [l.id, l]),
 		);
+		const afterShed = await readOrganization(scope());
+		expect(BigInt(afterShed.revision)).toBe(BigInt(beforeShed) + BigInt(1));
 		// The removed property's value is gone; its peer is untouched. A
 		// property uuid is never reissued, so a retained value would be
 		// unreachable forever rather than merely unused.
@@ -1484,6 +1593,31 @@ describe("locations store — custom field values", () => {
 		// A whole-bag replacement, so a cleared field is an omitted key rather
 		// than a stored null — absent and null would print identically.
 		expect(updated.location.values).toEqual({ [PROP_BEDS]: "13" });
+	});
+
+	it("patches one UUID-keyed value without clearing its siblings", async () => {
+		await seedOrgApp();
+		await declareProperties();
+		const created = await createLocation(scope(), {
+			levelUuid: REGION,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: { [PROP_BEDS]: "12", [PROP_PHONE]: "555" },
+		});
+		const patched = await updateLocation(scope(), created.location.id, {
+			valuePatch: { [PROP_BEDS]: "13" },
+		});
+		expect(patched.location.values).toEqual({
+			[PROP_BEDS]: "13",
+			[PROP_PHONE]: "555",
+		});
+		const cleared = await updateLocation(scope(), created.location.id, {
+			valuePatch: { [PROP_BEDS]: null },
+		});
+		expect(cleared.location.values).toEqual({ [PROP_PHONE]: "555" });
 	});
 
 	it("refuses a value against a property the app does not declare", async () => {

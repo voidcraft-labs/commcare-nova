@@ -3,10 +3,13 @@
 import { type ZodError, type ZodType, z } from "zod";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import { uuidSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { OrganizationErrorCode } from "./errors";
 import { OrganizationError } from "./errors";
 import {
+	archiveImpactSchema,
 	createLocationInputSchema,
 	organizationRevisionSchema,
 	updateLocationInputSchema,
@@ -117,14 +120,19 @@ async function withScope<T>(
 					: { currentRevision: error.currentRevision }),
 			};
 		}
+		if (error instanceof BlueprintCommitRejectedError) {
+			return {
+				success: false,
+				code: "rejected",
+				message: error.message,
+			};
+		}
 		if (error instanceof AppAccessError) {
 			return {
 				success: false,
-				code: error.reason === "not_found" ? "not_found" : "forbidden",
+				code: "not_found",
 				message:
-					error.reason === "not_found"
-						? "That app isn't available. It may have been deleted, or you may not have access to it."
-						: "You don't have permission to work on this app's organization.",
+					"That app isn't available. It may have been deleted, or you may not have access to it.",
 			};
 		}
 		log.error("organization action failed", { error });
@@ -151,8 +159,6 @@ function parsed<T>(schema: ZodType<T>, value: unknown): T {
 	return result.data;
 }
 
-const optionalRevision = organizationRevisionSchema.optional();
-
 export async function readOrganizationAction(
 	appId: string,
 ): Promise<OrganizationResult<OrganizationSnapshot>> {
@@ -162,13 +168,13 @@ export async function readOrganizationAction(
 export async function createLocationAction(
 	appId: string,
 	input: unknown,
-	expectedRevision?: string,
+	expectedRevision: string,
 ): Promise<OrganizationResult<{ location: StoredLocation; revision: string }>> {
 	return withScope(appId, async (scope) =>
 		createLocation(
 			scope,
 			parsed(createLocationInputSchema, input),
-			parsed(optionalRevision, expectedRevision),
+			parsed(organizationRevisionSchema, expectedRevision),
 		),
 	);
 }
@@ -177,14 +183,14 @@ export async function updateLocationAction(
 	appId: string,
 	locationId: string,
 	patch: unknown,
-	expectedRevision?: string,
+	expectedRevision: string,
 ): Promise<OrganizationResult<{ location: StoredLocation; revision: string }>> {
 	return withScope(appId, async (scope) =>
 		updateLocation(
 			scope,
-			parsed(z.uuid(), locationId),
+			parsed(uuidSchema, locationId),
 			parsed(updateLocationInputSchema, patch),
-			parsed(optionalRevision, expectedRevision),
+			parsed(organizationRevisionSchema, expectedRevision),
 		),
 	);
 }
@@ -193,20 +199,20 @@ export async function moveLocationAction(
 	appId: string,
 	locationId: string,
 	target: unknown,
-	expectedRevision?: string,
+	expectedRevision: string,
 ): Promise<OrganizationResult<{ revision: string }>> {
 	const targetSchema = z
 		.object({
-			parentId: z.uuid().nullable(),
-			afterSiblingId: z.uuid().optional(),
+			parentId: uuidSchema.nullable(),
+			afterSiblingId: uuidSchema.nullable().optional(),
 		})
 		.strict();
 	return withScope(appId, async (scope) =>
 		moveLocation(
 			scope,
-			parsed(z.uuid(), locationId),
+			parsed(uuidSchema, locationId),
 			parsed(targetSchema, target),
-			parsed(optionalRevision, expectedRevision),
+			parsed(organizationRevisionSchema, expectedRevision),
 		),
 	);
 }
@@ -216,7 +222,7 @@ export async function describeArchiveImpactAction(
 	locationId: string,
 ): Promise<OrganizationResult<ArchiveImpact>> {
 	return withScope(appId, async (scope) =>
-		describeArchiveImpact(scope, parsed(z.uuid(), locationId)),
+		describeArchiveImpact(scope, parsed(uuidSchema, locationId)),
 	);
 }
 
@@ -224,7 +230,8 @@ export async function setLocationArchivedAction(
 	appId: string,
 	locationId: string,
 	archived: boolean,
-	expectedRevision?: string,
+	expectedRevision: string,
+	confirmedImpact?: unknown,
 ): Promise<
 	OrganizationResult<{
 		revision: string;
@@ -232,12 +239,22 @@ export async function setLocationArchivedAction(
 		unassignedPersonas: readonly string[];
 	}>
 > {
-	return withScope(appId, async (scope) =>
-		setLocationArchived(
+	return withScope(appId, async (scope) => {
+		const parsedArchived = parsed(z.boolean(), archived);
+		if (parsedArchived && confirmedImpact === undefined) {
+			throw new OrganizationError(
+				"invalid",
+				"Review the current archive impact before confirming this change.",
+			);
+		}
+		return setLocationArchived(
 			scope,
-			parsed(z.uuid(), locationId),
-			parsed(z.boolean(), archived),
-			parsed(optionalRevision, expectedRevision),
-		),
-	);
+			parsed(uuidSchema, locationId),
+			parsedArchived,
+			parsed(organizationRevisionSchema, expectedRevision),
+			confirmedImpact === undefined
+				? undefined
+				: parsed(archiveImpactSchema, confirmedImpact),
+		);
+	});
 }

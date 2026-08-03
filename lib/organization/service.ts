@@ -3,6 +3,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { type Selectable, sql, type Transaction } from "kysely";
 import {
+	AppAccessError,
+	resolveAppScopeInTransaction,
+} from "@/lib/db/appAccess";
+import {
 	commitGuardedBatchInTransaction,
 	loadAppInTransaction,
 } from "@/lib/db/apps";
@@ -34,6 +38,7 @@ import { OrganizationError, organizationNotFound } from "./errors";
 import {
 	assertSiteCodeFree,
 	type CreateLocationInput,
+	canonicalCoordinate,
 	deriveSiteCode,
 	MAX_LOCATIONS_PER_APP,
 	parseOrganizationRevision,
@@ -63,8 +68,9 @@ function toStoredLocation(row: LocationRow): StoredLocation {
 		siteCode: row.site_code,
 		name: row.name,
 		externalId: row.external_id,
-		latitude: row.latitude,
-		longitude: row.longitude,
+		latitude: row.latitude === null ? null : canonicalCoordinate(row.latitude),
+		longitude:
+			row.longitude === null ? null : canonicalCoordinate(row.longitude),
 		values: row.values,
 		archivedAt: row.archived_at,
 		orderKey: row.order_key,
@@ -94,22 +100,26 @@ export async function readOrganization(
 	return db
 		.transaction()
 		.setIsolationLevel("repeatable read")
-		.setAccessMode("read only")
 		.execute(async (tx) => {
 			// The action authorized this scope before constructing it, but an app
 			// that moved Projects in between must not be readable through the old
 			// one. Every WRITE re-proves this under its lock; a read-only
 			// transaction cannot lock, so it proves it in its own snapshot.
-			const app = await tx
-				.selectFrom("apps")
-				.select(["project_id", "deleted_at"])
-				.where("id", "=", scope.appId)
-				.executeTakeFirst();
-			if (
-				app === undefined ||
-				app.deleted_at !== null ||
-				app.project_id !== scope.projectId
-			) {
+			const access = await resolveAppScopeInTransaction(
+				tx,
+				scope.appId,
+				scope.actorUserId,
+				"view",
+			).catch((error: unknown) => {
+				if (error instanceof AppAccessError) {
+					throw new OrganizationError(
+						"not_found",
+						"This app's organization isn't available. It may have been deleted, moved, or you may no longer have access to it.",
+					);
+				}
+				throw error;
+			});
+			if (access.projectId !== scope.projectId) {
 				throw new OrganizationError(
 					"not_found",
 					"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
@@ -473,16 +483,30 @@ export async function updateLocation(
 		if (current === undefined) throw organizationNotFound();
 
 		const nextLevelUuid = patch.levelUuid ?? current.level_uuid;
-		if (patch.values !== undefined || patch.levelUuid !== undefined) {
+		const nextValues: Record<string, string> =
+			patch.values ??
+			(() => {
+				const values = { ...current.values };
+				for (const [uuid, value] of Object.entries(patch.valuePatch ?? {})) {
+					if (value === null) delete values[uuid];
+					else values[uuid] = value;
+				}
+				return values;
+			})();
+		const nextParentId =
+			patch.parentId === undefined ? current.parent_id : patch.parentId;
+		const changesPlacement =
+			patch.parentId !== undefined || patch.afterSiblingId !== undefined;
+		if (
+			patch.values !== undefined ||
+			patch.valuePatch !== undefined ||
+			patch.levelUuid !== undefined
+		) {
 			// Re-checked against the level the place will HAVE, so retyping a place
 			// into a level its recorded information does not apply to is refused
 			// rather than silently leaving values nothing will emit.
 			const doc = await loadDocInTransaction(tx, scope.appId);
-			assertValuesSatisfyCatalog(
-				doc,
-				nextLevelUuid,
-				patch.values ?? current.values,
-			);
+			assertValuesSatisfyCatalog(doc, nextLevelUuid, nextValues);
 		}
 
 		if (
@@ -501,7 +525,20 @@ export async function updateLocation(
 				);
 			}
 			const doc = await loadDocInTransaction(tx, scope.appId);
-			assertPlacement(doc, tree, patch.levelUuid, current.parent_id);
+			assertPlacement(doc, tree, patch.levelUuid, nextParentId);
+		}
+		if (changesPlacement) {
+			if (
+				nextParentId !== null &&
+				subtreeIds(tree, locationId).includes(nextParentId)
+			) {
+				throw new OrganizationError(
+					"rejected",
+					`"${current.name}" can't move into itself or into a place under it.`,
+				);
+			}
+			const doc = await loadDocInTransaction(tx, scope.appId);
+			assertPlacement(doc, tree, nextLevelUuid, nextParentId);
 		}
 
 		// Only slots whose value actually DIFFERS are written. A patch that
@@ -518,26 +555,45 @@ export async function updateLocation(
 		) {
 			values.external_id = patch.externalId;
 		}
-		if (patch.latitude !== undefined && patch.latitude !== current.latitude) {
+		if (
+			patch.latitude !== undefined &&
+			patch.latitude !==
+				(current.latitude === null
+					? null
+					: canonicalCoordinate(current.latitude))
+		) {
 			values.latitude = patch.latitude;
 		}
 		if (
 			patch.longitude !== undefined &&
-			patch.longitude !== current.longitude
+			patch.longitude !==
+				(current.longitude === null
+					? null
+					: canonicalCoordinate(current.longitude))
 		) {
 			values.longitude = patch.longitude;
 		}
 		if (
-			patch.values !== undefined &&
-			JSON.stringify(patch.values) !== JSON.stringify(current.values)
+			(patch.values !== undefined || patch.valuePatch !== undefined) &&
+			JSON.stringify(nextValues) !== JSON.stringify(current.values)
 		) {
-			values.values = JSON.stringify(patch.values);
+			values.values = JSON.stringify(nextValues);
 		}
 		if (
 			patch.levelUuid !== undefined &&
 			patch.levelUuid !== current.level_uuid
 		) {
 			values.level_uuid = patch.levelUuid;
+		}
+		if (changesPlacement) {
+			const orderKey = orderKeyForSlot(
+				tree,
+				nextParentId,
+				patch.afterSiblingId,
+				locationId,
+			);
+			if (nextParentId !== current.parent_id) values.parent_id = nextParentId;
+			if (orderKey !== current.order_key) values.order_key = orderKey;
 		}
 		// One key means nothing but provenance changed, and provenance alone is
 		// not a change: advancing the clock would invalidate every client's
@@ -554,7 +610,11 @@ export async function updateLocation(
 			.where("id", "=", locationId)
 			.returningAll()
 			.executeTakeFirstOrThrow();
-		if (updated.level_uuid !== current.level_uuid) {
+		if (
+			updated.level_uuid !== current.level_uuid ||
+			updated.parent_id !== current.parent_id ||
+			updated.order_key !== current.order_key
+		) {
 			const doc = await loadDocInTransaction(tx, scope.appId);
 			await assertPersonaAssignmentsValid(tx, {
 				appId: scope.appId,
@@ -779,7 +839,9 @@ export async function describeArchiveImpact(
 		// A read, but an app-locked one: the counts it reports are the basis a
 		// human is about to act on, and a share lock is what makes them agree
 		// with each other.
-		await lockOrganizationForWrite(tx, scope, { capability: "view" });
+		const locked = await lockOrganizationForWrite(tx, scope, {
+			capability: "view",
+		});
 		const tree = await lockTree(tx, scope.appId);
 		if (!tree.byId.has(locationId)) throw organizationNotFound();
 		const ids = subtreeIds(tree, locationId).filter(
@@ -788,6 +850,7 @@ export async function describeArchiveImpact(
 		const doc = await loadDocInTransaction(tx, scope.appId);
 		const { personaNames } = planPersonaUnassignment(doc, new Set(ids));
 		return {
+			revision: locked.revision,
 			locationIds: ids,
 			unassignedPersonas: personaNames,
 			ownedCases: await countCasesOwnedBy(tx, scope.appId, ids),
@@ -798,6 +861,7 @@ export async function describeArchiveImpact(
 
 export interface SetArchivedResult {
 	readonly revision: OrganizationRevision;
+	readonly impact?: ArchiveImpact;
 	readonly archivedIds: readonly string[];
 	readonly unassignedPersonas: readonly string[];
 	/** Present when the archive also committed persona mutations. Shared tools
@@ -834,6 +898,7 @@ export async function setLocationArchived(
 	locationId: string,
 	archived: boolean,
 	expectedRevision?: OrganizationRevision,
+	confirmedImpact?: ArchiveImpact,
 ): Promise<SetArchivedResult> {
 	const runOnce = (): Promise<SetArchivedResult> =>
 		withAppTx(async (tx) => {
@@ -863,9 +928,29 @@ export async function setLocationArchived(
 			}
 
 			let archiveDoc: BlueprintDoc | undefined;
+			let actualImpact: ArchiveImpact | undefined;
 			if (archived) {
 				archiveDoc = await loadDocInTransaction(tx, scope.appId);
-				const blocked = fixedOwnerRuleForms(archiveDoc, new Set(changing));
+				const changingSet = new Set(changing);
+				const planned = planPersonaUnassignment(archiveDoc, changingSet);
+				const blocked = fixedOwnerRuleForms(archiveDoc, changingSet);
+				actualImpact = {
+					revision: locked.revision,
+					locationIds: changing,
+					unassignedPersonas: planned.personaNames,
+					ownedCases: await countCasesOwnedBy(tx, scope.appId, changing),
+					blockingOwnerRuleForms: blocked,
+				};
+				if (
+					confirmedImpact !== undefined &&
+					JSON.stringify(confirmedImpact) !== JSON.stringify(actualImpact)
+				) {
+					throw new OrganizationError(
+						"conflict",
+						"What this archive would affect changed after the confirmation was shown. Review the latest impact, then confirm again.",
+						{ currentRevision: locked.revision },
+					);
+				}
 				if (blocked.length > 0) {
 					throw new OrganizationError(
 						"rejected",
@@ -899,6 +984,7 @@ export async function setLocationArchived(
 				const doc = archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
 				const plan = planPersonaUnassignment(doc, new Set(changing));
 				if (plan.mutations.length > 0) {
+					const admittedMutations = admitMutationBatch(plan.mutations);
 					const chatRunHolder = scope.chatRunHolder;
 					const changeSource = scope.changeSource;
 					const committed = await commitGuardedBatchInTransaction(tx, {
@@ -913,12 +999,12 @@ export async function setLocationArchived(
 							: changeSource?.kind === "mcp"
 								? { kind: "mcp" as const, runId: changeSource.runId }
 								: { kind: "autosave" as const }),
-						mutations: admitMutationBatch(plan.mutations),
+						mutations: admittedMutations,
 						actorUserId: scope.actorUserId,
 						expectedProjectId: scope.projectId,
 					});
 					blueprintChange = {
-						mutations: plan.mutations,
+						mutations: admittedMutations,
 						committedDoc: committed.committedDoc,
 					};
 				}
@@ -926,6 +1012,7 @@ export async function setLocationArchived(
 			}
 			return {
 				revision: await commitOrganizationChange(tx, scope, 0),
+				...(actualImpact === undefined ? {} : { impact: actualImpact }),
 				archivedIds: changing,
 				unassignedPersonas,
 				...(blueprintChange === undefined ? {} : { blueprintChange }),
