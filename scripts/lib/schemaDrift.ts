@@ -158,6 +158,7 @@ export async function computeSchemaDrift(
 		.selectFrom("case_type_schemas")
 		.select(["case_type", "schema"])
 		.where("app_id", "=", appId)
+		.where("is_active", "=", true)
 		.execute();
 	const storedByType = new Map(storedRows.map((r) => [r.case_type, r.schema]));
 

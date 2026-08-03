@@ -15,7 +15,9 @@ import type {
 	CasePropertyRenameReport,
 	MigrationReport,
 	PreparedCasePropertyRenamePhaseB,
+	PreparedCaseTypeSchemaRetirementPhaseB,
 	SchemaCaseStore,
+	TransactionalSchemaCaseStore,
 } from "@/lib/case-store";
 import {
 	buildCaseTypeMap,
@@ -134,9 +136,9 @@ interface AttributedReport {
 
 /**
  * Persist the batch through the fresh guarded writer. Explicit property
- * renames fail atomically before commit on any Blueprint or storage conflict;
- * ordinary schema materialization and concurrent-index completion are
- * post-commit, idempotent derived work.
+ * renames and case-type retirements fail atomically before commit on any
+ * Blueprint or storage conflict. Ordinary active-schema materialization and
+ * every concurrent-index completion are post-commit, idempotent derived work.
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
@@ -201,27 +203,57 @@ export async function applyBlueprintChange(
 	}
 
 	let entries: readonly CaseTypeChangeEntry[] | undefined;
+	let store: TransactionalSchemaCaseStore | undefined;
+	let preparedRetirement: PreparedCaseTypeSchemaRetirementPhaseB | undefined;
 	const { result, deduped } = await persistBlueprint(args, {
-		beforeWrite: async ({ freshDoc, nextDoc }) => {
+		beforeWrite: async ({ tx, freshDoc, nextDoc, seq }) => {
 			entries = classifyCaseTypeChanges({
 				prior: freshDoc,
 				prospective: nextDoc,
 			});
+			const retired = entries
+				.filter((entry) => entry.kind === "retire")
+				.map((entry) => entry.caseType);
+			if (retired.length > 0) {
+				store = await withSchemaContext();
+				preparedRetirement = await store.retireSchemasPhaseA(
+					tx as unknown as Parameters<typeof store.retireSchemasPhaseA>[0],
+					{
+						appId: args.appId,
+						desiredSeq: seq,
+						caseTypes: retired,
+						fallbackCaseTypeSchemas: buildCaseTypeMap(freshDoc),
+					},
+				);
+			}
 		},
 	});
-	if (deduped) return result;
+	if (deduped) {
+		if (
+			guard.mutations.some((mutation) => mutation.kind === "retireCaseType")
+		) {
+			store ??= await withSchemaContext();
+			await drainRetirementIndexesBestEffort(store, args.appId, result.seq);
+		}
+		return result;
+	}
 	if (entries === undefined) {
 		throw new Error(
 			"[applyBlueprintChange] guarded writer committed without running its fresh classification hook",
 		);
 	}
 	if (entries.length === 0) return result;
-	const store = await withSchemaContext();
+	if (preparedRetirement !== undefined) {
+		await completeRetirementIndexes(args.appId, result, preparedRetirement);
+	}
+	const syncEntries = entries.filter((entry) => entry.kind === "sync");
+	if (syncEntries.length === 0) return result;
+	store ??= await withSchemaContext();
 	const reports = await sweepCommittedSchemas(
 		store,
 		args.appId,
 		result,
-		entries,
+		syncEntries,
 	);
 	return {
 		...result,
@@ -323,7 +355,11 @@ async function sweepCommittedSchemas(
 	// One sync per DISTINCT touched case type — the classifier can emit several
 	// entries for one type (one property added and one retyped), but the sweep
 	// re-derives that type's whole schema once regardless.
-	const touched = new Set(entries.map((entry) => entry.caseType));
+	const touched = new Set(
+		entries
+			.filter((entry) => entry.kind === "sync")
+			.map((entry) => entry.caseType),
+	);
 	for (const caseType of touched) {
 		// A type the entries name but the committed doc dropped (a concurrent
 		// retire) has no schema to derive — skip rather than throw.
@@ -411,6 +447,42 @@ async function completeRenameIndexes(
 			log.warn(message, { appId, seq: result.seq, error });
 		} else {
 			log.error(message, error, { appId, seq: result.seq });
+		}
+	}
+}
+
+async function completeRetirementIndexes(
+	appId: string,
+	result: ApplyBlueprintChangeResult,
+	prepared: PreparedCaseTypeSchemaRetirementPhaseB,
+): Promise<void> {
+	try {
+		await prepared.completeAfterCommit();
+	} catch (error) {
+		const message =
+			"[applyBlueprintChange] post-commit case-type retirement index completion failed";
+		if (isTransientDbError(error)) {
+			log.warn(message, { appId, seq: result.seq, error });
+		} else {
+			log.error(message, error, { appId, seq: result.seq });
+		}
+	}
+}
+
+async function drainRetirementIndexesBestEffort(
+	store: TransactionalSchemaCaseStore,
+	appId: string,
+	seq: number,
+): Promise<void> {
+	try {
+		await store.drainPendingIndexConvergence({ appId });
+	} catch (error) {
+		const message =
+			"[applyBlueprintChange] pending case-type retirement index convergence failed";
+		if (isTransientDbError(error)) {
+			log.warn(message, { appId, seq, error });
+		} else {
+			log.error(message, error, { appId, seq });
 		}
 	}
 }

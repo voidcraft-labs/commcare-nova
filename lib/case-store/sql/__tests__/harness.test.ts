@@ -135,6 +135,7 @@ describe("case-store harness — schema", () => {
 			new Set([
 				"app_id",
 				"case_type",
+				"is_active",
 				"schema",
 				"synced_seq",
 				"index_pending_seq",

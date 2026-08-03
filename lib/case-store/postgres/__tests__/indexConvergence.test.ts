@@ -2,10 +2,14 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { findCaseTypeSchemaRetirementCandidates } from "../../../../scripts/lib/caseTypeSchemaRetirement";
+import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
+import { SchemaNotSyncedError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
+import { drainRetiredCaseTypeSchemaIndexes } from "../schemaRetirement";
 import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
 
 const database = setupPerTestDatabase({
@@ -58,6 +62,197 @@ beforeEach(async () => {
 });
 
 describe("durable case-schema index convergence", () => {
+	it("scans historical candidates and the maintenance drain converges them", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		const retiredBlueprint = buildSimpleBlueprint([], APP_ID);
+		expect(
+			await findCaseTypeSchemaRetirementCandidates(
+				db(),
+				APP_ID,
+				retiredBlueprint,
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				caseCount: 0,
+				expressionIndexCount: 1,
+			}),
+		]);
+
+		const prepared = await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+		await drainRetiredCaseTypeSchemaIndexes(db(), APP_ID, prepared.caseTypes);
+		expect(
+			await findCaseTypeSchemaRetirementCandidates(
+				db(),
+				APP_ID,
+				retiredBlueprint,
+			),
+		).toEqual([]);
+		expect(
+			(
+				await sql<{ present: boolean }>`
+					SELECT to_regclass(${indexName("fuzzy")}) IS NOT NULL AS present
+				`.execute(database.db)
+			).rows[0]?.present,
+		).toBe(false);
+	});
+
+	it("retires validation atomically, retains rows, and fences a delayed schema sync", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		await caseStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "retained-patient",
+				case_type: "patient",
+				case_name: "Retained patient",
+				status: "open",
+				properties: { value: "12" },
+			},
+		});
+
+		const prepared = await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+		const retired = await db()
+			.selectFrom("case_type_schemas")
+			.select(["is_active", "synced_seq", "index_pending_seq"])
+			.where("app_id", "=", APP_ID)
+			.where("case_type", "=", "patient")
+			.executeTakeFirstOrThrow();
+		expect(retired).toMatchObject({ is_active: false, synced_seq: "2" });
+		expect(Number(retired.index_pending_seq)).toBe(2);
+		await expect(
+			caseStore.insert({
+				appId: APP_ID,
+				row: {
+					case_id: "post-retirement-write",
+					case_type: "patient",
+					case_name: "Blocked",
+					status: "open",
+					properties: { value: "blocked" },
+				},
+			}),
+		).rejects.toBeInstanceOf(SchemaNotSyncedError);
+		expect(
+			await caseStore.count({
+				appId: APP_ID,
+				ownerId: "index-convergence-actor",
+			}),
+		).toBe(1);
+
+		// A pre-retirement post-commit worker arriving late cannot resurrect the
+		// type or replace its index target.
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		expect(
+			await db()
+				.selectFrom("case_type_schemas")
+				.select("is_active")
+				.where("app_id", "=", APP_ID)
+				.where("case_type", "=", "patient")
+				.executeTakeFirstOrThrow(),
+		).toEqual({ is_active: false });
+
+		await prepared.completeAfterCommit();
+		expect(
+			(
+				await sql<{ present: boolean }>`
+					SELECT to_regclass(${indexName("fuzzy")}) IS NOT NULL AS present
+				`.execute(database.db)
+			).rows[0]?.present,
+		).toBe(false);
+	});
+
+	it("reactivates from the archived contract and migrates retained values", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		await caseStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "reactivated-patient",
+				case_type: "patient",
+				case_name: "Reactivated patient",
+				status: "open",
+				properties: { value: "12" },
+			},
+		});
+		const prepared = await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+		await prepared.completeAfterCommit();
+
+		const report = await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("int"),
+			syncedSeq: 3,
+		});
+		expect(report.retyped).toBe(1);
+		expect(
+			await db()
+				.selectFrom("case_type_schemas")
+				.select(["is_active", "synced_seq"])
+				.where("app_id", "=", APP_ID)
+				.where("case_type", "=", "patient")
+				.executeTakeFirstOrThrow(),
+		).toEqual({ is_active: true, synced_seq: "3" });
+		expect(
+			(await caseStore.query({ appId: APP_ID, caseType: "patient" }))[0]
+				?.properties,
+		).toEqual({ value: 12 });
+		expect(
+			(
+				await sql<{ present: boolean }>`
+					SELECT to_regclass(${indexName("int")}) IS NOT NULL AS present
+				`.execute(database.db)
+			).rows[0]?.present,
+		).toBe(true);
+	});
+
 	it("retains a deletion tombstone across Phase-B failure and the global drain finishes it", async () => {
 		const caseStore = store();
 		await caseStore.applySchemaChange({
@@ -76,7 +271,7 @@ describe("durable case-schema index convergence", () => {
 			.mockRejectedValueOnce(new Error("injected index DDL failure"));
 
 		await expect(
-			caseStore.dropSchema({ appId: APP_ID, caseType: "patient" }),
+			caseStore.purgeSchema({ appId: APP_ID, caseType: "patient" }),
 		).rejects.toThrow("injected index DDL failure");
 		expect(
 			await db()

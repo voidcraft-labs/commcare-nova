@@ -160,14 +160,17 @@ materialized case schema because `owner_id` is a reserved scalar. The builder
 does not enable persona removal until that exact count succeeds, and a retry
 re-runs the same authorized snapshot flow.
 
-**Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
-`SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
+**Schema row work is the deliberate app-scoped exception.** `applySchemaChange`
+(the `SchemaCaseStore` slice, built by `withSchemaContext()`) and guarded
+case-type retirement migrate or fence
 EVERY member's rows of an app's case type, so their per-row
 migrations filter `(app_id, case_type)` ONLY — no `project_id` /
 `owner_id`. The store binds no actor or construction-time Project, but every
 standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
 deleted app, and holds the app's current Project placement stable through its
-schema/data transaction. Explicit case-property rename instead composes its
+schema/data transaction. Hard schema deletion is maintenance-only
+`purgeSchema` on the transactional store; ordinary consumers cannot erase the
+archived contract or its sequence fence. Explicit case-property rename instead composes its
 Phase A directly into the guarded writer's already app-locked, authorized
 transaction.
 
@@ -193,7 +196,8 @@ User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes m
 
 `PostgresCaseStore.insert` and `PostgresCaseStore.update`
 validate the candidate `properties` payload against the case-
-type's JSON Schema (the row in `case_type_schemas`) via `ajv`
+type's ACTIVE JSON Schema (the row in `case_type_schemas` with
+`is_active = true`) via `ajv`
 BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
 `(appId, caseType, schemaContent)`.
@@ -216,6 +220,22 @@ we already have in TypeScript lives at the right layer for our
 architecture.
 
 ## `applySchemaChange` runs in two phases
+
+Case-type removal uses the sibling lifecycle operation rather than
+`applySchemaChange`: `classifyCaseTypeChanges` emits `retire`, and
+`applyBlueprintChange` marks the schema row inactive inside the SAME guarded,
+app-locked transaction that persists the Blueprint removal. Existing case rows
+and parked values remain untouched. The inactive row retains the last active
+JSON Schema and the removal's `mutation_seq`; normal validation treats it as
+absent, while a later higher-sequence reactivation diffs from that archived
+contract and runs the ordinary transition migrations. Its durable pending index
+state targets the empty set after commit. A delayed sync below the retirement
+sequence no-ops, and an equal-sequence sync may retry only an already-active
+row—never reactivate an inactive one. Historical orphaned active rows use the
+required scan-then-migrate pair:
+`scripts/scan-case-type-schema-retirement.ts` (read-only, supports `--prod`) and
+`scripts/migrate-case-type-schema-retirement.ts` (dry-run by default,
+`--execute` to write), followed by a zero-candidate rescan.
 
 ### Phase A (one Kysely transaction)
 
@@ -366,18 +386,20 @@ on failure. The schema row + data are always consistent.
 ### The monotone `synced_seq` gate
 
 `case_type_schemas.synced_seq` records the `mutation_seq` a row was
-last synced from. When a caller passes `syncedSeq`,
+last synced OR retired from. When a caller passes `syncedSeq`,
 `applySchemaChange` gates on it in two halves so concurrent additive
 edits converge instead of clobbering each other:
 
 - **Coarse (a SELECT before Phase A):** read the row's recorded
   `synced_seq` (`Number(...)` — pg returns `int8` as a string; an
-  absent row means "proceed"). If the incoming seq is LOWER, the
-  ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
+  absent row means "proceed"). If the incoming seq is LOWER, or is EQUAL
+  while the stored row is inactive, the ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
   stale sync never rewinds a fresher row.
 - **Fine (the UPSERT SET):** the conflict `doUpdateSet` guards
   `synced_seq = excluded.synced_seq` with
-  `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so
+  `WHERE excluded.synced_seq > case_type_schemas.synced_seq OR
+  (case_type_schemas.is_active AND excluded.synced_seq =
+  case_type_schemas.synced_seq)`, so
   the UPSERT itself can't regress the row even if a fresher writer
   landed between the coarse SELECT and here. The UPSERT `RETURNING`s
   its row, which Postgres emits only when it actually inserted or
@@ -400,7 +422,9 @@ transaction, and a fine-gate loser skips the reshape along with
 Phase B.
 
 Absent `syncedSeq` (an explicit maintenance caller with no committed Blueprint
-sequence): a plain unversioned UPSERT that always wins its own conflict.
+sequence): a plain unversioned UPSERT that always wins its own ACTIVE conflict;
+it rejects an inactive row because maintenance code cannot bypass the
+reactivation sequence fence.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
@@ -484,7 +508,7 @@ additive sync.
 
 The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
 calls) route through `lib/db/applyBlueprintChange.ts`. Explicit
-case-property rename Phase A shares the guarded Blueprint
+case-property rename and case-type retirement Phase A share the guarded Blueprint
 transaction; ordinary additive changes ride a post-commit sweep of
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.

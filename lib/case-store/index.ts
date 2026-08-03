@@ -62,6 +62,7 @@ export type {
 } from "./sql/database";
 export type {
 	ApplyCasePropertyRenameArgs,
+	ApplyCaseTypeSchemaRetirementArgs,
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
@@ -79,6 +80,7 @@ export type {
 	ParkedValueEntry,
 	ParkedValueStanding,
 	PreparedCasePropertyRenamePhaseB,
+	PreparedCaseTypeSchemaRetirementPhaseB,
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,

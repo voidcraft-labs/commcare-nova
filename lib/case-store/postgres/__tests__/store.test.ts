@@ -284,7 +284,7 @@ describe("PostgresCaseStore — standalone schema authorization fence", () => {
 			caseType: caseType.name,
 			caseTypeSchemas: buildSchemaMap(caseType),
 		});
-		await store.dropSchema({ appId: APP_ID, caseType: caseType.name });
+		await store.purgeSchema({ appId: APP_ID, caseType: caseType.name });
 		await store.unparkValues({
 			appId: APP_ID,
 			ids: [crypto.randomUUID()],

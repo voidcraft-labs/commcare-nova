@@ -7,7 +7,7 @@
 //
 // Architectural contract: two interfaces, one implementation.
 // `SchemaCaseStore` is the actor-free schema-change slice (app-scoped
-// `applySchemaChange` / `dropSchema`); `CaseStore extends
+// `applySchemaChange`); `CaseStore extends
 // SchemaCaseStore` adds the tenant-bound read/write surface.
 // `withProjectContext(projectId, actorUserId, ownerId)` binds the Project at
 // construction so every read/write inherits the
@@ -537,6 +537,29 @@ export interface PreparedSchemaChangePhaseB {
 	readonly completeAfterCommit: () => Promise<void>;
 }
 
+/**
+ * One guarded Blueprint commit's case-type retirement plan. The caller passes
+ * a fallback materializable catalog so Phase A can preserve a contract even
+ * when an older post-commit materialization never created the schema row. The
+ * guarded commit supplies its freshly locked PRIOR catalog; the historical
+ * backfill can rely on the active stored row it is retiring.
+ */
+export interface ApplyCaseTypeSchemaRetirementArgs {
+	readonly appId: string;
+	readonly desiredSeq: number;
+	readonly caseTypes: readonly string[];
+	readonly fallbackCaseTypeSchemas: ReadonlyMap<string, CaseType>;
+}
+
+/**
+ * Retirement's durable state is complete in Phase A. Phase B only converges
+ * expression indexes to the inactive type's empty desired set.
+ */
+export interface PreparedCaseTypeSchemaRetirementPhaseB {
+	readonly caseTypes: readonly string[];
+	readonly completeAfterCommit: () => Promise<void>;
+}
+
 export interface CasePropertyRenameEntry {
 	readonly caseType: string;
 	readonly from: string;
@@ -643,23 +666,6 @@ export interface SchemaCaseStore {
 		appId: string;
 		ids: ReadonlyArray<string>;
 	}): Promise<{ restored: number; kept: number }>;
-
-	/**
-	 * Drop the `case_type_schemas` row + every per-property
-	 * expression index for `(appId, caseType)`.
-	 *
-	 * Idempotent on every absence path — the schema row DELETE is
-	 * a no-op when missing, and the per-property index drops use
-	 * `IF EXISTS`. Calling against a non-existent case type is
-	 * safe.
-	 *
-	 * Mirrors `applySchemaChange`'s two-phase shape: the schema-
-	 * row DELETE runs in Phase A; the index drops run in Phase B
-	 * via `DROP INDEX CONCURRENTLY IF EXISTS` so the index drops
-	 * cannot run inside an outer transaction (Postgres rejects
-	 * CONCURRENTLY index DDL inside a transaction).
-	 */
-	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
 }
 
 /**
@@ -669,6 +675,16 @@ export interface SchemaCaseStore {
  * depend on transaction composition they do not own.
  */
 export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
+	/**
+	 * Atomically retire case-type schemas inside the guarded Blueprint commit.
+	 * Retained case rows are untouched; each schema row becomes inactive at the
+	 * commit's sequence and its indexes become durable pending work.
+	 */
+	retireSchemasPhaseA(
+		tx: Transaction<Database>,
+		args: ApplyCaseTypeSchemaRetirementArgs,
+	): Promise<PreparedCaseTypeSchemaRetirementPhaseB>;
+
 	/**
 	 * Converge durable pending expression-index work from the latest stored
 	 * schema and deletion tombstones for one app. Safe under duplicate and
@@ -711,6 +727,13 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 		tx: Transaction<Database>,
 		args: ApplySchemaChangeArgs,
 	): Promise<PreparedSchemaChangePhaseB>;
+
+	/**
+	 * Irreversibly remove one schema's archived contract and expression indexes.
+	 * This maintenance-only hard purge is deliberately absent from ordinary
+	 * `SchemaCaseStore` and `CaseStore` consumers.
+	 */
+	purgeSchema(args: { appId: string; caseType: string }): Promise<void>;
 }
 
 /**

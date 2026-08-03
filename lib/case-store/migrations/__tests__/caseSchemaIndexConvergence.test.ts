@@ -157,6 +157,12 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("audits an exact applied rerun without resetting a newer pending sequence or touching rows", async () => {
+		// A later migration adds `is_active`; remove that later-owned column so
+		// this old migration's frozen exact-final rerun oracle sees its own
+		// terminal catalog, as it did when originally shipped.
+		await sql`
+			ALTER TABLE public.case_type_schemas DROP COLUMN is_active
+		`.execute(database.db);
 		await seedApp();
 		await sql`
 			INSERT INTO public.case_type_schemas (
