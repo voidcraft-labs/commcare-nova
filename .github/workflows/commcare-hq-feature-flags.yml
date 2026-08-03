@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out Nova
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check out current CommCare HQ
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: dimagi/commcare-hq
           path: .upstream/commcare-hq

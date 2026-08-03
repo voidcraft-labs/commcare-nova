@@ -9,6 +9,17 @@
  * case-list node, then its forms, separated per module. Active
  * destination carries the violet treatment; hover reveals the name
  * via tooltip.
+ *
+ * ## The scroll column hides its native scrollbar, and the arithmetic is why
+ *
+ * The app-wide reserved gutter (`globals.css`, so a growing panel never
+ * shifts its layout) is 11px. The rail is 56px with a 1px border, and 44px
+ * is the one control size. 55 minus 11 leaves EXACTLY 44, so the icon column
+ * has no slack left to center in: every destination lands flush against the
+ * window edge, 5.5px left of the collapse and footer icons that sit outside
+ * the scroller. Widening the rail and shrinking the control are both off
+ * the table, so the scrollbar is the thing that goes, and the edge fades
+ * below say "there is more this way" in its place.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -16,7 +27,7 @@ import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import tablerLayoutSidebarLeftExpand from "@iconify-icons/tabler/layout-sidebar-left-expand";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
-import { memo } from "react";
+import { memo, useCallback, useState } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { Button } from "@/components/shadcn/button";
@@ -34,8 +45,54 @@ import {
 import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
 import { selectableIconCls } from "@/lib/styles";
 
+/** How far the reachable-content fade reaches in from each scroll edge. */
+const SCROLL_FADE = "24px";
+
+/** The mask that replaces the removed scrollbar. It is drawn on the
+ *  scrollport, not the content, so the softened band stays at the visible
+ *  edge as the rail scrolls. An edge with nothing past it keeps its hard
+ *  stop, so a rail that fits dims nothing. */
+function edgeFadeMask(top: boolean, bottom: boolean): string | undefined {
+	if (!top && !bottom) return undefined;
+	const enter = top ? SCROLL_FADE : "0px";
+	const leave = bottom ? SCROLL_FADE : "0px";
+	return `linear-gradient(to bottom, transparent 0, #000 ${enter}, #000 calc(100% - ${leave}), transparent 100%)`;
+}
+
+/** Which edges have content past them. Both observers are load-bearing:
+ *  the scrollport resizes with the window, while its content resizes when a
+ *  module or form lands, and either one changes what is still out of view. */
+function useScrollEdges() {
+	const [edges, setEdges] = useState({ top: false, bottom: false });
+	const bindScroller = useCallback((node: HTMLDivElement | null) => {
+		if (node === null) return;
+		const measure = () => {
+			const top = node.scrollTop > 1;
+			const bottom = node.scrollTop + node.clientHeight < node.scrollHeight - 1;
+			setEdges((current) =>
+				current.top === top && current.bottom === bottom
+					? current
+					: { top, bottom },
+			);
+		};
+		measure();
+		node.addEventListener("scroll", measure, { passive: true });
+		const observer = new ResizeObserver(measure);
+		observer.observe(node);
+		if (node.firstElementChild !== null)
+			observer.observe(node.firstElementChild);
+		return () => {
+			node.removeEventListener("scroll", measure);
+			observer.disconnect();
+		};
+	}, []);
+	return { edges, bindScroller };
+}
+
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
+	const { edges, bindScroller } = useScrollEdges();
+	const mask = edgeFadeMask(edges.top, edges.bottom);
 	return (
 		<aside className="flex h-full w-14 shrink-0 flex-col items-center border-r border-nova-border-bright bg-nova-deep">
 			<div
@@ -55,10 +112,16 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 					</Button>
 				</SimpleTooltip>
 			</div>
-			<div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
-				{moduleIds.map((moduleUuid) => (
-					<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
-				))}
+			<div
+				ref={bindScroller}
+				className="min-h-0 w-full flex-1 overflow-y-auto [scrollbar-gutter:auto] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				style={mask ? { WebkitMaskImage: mask, maskImage: mask } : undefined}
+			>
+				<div className="flex flex-col items-center gap-1 py-2">
+					{moduleIds.map((moduleUuid) => (
+						<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
+					))}
+				</div>
 			</div>
 			{/* The configuration workspaces keep their own footer cell rather
 			 *  than joining the module groups above: collapsing the tree trades
