@@ -26,6 +26,7 @@ import {
 	levelMayNestUnder,
 	organizationLevelsOf,
 	personasOf,
+	type Uuid,
 } from "@/lib/domain";
 import { deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
 import {
@@ -36,6 +37,7 @@ import {
 import { OrganizationError, organizationNotFound } from "./errors";
 import {
 	assertSiteCodeFree,
+	type CreateLocationDescendantInput,
 	type CreateLocationInput,
 	canonicalCoordinate,
 	deriveSiteCode,
@@ -308,6 +310,22 @@ function orderKeyForSlot(
 	);
 }
 
+/** Whether the requested semantic slot is exactly the row's current slot. */
+function locationAlreadyOccupiesSlot(
+	tree: LockedTree,
+	current: LocationRow,
+	parentId: string | null,
+	afterSiblingId: string | null | undefined,
+): boolean {
+	if (current.parent_id !== parentId) return false;
+	const siblings = tree.childrenOf.get(parentId) ?? [];
+	const index = siblings.findIndex((row) => row.id === current.id);
+	if (index === -1) return false;
+	if (afterSiblingId === null) return index === 0;
+	if (afterSiblingId === undefined) return index === siblings.length - 1;
+	return index > 0 && siblings[index - 1]?.id === afterSiblingId;
+}
+
 /**
  * The level a new or retyped place stands at must exist in the app's
  * blueprint, and its parent must stand at a level ABOVE that one — any level
@@ -456,13 +474,28 @@ export interface CreateLocationResult {
 	readonly revision: OrganizationRevision;
 	/** Root row, retained for singular callers. */
 	readonly location: StoredLocation;
-	/** Root first, followed by every request-local descendant. */
-	readonly locations: readonly StoredLocation[];
-	/** Exact request-local key to server-minted identity mapping for SA/MCP. */
-	readonly descendants: readonly {
-		readonly key: string;
-		readonly location: StoredLocation;
-	}[];
+	/** Compact identities mirroring the submitted descendant tree. */
+	readonly descendants: readonly CreatedLocationDescendant[];
+}
+
+export interface CreatedLocationDescendant {
+	readonly locationUuid: Uuid;
+	readonly siteCode: string;
+	readonly descendants: readonly CreatedLocationDescendant[];
+}
+
+function descendantCount(
+	descendants: CreateLocationInput["descendants"],
+): number {
+	let count = 0;
+	const pending = [...(descendants ?? [])];
+	while (pending.length > 0) {
+		const descendant = pending.pop();
+		if (descendant === undefined) continue;
+		count += 1;
+		pending.push(...(descendant.descendants ?? []));
+	}
+	return count;
 }
 
 export async function createLocation(
@@ -475,7 +508,7 @@ export async function createLocation(
 			capability: "edit",
 		});
 		assertExpectedOrganizationRevision(locked, expectedRevision);
-		const requestedCount = 1 + (input.descendants?.length ?? 0);
+		const requestedCount = 1 + descendantCount(input.descendants);
 		if (locked.locationCount + requestedCount > MAX_LOCATIONS_PER_APP) {
 			throw new OrganizationError(
 				"limit",
@@ -545,50 +578,37 @@ export async function createLocation(
 		};
 
 		const root = await insert(input, input.parentId, input.afterSiblingId);
-		const idByKey = new Map<string, string>();
-		const descendants: Array<{ key: string; row: LocationRow }> = [];
-		const pending = [...(input.descendants ?? [])];
-		while (pending.length > 0) {
-			const readyIndex = pending.findIndex(
-				(descendant) =>
-					descendant.parentKey === null || idByKey.has(descendant.parentKey),
-			);
-			if (readyIndex === -1) {
-				throw new OrganizationError(
-					"invalid",
-					"New descendants must name the root or another new parent without a cycle.",
-				);
+		const insertDescendants = async (
+			descendants: readonly CreateLocationDescendantInput[],
+			parentId: string,
+		): Promise<readonly CreatedLocationDescendant[]> => {
+			const receipts: CreatedLocationDescendant[] = [];
+			for (const descendant of descendants) {
+				const row = await insert(descendant, parentId);
+				receipts.push({
+					locationUuid: asUuid(row.id),
+					siteCode: row.site_code,
+					descendants: await insertDescendants(
+						descendant.descendants ?? [],
+						row.id,
+					),
+				});
 			}
-			const [descendant] = pending.splice(readyIndex, 1);
-			if (descendant === undefined) continue;
-			const parentId =
-				descendant.parentKey === null
-					? root.id
-					: idByKey.get(descendant.parentKey);
-			if (parentId === undefined) {
-				throw new OrganizationError(
-					"invalid",
-					"A new descendant's parent could not be resolved.",
-				);
-			}
-			const row = await insert(descendant, parentId);
-			idByKey.set(descendant.key, row.id);
-			descendants.push({ key: descendant.key, row });
-		}
+			return receipts;
+		};
+		const descendants = await insertDescendants(
+			input.descendants ?? [],
+			root.id,
+		);
 		await assertReverseHopTargetsUnambiguous(tx, {
 			appId: scope.appId,
 			candidateDoc: doc,
 		});
 		const revision = await commitOrganizationChange(tx, scope, created.length);
-		const locations = created.map(toStoredLocation);
 		return {
 			revision,
 			location: toStoredLocation(root),
-			locations,
-			descendants: descendants.map(({ key, row }) => ({
-				key,
-				location: toStoredLocation(row),
-			})),
+			descendants,
 		};
 	});
 }
@@ -731,14 +751,23 @@ export async function updateLocation(
 			values.level_uuid = patch.levelUuid;
 		}
 		if (changesPlacement) {
-			const orderKey = orderKeyForSlot(
-				tree,
-				nextParentId,
-				patch.afterSiblingId,
-				locationId,
-			);
-			if (nextParentId !== current.parent_id) values.parent_id = nextParentId;
-			if (orderKey !== current.order_key) values.order_key = orderKey;
+			if (
+				!locationAlreadyOccupiesSlot(
+					tree,
+					current,
+					nextParentId,
+					patch.afterSiblingId,
+				)
+			) {
+				const orderKey = orderKeyForSlot(
+					tree,
+					nextParentId,
+					patch.afterSiblingId,
+					locationId,
+				);
+				if (nextParentId !== current.parent_id) values.parent_id = nextParentId;
+				if (orderKey !== current.order_key) values.order_key = orderKey;
+			}
 		}
 		// One key means nothing but provenance changed, and provenance alone is
 		// not a change: advancing the clock would invalidate every client's
@@ -819,6 +848,19 @@ export async function moveLocation(
 		}
 		const doc = await loadDocInTransaction(tx, scope.appId);
 		assertPlacement(doc, tree, current.level_uuid, target.parentId);
+		if (
+			locationAlreadyOccupiesSlot(
+				tree,
+				current,
+				target.parentId,
+				target.afterSiblingId,
+			)
+		) {
+			return {
+				revision: locked.revision,
+				location: toStoredLocation(current),
+			};
+		}
 		const orderKey = orderKeyForSlot(
 			tree,
 			target.parentId,

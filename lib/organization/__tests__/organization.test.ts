@@ -28,6 +28,7 @@ import {
 	canonicalCoordinate,
 	createLocationInputSchema,
 	deriveSiteCode,
+	MAX_ATOMIC_LOCATION_DESCENDANTS,
 	organizationRevisionSchema,
 	SITE_CODE_PATTERN,
 	updateLocationInputSchema,
@@ -287,45 +288,41 @@ describe("organization authoring input identity", () => {
 		).toBe(true);
 	});
 
-	it("admits only an acyclic request-local descendant tree", () => {
+	it("admits a structurally nested descendant tree within the request bound", () => {
 		const base = {
 			levelUuid: lower,
 			name: "North",
 			descendants: [
 				{
-					key: "facility",
-					parentKey: null,
 					levelUuid: lower,
 					name: "Facility",
+					descendants: [
+						{
+							levelUuid: lower,
+							name: "Ward",
+						},
+					],
 				},
 			],
 		};
 		expect(createLocationInputSchema.safeParse(base).success).toBe(true);
-		expect(
-			createLocationInputSchema.safeParse({
-				...base,
-				descendants: [base.descendants[0], base.descendants[0]],
-			}).success,
-		).toBe(false);
-		expect(
-			createLocationInputSchema.safeParse({
-				...base,
-				descendants: [{ ...base.descendants[0], parentKey: "missing" }],
-			}).success,
-		).toBe(false);
-		expect(
-			createLocationInputSchema.safeParse({
-				...base,
-				descendants: [
-					{ ...base.descendants[0], parentKey: "ward" },
-					{
-						...base.descendants[0],
-						key: "ward",
-						parentKey: "facility",
-					},
-				],
-			}).success,
-		).toBe(false);
+		const tooMany = {
+			...base,
+			descendants: [
+				{
+					levelUuid: lower,
+					name: "Facility",
+					descendants: Array.from(
+						{ length: MAX_ATOMIC_LOCATION_DESCENDANTS },
+						(_, index) => ({
+							levelUuid: lower,
+							name: `Ward ${index}`,
+						}),
+					),
+				},
+			],
+		};
+		expect(createLocationInputSchema.safeParse(tooMany).success).toBe(false);
 	});
 
 	it("canonicalizes coordinates to the matching numeric(20,10) spelling", () => {

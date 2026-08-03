@@ -53,6 +53,7 @@ export function LocationChoiceSelect({
 	const searchId = useId();
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(0);
+	const [open, setOpen] = useState(false);
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const matching = useMemo(
 		() =>
@@ -71,14 +72,18 @@ export function LocationChoiceSelect({
 	);
 	const shownPage = Math.min(page, pageCount - 1);
 	const pageStart = shownPage * LOCATION_CHOICE_PAGE_SIZE;
-	const pageLocations = matching.slice(
-		pageStart,
-		pageStart + LOCATION_CHOICE_PAGE_SIZE,
+	const pageLocations = useMemo(
+		() => matching.slice(pageStart, pageStart + LOCATION_CHOICE_PAGE_SIZE),
+		[matching, pageStart],
 	);
-	const pageChoices = pageLocations.map((location) => ({
-		location,
-		issue: issueFor?.(location),
-	}));
+	const pageChoices = useMemo(
+		() =>
+			pageLocations.map((location) => ({
+				location,
+				issue: open ? issueFor?.(location) : undefined,
+			})),
+		[issueFor, open, pageLocations],
+	);
 	const selected = locations.find((location) => location.id === value);
 
 	useEffect(() => {
@@ -110,6 +115,8 @@ export function LocationChoiceSelect({
 				</div>
 			)}
 			<Select
+				open={open}
+				onOpenChange={setOpen}
 				value={value}
 				disabled={disabled}
 				onValueChange={(next) => {

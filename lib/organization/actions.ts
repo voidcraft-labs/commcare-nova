@@ -180,8 +180,8 @@ export async function createLocationAction(
 			parsed(organizationRevisionSchema, expectedRevision),
 		);
 		// The browser needs only the root identity it opens next. Keep the full
-		// request-local descendant mapping on the SA/MCP service boundary instead
-		// of serializing a potentially large branch through a Server Action.
+		// compact descendant identity receipt on the SA/MCP service boundary
+		// instead of serializing even the bounded branch through a Server Action.
 		return { location: result.location, revision: result.revision };
 	});
 }

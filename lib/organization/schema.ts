@@ -28,6 +28,9 @@ import type { OrganizationRevision } from "./types";
  */
 export const MAX_LOCATIONS_PER_APP = 10_000;
 
+/** Keep one atomic branch fast and its model-facing identity receipt bounded. */
+export const MAX_ATOMIC_LOCATION_DESCENDANTS = 100;
+
 /** `SQLLocation.site_code` is `models.CharField(max_length=255)`. */
 export const SITE_CODE_MAX_LENGTH = 255;
 
@@ -180,24 +183,26 @@ const createLocationValueFields = {
 		.transform((value) => value ?? {}),
 } as const;
 
-const branchKeySchema = z
-	.string()
-	.min(1)
-	.max(64)
-	.regex(/^[A-Za-z0-9_-]+$/, "A branch key uses letters, numbers, _ or -.");
+const createLocationValuesSchema = z.object(createLocationValueFields).strict();
+type CreateLocationValues = z.output<typeof createLocationValuesSchema>;
 
-export const createLocationDescendantInputSchema = z
-	.object({
-		/** Request-local identity used only to name another new row's parent. */
-		key: branchKeySchema,
-		/** null means the root place in this same request. */
-		parentKey: branchKeySchema.nullable().default(null),
-		...createLocationValueFields,
-	})
-	.strict();
-export type CreateLocationDescendantInput = z.infer<
-	typeof createLocationDescendantInputSchema
->;
+export type CreateLocationDescendantInput = CreateLocationValues & {
+	readonly descendants?: readonly CreateLocationDescendantInput[];
+};
+
+export const createLocationDescendantInputSchema: z.ZodType<CreateLocationDescendantInput> =
+	z.lazy(() =>
+		z
+			.object({
+				...createLocationValueFields,
+				/** Structure is parentage; no second identity vocabulary is needed. */
+				descendants: z
+					.array(createLocationDescendantInputSchema)
+					.max(MAX_ATOMIC_LOCATION_DESCENDANTS)
+					.optional(),
+			})
+			.strict(),
+	);
 
 export const createLocationInputSchema = z
 	.object({
@@ -213,46 +218,26 @@ export const createLocationInputSchema = z
 		 */
 		descendants: z
 			.array(createLocationDescendantInputSchema)
-			.max(MAX_LOCATIONS_PER_APP - 1)
+			.max(MAX_ATOMIC_LOCATION_DESCENDANTS)
 			.optional(),
 	})
 	.strict()
 	.superRefine((input, ctx) => {
-		const descendants = input.descendants ?? [];
-		const byKey = new Map<string, CreateLocationDescendantInput>();
-		for (const [index, descendant] of descendants.entries()) {
-			if (byKey.has(descendant.key)) {
+		let count = 0;
+		const pending = [...(input.descendants ?? [])];
+		while (pending.length > 0) {
+			const descendant = pending.pop();
+			if (descendant === undefined) continue;
+			count += 1;
+			if (count > MAX_ATOMIC_LOCATION_DESCENDANTS) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["descendants", index, "key"],
-					message: `Branch key "${descendant.key}" appears more than once.`,
+					path: ["descendants"],
+					message: `One create may add at most ${MAX_ATOMIC_LOCATION_DESCENDANTS} descendants. Split a larger import into bounded branches.`,
 				});
+				return;
 			}
-			byKey.set(descendant.key, descendant);
-		}
-		for (const [index, descendant] of descendants.entries()) {
-			if (descendant.parentKey !== null && !byKey.has(descendant.parentKey)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["descendants", index, "parentKey"],
-					message: `Parent branch key "${descendant.parentKey}" does not exist in this request.`,
-				});
-				continue;
-			}
-			const seen = new Set([descendant.key]);
-			let parentKey = descendant.parentKey;
-			while (parentKey !== null) {
-				if (seen.has(parentKey)) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["descendants", index, "parentKey"],
-						message: "New descendants cannot form a parent cycle.",
-					});
-					break;
-				}
-				seen.add(parentKey);
-				parentKey = byKey.get(parentKey)?.parentKey ?? null;
-			}
+			pending.push(...(descendant.descendants ?? []));
 		}
 	});
 export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;

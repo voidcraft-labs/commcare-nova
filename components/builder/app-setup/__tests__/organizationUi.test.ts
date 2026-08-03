@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type LocationProperty } from "@/lib/domain";
 import {
+	flattenRequiredReverseHopDescendants,
 	locationValuePatch,
 	PERSONA_LOCATION_PAGE_SIZE,
 	personaLocationPage,
@@ -173,14 +174,18 @@ describe("organization place-information UI", () => {
 		};
 		doc.organizationLevelOrder = [FACILITY, queue, room];
 
+		const branch = requiredReverseHopDescendants(doc, FACILITY);
+		expect(branch).toHaveLength(1);
+		expect(branch[0]?.level.uuid).toBe(queue);
+		expect(branch[0]?.descendants[0]?.level.uuid).toBe(room);
 		expect(
-			requiredReverseHopDescendants(doc, FACILITY).map((entry) => ({
+			flattenRequiredReverseHopDescendants(branch).map((entry) => ({
 				level: entry.level.uuid,
-				parentKey: entry.parentKey,
+				uiPath: entry.uiPath,
 			})),
 		).toEqual([
-			{ level: queue, parentKey: null },
-			{ level: room, parentKey: "required-1" },
+			{ level: queue, uiPath: "0" },
+			{ level: room, uiPath: "0.0" },
 		]);
 	});
 });

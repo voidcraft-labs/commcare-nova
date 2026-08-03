@@ -46,6 +46,10 @@ import {
 	assertPersonaAssignmentsValid,
 } from "../commitIntegrity";
 import { OrganizationError } from "../errors";
+import {
+	personaAssignmentIssue,
+	personaAssignmentRemovalIssues,
+} from "../ownerTargetVerdicts";
 import { MAX_LOCATIONS_PER_APP } from "../schema";
 import {
 	createLocation,
@@ -617,6 +621,38 @@ describe("locations store — creation and structure", () => {
 			before.locations.map((location) => location.id),
 		);
 	});
+
+	it("keeps the exact order key and revision when an existing slot is restated", async () => {
+		await seedOrgApp();
+		const { district, facility } = await seedChain();
+		const second = (
+			await createLocation(scope(), {
+				levelUuid: FACILITY,
+				parentId: district,
+				name: "Second Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location;
+		const before = await readOrganization(scope());
+
+		const updated = await updateLocation(scope(), second.id, {
+			parentId: district,
+			afterSiblingId: facility,
+		});
+		const moved = await moveLocation(scope(), second.id, {
+			parentId: district,
+		});
+		const after = await readOrganization(scope());
+
+		expect(updated.revision).toBe(before.revision);
+		expect(moved.revision).toBe(before.revision);
+		expect(updated.location.orderKey).toBe(second.orderKey);
+		expect(moved.location.orderKey).toBe(second.orderKey);
+		expect(after.locations).toEqual(before.locations);
+	});
 });
 
 describe("locations store — the optimistic clock", () => {
@@ -1004,6 +1040,52 @@ describe("locations store — reference edges", () => {
 });
 
 describe("locations store — persona and fixed-owner validation", () => {
+	it("batches persona-removal verdicts with the same result as full validation", async () => {
+		await seedOrgApp();
+		const { district, facility } = await seedChain();
+		const otherRegion = (
+			await createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "South",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		const doc = candidateWithFixedOwner(facility);
+		doc.personas = {
+			...doc.personas,
+			[PERSONA_ASHA]: {
+				...(doc.personas?.[PERSONA_ASHA] as Persona),
+				locations: {
+					primaryUuid: asUuid(district),
+					additionalUuids: [asUuid(otherRegion)],
+				},
+			},
+		};
+		const rows = (await readOrganization(scope())).locations;
+		const assigned = [district, otherRegion];
+		const issues = personaAssignmentRemovalIssues(
+			doc,
+			rows,
+			PERSONA_ASHA,
+			assigned,
+		);
+
+		for (const removed of assigned) {
+			expect(issues.get(removed)).toBe(
+				personaAssignmentIssue(
+					doc,
+					rows,
+					PERSONA_ASHA,
+					assigned.filter((id) => id !== removed),
+				),
+			);
+		}
+	});
+
 	it("rolls back a move that would put a fixed owner outside every persona address book", async () => {
 		await seedWorkflowOrgApp();
 		const { district, facility } = await seedChain();
@@ -1178,8 +1260,6 @@ describe("locations store — deterministic reverse-hop owners", () => {
 			values: {},
 			descendants: [
 				{
-					key: "clinic",
-					parentKey: null,
 					levelUuid: FACILITY,
 					name: "Lakeside Clinic",
 					externalId: null,
@@ -1189,14 +1269,12 @@ describe("locations store — deterministic reverse-hop owners", () => {
 				},
 			],
 		});
-		expect(result.locations.map((location) => location.name)).toEqual([
-			"Lakeside",
-			"Lakeside Clinic",
-		]);
+		expect(result.location.name).toBe("Lakeside");
 		expect(result.descendants).toEqual([
 			{
-				key: "clinic",
-				location: expect.objectContaining({ name: "Lakeside Clinic" }),
+				locationUuid: expect.any(String),
+				siteCode: "lakeside_clinic",
+				descendants: [],
 			},
 		]);
 		expect(result.revision).toBe(

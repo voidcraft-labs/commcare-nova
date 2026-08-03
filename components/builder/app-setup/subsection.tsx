@@ -117,7 +117,7 @@ export function EntryRow({
 					{summary}
 				</span>
 				{detail !== undefined && (
-					<span className="min-w-0 max-w-[45%] truncate text-right text-[12px] text-nova-text-muted">
+					<span className="min-w-0 max-w-[45%] whitespace-normal text-right text-[12px] text-nova-text-muted [overflow-wrap:anywhere]">
 						{detail}
 					</span>
 				)}

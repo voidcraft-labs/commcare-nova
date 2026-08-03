@@ -513,13 +513,17 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "Mombasa District" }).click();
 		await personas.getByRole("button", { name: "Make main" }).click();
 		await expect(
-			personas.getByRole("button", { name: "Remove Mombasa District" }),
+			personas
+				.getByRole("listitem")
+				.filter({ hasText: "Mombasa District · mombasa_district" }),
 		).toBeFocused();
 		await personas
 			.getByRole("button", { name: "Remove Mombasa District" })
 			.click();
 		await expect(
-			personas.getByRole("button", { name: "Remove Kilifi District" }),
+			personas
+				.getByRole("listitem")
+				.filter({ hasText: "Kilifi District · kilifi_district" }),
 		).toBeFocused();
 		// Persona assignments live in the Blueprint while places live in the
 		// organization store. Wait for the final assignment to reach the

@@ -25,8 +25,8 @@
 import { type RefObject, useEffect, useRef } from "react";
 
 export function useRemovedRowFocus(count: number): {
-	/** Attach to each row's remove control, by its index in the list. */
-	readonly register: (index: number) => (el: HTMLButtonElement | null) => void;
+	/** Attach to each row's durable focus target, by its index in the list. */
+	readonly register: (index: number) => (el: HTMLElement | null) => void;
 	/** Call when the author removes the row at `index`, before the commit. */
 	readonly onRemoved: (index: number) => void;
 	/** Focus a row after a reorder commits. */
@@ -34,7 +34,7 @@ export function useRemovedRowFocus(count: number): {
 	/** Attach to the Add control — where focus lands once nothing is left. */
 	readonly addRef: RefObject<HTMLButtonElement | null>;
 } {
-	const rows = useRef<(HTMLButtonElement | null)[]>([]);
+	const rows = useRef<(HTMLElement | null)[]>([]);
 	const addRef = useRef<HTMLButtonElement>(null);
 	const pending = useRef<{ index: number; count: number } | null>(null);
 	const frame = useRef<number | null>(null);
@@ -67,12 +67,12 @@ export function useRemovedRowFocus(count: number): {
 			/* The row that slid into the gap — or, when the last row went, the
 			 * one now at the end. `count` is the live bound. */
 			const target = rows.current[Math.min(intent.index, count - 1)];
-			(target ?? addRef.current)?.focus();
+			if (!focusAvailable(target)) focusAvailable(addRef.current);
 		});
 	});
 
 	return {
-		register: (index: number) => (el: HTMLButtonElement | null) => {
+		register: (index: number) => (el: HTMLElement | null) => {
 			rows.current[index] = el;
 		},
 		onRemoved: (index: number) => {
@@ -82,9 +82,17 @@ export function useRemovedRowFocus(count: number): {
 			if (frame.current !== null) cancelAnimationFrame(frame.current);
 			frame.current = requestAnimationFrame(() => {
 				frame.current = null;
-				(rows.current[index] ?? addRef.current)?.focus();
+				if (!focusAvailable(rows.current[index]))
+					focusAvailable(addRef.current);
 			});
 		},
 		addRef,
 	};
+}
+
+function focusAvailable(element: HTMLElement | null | undefined): boolean {
+	if (element === null || element === undefined) return false;
+	if (element instanceof HTMLButtonElement && element.disabled) return false;
+	element.focus();
+	return document.activeElement === element;
 }

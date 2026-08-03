@@ -205,7 +205,7 @@ export const updateLocationPropertyInputSchema = z
 		label: propertyCreateSchema.shape.label.optional(),
 		required: z.boolean().nullable().optional(),
 		choices: locationPropertySchema.shape.choices.nullable(),
-		levelUuids: z.array(uuidSchema).min(1).nullable().optional(),
+		levelUuids: locationPropertySchema.shape.levelUuids.nullable().optional(),
 	})
 	.strict()
 	.refine((input) => Object.keys(input).length > 1, {
@@ -700,7 +700,7 @@ function rowResult<T>(
 
 export const createLocationTool = {
 	description:
-		"Create one root place after its level is saved, optionally with a request-local descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below the new root. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
+		"Create one root place after its level is saved, optionally with a bounded structurally nested descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below the new root; nesting declares parentage and the compact result mirrors it with final UUIDs. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,

@@ -330,6 +330,132 @@ export function personaAssignmentIssue(
 	return authoredLocationReferenceIssue(candidate, rows);
 }
 
+/**
+ * Preflight every removal from one persona without rebuilding and validating
+ * the complete organization once per rendered row.
+ *
+ * Removing an assignment cannot change place topology, fixed-owner validity,
+ * reverse-hop totality, or another persona. It can only shrink this persona's
+ * address-book footprint (and, independently, the cases they receive), so the
+ * shared topology and authored owner targets are prepared once and each
+ * candidate checks only that delta.
+ */
+export function personaAssignmentRemovalIssues(
+	doc: BlueprintDoc,
+	rows: readonly OwnerVerdictLocation[],
+	personaUuid: string,
+	locationIds: readonly string[],
+): ReadonlyMap<string, string> {
+	const issues = new Map<string, string>();
+	const persona = personasOf(doc)[personaUuid];
+	if (persona === undefined) {
+		for (const id of locationIds)
+			issues.set(id, "This persona no longer exists.");
+		return issues;
+	}
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	const levels = organizationLevelsOf(doc);
+	const fixedTargets: OwnerVerdictLocation[] = [];
+	const reverseLevelUuids = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			const owner = operation.owner;
+			if (owner?.kind !== "term") continue;
+			if (owner.term.kind === "fixed-location") {
+				const target = byId.get(owner.term.locationUuid);
+				if (target !== undefined) fixedTargets.push(target);
+			}
+			if (owner.term.kind === "owner-location-at-level") {
+				reverseLevelUuids.add(owner.term.levelUuid);
+			}
+		}
+	}
+	const live = rows.filter((row) => row.archivedAt === null);
+	const liveById = new Map(live.map((row) => [row.id, row]));
+	const reversePairs: Array<{
+		source: OwnerVerdictLocation;
+		destination: OwnerVerdictLocation;
+		destinationLevelName: string;
+	}> = [];
+	for (const destinationLevelUuid of reverseLevelUuids) {
+		const destinationLevel = levels[destinationLevelUuid];
+		if (destinationLevel === undefined) continue;
+		const sourceLevel = ancestorLevels(destinationLevel, levels).find(
+			levelOwnsCases,
+		);
+		if (sourceLevel === undefined) continue;
+		for (const destination of live) {
+			if (destination.levelUuid !== destinationLevelUuid) continue;
+			const source = ancestors(destination, liveById).find(
+				(ancestor) => ancestor.levelUuid === sourceLevel.uuid,
+			);
+			if (source !== undefined) {
+				reversePairs.push({
+					source,
+					destination,
+					destinationLevelName: destinationLevel.name,
+				});
+			}
+		}
+	}
+
+	for (const removedId of locationIds) {
+		const assigned = locationIds
+			.filter((id) => id !== removedId)
+			.map((id) => byId.get(id));
+		const invalidIndex = assigned.findIndex((row) => {
+			const level = row === undefined ? undefined : levels[row.levelUuid];
+			return (
+				row === undefined ||
+				row.archivedAt !== null ||
+				level === undefined ||
+				!levelHoldsWorkers(level)
+			);
+		});
+		if (invalidIndex >= 0) {
+			const invalid = assigned[invalidIndex];
+			issues.set(
+				removedId,
+				`${persona.name} cannot work at "${invalid?.name ?? "a missing place"}". Choose a live place at a level where people work.`,
+			);
+			continue;
+		}
+		const liveAssigned = assigned.filter(
+			(row): row is OwnerVerdictLocation => row !== undefined,
+		);
+		if (liveAssigned.length === 0) continue;
+		const fixedOutside = fixedTargets.find(
+			(target) =>
+				!liveAssigned.some((row) =>
+					assignmentFootprintIncludes(target, row, byId, doc),
+				),
+		);
+		if (fixedOutside !== undefined) {
+			issues.set(
+				removedId,
+				`"${fixedOutside.name}" is outside ${persona.name}'s address book. Change that level's visibility or choose a destination this worker can carry on the device.`,
+			);
+			continue;
+		}
+		const reverseOutside = reversePairs.find(
+			({ source, destination }) =>
+				liveAssigned.some((row) =>
+					assignmentReceivesCasesFrom(source, row, liveById, doc),
+				) &&
+				!liveAssigned.some((row) =>
+					assignmentFootprintIncludes(destination, row, liveById, doc),
+				),
+		);
+		if (reverseOutside !== undefined) {
+			issues.set(
+				removedId,
+				`The ${reverseOutside.destinationLevelName} owner rule can resolve to "${reverseOutside.destination.name}", but that place is outside ${persona.name}'s address book. Widen the address book or choose a fixed place the worker carries.`,
+			);
+		}
+	}
+	return issues;
+}
+
 /** Pure Builder preflight for a move/retype before its Server Action. */
 export function locationTopologyChangeIssue(
 	doc: BlueprintDoc,

@@ -16,7 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -28,7 +28,10 @@ import {
 	type Persona,
 } from "@/lib/domain";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
-import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
+import {
+	personaAssignmentIssue,
+	personaAssignmentRemovalIssues,
+} from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
@@ -53,7 +56,10 @@ export function PersonaLocations({
 	const mutations = useBlueprintMutations();
 	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevelRecord();
-	const assigned = assignedLocationUuids(persona.locations);
+	const assigned = useMemo(
+		() => assignedLocationUuids(persona.locations),
+		[persona.locations],
+	);
 	const assignedSet = new Set(assigned);
 	const [requestedPage, setRequestedPage] = useState(0);
 	const assignedPage = personaLocationPage(assigned, requestedPage);
@@ -76,6 +82,13 @@ export function PersonaLocations({
 			levels[location.levelUuid] !== undefined &&
 			levelHoldsWorkers(levels[location.levelUuid]),
 	).length;
+	const removalIssues = useMemo(
+		() =>
+			canEdit && !loading
+				? personaAssignmentRemovalIssues(doc, locations, persona.uuid, assigned)
+				: new Map<string, string>(),
+		[assigned, canEdit, doc, loading, locations, persona.uuid],
+	);
 
 	const set = (next: readonly string[]) =>
 		mutations.setPersonaLocations(persona.uuid, next);
@@ -120,20 +133,14 @@ export function PersonaLocations({
 									const withoutLocation = assigned.filter(
 										(other) => other !== id,
 									);
-									const removalIssue =
-										canEdit && !loading
-											? personaAssignmentIssue(
-													doc,
-													locations,
-													persona.uuid,
-													withoutLocation,
-												)
-											: undefined;
+									const removalIssue = removalIssues.get(id);
 									const removalIssueId = `persona-location-removal-${persona.uuid}-${id}`;
 									return (
 										<li
 											key={id}
-											className="flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
+											ref={rowFocus.register(index)}
+											tabIndex={-1}
+											className="nova-focusable-inset flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
 										>
 											<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
 												{location === undefined
@@ -165,7 +172,6 @@ export function PersonaLocations({
 														</Button>
 													)}
 													<Button
-														ref={rowFocus.register(index)}
 														type="button"
 														variant="ghost"
 														aria-label={`Remove ${location === undefined ? "this place" : locationChoiceLabel(location)}`}

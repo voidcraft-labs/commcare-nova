@@ -76,13 +76,16 @@ exclusive in one request. Coordinates are canonical decimal strings and the
 database stores the HQ-compatible `numeric(20,10)` precision; do not introduce
 a floating-point conversion on either boundary.
 
-A create may carry a request-local descendant tree. The root and every named
-descendant are inserted under the same app/state/location locks, then reverse
-owner-hop totality is checked once against the completed branch before the
-revision advances once. This is the born-valid growth path when an existing
-owner rule requires a destination below every new source place. Never replace
-it with sequential creates: the first row would be an invalid intermediate
-organization and must correctly roll back.
+A create may carry a bounded, structurally nested descendant tree. The nesting
+itself declares parentage, so it introduces no request-local handles beside
+Nova's UUID identity vocabulary. The root and descendants are inserted under
+the same app/state/location locks, then reverse owner-hop totality is checked
+once against the completed branch before the revision advances once. The
+compact result mirrors the tree with each server-minted UUID and site code.
+This is the born-valid growth path when an existing owner rule requires a
+destination below every new source place. Never replace it with sequential
+creates: the first row would be an invalid intermediate organization and must
+correctly roll back.
 
 ## The two directions of cross-store reference
 

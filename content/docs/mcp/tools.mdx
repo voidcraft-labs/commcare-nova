@@ -15,8 +15,8 @@ It's a long result, a whole system prompt. Some agent frameworks cap how much of
 
 Read an app before editing it. Commcare Nova returns stable UUIDs for modules, forms,
 fields, choices, case-list columns, search inputs, worker-information
-properties, roles, personas, case operations, Project data tables, columns, and
-rows. Editing tools address those
+properties, roles, personas, organization levels, place-information properties,
+places, case operations, Project data tables, columns, and rows. Editing tools address those
 objects by their UUID parameters, such as `moduleUuid`, `formUuid`,
 `fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`, and
 `operationUuid`, rather than by a display name, saved field id, path, list
@@ -82,7 +82,7 @@ never table tags, export names, or display labels.
 |---|---|
 | `list_apps` | List your apps with optional status filter, sort, and pagination. |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. |
-| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, and personas. |
+| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. |
 | `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
 
 ## Checking CommCare HQ feature flags
@@ -237,6 +237,58 @@ omitting `valuePatch` leaves every value unchanged.
 | `add_personas` | Add one or more named Preview workers, optionally with a role and value overrides. |
 | `update_persona` | Change one persona's name, description, or role, or set/clear one UUID-addressed override with `valuePatch`. |
 | `remove_persona` | Remove one persona while preserving the cases that persona already owns. |
+
+## Working with organizations and places
+
+An organization has blueprint-owned levels and place-information properties,
+plus app-scoped place rows. Read it with `get_organization` before writing. Its
+opaque, snapshot-bound cursor pages one bounded stream across levels,
+properties, and matching places; accumulate each collection until
+`page.complete`. If a later page reports that the snapshot changed, restart
+without a cursor. Use `query` to narrow a large tree and request
+`includeValues` only when custom place values matter.
+
+Every level, property, and place has a stable UUID. Names are editable labels;
+level codes and place site codes are create-once external identities. Place
+writes also use an exact organization revision: pass the revision from the
+complete read into the first write, then chain each successful result's
+revision into the next write. Re-read after a conflict. `update_location`
+supports a one-property `valuePatch`; a string sets the UUID-addressed value,
+`null` clears it, and `values` replaces the complete value bag.
+
+When a saved reverse-hop owner rule requires a destination below every new
+source place, create the source with its complete `descendants` tree in one
+`create_location` call. The tree is structurally nested and bounded; nesting is
+parentage, so it introduces no request-local identity vocabulary. The compact
+result mirrors that tree with each server-minted final place UUID and site
+code. Sequential creates are refused because they would leave the source
+temporarily invalid.
+
+A persona's `locationUuids` replace its complete place assignment in main-first
+order. Case flow controls ownership and delivery independently from address-book
+visibility. Fixed place owners and reverse-hop place owners are available in
+Preview only until device location data and HQ identity mapping ship.
+
+Archiving is a two-call confirmation flow. First call
+`set_location_archived` with `archived: true` and no confirmation, review its
+bounded impact and exact confirmation token, then repeat with `confirm: true`
+and the unchanged `confirmedImpact`. Never confirm a blocked preflight. The
+subtree is archived and persona assignments there are removed, but owned cases
+are never reassigned.
+
+| Tool | What it does |
+|---|---|
+| `get_organization` | Page through the snapshot-bound organization model and matching place rows. |
+| `add_organization_levels` | Add levels parent-first and return their stable UUIDs. |
+| `update_organization_level` | Change one level's editable settings by UUID. |
+| `remove_organization_level` | Remove an unused level by UUID. |
+| `add_location_properties` | Add UUID-addressed place-information declarations. |
+| `update_location_property` | Change one property's declaration, including its complete level applicability. |
+| `remove_location_property` | Remove one property and its stored values after reference checks. |
+| `create_location` | Create one place and, when required, one bounded structurally nested descendant tree atomically. |
+| `update_location` | Change one place's editable data, retype it, or set/clear one UUID-keyed custom value. |
+| `move_location` | Move one place within the valid level topology while preserving its UUID. |
+| `set_location_archived` | Preflight and confirm subtree archive, or unarchive with the current revision. |
 
 ## Working on modules
 

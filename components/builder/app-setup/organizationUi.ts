@@ -94,12 +94,11 @@ export function requiredValuesPresent(
 }
 
 export interface RequiredReverseHopDescendant {
-	/** Request-local branch key; never persisted as identity. */
-	readonly key: string;
-	/** null means the root place authored beside these rows. */
-	readonly parentKey: string | null;
+	/** Presentation-only path for keyed draft controls; never sent to a writer. */
+	readonly uiPath: string;
 	readonly level: OrganizationLevel;
 	readonly depth: number;
+	readonly descendants: readonly RequiredReverseHopDescendant[];
 }
 
 /**
@@ -134,19 +133,36 @@ export function requiredReverseHopDescendants(
 		destinationsBySource.set(source.uuid, destinations);
 	}
 
-	const out: RequiredReverseHopDescendant[] = [];
-	let nextKey = 1;
 	const visit = (
 		sourceLevelUuid: string,
-		parentKey: string | null,
 		depth: number,
-	): void => {
-		for (const destination of destinationsBySource.get(sourceLevelUuid) ?? []) {
-			const key = `required-${nextKey++}`;
-			out.push({ key, parentKey, level: destination, depth });
-			visit(destination.uuid, key, depth + 1);
+		parentPath: string,
+	): readonly RequiredReverseHopDescendant[] =>
+		(destinationsBySource.get(sourceLevelUuid) ?? []).map(
+			(destination, index) => {
+				const uiPath =
+					parentPath === "" ? String(index) : `${parentPath}.${index}`;
+				return {
+					uiPath,
+					level: destination,
+					depth,
+					descendants: visit(destination.uuid, depth + 1, uiPath),
+				};
+			},
+		);
+	return visit(rootLevelUuid, 0, "");
+}
+
+export function flattenRequiredReverseHopDescendants(
+	descendants: readonly RequiredReverseHopDescendant[],
+): readonly RequiredReverseHopDescendant[] {
+	const out: RequiredReverseHopDescendant[] = [];
+	const visit = (entries: readonly RequiredReverseHopDescendant[]) => {
+		for (const entry of entries) {
+			out.push(entry);
+			visit(entry.descendants);
 		}
 	};
-	visit(rootLevelUuid, null, 0);
+	visit(descendants);
 	return out;
 }

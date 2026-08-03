@@ -17,7 +17,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArchiveOff from "@iconify-icons/tabler/archive-off";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
@@ -48,8 +48,10 @@ import type { useOrganization } from "@/lib/organization/useOrganization";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
+	flattenRequiredReverseHopDescendants,
 	locationValuePatch,
 	propertiesForLevel,
+	type RequiredReverseHopDescendant,
 	rebaseLocationValueDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
@@ -105,6 +107,7 @@ export function PlacesSubsection({
 	const [adding, setAdding] = useState(false);
 	const [page, setPage] = useState(0);
 	const [message, setMessage] = useState<string | undefined>(undefined);
+	const [conflictedId, setConflictedId] = useState<string | undefined>();
 	const authoritative =
 		!organization.loading && organization.error === undefined;
 
@@ -127,6 +130,16 @@ export function PlacesSubsection({
 		const index = tree.rows.findIndex(({ location }) => location.id === openId);
 		if (index >= 0) setPage(Math.floor(index / PLACE_PAGE_SIZE));
 	}, [openId, tree.rows]);
+	const handleConflictChange = useCallback(
+		(locationId: string, conflicted: boolean) => {
+			setConflictedId((current) => {
+				if (conflicted) return locationId;
+				return current === locationId ? undefined : current;
+			});
+			if (conflicted) setOpenId(locationId);
+		},
+		[],
+	);
 
 	if (levels.length === 0) {
 		return (
@@ -151,8 +164,12 @@ export function PlacesSubsection({
 			title="Places"
 			description="The districts, facilities, and wards themselves. Unlike levels, these are data — you can add thousands, and later push them to CommCare."
 			addLabel="Add place"
-			onAdd={() => setAdding(true)}
-			canEdit={canEdit && authoritative && !adding}
+			onAdd={() => {
+				if (conflictedId === undefined) setAdding(true);
+			}}
+			canEdit={
+				canEdit && authoritative && !adding && conflictedId === undefined
+			}
 		>
 			{organization.loading ? (
 				<p className="flex items-center gap-2 px-3 py-4 text-[13px] text-nova-text-muted">
@@ -197,9 +214,16 @@ export function PlacesSubsection({
 									tree={tree}
 									organization={organization}
 									open={openId === location.id}
-									onOpenChange={(next) =>
-										setOpenId(next ? location.id : undefined)
-									}
+									onOpenChange={(next) => {
+										if (
+											conflictedId !== undefined &&
+											(conflictedId !== location.id || !next)
+										) {
+											return;
+										}
+										setOpenId(next ? location.id : undefined);
+									}}
+									onConflictChange={handleConflictChange}
 								/>
 							</li>
 						))}
@@ -211,7 +235,7 @@ export function PlacesSubsection({
 								type="button"
 								variant="ghost"
 								className="min-h-11 px-2.5 text-[12px]"
-								disabled={shownPage === 0}
+								disabled={shownPage === 0 || conflictedId !== undefined}
 								onClick={() => setPage((current) => Math.max(0, current - 1))}
 							>
 								Previous
@@ -228,7 +252,9 @@ export function PlacesSubsection({
 								type="button"
 								variant="ghost"
 								className="min-h-11 px-2.5 text-[12px]"
-								disabled={shownPage === pageCount - 1}
+								disabled={
+									shownPage === pageCount - 1 || conflictedId !== undefined
+								}
 								onClick={() =>
 									setPage((current) => Math.min(pageCount - 1, current + 1))
 								}
@@ -333,6 +359,7 @@ function PlaceRow({
 	organization,
 	open,
 	onOpenChange,
+	onConflictChange,
 }: {
 	location: StoredLocation;
 	depth: number;
@@ -343,6 +370,7 @@ function PlaceRow({
 	organization: Organization;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onConflictChange: (locationId: string, conflicted: boolean) => void;
 }) {
 	const canEdit = useCanEdit();
 	const nameId = useId();
@@ -383,6 +411,11 @@ function PlaceRow({
 	const draftExternalIdRef = useRef(location.externalId ?? "");
 	const draftLatitudeRef = useRef(location.latitude ?? "");
 	const draftLongitudeRef = useRef(location.longitude ?? "");
+	const draftLevelUuidRef = useRef(location.levelUuid);
+	const draftParentIdRef = useRef<string | null>(location.parentId);
+	const draftValuesRef = useRef<Record<string, string>>(
+		valuesForLevel(properties, location.levelUuid, location.values),
+	);
 	const nameSaveClockRef = useRef<ScalarSaveClock>({
 		generation: 0,
 		pending: 0,
@@ -399,6 +432,15 @@ function PlaceRow({
 		generation: 0,
 		pending: 0,
 	});
+	const levelSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
+	const parentSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
+	const recoveryEpochRef = useRef(0);
 	const sourceRef = useRef(location);
 	// Server Actions return the authoritative row before the post-write refresh
 	// lands. Keep those accepted rows as a chain so an old render is not mistaken
@@ -496,6 +538,7 @@ function PlaceRow({
 				localSavesRef.current.splice(0, acceptedIndex + 1);
 				sourceRef.current = localSavesRef.current.at(-1)?.saved ?? location;
 				setPeerChanged(false);
+				onConflictChange(location.id, false);
 				return;
 			}
 			if (
@@ -506,6 +549,7 @@ function PlaceRow({
 				return;
 			}
 			setPeerChanged(true);
+			onConflictChange(location.id, true);
 			return;
 		}
 		const acceptedIndex = localSavesRef.current.findIndex(({ saved }) =>
@@ -523,6 +567,7 @@ function PlaceRow({
 		) {
 			sourceRef.current = pendingLocal.saved;
 			setPeerChanged(false);
+			onConflictChange(location.id, false);
 			return;
 		}
 		// A changed prop that is neither the pre-save row nor one of our accepted
@@ -537,15 +582,22 @@ function PlaceRow({
 		draftExternalIdRef.current = location.externalId ?? "";
 		draftLatitudeRef.current = location.latitude ?? "";
 		draftLongitudeRef.current = location.longitude ?? "";
+		draftLevelUuidRef.current = location.levelUuid;
+		draftParentIdRef.current = location.parentId;
 		setDraftLevelUuid(location.levelUuid);
 		setDraftParentId(location.parentId);
-		setDraftValues(
-			valuesForLevel(properties, location.levelUuid, location.values),
+		const nextValues = valuesForLevel(
+			properties,
+			location.levelUuid,
+			location.values,
 		);
+		setDraftValues(nextValues);
+		draftValuesRef.current = nextValues;
 		dirtyValueDraftsRef.current = {};
 		sourceRef.current = location;
 		localSavesRef.current = [];
 		setPeerChanged(false);
+		onConflictChange(location.id, false);
 	}, [
 		location,
 		properties,
@@ -555,9 +607,27 @@ function PlaceRow({
 		dirtyLatitude,
 		dirtyLongitude,
 		dirtyLevel,
+		onConflictChange,
 	]);
+	useEffect(
+		() => () => {
+			onConflictChange(location.id, false);
+		},
+		[location.id, onConflictChange],
+	);
+
+	const invalidateInFlightSaves = () => {
+		recoveryEpochRef.current += 1;
+		nameSaveClockRef.current.generation += 1;
+		externalIdSaveClockRef.current.generation += 1;
+		latitudeSaveClockRef.current.generation += 1;
+		longitudeSaveClockRef.current.generation += 1;
+		levelSaveClockRef.current.generation += 1;
+		parentSaveClockRef.current.generation += 1;
+	};
 
 	const adoptLatest = () => {
+		invalidateInFlightSaves();
 		setDraftName(location.name);
 		setDraftExternalId(location.externalId ?? "");
 		setDraftLatitude(location.latitude ?? "");
@@ -566,11 +636,17 @@ function PlaceRow({
 		draftExternalIdRef.current = location.externalId ?? "";
 		draftLatitudeRef.current = location.latitude ?? "";
 		draftLongitudeRef.current = location.longitude ?? "";
+		draftLevelUuidRef.current = location.levelUuid;
+		draftParentIdRef.current = location.parentId;
 		setDraftLevelUuid(location.levelUuid);
 		setDraftParentId(location.parentId);
-		setDraftValues(
-			valuesForLevel(properties, location.levelUuid, location.values),
+		const nextValues = valuesForLevel(
+			properties,
+			location.levelUuid,
+			location.values,
 		);
+		setDraftValues(nextValues);
+		draftValuesRef.current = nextValues;
 		setDirtyName(false);
 		setDirtyExternalId(false);
 		setDirtyValues(false);
@@ -578,6 +654,7 @@ function PlaceRow({
 		setDirtyLongitude(false);
 		setDirtyLevel(false);
 		setPeerChanged(false);
+		onConflictChange(location.id, false);
 		setMessage(undefined);
 		sourceRef.current = location;
 		localSavesRef.current = [];
@@ -585,6 +662,7 @@ function PlaceRow({
 	};
 
 	const keepDraft = () => {
+		invalidateInFlightSaves();
 		// The author explicitly chooses the just-read peer row as the new base.
 		// Draft fields stay untouched, but ordinary custom-field saves use a
 		// one-key valuePatch. Untouched peer values therefore remain authoritative;
@@ -592,25 +670,35 @@ function PlaceRow({
 		sourceRef.current = location;
 		localSavesRef.current = [];
 		setPeerChanged(false);
+		onConflictChange(location.id, false);
 		setMessage(undefined);
 	};
 
-	const rebaseAfterLocalSave = (saved: StoredLocation | undefined) => {
+	const rebaseAfterLocalSave = (
+		saved: StoredLocation | undefined,
+		before: StoredLocation,
+		recoveryEpoch: number,
+	): boolean => {
+		if (recoveryEpoch !== recoveryEpochRef.current) return false;
 		if (saved !== undefined) {
-			localSavesRef.current.push({ before: sourceRef.current, saved });
+			localSavesRef.current.push({ before, saved });
 			sourceRef.current = saved;
 		}
 		setPeerChanged(false);
+		onConflictChange(location.id, false);
+		return true;
 	};
 
 	const saveValue = async (propertyUuid: string, value: string) => {
 		dirtyValueDraftsRef.current[propertyUuid] = value;
-		setDraftValues((current) =>
-			valuesForLevel(properties, draftLevelUuid, {
+		setDraftValues((current) => {
+			const nextValues = valuesForLevel(properties, draftLevelUuid, {
 				...current,
 				[propertyUuid]: value,
-			}),
-		);
+			});
+			draftValuesRef.current = nextValues;
+			return nextValues;
+		});
 		setDirtyValues(true);
 		if (dirtyLevel) return;
 		if (peerChanged) {
@@ -619,27 +707,30 @@ function PlaceRow({
 			);
 			return;
 		}
+		const before = sourceRef.current;
+		const recoveryEpoch = recoveryEpochRef.current;
 		const result = await organization.update(location.id, {
 			valuePatch: { [propertyUuid]: locationValuePatch(value) },
 		});
+		if (recoveryEpoch !== recoveryEpochRef.current) return;
 		if (!result.ok) {
 			setMessage(result.message);
 		} else {
-			rebaseAfterLocalSave(result.location);
+			rebaseAfterLocalSave(result.location, before, recoveryEpoch);
 			if (dirtyValueDraftsRef.current[propertyUuid] === value) {
 				delete dirtyValueDraftsRef.current[propertyUuid];
 			}
 			if (result.location !== undefined) {
-				setDraftValues(
-					valuesForLevel(
-						properties,
-						draftLevelUuid,
-						rebaseLocationValueDraft(
-							result.location.values,
-							dirtyValueDraftsRef.current,
-						),
+				const nextValues = valuesForLevel(
+					properties,
+					draftLevelUuid,
+					rebaseLocationValueDraft(
+						result.location.values,
+						dirtyValueDraftsRef.current,
 					),
 				);
+				setDraftValues(nextValues);
+				draftValuesRef.current = nextValues;
 			}
 			setDirtyValues(Object.keys(dirtyValueDraftsRef.current).length > 0);
 			setMessage(undefined);
@@ -655,7 +746,7 @@ function PlaceRow({
 					>
 						{location.name}
 					</span>
-					<span className="shrink-0 text-[11px] text-nova-text-muted">
+					<span className="min-w-0 max-w-[45%] text-right text-[11px] text-nova-text-muted [overflow-wrap:anywhere]">
 						{location.siteCode}
 					</span>
 					{archived && (
@@ -730,6 +821,8 @@ function PlaceRow({
 								return;
 							}
 							const generation = beginScalarSave(clock);
+							const before = sourceRef.current;
+							const recoveryEpoch = recoveryEpochRef.current;
 							const result = await organization.update(location.id, {
 								name: submitted,
 							});
@@ -739,14 +832,19 @@ function PlaceRow({
 								draftNameRef.current,
 								submitted,
 							);
+							const latest =
+								recoveryEpoch === recoveryEpochRef.current &&
+								generation === clock.generation;
 							if (!result.ok) {
-								setMessage(result.message);
+								if (latest) setMessage(result.message);
 							} else {
-								rebaseAfterLocalSave(result.location);
-								if (current) {
+								rebaseAfterLocalSave(result.location, before, recoveryEpoch);
+								if (current && result.location !== undefined) {
+									setDraftName(result.location.name);
+									draftNameRef.current = result.location.name;
 									setDirtyName(false);
 								}
-								setMessage(undefined);
+								if (latest) setMessage(undefined);
 							}
 						}}
 					/>
@@ -795,6 +893,8 @@ function PlaceRow({
 								return;
 							}
 							const generation = beginScalarSave(clock);
+							const before = sourceRef.current;
+							const recoveryEpoch = recoveryEpochRef.current;
 							const result = await organization.update(location.id, {
 								externalId: next === "" ? null : next,
 							});
@@ -804,14 +904,20 @@ function PlaceRow({
 								draftExternalIdRef.current,
 								next,
 							);
+							const latest =
+								recoveryEpoch === recoveryEpochRef.current &&
+								generation === clock.generation;
 							if (!result.ok) {
-								setMessage(result.message);
+								if (latest) setMessage(result.message);
 							} else {
-								rebaseAfterLocalSave(result.location);
-								if (current) {
+								rebaseAfterLocalSave(result.location, before, recoveryEpoch);
+								if (current && result.location !== undefined) {
+									const authoritative = result.location.externalId ?? "";
+									setDraftExternalId(authoritative);
+									draftExternalIdRef.current = authoritative;
 									setDirtyExternalId(false);
 								}
-								setMessage(undefined);
+								if (latest) setMessage(undefined);
 							}
 						}}
 					/>
@@ -831,9 +937,12 @@ function PlaceRow({
 							if (typeof value !== "string") return;
 							const defaultParentId = retypeDefaults.get(value);
 							if (defaultParentId === undefined) return;
+							draftLevelUuidRef.current = value;
+							draftParentIdRef.current = defaultParentId;
 							setDraftLevelUuid(value);
 							setDraftParentId(defaultParentId);
 							const nextValues = valuesForLevel(properties, value, draftValues);
+							draftValuesRef.current = nextValues;
 							dirtyValueDraftsRef.current = valuesForLevel(
 								properties,
 								value,
@@ -893,22 +1002,73 @@ function PlaceRow({
 									setMessage(draftPlacementIssue);
 									return;
 								}
+								const submittedLevelUuid = draftLevelUuid;
+								const submittedParentId = draftParentId;
+								const submittedValues = valuesForLevel(
+									properties,
+									draftLevelUuid,
+									draftValues,
+								);
+								const clock = levelSaveClockRef.current;
+								const generation = beginScalarSave(clock);
+								const before = sourceRef.current;
+								const recoveryEpoch = recoveryEpochRef.current;
 								const result = await organization.update(location.id, {
-									levelUuid: draftLevelUuid,
-									values: valuesForLevel(
-										properties,
-										draftLevelUuid,
-										draftValues,
-									),
-									parentId: draftParentId,
+									levelUuid: submittedLevelUuid,
+									values: submittedValues,
+									parentId: submittedParentId,
 								});
-								if (!result.ok) setMessage(result.message);
-								else {
-									rebaseAfterLocalSave(result.location);
-									dirtyValueDraftsRef.current = {};
-									setDirtyLevel(false);
-									setDirtyValues(false);
-									setMessage(undefined);
+								clock.pending = Math.max(0, clock.pending - 1);
+								const latest =
+									recoveryEpoch === recoveryEpochRef.current &&
+									generation === clock.generation;
+								const current =
+									latest &&
+									draftLevelUuidRef.current === submittedLevelUuid &&
+									draftParentIdRef.current === submittedParentId &&
+									sameStringRecord(draftValuesRef.current, submittedValues);
+								if (!result.ok) {
+									if (latest) setMessage(result.message);
+								} else if (
+									rebaseAfterLocalSave(
+										result.location,
+										before,
+										recoveryEpoch,
+									) &&
+									result.location !== undefined
+								) {
+									if (current) {
+										const savedValues = valuesForLevel(
+											properties,
+											result.location.levelUuid,
+											result.location.values,
+										);
+										setDraftLevelUuid(result.location.levelUuid);
+										setDraftParentId(result.location.parentId);
+										setDraftValues(savedValues);
+										draftLevelUuidRef.current = result.location.levelUuid;
+										draftParentIdRef.current = result.location.parentId;
+										draftValuesRef.current = savedValues;
+										dirtyValueDraftsRef.current = {};
+										setDirtyLevel(false);
+										setDirtyValues(false);
+									} else {
+										setDirtyLevel(
+											draftLevelUuidRef.current !== result.location.levelUuid ||
+												draftParentIdRef.current !== result.location.parentId,
+										);
+										setDirtyValues(
+											!sameStringRecord(
+												draftValuesRef.current,
+												valuesForLevel(
+													properties,
+													draftLevelUuidRef.current,
+													result.location.values,
+												),
+											),
+										);
+									}
+									if (latest) setMessage(undefined);
 								}
 							}}
 						>
@@ -958,6 +1118,8 @@ function PlaceRow({
 									return;
 								}
 								const generation = beginScalarSave(clock);
+								const before = sourceRef.current;
+								const recoveryEpoch = recoveryEpochRef.current;
 								const result = await organization.update(location.id, {
 									latitude: submitted === "" ? null : submitted,
 								});
@@ -967,13 +1129,20 @@ function PlaceRow({
 									draftLatitudeRef.current,
 									submitted,
 								);
-								if (!result.ok) setMessage(result.message);
-								else {
-									rebaseAfterLocalSave(result.location);
-									if (current) {
+								const latest =
+									recoveryEpoch === recoveryEpochRef.current &&
+									generation === clock.generation;
+								if (!result.ok) {
+									if (latest) setMessage(result.message);
+								} else {
+									rebaseAfterLocalSave(result.location, before, recoveryEpoch);
+									if (current && result.location !== undefined) {
+										const authoritative = result.location.latitude ?? "";
+										setDraftLatitude(authoritative);
+										draftLatitudeRef.current = authoritative;
 										setDirtyLatitude(false);
 									}
-									setMessage(undefined);
+									if (latest) setMessage(undefined);
 								}
 							}}
 						/>
@@ -1012,6 +1181,8 @@ function PlaceRow({
 									return;
 								}
 								const generation = beginScalarSave(clock);
+								const before = sourceRef.current;
+								const recoveryEpoch = recoveryEpochRef.current;
 								const result = await organization.update(location.id, {
 									longitude: submitted === "" ? null : submitted,
 								});
@@ -1021,13 +1192,20 @@ function PlaceRow({
 									draftLongitudeRef.current,
 									submitted,
 								);
-								if (!result.ok) setMessage(result.message);
-								else {
-									rebaseAfterLocalSave(result.location);
-									if (current) {
+								const latest =
+									recoveryEpoch === recoveryEpochRef.current &&
+									generation === clock.generation;
+								if (!result.ok) {
+									if (latest) setMessage(result.message);
+								} else {
+									rebaseAfterLocalSave(result.location, before, recoveryEpoch);
+									if (current && result.location !== undefined) {
+										const authoritative = result.location.longitude ?? "";
+										setDraftLongitude(authoritative);
+										draftLongitudeRef.current = authoritative;
 										setDirtyLongitude(false);
 									}
-									setMessage(undefined);
+									if (latest) setMessage(undefined);
 								}
 							}}
 						/>
@@ -1045,15 +1223,33 @@ function PlaceRow({
 							value={draftParentId ?? ""}
 							disabled={!canEdit || archived || peerChanged}
 							onValueChange={async (value) => {
+								draftParentIdRef.current = value;
 								setDraftParentId(value);
 								if (dirtyLevel) return;
+								const clock = parentSaveClockRef.current;
+								const generation = beginScalarSave(clock);
+								const before = sourceRef.current;
+								const recoveryEpoch = recoveryEpochRef.current;
 								const result = await organization.move(location.id, {
 									parentId: value,
 								});
-								if (!result.ok) setMessage(result.message);
-								else {
-									rebaseAfterLocalSave(result.location);
-									setMessage(undefined);
+								clock.pending = Math.max(0, clock.pending - 1);
+								const latest =
+									recoveryEpoch === recoveryEpochRef.current &&
+									generation === clock.generation;
+								if (!result.ok) {
+									if (latest) setMessage(result.message);
+								} else {
+									rebaseAfterLocalSave(result.location, before, recoveryEpoch);
+									if (
+										latest &&
+										draftParentIdRef.current === value &&
+										result.location !== undefined
+									) {
+										setDraftParentId(result.location.parentId);
+										draftParentIdRef.current = result.location.parentId;
+									}
+									if (latest) setMessage(undefined);
 								}
 							}}
 							ariaLabel="Sits in"
@@ -1098,13 +1294,16 @@ function PlaceRow({
 										: value === END_POSITION
 											? undefined
 											: value;
+								const before = sourceRef.current;
+								const recoveryEpoch = recoveryEpochRef.current;
 								const result = await organization.move(location.id, {
 									parentId: location.parentId,
 									...(afterSiblingId === undefined ? {} : { afterSiblingId }),
 								});
+								if (recoveryEpoch !== recoveryEpochRef.current) return;
 								if (!result.ok) setMessage(result.message);
 								else {
-									rebaseAfterLocalSave(result.location);
+									rebaseAfterLocalSave(result.location, before, recoveryEpoch);
 									setMessage(undefined);
 								}
 							}}
@@ -1152,10 +1351,14 @@ function PlaceRow({
 								disabled={!canEdit || archived}
 								onDraft={(value) => {
 									dirtyValueDraftsRef.current[property.uuid] = value;
-									setDraftValues((current) => ({
-										...current,
-										[property.uuid]: value,
-									}));
+									setDraftValues((current) => {
+										const nextValues = {
+											...current,
+											[property.uuid]: value,
+										};
+										draftValuesRef.current = nextValues;
+										return nextValues;
+									});
 									setDirtyValues(true);
 								}}
 								onCommit={(value) => void saveValue(property.uuid, value)}
@@ -1439,6 +1642,17 @@ function ArchivePlace({
 	);
 }
 
+interface AddPlaceDescendantInput {
+	readonly levelUuid: string;
+	readonly name: string;
+	readonly siteCode?: string;
+	readonly externalId: null;
+	readonly latitude: null;
+	readonly longitude: null;
+	readonly values: Record<string, string>;
+	readonly descendants?: readonly AddPlaceDescendantInput[];
+}
+
 /** Adding a place: its level, where it sits, and its name. */
 function AddPlaceForm({
 	doc,
@@ -1463,17 +1677,7 @@ function AddPlaceForm({
 		longitude: string | null;
 		values: Record<string, string>;
 		afterSiblingId?: string | null;
-		descendants?: readonly {
-			key: string;
-			parentKey: string | null;
-			levelUuid: string;
-			name: string;
-			siteCode?: string;
-			externalId: null;
-			latitude: null;
-			longitude: null;
-			values: Record<string, string>;
-		}[];
+		descendants?: readonly AddPlaceDescendantInput[];
 	}) => Promise<boolean>;
 }) {
 	const nameId = useId();
@@ -1524,8 +1728,29 @@ function AddPlaceForm({
 	);
 	const applicableProperties = propertiesForLevel(properties, levelUuid);
 	const requiredDescendants = requiredReverseHopDescendants(doc, levelUuid);
-	const requiredDraft = (key: string) =>
-		requiredDrafts[key] ?? { name: "", siteCode: "", values: {} };
+	const flatRequiredDescendants =
+		flattenRequiredReverseHopDescendants(requiredDescendants);
+	const requiredDraft = (uiPath: string) =>
+		requiredDrafts[uiPath] ?? { name: "", siteCode: "", values: {} };
+	const descendantInput = (
+		required: RequiredReverseHopDescendant,
+	): AddPlaceDescendantInput => {
+		const draft = requiredDraft(required.uiPath);
+		return {
+			levelUuid: required.level.uuid,
+			name: draft.name.trim(),
+			...(draft.siteCode.trim() === ""
+				? {}
+				: { siteCode: draft.siteCode.trim() }),
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: valuesForLevel(properties, required.level.uuid, draft.values),
+			...(required.descendants.length === 0
+				? {}
+				: { descendants: required.descendants.map(descendantInput) }),
+		};
+	};
 
 	const submit = async () => {
 		if (submitting) return;
@@ -1542,28 +1767,7 @@ function AddPlaceForm({
 			afterSiblingId,
 			...(requiredDescendants.length === 0
 				? {}
-				: {
-						descendants: requiredDescendants.map((required) => {
-							const draft = requiredDraft(required.key);
-							return {
-								key: required.key,
-								parentKey: required.parentKey,
-								levelUuid: required.level.uuid,
-								name: draft.name.trim(),
-								...(draft.siteCode.trim() === ""
-									? {}
-									: { siteCode: draft.siteCode.trim() }),
-								externalId: null,
-								latitude: null,
-								longitude: null,
-								values: valuesForLevel(
-									properties,
-									required.level.uuid,
-									draft.values,
-								),
-							};
-						}),
-					}),
+				: { descendants: requiredDescendants.map(descendantInput) }),
 		});
 		// A successful submit unmounts this form. A refusal leaves it available
 		// for correction without admitting a duplicate click while in flight.
@@ -1805,22 +2009,22 @@ function AddPlaceForm({
 						{levelRecord[levelUuid]?.name.toLowerCase()}. Nova adds the complete
 						branch in one save so the rule never has a missing destination.
 					</p>
-					{requiredDescendants.map((required) => {
-						const draft = requiredDraft(required.key);
+					{flatRequiredDescendants.map((required) => {
+						const draft = requiredDraft(required.uiPath);
 						const childProperties = propertiesForLevel(
 							properties,
 							required.level.uuid,
 						);
-						const nameInputId = `${requiredBranchId}-${required.key}-name`;
-						const codeInputId = `${requiredBranchId}-${required.key}-code`;
+						const nameInputId = `${requiredBranchId}-${required.uiPath}-name`;
+						const codeInputId = `${requiredBranchId}-${required.uiPath}-code`;
 						const updateDraft = (patch: Partial<typeof draft>) =>
 							setRequiredDrafts((current) => ({
 								...current,
-								[required.key]: { ...draft, ...patch },
+								[required.uiPath]: { ...draft, ...patch },
 							}));
 						return (
 							<div
-								key={required.key}
+								key={required.uiPath}
 								style={{ marginInlineStart: `${required.depth * 12}px` }}
 								className="flex flex-col gap-3 rounded-md border border-nova-border bg-nova-deep p-3"
 							>
@@ -1891,8 +2095,8 @@ function AddPlaceForm({
 						levelUuid === "" ||
 						(needsParent && parent === "") ||
 						!requiredValuesPresent(properties, levelUuid, values) ||
-						requiredDescendants.some((required) => {
-							const draft = requiredDraft(required.key);
+						flatRequiredDescendants.some((required) => {
+							const draft = requiredDraft(required.uiPath);
 							return (
 								draft.name.trim() === "" ||
 								!requiredValuesPresent(

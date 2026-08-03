@@ -40,9 +40,10 @@ describe("LocationChoiceSelect", () => {
 			/>,
 		);
 
-		expect(issueFor).toHaveBeenCalledTimes(50);
+		expect(issueFor).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("combobox", { name: "Choose a place" }));
 		await settleBaseUiTransitions();
+		expect(issueFor).toHaveBeenCalledTimes(50);
 		expect(screen.getAllByRole("option")).toHaveLength(50);
 		expect(screen.queryByRole("option", { name: /Place 51/ })).toBeNull();
 
