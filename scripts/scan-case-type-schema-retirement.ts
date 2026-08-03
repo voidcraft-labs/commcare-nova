@@ -6,9 +6,10 @@
 
 import "dotenv/config";
 import { Command } from "commander";
+import type { Transaction } from "kysely";
 import {
 	closeCaseStoreDatabase,
-	getCaseStoreDatabase,
+	type Database,
 } from "../lib/case-store/postgres/connection";
 import { getAppDb, withAppTx } from "../lib/db/pg";
 import { findCaseTypeSchemaRetirementFindings } from "./lib/caseTypeSchemaRetirement";
@@ -44,7 +45,6 @@ if (options.prod === true) targetProdDb();
 
 async function main() {
 	const appDb = await getAppDb();
-	const caseDb = await getCaseStoreDatabase();
 	let query = appDb.selectFrom("apps").select(["id", "app_name"]);
 	if (options.app !== undefined) query = query.where("id", "=", options.app);
 	const apps = await query.execute();
@@ -60,15 +60,15 @@ async function main() {
 	const failedApps: string[] = [];
 	for (const app of apps) {
 		try {
-			const blueprint = await withAppTx((tx) =>
-				loadPersistedBlueprintInTransaction(tx, app.id),
-			);
-			if (blueprint === null) continue;
-			const findings = await findCaseTypeSchemaRetirementFindings(
-				caseDb,
-				app.id,
-				blueprint,
-			);
+			const findings = await withAppTx(async (tx) => {
+				const blueprint = await loadPersistedBlueprintInTransaction(tx, app.id);
+				if (blueprint === null) return [];
+				return findCaseTypeSchemaRetirementFindings(
+					tx as unknown as Transaction<Database>,
+					app.id,
+					blueprint,
+				);
+			});
 			if (findings.length === 0) continue;
 			console.log(`${app.id} (${app.app_name || "unnamed"})`);
 			for (const candidate of findings) {
@@ -112,7 +112,8 @@ async function main() {
 	if (needsRetirement || needsIndexCleanup) {
 		console.log(
 			"\nNext: npx tsx scripts/migrate-case-type-schema-retirement.ts (dry run)\n" +
-				"      npx tsx scripts/migrate-case-type-schema-retirement.ts --execute",
+				"      after the new revision has 100% traffic and old requests have drained:\n" +
+				"      npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained",
 		);
 	}
 	if (needsSchemaRepair) {

@@ -83,15 +83,18 @@ async function main() {
 	for (const app of apps) {
 		try {
 			if (!execute) {
-				const blueprint = await withAppTx((tx) =>
-					loadPersistedBlueprintInTransaction(tx, app.id),
-				);
-				if (blueprint === null) continue;
-				const findings = await findCaseTypeSchemaRetirementFindings(
-					caseDb,
-					app.id,
-					blueprint,
-				);
+				const findings = await withAppTx(async (tx) => {
+					const blueprint = await loadPersistedBlueprintInTransaction(
+						tx,
+						app.id,
+					);
+					if (blueprint === null) return [];
+					return findCaseTypeSchemaRetirementFindings(
+						tx as unknown as Transaction<Database>,
+						app.id,
+						blueprint,
+					);
+				});
 				for (const candidate of findings) {
 					console.log(
 						`${app.id} (${app.app_name || "unnamed"}): ${candidate.issues.join(", ")} for ${candidate.caseType} ` +
