@@ -307,8 +307,9 @@ export function PersonaLocations({
 					{assigned.length > 1 && (
 						<p className="text-[12px] leading-relaxed text-nova-text-muted">
 							The main place is the one CommCare reports as this worker's
-							primary. They receive cases from every place listed, according to
-							what each one's level owns.
+							primary. These assignments establish intended case delivery and
+							already supply Preview's location identity; Preview case lists do
+							not yet filter by that delivery scope.
 						</p>
 					)}
 				</>

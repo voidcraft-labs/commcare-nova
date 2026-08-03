@@ -90,6 +90,41 @@ export function rebaseLocationValueDraft(
 	return { ...authoritative, ...dirtyDrafts };
 }
 
+export interface LocationScalarDraft {
+	readonly name: string;
+	readonly externalId: string;
+	readonly latitude: string;
+	readonly longitude: string;
+	readonly levelUuid: string;
+	readonly parentId: string | null;
+}
+
+/** Merge a peer snapshot without turning untouched peer fields into local edits. */
+export function rebaseUntouchedLocationDraft(input: {
+	readonly authoritative: LocationScalarDraft;
+	readonly draft: LocationScalarDraft;
+	readonly dirty: Readonly<Record<keyof LocationScalarDraft, boolean>>;
+}): LocationScalarDraft {
+	return {
+		name: input.dirty.name ? input.draft.name : input.authoritative.name,
+		externalId: input.dirty.externalId
+			? input.draft.externalId
+			: input.authoritative.externalId,
+		latitude: input.dirty.latitude
+			? input.draft.latitude
+			: input.authoritative.latitude,
+		longitude: input.dirty.longitude
+			? input.draft.longitude
+			: input.authoritative.longitude,
+		levelUuid: input.dirty.levelUuid
+			? input.draft.levelUuid
+			: input.authoritative.levelUuid,
+		parentId: input.dirty.parentId
+			? input.draft.parentId
+			: input.authoritative.parentId,
+	};
+}
+
 /** An async scalar save may clear dirty state only for the value it submitted. */
 export function scalarDraftStillMatchesSave(
 	currentDraft: string,

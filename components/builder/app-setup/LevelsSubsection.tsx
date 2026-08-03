@@ -51,7 +51,7 @@ import {
 	organizationLevelPatchIssue,
 } from "@/lib/organization/levelUpdateVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
@@ -74,11 +74,18 @@ export function LevelsSubsection({
 }) {
 	const levels = useOrganizationLevels();
 	const canEdit = useCanEdit();
+	const accessPhase = useAccessPhase();
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
 	const [adding, setAdding] = useState(false);
 	const rowFocus = useRemovedRowFocus(levels.length);
+
+	useEffect(() => {
+		if (!adding || canEdit) return;
+		if (accessPhase === "refreshing" || accessPhase === "reconnecting") return;
+		setAdding(false);
+	}, [accessPhase, adding, canEdit]);
 
 	const add = (name: string, authoredCode: string) => {
 		if (!sessionApi.getState().canEdit) return false;
@@ -104,6 +111,7 @@ export function LevelsSubsection({
 		if (result.ok) {
 			setAdding(false);
 			setOpenUuid(result.uuid);
+			rowFocus.focusRow(levels.length);
 			return true;
 		}
 		return false;
@@ -139,10 +147,14 @@ export function LevelsSubsection({
 					/>
 				))
 			)}
-			{adding && canEdit && (
+			{adding && (
 				<AddLevelForm
 					levels={levels}
-					onCancel={() => setAdding(false)}
+					disabled={!canEdit || accessPhase !== "authorized"}
+					onCancel={() => {
+						setAdding(false);
+						rowFocus.focusRow(levels.length);
+					}}
 					onSubmit={add}
 				/>
 			)}
@@ -152,10 +164,12 @@ export function LevelsSubsection({
 
 function AddLevelForm({
 	levels,
+	disabled,
 	onCancel,
 	onSubmit,
 }: {
 	levels: readonly OrganizationLevel[];
+	disabled: boolean;
 	onCancel: () => void;
 	onSubmit: (name: string, code: string) => boolean;
 }) {
@@ -165,7 +179,9 @@ function AddLevelForm({
 	const nameId = useId();
 	const codeId = useId();
 	const nameRef = useRef<HTMLInputElement>(null);
-	useEffect(() => nameRef.current?.focus(), []);
+	useEffect(() => {
+		if (!disabled) nameRef.current?.focus();
+	}, [disabled]);
 
 	const submit = () => {
 		const cleanName = name.trim();
@@ -192,7 +208,10 @@ function AddLevelForm({
 	};
 
 	return (
-		<div className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep/40 p-3">
+		<fieldset
+			disabled={disabled}
+			className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep/40 p-3"
+		>
 			<div className="flex flex-col gap-1.5">
 				<Label htmlFor={nameId}>Level name</Label>
 				<Input
@@ -234,7 +253,7 @@ function AddLevelForm({
 					Cancel
 				</Button>
 			</div>
-		</div>
+		</fieldset>
 	);
 }
 
@@ -553,8 +572,8 @@ function CaseFlowGroup({
 					}
 					hint={
 						flow.workers === "none"
-							? "Cases can be assigned here and reach nobody's device by assignment — a queue that stays searchable."
-							: "Workers assigned here receive the cases their place owns."
+							? "Declares this level as a queue: cases can be owned here while no worker is assigned here. Preview case lists do not apply this delivery scope yet."
+							: "Declares that assigned workers receive the cases their place owns once location owner sets ship. Preview case lists do not apply this delivery scope yet."
 					}
 				/>
 				{flow.workers === "assigned" && (
@@ -563,7 +582,7 @@ function CaseFlowGroup({
 							htmlFor={descendantId}
 							className="text-[12px] font-medium text-nova-text-secondary"
 						>
-							Workers also receive cases from places below
+							Include cases from places below in worker delivery
 						</Label>
 						<Select
 							value={scopeValue(flow.descendantCases)}
@@ -788,8 +807,9 @@ function AddressBookGroup({
 				What workers here can see
 			</legend>
 			<p className="mb-2.5 text-[12px] leading-relaxed text-nova-text-muted">
-				Seeing a place is separate from receiving its cases. Widening this lets
-				expressions name more places without moving a single case.
+				Seeing a place is separate from receiving its cases. Nova uses this
+				footprint now to validate place-owner expressions; Preview case lists do
+				not apply it yet.
 			</p>
 			<div className="flex flex-col gap-2.5">
 				<Label htmlFor={reachId} className="sr-only">

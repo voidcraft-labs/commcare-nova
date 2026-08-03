@@ -87,6 +87,7 @@ vi.mock("@/lib/doc/hooks/useOrganizationCollections", () => ({
 	useLocationProperties: () => mocks.properties,
 }));
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => "authorized",
 	useCanEdit: () => true,
 }));
 

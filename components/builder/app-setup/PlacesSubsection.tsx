@@ -52,8 +52,10 @@ import { locationChoiceLabel } from "@/lib/organization/locationLabels";
 import { locationTopologyChangeIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { ArchiveImpact, StoredLocation } from "@/lib/organization/types";
 import type { useOrganization } from "@/lib/organization/useOrganization";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import {
 	flattenRequiredReverseHopDescendants,
 	localValueSaveDisposition,
@@ -62,6 +64,7 @@ import {
 	propertiesForLevel,
 	type RequiredReverseHopDescendant,
 	rebaseLocationValueDraft,
+	rebaseUntouchedLocationDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
 	scalarDraftStillMatchesSave,
@@ -111,6 +114,7 @@ export function PlacesSubsection({
 	const levels = useOrganizationLevels();
 	const properties = useLocationProperties();
 	const canEdit = useCanEdit();
+	const accessPhase = useAccessPhase();
 	const doc = useBlueprintDoc((state) => state);
 	const [openId, setOpenId] = useState<string | undefined>(undefined);
 	const [adding, setAdding] = useState(false);
@@ -118,19 +122,16 @@ export function PlacesSubsection({
 	const [message, setMessage] = useState<string | undefined>(undefined);
 	const [conflictedId, setConflictedId] = useState<string | undefined>();
 	const [protectedId, setProtectedId] = useState<string | undefined>();
+	const pendingAddedFocusIdRef = useRef<string | undefined>(undefined);
 	const authoritative =
 		!organization.loading && organization.error === undefined;
-
-	useEffect(() => {
-		if (canEdit) return;
-		setAdding(false);
-	}, [canEdit]);
 
 	const tree = useMemo(
 		() => buildPlaceTree(organization.locations),
 		[organization.locations],
 	);
 	const pageCount = Math.max(1, Math.ceil(tree.rows.length / PLACE_PAGE_SIZE));
+	const rowFocus = useRemovedRowFocus(tree.rows.length);
 	const openIndex =
 		openId === undefined
 			? -1
@@ -152,6 +153,21 @@ export function PlacesSubsection({
 		const index = tree.rows.findIndex(({ location }) => location.id === openId);
 		if (index >= 0) setPage(Math.floor(index / PLACE_PAGE_SIZE));
 	}, [openId, tree.rows]);
+	useEffect(() => {
+		if (!adding || canEdit) return;
+		if (accessPhase === "refreshing" || accessPhase === "reconnecting") return;
+		setAdding(false);
+	}, [accessPhase, adding, canEdit]);
+	useEffect(() => {
+		const pendingId = pendingAddedFocusIdRef.current;
+		if (pendingId === undefined) return;
+		const index = tree.rows.findIndex(
+			({ location }) => location.id === pendingId,
+		);
+		if (index < 0) return;
+		pendingAddedFocusIdRef.current = undefined;
+		rowFocus.focusRow(index);
+	}, [rowFocus.focusRow, tree.rows]);
 	const handleConflictChange = useCallback(
 		(locationId: string, conflicted: boolean) => {
 			setConflictedId((current) => {
@@ -206,6 +222,7 @@ export function PlacesSubsection({
 				conflictedId === undefined &&
 				protectedId === undefined
 			}
+			addButtonRef={rowFocus.addRef}
 		>
 			{organization.loading ? (
 				<p className="flex items-center gap-2 px-3 py-4 text-[13px] text-nova-text-muted">
@@ -235,7 +252,7 @@ export function PlacesSubsection({
 			) : (
 				<div className="flex flex-col gap-2">
 					<ol aria-label="Place hierarchy" className="flex flex-col gap-2">
-						{pageRows.map(({ location, depth }) => (
+						{pageRows.map(({ location, depth }, rowIndex) => (
 							<li
 								key={location.id}
 								style={{ paddingInlineStart: `min(${depth * 16}px, 25%)` }}
@@ -263,6 +280,7 @@ export function PlacesSubsection({
 									}}
 									onConflictChange={handleConflictChange}
 									onDraftProtectionChange={handleDraftProtectionChange}
+									rowFocusRef={rowFocus.register(pageStart + rowIndex)}
 								/>
 							</li>
 						))}
@@ -303,19 +321,28 @@ export function PlacesSubsection({
 				</div>
 			)}
 
-			{adding && canEdit && authoritative && (
+			{adding && (
 				<AddPlaceForm
 					doc={doc}
 					levels={levels}
 					properties={properties}
 					locations={organization.locations}
-					onCancel={() => setAdding(false)}
+					disabled={!canEdit || accessPhase !== "authorized" || !authoritative}
+					onCancel={() => {
+						setAdding(false);
+						rowFocus.focusRow(tree.rows.length);
+					}}
 					onSubmit={async (input) => {
 						const result = await organization.create(input);
 						if (result.ok) {
 							setAdding(false);
 							setMessage(undefined);
-							if (result.id !== undefined) setOpenId(result.id);
+							if (result.id !== undefined) {
+								pendingAddedFocusIdRef.current = result.id;
+								setOpenId(result.id);
+							} else {
+								rowFocus.focusRow(tree.rows.length);
+							}
 							return true;
 						}
 						setMessage(result.message);
@@ -398,6 +425,7 @@ function PlaceRow({
 	onOpenChange,
 	onConflictChange,
 	onDraftProtectionChange,
+	rowFocusRef,
 }: {
 	location: StoredLocation;
 	depth: number;
@@ -413,8 +441,10 @@ function PlaceRow({
 		locationId: string,
 		protectedDraft: boolean,
 	) => void;
+	rowFocusRef: (element: HTMLButtonElement | null) => void;
 }) {
 	const canEdit = useCanEdit();
+	const sessionApi = useOptionalBuilderSessionApi();
 	const nameId = useId();
 	const externalId = useId();
 	const latitudeId = useId();
@@ -813,10 +843,76 @@ function PlaceRow({
 
 	const keepDraft = () => {
 		invalidateInFlightSaves();
-		// The author explicitly chooses the just-read peer row as the new base.
-		// Draft fields stay untouched, but ordinary custom-field saves use a
-		// one-key valuePatch. Untouched peer values therefore remain authoritative;
-		// the returned row rebases the complete draft after the accepted patch.
+		const previous = sourceRef.current;
+		const rebased = rebaseUntouchedLocationDraft({
+			authoritative: {
+				name: location.name,
+				externalId: location.externalId ?? "",
+				latitude: location.latitude ?? "",
+				longitude: location.longitude ?? "",
+				levelUuid: location.levelUuid,
+				parentId: location.parentId,
+			},
+			draft: {
+				name: draftNameRef.current,
+				externalId: draftExternalIdRef.current,
+				latitude: draftLatitudeRef.current,
+				longitude: draftLongitudeRef.current,
+				levelUuid: draftLevelUuidRef.current,
+				parentId: draftParentIdRef.current,
+			},
+			dirty: {
+				name: draftNameRef.current !== previous.name,
+				externalId: draftExternalIdRef.current !== (previous.externalId ?? ""),
+				latitude: draftLatitudeRef.current !== (previous.latitude ?? ""),
+				longitude: draftLongitudeRef.current !== (previous.longitude ?? ""),
+				levelUuid: draftLevelUuidRef.current !== previous.levelUuid,
+				parentId: draftParentIdRef.current !== previous.parentId,
+			},
+		});
+		const localValueDrafts = Object.fromEntries(
+			Object.entries(dirtyValueDraftsRef.current).filter(
+				([uuid, value]) => value !== (previous.values[uuid] ?? ""),
+			),
+		);
+		const authoritativeValues = valuesForLevel(
+			properties,
+			rebased.levelUuid,
+			location.values,
+		);
+		const rebasedValues = valuesForLevel(
+			properties,
+			rebased.levelUuid,
+			rebaseLocationValueDraft(location.values, localValueDrafts),
+		);
+		const remainingValueDrafts = Object.fromEntries(
+			Object.entries(
+				valuesForLevel(properties, rebased.levelUuid, localValueDrafts),
+			).filter(([uuid, value]) => value !== (authoritativeValues[uuid] ?? "")),
+		);
+
+		setDraftName(rebased.name);
+		setDraftExternalId(rebased.externalId);
+		setDraftLatitude(rebased.latitude);
+		setDraftLongitude(rebased.longitude);
+		setDraftLevelUuid(rebased.levelUuid);
+		setDraftParentId(rebased.parentId);
+		setDraftValues(rebasedValues);
+		draftNameRef.current = rebased.name;
+		draftExternalIdRef.current = rebased.externalId;
+		draftLatitudeRef.current = rebased.latitude;
+		draftLongitudeRef.current = rebased.longitude;
+		draftLevelUuidRef.current = rebased.levelUuid;
+		draftParentIdRef.current = rebased.parentId;
+		draftValuesRef.current = rebasedValues;
+		dirtyValueDraftsRef.current = remainingValueDrafts;
+		setDirtyName(rebased.name !== location.name);
+		setDirtyExternalId(rebased.externalId !== (location.externalId ?? ""));
+		setDirtyLatitude(rebased.latitude !== (location.latitude ?? ""));
+		setDirtyLongitude(rebased.longitude !== (location.longitude ?? ""));
+		setDirtyLevel(rebased.levelUuid !== location.levelUuid);
+		setDirtyValues(!sameStringRecord(rebasedValues, authoritativeValues));
+		setValuesNeedApply(Object.keys(remainingValueDrafts).length > 0);
 		sourceRef.current = location;
 		localSavesRef.current = [];
 		setPeerChanged(false);
@@ -924,6 +1020,7 @@ function PlaceRow({
 
 	return (
 		<EntryRow
+			triggerRef={rowFocusRef}
 			summary={
 				<span className="flex min-w-0 items-center gap-2">
 					<span
@@ -960,6 +1057,7 @@ function PlaceRow({
 							type="button"
 							variant="ghost"
 							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							disabled={!canEdit || archived}
 							onClick={keepDraft}
 						>
 							Keep my draft
@@ -1187,6 +1285,8 @@ function PlaceRow({
 							variant="ghost"
 							className="min-h-11 self-start px-2.5 text-[12px] text-nova-violet-bright"
 							disabled={
+								!canEdit ||
+								archived ||
 								peerChanged ||
 								!requiredValuesPresent(
 									properties,
@@ -1199,6 +1299,20 @@ function PlaceRow({
 								draftPlacementIssue !== undefined
 							}
 							onClick={async () => {
+								const liveSession = sessionApi?.getState();
+								if (
+									!canEdit ||
+									archived ||
+									(liveSession !== undefined &&
+										(liveSession.accessPhase !== "authorized" ||
+											!liveSession.canEdit)) ||
+									sourceRef.current.archivedAt !== null
+								) {
+									setMessage(
+										"This place is read-only now. Reload the latest organization before applying this draft.",
+									);
+									return;
+								}
 								if (draftPlacementIssue !== undefined) {
 									setMessage(draftPlacementIssue);
 									return;
@@ -1704,8 +1818,8 @@ function PlaceValueField({
  *
  * Three things are stated because three things actually happen: the subtree
  * goes with it, personas standing there stop working there, and cases owned
- * there stay put and stop reaching anyone. That last one has no undo, so it
- * is the sentence the confirmation leads with when the count is non-zero.
+ * there stay put. Preview does not yet derive the owner sets that change case
+ * list visibility, so the confirmation says exactly what changes today.
  */
 function ArchivePlace({
 	location,
@@ -1720,7 +1834,20 @@ function ArchivePlace({
 	const [impact, setImpact] = useState<ArchiveImpact | undefined>(undefined);
 	const [impactError, setImpactError] = useState<string | undefined>();
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
+	const impactGenerationRef = useRef(0);
 	const archived = location.archivedAt !== null;
+	useEffect(
+		() => () => {
+			impactGenerationRef.current += 1;
+		},
+		[],
+	);
+	const closeConfirmation = () => {
+		impactGenerationRef.current += 1;
+		setConfirming(false);
+		setImpact(undefined);
+		setImpactError(undefined);
+	};
 
 	if (archived) {
 		return (
@@ -1752,11 +1879,14 @@ function ArchivePlace({
 				variant="ghost"
 				className="min-h-11 gap-2 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 				onClick={async () => {
+					const generation = impactGenerationRef.current + 1;
+					impactGenerationRef.current = generation;
 					onMessage(undefined);
 					setImpact(undefined);
 					setImpactError(undefined);
 					setConfirming(true);
 					const described = await organization.describeArchive(location.id);
+					if (generation !== impactGenerationRef.current) return;
 					if (described.ok) {
 						setImpact(described.impact);
 					} else setImpactError(described.message);
@@ -1809,9 +1939,9 @@ function ArchivePlace({
 						<li className="text-nova-amber">
 							{impact.ownedCases}{" "}
 							{impact.ownedCases === 1 ? "case is" : "cases are"} owned here and
-							will stop reaching anyone. Nothing moves them. Bringing the place
-							back restores its path; restore a worker assignment before
-							expecting the cases to reach a device again.
+							will stay owned here. Nothing moves them. Preview case lists do
+							not yet change visibility from this archive; future device
+							delivery will use the restored path and worker assignments.
 						</li>
 					)}
 					{impact.blockingOwnerRuleFormCount > 0 && (
@@ -1841,7 +1971,7 @@ function ArchivePlace({
 						impact === undefined || impact.blockingOwnerRuleFormCount > 0
 					}
 					onClick={async () => {
-						setConfirming(false);
+						closeConfirmation();
 						const result = await organization.setArchived(
 							location.id,
 							true,
@@ -1856,7 +1986,7 @@ function ArchivePlace({
 					type="button"
 					variant="ghost"
 					className="min-h-11 px-2.5 text-[12px]"
-					onClick={() => setConfirming(false)}
+					onClick={closeConfirmation}
 				>
 					Keep it
 				</Button>
@@ -1882,6 +2012,7 @@ function AddPlaceForm({
 	levels,
 	properties,
 	locations,
+	disabled,
 	onCancel,
 	onSubmit,
 }: {
@@ -1889,6 +2020,7 @@ function AddPlaceForm({
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
 	locations: readonly StoredLocation[];
+	disabled: boolean;
 	onCancel: () => void;
 	onSubmit: (input: {
 		levelUuid: string;
@@ -1933,8 +2065,8 @@ function AddPlaceForm({
 	const nameRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
-		nameRef.current?.focus();
-	}, []);
+		if (!disabled) nameRef.current?.focus();
+	}, [disabled]);
 
 	const levelRecord = Object.fromEntries(levels.map((l) => [l.uuid, l]));
 	// Only places whose level is strictly above the chosen one can hold it —
@@ -1999,7 +2131,7 @@ function AddPlaceForm({
 
 	return (
 		<fieldset
-			disabled={submitting}
+			disabled={disabled || submitting}
 			aria-busy={submitting}
 			className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep p-3"
 		>

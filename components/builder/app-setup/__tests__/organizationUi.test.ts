@@ -16,6 +16,7 @@ import {
 	placementSaveDraftDisposition,
 	propertiesForLevel,
 	rebaseLocationValueDraft,
+	rebaseUntouchedLocationDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
 	scalarDraftStillMatchesSave,
@@ -104,6 +105,44 @@ describe("organization place-information UI", () => {
 		).toEqual({
 			[EVERYWHERE]: "saved A",
 			[FACILITY_ONLY]: "local B",
+		});
+	});
+
+	it("keeps only genuinely dirty scalar fields over a peer snapshot", () => {
+		expect(
+			rebaseUntouchedLocationDraft({
+				authoritative: {
+					name: "Peer facility",
+					externalId: "peer-id",
+					latitude: "1",
+					longitude: "2",
+					levelUuid: REGION,
+					parentId: "peer-parent",
+				},
+				draft: {
+					name: "Local name",
+					externalId: "old-id",
+					latitude: "old-latitude",
+					longitude: "old-longitude",
+					levelUuid: FACILITY,
+					parentId: "old-parent",
+				},
+				dirty: {
+					name: true,
+					externalId: false,
+					latitude: false,
+					longitude: false,
+					levelUuid: false,
+					parentId: false,
+				},
+			}),
+		).toEqual({
+			name: "Local name",
+			externalId: "peer-id",
+			latitude: "1",
+			longitude: "2",
+			levelUuid: REGION,
+			parentId: "peer-parent",
 		});
 	});
 

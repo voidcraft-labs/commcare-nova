@@ -353,16 +353,24 @@ test.describe("authenticated builder", () => {
 
 		await levels.getByRole("button", { name: "Add level" }).click();
 		await expect(levels.getByLabel("Level name")).toBeFocused();
+		await levels.getByLabel("Level name").fill("Cancelled level");
+		await levels.getByRole("button", { name: "Cancel" }).click();
+		await expect(
+			levels.getByRole("button", { name: "Add level" }),
+		).toBeFocused();
+
+		await levels.getByRole("button", { name: "Add level" }).click();
+		await expect(levels.getByLabel("Level name")).toBeFocused();
 		await levels.getByLabel("Level name").fill("Region");
 		await levels.getByLabel("Level name").press("Enter");
-		await expect(levels.getByRole("button", { name: /Region/ })).toBeVisible();
+		await expect(levels.getByRole("button", { name: /Region/ })).toBeFocused();
 
 		await levels.getByRole("button", { name: "Add level" }).click();
 		await expect(levels.getByLabel("Level name")).toBeFocused();
 		await levels.getByLabel("Level name").fill("District");
 		await levels.getByLabel("Level name").press("Enter");
 		const districtLevel = levels.getByRole("button", { name: /District/ });
-		await expect(districtLevel).toBeVisible();
+		await expect(districtLevel).toBeFocused();
 		await expect(
 			levels
 				.getByRole("checkbox", { name: "Places here own cases" })
@@ -410,6 +418,14 @@ test.describe("authenticated builder", () => {
 
 		await places.getByRole("button", { name: "Add place" }).click();
 		await expect(places.getByLabel("Name")).toBeFocused();
+		await places.getByLabel("Name").fill("Cancelled place");
+		await places.getByRole("button", { name: "Cancel" }).click();
+		await expect(
+			places.getByRole("button", { name: "Add place" }),
+		).toBeFocused();
+
+		await places.getByRole("button", { name: "Add place" }).click();
+		await expect(places.getByLabel("Name")).toBeFocused();
 		await places.getByLabel("Name").fill("Coast Region");
 		await places.getByLabel("Code (optional)").fill("coast-region");
 		await places.getByLabel("Id in another system").fill("region-001");
@@ -419,7 +435,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "Hospital" }).click();
 		await places.getByRole("button", { name: "Add place" }).click();
 		const coastRegion = places.getByRole("button", { name: /Coast Region/ });
-		await expect(coastRegion).toBeVisible();
+		await expect(coastRegion).toBeFocused();
 		await expect(coastRegion).toContainText("coast-region");
 		await expect(places.getByLabel("Latitude")).toHaveValue("-4.0435");
 
