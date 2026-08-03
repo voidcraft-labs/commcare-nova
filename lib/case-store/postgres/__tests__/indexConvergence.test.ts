@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
+import { computeSchemaDrift } from "../../../../scripts/lib/schemaDrift";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { SchemaNotSyncedError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
@@ -62,6 +63,131 @@ beforeEach(async () => {
 });
 
 describe("durable case-schema index convergence", () => {
+	it("audits residual indexes after production relocates cases out of public", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+
+		// Reproduce the overlap failure this audit must detect: an older
+		// worker consumed the marker without dropping the physical index.
+		await db()
+			.updateTable("case_type_schemas")
+			.set({ index_pending_seq: null })
+			.where("app_id", "=", APP_ID)
+			.where("case_type", "=", "patient")
+			.execute();
+
+		const isolated = "nova_case_runtime";
+		await database.pool.query(`CREATE SCHEMA ${isolated}`);
+		await database.pool.query(
+			`ALTER TABLE public.cases SET SCHEMA ${isolated}`,
+		);
+		await database.pool.query(
+			`ALTER DATABASE ${database.databaseName} SET search_path TO public, ${isolated}`,
+		);
+		await database.pool.query(`SET search_path TO public, ${isolated}`);
+
+		const placement = await database.pool.query<{
+			current_schema: string;
+			cases_schema: string;
+		}>(`
+			SELECT current_schema(),
+			       (SELECT namespace.nspname
+			          FROM pg_class AS relation
+			          JOIN pg_namespace AS namespace
+			            ON namespace.oid = relation.relnamespace
+			         WHERE relation.oid = to_regclass('cases')) AS cases_schema
+		`);
+		expect(placement.rows[0]).toEqual({
+			current_schema: "public",
+			cases_schema: isolated,
+		});
+
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				buildSimpleBlueprint([], APP_ID),
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				issues: ["inactive-index-cleanup"],
+				expressionIndexCount: 1,
+			}),
+		]);
+	});
+
+	it("schema-drift repair reactivates a current zero-property case type", async () => {
+		const caseStore = store();
+		const emptySchema = new Map<string, CaseType>([
+			["patient", { name: "patient", properties: [] }],
+		]);
+		const currentBlueprint = buildSimpleBlueprint(
+			[...emptySchema.values()],
+			APP_ID,
+		);
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: emptySchema,
+			syncedSeq: 1,
+		});
+		await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: emptySchema,
+				}),
+			);
+
+		expect(await computeSchemaDrift(db(), APP_ID, currentBlueprint)).toEqual([
+			{
+				caseType: "patient",
+				missingRow: true,
+				added: [],
+				removed: [],
+				refined: [],
+				retyped: [],
+				unresolvable: [],
+			},
+		]);
+
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: emptySchema,
+			syncedSeq: 3,
+		});
+		expect(await computeSchemaDrift(db(), APP_ID, currentBlueprint)).toEqual(
+			[],
+		);
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				currentBlueprint,
+			),
+		).toEqual([]);
+	});
+
 	it("scans historical candidates and the maintenance drain converges them", async () => {
 		const caseStore = store();
 		await caseStore.applySchemaChange({

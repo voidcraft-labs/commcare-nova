@@ -167,7 +167,6 @@ export async function computeSchemaDrift(
 		const desired = caseTypeToJsonSchema(ct);
 		const stored = storedByType.get(ct.name);
 		if (stored === undefined) {
-			if (Object.keys(desired.properties).length === 0) continue;
 			drifts.push({
 				caseType: ct.name,
 				missingRow: true,

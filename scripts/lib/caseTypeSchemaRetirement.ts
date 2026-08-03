@@ -83,7 +83,12 @@ export async function findCaseTypeSchemaRetirementFindings(
 			FROM pg_index AS index_row
 			JOIN pg_class AS index_relation
 			  ON index_relation.oid = index_row.indexrelid
-			WHERE index_row.indrelid = to_regclass('public.cases')
+			-- Resolve the same unqualified relation the runtime's index DDL
+			-- targets. Production moves cases to nova_case_runtime while
+			-- retaining public,nova_case_runtime as the search path; pinning
+			-- public.cases would therefore hide every residual production
+			-- index and let the required zero-finding rescan pass falsely.
+			WHERE index_row.indrelid = to_regclass('cases')
 		`.execute(db),
 	]);
 	const caseCountByType = new Map(
