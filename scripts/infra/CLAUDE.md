@@ -22,7 +22,11 @@ reconciles these permanent identities:
   Better Auth, and Nova auth migrations plus privilege convergence. It also
   owns the separately configured one-off case-type-retirement Job: Cloud Build
   pins that Job to the exact image only after the service deploy, but never
-  executes it. An operator runs it after old-revision requests drain.
+  executes it. Its stored args are dry-run only. After old-revision requests
+  drain, an operator uses `deploy-cloud-run.py --execute-job
+  --service=commcare-nova` with explicit writer args; that path applies the
+  same service-image, Job-generation, etag, Execution-image, and task-success
+  proofs as deployment Jobs.
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact
   capture retention/CORS policy. It never connects to Postgres.
 - `nova-capture-cleanup` has no runtime-role membership. In Postgres it receives

@@ -204,6 +204,15 @@ describe("durable deployment policy", () => {
 		for (const entrypoint of esbuildEntrypoints) {
 			expect(dockerignore).toContain(`!${entrypoint}`);
 		}
+		for (const helper of [
+			"caseTypeSchemaRetirement.ts",
+			"loadPersistedBlueprint.ts",
+			"main.ts",
+			"schemaDrift.ts",
+			"schemaDriftMigration.ts",
+		]) {
+			expect(dockerignore).toContain(`!scripts/lib/${helper}`);
+		}
 		expect(migrateEntrypoint).not.toContain("DatabaseCapacityPreflight");
 		expect(migrateEntrypoint).toContain("runCanonicalRuntimeDatabaseProbe");
 		expect(migrateEntrypoint).toContain(
@@ -334,8 +343,9 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain(
 			"gcloud run jobs deploy commcare-nova-case-type-schema-retirement",
 		);
-		expect(cloudBuild).toContain(
-			"--args=case-type-schema-retirement.cjs,--execute,--confirm-old-revision-drained",
+		expect(cloudBuild).toContain("--args=case-type-schema-retirement.cjs");
+		expect(cloudBuild).not.toContain(
+			"--args=case-type-schema-retirement.cjs,--execute",
 		);
 		expect(cloudBuild).toContain(
 			"NOVA_CASE_TYPE_RETIREMENT_PRODUCTION_JOB=true",
@@ -346,5 +356,9 @@ describe("durable deployment policy", () => {
 		expect(
 			cloudBuild.indexOf("- id: case-type-schema-retirement-job"),
 		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
+		expect(deployPolicy).toContain('image_source.add_argument("--service")');
+		expect(deployPolicy).toContain(
+			"expected_image = _ready_service_image(api.service(), api.revisions())",
+		);
 	});
 });

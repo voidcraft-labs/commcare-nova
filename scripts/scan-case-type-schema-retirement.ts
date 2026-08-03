@@ -45,14 +45,26 @@ if (options.prod === true) targetProdDb();
 
 const scopeArgs = options.app === undefined ? "" : ` --app ${options.app}`;
 const productionJob =
-	"gcloud run jobs execute commcare-nova-case-type-schema-retirement " +
-	"--project=commcare-nova --region=us-central1 --wait";
+	"python3 scripts/rollout/deploy-cloud-run.py --execute-job " +
+	"--project=commcare-nova --region=us-central1 " +
+	"--job=commcare-nova-case-type-schema-retirement " +
+	"--service=commcare-nova --wait-seconds=3060";
 
-function productionOverrideArgs(
+function shellLiteral(value: string): string {
+	return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function productionExecutionArgs(
 	entrypoint: string,
 	args: readonly string[],
 ): string {
-	return ` --args=${[entrypoint, ...args, ...(options.app === undefined ? [] : ["--app", options.app])].join(",")}`;
+	return [
+		entrypoint,
+		...args,
+		...(options.app === undefined ? [] : ["--app", options.app]),
+	]
+		.map((arg) => ` --execution-arg=${shellLiteral(arg)}`)
+		.join("");
 }
 
 async function main() {
@@ -128,8 +140,8 @@ async function main() {
 	if (needsSchemaRepair) {
 		if (options.prod === true) {
 			console.log(
-				"\nCurrent Blueprint types with inactive schemas need the write-capable production Job first:\n" +
-					`      ${productionJob}${productionOverrideArgs("schema-drift.cjs", ["--execute"])}`,
+				"\nAfter the new revision has 100% traffic and every old-revision request has drained, current Blueprint types with inactive schemas need the write-capable production Job first:\n" +
+					`      ${productionJob}${productionExecutionArgs("schema-drift.cjs", ["--execute"])}`,
 			);
 		} else {
 			console.log(
@@ -141,16 +153,13 @@ async function main() {
 	}
 	if (needsRetirement || needsIndexCleanup) {
 		if (options.prod === true) {
-			const override =
-				options.app === undefined
-					? ""
-					: productionOverrideArgs("case-type-schema-retirement.cjs", [
-							"--execute",
-							"--confirm-old-revision-drained",
-						]);
+			const executionArgs = productionExecutionArgs(
+				"case-type-schema-retirement.cjs",
+				["--execute", "--confirm-old-revision-drained"],
+			);
 			console.log(
 				"\nAfter the new revision has 100% traffic and every old-revision request has drained, run the immutable write-capable Job:\n" +
-					`      ${productionJob}${override}`,
+					`      ${productionJob}${executionArgs}`,
 			);
 		} else {
 			console.log(

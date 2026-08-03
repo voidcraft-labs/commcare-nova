@@ -1,11 +1,15 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import type { AppDatabase } from "@/lib/db/pg";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
 import { loadPersistedBlueprintReadOnly } from "../../../../scripts/lib/loadPersistedBlueprint";
 import { computeSchemaDrift } from "../../../../scripts/lib/schemaDrift";
+import { prepareSchemaDriftRepairInAppTransaction } from "../../../../scripts/lib/schemaDriftMigration";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { SchemaNotSyncedError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
@@ -65,6 +69,91 @@ beforeEach(async () => {
 });
 
 describe("durable case-schema index convergence", () => {
+	it("does not overwrite a newer schema from a stale drift-repair snapshot", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 3,
+		});
+		const desired = toPersistableDoc(
+			buildDoc({
+				appId: APP_ID,
+				appName: "Index convergence",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "value",
+								label: "Value",
+								data_type: "int",
+							},
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListOnly: true,
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+					},
+				],
+			}),
+		);
+		const appDb = database.db as unknown as Kysely<AppDatabase>;
+		await appDb.transaction().execute(async (tx) => {
+			await sql`
+				UPDATE apps
+				SET app_name = ${desired.appName},
+				    app_name_lower = ${desired.appName.toLowerCase()},
+				    case_types = ${JSON.stringify(desired.caseTypes)}::jsonb,
+				    module_count = ${desired.moduleOrder.length},
+				    form_count = 0,
+				    mutation_seq = 2
+				WHERE id = ${APP_ID}
+			`.execute(tx);
+			const entities = decomposeBlueprint(desired);
+			await tx
+				.insertInto("blueprint_entities")
+				.values(
+					entities.map((entity) => ({
+						app_id: APP_ID,
+						uuid: entity.uuid,
+						kind: entity.kind,
+						parent_uuid: entity.parent_uuid,
+						ordinal: entity.ordinal,
+						data: JSON.stringify(entity.data),
+					})),
+				)
+				.execute();
+		});
+
+		const prepared = await appDb
+			.transaction()
+			.execute((tx) =>
+				prepareSchemaDriftRepairInAppTransaction(tx, caseStore, APP_ID),
+			);
+		expect(prepared?.drifts).toHaveLength(1);
+		await prepared?.completeAfterCommit();
+
+		const stored = await db()
+			.selectFrom("case_type_schemas")
+			.select(["schema", "synced_seq"])
+			.where("app_id", "=", APP_ID)
+			.where("case_type", "=", "patient")
+			.executeTakeFirstOrThrow();
+		expect(stored.synced_seq).toBe("3");
+		expect(
+			(stored.schema as { properties: { value: { type: string } } }).properties
+				.value.type,
+		).toBe("string");
+	});
+
 	it("loads the exact Blueprint in a nonlocking read-only snapshot", async () => {
 		const appDb = database.db as unknown as Kysely<AppDatabase>;
 		const blueprint = await appDb

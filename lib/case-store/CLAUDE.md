@@ -262,18 +262,31 @@ bound is `cloudRunRequestSeconds` in `config/runtime-capabilities.json`,
 currently 3600 seconds), then run:
 
 ```bash
-gcloud run jobs execute commcare-nova-case-type-schema-retirement \
-  --project=commcare-nova --region=us-central1 --wait
+python3 scripts/rollout/deploy-cloud-run.py --execute-job \
+  --project=commcare-nova --region=us-central1 \
+  --job=commcare-nova-case-type-schema-retirement \
+  --service=commcare-nova --wait-seconds=3060 \
+  --execution-arg=case-type-schema-retirement.cjs \
+  --execution-arg=--execute \
+  --execution-arg=--confirm-old-revision-drained
 npx tsx scripts/scan-case-type-schema-retirement.ts --prod
 ```
 
-If the scanner reports an inactive current type, first run the same Job with
-`--args=schema-drift.cjs,--execute` (append `,--app,<appId>` for an app-scoped
-repair), then run the default retirement Job and the read-only production scan
-again. A scoped retirement invocation overrides args with
-`case-type-schema-retirement.cjs,--execute,--confirm-old-revision-drained,--app,<appId>`.
-The scanner prints these exact target-preserving commands; do not substitute a
-bare local writer command after a production scan.
+The Job's stored args are dry-run only. Every write invocation must go through
+`deploy-cloud-run.py --execute-job --service=commcare-nova`: it proves the
+service is Ready at 100% traffic, resolves that revision's immutable image,
+requires the Job generation to carry the same digest, submits the Job etag,
+and verifies the immutable Execution snapshot plus every task. Explicit
+`--execution-arg` values supply the write flag and the operator's per-run drain
+acknowledgement; an accidental default execution cannot write.
+
+If the scanner reports an inactive current type, first run the same fenced
+executor with `--execution-arg=schema-drift.cjs` and
+`--execution-arg=--execute` (append `--execution-arg=--app` plus the app id for
+an app-scoped repair), then run the retirement command and the read-only
+production scan again. The scanner prints these exact target-preserving
+commands; do not substitute a bare local writer or plain `gcloud run jobs
+execute` command after a production scan.
 
 ### Phase A (one Kysely transaction)
 

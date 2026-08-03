@@ -622,6 +622,27 @@ def _execute_job_exact(
     )
 
 
+def _ready_service_image(
+    service: dict[str, Any], revisions: Sequence[dict[str, Any]]
+) -> str:
+    candidate = _normalize_revision_name(service, assert_ready_service(service))
+    assert_candidate_traffic(service, candidate)
+    matches = [revision for revision in revisions if revision.get("name") == candidate]
+    if len(matches) != 1:
+        fail(
+            "Cloud Run did not return exactly one 100%-traffic Ready revision: "
+            f"candidate={candidate!r}, matches={len(matches)}."
+        )
+    images = _all_image_values(matches[0])
+    if len(images) != 1:
+        fail(
+            "The 100%-traffic Ready revision does not contain exactly one image: "
+            f"revision={candidate!r}, images={images!r}."
+        )
+    _immutable_image(images[0])
+    return images[0]
+
+
 def _candidate_revision_fact(
     candidate: str,
     region: str,
@@ -904,7 +925,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.add_argument("--project", required=True)
         parser.add_argument("--region", required=True)
         parser.add_argument("--job", required=True)
-        parser.add_argument("--image", required=True)
+        image_source = parser.add_mutually_exclusive_group(required=True)
+        image_source.add_argument("--image")
+        image_source.add_argument("--service")
         parser.add_argument("--wait-seconds", required=True, type=int)
         parser.add_argument("--execution-arg", action="append", default=[])
         values = parser.parse_args(argv)
@@ -1111,6 +1134,20 @@ def _policy_self_test() -> None:
     assert repository == "us-central1-docker.pkg.dev/p/r/i"
     assert digest == "sha256:" + "a" * 64
     immutable_image = repository + "@" + digest
+    assert _ready_service_image(
+        latest_service,
+        [
+            {"name": candidate, "containers": [{"image": immutable_image}]},
+            {"name": old, "containers": [{"image": immutable_image}]},
+        ],
+    ) == immutable_image
+    _expect_policy_failure(
+        lambda: _ready_service_image(
+            split,
+            [{"name": candidate, "containers": [{"image": immutable_image}]}],
+        ),
+        "split-traffic production Job image",
+    )
     job_name = "projects/p/locations/r/jobs/migrate"
     assert (
         _exact_ready_job_etag(
@@ -1211,11 +1248,15 @@ def _read_scaling_prestate_mode(args: argparse.Namespace) -> None:
 
 
 def _execute_job_mode(args: argparse.Namespace) -> None:
+    expected_image = args.image
+    if expected_image is None:
+        api = CloudRunApi(args.project, args.region, args.service)
+        expected_image = _ready_service_image(api.service(), api.revisions())
     execution = _execute_job_exact(
         project=args.project,
         region=args.region,
         job=args.job,
-        expected_image=args.image,
+        expected_image=expected_image,
         execution_args=args.execution_arg,
         wait_seconds=args.wait_seconds,
     )
@@ -1225,7 +1266,7 @@ def _execute_job_mode(args: argparse.Namespace) -> None:
             {
                 "job": args.job,
                 "execution": execution.get("name"),
-                "image": args.image,
+                "image": expected_image,
             },
             separators=(",", ":"),
             sort_keys=True,
