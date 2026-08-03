@@ -33,7 +33,11 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { predicateExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import {
+	predicateExpressionRuntimeEditVerdict,
+	predicateRuntimeDateAddRepair,
+} from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -42,6 +46,7 @@ import {
 	type Predicate,
 	type RelationPath,
 	type ValueExpression,
+	walkExpressionNodes,
 } from "@/lib/domain/predicate";
 import {
 	ChildPredicateEditor,
@@ -83,6 +88,7 @@ import {
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
 import { pathsEqual, RuleFocusProvider } from "./RuleFocusContext";
+import { RuntimeDateAddRepairAlert } from "./RuntimeDateAddRepairAlert";
 import { resolveRelationDestination } from "./relationDestination";
 import {
 	DEFAULT_RULE_ROOT_LABEL,
@@ -117,6 +123,17 @@ export const STRUCTURE_KINDS = [
 type StructureKind = (typeof STRUCTURE_KINDS)[number];
 
 type WorkbenchFocusFallback = "condition" | "related-condition";
+
+function expressionContains(
+	root: ValueExpression,
+	target: ValueExpression,
+): boolean {
+	let contains = false;
+	walkExpressionNodes(root, (node) => {
+		if (node === target || deepEqual(node, target)) contains = true;
+	});
+	return contains;
+}
 
 type NavigationFocusRequest =
 	| {
@@ -465,6 +482,10 @@ export function PredicateWorkbench({
 		() => buildValidityIndex(validity.ok ? [] : validity.errors),
 		[validity],
 	);
+	const runtimeRepair = useMemo(
+		() => predicateRuntimeDateAddRepair(value, evaluationTarget, typeContext),
+		[value, evaluationTarget, typeContext],
+	);
 
 	// Every axis the pickers offer travels together. `userProperties` in
 	// particular is not optional in practice: the sibling `typeContext`
@@ -510,9 +531,19 @@ export function PredicateWorkbench({
 				evaluationTarget,
 				typeContext,
 			);
-			return verdict.ok
-				? ({ admitted: true } as const)
-				: ({ admitted: false, reason: verdict.reason } as const);
+			if (verdict.ok) return { admitted: true } as const;
+			const atEditedExpression =
+				verdict.expression === undefined
+					? undefined
+					: expressionContains(next, verdict.expression);
+			return {
+				admitted: false,
+				reason:
+					atEditedExpression === false
+						? "Another date calculation needs attention. Use the repair action above to fix all unavailable adjustments together."
+						: verdict.reason,
+				atEditedExpression,
+			} as const;
 		},
 		[value, evaluationTarget, typeContext],
 	);
@@ -667,6 +698,10 @@ export function PredicateWorkbench({
 		>
 			<RuleFocusProvider activePath={activePath} open={enterRule}>
 				<div ref={workbenchRef} className="@container space-y-3">
+					<RuntimeDateAddRepairAlert
+						adjustmentCount={runtimeRepair.removedAdjustments}
+						onRepair={() => onChange(runtimeRepair.value)}
+					/>
 					<WorkbenchNavigation
 						location={location}
 						knownInputs={knownInputs}

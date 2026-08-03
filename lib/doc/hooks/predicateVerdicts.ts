@@ -8,5 +8,7 @@ export {
 	type ExpressionEvaluationTarget,
 	type PredicateEditVerdict,
 	predicateExpressionRuntimeEditVerdict,
+	predicateRuntimeDateAddRepair,
 	valueExpressionRuntimeEditVerdict,
+	valueRuntimeDateAddRepair,
 } from "../commitVerdicts";

@@ -43,7 +43,11 @@
 import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import { valueExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import {
+	valueExpressionRuntimeEditVerdict,
+	valueRuntimeDateAddRepair,
+} from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -55,6 +59,7 @@ import {
 	type SlotConstraint,
 	type TypeContext,
 	type ValueExpression,
+	walkExpressionNodes,
 } from "@/lib/domain/predicate";
 import {
 	buildEditorTypeContext,
@@ -70,6 +75,7 @@ import type {
 } from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
+import { RuntimeDateAddRepairAlert } from "./RuntimeDateAddRepairAlert";
 import { replaceExpressionNodeAtPath } from "./ruleNavigation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
@@ -128,6 +134,17 @@ interface ExpressionCardEditorProps {
 	 * affordance on the same verdict, including the root constraint.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
+}
+
+function expressionContains(
+	root: ValueExpression,
+	target: ValueExpression,
+): boolean {
+	let contains = false;
+	walkExpressionNodes(root, (node) => {
+		if (node === target || deepEqual(node, target)) contains = true;
+	});
+	return contains;
 }
 
 /**
@@ -211,6 +228,10 @@ export function ExpressionCardEditor({
 	}, [value, typeCtx, constraint]);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
+	const runtimeRepair = useMemo(
+		() => valueRuntimeDateAddRepair(value, evaluationTarget, typeCtx),
+		[value, evaluationTarget, typeCtx],
+	);
 	const admitRuntimeExpression = useCallback(
 		(path: readonly (string | number)[], next: ValueExpression) => {
 			const candidate = replaceExpressionNodeAtPath(value, path, {
@@ -222,9 +243,19 @@ export function ExpressionCardEditor({
 				evaluationTarget,
 				typeCtx,
 			);
-			return verdict.ok
-				? ({ admitted: true } as const)
-				: ({ admitted: false, reason: verdict.reason } as const);
+			if (verdict.ok) return { admitted: true } as const;
+			const atEditedExpression =
+				verdict.expression === undefined
+					? undefined
+					: expressionContains(next, verdict.expression);
+			return {
+				admitted: false,
+				reason:
+					atEditedExpression === false
+						? "Another date calculation needs attention. Use the repair action above to fix all unavailable adjustments together."
+						: verdict.reason,
+				atEditedExpression,
+			} as const;
 		},
 		[value, evaluationTarget, typeCtx],
 	);
@@ -252,12 +283,18 @@ export function ExpressionCardEditor({
 			validityIndex={validityIndex}
 			admitExpressionChange={admitRuntimeExpression}
 		>
-			<ExpressionPicker
-				value={value}
-				onChange={onChange}
-				path={ROOT_PATH}
-				constraint={constraint}
-			/>
+			<div className="space-y-3">
+				<RuntimeDateAddRepairAlert
+					adjustmentCount={runtimeRepair.removedAdjustments}
+					onRepair={() => onChange(runtimeRepair.value)}
+				/>
+				<ExpressionPicker
+					value={value}
+					onChange={onChange}
+					path={ROOT_PATH}
+					constraint={constraint}
+				/>
+			</div>
 		</PredicateEditProvider>
 	);
 }

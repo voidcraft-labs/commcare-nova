@@ -78,7 +78,14 @@ type ValidityIndex = ReadonlyMap<string, EditorPathErrors>;
 
 export type ExpressionChangeAdmission =
 	| { readonly admitted: true }
-	| { readonly admitted: false; readonly reason: string };
+	| {
+			readonly admitted: false;
+			readonly reason: string;
+			/** Whether the refusing runtime issue is inside the replacement value
+			 *  itself. Cards use this to avoid marking a healthy control invalid
+			 *  merely because another legacy calculation needs atomic repair. */
+			readonly atEditedExpression?: boolean;
+	  };
 
 export type AdmitExpressionChange = (
 	path: EditorPath,

@@ -7,14 +7,17 @@ import {
 	screen,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType, LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
+	and,
 	arith,
 	dateAdd,
 	eq,
 	literal,
+	now,
+	type Predicate,
 	prop,
 	term,
 	today,
@@ -61,6 +64,7 @@ function renderWorkbench({
 	value = eq(prop("patient", "age"), literal(18)),
 	target = "case-search",
 	lookupTables,
+	onChange = () => {},
 }: {
 	readonly value?: Parameters<typeof PredicateWorkbench>[0]["value"];
 	readonly target?: Parameters<
@@ -69,11 +73,12 @@ function renderWorkbench({
 	readonly lookupTables?: Parameters<
 		typeof PredicateWorkbench
 	>[0]["lookupTables"];
+	readonly onChange?: Parameters<typeof PredicateWorkbench>[0]["onChange"];
 } = {}) {
 	render(
 		<PredicateWorkbench
 			value={value}
-			onChange={() => {}}
+			onChange={onChange}
 			caseTypes={CASE_TYPES}
 			currentCaseType="patient"
 			evaluationTarget={target}
@@ -258,5 +263,56 @@ describe("PredicateWorkbench case-search admission", () => {
 			name: /Look up a table value.*Add a Project data column/i,
 		});
 		expect(tableLookup.getAttribute("aria-disabled")).toBe("true");
+	});
+
+	it("does not offer a whole-date base that would break a datetime parent slot", () => {
+		renderWorkbench({
+			value: eq(
+				prop("patient", "last_seen"),
+				dateAdd(now(), "days", term(literal(1))),
+			),
+			target: "on-device",
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Edit current date and time" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Change value type" }));
+		const todayChoice = screen.getByRole("menuitem", {
+			name: /^Today's date/,
+		});
+		expect(todayChoice.getAttribute("aria-disabled")).toBe("true");
+	});
+
+	it("offers one explicit atomic repair for every unavailable adjustment", () => {
+		const onChange = vi.fn();
+		renderWorkbench({
+			value: and(
+				eq(
+					prop("patient", "dob"),
+					dateAdd(today(), "months", term(literal(1))),
+				),
+				eq(
+					prop("patient", "last_seen"),
+					dateAdd(now(), "days", term(literal(1))),
+				),
+			),
+			target: "on-device",
+			onChange,
+		});
+
+		expect(screen.getByText(/repair keeps each starting date/i)).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Remove 2 adjustments" }),
+		);
+
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onChange.mock.calls[0][0] as Predicate).toEqual(
+			and(
+				eq(prop("patient", "dob"), today()),
+				eq(prop("patient", "last_seen"), now()),
+			),
+		);
 	});
 });

@@ -55,6 +55,7 @@ import {
 	type CasePropertyRenamePlanIssue,
 	planCasePropertyRenames,
 } from "@/lib/doc/casePropertyRenames";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -76,22 +77,140 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { MutationResult } from "@/lib/doc/types";
 import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
-import type {
-	MatchMode,
-	Predicate,
-	TypeContext,
-	ValueExpression,
+import {
+	type MatchMode,
+	mapExpressionAst,
+	mapPredicateAst,
+	type Predicate,
+	type TypeContext,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
-
+/*
+ * The edit verdict carries the offending date-add node by identity. The UI
+ * uses that only to distinguish "this control is invalid" from "another
+ * calculation in the same carrier needs attention"; CommCare vocabulary and
+ * traversal still stay behind this doc-facing seam.
+ */
 export type PredicateEditVerdict =
 	| { readonly ok: true }
-	| { readonly ok: false; readonly reason: string };
+	| {
+			readonly ok: false;
+			readonly reason: string;
+			readonly expression?: ValueExpression;
+	  };
+
+export interface RuntimeDateAddRepair<T> {
+	readonly value: T;
+	readonly removedAdjustments: number;
+}
+
+/*
+ * Imported/pre-gate documents can carry several unsupported adjustments.
+ * Nova's absolute commit gate cannot land one-invalid-step-at-a-time repairs,
+ * so the builder offers one explicit atomic repair: keep every starting value
+ * and remove only the unavailable adjustment envelopes.
+ */
+function removeDateAddIssueFromExpression(
+	expression: ValueExpression,
+	issue: OnDeviceDateAddIssue,
+): ValueExpression {
+	let replaced = false;
+	return mapExpressionAst(expression, {
+		mapExpression: (node) => {
+			if (
+				replaced ||
+				node.kind !== "date-add" ||
+				(node !== issue.expression && !deepEqual(node, issue.expression))
+			) {
+				return undefined;
+			}
+			replaced = true;
+			return node.date;
+		},
+	});
+}
+
+function removeDateAddIssueFromPredicate(
+	predicate: Predicate,
+	issue: OnDeviceDateAddIssue,
+): Predicate {
+	let replaced = false;
+	return mapPredicateAst(predicate, {
+		mapExpression: (node) => {
+			if (
+				replaced ||
+				node.kind !== "date-add" ||
+				(node !== issue.expression && !deepEqual(node, issue.expression))
+			) {
+				return undefined;
+			}
+			replaced = true;
+			return node.date;
+		},
+	});
+}
 
 /** The runtime family that will evaluate one authored expression carrier. */
 export type ExpressionEvaluationTarget =
 	| "on-device"
 	| "case-search"
 	| "on-device-and-case-search";
+
+function predicateDateAddIssue(
+	predicate: Predicate,
+	target: ExpressionEvaluationTarget,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	return target === "case-search"
+		? caseSearchDateAddIssue(predicate, context)
+		: findOnDeviceDateAddIssueInPredicate(predicate, context);
+}
+
+/**
+ * Build the explicit all-at-once repair for a predicate carrier.
+ *
+ * Re-running the semantic classifier after each structural replacement is
+ * intentional: table-row scope and mixed CSQL/JavaRosa state remain owned by
+ * their existing walkers, and a nested issue revealed by removing its parent
+ * is repaired in the same candidate.
+ */
+export function predicateRuntimeDateAddRepair(
+	predicate: Predicate,
+	target: ExpressionEvaluationTarget,
+	context: TypeContext,
+): RuntimeDateAddRepair<Predicate> {
+	let value = predicate;
+	let removedAdjustments = 0;
+	for (;;) {
+		const issue = predicateDateAddIssue(value, target, context);
+		if (issue === undefined) return { value, removedAdjustments };
+		const next = removeDateAddIssueFromPredicate(value, issue);
+		if (next === value) return { value, removedAdjustments };
+		value = next;
+		removedAdjustments += 1;
+	}
+}
+
+/** Build the explicit all-at-once repair for a standalone value carrier. */
+export function valueRuntimeDateAddRepair(
+	expression: ValueExpression,
+	target: ExpressionEvaluationTarget,
+	context: TypeContext,
+): RuntimeDateAddRepair<ValueExpression> {
+	let value = expression;
+	let removedAdjustments = 0;
+	for (;;) {
+		const issue =
+			target === "case-search"
+				? undefined
+				: findOnDeviceDateAddIssue(value, context);
+		if (issue === undefined) return { value, removedAdjustments };
+		const next = removeDateAddIssueFromExpression(value, issue);
+		if (next === value) return { value, removedAdjustments };
+		value = next;
+		removedAdjustments += 1;
+	}
+}
 
 function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	if (issue.reason === "case-property-on-value-side") {
@@ -153,7 +272,11 @@ export function predicateExpressionRuntimeEditVerdict(
 			: findOnDeviceDateAddIssueInPredicate(candidate, context);
 	return dateIssue === undefined
 		? { ok: true }
-		: { ok: false, reason: dateAddEditIssueReason(dateIssue) };
+		: {
+				ok: false,
+				reason: dateAddEditIssueReason(dateIssue),
+				expression: dateIssue.expression,
+			};
 }
 
 /** Whole-candidate authoring verdict for a standalone value expression. */
@@ -166,7 +289,11 @@ export function valueExpressionRuntimeEditVerdict(
 	const issue = findOnDeviceDateAddIssue(candidate, context);
 	return issue === undefined
 		? { ok: true }
-		: { ok: false, reason: dateAddEditIssueReason(issue) };
+		: {
+				ok: false,
+				reason: dateAddEditIssueReason(issue),
+				expression: issue.expression,
+			};
 }
 
 /**
