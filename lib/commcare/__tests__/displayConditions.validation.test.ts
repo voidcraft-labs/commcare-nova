@@ -21,11 +21,13 @@ import {
 	relationStep,
 	selfPath,
 	sessionUser,
+	tableColumn,
 	tableLookup,
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import type { LookupTypeIndex } from "../validator/lookupTypeContext";
 import {
 	formDisplayCondition,
 	moduleDisplayCondition,
@@ -58,6 +60,7 @@ function validateForm(
 function validateFormFindings(
 	condition: Predicate,
 	formType: "followup" | "survey" = "followup",
+	lookupTables?: LookupTypeIndex,
 ) {
 	const doc = buildDoc({
 		appName: "Display",
@@ -101,7 +104,7 @@ function validateFormFindings(
 	});
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
-	return formDisplayCondition(doc, formUuid, moduleUuid);
+	return formDisplayCondition(doc, formUuid, moduleUuid, lookupTables);
 }
 
 const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
@@ -231,6 +234,44 @@ describe("form display-condition validation", () => {
 		 * lookup is a scalar-safe on-device read; only the structural
 		 * lookup-reference findings still apply to this shape. */
 		expect(finding).toBeUndefined();
+	});
+
+	it("checks date arithmetic inside a lookup row's filter", () => {
+		const tableId = "00000000-0000-7000-8000-000000000001" as LookupTableId;
+		const resultColumnId =
+			"10000000-0000-7000-8000-000000000001" as LookupColumnId;
+		const datetimeColumnId =
+			"10000000-0000-7000-8000-000000000002" as LookupColumnId;
+		const lookupTables: LookupTypeIndex = new Map([
+			[
+				tableId,
+				new Map([
+					[resultColumnId, "text"],
+					[datetimeColumnId, "datetime"],
+				]),
+			],
+		]);
+		const condition = eq(
+			tableLookup(
+				tableId,
+				resultColumnId,
+				eq(
+					dateAdd(
+						term(tableColumn(tableId, datetimeColumnId)),
+						"days",
+						term(literal(1)),
+					),
+					term(tableColumn(tableId, datetimeColumnId)),
+				),
+			),
+			literal("North"),
+		);
+
+		expect(
+			validateFormFindings(condition, "followup", lookupTables).map(
+				(error) => error.code,
+			),
+		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
 	});
 
 	it("reports type errors independently of context availability", () => {

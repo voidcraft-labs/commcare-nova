@@ -21,8 +21,8 @@
  */
 
 import {
+	findOnDeviceDateAddIssueInPredicate,
 	findOnDeviceScalarExpressionIssue,
-	onDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
@@ -141,18 +141,18 @@ function firstPortabilityIssue(
 		}
 	});
 
-	walkPredicateExpressionNodes(condition, (node) => {
-		if (issue !== undefined) return;
-		const dateAddIssue = onDeviceDateAddIssue(node, ctx);
+	if (issue === undefined) {
+		const dateAddIssue = findOnDeviceDateAddIssueInPredicate(condition, ctx);
 		if (dateAddIssue?.reason === "calendar-interval") {
 			issue = `adds calendar-relative ${dateAddIssue.expression.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`;
-			return;
-		}
-		if (dateAddIssue?.reason === "datetime-base") {
+		} else if (dateAddIssue?.reason === "datetime-base") {
 			issue =
 				"adds to a date-and-time value, which would discard the time on device";
-			return;
 		}
+	}
+
+	walkPredicateExpressionNodes(condition, (node) => {
+		if (issue !== undefined) return;
 		const scalarIssue = findOnDeviceScalarExpressionIssue(node, ctx);
 		if (scalarIssue !== undefined) {
 			issue =
