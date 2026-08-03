@@ -194,18 +194,17 @@ describe("form display-condition validation", () => {
 	});
 
 	it("rejects date arithmetic that would discard a property's time", () => {
-		expect(
-			validateForm(
-				eq(
-					dateAdd(
-						term(prop("patient", "visited_at")),
-						"days",
-						term(literal(1)),
-					),
-					term(prop("patient", "visited_at")),
-				),
+		const finding = validateFormFindings(
+			eq(
+				dateAdd(term(prop("patient", "visited_at")), "days", term(literal(1))),
+				term(prop("patient", "visited_at")),
 			),
-		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
+		).find((error) => error.code === "DISPLAY_CONDITION_NOT_ON_DEVICE");
+		expect(finding).toEqual(
+			expect.objectContaining({
+				details: expect.objectContaining({ reason: "datetime-base" }),
+			}),
+		);
 	});
 
 	it("allows fixed-duration arithmetic over a whole-date property", () => {

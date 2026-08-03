@@ -214,8 +214,16 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The display condition for ${q(formName(e))} compares values that don't go together. Open it and adjust the comparison.`,
 	DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE: () =>
 		"A display condition reads a search answer before anyone has searched. Remove that reference and use current-user information or a fixed value.",
-	DISPLAY_CONDITION_NOT_ON_DEVICE: () =>
-		"This display condition uses an option that can't run in the app. Open it and choose a simpler comparison or calculation.",
+	DISPLAY_CONDITION_NOT_ON_DEVICE: (e) => {
+		const subject = e.scope === "module" ? q(modName(e)) : q(formName(e));
+		if (e.details?.reason === "datetime-base") {
+			return `The display condition for ${subject} starts a calculation from a date and time, but the time would be lost here. Use a whole date or choose another calculation.`;
+		}
+		if (e.details?.reason === "calendar-interval") {
+			return `The display condition for ${subject} uses a month or year calculation that isn't available here. Use seconds, minutes, hours, days, or weeks.`;
+		}
+		return `The display condition for ${subject} uses an option that can't run in the app. Open it and choose a simpler comparison or calculation.`;
+	},
 	DISPLAY_CONDITION_ALWAYS_FALSE: (e) => {
 		const subject = e.scope === "module" ? q(modName(e)) : q(formName(e));
 		return `The display condition for ${subject} can never be true, so no one could open it. Change or remove the condition.`;
@@ -501,8 +509,15 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A case operation writes case information that isn't set up on that case type. Add it or choose another property.",
 	CASE_OPERATION_RESERVED_PROPERTY: () =>
 		"A case operation writes to a reserved name. Use the operation's matching setting or another property.",
-	CASE_OPERATION_EXPRESSION_TYPE: () =>
-		"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation.",
+	CASE_OPERATION_EXPRESSION_TYPE: (e) => {
+		if (e.details?.reason === "datetime-base") {
+			return "A date calculation in this case operation starts from a date and time, but the time would be lost here. Use a whole date or choose another calculation.";
+		}
+		if (e.details?.reason === "calendar-interval") {
+			return "A date calculation in this case operation uses months or years, which aren't available here. Use seconds, minutes, hours, days, or weeks.";
+		}
+		return "A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation.";
+	},
 	CASE_OPERATION_TARGET_INVALID: () =>
 		"A case operation can't resolve the case it should work on. Choose a valid target.",
 	CASE_OPERATION_TARGET_TYPE_MISMATCH: () =>
@@ -566,7 +581,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice filter whose values don't fit the comparison. Adjust the referenced columns, values, or operator.`,
 	LOOKUP_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice date calculation that won't work on a device. Use a whole date with seconds, minutes, hours, days, or weeks, or rewrite the comparison.`,
+		e.details?.reason === "datetime-base"
+			? `${q(fieldName(e))} in ${q(formName(e))} filters its choices with a date and time calculation, but the time would be lost here. Use a whole date or choose another calculation.`
+			: `${q(fieldName(e))} in ${q(formName(e))} filters its choices with a month or year calculation that isn't available here. Use seconds, minutes, hours, days, or weeks.`,
 
 	// ── XPath / formula deep validation ──────────────────────────────
 	XPATH_SYNTAX: (e) =>

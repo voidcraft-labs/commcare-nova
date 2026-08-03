@@ -51,7 +51,7 @@ import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { describeLocation } from "@/lib/commcare/validator/rules/media/shared";
-import { loadApp } from "@/lib/db/apps";
+import { loadAppForInspection } from "@/lib/db/apps";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	listReadyAssetsForProject,
@@ -337,7 +337,7 @@ interface LoadedApp {
  * load-time hydration), the same step `inspect-app` performs.
  */
 async function loadOne(appId: string): Promise<LoadedApp | null> {
-	const app = await loadApp(appId);
+	const app = await loadAppForInspection(appId);
 	if (!app) return null;
 	return {
 		appId,
@@ -516,7 +516,7 @@ async function loadAllReadyAssets(
 async function scanApp(appId: string): Promise<void> {
 	printHeader("MULTIMEDIA READINESS — APP (read-only)");
 
-	const app = await loadApp(appId);
+	const app = await loadAppForInspection(appId);
 	if (!app) {
 		console.error(
 			`Couldn't find an app with id "${appId}". Check the id against the apps table, or pass --project to scan a whole Project.`,

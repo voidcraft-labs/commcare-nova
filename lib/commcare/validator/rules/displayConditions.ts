@@ -120,12 +120,18 @@ function hasUnavailableCaseRead(carrier: Carrier): boolean {
 function firstPortabilityIssue(
 	condition: Predicate,
 	ctx: TypeContext,
-): string | undefined {
-	let issue: string | undefined;
+):
+	| { readonly message: string; readonly details?: Record<string, string> }
+	| undefined {
+	let issue:
+		| { readonly message: string; readonly details?: Record<string, string> }
+		| undefined;
 	walkPredicateNodes(condition, (node) => {
 		if (issue !== undefined) return;
 		if (node.kind === "match" && !matchModeRunsOnDevice(node.mode)) {
-			issue = `uses the server-only \`${node.mode}\` match mode; use \`starts-with\` or another on-device condition`;
+			issue = {
+				message: `uses the server-only \`${node.mode}\` match mode; use \`starts-with\` or another on-device condition`,
+			};
 			return;
 		}
 		if (node.kind === "within-distance") {
@@ -136,7 +142,9 @@ function firstPortabilityIssue(
 				typeof center.term.value === "string" &&
 				!isValidStaticGeopointCenter(center.term.value)
 			) {
-				issue = `uses an invalid fixed geopoint center "${center.term.value}"`;
+				issue = {
+					message: `uses an invalid fixed geopoint center "${center.term.value}"`,
+				};
 			}
 		}
 	});
@@ -144,10 +152,22 @@ function firstPortabilityIssue(
 	if (issue === undefined) {
 		const dateAddIssue = findOnDeviceDateAddIssueInPredicate(condition, ctx);
 		if (dateAddIssue?.reason === "calendar-interval") {
-			issue = `adds calendar-relative ${dateAddIssue.expression.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`;
+			issue = {
+				message: `adds calendar-relative ${dateAddIssue.expression.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`,
+				details: {
+					reason: dateAddIssue.reason,
+					interval: dateAddIssue.expression.interval,
+				},
+			};
 		} else if (dateAddIssue?.reason === "datetime-base") {
-			issue =
-				"adds to a date-and-time value, which would discard the time on device";
+			issue = {
+				message:
+					"adds to a date-and-time value, which would discard the time on device",
+				details: {
+					reason: dateAddIssue.reason,
+					interval: dateAddIssue.expression.interval,
+				},
+			};
 		}
 	}
 
@@ -155,8 +175,10 @@ function firstPortabilityIssue(
 		if (issue !== undefined) return;
 		const scalarIssue = findOnDeviceScalarExpressionIssue(node, ctx);
 		if (scalarIssue !== undefined) {
-			issue =
-				"uses a relation read that may return several values in one scalar menu expression";
+			issue = {
+				message:
+					"uses a relation read that may return several values in one scalar menu expression",
+			};
 		}
 	});
 	return issue;
@@ -243,8 +265,9 @@ function validateCarrier(
 			validationError(
 				"DISPLAY_CONDITION_NOT_ON_DEVICE",
 				carrier.kind,
-				`${who} ${portability}.`,
+				`${who} ${portability.message}.`,
 				loc,
+				portability.details,
 			),
 		);
 	}

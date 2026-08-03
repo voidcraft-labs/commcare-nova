@@ -1534,6 +1534,9 @@ describe("case-operation links and on-device totality", () => {
 			(error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE",
 		);
 		expect(finding?.message).toContain("would discard the time");
+		expect(finding?.details).toEqual(
+			expect.objectContaining({ reason: "datetime-base", interval: "days" }),
+		);
 
 		const conditionFinding = errorsFor([
 			update({
@@ -1548,6 +1551,9 @@ describe("case-operation links and on-device totality", () => {
 			}),
 		]).find((error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE");
 		expect(conditionFinding?.message).toContain("would discard the time");
+		expect(conditionFinding?.details).toEqual(
+			expect.objectContaining({ reason: "datetime-base", interval: "hours" }),
+		);
 	});
 
 	it("keeps fixed-duration date arithmetic available in case operations", () => {

@@ -16,7 +16,7 @@ import "dotenv/config";
 import { Command } from "commander";
 import { sql } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { loadApp } from "@/lib/db/apps";
+import { loadAppForInspection } from "@/lib/db/apps";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import { listThreadMetas, loadThread } from "@/lib/db/threads";
@@ -145,7 +145,7 @@ function printFieldTree(
 
 async function main() {
 	/* ── App row ──────────────────────────────────────────────────── */
-	const data = await loadApp(appId);
+	const data = await loadAppForInspection(appId);
 	if (!data) {
 		console.error(`App ${appId} not found.`);
 		for (const line of await describeUnknownId(appId, opts.prod === true)) {

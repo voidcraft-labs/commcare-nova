@@ -855,6 +855,10 @@ function onDeviceDateAddOperationError(
 		operation,
 		"CASE_OPERATION_EXPRESSION_TYPE",
 		`An expression in case operation "${operation.id}" cannot run on device because ${reason}. Use a whole date with seconds, minutes, hours, days, or weeks, or rewrite the calculation.`,
+		{
+			reason: issue.reason,
+			interval: issue.expression.interval,
+		},
 	);
 }
 
@@ -1166,6 +1170,7 @@ function opError(
 	operation: CaseOperation | undefined,
 	code: Parameters<typeof validationError>[0],
 	message: string,
+	details?: Record<string, string>,
 ): ValidationError {
 	return validationError(
 		code,
@@ -1179,7 +1184,11 @@ function opError(
 			field: operation?.uuid,
 		},
 		operation === undefined
-			? undefined
-			: { operationUuid: operation.uuid, operationId: operation.id },
+			? details
+			: {
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					...details,
+				},
 	);
 }

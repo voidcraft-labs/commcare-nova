@@ -868,6 +868,15 @@ function replaceExpression(
 	throw new Error("Value path does not point to an editable node");
 }
 
+/** Replace one node inside a standalone ValueExpression root. */
+export function replaceExpressionNodeAtPath(
+	root: ValueExpression,
+	path: EditorPath,
+	next: EditableRuleNode,
+): ValueExpression {
+	return replaceExpression(root, path, next);
+}
+
 /** Replace only the addressed Predicate or ValueExpression node. Every
  * untouched sibling keeps both its value and object identity. */
 export function replaceRuleNodeAtPath(
