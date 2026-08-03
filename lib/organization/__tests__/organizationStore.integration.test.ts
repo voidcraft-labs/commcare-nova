@@ -1291,6 +1291,21 @@ describe("locations store — deterministic reverse-hop owners", () => {
 			)?.archivedAt,
 		).not.toBeNull();
 	});
+
+	it("rolls back archiving the sole destination for a live reverse-owner source", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		await commitReverseOwnerForm(FACILITY);
+
+		await expect(setLocationArchived(scope(), facility, true)).rejects.toThrow(
+			/no live facility below "Riverside"/i,
+		);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === facility,
+			)?.archivedAt,
+		).toBeNull();
+	});
 });
 
 describe("locations store — removing a level", () => {

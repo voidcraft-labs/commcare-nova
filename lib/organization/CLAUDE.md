@@ -162,12 +162,12 @@ must never be approximated by a document-only validator.
 Retyping or moving a place changes those same facts, so both operations write a
 tentative row and then revalidate every persona assignment and fixed-owner rule
 inside the transaction. A move also changes ancestry for otherwise untouched
-rows. Create, retype, move, unarchive, and blueprint commits additionally prove
-that each authored reverse owner hop remains scalar: below any applicable
-case-owning ancestor there may be at most one live destination at the requested
-level. The same check proves the destination is present in every applicable
-persona's exact address-book footprint. Any failure rolls back the row and
-revision together.
+rows. Create, retype, move, archive, unarchive, and blueprint commits
+additionally prove that each authored reverse owner hop remains scalar and
+total: below every applicable live case-owning ancestor there is exactly one
+live destination at the requested level. The same check proves the destination
+is present in every applicable persona's exact address-book footprint. Any
+failure rolls back the row and revision together.
 
 Unarchiving deliberately does **not** restore assignments. The archive removed
 them and they are ordinary authored data now; silently re-adding a persona to a

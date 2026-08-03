@@ -50,6 +50,7 @@ export function PersonaLocations({
 	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevelRecord();
 	const assigned = assignedLocationUuids(persona.locations);
+	const assignedSet = new Set(assigned);
 	const rowFocus = useRemovedRowFocus(assigned.length);
 	const byId = new Map<string, StoredLocation>(
 		locations.map((location) => [location.id, location]),
@@ -61,7 +62,7 @@ export function PersonaLocations({
 			location.archivedAt === null &&
 			levels[location.levelUuid] !== undefined &&
 			levelHoldsWorkers(levels[location.levelUuid]) &&
-			!assigned.includes(location.id),
+			!assignedSet.has(location.id),
 	);
 	const assignableCount = locations.filter(
 		(location) =>

@@ -375,19 +375,12 @@ function PlaceRow({
 	const descendants = open
 		? descendantIds(tree.childrenOf, location.id)
 		: new Set<string>();
-	const retypePlans = new Map<string, { readonly parentId: string | null }>();
+	const retypeDefaults = new Map<string, string | null>();
 	if (open) {
 		for (const candidateLevel of levels) {
 			if (hasChildren && candidateLevel.uuid !== location.levelUuid) continue;
 			if (candidateLevel.parentLevelUuid === undefined) {
-				if (
-					locationTopologyChangeIssue(doc, tree.locations, location.id, {
-						levelUuid: candidateLevel.uuid,
-						parentId: null,
-					}) === undefined
-				) {
-					retypePlans.set(candidateLevel.uuid, { parentId: null });
-				}
+				retypeDefaults.set(candidateLevel.uuid, null);
 				continue;
 			}
 			const compatible = tree.locations.filter(
@@ -401,29 +394,20 @@ function PlaceRow({
 						levelRecord,
 					),
 			);
-			const preferred = [
-				...compatible.filter((candidate) => candidate.id === draftParentId),
-				...compatible.filter((candidate) => candidate.id !== draftParentId),
-			];
-			// Keep level-choice planning linear at the 10,000-place bound. The
-			// searchable parent control can reach every candidate after the level is
-			// staged; this preflight only needs one safe default from its first page.
-			for (const parent of preferred.slice(0, 50)) {
-				if (
-					locationTopologyChangeIssue(doc, tree.locations, location.id, {
-						levelUuid: candidateLevel.uuid,
-						parentId: parent.id,
-					}) !== undefined
-				) {
-					continue;
-				}
-				retypePlans.set(candidateLevel.uuid, { parentId: parent.id });
-				break;
+			const currentParent = compatible.find(
+				(candidate) => candidate.id === draftParentId,
+			);
+			const defaultParent = currentParent ?? compatible[0];
+			if (defaultParent !== undefined) {
+				// Retyping is staged. Keep every structurally possible level reachable,
+				// then let the searchable parent picker verdict its bounded visible page.
+				// The selected parent is checked again before Apply can write.
+				retypeDefaults.set(candidateLevel.uuid, defaultParent.id);
 			}
 		}
 	}
 	const retypeOptions = levels.filter((candidate) =>
-		retypePlans.has(candidate.uuid),
+		retypeDefaults.has(candidate.uuid),
 	);
 	const parentOptions = open
 		? tree.locations.filter(
@@ -434,6 +418,12 @@ function PlaceRow({
 					levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord),
 			)
 		: [];
+	const draftPlacementIssue = open
+		? locationTopologyChangeIssue(doc, tree.locations, location.id, {
+				levelUuid: draftLevelUuid,
+				parentId: draftParentId,
+			})
+		: undefined;
 	useEffect(() => {
 		if (
 			dirtyName ||
@@ -571,21 +561,23 @@ function PlaceRow({
 	return (
 		<EntryRow
 			summary={
-				<span className={archived ? "text-nova-text-muted" : undefined}>
-					{location.name}
-					<span className="sr-only">, nesting depth {depth + 1}</span>
+				<span className="flex min-w-0 items-center gap-2">
+					<span
+						className={`min-w-0 flex-1 [overflow-wrap:anywhere] ${archived ? "text-nova-text-muted" : ""}`}
+					>
+						{location.name}
+					</span>
 					{archived && (
-						<span className="ml-2 rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-nova-text-muted">
+						<span className="shrink-0 rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-nova-text-muted">
 							Archived
 						</span>
 					)}
+					<span className="shrink-0 rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-nova-text-muted">
+						Depth {depth + 1}
+					</span>
 				</span>
 			}
-			detail={
-				depth > 6
-					? `${levelName(levels, location.levelUuid)} · ${depth + 1} deep`
-					: levelName(levels, location.levelUuid)
-			}
+			detail={levelName(levels, location.levelUuid)}
 			open={open}
 			onOpenChange={onOpenChange}
 			keepMounted={false}
@@ -720,10 +712,10 @@ function PlaceRow({
 						disabled={!canEdit || archived || hasChildren || peerChanged}
 						onValueChange={(value) => {
 							if (typeof value !== "string") return;
-							const plan = retypePlans.get(value);
-							if (plan === undefined) return;
+							const defaultParentId = retypeDefaults.get(value);
+							if (defaultParentId === undefined) return;
 							setDraftLevelUuid(value);
-							setDraftParentId(plan.parentId);
+							setDraftParentId(defaultParentId);
 							const nextValues = valuesForLevel(properties, value, draftValues);
 							setDraftValues(nextValues);
 							setDirtyLevel(value !== location.levelUuid);
@@ -770,9 +762,14 @@ function PlaceRow({
 								) ||
 								(levels.find((candidate) => candidate.uuid === draftLevelUuid)
 									?.parentLevelUuid !== undefined &&
-									draftParentId === null)
+									draftParentId === null) ||
+								draftPlacementIssue !== undefined
 							}
 							onClick={async () => {
+								if (draftPlacementIssue !== undefined) {
+									setMessage(draftPlacementIssue);
+									return;
+								}
 								const result = await organization.update(location.id, {
 									levelUuid: draftLevelUuid,
 									values: valuesForLevel(
@@ -793,6 +790,12 @@ function PlaceRow({
 						>
 							Apply level change
 						</Button>
+					)}
+					{dirtyLevel && draftPlacementIssue !== undefined && (
+						<p className="text-[12px] leading-relaxed text-nova-red">
+							Choose a different parent before applying this level:{" "}
+							{draftPlacementIssue}
+						</p>
 					)}
 				</div>
 

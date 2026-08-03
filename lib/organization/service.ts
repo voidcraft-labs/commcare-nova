@@ -1125,13 +1125,17 @@ export async function setLocationArchived(
 				.where("id", "in", changing)
 				.execute();
 
-			if (!archived) {
-				const doc = await loadDocInTransaction(tx, scope.appId);
-				await assertReverseHopTargetsUnambiguous(tx, {
-					appId: scope.appId,
-					candidateDoc: doc,
-				});
-			}
+			// Both directions can change the scalar reverse-owner relation:
+			// restoring a second destination makes it ambiguous, while archiving the
+			// only destination leaves its still-live source without an owner. Check
+			// the tentative rows before either store is allowed to commit. The archive
+			// document is already locked above; unarchive has no Blueprint half.
+			const reverseOwnerDoc =
+				archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
+			await assertReverseHopTargetsUnambiguous(tx, {
+				appId: scope.appId,
+				candidateDoc: reverseOwnerDoc,
+			});
 
 			let unassignedPersonaCount = 0;
 			let blueprintChange: SetArchivedResult["blueprintChange"];
