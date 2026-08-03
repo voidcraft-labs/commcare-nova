@@ -7,17 +7,15 @@ import {
 	screen,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType, LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
-	and,
 	arith,
 	dateAdd,
 	eq,
 	literal,
 	now,
-	type Predicate,
 	prop,
 	term,
 	today,
@@ -64,7 +62,6 @@ function renderWorkbench({
 	value = eq(prop("patient", "age"), literal(18)),
 	target = "case-search",
 	lookupTables,
-	onChange = () => {},
 }: {
 	readonly value?: Parameters<typeof PredicateWorkbench>[0]["value"];
 	readonly target?: Parameters<
@@ -73,12 +70,11 @@ function renderWorkbench({
 	readonly lookupTables?: Parameters<
 		typeof PredicateWorkbench
 	>[0]["lookupTables"];
-	readonly onChange?: Parameters<typeof PredicateWorkbench>[0]["onChange"];
 } = {}) {
 	render(
 		<PredicateWorkbench
 			value={value}
-			onChange={onChange}
+			onChange={() => {}}
 			caseTypes={CASE_TYPES}
 			currentCaseType="patient"
 			evaluationTarget={target}
@@ -172,28 +168,25 @@ describe("PredicateWorkbench case-search admission", () => {
 		expect(replacement.getAttribute("aria-disabled")).not.toBe("true");
 	});
 
-	it("keeps an imported month calculation visible and offers safe repairs on device", () => {
+	it("disables calendar intervals before an on-device edit", () => {
 		renderWorkbench({
 			value: eq(
 				prop("patient", "dob"),
-				dateAdd(today(), "months", term(literal(1))),
+				dateAdd(today(), "days", term(literal(1))),
 			),
 			target: "on-device",
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
 		const interval = screen.getByRole("combobox", {
-			name: "Interval Months",
+			name: "Interval Days",
 		});
-		expect(interval.getAttribute("aria-invalid")).toBe("true");
-		expect(
-			screen.getByText(
-				"Month and year calculations aren't available here. Use seconds, minutes, hours, days, or weeks.",
-			),
-		).toBeTruthy();
+		expect(interval.getAttribute("aria-invalid")).not.toBe("true");
 
 		fireEvent.click(interval);
-		const months = screen.getByRole("option", { name: /^Months/ });
+		const months = screen.getByRole("option", {
+			name: /Months.*Month and year calculations aren't available here/i,
+		});
 		const days = screen.getByRole("option", { name: "Days" });
 		expect(months.getAttribute("aria-disabled")).toBe("true");
 		expect(days.getAttribute("aria-disabled")).not.toBe("true");
@@ -283,62 +276,5 @@ describe("PredicateWorkbench case-search admission", () => {
 			name: /^Today's date/,
 		});
 		expect(todayChoice.getAttribute("aria-disabled")).toBe("true");
-	});
-
-	it("offers one explicit atomic repair for every unavailable adjustment", () => {
-		const onChange = vi.fn();
-		renderWorkbench({
-			value: and(
-				eq(
-					prop("patient", "dob"),
-					dateAdd(today(), "months", term(literal(1))),
-				),
-				eq(
-					prop("patient", "last_seen"),
-					dateAdd(now(), "days", term(literal(1))),
-				),
-			),
-			target: "on-device",
-			onChange,
-		});
-
-		expect(screen.getByText(/repair keeps each starting date/i)).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Remove 2 adjustments" }),
-		);
-
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0][0] as Predicate).toEqual(
-			and(
-				eq(prop("patient", "dob"), today()),
-				eq(prop("patient", "last_seen"), now()),
-			),
-		);
-	});
-
-	it("attributes a nested interval issue to its exact adjustment envelope", () => {
-		renderWorkbench({
-			value: eq(
-				prop("patient", "dob"),
-				dateAdd(
-					dateAdd(today(), "months", term(literal(1))),
-					"days",
-					term(literal(1)),
-				),
-			),
-			target: "on-device",
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
-		const outerInterval = screen.getByRole("combobox", {
-			name: "Interval Days",
-		});
-		expect(outerInterval.getAttribute("aria-invalid")).not.toBe("true");
-
-		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
-		const innerInterval = screen.getByRole("combobox", {
-			name: "Interval Months",
-		});
-		expect(innerInterval.getAttribute("aria-invalid")).toBe("true");
 	});
 });

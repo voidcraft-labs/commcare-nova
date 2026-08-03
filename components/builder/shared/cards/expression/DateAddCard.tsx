@@ -116,10 +116,8 @@ export function DateAddCard({
 			dateAdd(value.date, interval, value.quantity),
 		) ?? { admitted: true as const };
 	const currentAdmission = admissionFor(value.interval);
-	const currentHasLocalRuntimeIssue =
-		!currentAdmission.admitted && currentAdmission.atEditedExpression === true;
 	const runtimeErrors =
-		!currentHasLocalRuntimeIssue ||
+		currentAdmission.admitted ||
 		(!currentAdmission.reason.startsWith("Date and time") &&
 			!currentAdmission.reason.startsWith("Month and year"))
 			? []
@@ -167,13 +165,11 @@ export function DateAddCard({
 interface IntervalMenuProps {
 	readonly interval: DateAddInterval;
 	readonly setInterval: (interval: DateAddInterval) => void;
-	readonly admissionFor: (interval: DateAddInterval) =>
+	readonly admissionFor: (
+		interval: DateAddInterval,
+	) =>
 		| { readonly admitted: true }
-		| {
-				readonly admitted: false;
-				readonly reason: string;
-				readonly atEditedExpression?: boolean;
-		  };
+		| { readonly admitted: false; readonly reason: string };
 }
 
 function IntervalMenu({
@@ -201,10 +197,7 @@ function IntervalMenu({
 		>
 			<SelectTrigger
 				aria-label={`Interval ${INTERVAL_LABELS[interval]}`}
-				aria-invalid={
-					!currentAdmission.admitted &&
-					currentAdmission.atEditedExpression === true
-				}
+				aria-invalid={!currentAdmission.admitted}
 				className="h-11 border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-violet-bright not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
 			>
 				<SelectValue>{INTERVAL_LABELS[interval]}</SelectValue>

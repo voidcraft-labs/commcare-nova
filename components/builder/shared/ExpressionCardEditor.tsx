@@ -43,10 +43,7 @@
 import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import {
-	valueExpressionRuntimeEditVerdict,
-	valueRuntimeDateAddRepair,
-} from "@/lib/doc/hooks/predicateVerdicts";
+import { valueExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -73,12 +70,7 @@ import type {
 } from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
-import { RuntimeDateAddRepairAlert } from "./RuntimeDateAddRepairAlert";
-import {
-	locateExpressionNode,
-	type RuleNavigationContext,
-	replaceExpressionNodeAtPath,
-} from "./ruleNavigation";
+import { replaceExpressionNodeAtPath } from "./ruleNavigation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface ExpressionCardEditorProps {
@@ -165,10 +157,6 @@ export function ExpressionCardEditor({
 	const effectiveLookupTables =
 		lookupTables ??
 		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
-	const navigationContext = useMemo<RuleNavigationContext>(
-		() => ({ caseTypes, currentCaseType, knownInputs, rootLabel: "Value" }),
-		[caseTypes, currentCaseType, knownInputs],
-	);
 	// Build the type-check context from props. The same context
 	// reaches both the validation pass below and the per-card
 	// helpers (`PropertyRefPicker`, `LiteralValueInput`, etc.) via
@@ -223,10 +211,6 @@ export function ExpressionCardEditor({
 	}, [value, typeCtx, constraint]);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
-	const runtimeRepair = useMemo(
-		() => valueRuntimeDateAddRepair(value, evaluationTarget, typeCtx),
-		[value, evaluationTarget, typeCtx],
-	);
 	const admitRuntimeExpression = useCallback(
 		(path: readonly (string | number)[], next: ValueExpression) => {
 			const candidate = replaceExpressionNodeAtPath(value, path, {
@@ -238,31 +222,11 @@ export function ExpressionCardEditor({
 				evaluationTarget,
 				typeCtx,
 			);
-			if (verdict.ok) return { admitted: true } as const;
-			const editLocation = locateExpressionNode(
-				candidate,
-				path,
-				navigationContext,
-				constraint,
-			);
-			const atEditedExpression =
-				verdict.expression === undefined
-					? undefined
-					: (editLocation?.trail.some(
-							(entry) =>
-								entry.node.family === "expression" &&
-								entry.node.value === verdict.expression,
-						) ?? false);
-			return {
-				admitted: false,
-				reason:
-					atEditedExpression === false
-						? "Another date calculation needs attention. Use the repair action above to fix all unavailable adjustments together."
-						: verdict.reason,
-				atEditedExpression,
-			} as const;
+			return verdict.ok
+				? ({ admitted: true } as const)
+				: ({ admitted: false, reason: verdict.reason } as const);
 		},
-		[value, evaluationTarget, typeCtx, navigationContext, constraint],
+		[value, evaluationTarget, typeCtx],
 	);
 
 	// Standardized parent-validity propagation: fires on mount + on
@@ -288,18 +252,12 @@ export function ExpressionCardEditor({
 			validityIndex={validityIndex}
 			admitExpressionChange={admitRuntimeExpression}
 		>
-			<div className="space-y-3">
-				<RuntimeDateAddRepairAlert
-					adjustmentCount={runtimeRepair.removedAdjustments}
-					onRepair={() => onChange(runtimeRepair.value)}
-				/>
-				<ExpressionPicker
-					value={value}
-					onChange={onChange}
-					path={ROOT_PATH}
-					constraint={constraint}
-				/>
-			</div>
+			<ExpressionPicker
+				value={value}
+				onChange={onChange}
+				path={ROOT_PATH}
+				constraint={constraint}
+			/>
 		</PredicateEditProvider>
 	);
 }

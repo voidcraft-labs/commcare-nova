@@ -590,6 +590,16 @@ function locateExpression(
 						"Date",
 					)
 				: undefined;
+		case "table-lookup":
+			return first === "table-lookup" && second === "where"
+				? descendPredicate(
+						value.where,
+						[first, second],
+						remaining.slice(2),
+						currentCaseType,
+						"Matching table row",
+					)
+				: undefined;
 	}
 }
 
@@ -606,29 +616,6 @@ export function locateRuleNode(
 		ctx,
 		[],
 		ctx.rootLabel ?? DEFAULT_RULE_ROOT_LABEL,
-	);
-	if (trail === undefined) return undefined;
-	const last = trail.at(-1);
-	return last === undefined ? undefined : { ...last, trail };
-}
-
-/** Locate one node and its exact ancestor trail inside a standalone value. */
-export function locateExpressionNode(
-	root: ValueExpression,
-	path: EditorPath,
-	ctx: RuleNavigationContext,
-	constraint: SlotConstraint = ANY_CONSTRAINT,
-): RuleLocation | undefined {
-	const trail = locateExpression(
-		root,
-		[],
-		path,
-		ctx.currentCaseType,
-		ctx,
-		[],
-		constraint,
-		"value",
-		ctx.rootLabel ?? "Value",
 	);
 	if (trail === undefined) return undefined;
 	const last = trail.at(-1);
@@ -885,6 +872,11 @@ function replaceExpression(
 		case "format-date":
 			if (first === "date") {
 				return { ...value, date: replaceExpressionChild(value.date, 1) };
+			}
+			break;
+		case "table-lookup":
+			if (first === "table-lookup" && second === "where") {
+				return { ...value, where: replacePredicateChild(value.where, 2) };
 			}
 			break;
 	}

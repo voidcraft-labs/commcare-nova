@@ -78,22 +78,6 @@ describe("walkCsqlOnDeviceNodes", () => {
 		});
 	});
 
-	it("visits the exact authored node rather than a normalized clone", () => {
-		const interpolated = dateAdd(today(), "months", term(literal(1)));
-		const predicate = eq(
-			prop("patient", "dob"),
-			ifExpr(matchAll(), interpolated, today()),
-		);
-		const visited: ValueExpression[] = [];
-		walkCsqlOnDeviceNodes(predicate, {
-			visitExpression(expression) {
-				visited.push(expression);
-			},
-		});
-
-		expect(visited).toContain(interpolated);
-	});
-
 	it("keeps nested native date-add arguments on the CSQL server", () => {
 		const predicate = eq(
 			prop("patient", "dob"),

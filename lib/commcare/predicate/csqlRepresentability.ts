@@ -1416,13 +1416,6 @@ function isQueryAnchor(expression: ValueExpression): boolean {
 	);
 }
 
-/** Whether one authored comparison operand is the server-side query anchor.
- * The mixed-runtime walker shares this exact normalization decision while
- * retaining the authored node identities for diagnostics and repairs. */
-export function isCsqlQueryAnchor(expression: ValueExpression): boolean {
-	return isQueryAnchor(expression);
-}
-
 /**
  * Detect one operator whose operands require candidate values from different
  * case rows. Relation-property normalization cannot make that scalar

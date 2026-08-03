@@ -10,7 +10,7 @@
 // reaches the parent's `onChange` / `onValidityChange`, and how
 // nested errors land on the right card.
 
-import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { render as rtlRender } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -19,12 +19,10 @@ import {
 	arith,
 	comparisonObjectConstraint,
 	count,
-	dateAdd,
 	formatDate,
 	ifExpr,
 	literal,
 	matchAll,
-	now,
 	prop,
 	subcasePath,
 	term,
@@ -163,45 +161,6 @@ describe("ExpressionCardEditor — validity propagation", () => {
 });
 
 describe("ExpressionCardEditor — recursive nesting", () => {
-	it("repairs every runtime-incompatible axis in one standalone edit", () => {
-		const onChange = vi.fn();
-		render(
-			<ExpressionCardEditor
-				value={dateAdd(now(), "months", term(literal(1)))}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-				constraint={comparisonObjectConstraint("eq", "datetime")}
-			/>,
-		);
-
-		expect(screen.getByText(/repair keeps its starting date/i)).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Remove adjustment" }));
-		expect(onChange).toHaveBeenCalledWith(now());
-	});
-
-	it("does not mark an outer adjustment invalid for its nested interval", () => {
-		render(
-			<ExpressionCardEditor
-				value={dateAdd(
-					dateAdd(today(), "months", term(literal(1))),
-					"days",
-					term(literal(1)),
-				)}
-				onChange={() => {}}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-				constraint={comparisonObjectConstraint("eq", "date")}
-			/>,
-		);
-
-		expect(
-			screen
-				.getByRole("combobox", { name: "Interval Days" })
-				.getAttribute("aria-invalid"),
-		).not.toBe("true");
-	});
-
 	it("renders an `if` card with a Predicate cond and ValueExpression branches", () => {
 		const value = ifExpr(
 			matchAll(),

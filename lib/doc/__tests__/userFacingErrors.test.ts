@@ -218,7 +218,7 @@ describe("userFacingError — case-list expression repairs", () => {
 	});
 });
 
-describe("userFacingError — date calculation repairs", () => {
+describe("userFacingError — date calculation findings", () => {
 	function dateFinding(
 		code:
 			| "DISPLAY_CONDITION_NOT_ON_DEVICE"
@@ -243,7 +243,7 @@ describe("userFacingError — date calculation repairs", () => {
 		"DISPLAY_CONDITION_NOT_ON_DEVICE",
 		"CASE_OPERATION_EXPRESSION_TYPE",
 		"LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
-	] as const)("explains the lost-time repair for %s", (code) => {
+	] as const)("explains the lost-time refusal for %s", (code) => {
 		const line = userFacingError(dateFinding(code, "datetime-base"));
 		expect(line).toMatch(/time would be lost/i);
 		expect(line).toMatch(/whole date|another calculation/i);
@@ -253,7 +253,7 @@ describe("userFacingError — date calculation repairs", () => {
 		"DISPLAY_CONDITION_NOT_ON_DEVICE",
 		"CASE_OPERATION_EXPRESSION_TYPE",
 		"LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
-	] as const)("explains the calendar-interval repair for %s", (code) => {
+	] as const)("explains the calendar-interval refusal for %s", (code) => {
 		const line = userFacingError(dateFinding(code, "calendar-interval"));
 		expect(line).toMatch(/month or year|months or years/i);
 		expect(line).toMatch(/days.*weeks/i);
