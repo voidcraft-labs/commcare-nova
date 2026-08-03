@@ -95,14 +95,32 @@ export function readDatabasePrivilegeRoleConfig(
 
 export type PublicTableClass = "application" | "control" | "migration";
 
-const APPLICATION_TABLES = [
+/**
+ * The serving role's exact capability on a fixed public table. PostgreSQL
+ * requires `UPDATE` privilege for every table named by `SELECT ... FOR
+ * UPDATE/SHARE`, so only `read-write` tables are row-lockable at runtime.
+ * Keep each table in exactly one capability list below: inventory, grants,
+ * sequence access, and the row-lock source guard all derive from this policy.
+ */
+export type RuntimeTableCapability =
+	| "read-write"
+	| "append-only"
+	| "insert-delete"
+	| "read-only"
+	| "none";
+
+export interface PublicTablePolicy {
+	readonly name: string;
+	readonly classification: PublicTableClass;
+	readonly runtimeCapability: RuntimeTableCapability;
+}
+
+const RUNTIME_READ_WRITE_TABLES = [
 	"case_indices",
 	"case_type_schemas",
-	"case_schema_index_deletions",
 	"parked_case_values",
 	"apps",
 	"blueprint_entities",
-	"app_changes",
 	"events",
 	"threads",
 	"chat_stream_chunks",
@@ -113,7 +131,6 @@ const APPLICATION_TABLES = [
 	"credit_months",
 	"credit_grants",
 	"media_assets",
-	"media_asset_refs",
 	"media_upload_aliases",
 	"form_attachments",
 	"form_attachment_rate_limits",
@@ -127,6 +144,17 @@ const APPLICATION_TABLES = [
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
+
+const RUNTIME_APPEND_ONLY_TABLES = ["app_changes"] as const;
+
+/** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
+ * row in place: writers insert, reconcilers delete, and every other path reads. */
+const RUNTIME_INSERT_DELETE_TABLES = [
+	"case_schema_index_deletions",
+	"media_asset_refs",
+] as const;
+
+const RUNTIME_READ_ONLY_TABLES = ["app_change_fold_baselines"] as const;
 
 /** `cases` alone lives in the isolated runtime-DDL schema. PostgreSQL requires
  * table ownership plus CREATE on the containing schema for CREATE INDEX; the
@@ -170,8 +198,6 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 	"threads",
 ] as const;
 
-const CONTROL_TABLES = ["app_change_fold_baselines"] as const;
-
 const MIGRATION_TABLES = [
 	"kysely_migration",
 	"kysely_migration_lock",
@@ -182,33 +208,72 @@ const MIGRATION_TABLES = [
 /** Atlas preceded Kysely in production. Fresh databases do not have this
  * ledger, but a retained production ledger is known migration-owned state. */
 const OPTIONAL_MIGRATION_TABLES = ["atlas_schema_revisions"] as const;
-const APPEND_ONLY_RUNTIME_TABLES = new Set(["app_changes"]);
-/** Runtime owns the tombstone lifecycle but never mutates a tombstone in
- * place: Phase A inserts it, a recreate/converger deletes it, and every other
- * path only reads. Keep UPDATE ungrantable so the SQL role mirrors that state
- * machine instead of inheriting the generic application-table superset. */
-const INSERT_DELETE_RUNTIME_TABLES = new Set([
-	"case_schema_index_deletions",
-	"media_asset_refs",
-]);
+
+const REQUIRED_PUBLIC_TABLE_POLICIES: readonly PublicTablePolicy[] = [
+	...RUNTIME_READ_WRITE_TABLES.map((name) => ({
+		name,
+		classification: "application" as const,
+		runtimeCapability: "read-write" as const,
+	})),
+	...RUNTIME_APPEND_ONLY_TABLES.map((name) => ({
+		name,
+		classification: "application" as const,
+		runtimeCapability: "append-only" as const,
+	})),
+	...RUNTIME_INSERT_DELETE_TABLES.map((name) => ({
+		name,
+		classification: "application" as const,
+		runtimeCapability: "insert-delete" as const,
+	})),
+	...RUNTIME_READ_ONLY_TABLES.map((name) => ({
+		name,
+		classification: "control" as const,
+		runtimeCapability: "read-only" as const,
+	})),
+	...MIGRATION_TABLES.map((name) => ({
+		name,
+		classification: "migration" as const,
+		runtimeCapability: "none" as const,
+	})),
+];
+
+const OPTIONAL_PUBLIC_TABLE_POLICIES: readonly PublicTablePolicy[] =
+	OPTIONAL_MIGRATION_TABLES.map((name) => ({
+		name,
+		classification: "migration" as const,
+		runtimeCapability: "none" as const,
+	}));
+
+export const PUBLIC_TABLE_POLICIES: readonly PublicTablePolicy[] = [
+	...REQUIRED_PUBLIC_TABLE_POLICIES,
+	...OPTIONAL_PUBLIC_TABLE_POLICIES,
+];
+
+const TABLE_POLICIES = new Map(
+	PUBLIC_TABLE_POLICIES.map((policy) => [policy.name, policy] as const),
+);
 
 const TABLE_CLASSES = new Map<string, PublicTableClass>([
-	...APPLICATION_TABLES.map((name) => [name, "application"] as const),
+	...PUBLIC_TABLE_POLICIES.map(
+		(policy) => [policy.name, policy.classification] as const,
+	),
 	...RUNTIME_CASE_TABLES.map((name) => [name, "application"] as const),
-	...CONTROL_TABLES.map((name) => [name, "control"] as const),
-	...MIGRATION_TABLES.map((name) => [name, "migration"] as const),
-	...OPTIONAL_MIGRATION_TABLES.map((name) => [name, "migration"] as const),
 ]);
 
-export const REQUIRED_PUBLIC_TABLES = [
-	...APPLICATION_TABLES,
-	...CONTROL_TABLES,
-	...MIGRATION_TABLES,
-] as const;
+export const REQUIRED_PUBLIC_TABLES = REQUIRED_PUBLIC_TABLE_POLICIES.map(
+	(policy) => policy.name,
+);
+
+/** Runtime-visible public tables where PostgreSQL row-lock clauses are
+ * structurally forbidden because the serving role intentionally lacks UPDATE. */
+export const RUNTIME_TABLES_WITHOUT_UPDATE = PUBLIC_TABLE_POLICIES.filter(
+	(policy) =>
+		policy.runtimeCapability !== "none" &&
+		policy.runtimeCapability !== "read-write",
+).map((policy) => policy.name);
 
 const ALLOWED_PUBLIC_TABLES = new Set<string>([
-	...REQUIRED_PUBLIC_TABLES,
-	...OPTIONAL_MIGRATION_TABLES,
+	...PUBLIC_TABLE_POLICIES.map((policy) => policy.name),
 ]);
 
 export function auditRuntimeCaseTableInventory(
@@ -233,6 +298,16 @@ export function auditRuntimeCaseTableInventory(
 
 export function classifyPublicTable(name: string): PublicTableClass | null {
 	return TABLE_CLASSES.get(name) ?? null;
+}
+
+export function runtimeTableCapability(
+	name: string,
+): RuntimeTableCapability | null {
+	return TABLE_POLICIES.get(name)?.runtimeCapability ?? null;
+}
+
+export function runtimeTableCanUseRowLocks(name: string): boolean {
+	return runtimeTableCapability(name) === "read-write";
 }
 
 export interface PublicTableAudit {
@@ -262,7 +337,7 @@ export function auditPublicTableInventory(
 		];
 		if (unknown.length > 0) {
 			parts.push(
-				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, add the name to the matching group in that file: \`APPLICATION_TABLES\` for ordinary app-state or case data, \`CONTROL_TABLES\` or \`MIGRATION_TABLES\` for infrastructure. \`REQUIRED_PUBLIC_TABLES\` and \`TABLE_CLASSES\` both derive from those lists, so the one edit is the whole change.`,
+				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, register each table exactly once in the matching runtime-capability list in that file. Choose from read-write, append-only, insert-delete, read-only, or migration-only based on the real serving statements. \`PUBLIC_TABLE_POLICIES\`, inventory, grants, sequence access, and the row-lock source guard all derive from that choice. PostgreSQL row-lock clauses require UPDATE, so only read-write tables may use \`FOR UPDATE\` or \`FOR SHARE\`.`,
 			);
 		}
 		if (missing.length > 0) {
@@ -1226,29 +1301,40 @@ async function revokeTableAccess(
 	`.execute(tx);
 }
 
-async function grantRuntimeDml(
+async function grantRuntimeTableCapability(
 	tx: Transaction<unknown>,
 	table: string,
+	capability: RuntimeTableCapability,
 	runtimeRole: string,
 ): Promise<void> {
-	if (APPEND_ONLY_RUNTIME_TABLES.has(table)) {
-		await sql`
-			GRANT SELECT, INSERT ON TABLE public.${sql.id(table)}
-			TO ${sql.id(runtimeRole)}
-		`.execute(tx);
-		return;
+	switch (capability) {
+		case "read-write":
+			await sql`
+				GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${sql.id(table)}
+				TO ${sql.id(runtimeRole)}
+			`.execute(tx);
+			return;
+		case "append-only":
+			await sql`
+				GRANT SELECT, INSERT ON TABLE public.${sql.id(table)}
+				TO ${sql.id(runtimeRole)}
+			`.execute(tx);
+			return;
+		case "insert-delete":
+			await sql`
+				GRANT SELECT, INSERT, DELETE ON TABLE public.${sql.id(table)}
+				TO ${sql.id(runtimeRole)}
+			`.execute(tx);
+			return;
+		case "read-only":
+			await sql`
+				GRANT SELECT ON TABLE public.${sql.id(table)}
+				TO ${sql.id(runtimeRole)}
+			`.execute(tx);
+			return;
+		case "none":
+			return;
 	}
-	if (INSERT_DELETE_RUNTIME_TABLES.has(table)) {
-		await sql`
-			GRANT SELECT, INSERT, DELETE ON TABLE public.${sql.id(table)}
-			TO ${sql.id(runtimeRole)}
-		`.execute(tx);
-		return;
-	}
-	await sql`
-		GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${sql.id(table)}
-		TO ${sql.id(runtimeRole)}
-	`.execute(tx);
 }
 
 async function convergePrivilegesInTransaction(
@@ -1320,9 +1406,15 @@ async function convergePrivilegesInTransaction(
 	for (const table of tableAudit) {
 		await alterTableOwner(tx, table.name, config.migrationRole);
 		await revokeTableAccess(tx, table.name, config);
-		if (table.classification === "application") {
-			await grantRuntimeDml(tx, table.name, config.runtimeRole);
-		}
+		const capability = runtimeTableCapability(table.name);
+		if (capability === null)
+			throw new Error(`Audited table ${table.name} lost its runtime policy.`);
+		await grantRuntimeTableCapability(
+			tx,
+			table.name,
+			capability,
+			config.runtimeRole,
+		);
 	}
 	for (const table of runtimeCaseAudit) {
 		await sql`
@@ -1354,7 +1446,12 @@ async function convergePrivilegesInTransaction(
 				FROM PUBLIC, ${sql.id(config.runtimeRole)},
 					${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 		`.execute(tx);
-		if (classifyPublicTable(parent) === "application") {
+		const capability = runtimeTableCapability(parent);
+		if (
+			capability === "read-write" ||
+			capability === "append-only" ||
+			capability === "insert-delete"
+		) {
 			await sql`
 				GRANT USAGE, SELECT ON SEQUENCE public.${sql.id(sequence.name)}
 				TO ${sql.id(config.runtimeRole)}
@@ -1385,10 +1482,6 @@ async function convergePrivilegesInTransaction(
 			TO ${sql.id(config.runtimeRole)}
 		`.execute(tx);
 	}
-	await sql`
-		GRANT SELECT ON TABLE public.app_change_fold_baselines
-		TO ${sql.id(config.runtimeRole)}
-	`.execute(tx);
 	await sql`
 		GRANT SELECT, UPDATE, DELETE ON TABLE public.form_attachments
 		TO ${sql.id(config.cleanupRole)}

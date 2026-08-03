@@ -328,7 +328,13 @@ owner.
 Lookup definitions and rows are Project-scoped. Organization and persona data are
 app-scoped unless a later approved contract says otherwise. Every table has
 explicit tenancy keys, authorization, project-move behavior, indexes, migration
-ownership, and retention/deletion behavior.
+ownership, retention/deletion behavior, and one explicit runtime privilege
+capability. PostgreSQL row-lock clauses require `UPDATE` on every locked table:
+a serving query may lock only a read-write-capability table, while append-only,
+insert-delete, and read-only tables remain non-row-lockable by construction.
+The source guard checks the complete live `app/` and `lib/` query surface, and
+the post-migration runtime-role probe executes the shared production reads that
+span reduced-capability tables.
 
 Every persisted app has one nonblank Project. `apps.project_id` is `NOT NULL`
 and references the exact Better Auth Project row; Project membership is the

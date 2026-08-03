@@ -7,8 +7,10 @@ import {
 	classifyPublicTable,
 	type DatabasePrivilegeRoleConfig,
 	type DatabaseRoleFact,
+	PUBLIC_TABLE_POLICIES,
 	REQUIRED_PUBLIC_TABLES,
 	readDatabasePrivilegeRoleConfig,
+	runtimeTableCapability,
 } from "../privilegeConvergence";
 
 const config: DatabasePrivilegeRoleConfig = {
@@ -147,7 +149,8 @@ describe("database privilege convergence contract", () => {
 		})();
 		expect(unknown).toContain("brand_new");
 		// Routes the reader to the registration site, not to their migration.
-		expect(unknown).toContain("APPLICATION_TABLES");
+		expect(unknown).toContain("read-write");
+		expect(unknown).toContain("row-lock source guard");
 		expect(unknown).toContain("lib/db/privilegeConvergence.ts");
 		// And does not also lecture them about the cause that did not fire.
 		expect(unknown).not.toContain("hasn't run against this database");
@@ -164,7 +167,21 @@ describe("database privilege convergence contract", () => {
 		})();
 		expect(missing).toContain("apps");
 		expect(missing).toContain("hasn't run against this database");
-		expect(missing).not.toContain("APPLICATION_TABLES");
+		expect(missing).not.toContain("row-lock source guard");
+	});
+
+	test("derives each table's exact runtime capability from one policy entry", () => {
+		expect(
+			new Set(PUBLIC_TABLE_POLICIES.map((policy) => policy.name)).size,
+		).toBe(PUBLIC_TABLE_POLICIES.length);
+		expect(runtimeTableCapability("apps")).toBe("read-write");
+		expect(runtimeTableCapability("app_changes")).toBe("append-only");
+		expect(runtimeTableCapability("media_asset_refs")).toBe("insert-delete");
+		expect(runtimeTableCapability("app_change_fold_baselines")).toBe(
+			"read-only",
+		);
+		expect(runtimeTableCapability("kysely_migration")).toBe("none");
+		expect(runtimeTableCapability("not_a_table")).toBeNull();
 	});
 
 	test("carries every migrated app-state table, so a deploy is not blocked", () => {
