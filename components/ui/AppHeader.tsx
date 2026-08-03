@@ -30,7 +30,11 @@
 
 import Link from "next/link";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 import { Logo } from "@/components/ui/Logo";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
@@ -100,15 +104,14 @@ export function AppHeader({
 		if (collapsing) setAbsorbing(true);
 	}, [markOnly]);
 
-	/* The tooltip is UNCONDITIONAL, and that is load-bearing rather than a
-	 * preference. `SimpleTooltip` returns its child bare when `content` is
-	 * falsy, so a tooltip that comes and goes moves the mark between two
-	 * positions in the tree — React rebuilds the `<Link>`, the fresh `Logo`
-	 * renders already collapsed, and the handoff loses its wordmark half while
-	 * the sphere (owned up here, and not remounted) still swells. It reads as
-	 * the word vanishing under a pulse. `homeLabel` is the right text anyway:
-	 * it is what the mark IS on this surface, which is exactly what a bare
-	 * sphere needs saying. */
+	/* The mark carries hover text exactly when the wordmark is not beside it to
+	 * say the same thing — a bare sphere needs naming, a lockup does not, and a
+	 * tooltip that repeats the words already on screen is noise centred under
+	 * the wrong thing. Both ways the word can be absent are covered: the
+	 * surface handing it back, and a row too narrow to hold it. */
+	const wordmarkHidden = useIsBreakpoint("max", 800);
+	const tip = markOnly || wordmarkHidden ? homeLabel : null;
+
 	const mark = (
 		<Link
 			href="/"
@@ -136,9 +139,17 @@ export function AppHeader({
 			className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-nova-border bg-nova-void px-2 sm:px-4"
 		>
 			<div className="col-start-1 row-start-1 flex min-w-0 items-center sm:gap-4">
-				<SimpleTooltip content={homeLabel} side="bottom">
-					{mark}
-				</SimpleTooltip>
+				{/* Composed from the primitives rather than `SimpleTooltip`, which
+				    returns its child BARE when there is no content: that moves the
+				    mark between two positions in the tree, React rebuilds the
+				    `<Link>`, and the fresh `Logo` renders already collapsed — the
+				    handoff loses its wordmark half while the sphere, owned up here
+				    and not remounted, still swells. Keeping the trigger and only
+				    dropping the popup leaves the mark exactly where it was. */}
+				<Tooltip>
+					<TooltipTrigger render={mark} />
+					{tip ? <TooltipContent side="bottom">{tip}</TooltipContent> : null}
+				</Tooltip>
 				{stacked ? null : banner}
 				{start}
 			</div>
