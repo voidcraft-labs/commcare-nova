@@ -415,6 +415,10 @@ describe("persisted JSON source boundaries", () => {
 			path.join(root, "app/api/apps/[id]/stream/route.ts"),
 			"utf8",
 		);
+		const streamQuerySource = readFileSync(
+			path.join(root, "lib/db/appChangeStream.ts"),
+			"utf8",
+		);
 		const foldSource = readFileSync(
 			path.join(root, "lib/db/canonicalMutationFold.ts"),
 			"utf8",
@@ -422,8 +426,11 @@ describe("persisted JSON source boundaries", () => {
 		expect(appsSource).toContain("parsePersistedMutationBatchText");
 		expect(appsSource).toMatch(/app_changes\.mutations.+::text/s);
 		expect(streamSource).toContain("parsePersistedAppChangeEnvelope");
-		expect(streamSource).toMatch(/app_changes\.mutations.+::text/s);
-		expect(streamSource).not.toContain('"app_changes.mutations as mutations"');
+		expect(streamSource).toContain("readAppChangeStreamRowsSince");
+		expect(streamQuerySource).toMatch(/app_changes\.mutations.+::text/s);
+		expect(streamQuerySource).not.toContain(
+			'"app_changes.mutations as mutations"',
+		);
 		expect(foldSource).toContain("baselineSnapshotText: string");
 		expect(foldSource).toContain("mutationsText: string");
 		expect(foldSource).not.toContain("baselineSnapshot: unknown");

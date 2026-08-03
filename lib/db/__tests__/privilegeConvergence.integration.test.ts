@@ -603,6 +603,7 @@ describe("database privilege convergence", () => {
 				seq: "1",
 				baseline_seq: "1",
 				kind: "fold-baseline",
+				mutations_text: "[]",
 			});
 			await expect(
 				sql`
