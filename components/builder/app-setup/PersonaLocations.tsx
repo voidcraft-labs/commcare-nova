@@ -117,10 +117,23 @@ export function PersonaLocations({
 								{assignedPage.ids.map((id, pageIndex) => {
 									const index = assignedPage.start + pageIndex;
 									const location = byId.get(id);
+									const withoutLocation = assigned.filter(
+										(other) => other !== id,
+									);
+									const removalIssue =
+										canEdit && !loading
+											? personaAssignmentIssue(
+													doc,
+													locations,
+													persona.uuid,
+													withoutLocation,
+												)
+											: undefined;
+									const removalIssueId = `persona-location-removal-${persona.uuid}-${id}`;
 									return (
 										<li
 											key={id}
-											className="flex min-h-11 items-center gap-2.5 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
+											className="flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
 										>
 											<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
 												{location === undefined
@@ -156,10 +169,16 @@ export function PersonaLocations({
 														type="button"
 														variant="ghost"
 														aria-label={`Remove ${location === undefined ? "this place" : locationChoiceLabel(location)}`}
+														aria-describedby={
+															removalIssue === undefined
+																? undefined
+																: removalIssueId
+														}
 														className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
+														disabled={removalIssue !== undefined}
 														onClick={() => {
 															rowFocus.onRemoved(index);
-															set(assigned.filter((other) => other !== id));
+															set(withoutLocation);
 														}}
 													>
 														<Icon
@@ -170,6 +189,14 @@ export function PersonaLocations({
 														/>
 													</Button>
 												</>
+											)}
+											{removalIssue !== undefined && (
+												<p
+													id={removalIssueId}
+													className="w-full text-[12px] leading-relaxed text-nova-red"
+												>
+													Keep this assignment: {removalIssue}
+												</p>
 											)}
 										</li>
 									);

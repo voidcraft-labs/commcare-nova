@@ -9,6 +9,7 @@ import {
 	rebaseLocationValueDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
+	scalarDraftStillMatchesSave,
 	valuesForLevel,
 } from "../organizationUi";
 
@@ -80,6 +81,15 @@ describe("organization place-information UI", () => {
 			[EVERYWHERE]: "saved A",
 			[FACILITY_ONLY]: "local B",
 		});
+	});
+
+	it("does not settle a scalar save after the author typed a newer draft", () => {
+		expect(scalarDraftStillMatchesSave("newer name", "submitted name")).toBe(
+			false,
+		);
+		expect(
+			scalarDraftStillMatchesSave("submitted name", "submitted name"),
+		).toBe(true);
 	});
 
 	it("transports Clear as key deletion rather than a stored empty string", () => {

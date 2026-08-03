@@ -68,6 +68,14 @@ export function rebaseLocationValueDraft(
 	return { ...authoritative, ...dirtyDrafts };
 }
 
+/** An async scalar save may clear dirty state only for the value it submitted. */
+export function scalarDraftStillMatchesSave(
+	currentDraft: string,
+	submittedDraft: string,
+): boolean {
+	return currentDraft === submittedDraft;
+}
+
 /** Blank is absence in the row store, not a capacity-consuming empty value. */
 export function locationValuePatch(value: string): string | null {
 	return value === "" ? null : value;

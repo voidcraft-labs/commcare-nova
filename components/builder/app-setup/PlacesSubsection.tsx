@@ -53,6 +53,7 @@ import {
 	rebaseLocationValueDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
+	scalarDraftStillMatchesSave,
 	valuesForLevel,
 } from "./organizationUi";
 import { buildPlaceTree, PLACE_PAGE_SIZE, type PlaceTree } from "./placeTree";
@@ -65,6 +66,30 @@ const END_POSITION = "__end__";
 interface LocalLocationSave {
 	readonly before: StoredLocation;
 	readonly saved: StoredLocation;
+}
+
+interface ScalarSaveClock {
+	generation: number;
+	pending: number;
+}
+
+function beginScalarSave(clock: ScalarSaveClock): number {
+	clock.generation += 1;
+	clock.pending += 1;
+	return clock.generation;
+}
+
+function finishScalarSave(
+	clock: ScalarSaveClock,
+	generation: number,
+	currentDraft: string,
+	submittedDraft: string,
+): boolean {
+	clock.pending = Math.max(0, clock.pending - 1);
+	return (
+		generation === clock.generation &&
+		scalarDraftStillMatchesSave(currentDraft, submittedDraft)
+	);
 }
 
 export function PlacesSubsection({
@@ -351,6 +376,29 @@ function PlaceRow({
 	const [dirtyLongitude, setDirtyLongitude] = useState(false);
 	const [dirtyLevel, setDirtyLevel] = useState(false);
 	const [peerChanged, setPeerChanged] = useState(false);
+	// Scalar inputs remain editable while their blur save is in flight. These
+	// refs distinguish the submitted value from newer text typed before that
+	// response returns, just as dirtyValueDraftsRef does for custom fields.
+	const draftNameRef = useRef(location.name);
+	const draftExternalIdRef = useRef(location.externalId ?? "");
+	const draftLatitudeRef = useRef(location.latitude ?? "");
+	const draftLongitudeRef = useRef(location.longitude ?? "");
+	const nameSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
+	const externalIdSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
+	const latitudeSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
+	const longitudeSaveClockRef = useRef<ScalarSaveClock>({
+		generation: 0,
+		pending: 0,
+	});
 	const sourceRef = useRef(location);
 	// Server Actions return the authoritative row before the post-write refresh
 	// lands. Keep those accepted rows as a chain so an old render is not mistaken
@@ -485,6 +533,10 @@ function PlaceRow({
 		setDraftExternalId(location.externalId ?? "");
 		setDraftLatitude(location.latitude ?? "");
 		setDraftLongitude(location.longitude ?? "");
+		draftNameRef.current = location.name;
+		draftExternalIdRef.current = location.externalId ?? "";
+		draftLatitudeRef.current = location.latitude ?? "";
+		draftLongitudeRef.current = location.longitude ?? "";
 		setDraftLevelUuid(location.levelUuid);
 		setDraftParentId(location.parentId);
 		setDraftValues(
@@ -510,6 +562,10 @@ function PlaceRow({
 		setDraftExternalId(location.externalId ?? "");
 		setDraftLatitude(location.latitude ?? "");
 		setDraftLongitude(location.longitude ?? "");
+		draftNameRef.current = location.name;
+		draftExternalIdRef.current = location.externalId ?? "";
+		draftLatitudeRef.current = location.latitude ?? "";
+		draftLongitudeRef.current = location.longitude ?? "";
 		setDraftLevelUuid(location.levelUuid);
 		setDraftParentId(location.parentId);
 		setDraftValues(
@@ -656,11 +712,14 @@ function PlaceRow({
 						data-1p-ignore
 						disabled={!canEdit || archived}
 						onChange={(e) => {
+							draftNameRef.current = e.target.value;
 							setDraftName(e.target.value);
 							setDirtyName(true);
 						}}
-						onBlur={async () => {
-							if (draftName === location.name) {
+						onBlur={async (event) => {
+							const submitted = event.currentTarget.value;
+							const clock = nameSaveClockRef.current;
+							if (submitted === sourceRef.current.name && clock.pending === 0) {
 								setDirtyName(false);
 								return;
 							}
@@ -670,14 +729,23 @@ function PlaceRow({
 								);
 								return;
 							}
+							const generation = beginScalarSave(clock);
 							const result = await organization.update(location.id, {
-								name: draftName,
+								name: submitted,
 							});
+							const current = finishScalarSave(
+								clock,
+								generation,
+								draftNameRef.current,
+								submitted,
+							);
 							if (!result.ok) {
 								setMessage(result.message);
 							} else {
 								rebaseAfterLocalSave(result.location);
-								setDirtyName(false);
+								if (current) {
+									setDirtyName(false);
+								}
 								setMessage(undefined);
 							}
 						}}
@@ -706,12 +774,17 @@ function PlaceRow({
 						data-1p-ignore
 						disabled={!canEdit || archived}
 						onChange={(event) => {
+							draftExternalIdRef.current = event.target.value;
 							setDraftExternalId(event.target.value);
 							setDirtyExternalId(true);
 						}}
 						onBlur={async (e) => {
 							const next = e.target.value;
-							if (next === (location.externalId ?? "")) {
+							const clock = externalIdSaveClockRef.current;
+							if (
+								next === (sourceRef.current.externalId ?? "") &&
+								clock.pending === 0
+							) {
 								setDirtyExternalId(false);
 								return;
 							}
@@ -721,14 +794,23 @@ function PlaceRow({
 								);
 								return;
 							}
+							const generation = beginScalarSave(clock);
 							const result = await organization.update(location.id, {
 								externalId: next === "" ? null : next,
 							});
+							const current = finishScalarSave(
+								clock,
+								generation,
+								draftExternalIdRef.current,
+								next,
+							);
 							if (!result.ok) {
 								setMessage(result.message);
 							} else {
 								rebaseAfterLocalSave(result.location);
-								setDirtyExternalId(false);
+								if (current) {
+									setDirtyExternalId(false);
+								}
 								setMessage(undefined);
 							}
 						}}
@@ -758,14 +840,14 @@ function PlaceRow({
 								dirtyValueDraftsRef.current,
 							);
 							setDraftValues(nextValues);
-							setDirtyLevel(value !== location.levelUuid);
+							setDirtyLevel(value !== sourceRef.current.levelUuid);
 							setDirtyValues(
 								!sameStringRecord(
 									nextValues,
 									valuesForLevel(
 										properties,
-										location.levelUuid,
-										location.values,
+										sourceRef.current.levelUuid,
+										sourceRef.current.values,
 									),
 								),
 							);
@@ -855,11 +937,17 @@ function PlaceRow({
 							inputMode="decimal"
 							disabled={!canEdit || archived}
 							onChange={(event) => {
+								draftLatitudeRef.current = event.target.value;
 								setDraftLatitude(event.target.value);
 								setDirtyLatitude(true);
 							}}
-							onBlur={async () => {
-								if (draftLatitude === (location.latitude ?? "")) {
+							onBlur={async (event) => {
+								const submitted = event.currentTarget.value;
+								const clock = latitudeSaveClockRef.current;
+								if (
+									submitted === (sourceRef.current.latitude ?? "") &&
+									clock.pending === 0
+								) {
 									setDirtyLatitude(false);
 									return;
 								}
@@ -869,13 +957,22 @@ function PlaceRow({
 									);
 									return;
 								}
+								const generation = beginScalarSave(clock);
 								const result = await organization.update(location.id, {
-									latitude: draftLatitude === "" ? null : draftLatitude,
+									latitude: submitted === "" ? null : submitted,
 								});
+								const current = finishScalarSave(
+									clock,
+									generation,
+									draftLatitudeRef.current,
+									submitted,
+								);
 								if (!result.ok) setMessage(result.message);
 								else {
 									rebaseAfterLocalSave(result.location);
-									setDirtyLatitude(false);
+									if (current) {
+										setDirtyLatitude(false);
+									}
 									setMessage(undefined);
 								}
 							}}
@@ -894,11 +991,17 @@ function PlaceRow({
 							inputMode="decimal"
 							disabled={!canEdit || archived}
 							onChange={(event) => {
+								draftLongitudeRef.current = event.target.value;
 								setDraftLongitude(event.target.value);
 								setDirtyLongitude(true);
 							}}
-							onBlur={async () => {
-								if (draftLongitude === (location.longitude ?? "")) {
+							onBlur={async (event) => {
+								const submitted = event.currentTarget.value;
+								const clock = longitudeSaveClockRef.current;
+								if (
+									submitted === (sourceRef.current.longitude ?? "") &&
+									clock.pending === 0
+								) {
 									setDirtyLongitude(false);
 									return;
 								}
@@ -908,13 +1011,22 @@ function PlaceRow({
 									);
 									return;
 								}
+								const generation = beginScalarSave(clock);
 								const result = await organization.update(location.id, {
-									longitude: draftLongitude === "" ? null : draftLongitude,
+									longitude: submitted === "" ? null : submitted,
 								});
+								const current = finishScalarSave(
+									clock,
+									generation,
+									draftLongitudeRef.current,
+									submitted,
+								);
 								if (!result.ok) setMessage(result.message);
 								else {
 									rebaseAfterLocalSave(result.location);
-									setDirtyLongitude(false);
+									if (current) {
+										setDirtyLongitude(false);
+									}
 									setMessage(undefined);
 								}
 							}}

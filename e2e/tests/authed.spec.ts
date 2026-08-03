@@ -469,9 +469,18 @@ test.describe("authenticated builder", () => {
 		await expect(
 			places.getByLabel("Level").filter({ visible: true }),
 		).toContainText("Region");
+		// The combobox is the staged draft and changes immediately. Wait for the
+		// row's saved detail before choosing the old level again, or the stale
+		// location prop can mistake that choice for no change.
+		await expect(
+			kilifiDistrict.getByText("Region", { exact: true }),
+		).toBeVisible();
 		await places.getByLabel("Level").filter({ visible: true }).click();
 		await page.getByRole("option", { name: "District" }).click();
 		await places.getByRole("button", { name: "Apply level change" }).click();
+		await expect(
+			kilifiDistrict.getByText("District", { exact: true }),
+		).toBeVisible();
 		await expect(
 			places.getByLabel("Sits in").filter({ visible: true }),
 		).toContainText("Coast Region");
