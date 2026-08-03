@@ -82,6 +82,7 @@ export function EntryRow({
 	open,
 	onOpenChange,
 	triggerRef,
+	keepMounted = true,
 }: {
 	/** The entry's name: the disclosure's accessible label. */
 	summary: ReactNode;
@@ -91,6 +92,8 @@ export function EntryRow({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	triggerRef?: Ref<HTMLButtonElement>;
+	/** Keep draft-bearing editors alive when collapsed. Large read-mostly lists opt out. */
+	keepMounted?: boolean;
 }) {
 	return (
 		<Collapsible
@@ -114,13 +117,13 @@ export function EntryRow({
 					{summary}
 				</span>
 				{detail !== undefined && (
-					<span className="shrink-0 text-[12px] text-nova-text-muted">
+					<span className="min-w-0 max-w-[45%] truncate text-right text-[12px] text-nova-text-muted">
 						{detail}
 					</span>
 				)}
 			</CollapsibleTrigger>
 			<CollapsibleContent
-				keepMounted
+				keepMounted={keepMounted}
 				className="border-t border-nova-border px-3 py-3"
 			>
 				{children}

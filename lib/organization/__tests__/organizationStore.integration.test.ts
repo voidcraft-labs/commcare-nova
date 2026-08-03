@@ -1046,6 +1046,53 @@ describe("locations store — persona and fixed-owner validation", () => {
 });
 
 describe("locations store — deterministic reverse-hop owners", () => {
+	it("refuses a reverse rule when any case-owning source has no destination", async () => {
+		await seedWorkflowOrgApp();
+		const { region } = await seedChain();
+		await createLocation(scope(), {
+			levelUuid: DISTRICT,
+			parentId: region,
+			name: "Lakeside",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+
+		await expect(commitReverseOwnerForm(FACILITY)).rejects.toThrow(
+			/no live facility below "Lakeside"/i,
+		);
+	});
+
+	it("refuses a reverse destination level that no longer owns cases", async () => {
+		await seedWorkflowOrgApp();
+		await seedChain();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "facility-stops-owning-cases",
+			mutations: admitMutationBatch([
+				{
+					kind: "updateOrganizationLevel",
+					uuid: FACILITY,
+					patch: {
+						caseFlow: {
+							workers: "assigned",
+							ownsCases: false,
+							descendantCases: { kind: "none" },
+						},
+					},
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+
+		await expect(commitReverseOwnerForm(FACILITY)).rejects.toThrow(
+			/does not own cases/i,
+		);
+	});
+
 	it("does not apply a reverse owner rule to workers who do not receive the source cases", async () => {
 		await seedWorkflowOrgApp();
 		const { region } = await seedChain();

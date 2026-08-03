@@ -93,56 +93,104 @@ function toStoredLocation(row: LocationRow): StoredLocation {
  * filters on `archivedAt`, which is a decision each of them makes for its own
  * reason rather than one this read makes for all of them.
  */
+async function readOrganizationInTransaction(
+	tx: Transaction<AppDatabase>,
+	scope: OrganizationScope,
+): Promise<{
+	readonly access: Awaited<ReturnType<typeof resolveAppScopeInTransaction>>;
+	readonly snapshot: OrganizationSnapshot;
+}> {
+	// The action authorized this scope before constructing it, but an app that
+	// moved Projects in between must not be readable through the old one. Every
+	// WRITE re-proves this under its lock; this read proves it in one snapshot.
+	const access = await resolveAppScopeInTransaction(
+		tx,
+		scope.appId,
+		scope.actorUserId,
+		"view",
+	).catch((error: unknown) => {
+		if (error instanceof AppAccessError) {
+			throw new OrganizationError(
+				"not_found",
+				"This app's organization isn't available. It may have been deleted, moved, or you may no longer have access to it.",
+			);
+		}
+		throw error;
+	});
+	if (access.projectId !== scope.projectId) {
+		throw new OrganizationError(
+			"not_found",
+			"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
+		);
+	}
+	const state = await tx
+		.selectFrom("app_organization_state")
+		.select("revision")
+		.where("app_id", "=", scope.appId)
+		.executeTakeFirst();
+	const locations = await tx
+		.selectFrom("app_locations")
+		.selectAll()
+		.where("app_id", "=", scope.appId)
+		.orderBy("parent_id")
+		.orderBy("order_key")
+		.orderBy("id")
+		.execute();
+	return {
+		access,
+		snapshot: {
+			// An app that has never had an organization has no state row, and
+			// revision 0 is the honest answer rather than an error.
+			revision:
+				state === undefined ? "0" : parseOrganizationRevision(state.revision),
+			locations: locations.map(toStoredLocation),
+		},
+	};
+}
+
 export async function readOrganization(
 	scope: OrganizationScope,
 ): Promise<OrganizationSnapshot> {
 	return withAppTx(
+		async (tx) => (await readOrganizationInTransaction(tx, scope)).snapshot,
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
+/**
+ * Read the Blueprint organization vocabulary and location rows from the same
+ * repeatable-read snapshot. SA/MCP pagination must use this rather than pair a
+ * previously loaded Blueprint with a later locations read: either half can
+ * change independently, and both generations belong in the continuation
+ * cursor.
+ */
+export async function readOrganizationAuthoringSnapshot(
+	scope: OrganizationScope,
+): Promise<{
+	readonly blueprint: BlueprintDoc;
+	readonly blueprintSeq: number;
+	readonly organization: OrganizationSnapshot;
+}> {
+	return withAppTx(
 		async (tx) => {
-			// The action authorized this scope before constructing it, but an app
-			// that moved Projects in between must not be readable through the old
-			// one. Every WRITE re-proves this under its lock; a read-only
-			// transaction cannot lock, so it proves it in its own snapshot.
-			const access = await resolveAppScopeInTransaction(
+			const { access, snapshot } = await readOrganizationInTransaction(
 				tx,
-				scope.appId,
-				scope.actorUserId,
-				"view",
-			).catch((error: unknown) => {
-				if (error instanceof AppAccessError) {
-					throw new OrganizationError(
-						"not_found",
-						"This app's organization isn't available. It may have been deleted, moved, or you may no longer have access to it.",
-					);
-				}
-				throw error;
-			});
-			if (access.projectId !== scope.projectId) {
-				throw new OrganizationError(
-					"not_found",
-					"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
+				scope,
+			);
+			const app = await loadAppInTransaction(tx, scope.appId);
+			if (app === null) throw organizationNotFound();
+			if (
+				app.project_id !== access.projectId ||
+				app.mutation_seq !== access.baseSeq
+			) {
+				throw new Error(
+					"Organization authoring snapshot lock invariant failed.",
 				);
 			}
-			const state = await tx
-				.selectFrom("app_organization_state")
-				.select("revision")
-				.where("app_id", "=", scope.appId)
-				.executeTakeFirst();
-			const locations = await tx
-				.selectFrom("app_locations")
-				.selectAll()
-				.where("app_id", "=", scope.appId)
-				.orderBy("parent_id")
-				.orderBy("order_key")
-				.orderBy("id")
-				.execute();
 			return {
-				// An app that has never had an organization has no state row, and
-				// revision 0 is the honest answer rather than an error: "nothing
-				// yet" is a legitimate organization, and the first write creates
-				// the row.
-				revision:
-					state === undefined ? "0" : parseOrganizationRevision(state.revision),
-				locations: locations.map(toStoredLocation),
+				blueprint: hydratePersistedBlueprint(app.blueprint),
+				blueprintSeq: access.baseSeq,
+				organization: snapshot,
 			};
 		},
 		{ isolationLevel: "repeatable read" },

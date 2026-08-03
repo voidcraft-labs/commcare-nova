@@ -34,7 +34,7 @@ import {
 	createLocation,
 	describeArchiveImpact,
 	moveLocation,
-	readOrganization,
+	readOrganizationAuthoringSnapshot,
 	setLocationArchived,
 	updateLocation,
 } from "@/lib/organization/service";
@@ -130,6 +130,7 @@ const ORGANIZATION_PAGE_MAX = 50;
 const organizationCursorPayloadSchema = z
 	.object({
 		revision: organizationRevisionSchema,
+		blueprintSeq: z.number().int().nonnegative(),
 		offset: z.number().int().nonnegative(),
 		query: z.string().max(255).nullable(),
 		includeValues: z.boolean(),
@@ -266,15 +267,20 @@ export const getOrganizationTool = {
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
 		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		_doc: BlueprintDoc,
 	): Promise<ReadToolResult<unknown>> {
 		try {
-			const snapshot = await readOrganization(scope(ctx));
+			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
+			const snapshot = authoring.organization;
 			const cursor =
 				input.cursor === undefined || input.cursor === null
 					? undefined
 					: decodeOrganizationCursor(input.cursor);
-			if (cursor !== undefined && cursor.revision !== snapshot.revision) {
+			if (
+				cursor !== undefined &&
+				(cursor.revision !== snapshot.revision ||
+					cursor.blueprintSeq !== authoring.blueprintSeq)
+			) {
 				return {
 					kind: "read",
 					data: {
@@ -324,8 +330,9 @@ export const getOrganizationTool = {
 			return {
 				kind: "read",
 				data: {
-					levels: orderedOrganizationLevels(doc),
-					placeInformation: orderedLocationProperties(doc),
+					levels: orderedOrganizationLevels(authoring.blueprint),
+					placeInformation: orderedLocationProperties(authoring.blueprint),
+					blueprintSeq: authoring.blueprintSeq,
 					revision: snapshot.revision,
 					locations,
 					page: {
@@ -337,6 +344,7 @@ export const getOrganizationTool = {
 							end < matching.length
 								? encodeOrganizationCursor({
 										revision: snapshot.revision,
+										blueprintSeq: authoring.blueprintSeq,
 										offset: end,
 										query,
 										includeValues,

@@ -76,6 +76,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { locationChoiceLabel } from "@/lib/organization/locationLabels";
 import {
 	fixedLocationOwnerIssue,
 	reverseLocationOwnerIssue,
@@ -649,12 +650,18 @@ function CaseOwnerSection({
 		selected?.term.kind === "owner-location-at-level"
 			? selected.term.levelUuid
 			: undefined;
-	const selectedLocationName =
+	const selectedLocation =
 		selectedLocationUuid !== undefined
-			? (organization.locations.find(
+			? organization.locations.find(
 					(location) => location.id === selectedLocationUuid,
-				)?.name ?? "A place that is no longer available")
+				)
 			: undefined;
+	const selectedLocationName =
+		selectedLocationUuid === undefined
+			? undefined
+			: selectedLocation === undefined
+				? "A place that is no longer available"
+				: locationChoiceLabel(selectedLocation);
 	const selectedLevelName =
 		selectedLevelUuid !== undefined
 			? (levels.find((level) => level.uuid === selectedLevelUuid)?.name ??
@@ -806,7 +813,7 @@ function CaseOwnerSection({
 								<SelectContent>
 									{locations.map((location) => (
 										<SelectItem wrap key={location.id} value={location.id}>
-											{location.name}
+											{locationChoiceLabel(location)}
 										</SelectItem>
 									))}
 								</SelectContent>

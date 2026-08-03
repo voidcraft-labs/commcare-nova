@@ -24,6 +24,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrganizationLevelRecord } from "@/lib/doc/hooks/useOrganizationCollections";
 import type { Uuid } from "@/lib/doc/types";
@@ -32,6 +33,8 @@ import {
 	levelHoldsWorkers,
 	type Persona,
 } from "@/lib/domain";
+import { locationChoiceLabel } from "@/lib/organization/locationLabels";
+import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
@@ -50,6 +53,7 @@ export function PersonaLocations({
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
+	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevelRecord();
 	const assigned = assignedLocationUuids(persona.locations);
 	const rowFocus = useRemovedRowFocus(assigned.length);
@@ -63,7 +67,11 @@ export function PersonaLocations({
 			location.archivedAt === null &&
 			levels[location.levelUuid] !== undefined &&
 			levelHoldsWorkers(levels[location.levelUuid]) &&
-			!assigned.includes(location.id),
+			!assigned.includes(location.id) &&
+			personaAssignmentIssue(doc, locations, persona.uuid, [
+				...assigned,
+				location.id,
+			]) === undefined,
 	);
 	const assignableCount = locations.filter(
 		(location) =>
@@ -110,7 +118,9 @@ export function PersonaLocations({
 										className="flex min-h-11 items-center gap-2.5 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
 									>
 										<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
-											{location?.name ?? "A place that no longer exists"}
+											{location === undefined
+												? "A place that no longer exists"
+												: locationChoiceLabel(location)}
 										</span>
 										{index === 0 && (
 											<span className="shrink-0 rounded-sm bg-nova-violet/[0.15] px-1.5 py-0.5 text-[11px] text-nova-violet-bright">
@@ -191,7 +201,7 @@ export function PersonaLocations({
 							<SelectContent>
 								{available.map((location) => (
 									<SelectItem wrap key={location.id} value={location.id}>
-										{location.name}
+										{locationChoiceLabel(location)}
 									</SelectItem>
 								))}
 							</SelectContent>

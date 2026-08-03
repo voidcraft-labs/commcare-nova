@@ -1,7 +1,9 @@
 import {
 	ancestorLevels,
 	assignedLocationUuids,
+	asUuid,
 	type BlueprintDoc,
+	levelHoldsWorkers,
 	levelOwnsCases,
 	organizationLevelsOf,
 	personasOf,
@@ -206,6 +208,9 @@ export function reverseLocationOwnerIssue(
 	const destinationLevel = levels[destinationLevelUuid];
 	if (destinationLevel === undefined)
 		return "The owner level no longer exists.";
+	if (!levelOwnsCases(destinationLevel)) {
+		return `${destinationLevel.name} does not own cases. Choose a case-owning destination level.`;
+	}
 	const sourceLevel = ancestorLevels(destinationLevel, levels).find(
 		levelOwnsCases,
 	);
@@ -241,5 +246,99 @@ export function reverseLocationOwnerIssue(
 			}
 		}
 	}
+	for (const source of live) {
+		if (source.levelUuid !== sourceLevel.uuid) continue;
+		if (firstBySource.has(source.id)) continue;
+		return `The owner rule for ${destinationLevel.name} has no live ${destinationLevel.name.toLowerCase()} below "${source.name}". Add exactly one there, or choose a fixed place owner.`;
+	}
 	return undefined;
+}
+
+function authoredLocationReferenceIssue(
+	doc: BlueprintDoc,
+	rows: readonly OwnerVerdictLocation[],
+): string | undefined {
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	const levels = organizationLevelsOf(doc);
+	for (const persona of Object.values(personasOf(doc))) {
+		for (const locationId of assignedLocationUuids(persona.locations)) {
+			const row = byId.get(locationId);
+			const level = row === undefined ? undefined : levels[row.levelUuid];
+			if (
+				row === undefined ||
+				row.archivedAt !== null ||
+				level === undefined ||
+				!levelHoldsWorkers(level)
+			) {
+				return `${persona.name} cannot work at "${row?.name ?? "a missing place"}". Choose a live place at a level where people work.`;
+			}
+		}
+	}
+	const reverseLevels = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			const owner = operation.owner;
+			if (owner?.kind !== "term") continue;
+			if (owner.term.kind === "fixed-location") {
+				const issue = fixedLocationOwnerIssue(
+					doc,
+					rows,
+					owner.term.locationUuid,
+				);
+				if (issue !== undefined) return issue;
+			}
+			if (owner.term.kind === "owner-location-at-level") {
+				reverseLevels.add(owner.term.levelUuid);
+			}
+		}
+	}
+	for (const levelUuid of reverseLevels) {
+		const issue = reverseLocationOwnerIssue(doc, rows, levelUuid);
+		if (issue !== undefined) return issue;
+	}
+	return undefined;
+}
+
+/** Pure Builder preflight for replacing one persona's complete assignment. */
+export function personaAssignmentIssue(
+	doc: BlueprintDoc,
+	rows: readonly OwnerVerdictLocation[],
+	personaUuid: string,
+	locationIds: readonly string[],
+): string | undefined {
+	const persona = personasOf(doc)[personaUuid];
+	if (persona === undefined) return "This persona no longer exists.";
+	const unique = [...new Set(locationIds)];
+	const [primaryUuid, ...additionalUuids] = unique;
+	const candidatePersona = {
+		...persona,
+		...(primaryUuid === undefined
+			? { locations: undefined }
+			: {
+					locations: {
+						primaryUuid: asUuid(primaryUuid),
+						...(additionalUuids.length === 0
+							? {}
+							: { additionalUuids: additionalUuids.map(asUuid) }),
+					},
+				}),
+	};
+	const candidate: BlueprintDoc = {
+		...doc,
+		personas: { ...personasOf(doc), [personaUuid]: candidatePersona },
+	};
+	return authoredLocationReferenceIssue(candidate, rows);
+}
+
+/** Pure Builder preflight for a move/retype before its Server Action. */
+export function locationTopologyChangeIssue(
+	doc: BlueprintDoc,
+	rows: readonly OwnerVerdictLocation[],
+	locationId: string,
+	patch: { readonly levelUuid?: string; readonly parentId?: string | null },
+): string | undefined {
+	const candidateRows = rows.map((row) =>
+		row.id === locationId ? { ...row, ...patch } : row,
+	);
+	return authoredLocationReferenceIssue(doc, candidateRows);
 }

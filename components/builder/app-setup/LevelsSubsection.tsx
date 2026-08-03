@@ -574,13 +574,42 @@ function CaseFlowGroup({
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="none">No — only their own place</SelectItem>
-								<SelectItem value="all">Yes — everything below</SelectItem>
+								<SelectItem
+									value="none"
+									disabled={
+										issueFor({
+											caseFlow: { ...flow, descendantCases: { kind: "none" } },
+										}) !== undefined
+									}
+								>
+									No — only their own place
+								</SelectItem>
+								<SelectItem
+									value="all"
+									disabled={
+										issueFor({
+											caseFlow: { ...flow, descendantCases: { kind: "all" } },
+										}) !== undefined
+									}
+								>
+									Yes — everything below
+								</SelectItem>
 								{peers.map((ancestor) => (
 									<SelectItem
 										wrap
 										key={ancestor.uuid}
 										value={`down-to:${ancestor.uuid}`}
+										disabled={
+											issueFor({
+												caseFlow: {
+													...flow,
+													descendantCases: {
+														kind: "down-to",
+														levelUuid: ancestor.uuid as Uuid,
+													},
+												},
+											}) !== undefined
+										}
 									>
 										Down to {ancestor.name}
 									</SelectItem>
@@ -665,6 +694,11 @@ function AddressBookGroup({
 	const downToId = useId();
 	const topSliceId = useId();
 	const book = level.addressBook;
+	const bookWithoutDownTo = { ...book };
+	delete (bookWithoutDownTo as { downToLevelUuid?: Uuid }).downToLevelUuid;
+	const bookWithoutTopSlice = { ...book };
+	delete (bookWithoutTopSlice as { alsoIncludeTopDownToLevelUuid?: Uuid })
+		.alsoIncludeTopDownToLevelUuid;
 	const isDefault =
 		book.reach === "own-branch" &&
 		book.downToLevelUuid === undefined &&
@@ -742,6 +776,7 @@ function AddressBookGroup({
 					variant="ghost"
 					className="min-h-11 shrink-0 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 					onClick={() => setExpanded(true)}
+					disabled={!canEdit}
 				>
 					Change
 				</Button>
@@ -858,7 +893,19 @@ function AddressBookGroup({
 							</SelectTrigger>
 							<SelectContent>
 								{above.map((ancestor) => (
-									<SelectItem wrap key={ancestor.uuid} value={ancestor.uuid}>
+									<SelectItem
+										wrap
+										key={ancestor.uuid}
+										value={ancestor.uuid}
+										disabled={
+											issueFor({
+												addressBook: {
+													...book,
+													fromLevelUuid: ancestor.uuid,
+												},
+											}) !== undefined
+										}
+									>
 										{ancestor.name}
 									</SelectItem>
 								))}
@@ -879,7 +926,16 @@ function AddressBookGroup({
 									label={candidate.name}
 									hint=""
 									checked={checked}
-									disabled={!canEdit || candidate.uuid === level.uuid}
+									disabled={
+										!canEdit ||
+										candidate.uuid === level.uuid ||
+										issueFor({
+											addressBook: {
+												...book,
+												levelUuids: limitedSelection(candidate, !checked),
+											},
+										}) !== undefined
+									}
 									onChange={(next) =>
 										set({
 											...book,
@@ -916,9 +972,30 @@ function AddressBookGroup({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value={NO_LEVEL_LIMIT}>No limit</SelectItem>
+								<SelectItem
+									value={NO_LEVEL_LIMIT}
+									disabled={
+										issueFor({
+											addressBook: bookWithoutDownTo as LevelAddressBook,
+										}) !== undefined
+									}
+								>
+									No limit
+								</SelectItem>
 								{downToOptions.map((candidate) => (
-									<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
+									<SelectItem
+										wrap
+										key={candidate.uuid}
+										value={candidate.uuid}
+										disabled={
+											issueFor({
+												addressBook: {
+													...book,
+													downToLevelUuid: candidate.uuid,
+												},
+											}) !== undefined
+										}
+									>
 										{candidate.name}
 									</SelectItem>
 								))}
@@ -958,11 +1035,30 @@ function AddressBookGroup({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value={NO_LEVEL_LIMIT}>
+								<SelectItem
+									value={NO_LEVEL_LIMIT}
+									disabled={
+										issueFor({
+											addressBook: bookWithoutTopSlice as LevelAddressBook,
+										}) !== undefined
+									}
+								>
 									Do not add a top slice
 								</SelectItem>
 								{peers.map((candidate) => (
-									<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
+									<SelectItem
+										wrap
+										key={candidate.uuid}
+										value={candidate.uuid}
+										disabled={
+											issueFor({
+												addressBook: {
+													...book,
+													alsoIncludeTopDownToLevelUuid: candidate.uuid,
+												},
+											}) !== undefined
+										}
+									>
 										{candidate.name}
 									</SelectItem>
 								))}

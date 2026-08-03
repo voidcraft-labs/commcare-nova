@@ -29,15 +29,19 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useLocationProperties,
 	useOrganizationLevels,
 } from "@/lib/doc/hooks/useOrganizationCollections";
 import {
+	type BlueprintDoc,
 	type LocationProperty,
 	levelMayNestUnder,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import { locationChoiceLabel } from "@/lib/organization/locationLabels";
+import { locationTopologyChangeIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { ArchiveImpact, StoredLocation } from "@/lib/organization/types";
 import type { useOrganization } from "@/lib/organization/useOrganization";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -47,44 +51,16 @@ import {
 	requiredValuesPresent,
 	valuesForLevel,
 } from "./organizationUi";
+import { buildPlaceTree, PLACE_PAGE_SIZE, type PlaceTree } from "./placeTree";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 type Organization = ReturnType<typeof useOrganization>;
 const FIRST_POSITION = "__first__";
 const END_POSITION = "__end__";
 
-/** One row plus its depth, in the order the tree reads top to bottom. */
-interface TreeRow {
-	readonly location: StoredLocation;
-	readonly depth: number;
-}
-
-function flatten(locations: readonly StoredLocation[]): TreeRow[] {
-	const childrenOf = new Map<string | null, StoredLocation[]>();
-	for (const location of locations) {
-		const siblings = childrenOf.get(location.parentId);
-		if (siblings === undefined) childrenOf.set(location.parentId, [location]);
-		else siblings.push(location);
-	}
-	const rows: TreeRow[] = [];
-	const seen = new Set<string>();
-	const walk = (parentId: string | null, depth: number) => {
-		for (const location of childrenOf.get(parentId) ?? []) {
-			// A cycle is unreachable through the store's own rules, but this walk
-			// also runs over rows an operator may have repaired by hand.
-			if (seen.has(location.id)) continue;
-			seen.add(location.id);
-			rows.push({ location, depth });
-			walk(location.id, depth + 1);
-		}
-	};
-	walk(null, 0);
-	// Anything the walk could not reach from a root still belongs on screen —
-	// hiding a row because its parent is missing would make it unfixable.
-	for (const location of locations) {
-		if (!seen.has(location.id)) rows.push({ location, depth: 0 });
-	}
-	return rows;
+interface LocalLocationSave {
+	readonly before: StoredLocation;
+	readonly saved: StoredLocation;
 }
 
 export function PlacesSubsection({
@@ -95,8 +71,10 @@ export function PlacesSubsection({
 	const levels = useOrganizationLevels();
 	const properties = useLocationProperties();
 	const canEdit = useCanEdit();
+	const doc = useBlueprintDoc((state) => state);
 	const [openId, setOpenId] = useState<string | undefined>(undefined);
 	const [adding, setAdding] = useState(false);
+	const [page, setPage] = useState(0);
 	const [message, setMessage] = useState<string | undefined>(undefined);
 	const authoritative =
 		!organization.loading && organization.error === undefined;
@@ -106,7 +84,20 @@ export function PlacesSubsection({
 		setAdding(false);
 	}, [canEdit]);
 
-	const rows = flatten(organization.locations);
+	const tree = buildPlaceTree(organization.locations);
+	const pageCount = Math.max(1, Math.ceil(tree.rows.length / PLACE_PAGE_SIZE));
+	const shownPage = Math.min(page, pageCount - 1);
+	const pageStart = shownPage * PLACE_PAGE_SIZE;
+	const pageRows = tree.rows.slice(pageStart, pageStart + PLACE_PAGE_SIZE);
+
+	useEffect(() => {
+		setPage((current) => Math.min(current, pageCount - 1));
+	}, [pageCount]);
+	useEffect(() => {
+		if (openId === undefined) return;
+		const index = tree.rows.findIndex(({ location }) => location.id === openId);
+		if (index >= 0) setPage(Math.floor(index / PLACE_PAGE_SIZE));
+	}, [openId, tree.rows]);
 
 	if (levels.length === 0) {
 		return (
@@ -154,28 +145,76 @@ export function PlacesSubsection({
 						Try again
 					</Button>
 				</p>
-			) : rows.length === 0 && !adding ? (
+			) : tree.rows.length === 0 && !adding ? (
 				<SubsectionEmpty>
 					No places yet. Add the first one at your top level, then build
 					downward.
 				</SubsectionEmpty>
 			) : (
-				rows.map(({ location, depth }) => (
-					<div
-						key={location.id}
-						style={{ marginInlineStart: `${Math.min(depth, 6) * 16}px` }}
-					>
-						<PlaceRow
-							location={location}
-							levels={levels}
-							properties={properties}
-							locations={organization.locations}
-							organization={organization}
-							open={openId === location.id}
-							onOpenChange={(next) => setOpenId(next ? location.id : undefined)}
-						/>
-					</div>
-				))
+				<div
+					role="tree"
+					aria-label="Place hierarchy"
+					className="flex flex-col gap-2"
+				>
+					{pageRows.map(({ location, depth, positionInSet, setSize }) => (
+						<div
+							key={location.id}
+							role="treeitem"
+							aria-level={depth + 1}
+							aria-posinset={positionInSet}
+							aria-setsize={setSize}
+							tabIndex={-1}
+							style={{ paddingInlineStart: `min(${depth * 16}px, 25%)` }}
+							className="min-w-0"
+						>
+							<PlaceRow
+								location={location}
+								levels={levels}
+								properties={properties}
+								doc={doc}
+								tree={tree}
+								organization={organization}
+								open={openId === location.id}
+								onOpenChange={(next) =>
+									setOpenId(next ? location.id : undefined)
+								}
+							/>
+						</div>
+					))}
+					{pageCount > 1 && (
+						<fieldset className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-nova-border px-3 py-2">
+							<legend className="sr-only">Place pages</legend>
+							<Button
+								type="button"
+								variant="ghost"
+								className="min-h-11 px-2.5 text-[12px]"
+								disabled={shownPage === 0}
+								onClick={() => setPage((current) => Math.max(0, current - 1))}
+							>
+								Previous
+							</Button>
+							<p
+								className="text-[12px] text-nova-text-muted"
+								aria-live="polite"
+							>
+								Places {pageStart + 1}–
+								{Math.min(pageStart + PLACE_PAGE_SIZE, tree.rows.length)} of{" "}
+								{tree.rows.length}
+							</p>
+							<Button
+								type="button"
+								variant="ghost"
+								className="min-h-11 px-2.5 text-[12px]"
+								disabled={shownPage === pageCount - 1}
+								onClick={() =>
+									setPage((current) => Math.min(pageCount - 1, current + 1))
+								}
+							>
+								Next
+							</Button>
+						</fieldset>
+					)}
+				</div>
 			)}
 
 			{adding && canEdit && authoritative && (
@@ -215,23 +254,16 @@ function levelName(levels: readonly OrganizationLevel[], uuid: string): string {
 }
 
 function descendantIds(
-	locations: readonly StoredLocation[],
+	children: ReadonlyMap<string | null, readonly StoredLocation[]>,
 	rootId: string,
 ): ReadonlySet<string> {
-	const children = new Map<string, string[]>();
-	for (const location of locations) {
-		if (location.parentId === null) continue;
-		const current = children.get(location.parentId);
-		if (current === undefined) children.set(location.parentId, [location.id]);
-		else current.push(location.id);
-	}
 	const descendants = new Set<string>();
-	const pending = [...(children.get(rootId) ?? [])];
+	const pending = (children.get(rootId) ?? []).map((location) => location.id);
 	while (pending.length > 0) {
 		const id = pending.pop();
 		if (id === undefined || descendants.has(id)) continue;
 		descendants.add(id);
-		pending.push(...(children.get(id) ?? []));
+		pending.push(...(children.get(id) ?? []).map((location) => location.id));
 	}
 	return descendants;
 }
@@ -269,17 +301,19 @@ function sameStringRecord(
 
 function PlaceRow({
 	location,
+	doc,
 	levels,
 	properties,
-	locations,
+	tree,
 	organization,
 	open,
 	onOpenChange,
 }: {
 	location: StoredLocation;
+	doc: BlueprintDoc;
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
-	locations: readonly StoredLocation[];
+	tree: PlaceTree;
 	organization: Organization;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -320,24 +354,16 @@ function PlaceRow({
 	// Server Actions return the authoritative row before the post-write refresh
 	// lands. Keep those accepted rows as a chain so an old render is not mistaken
 	// for a peer edit, while a genuinely different row still raises a conflict.
-	const localSavesRef = useRef<StoredLocation[]>([]);
+	const localSavesRef = useRef<LocalLocationSave[]>([]);
 	const archived = location.archivedAt !== null;
 	const applicableProperties = propertiesForLevel(properties, draftLevelUuid);
 	const levelRecord = Object.fromEntries(
 		levels.map((candidate) => [candidate.uuid, candidate]),
 	);
-	const hasChildren = locations.some(
-		(candidate) => candidate.parentId === location.id,
-	);
-	const retypeOptions = hasChildren
-		? levels.filter((candidate) => candidate.uuid === location.levelUuid)
-		: levels;
-	const siblings = locations.filter(
-		(candidate) =>
-			candidate.parentId === location.parentId && candidate.id !== location.id,
-	);
-	const siblingOrder = locations.filter(
-		(candidate) => candidate.parentId === location.parentId,
+	const hasChildren = (tree.childrenOf.get(location.id)?.length ?? 0) > 0;
+	const siblingOrder = tree.childrenOf.get(location.parentId) ?? [];
+	const siblings = siblingOrder.filter(
+		(candidate) => candidate.id !== location.id,
 	);
 	const ownIndex = siblingOrder.findIndex(
 		(candidate) => candidate.id === location.id,
@@ -349,13 +375,71 @@ function PlaceRow({
 			: ownIndex === siblingOrder.length - 1
 				? END_POSITION
 				: (previousSibling?.id ?? FIRST_POSITION);
-	const descendants = descendantIds(locations, location.id);
-	const parentOptions = locations.filter(
-		(candidate) =>
-			candidate.archivedAt === null &&
-			!descendants.has(candidate.id) &&
-			candidate.id !== location.id &&
-			levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord),
+	const descendants = open
+		? descendantIds(tree.childrenOf, location.id)
+		: new Set<string>();
+	const retypePlans = new Map<string, { readonly parentId: string | null }>();
+	if (open) {
+		for (const candidateLevel of levels) {
+			if (hasChildren && candidateLevel.uuid !== location.levelUuid) continue;
+			if (candidateLevel.parentLevelUuid === undefined) {
+				if (
+					locationTopologyChangeIssue(doc, tree.locations, location.id, {
+						levelUuid: candidateLevel.uuid,
+						parentId: null,
+					}) === undefined
+				) {
+					retypePlans.set(candidateLevel.uuid, { parentId: null });
+				}
+				continue;
+			}
+			const compatible = tree.locations.filter(
+				(candidate) =>
+					candidate.archivedAt === null &&
+					candidate.id !== location.id &&
+					!descendants.has(candidate.id) &&
+					levelMayNestUnder(
+						candidateLevel.uuid,
+						candidate.levelUuid,
+						levelRecord,
+					),
+			);
+			const preferred = [
+				...compatible.filter((candidate) => candidate.id === draftParentId),
+				...compatible.filter((candidate) => candidate.id !== draftParentId),
+			];
+			for (const parent of preferred) {
+				if (
+					locationTopologyChangeIssue(doc, tree.locations, location.id, {
+						levelUuid: candidateLevel.uuid,
+						parentId: parent.id,
+					}) !== undefined
+				) {
+					continue;
+				}
+				retypePlans.set(candidateLevel.uuid, { parentId: parent.id });
+				break;
+			}
+		}
+	}
+	const retypeOptions = levels.filter((candidate) =>
+		retypePlans.has(candidate.uuid),
+	);
+	const parentOptions = open
+		? tree.locations.filter(
+				(candidate) =>
+					candidate.archivedAt === null &&
+					!descendants.has(candidate.id) &&
+					candidate.id !== location.id &&
+					levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord) &&
+					locationTopologyChangeIssue(doc, tree.locations, location.id, {
+						levelUuid: draftLevelUuid,
+						parentId: candidate.id,
+					}) === undefined,
+			)
+		: [];
+	const selectedParent = parentOptions.find(
+		(candidate) => candidate.id === draftParentId,
 	);
 
 	useEffect(() => {
@@ -368,18 +452,46 @@ function PlaceRow({
 			dirtyLevel
 		) {
 			if (sameStoredLocation(sourceRef.current, location)) return;
-			const acceptedIndex = localSavesRef.current.findIndex((saved) =>
+			const acceptedIndex = localSavesRef.current.findIndex(({ saved }) =>
 				sameStoredLocation(saved, location),
 			);
 			if (acceptedIndex >= 0) {
-				sourceRef.current = location;
 				localSavesRef.current.splice(0, acceptedIndex + 1);
+				sourceRef.current = localSavesRef.current.at(-1)?.saved ?? location;
 				setPeerChanged(false);
+				return;
+			}
+			if (
+				localSavesRef.current.some(({ before }) =>
+					sameStoredLocation(before, location),
+				)
+			) {
 				return;
 			}
 			setPeerChanged(true);
 			return;
 		}
+		const acceptedIndex = localSavesRef.current.findIndex(({ saved }) =>
+			sameStoredLocation(saved, location),
+		);
+		if (acceptedIndex >= 0) {
+			localSavesRef.current.splice(0, acceptedIndex + 1);
+		}
+		const pendingLocal = localSavesRef.current.at(-1);
+		if (
+			pendingLocal !== undefined &&
+			localSavesRef.current.some(({ before }) =>
+				sameStoredLocation(before, location),
+			)
+		) {
+			sourceRef.current = pendingLocal.saved;
+			setPeerChanged(false);
+			return;
+		}
+		// A changed prop that is neither the pre-save row nor one of our accepted
+		// rows is newer authoritative state (for example a peer edit after our
+		// write). Do not pin the UI to the local response forever.
+		if (pendingLocal !== undefined) localSavesRef.current = [];
 		setDraftName(location.name);
 		setDraftExternalId(location.externalId ?? "");
 		setDraftLatitude(location.latitude ?? "");
@@ -436,7 +548,10 @@ function PlaceRow({
 	};
 
 	const rebaseAfterLocalSave = (saved: StoredLocation | undefined) => {
-		if (saved !== undefined) localSavesRef.current.push(saved);
+		if (saved !== undefined) {
+			localSavesRef.current.push({ before: sourceRef.current, saved });
+			sourceRef.current = saved;
+		}
 		setPeerChanged(false);
 	};
 
@@ -476,6 +591,7 @@ function PlaceRow({
 			detail={levelName(levels, location.levelUuid)}
 			open={open}
 			onOpenChange={onOpenChange}
+			keepMounted={false}
 		>
 			<div className="flex flex-col gap-4">
 				{peerChanged && (
@@ -607,26 +723,10 @@ function PlaceRow({
 						disabled={!canEdit || archived || hasChildren || peerChanged}
 						onValueChange={(value) => {
 							if (typeof value !== "string") return;
+							const plan = retypePlans.get(value);
+							if (plan === undefined) return;
 							setDraftLevelUuid(value);
-							const nextLevel = levels.find(
-								(candidate) => candidate.uuid === value,
-							);
-							if (nextLevel?.parentLevelUuid === undefined) {
-								setDraftParentId(null);
-							} else {
-								const compatible = locations.filter(
-									(candidate) =>
-										candidate.archivedAt === null &&
-										candidate.id !== location.id &&
-										!descendants.has(candidate.id) &&
-										levelMayNestUnder(value, candidate.levelUuid, levelRecord),
-								);
-								setDraftParentId(
-									compatible.some((candidate) => candidate.id === draftParentId)
-										? draftParentId
-										: (compatible[0]?.id ?? null),
-								);
-							}
+							setDraftParentId(plan.parentId);
 							const nextValues = valuesForLevel(properties, value, draftValues);
 							setDraftValues(nextValues);
 							setDirtyLevel(value !== location.levelUuid);
@@ -805,19 +905,24 @@ function PlaceRow({
 						>
 							<SelectTrigger wrapValue className="w-full" aria-label="Sits in">
 								<SelectValue>
-									{parentOptions.find(
-										(candidate) => candidate.id === draftParentId,
-									)?.name ?? "Choose a place"}
+									{selectedParent === undefined
+										? "Choose a place"
+										: locationChoiceLabel(selectedParent)}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{parentOptions.map((candidate) => (
 									<SelectItem wrap key={candidate.id} value={candidate.id}>
-										{candidate.name}
+										{locationChoiceLabel(candidate)}
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
+						{(dirtyLevel || draftParentId !== location.parentId) && (
+							<p className="text-[12px] leading-relaxed text-nova-text-muted">
+								Apply the level or parent change before choosing a position.
+							</p>
+						)}
 					</div>
 				)}
 
@@ -831,7 +936,13 @@ function PlaceRow({
 						</Label>
 						<Select
 							value={positionValue}
-							disabled={!canEdit || archived || peerChanged}
+							disabled={
+								!canEdit ||
+								archived ||
+								peerChanged ||
+								dirtyLevel ||
+								draftParentId !== location.parentId
+							}
 							onValueChange={async (value) => {
 								if (typeof value !== "string") return;
 								const afterSiblingId =
@@ -857,7 +968,17 @@ function PlaceRow({
 										? "At the beginning"
 										: positionValue === END_POSITION
 											? "At the end"
-											: `After ${siblings.find((sibling) => sibling.id === positionValue)?.name ?? "another place"}`}
+											: `After ${
+													siblings.find(
+														(sibling) => sibling.id === positionValue,
+													) === undefined
+														? "another place"
+														: locationChoiceLabel(
+																siblings.find(
+																	(sibling) => sibling.id === positionValue,
+																) as StoredLocation,
+															)
+												}`}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
@@ -865,7 +986,7 @@ function PlaceRow({
 								<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
 								{siblings.map((sibling) => (
 									<SelectItem wrap key={sibling.id} value={sibling.id}>
-										After {sibling.name}
+										After {locationChoiceLabel(sibling)}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -1118,8 +1239,9 @@ function ArchivePlace({
 						<li className="text-nova-amber">
 							{impact.ownedCases}{" "}
 							{impact.ownedCases === 1 ? "case is" : "cases are"} owned here and
-							will stop reaching anyone. Nothing moves them — bringing the place
-							back is what makes them reachable again.
+							will stop reaching anyone. Nothing moves them. Bringing the place
+							back restores its path; restore a worker assignment before
+							expecting the cases to reach a device again.
 						</li>
 					)}
 					{impact.blockingOwnerRuleFormCount > 0 && (
@@ -1235,6 +1357,9 @@ function AddPlaceForm({
 	const needsParent = levelRecord[levelUuid]?.parentLevelUuid !== undefined;
 	const siblings = locations.filter(
 		(location) => location.parentId === (needsParent ? parent : null),
+	);
+	const selectedParent = parentOptions.find(
+		(candidate) => candidate.id === parent,
 	);
 	const applicableProperties = propertiesForLevel(properties, levelUuid);
 
@@ -1394,14 +1519,15 @@ function AddPlaceForm({
 							<SelectValue>
 								{parent === ""
 									? "Choose a place"
-									: (parentOptions.find((c) => c.id === parent)?.name ??
-										"Choose a place")}
+									: selectedParent === undefined
+										? "Choose a place"
+										: locationChoiceLabel(selectedParent)}
 							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							{parentOptions.map((candidate) => (
 								<SelectItem wrap key={candidate.id} value={candidate.id}>
-									{candidate.name}
+									{locationChoiceLabel(candidate)}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -1445,7 +1571,17 @@ function AddPlaceForm({
 									? "At the beginning"
 									: afterSiblingId === undefined
 										? "At the end"
-										: `After ${siblings.find((sibling) => sibling.id === afterSiblingId)?.name ?? "another place"}`}
+										: `After ${
+												siblings.find(
+													(sibling) => sibling.id === afterSiblingId,
+												) === undefined
+													? "another place"
+													: locationChoiceLabel(
+															siblings.find(
+																(sibling) => sibling.id === afterSiblingId,
+															) as StoredLocation,
+														)
+											}`}
 							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
@@ -1453,7 +1589,7 @@ function AddPlaceForm({
 							<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
 							{siblings.map((sibling) => (
 								<SelectItem wrap key={sibling.id} value={sibling.id}>
-									After {sibling.name}
+									After {locationChoiceLabel(sibling)}
 								</SelectItem>
 							))}
 						</SelectContent>

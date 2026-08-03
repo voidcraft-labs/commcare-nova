@@ -324,10 +324,14 @@ export function useOrganization(
 		),
 		describeArchive: useCallback(
 			async (locationId) => {
-				const result = await describeArchiveImpactAction(appId, locationId);
-				return result.success
-					? { ok: true as const, impact: result.data }
-					: { ok: false as const, message: result.message };
+				try {
+					const result = await describeArchiveImpactAction(appId, locationId);
+					return result.success
+						? { ok: true as const, impact: result.data }
+						: { ok: false as const, message: result.message };
+				} catch {
+					return { ok: false as const, message: transportFailure().message };
+				}
 			},
 			[appId],
 		),

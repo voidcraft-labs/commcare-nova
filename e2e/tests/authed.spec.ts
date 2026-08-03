@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Page } from "@playwright/test";
+import type { Page, Request } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import {
 	CASE_CHANGES_ROUTINE,
@@ -572,12 +572,67 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByLabel("Place that owns the case")).toContainText(
 			"Kilifi District",
 		);
+		await expect
+			.poll(async () => {
+				const response = await page.request.get(`/api/apps/${appId}`);
+				if (!response.ok()) return false;
+				const body = (await response.json()) as {
+					blueprint?: {
+						forms?: Record<
+							string,
+							{
+								caseOperations?: Array<{
+									owner?: { kind?: string; term?: { kind?: string } };
+								}>;
+							}
+						>;
+					};
+				};
+				return Object.values(body.blueprint?.forms ?? {}).some((form) =>
+					(form.caseOperations ?? []).some(
+						(operation) => operation.owner?.term?.kind === "fixed-location",
+					),
+				);
+			})
+			.toBe(true);
+		await page.reload();
+		await expect(page.getByLabel("Place that owns the case")).toContainText(
+			"Kilifi District",
+		);
 		await page.getByLabel("How to choose the owner").click();
 		await page
 			.getByRole("option", { name: "A place beneath the current case owner" })
 			.click();
 		await page.getByLabel("Level to find beneath the current owner").click();
 		await page.getByRole("option", { name: "District" }).click();
+		await expect(
+			page.getByLabel("Level to find beneath the current owner"),
+		).toContainText("District");
+		await expect
+			.poll(async () => {
+				const response = await page.request.get(`/api/apps/${appId}`);
+				if (!response.ok()) return false;
+				const body = (await response.json()) as {
+					blueprint?: {
+						forms?: Record<
+							string,
+							{
+								caseOperations?: Array<{
+									owner?: { kind?: string; term?: { kind?: string } };
+								}>;
+							}
+						>;
+					};
+				};
+				return Object.values(body.blueprint?.forms ?? {}).some((form) =>
+					(form.caseOperations ?? []).some(
+						(operation) =>
+							operation.owner?.term?.kind === "owner-location-at-level",
+					),
+				);
+			})
+			.toBe(true);
+		await page.reload();
 		await expect(
 			page.getByLabel("Level to find beneath the current owner"),
 		).toContainText("District");
@@ -630,6 +685,68 @@ test.describe("authenticated builder", () => {
 		} finally {
 			await peerPage.close();
 		}
+
+		await page.goto(`/build/${appId}/setup/organization`);
+		const barrierLevels = page.getByRole("region", { name: "Levels" });
+		const barrierPlaces = page.getByRole("region", { name: "Places" });
+		let releaseRejectedSave: (() => void) | undefined;
+		let observeRejectedSave: (() => void) | undefined;
+		const rejectedSaveStarted = new Promise<void>((resolve) => {
+			observeRejectedSave = resolve;
+		});
+		const rejectedSaveRelease = new Promise<void>((resolve) => {
+			releaseRejectedSave = resolve;
+		});
+		let organizationActionPosts = 0;
+		const countOrganizationActions = (request: Request) => {
+			if (
+				request.method() === "POST" &&
+				request.headers()["next-action"] !== undefined
+			) {
+				organizationActionPosts++;
+			}
+		};
+		page.on("request", countOrganizationActions);
+		await page.route(`**/api/apps/${appId}`, async (route) => {
+			if (route.request().method() !== "PUT") return route.continue();
+			observeRejectedSave?.();
+			await rejectedSaveRelease;
+			await route.fulfill({
+				status: 409,
+				contentType: "application/json",
+				body: JSON.stringify({
+					error: "Smoke forced the Blueprint save to fail.",
+					type: "commit_rejected",
+				}),
+			});
+		});
+		await barrierLevels.getByRole("button", { name: "Add level" }).click();
+		await barrierLevels.getByLabel("Level name").fill("Barrier level");
+		await barrierLevels.getByLabel("Level name").press("Enter");
+		await rejectedSaveStarted;
+		await barrierPlaces.getByRole("button", { name: "Add place" }).click();
+		await barrierPlaces.getByLabel("Name").last().fill("Must not persist");
+		await barrierPlaces.getByLabel("Level").last().click();
+		await page.getByRole("option", { name: "Barrier level" }).click();
+		await barrierPlaces.getByLabel("Sits in").last().click();
+		await page.getByRole("option", { name: /Kilifi District/ }).click();
+		await barrierPlaces.getByLabel("Facility kind").last().click();
+		await page.getByRole("option", { name: "Clinic" }).click();
+		const postsBeforeBlockedWrite = organizationActionPosts;
+		await barrierPlaces.getByRole("button", { name: "Add place" }).click();
+		releaseRejectedSave?.();
+		await expect(
+			barrierPlaces.getByText(
+				"The app changed before its places could be saved. Review the latest app, then try again.",
+			),
+		).toBeVisible();
+		expect(organizationActionPosts).toBe(postsBeforeBlockedWrite);
+		await page.unroute(`**/api/apps/${appId}`);
+		page.off("request", countOrganizationActions);
+		await page.reload();
+		await expect(
+			barrierPlaces.getByRole("button", { name: /Must not persist/ }),
+		).toHaveCount(0);
 
 		for (const viewport of [
 			{ width: 1440, height: 900 },

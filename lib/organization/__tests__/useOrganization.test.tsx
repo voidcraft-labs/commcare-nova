@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	barrier: vi.fn(),
 	read: vi.fn(),
 	create: vi.fn(),
+	describeArchive: vi.fn(),
 	subscribe: vi.fn(() => vi.fn()),
 }));
 
@@ -22,7 +23,7 @@ vi.mock("../actions", () => ({
 	createLocationAction: mocks.create,
 	updateLocationAction: vi.fn(),
 	moveLocationAction: vi.fn(),
-	describeArchiveImpactAction: vi.fn(),
+	describeArchiveImpactAction: mocks.describeArchive,
 	setLocationArchivedAction: vi.fn(),
 }));
 
@@ -66,6 +67,26 @@ describe("useOrganization write barrier", () => {
 			outcome = await hook.result.current.create({});
 		});
 		expect(outcome).toMatchObject({ ok: false });
-		expect(outcome?.message).toMatch(/could not be reached/i);
+		if (outcome === undefined || outcome.ok)
+			throw new Error("organization write unexpectedly passed");
+		expect(outcome.message).toMatch(/could not be reached/i);
+	});
+
+	it("settles an archive-preflight transport exception", async () => {
+		mocks.describeArchive.mockRejectedValue(new Error("offline"));
+		const hook = renderHook(() => useOrganization("app"));
+		await waitFor(() => expect(hook.result.current.loading).toBe(false));
+
+		let outcome:
+			| Awaited<ReturnType<typeof hook.result.current.describeArchive>>
+			| undefined;
+		await act(async () => {
+			outcome = await hook.result.current.describeArchive("location");
+		});
+		expect(outcome).toMatchObject({ ok: false });
+		if (outcome === undefined || outcome.ok) {
+			throw new Error("archive preflight unexpectedly passed");
+		}
+		expect(outcome.message).toMatch(/could not be reached/i);
 	});
 });

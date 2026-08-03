@@ -261,9 +261,17 @@ describe("organization authoring tools", () => {
 				orderKey: String(index),
 			})),
 		} as const;
-		vi.spyOn(organizationService, "readOrganization")
-			.mockResolvedValueOnce(snapshot)
-			.mockResolvedValueOnce(snapshot);
+		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				blueprintSeq: 3,
+				organization: snapshot,
+			})
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				blueprintSeq: 3,
+				organization: snapshot,
+			});
 		const first = await getOrganizationTool.execute(
 			{ query: "clinic", limit: 25, includeValues: false },
 			ctx,
@@ -374,15 +382,23 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: "1",
 		} as const;
-		vi.spyOn(organizationService, "readOrganization")
+		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
 			.mockResolvedValueOnce({
-				revision: "7",
-				locations: [
-					location,
-					{ ...location, id: testUuid("paged-location-2") },
-				],
+				blueprint: doc,
+				blueprintSeq: 3,
+				organization: {
+					revision: "7",
+					locations: [
+						location,
+						{ ...location, id: testUuid("paged-location-2") },
+					],
+				},
 			})
-			.mockResolvedValueOnce({ revision: "8", locations: [location] });
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				blueprintSeq: 3,
+				organization: { revision: "8", locations: [location] },
+			});
 		const first = await getOrganizationTool.execute({ limit: 1 }, ctx, doc);
 		const cursor = (first.data as { page: { nextCursor: string } }).page
 			.nextCursor;
@@ -392,6 +408,50 @@ describe("organization authoring tools", () => {
 			doc,
 		);
 		expect(second.data).toMatchObject({ restart: true, revision: "8" });
+	});
+
+	it("rejects a continuation cursor after only the Blueprint changes", async () => {
+		const ctx = context();
+		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const location = {
+			id: testUuid("blueprint-paged-location"),
+			levelUuid: testUuid("blueprint-paged-level"),
+			parentId: null,
+			siteCode: "clinic",
+			name: "Clinic",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: "1",
+		} as const;
+		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				blueprintSeq: 3,
+				organization: {
+					revision: "7",
+					locations: [
+						location,
+						{ ...location, id: testUuid("blueprint-paged-location-2") },
+					],
+				},
+			})
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				blueprintSeq: 4,
+				organization: { revision: "7", locations: [location] },
+			});
+		const first = await getOrganizationTool.execute({ limit: 1 }, ctx, doc);
+		const cursor = (first.data as { page: { nextCursor: string } }).page
+			.nextCursor;
+		const second = await getOrganizationTool.execute(
+			{ cursor, limit: 1 },
+			ctx,
+			doc,
+		);
+		expect(second.data).toMatchObject({ restart: true, revision: "7" });
 	});
 
 	it("marks a fixed-owner archive preflight blocked instead of confirmable", async () => {
