@@ -77,15 +77,15 @@ export async function retireCaseTypeSchemasPhaseA(
 				case_type: caseType,
 				schema: JSON.stringify(archivedSchema),
 				synced_seq: desiredSeq,
-				is_active: false,
+				retired_seq: desiredSeq,
 				index_pending_seq: desiredSeq,
 			})
 			.onConflict((conflict) =>
 				conflict
 					.columns(["app_id", "case_type"])
 					.doUpdateSet((eb) => ({
-						is_active: false,
 						synced_seq: eb.ref("excluded.synced_seq"),
+						retired_seq: eb.ref("excluded.retired_seq"),
 						index_pending_seq: eb.ref("excluded.index_pending_seq"),
 					}))
 					.where(
@@ -129,17 +129,16 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 					.where("app_id", "=", appId)
 					.where("case_type", "=", caseType)
 					.executeTakeFirst();
-				if (
-					row === undefined ||
-					row.is_active ||
-					row.index_pending_seq === null
-				) {
+				if (row === undefined || row.is_active) {
 					return;
 				}
-				const pendingSeq = safePersistedSequence(
-					row.index_pending_seq,
-					`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-				);
+				const pendingSeq =
+					row.index_pending_seq === null
+						? undefined
+						: safePersistedSequence(
+								row.index_pending_seq,
+								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+							);
 				const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
 				const indexes = await sql<{ index_name: string }>`
 					SELECT index_relation.relname AS index_name
@@ -155,14 +154,16 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 						connection,
 					);
 				}
-				await connection
-					.updateTable("case_type_schemas")
-					.set({ index_pending_seq: null, index_synced_seq: pendingSeq })
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.where("is_active", "=", false)
-					.where("index_pending_seq", "=", String(pendingSeq))
-					.execute();
+				if (pendingSeq !== undefined) {
+					await connection
+						.updateTable("case_type_schemas")
+						.set({ index_pending_seq: null, index_synced_seq: pendingSeq })
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("is_active", "=", false)
+						.where("index_pending_seq", "=", String(pendingSeq))
+						.execute();
+				}
 			} finally {
 				await sql`
 					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))

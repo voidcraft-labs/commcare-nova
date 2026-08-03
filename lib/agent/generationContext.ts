@@ -557,17 +557,18 @@ export class GenerationContext implements ToolExecutionContext {
 		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
-			// Explicit property rename is the only batch that needs the
-			// cross-store boundary: its canonical relation moves Blueprint,
-			// schema, live rows, parked rows, and accepted history in one
-			// transaction. Ordinary batches keep the guarded writer fast path;
-			// drain-end materialization derives their schemas from the committed
-			// document.
+			// Explicit property rename and case-type retirement need the
+			// cross-store boundary. Rename moves Blueprint, schema, live rows,
+			// parked rows, and accepted history together; retirement marks the
+			// schema inactive in the same transaction as the Blueprint removal.
+			// Other batches keep the guarded writer fast path; drain-end
+			// materialization derives their active schemas from the committed doc.
 			if (
-				mutations.length === 1 &&
-				mutations[0]?.kind === "renameCaseProperties"
+				(mutations.length === 1 &&
+					mutations[0]?.kind === "renameCaseProperties") ||
+				mutations.some((mutation) => mutation.kind === "retireCaseType")
 			) {
-				const renameResult = await applyBlueprintChange({
+				const changeResult = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,
 					expectedProjectId: this.projectId,
@@ -580,23 +581,23 @@ export class GenerationContext implements ToolExecutionContext {
 					},
 				});
 				result = {
-					seq: renameResult.seq,
-					committedDoc: renameResult.committedDoc,
+					seq: changeResult.seq,
+					committedDoc: changeResult.committedDoc,
 				};
-				// A rename can PARK saved case values.
+				// A transaction-bearing case-store change can PARK saved case values.
 				// Stash the note for the tool wrapper to append to its
 				// success message — and log it, since this boundary has no
 				// toast.
 				if (
-					renameResult.migration !== undefined &&
-					renameResult.migration.parked > 0
+					changeResult.migration !== undefined &&
+					changeResult.migration.parked > 0
 				) {
-					this._parkedNote = describeParkedOutcome(renameResult.migration);
-					log.warn("[generationContext] rename parked case values", {
+					this._parkedNote = describeParkedOutcome(changeResult.migration);
+					log.warn("[generationContext] case-store change parked case values", {
 						appId: this.appId,
 						batchId,
-						parked: renameResult.migration.parked,
-						failureReasons: renameResult.migration.failureReasons,
+						parked: changeResult.migration.parked,
+						failureReasons: changeResult.migration.failureReasons,
 					});
 				}
 			} else {

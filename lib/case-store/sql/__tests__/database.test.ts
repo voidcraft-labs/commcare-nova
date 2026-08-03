@@ -273,6 +273,7 @@ describe("Database.case_type_schemas", () => {
 			app_id: "app-uuid",
 			case_type: "patient",
 			is_active: true,
+			retired_seq: null,
 			schema: { type: "object", properties: { age: { type: "integer" } } },
 			// `synced_seq` reads as a string (the column is bigint, which
 			// node-postgres returns as a string; a reader coerces with `Number(...)`).

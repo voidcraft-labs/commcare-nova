@@ -11,7 +11,7 @@ import {
 	getCaseStoreDatabase,
 } from "../lib/case-store/postgres/connection";
 import { getAppDb, withAppTx } from "../lib/db/pg";
-import { findCaseTypeSchemaRetirementCandidates } from "./lib/caseTypeSchemaRetirement";
+import { findCaseTypeSchemaRetirementFindings } from "./lib/caseTypeSchemaRetirement";
 import { loadPersistedBlueprintInTransaction } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
@@ -54,6 +54,9 @@ async function main() {
 
 	let candidateCount = 0;
 	let retainedCaseCount = 0;
+	let needsRetirement = false;
+	let needsSchemaRepair = false;
+	let needsIndexCleanup = false;
 	const failedApps: string[] = [];
 	for (const app of apps) {
 		try {
@@ -61,18 +64,27 @@ async function main() {
 				loadPersistedBlueprintInTransaction(tx, app.id),
 			);
 			if (blueprint === null) continue;
-			const candidates = await findCaseTypeSchemaRetirementCandidates(
+			const findings = await findCaseTypeSchemaRetirementFindings(
 				caseDb,
 				app.id,
 				blueprint,
 			);
-			if (candidates.length === 0) continue;
+			if (findings.length === 0) continue;
 			console.log(`${app.id} (${app.app_name || "unnamed"})`);
-			for (const candidate of candidates) {
+			for (const candidate of findings) {
 				candidateCount++;
+				needsRetirement ||= candidate.issues.includes(
+					"active-without-blueprint",
+				);
+				needsSchemaRepair ||= candidate.issues.includes(
+					"inactive-current-blueprint",
+				);
+				needsIndexCleanup ||= candidate.issues.includes(
+					"inactive-index-cleanup",
+				);
 				retainedCaseCount += candidate.caseCount;
 				console.log(
-					`  ${candidate.caseType}: schema seq ${candidate.syncedSeq}; ` +
+					`  ${candidate.caseType}: ${candidate.issues.join(", ")}; schema seq ${candidate.syncedSeq}; ` +
 						`${candidate.caseCount} retained case(s); ` +
 						`${candidate.activeParkedValueCount} active + ${candidate.dismissedParkedValueCount} dismissed parked value(s); ` +
 						`${candidate.expressionIndexCount} expression index(es)` +
@@ -96,12 +108,20 @@ async function main() {
 				? ""
 				: `; ${failedApps.length} failed app(s): ${failedApps.join(", ")}`),
 	);
-	if (candidateCount > 0) {
+	if (needsRetirement || needsIndexCleanup) {
 		console.log(
 			"\nNext: npx tsx scripts/migrate-case-type-schema-retirement.ts (dry run)\n" +
 				"      npx tsx scripts/migrate-case-type-schema-retirement.ts --execute",
 		);
 	}
+	if (needsSchemaRepair) {
+		console.log(
+			"\nCurrent Blueprint types with inactive schemas need schema repair:\n" +
+				"      npx tsx scripts/migrate-schema-drift.ts (dry run)\n" +
+				"      npx tsx scripts/migrate-schema-drift.ts --execute",
+		);
+	}
+	if (candidateCount > 0 || failedApps.length > 0) process.exitCode = 1;
 	await closeCaseStoreDatabase();
 }
 

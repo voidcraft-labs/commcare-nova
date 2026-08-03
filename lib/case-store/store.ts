@@ -727,13 +727,6 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 		tx: Transaction<Database>,
 		args: ApplySchemaChangeArgs,
 	): Promise<PreparedSchemaChangePhaseB>;
-
-	/**
-	 * Irreversibly remove one schema's archived contract and expression indexes.
-	 * This maintenance-only hard purge is deliberately absent from ordinary
-	 * `SchemaCaseStore` and `CaseStore` consumers.
-	 */
-	purgeSchema(args: { appId: string; caseType: string }): Promise<void>;
 }
 
 /**

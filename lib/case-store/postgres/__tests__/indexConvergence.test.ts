@@ -2,7 +2,7 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { findCaseTypeSchemaRetirementCandidates } from "../../../../scripts/lib/caseTypeSchemaRetirement";
+import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { SchemaNotSyncedError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
@@ -72,7 +72,7 @@ describe("durable case-schema index convergence", () => {
 		});
 		const retiredBlueprint = buildSimpleBlueprint([], APP_ID);
 		expect(
-			await findCaseTypeSchemaRetirementCandidates(
+			await findCaseTypeSchemaRetirementFindings(
 				db(),
 				APP_ID,
 				retiredBlueprint,
@@ -80,6 +80,7 @@ describe("durable case-schema index convergence", () => {
 		).toEqual([
 			expect.objectContaining({
 				caseType: "patient",
+				issues: ["active-without-blueprint"],
 				caseCount: 0,
 				expressionIndexCount: 1,
 			}),
@@ -97,7 +98,7 @@ describe("durable case-schema index convergence", () => {
 			);
 		await drainRetiredCaseTypeSchemaIndexes(db(), APP_ID, prepared.caseTypes);
 		expect(
-			await findCaseTypeSchemaRetirementCandidates(
+			await findCaseTypeSchemaRetirementFindings(
 				db(),
 				APP_ID,
 				retiredBlueprint,
@@ -149,6 +150,18 @@ describe("durable case-schema index convergence", () => {
 			.executeTakeFirstOrThrow();
 		expect(retired).toMatchObject({ is_active: false, synced_seq: "2" });
 		expect(Number(retired.index_pending_seq)).toBe(2);
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				buildSimpleBlueprint([...schema("text").values()], APP_ID),
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				issues: ["inactive-current-blueprint", "inactive-index-cleanup"],
+			}),
+		]);
 		await expect(
 			caseStore.insert({
 				appId: APP_ID,
@@ -253,6 +266,137 @@ describe("durable case-schema index convergence", () => {
 		).toBe(true);
 	});
 
+	it("derives reactivation from a previous revision's newer sequence write", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+
+		// Exact previous-revision conflict update: it knows only schema +
+		// synced_seq. The generated lifecycle must still recognize seq 3 as a
+		// legitimate reactivation past retired_seq 2.
+		await sql`
+			INSERT INTO case_type_schemas
+				(app_id, case_type, schema, synced_seq)
+			VALUES
+				(${APP_ID}, 'patient', ${JSON.stringify({
+					type: "object",
+					properties: {
+						value: {
+							type: "integer",
+							minimum: -2147483648,
+							maximum: 2147483647,
+						},
+					},
+					additionalProperties: false,
+				})}::jsonb, 3)
+			ON CONFLICT (app_id, case_type) DO UPDATE SET
+				schema = excluded.schema,
+				synced_seq = excluded.synced_seq
+			WHERE excluded.synced_seq >= case_type_schemas.synced_seq
+		`.execute(database.db);
+		await db()
+			.updateTable("case_type_schemas")
+			.set({ index_pending_seq: 3 })
+			.where("app_id", "=", APP_ID)
+			.where("case_type", "=", "patient")
+			.execute();
+
+		expect(
+			await db()
+				.selectFrom("case_type_schemas")
+				.select(["is_active", "retired_seq", "synced_seq"])
+				.where("app_id", "=", APP_ID)
+				.where("case_type", "=", "patient")
+				.executeTakeFirstOrThrow(),
+		).toEqual({ is_active: true, retired_seq: "2", synced_seq: "3" });
+		await caseStore.drainPendingIndexConvergence({
+			appId: APP_ID,
+			caseTypes: ["patient"],
+		});
+		expect(
+			(
+				await sql<{ present: boolean }>`
+					SELECT to_regclass(${indexName("int")}) IS NOT NULL AS present
+				`.execute(database.db)
+			).rows[0]?.present,
+		).toBe(true);
+		await expect(
+			caseStore.insert({
+				appId: APP_ID,
+				row: {
+					case_id: "old-revision-reactivation",
+					case_type: "patient",
+					case_name: "Reactivated",
+					status: "open",
+					properties: { value: 3 },
+				},
+			}),
+		).resolves.toBeDefined();
+	});
+
+	it("audits and force-drains retired indexes even when pending state was consumed", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 1,
+		});
+		const retiredBlueprint = buildSimpleBlueprint([], APP_ID);
+		const prepared = await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("text"),
+				}),
+			);
+		await db()
+			.updateTable("case_type_schemas")
+			.set({ index_pending_seq: null })
+			.where("app_id", "=", APP_ID)
+			.where("case_type", "=", "patient")
+			.execute();
+
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				retiredBlueprint,
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				issues: ["inactive-index-cleanup"],
+				expressionIndexCount: 1,
+			}),
+		]);
+		await prepared.completeAfterCommit();
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				retiredBlueprint,
+			),
+		).toEqual([]);
+	});
+
 	it("retains a deletion tombstone across Phase-B failure and the global drain finishes it", async () => {
 		const caseStore = store();
 		await caseStore.applySchemaChange({
@@ -271,7 +415,10 @@ describe("durable case-schema index convergence", () => {
 			.mockRejectedValueOnce(new Error("injected index DDL failure"));
 
 		await expect(
-			caseStore.purgeSchema({ appId: APP_ID, caseType: "patient" }),
+			caseStore.purgeSchemaForMaintenance({
+				appId: APP_ID,
+				caseType: "patient",
+			}),
 		).rejects.toThrow("injected index DDL failure");
 		expect(
 			await db()

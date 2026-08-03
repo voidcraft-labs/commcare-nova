@@ -76,8 +76,7 @@ export async function withProjectContext(
 
 /**
  * Construct an actor-free `SchemaCaseStore` for app-scoped schema
- * operations (`applySchemaChange`, guarded retirement, and maintenance-only
- * `purgeSchema`). The instance binds no
+ * operations (`applySchemaChange` and guarded retirement). The instance binds no
  * Project, but each write dynamically locks the live app and observes its
  * current Project before touching schema/case rows. The narrow return type
  * prevents a schema-only caller from reaching tenant-bound case data.

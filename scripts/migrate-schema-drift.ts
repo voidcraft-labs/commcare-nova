@@ -134,6 +134,7 @@ async function main() {
 					appId: id,
 					caseType: drift.caseType,
 					caseTypeSchemas,
+					syncedSeq: appDoc.mutation_seq,
 				});
 				migratedTypes++;
 				console.log("    re-synced schema + indexes");

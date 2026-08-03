@@ -1587,14 +1587,12 @@ export class PostgresCaseStore implements CaseStore {
 				.values({
 					app_id: args.appId,
 					case_type: caseType,
-					is_active: true,
 					schema: JSON.stringify(schema),
 					synced_seq: desiredSeq,
 					index_pending_seq: desiredSeq,
 				})
 				.onConflict((conflict) =>
 					conflict.columns(["app_id", "case_type"]).doUpdateSet({
-						is_active: true,
 						schema: JSON.stringify(schema),
 						synced_seq: desiredSeq,
 						index_pending_seq: desiredSeq,
@@ -1707,7 +1705,12 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("case_type_schemas")
 			.select("case_type")
 			.where("app_id", "=", args.appId)
-			.where("index_pending_seq", "is not", null)
+			.where((eb) =>
+				eb.or([
+					eb("index_pending_seq", "is not", null),
+					eb("is_active", "=", false),
+				]),
+			)
 			.$if(args.caseTypes !== undefined, (query) =>
 				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
 			)
@@ -1732,6 +1735,20 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async drainAllPendingIndexConvergence(): Promise<void> {
+		// A previous application revision can consume an inactive row's pending
+		// seq without understanding that its desired index set is empty. Force
+		// every durable retirement through the current reconciler once before the
+		// ordinary pending loop; this is finite even though retired rows persist.
+		const retired = await this.db
+			.selectFrom("case_type_schemas")
+			.select(["app_id", "case_type"])
+			.where("is_active", "=", false)
+			.orderBy("app_id")
+			.orderBy("case_type")
+			.execute();
+		for (const row of retired) {
+			await this.drainPendingIndexConvergenceForType(row.app_id, row.case_type);
+		}
 		while (true) {
 			const pending = await sql<{ app_id: string; case_type: string }>`
 				SELECT app_id, case_type
@@ -1800,11 +1817,14 @@ export class PostgresCaseStore implements CaseStore {
 						.where("case_type", "=", caseType)
 						.execute();
 				}
-				if (latest.index_pending_seq === null) return;
-				const pendingSeq = safePersistedSequence(
-					latest.index_pending_seq,
-					`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-				);
+				if (latest.is_active && latest.index_pending_seq === null) return;
+				const pendingSeq =
+					latest.index_pending_seq === null
+						? undefined
+						: safePersistedSequence(
+								latest.index_pending_seq,
+								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+							);
 				await this.syncExpressionIndexes({
 					db: connection,
 					appId,
@@ -1813,16 +1833,18 @@ export class PostgresCaseStore implements CaseStore {
 						? desiredIndexesFromStoredSchema(appId, caseType, latest.schema)
 						: new Map(),
 				});
-				await connection
-					.updateTable("case_type_schemas")
-					.set({
-						index_pending_seq: null,
-						index_synced_seq: pendingSeq,
-					})
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.where("index_pending_seq", "=", String(pendingSeq))
-					.execute();
+				if (pendingSeq !== undefined) {
+					await connection
+						.updateTable("case_type_schemas")
+						.set({
+							index_pending_seq: null,
+							index_synced_seq: pendingSeq,
+						})
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("index_pending_seq", "=", String(pendingSeq))
+						.execute();
+				}
 			} finally {
 				await sql`
 					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))
@@ -1980,7 +2002,6 @@ export class PostgresCaseStore implements CaseStore {
 				.values({
 					app_id: args.appId,
 					case_type: args.caseType,
-					is_active: true,
 					schema: JSON.stringify(schema),
 					...(incomingSeq !== undefined && { synced_seq: incomingSeq }),
 				})
@@ -1988,7 +2009,6 @@ export class PostgresCaseStore implements CaseStore {
 					const conflict = oc.columns(["app_id", "case_type"]);
 					if (incomingSeq === undefined) {
 						return conflict.doUpdateSet({
-							is_active: true,
 							schema: JSON.stringify(schema),
 						});
 					}
@@ -1999,7 +2019,6 @@ export class PostgresCaseStore implements CaseStore {
 					// own conflict).
 					return conflict
 						.doUpdateSet((eb) => ({
-							is_active: true,
 							schema: JSON.stringify(schema),
 							synced_seq: eb.ref("excluded.synced_seq"),
 						}))
@@ -2225,7 +2244,11 @@ export class PostgresCaseStore implements CaseStore {
 		};
 	}
 
-	async purgeSchema(args: { appId: string; caseType: string }): Promise<void> {
+	/** Package-private maintenance/test escape hatch; never exposed by the barrel factory. */
+	async purgeSchemaForMaintenance(args: {
+		appId: string;
+		caseType: string;
+	}): Promise<void> {
 		// Phase A: lock the live app placement, then DELETE the schema row in
 		// that same transaction. Idempotent when the schema row is absent.
 		await this.db.transaction().execute(async (trx) => {

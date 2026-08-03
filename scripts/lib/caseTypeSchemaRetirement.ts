@@ -1,9 +1,11 @@
 /**
  * Shared read-only audit for the case-type schema retirement backfill.
  *
- * A candidate is an ACTIVE materialized schema whose case type is absent from
- * the app's current materializable Blueprint catalog. Counts are operator
- * context only: retirement never deletes retained cases or parked values.
+ * Findings cover all lifecycle states that need action: an active schema absent
+ * from the current materializable Blueprint, an inactive schema for a current
+ * type, or an inactive row whose pending/residual indexes have not converged.
+ * Counts are operator context only: retirement never deletes retained cases or
+ * parked values.
  */
 
 import { type Kysely, sql } from "kysely";
@@ -13,8 +15,15 @@ import type { PersistableDoc } from "../../lib/domain";
 import { materializableCaseTypes } from "../../lib/domain";
 import { safePersistedSequence } from "../../lib/utils/persistedSequence";
 
-export interface CaseTypeSchemaRetirementCandidate {
+export type CaseTypeSchemaRetirementIssue =
+	| "active-without-blueprint"
+	| "inactive-current-blueprint"
+	| "inactive-index-cleanup";
+
+export interface CaseTypeSchemaRetirementFinding {
 	readonly caseType: string;
+	readonly isActive: boolean;
+	readonly issues: readonly CaseTypeSchemaRetirementIssue[];
 	readonly syncedSeq: number;
 	readonly pendingIndexSeq: number | null;
 	readonly caseCount: number;
@@ -23,25 +32,25 @@ export interface CaseTypeSchemaRetirementCandidate {
 	readonly expressionIndexCount: number;
 }
 
-export async function findCaseTypeSchemaRetirementCandidates(
+export async function findCaseTypeSchemaRetirementFindings(
 	db: Kysely<Database>,
 	appId: string,
 	blueprint: PersistableDoc,
-): Promise<readonly CaseTypeSchemaRetirementCandidate[]> {
+): Promise<readonly CaseTypeSchemaRetirementFinding[]> {
 	const currentTypes = new Set(
 		materializableCaseTypes(blueprint).map((caseType) => caseType.name),
 	);
-	const activeRows = await db
+	const schemaRows = await db
 		.selectFrom("case_type_schemas")
-		.select(["case_type", "synced_seq", "index_pending_seq"])
+		.select(["case_type", "is_active", "synced_seq", "index_pending_seq"])
 		.where("app_id", "=", appId)
-		.where("is_active", "=", true)
 		.orderBy("case_type")
 		.execute();
-	const retiredNames = activeRows
-		.map((row) => row.case_type)
-		.filter((caseType) => !currentTypes.has(caseType));
-	if (retiredNames.length === 0) return [];
+	const relevantRows = schemaRows.filter(
+		(row) => !row.is_active || !currentTypes.has(row.case_type),
+	);
+	const relevantNames = relevantRows.map((row) => row.case_type);
+	if (relevantNames.length === 0) return [];
 
 	const [caseCounts, parkedCounts, indexRows] = await Promise.all([
 		db
@@ -49,7 +58,7 @@ export async function findCaseTypeSchemaRetirementCandidates(
 			.select("case_type")
 			.select((eb) => eb.fn.countAll<string>().as("count"))
 			.where("app_id", "=", appId)
-			.where("case_type", "in", retiredNames)
+			.where("case_type", "in", relevantNames)
 			.groupBy("case_type")
 			.execute(),
 		db
@@ -66,7 +75,7 @@ export async function findCaseTypeSchemaRetirementCandidates(
 					.as("dismissed_count"),
 			])
 			.where("app_id", "=", appId)
-			.where("case_type", "in", retiredNames)
+			.where("case_type", "in", relevantNames)
 			.groupBy("case_type")
 			.execute(),
 		sql<{ index_name: string }>`
@@ -90,13 +99,31 @@ export async function findCaseTypeSchemaRetirementCandidates(
 		]),
 	);
 
-	return activeRows.flatMap((row) => {
-		if (currentTypes.has(row.case_type)) return [];
+	return relevantRows.flatMap((row) => {
 		const prefix = `cases_${indexScopeTag(appId, row.case_type)}_`;
 		const parked = parkedByType.get(row.case_type);
+		const expressionIndexCount = indexRows.rows.filter((index) =>
+			index.index_name.startsWith(prefix),
+		).length;
+		const issues: CaseTypeSchemaRetirementIssue[] = [];
+		if (row.is_active && !currentTypes.has(row.case_type)) {
+			issues.push("active-without-blueprint");
+		}
+		if (!row.is_active && currentTypes.has(row.case_type)) {
+			issues.push("inactive-current-blueprint");
+		}
+		if (
+			!row.is_active &&
+			(row.index_pending_seq !== null || expressionIndexCount > 0)
+		) {
+			issues.push("inactive-index-cleanup");
+		}
+		if (issues.length === 0) return [];
 		return [
 			{
 				caseType: row.case_type,
+				isActive: row.is_active,
+				issues,
 				syncedSeq: safePersistedSequence(
 					row.synced_seq,
 					`case_type_schemas.synced_seq for ${appId}/${row.case_type}`,
@@ -111,9 +138,7 @@ export async function findCaseTypeSchemaRetirementCandidates(
 				caseCount: caseCountByType.get(row.case_type) ?? 0,
 				activeParkedValueCount: parked?.active ?? 0,
 				dismissedParkedValueCount: parked?.dismissed ?? 0,
-				expressionIndexCount: indexRows.rows.filter((index) =>
-					index.index_name.startsWith(prefix),
-				).length,
+				expressionIndexCount,
 			},
 		];
 	});

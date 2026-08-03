@@ -611,7 +611,7 @@ describe("explicit case-property rename storage", () => {
 			await original(appId, caseType);
 		});
 
-		const oldDrop = caseStore.purgeSchema({
+		const oldDrop = caseStore.purgeSchemaForMaintenance({
 			appId: APP_ID,
 			caseType: "patient",
 		});

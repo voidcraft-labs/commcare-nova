@@ -23,7 +23,7 @@ import {
 import { buildCaseTypeMap } from "../lib/case-store/store";
 import { getAppDb, withAppTx } from "../lib/db/pg";
 import { safePersistedSequence } from "../lib/utils/persistedSequence";
-import { findCaseTypeSchemaRetirementCandidates } from "./lib/caseTypeSchemaRetirement";
+import { findCaseTypeSchemaRetirementFindings } from "./lib/caseTypeSchemaRetirement";
 import { loadPersistedBlueprintInTransaction } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 
@@ -73,18 +73,18 @@ async function main() {
 					loadPersistedBlueprintInTransaction(tx, app.id),
 				);
 				if (blueprint === null) continue;
-				const candidates = await findCaseTypeSchemaRetirementCandidates(
+				const findings = await findCaseTypeSchemaRetirementFindings(
 					caseDb,
 					app.id,
 					blueprint,
 				);
-				for (const candidate of candidates) {
+				for (const candidate of findings) {
 					console.log(
-						`${app.id} (${app.app_name || "unnamed"}): would retire ${candidate.caseType} ` +
+						`${app.id} (${app.app_name || "unnamed"}): ${candidate.issues.join(", ")} for ${candidate.caseType} ` +
 							`(${candidate.caseCount} retained case(s), ${candidate.expressionIndexCount} expression index(es))`,
 					);
 				}
-				retiredCount += candidates.length;
+				retiredCount += findings.length;
 				continue;
 			}
 
@@ -99,22 +99,34 @@ async function main() {
 				const blueprint = await loadPersistedBlueprintInTransaction(tx, app.id);
 				if (blueprint === null) return undefined;
 				const caseTx = tx as unknown as Transaction<Database>;
-				const candidates = await findCaseTypeSchemaRetirementCandidates(
+				const findings = await findCaseTypeSchemaRetirementFindings(
 					caseTx,
 					app.id,
 					blueprint,
 				);
-				if (candidates.length === 0) return undefined;
-				const caseTypes = await retireCaseTypeSchemasPhaseA(caseTx, {
-					appId: app.id,
-					desiredSeq: safePersistedSequence(
-						locked.mutation_seq,
-						`apps.mutation_seq for case-type retirement backfill ${app.id}`,
-					),
-					caseTypes: candidates.map((candidate) => candidate.caseType),
-					fallbackCaseTypeSchemas: buildCaseTypeMap(blueprint),
-				});
-				return { caseTypes };
+				const candidates = findings.filter((finding) =>
+					finding.issues.includes("active-without-blueprint"),
+				);
+				const cleanupTypes = findings
+					.filter((finding) =>
+						finding.issues.includes("inactive-index-cleanup"),
+					)
+					.map((finding) => finding.caseType);
+				if (candidates.length === 0 && cleanupTypes.length === 0)
+					return undefined;
+				const retiredTypes =
+					candidates.length === 0
+						? []
+						: await retireCaseTypeSchemasPhaseA(caseTx, {
+								appId: app.id,
+								desiredSeq: safePersistedSequence(
+									locked.mutation_seq,
+									`apps.mutation_seq for case-type retirement backfill ${app.id}`,
+								),
+								caseTypes: candidates.map((candidate) => candidate.caseType),
+								fallbackCaseTypeSchemas: buildCaseTypeMap(blueprint),
+							});
+				return { caseTypes: [...new Set([...retiredTypes, ...cleanupTypes])] };
 			});
 			if (prepared === undefined) continue;
 			await drainRetiredCaseTypeSchemaIndexes(
@@ -124,7 +136,7 @@ async function main() {
 			);
 			retiredCount += prepared.caseTypes.length;
 			console.log(
-				`${app.id} (${app.app_name || "unnamed"}): retired ${prepared.caseTypes.join(", ")}`,
+				`${app.id} (${app.app_name || "unnamed"}): converged retirement state for ${prepared.caseTypes.join(", ")}`,
 			);
 		} catch (error) {
 			failedApps.push(app.id);
@@ -140,9 +152,10 @@ async function main() {
 					(failedApps.length === 0
 						? ""
 						: `; failed apps: ${failedApps.join(", ")}`) +
-					". Re-run scan-case-type-schema-retirement.ts; it must report zero candidates."
-			: `Dry run: ${retiredCount} schema row(s) would retire. Re-run with --execute to write.`,
+					". Re-run scan-case-type-schema-retirement.ts; it must report zero findings."
+			: `Dry run: ${retiredCount} schema lifecycle finding(s) require action. Re-run with --execute to retire missing types and drain retired indexes.`,
 	);
+	if (failedApps.length > 0) process.exitCode = 1;
 	await closeCaseStoreDatabase();
 }
 

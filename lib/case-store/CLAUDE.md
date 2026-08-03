@@ -168,9 +168,11 @@ migrations filter `(app_id, case_type)` ONLY — no `project_id` /
 `owner_id`. The store binds no actor or construction-time Project, but every
 standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
 deleted app, and holds the app's current Project placement stable through its
-schema/data transaction. Hard schema deletion is maintenance-only
-`purgeSchema` on the transactional store; ordinary consumers cannot erase the
-archived contract or its sequence fence. Explicit case-property rename instead composes its
+schema/data transaction. Hard schema deletion exists only as the package-private
+`PostgresCaseStore.purgeSchemaForMaintenance` escape hatch used by maintenance
+tests; neither public store interface nor `withSchemaContext()` exposes it, so
+ordinary consumers cannot erase the archived contract or its sequence fence.
+Explicit case-property rename instead composes its
 Phase A directly into the guarded writer's already app-locked, authorized
 transaction.
 
@@ -226,16 +228,22 @@ Case-type removal uses the sibling lifecycle operation rather than
 `applyBlueprintChange` marks the schema row inactive inside the SAME guarded,
 app-locked transaction that persists the Blueprint removal. Existing case rows
 and parked values remain untouched. The inactive row retains the last active
-JSON Schema and the removal's `mutation_seq`; normal validation treats it as
-absent, while a later higher-sequence reactivation diffs from that archived
-contract and runs the ordinary transition migrations. Its durable pending index
+JSON Schema and the removal's `mutation_seq` in `retired_seq`; the generated
+`is_active` column is exactly `retired_seq IS NULL OR synced_seq > retired_seq`.
+Normal validation treats an inactive row as absent, while a later
+higher-sequence reactivation diffs from that archived contract and runs the
+ordinary transition migrations. Because lifecycle is sequence-derived, a
+previous application revision that advances `synced_seq` also reactivates
+correctly without knowing the new columns. Its durable pending index
 state targets the empty set after commit. A delayed sync below the retirement
 sequence no-ops, and an equal-sequence sync may retry only an already-active
 row—never reactivate an inactive one. Historical orphaned active rows use the
 required scan-then-migrate pair:
 `scripts/scan-case-type-schema-retirement.ts` (read-only, supports `--prod`) and
 `scripts/migrate-case-type-schema-retirement.ts` (dry-run by default,
-`--execute` to write), followed by a zero-candidate rescan.
+`--execute` to write), followed by a zero-finding rescan. The audit also reports
+inactive current types and retired rows with pending or residual indexes, so a
+failed Phase B cannot disappear merely because Phase A made the row inactive.
 
 ### Phase A (one Kysely transaction)
 
@@ -506,10 +514,10 @@ materialize — `ctx.latestCommittedSeq()` for the drain-end,
 the monotone `synced_seq` gate converges them with a concurrent
 additive sync.
 
-The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
-calls) route through `lib/db/applyBlueprintChange.ts`. Explicit
-case-property rename and case-type retirement Phase A share the guarded Blueprint
-transaction; ordinary additive changes ride a post-commit sweep of
+The auto-save and MCP write boundaries route through
+`lib/db/applyBlueprintChange.ts`; chat batches containing `retireCaseType` do
+the same. Explicit case-property rename and case-type retirement Phase A share
+the guarded Blueprint transaction; ordinary additive changes ride a post-commit sweep of
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
