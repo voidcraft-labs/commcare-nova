@@ -82,7 +82,12 @@ runtime DML (`SELECT, INSERT`), while `app_change_fold_baselines` is a control
 table the runtime may only read. That is load-bearing — `createApp` reaches its
 genesis baseline through the `SECURITY DEFINER` routine
 `nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
-fails with `42501`.
+fails with `42501`. Every fixed public table is registered once by runtime
+capability in `privilegeConvergence.ts`; inventory, grants, owned-sequence
+access, and the source guard derive from that policy. PostgreSQL requires
+`UPDATE` privilege for every table named by a row-lock clause, so serving code
+must never use `FOR UPDATE`, `FOR SHARE`, `FOR NO KEY UPDATE`, or `FOR KEY SHARE`
+on the append-only, insert-delete, or read-only capability sets.
 
 App creation writes the complete canonical starter, exact lookup/media
 projections, a Project-bearing sequence-one baseline, and one attributed
@@ -238,10 +243,14 @@ proves incremental-vs-rebuilt local reference-index equality plus
 structural-vs-stored Project lookup-edge equality even when the gate reports
 findings. It then strictly loads a gate-clean candidate through
 `loadAppInTransaction`, reauthorizes a real editable Project member, and sends a
-no-op name batch through the real guarded writer inside one transaction. Its
-content-free report carries actual parser, gate, and reference-index finding
-counts; its intentional rollback must leave both the app sequence and stream
-unchanged.
+no-op name batch through the real guarded writer inside one transaction. It
+then executes the SSE route's shared `app_changes` plus immutable-baseline read
+under that same runtime role, starting at the pre-write sequence so the
+permanent history is never loaded, and proves exactly the fresh write is
+visible. The integration test separately runs the shared query over a real
+baseline row. Its content-free report carries actual parser, gate, and
+reference-index finding counts; its intentional rollback must leave both the
+app sequence and stream unchanged.
 `commitGuardedBatchInTransaction` is the narrow seam for that probe: ordinary
 callers use `commitGuardedBatch`, while an externally-owned transaction neither
 retries nor emits post-commit side effects.

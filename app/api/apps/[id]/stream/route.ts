@@ -54,6 +54,7 @@ import {
 	reauthorizeStreamScope,
 	type TransactionalAppScope,
 } from "@/lib/db/appAccess";
+import { readAppChangeStreamRowsSince } from "@/lib/db/appChangeStream";
 import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { parsePersistedAppChangeEnvelope } from "@/lib/db/persistedJson";
@@ -306,32 +307,11 @@ function openStream(args: {
 					if (closed) return;
 					runBeforeMutationReadTestHook();
 					const db = await getAppDb();
-					const rows = await db
-						.selectFrom("app_changes")
-						.leftJoin("app_change_fold_baselines as baseline", (join) =>
-							join
-								.onRef("baseline.app_id", "=", "app_changes.app_id")
-								.onRef("baseline.seq", "=", "app_changes.seq"),
-						)
-						.select([
-							"app_changes.seq as seq",
-							"app_changes.batch_id as batch_id",
-							"app_changes.run_id as run_id",
-							"app_changes.actor_id as actor_id",
-							"app_changes.kind as kind",
-							"app_changes.from_project_id as from_project_id",
-							"app_changes.to_project_id as to_project_id",
-							"baseline.seq as baseline_seq",
-						])
-						.select(
-							sql<string>`${sql.ref("app_changes.mutations")}::text`.as(
-								"mutations_text",
-							),
-						)
-						.where("app_changes.app_id", "=", appId)
-						.where("app_changes.seq", ">", deliveredThrough)
-						.orderBy("app_changes.seq")
-						.execute();
+					const rows = await readAppChangeStreamRowsSince(
+						db,
+						appId,
+						deliveredThrough,
+					);
 					/* Validate the COMPLETE fetched suffix with the server-only durable
 					 * parser before emitting any browser frame. A disruptive change later
 					 * in the SELECT prevents partial delivery of earlier ordinary rows. */
