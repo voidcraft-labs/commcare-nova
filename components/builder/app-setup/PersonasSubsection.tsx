@@ -266,12 +266,14 @@ function PersonaRow({
 					)}
 				</div>
 
-				<PersonaLocations
-					persona={persona}
-					locations={locations}
-					loading={locationsLoading}
-					error={locationsError}
-				/>
+				{open && (
+					<PersonaLocations
+						persona={persona}
+						locations={locations}
+						loading={locationsLoading}
+						error={locationsError}
+					/>
+				)}
 
 				{canEdit && (
 					<PersonaRemoveConfirm

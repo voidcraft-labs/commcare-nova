@@ -448,6 +448,10 @@ test.describe("authenticated builder", () => {
 		await places.getByLabel("Facility kind").last().click();
 		await page.getByRole("option", { name: "Hospital" }).click();
 		await places.getByRole("button", { name: "Add place" }).click();
+		await expect(
+			places.getByRole("list", { name: "Place hierarchy" }),
+		).toBeVisible();
+		await expect(places.getByRole("tree")).toHaveCount(0);
 		await kilifiDistrict.click();
 		await places.getByLabel("Position").filter({ visible: true }).click();
 		await page.getByRole("option", { name: "At the end" }).click();
@@ -535,6 +539,10 @@ test.describe("authenticated builder", () => {
 					: 1 + (asha.locations.additionalUuids?.length ?? 0);
 			})
 			.toBe(1);
+		// The database can commit just before the browser receives the PUT
+		// response. Wait for the reconciler acknowledgement too, or navigation can
+		// abort that response and leave the next page holding its stale local doc.
+		await expect(page.getByText(/^Saved /)).toBeVisible();
 
 		await page.goto(`/build/${appId}/setup/organization`);
 		const refreshedPlaces = page.getByRole("region", { name: "Places" });

@@ -4,8 +4,6 @@ import type { StoredLocation } from "@/lib/organization/types";
 export interface PlaceTreeRow {
 	readonly location: StoredLocation;
 	readonly depth: number;
-	readonly positionInSet: number;
-	readonly setSize: number;
 }
 
 export interface PlaceTree {
@@ -32,11 +30,9 @@ export function buildPlaceTree(
 	const seen = new Set<string>();
 	const roots = childrenOf.get(null) ?? [];
 	const pending = roots
-		.map((location, index) => ({
+		.map((location) => ({
 			location,
 			depth: 0,
-			positionInSet: index + 1,
-			setSize: roots.length,
 		}))
 		.reverse();
 	while (pending.length > 0) {
@@ -51,18 +47,14 @@ export function buildPlaceTree(
 			pending.push({
 				location,
 				depth: row.depth + 1,
-				positionInSet: index + 1,
-				setSize: children.length,
 			});
 		}
 	}
 	const disconnected = locations.filter((location) => !seen.has(location.id));
-	for (const [index, location] of disconnected.entries()) {
+	for (const location of disconnected) {
 		rows.push({
 			location,
 			depth: 0,
-			positionInSet: index + 1,
-			setSize: disconnected.length,
 		});
 	}
 	return { rows, childrenOf, locations };

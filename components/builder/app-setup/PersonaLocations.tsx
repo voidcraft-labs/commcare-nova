@@ -16,14 +16,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
+import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/shadcn/select";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrganizationLevelRecord } from "@/lib/doc/hooks/useOrganizationCollections";
@@ -67,11 +61,7 @@ export function PersonaLocations({
 			location.archivedAt === null &&
 			levels[location.levelUuid] !== undefined &&
 			levelHoldsWorkers(levels[location.levelUuid]) &&
-			!assigned.includes(location.id) &&
-			personaAssignmentIssue(doc, locations, persona.uuid, [
-				...assigned,
-				location.id,
-			]) === undefined,
+			!assigned.includes(location.id),
 	);
 	const assignableCount = locations.filter(
 		(location) =>
@@ -172,19 +162,21 @@ export function PersonaLocations({
 					)}
 
 					{canEdit && !loading && available.length > 0 && (
-						<Select
+						<LocationChoiceSelect
+							locations={available}
 							value=""
-							onValueChange={(value) => {
-								if (typeof value !== "string" || value === "") return;
-								set([...assigned, value]);
-							}}
-						>
-							<SelectTrigger
-								ref={rowFocus.addRef}
-								wrapValue
-								aria-label="Add a place"
-								className="min-h-11 w-full"
-							>
+							onValueChange={(value) => set([...assigned, value])}
+							ariaLabel="Add a place"
+							placeholder="Choose a place"
+							triggerRef={rowFocus.addRef}
+							className="min-h-11 w-full"
+							issueFor={(location) =>
+								personaAssignmentIssue(doc, locations, persona.uuid, [
+									...assigned,
+									location.id,
+								])
+							}
+							triggerContent={
 								<span className="flex items-center gap-2 text-[13px] text-nova-violet-bright">
 									<Icon
 										icon={tablerPlus}
@@ -196,16 +188,8 @@ export function PersonaLocations({
 										? "Assign a place"
 										: "Add another place"}
 								</span>
-								<SelectValue className="sr-only" />
-							</SelectTrigger>
-							<SelectContent>
-								{available.map((location) => (
-									<SelectItem wrap key={location.id} value={location.id}>
-										{locationChoiceLabel(location)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							}
+						/>
 					)}
 
 					{assigned.length > 1 && (

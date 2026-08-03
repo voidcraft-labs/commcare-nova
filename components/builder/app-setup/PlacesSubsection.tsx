@@ -18,6 +18,7 @@ import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArchiveOff from "@iconify-icons/tabler/archive-off";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useEffect, useId, useRef, useState } from "react";
+import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
@@ -151,36 +152,30 @@ export function PlacesSubsection({
 					downward.
 				</SubsectionEmpty>
 			) : (
-				<div
-					role="tree"
-					aria-label="Place hierarchy"
-					className="flex flex-col gap-2"
-				>
-					{pageRows.map(({ location, depth, positionInSet, setSize }) => (
-						<div
-							key={location.id}
-							role="treeitem"
-							aria-level={depth + 1}
-							aria-posinset={positionInSet}
-							aria-setsize={setSize}
-							tabIndex={-1}
-							style={{ paddingInlineStart: `min(${depth * 16}px, 25%)` }}
-							className="min-w-0"
-						>
-							<PlaceRow
-								location={location}
-								levels={levels}
-								properties={properties}
-								doc={doc}
-								tree={tree}
-								organization={organization}
-								open={openId === location.id}
-								onOpenChange={(next) =>
-									setOpenId(next ? location.id : undefined)
-								}
-							/>
-						</div>
-					))}
+				<div className="flex flex-col gap-2">
+					<ol aria-label="Place hierarchy" className="flex flex-col gap-2">
+						{pageRows.map(({ location, depth }) => (
+							<li
+								key={location.id}
+								style={{ paddingInlineStart: `min(${depth * 16}px, 25%)` }}
+								className="min-w-0"
+							>
+								<PlaceRow
+									location={location}
+									depth={depth}
+									levels={levels}
+									properties={properties}
+									doc={doc}
+									tree={tree}
+									organization={organization}
+									open={openId === location.id}
+									onOpenChange={(next) =>
+										setOpenId(next ? location.id : undefined)
+									}
+								/>
+							</li>
+						))}
+					</ol>
 					{pageCount > 1 && (
 						<fieldset className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-nova-border px-3 py-2">
 							<legend className="sr-only">Place pages</legend>
@@ -301,6 +296,7 @@ function sameStringRecord(
 
 function PlaceRow({
 	location,
+	depth,
 	doc,
 	levels,
 	properties,
@@ -310,6 +306,7 @@ function PlaceRow({
 	onOpenChange,
 }: {
 	location: StoredLocation;
+	depth: number;
 	doc: BlueprintDoc;
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
@@ -408,7 +405,10 @@ function PlaceRow({
 				...compatible.filter((candidate) => candidate.id === draftParentId),
 				...compatible.filter((candidate) => candidate.id !== draftParentId),
 			];
-			for (const parent of preferred) {
+			// Keep level-choice planning linear at the 10,000-place bound. The
+			// searchable parent control can reach every candidate after the level is
+			// staged; this preflight only needs one safe default from its first page.
+			for (const parent of preferred.slice(0, 50)) {
 				if (
 					locationTopologyChangeIssue(doc, tree.locations, location.id, {
 						levelUuid: candidateLevel.uuid,
@@ -431,17 +431,9 @@ function PlaceRow({
 					candidate.archivedAt === null &&
 					!descendants.has(candidate.id) &&
 					candidate.id !== location.id &&
-					levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord) &&
-					locationTopologyChangeIssue(doc, tree.locations, location.id, {
-						levelUuid: draftLevelUuid,
-						parentId: candidate.id,
-					}) === undefined,
+					levelMayNestUnder(draftLevelUuid, candidate.levelUuid, levelRecord),
 			)
 		: [];
-	const selectedParent = parentOptions.find(
-		(candidate) => candidate.id === draftParentId,
-	);
-
 	useEffect(() => {
 		if (
 			dirtyName ||
@@ -581,6 +573,7 @@ function PlaceRow({
 			summary={
 				<span className={archived ? "text-nova-text-muted" : undefined}>
 					{location.name}
+					<span className="sr-only">, nesting depth {depth + 1}</span>
 					{archived && (
 						<span className="ml-2 rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-nova-text-muted">
 							Archived
@@ -588,7 +581,11 @@ function PlaceRow({
 					)}
 				</span>
 			}
-			detail={levelName(levels, location.levelUuid)}
+			detail={
+				depth > 6
+					? `${levelName(levels, location.levelUuid)} · ${depth + 1} deep`
+					: levelName(levels, location.levelUuid)
+			}
 			open={open}
 			onOpenChange={onOpenChange}
 			keepMounted={false}
@@ -886,11 +883,11 @@ function PlaceRow({
 						<Label className="text-[12px] font-medium text-nova-text-secondary">
 							Sits in
 						</Label>
-						<Select
+						<LocationChoiceSelect
+							locations={parentOptions}
 							value={draftParentId ?? ""}
 							disabled={!canEdit || archived || peerChanged}
 							onValueChange={async (value) => {
-								if (typeof value !== "string" || value === "") return;
 								setDraftParentId(value);
 								if (dirtyLevel) return;
 								const result = await organization.move(location.id, {
@@ -902,22 +899,15 @@ function PlaceRow({
 									setMessage(undefined);
 								}
 							}}
-						>
-							<SelectTrigger wrapValue className="w-full" aria-label="Sits in">
-								<SelectValue>
-									{selectedParent === undefined
-										? "Choose a place"
-										: locationChoiceLabel(selectedParent)}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{parentOptions.map((candidate) => (
-									<SelectItem wrap key={candidate.id} value={candidate.id}>
-										{locationChoiceLabel(candidate)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							ariaLabel="Sits in"
+							placeholder="Choose a place"
+							issueFor={(candidate) =>
+								locationTopologyChangeIssue(doc, tree.locations, location.id, {
+									levelUuid: draftLevelUuid,
+									parentId: candidate.id,
+								})
+							}
+						/>
 						{(dirtyLevel || draftParentId !== location.parentId) && (
 							<p className="text-[12px] leading-relaxed text-nova-text-muted">
 								Apply the level or parent change before choosing a position.
@@ -934,7 +924,8 @@ function PlaceRow({
 						>
 							Position
 						</Label>
-						<Select
+						<LocationChoiceSelect
+							locations={siblings}
 							value={positionValue}
 							disabled={
 								!canEdit ||
@@ -944,7 +935,6 @@ function PlaceRow({
 								draftParentId !== location.parentId
 							}
 							onValueChange={async (value) => {
-								if (typeof value !== "string") return;
 								const afterSiblingId =
 									value === FIRST_POSITION
 										? null
@@ -961,9 +951,16 @@ function PlaceRow({
 									setMessage(undefined);
 								}
 							}}
-						>
-							<SelectTrigger id={positionId} wrapValue className="w-full">
-								<SelectValue>
+							id={positionId}
+							ariaLabel="Position"
+							placeholder="Choose a position"
+							optionPrefix="After "
+							specialOptions={[
+								{ value: END_POSITION, label: "At the end" },
+								{ value: FIRST_POSITION, label: "At the beginning" },
+							]}
+							triggerContent={
+								<span>
 									{positionValue === FIRST_POSITION
 										? "At the beginning"
 										: positionValue === END_POSITION
@@ -979,18 +976,9 @@ function PlaceRow({
 																) as StoredLocation,
 															)
 												}`}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={END_POSITION}>At the end</SelectItem>
-								<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
-								{siblings.map((sibling) => (
-									<SelectItem wrap key={sibling.id} value={sibling.id}>
-										After {locationChoiceLabel(sibling)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+								</span>
+							}
+						/>
 					</div>
 				)}
 
@@ -1358,9 +1346,6 @@ function AddPlaceForm({
 	const siblings = locations.filter(
 		(location) => location.parentId === (needsParent ? parent : null),
 	);
-	const selectedParent = parentOptions.find(
-		(candidate) => candidate.id === parent,
-	);
 	const applicableProperties = propertiesForLevel(properties, levelUuid);
 
 	const submit = async () => {
@@ -1506,32 +1491,17 @@ function AddPlaceForm({
 					>
 						Sits in
 					</Label>
-					<Select
+					<LocationChoiceSelect
+						locations={parentOptions}
 						value={parent}
 						onValueChange={(value) => {
-							if (typeof value === "string") {
-								setParent(value);
-								setAfterSiblingId(undefined);
-							}
+							setParent(value);
+							setAfterSiblingId(undefined);
 						}}
-					>
-						<SelectTrigger id={parentId} wrapValue className="w-full">
-							<SelectValue>
-								{parent === ""
-									? "Choose a place"
-									: selectedParent === undefined
-										? "Choose a place"
-										: locationChoiceLabel(selectedParent)}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{parentOptions.map((candidate) => (
-								<SelectItem wrap key={candidate.id} value={candidate.id}>
-									{locationChoiceLabel(candidate)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						id={parentId}
+						ariaLabel="Sits in"
+						placeholder="Choose a place"
+					/>
 					{parentOptions.length === 0 && (
 						<p className="text-[12px] leading-relaxed text-nova-text-muted">
 							Nothing can hold a {levelRecord[levelUuid]?.name.toLowerCase()}{" "}
@@ -1548,14 +1518,14 @@ function AddPlaceForm({
 					>
 						Position
 					</Label>
-					<Select
+					<LocationChoiceSelect
+						locations={siblings}
 						value={
 							afterSiblingId === null
 								? FIRST_POSITION
 								: (afterSiblingId ?? END_POSITION)
 						}
 						onValueChange={(value) => {
-							if (typeof value !== "string") return;
 							setAfterSiblingId(
 								value === END_POSITION
 									? undefined
@@ -1564,9 +1534,16 @@ function AddPlaceForm({
 										: value,
 							);
 						}}
-					>
-						<SelectTrigger id={positionId} wrapValue className="w-full">
-							<SelectValue>
+						id={positionId}
+						ariaLabel="Position"
+						placeholder="Choose a position"
+						optionPrefix="After "
+						specialOptions={[
+							{ value: END_POSITION, label: "At the end" },
+							{ value: FIRST_POSITION, label: "At the beginning" },
+						]}
+						triggerContent={
+							<span>
 								{afterSiblingId === null
 									? "At the beginning"
 									: afterSiblingId === undefined
@@ -1582,18 +1559,9 @@ function AddPlaceForm({
 															) as StoredLocation,
 														)
 											}`}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value={END_POSITION}>At the end</SelectItem>
-							<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
-							{siblings.map((sibling) => (
-								<SelectItem wrap key={sibling.id} value={sibling.id}>
-									After {locationChoiceLabel(sibling)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+							</span>
+						}
+					/>
 				</div>
 			)}
 			{applicableProperties.length > 0 && (

@@ -27,14 +27,11 @@ describe("place hierarchy projection", () => {
 		const tree = buildPlaceTree([root, peer, child]);
 
 		expect(
-			tree.rows.map(({ location: row, ...position }) => ({
-				id: row.id,
-				...position,
-			})),
+			tree.rows.map(({ location: row, depth }) => ({ id: row.id, depth })),
 		).toEqual([
-			{ id: root.id, depth: 0, positionInSet: 1, setSize: 2 },
-			{ id: child.id, depth: 1, positionInSet: 1, setSize: 1 },
-			{ id: peer.id, depth: 0, positionInSet: 2, setSize: 2 },
+			{ id: root.id, depth: 0 },
+			{ id: child.id, depth: 1 },
+			{ id: peer.id, depth: 0 },
 		]);
 	});
 

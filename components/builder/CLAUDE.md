@@ -635,6 +635,15 @@ so the generic expression card never renders them. Its location control offers
 only live case-owning places and reverse destinations with a case-owning level
 above them; the transaction remains authoritative for persona-specific
 address-book reachability and races.
+Organization location choices share `LocationChoiceSelect`: at the 10,000-row
+store bound it searches by name or unique site code, pages 50 rows at a time,
+mounts only that page's options, and runs cross-store candidate verdicts only
+for that bounded page. Never replace it with a full `SelectItem` map or a
+whole-snapshot verdict inside an unbounded `.filter(...)`; either one makes a
+single open picker quadratic. The Places hierarchy itself is an ordinary
+paginated list of disclosures, not an ARIA treeview: its buttons own keyboard
+interaction, while the exact nesting depth stays in each row's accessible name
+and becomes a visible numeric cue after the indentation cap.
 Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead

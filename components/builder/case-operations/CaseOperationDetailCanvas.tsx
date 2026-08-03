@@ -30,6 +30,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
@@ -76,7 +77,6 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { locationChoiceLabel } from "@/lib/organization/locationLabels";
 import {
 	fixedLocationOwnerIssue,
 	reverseLocationOwnerIssue,
@@ -615,19 +615,14 @@ function CaseOwnerSection({
 		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),
 		[levels],
 	);
-	const locations = useMemo(
+	const fixedLocationCandidates = useMemo(
 		() =>
 			organization.locations.filter((location) => {
 				if (location.archivedAt !== null) return false;
 				const level = levelRecord[location.levelUuid];
-				return (
-					level !== undefined &&
-					levelOwnsCases(level) &&
-					fixedLocationOwnerIssue(doc, organization.locations, location.id) ===
-						undefined
-				);
+				return level !== undefined && levelOwnsCases(level);
 			}),
-		[doc, levelRecord, organization.locations],
+		[levelRecord, organization.locations],
 	);
 	const reverseLevels = useMemo(
 		() =>
@@ -642,26 +637,10 @@ function CaseOwnerSection({
 	);
 	const reverseAvailable = editorScope.caseDataScope !== "global";
 	const selected = locationOwnerExpression(value);
-	const selectedLocationUuid =
-		selected?.term.kind === "fixed-location"
-			? selected.term.locationUuid
-			: undefined;
 	const selectedLevelUuid =
 		selected?.term.kind === "owner-location-at-level"
 			? selected.term.levelUuid
 			: undefined;
-	const selectedLocation =
-		selectedLocationUuid !== undefined
-			? organization.locations.find(
-					(location) => location.id === selectedLocationUuid,
-				)
-			: undefined;
-	const selectedLocationName =
-		selectedLocationUuid === undefined
-			? undefined
-			: selectedLocation === undefined
-				? "A place that is no longer available"
-				: locationChoiceLabel(selectedLocation);
 	const selectedLevelName =
 		selectedLevelUuid !== undefined
 			? (levels.find((level) => level.uuid === selectedLevelUuid)?.name ??
@@ -686,7 +665,8 @@ function CaseOwnerSection({
 			return;
 		}
 		if (next === "fixed") {
-			if (organizationReady && locations.length > 0) setDraftMode("fixed");
+			if (organizationReady && fixedLocationCandidates.length > 0)
+				setDraftMode("fixed");
 			return;
 		}
 		if (next === "reverse") {
@@ -763,7 +743,7 @@ function CaseOwnerSection({
 								<SelectItem value="expression">
 									A person, form answer, or case value
 								</SelectItem>
-								{organizationReady && locations.length > 0 && (
+								{organizationReady && fixedLocationCandidates.length > 0 && (
 									<SelectItem value="fixed">A particular place</SelectItem>
 								)}
 								{organizationReady &&
@@ -783,41 +763,28 @@ function CaseOwnerSection({
 							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
 								Place that owns the case
 							</p>
-							<Select
+							<LocationChoiceSelect
+								locations={fixedLocationCandidates}
 								value={
 									selected?.term.kind === "fixed-location"
 										? selected.term.locationUuid
 										: ""
 								}
 								onValueChange={(locationUuid) => {
-									if (
-										typeof locationUuid !== "string" ||
-										!locations.some((location) => location.id === locationUuid)
-									) {
-										return;
-									}
 									setDraftMode(undefined);
 									onChange(term(fixedLocation(asUuid(locationUuid))));
 								}}
+								ariaLabel="Place that owns the case"
+								placeholder="Choose a place"
 								disabled={!canEdit || !organizationReady}
-							>
-								<SelectTrigger
-									wrapValue
-									className="w-full"
-									aria-label="Place that owns the case"
-								>
-									<SelectValue placeholder="Choose a place">
-										{selectedLocationName}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{locations.map((location) => (
-										<SelectItem wrap key={location.id} value={location.id}>
-											{locationChoiceLabel(location)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+								issueFor={(location) =>
+									fixedLocationOwnerIssue(
+										doc,
+										organization.locations,
+										location.id,
+									)
+								}
+							/>
 							<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
 								The place is stored by identity, so renaming it will not change
 								this rule.
