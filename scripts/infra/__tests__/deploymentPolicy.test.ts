@@ -32,6 +32,7 @@ const deployPolicy = readFileSync(
 	"scripts/rollout/deploy-cloud-run.py",
 	"utf8",
 );
+const schemaDriftScanner = readFileSync("scripts/scan-schema-drift.ts", "utf8");
 
 function stepOffset(id: string): number {
 	const offset = cloudBuild.indexOf(`  - id: ${id}\n`);
@@ -301,7 +302,7 @@ describe("durable deployment policy", () => {
 		expect(packageJson).toContain(
 			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
 		);
-		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(3);
+		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(4);
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);
@@ -360,5 +361,16 @@ describe("durable deployment policy", () => {
 		expect(deployPolicy).toContain(
 			"expected_image = _ready_service_image(api.service(), api.revisions())",
 		);
+		expect(deployPolicy).toContain("JOB_TEMPLATE_CONTRACTS");
+		expect(deployPolicy).toContain('execution.get("template")');
+		expect(schemaDriftScanner).toContain('.setAccessMode("read only")');
+		expect(schemaDriftScanner).toContain(
+			"loadPersistedBlueprintReadOnly(tx, app.id)",
+		);
+		expect(schemaDriftScanner).toContain(
+			"--job=commcare-nova-case-type-schema-retirement",
+		);
+		expect(schemaDriftScanner).toContain("scripts/scan-schema-drift.ts --prod");
+		expect(schemaDriftScanner).toContain("scopeArgs");
 	});
 });

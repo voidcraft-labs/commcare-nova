@@ -8,7 +8,10 @@
  * stale until an edit happens to touch their case type. This scan
  * makes the deploy-boundary delta visible; `migrate-schema-drift.ts`
  * converges it. Run this before the migrate, and again after (the
- * re-scan must report zero drift).
+ * re-scan must report zero drift). Each app's persisted Blueprint and stored
+ * schemas are compared inside one REPEATABLE READ, READ ONLY transaction, so
+ * production operator credentials need no row-lock authority and a concurrent
+ * Blueprint commit cannot produce a false zero.
  *
  * `--app` scopes to one app, `--specs` expands refined properties with
  * their stored → derived spec (canonical JSON), and `--prod` targets
@@ -18,12 +21,13 @@
 
 import "dotenv/config";
 import { Command } from "commander";
+import type { Transaction } from "kysely";
 import {
 	closeCaseStoreDatabase,
-	getCaseStoreDatabase,
+	type Database,
 } from "../lib/case-store/postgres/connection";
-import { loadApp } from "../lib/db/apps";
 import { getAppDb } from "../lib/db/pg";
+import { loadPersistedBlueprintReadOnly } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 import { type CaseTypeDrift, computeSchemaDrift } from "./lib/schemaDrift";
@@ -67,6 +71,27 @@ if (opts.prod === true) {
 	targetProdDb();
 }
 
+const scopeArgs = opts.app === undefined ? "" : ` --app ${opts.app}`;
+const productionJob =
+	"python3 scripts/rollout/deploy-cloud-run.py --execute-job " +
+	"--project=commcare-nova --region=us-central1 " +
+	"--job=commcare-nova-case-type-schema-retirement " +
+	"--service=commcare-nova --wait-seconds=3060";
+
+function shellLiteral(value: string): string {
+	return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function productionExecutionArgs(args: readonly string[]): string {
+	return [
+		"schema-drift.cjs",
+		...args,
+		...(opts.app === undefined ? [] : ["--app", opts.app]),
+	]
+		.map((arg) => ` --execution-arg=${shellLiteral(arg)}`)
+		.join("");
+}
+
 function driftLines(drift: CaseTypeDrift, showSpecs: boolean): string {
 	const parts: string[] = [];
 	if (drift.missingRow)
@@ -103,10 +128,9 @@ function driftLines(drift: CaseTypeDrift, showSpecs: boolean): string {
 
 async function main() {
 	const appDb = await getAppDb();
-	const caseDb = await getCaseStoreDatabase();
 	console.log("Scanning stored schemas against derived blueprints…\n");
 
-	let appQuery = appDb.selectFrom("apps").select("id");
+	let appQuery = appDb.selectFrom("apps").select(["id", "app_name"]);
 	if (opts.app !== undefined) {
 		appQuery = appQuery.where("id", "=", opts.app);
 	}
@@ -121,21 +145,32 @@ async function main() {
 	let unresolvableTotal = 0;
 	const failedApps: string[] = [];
 
-	for (const { id } of appRows) {
-		const appDoc = await loadApp(id).catch((err: unknown) => {
-			failedApps.push(id);
-			console.log(
-				`${id}\n  ✗ COULDN'T SCAN — the stored blueprint couldn't be assembled:\n` +
-					`      ${err instanceof Error ? err.message : String(err)}\n`,
-			);
-			return null;
-		});
-		if (!appDoc) continue;
-
-		const drifts = await computeSchemaDrift(caseDb, id, appDoc.blueprint);
+	for (const app of appRows) {
+		const drifts = await appDb
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute(async (tx) => {
+				const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
+				if (blueprint === null) return null;
+				return computeSchemaDrift(
+					tx as unknown as Transaction<Database>,
+					app.id,
+					blueprint,
+				);
+			})
+			.catch((err: unknown) => {
+				failedApps.push(app.id);
+				console.log(
+					`${app.id}\n  ✗ COULDN'T SCAN — the stored blueprint couldn't be assembled:\n` +
+						`      ${err instanceof Error ? err.message : String(err)}\n`,
+				);
+				return null;
+			});
+		if (drifts === null) continue;
 		if (drifts.length === 0) continue;
 		appsWithDrift++;
-		console.log(`${id} (${appDoc.app_name || "unnamed"})`);
+		console.log(`${app.id} (${app.app_name || "unnamed"})`);
 		for (const drift of drifts) {
 			const hasRetype = drift.retyped.length > 0;
 			retypeTotal += drift.retyped.length;
@@ -156,11 +191,21 @@ async function main() {
 				: ""),
 	);
 	if (appsWithDrift > 0) {
-		console.log(
-			"\nNext: npx tsx --conditions=react-server scripts/migrate-schema-drift.ts        (dry-run plan)" +
-				"\n      npx tsx --conditions=react-server scripts/migrate-schema-drift.ts --execute",
-		);
+		if (opts.prod === true) {
+			console.log(
+				"\nAfter the new revision has 100% traffic and every old-revision request has drained, run the immutable write-capable Job:\n" +
+					`      ${productionJob}${productionExecutionArgs(["--execute"])}` +
+					"\n\nIndependent read-only production proof after the Job succeeds:\n" +
+					`      npx tsx scripts/scan-schema-drift.ts --prod${scopeArgs}`,
+			);
+		} else {
+			console.log(
+				`\nNext: npx tsx --conditions=react-server scripts/migrate-schema-drift.ts${scopeArgs}        (dry-run plan)` +
+					`\n      npx tsx --conditions=react-server scripts/migrate-schema-drift.ts --execute${scopeArgs}`,
+			);
+		}
 	}
+	if (appsWithDrift > 0 || failedApps.length > 0) process.exitCode = 1;
 	await closeCaseStoreDatabase();
 }
 

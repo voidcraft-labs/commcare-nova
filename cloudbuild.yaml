@@ -155,6 +155,7 @@ steps:
           --set-env-vars=NOVA_MEDIA_BUCKET=nova-multimedia-prod,NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app \
           --command=node \
           --args=media-bucket-policy.cjs \
+          --tasks=1 --parallelism=1 \
           --max-retries=1 \
           --task-timeout=300
         python3 scripts/rollout/deploy-cloud-run.py \
