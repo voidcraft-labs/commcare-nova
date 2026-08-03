@@ -513,6 +513,24 @@ describe("durable case-schema index convergence", () => {
 				expressionIndexCount: 1,
 			}),
 		]);
+
+		// The hot-path drain handles durable queue markers only. Persisted
+		// inactive history must not become permanent catalog work on every case
+		// operation after its marker has cleared.
+		await caseStore.drainPendingIndexConvergence({ appId: APP_ID });
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				retiredBlueprint,
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				issues: ["inactive-index-cleanup"],
+				expressionIndexCount: 1,
+			}),
+		]);
 		await prepared.completeAfterCommit();
 		expect(
 			await findCaseTypeSchemaRetirementFindings(

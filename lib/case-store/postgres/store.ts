@@ -1689,7 +1689,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseTypes: retired,
 			completeAfterCommit: async () => {
 				if (retired.length === 0) return;
-				await this.drainPendingIndexConvergence({
+				await this.drainRetiredIndexConvergence({
 					appId: args.appId,
 					caseTypes: retired,
 				});
@@ -1705,12 +1705,7 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("case_type_schemas")
 			.select("case_type")
 			.where("app_id", "=", args.appId)
-			.where((eb) =>
-				eb.or([
-					eb("index_pending_seq", "is not", null),
-					eb("is_active", "=", false),
-				]),
-			)
+			.where("index_pending_seq", "is not", null)
 			.$if(args.caseTypes !== undefined, (query) =>
 				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
 			)
@@ -1730,6 +1725,19 @@ export class PostgresCaseStore implements CaseStore {
 			...pendingDeletions.map((row) => row.case_type),
 		]);
 		for (const caseType of [...caseTypes].sort()) {
+			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
+		}
+	}
+
+	async drainRetiredIndexConvergence(args: {
+		readonly appId: string;
+		readonly caseTypes: readonly string[];
+	}): Promise<void> {
+		// Unlike the ordinary pending drain, this deliberately ignores the
+		// marker and rechecks the latest lifecycle state under the advisory lock.
+		// It closes the rollout-overlap window where an older worker can clear the
+		// marker without understanding that an inactive row wants no indexes.
+		for (const caseType of [...new Set(args.caseTypes)].sort()) {
 			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
 		}
 	}

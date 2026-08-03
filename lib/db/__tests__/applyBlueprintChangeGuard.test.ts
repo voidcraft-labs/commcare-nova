@@ -61,6 +61,7 @@ const {
 	retireSchemasPhaseAMock,
 	completeRetirementMock,
 	drainPendingIndexConvergenceMock,
+	drainRetiredIndexConvergenceMock,
 	withSchemaContextMock,
 } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
@@ -68,6 +69,7 @@ const {
 	retireSchemasPhaseAMock: vi.fn(),
 	completeRetirementMock: vi.fn(),
 	drainPendingIndexConvergenceMock: vi.fn(),
+	drainRetiredIndexConvergenceMock: vi.fn(),
 	withSchemaContextMock: vi.fn(),
 }));
 
@@ -185,6 +187,7 @@ beforeEach(() => {
 	});
 	completeRetirementMock.mockResolvedValue(undefined);
 	drainPendingIndexConvergenceMock.mockResolvedValue(undefined);
+	drainRetiredIndexConvergenceMock.mockResolvedValue(undefined);
 	retireSchemasPhaseAMock.mockResolvedValue({
 		caseTypes: ["patient"],
 		completeAfterCommit: completeRetirementMock,
@@ -194,6 +197,7 @@ beforeEach(() => {
 		applyCasePropertyRenamePhaseA: applyCasePropertyRenamePhaseAMock,
 		retireSchemasPhaseA: retireSchemasPhaseAMock,
 		drainPendingIndexConvergence: drainPendingIndexConvergenceMock,
+		drainRetiredIndexConvergence: drainRetiredIndexConvergenceMock,
 	});
 });
 
@@ -446,8 +450,10 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 		});
 
 		expect(retireSchemasPhaseAMock).not.toHaveBeenCalled();
-		expect(drainPendingIndexConvergenceMock).toHaveBeenCalledWith({
+		expect(drainPendingIndexConvergenceMock).not.toHaveBeenCalled();
+		expect(drainRetiredIndexConvergenceMock).toHaveBeenCalledWith({
 			appId: "app-1",
+			caseTypes: ["patient"],
 		});
 	});
 

@@ -229,11 +229,17 @@ export async function applyBlueprintChange(
 		},
 	});
 	if (deduped) {
-		if (
-			guard.mutations.some((mutation) => mutation.kind === "retireCaseType")
-		) {
+		const explicitlyRetired = guard.mutations.flatMap((mutation) =>
+			mutation.kind === "retireCaseType" ? [mutation.caseType] : [],
+		);
+		if (explicitlyRetired.length > 0) {
 			store ??= await withSchemaContext();
-			await drainRetirementIndexesBestEffort(store, args.appId, result.seq);
+			await drainRetirementIndexesBestEffort(
+				store,
+				args.appId,
+				result.seq,
+				explicitlyRetired,
+			);
 		}
 		return result;
 	}
@@ -473,9 +479,10 @@ async function drainRetirementIndexesBestEffort(
 	store: TransactionalSchemaCaseStore,
 	appId: string,
 	seq: number,
+	caseTypes: readonly string[],
 ): Promise<void> {
 	try {
-		await store.drainPendingIndexConvergence({ appId });
+		await store.drainRetiredIndexConvergence({ appId, caseTypes });
 	} catch (error) {
 		const message =
 			"[applyBlueprintChange] pending case-type retirement index convergence failed";

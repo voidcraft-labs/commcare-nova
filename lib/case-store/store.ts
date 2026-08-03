@@ -696,6 +696,17 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 	}): Promise<void>;
 
 	/**
+	 * Force one explicitly named retirement through the empty desired index set,
+	 * even if an older application revision already consumed its pending marker.
+	 * This is a bounded retirement/deploy repair path, never a routine case-data
+	 * operation: inactive lifecycle rows persist forever.
+	 */
+	drainRetiredIndexConvergence(args: {
+		readonly appId: string;
+		readonly caseTypes: readonly string[];
+	}): Promise<void>;
+
+	/**
 	 * Deployment-only global drain. It keeps selecting the durable schema and
 	 * deletion work queues until both are empty, and rejects on any DDL or
 	 * stored-schema fault so the migration Job fails before traffic shifts.
