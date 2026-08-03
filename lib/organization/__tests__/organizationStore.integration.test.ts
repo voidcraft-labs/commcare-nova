@@ -559,6 +559,29 @@ describe("locations store — creation and structure", () => {
 			parentId: district,
 		});
 	});
+
+	it("keeps sibling order when the same parent is restated without an anchor", async () => {
+		await seedOrgApp();
+		const { district, facility } = await seedChain();
+		await createLocation(scope(), {
+			levelUuid: FACILITY,
+			parentId: district,
+			name: "Second Clinic",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+		const before = await readOrganization(scope());
+		const moved = await updateLocation(scope(), facility, {
+			parentId: district,
+		});
+		const after = await readOrganization(scope());
+		expect(moved.revision).toBe(before.revision);
+		expect(after.locations.map((location) => location.id)).toEqual(
+			before.locations.map((location) => location.id),
+		);
+	});
 });
 
 describe("locations store — the optimistic clock", () => {
@@ -774,7 +797,7 @@ describe("locations store — the tenant boundary", () => {
 		// cannot make.
 		await expect(
 			describeArchiveImpact(scope(PROJECT_A, "watcher"), facility),
-		).resolves.toMatchObject({ locationIds: [facility] });
+		).resolves.toMatchObject({ affectedLocationCount: 1 });
 	});
 
 	it("carries every place across a Project move, unchanged and still reachable", async () => {
@@ -1023,6 +1046,36 @@ describe("locations store — persona and fixed-owner validation", () => {
 });
 
 describe("locations store — deterministic reverse-hop owners", () => {
+	it("does not apply a reverse owner rule to workers who do not receive the source cases", async () => {
+		await seedWorkflowOrgApp();
+		const { region } = await seedChain();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "limit-region-address-book-without-descendant-cases",
+			mutations: admitMutationBatch([
+				{
+					kind: "updateOrganizationLevel",
+					uuid: REGION,
+					patch: {
+						addressBook: {
+							reach: "own-branch",
+							downToLevelUuid: DISTRICT,
+						},
+					},
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		await assignPersona(PERSONA_ASHA, region);
+
+		// Asha can see the District source but not the Facility destination.
+		// That does not matter: Region's case-flow scope is `none`, so those
+		// District-owned cases never reach Asha and the owner hop is inapplicable.
+		await expect(commitReverseOwnerForm(FACILITY)).resolves.toBeUndefined();
+	});
+
 	it("refuses a reverse destination outside an applicable persona footprint", async () => {
 		await seedWorkflowOrgApp();
 		const { district } = await seedChain();
@@ -1296,10 +1349,11 @@ describe("locations store — the archive cascade", () => {
 		await assignPersona(PERSONA_BIMAL, district, [facility]);
 
 		const impact = await describeArchiveImpact(scope(), district);
-		expect(new Set(impact.locationIds)).toEqual(new Set([district, facility]));
-		expect(new Set(impact.unassignedPersonas)).toEqual(
+		expect(impact.affectedLocationCount).toBe(2);
+		expect(new Set(impact.unassignedPersonaPreview)).toEqual(
 			new Set(["Asha", "Bimal"]),
 		);
+		expect(impact.unassignedPersonaCount).toBe(2);
 		expect(impact.ownedCases).toBe(0);
 
 		const result = await setLocationArchived(
@@ -1309,7 +1363,8 @@ describe("locations store — the archive cascade", () => {
 			impact.revision,
 			impact,
 		);
-		expect(new Set(result.archivedIds)).toEqual(new Set([district, facility]));
+		expect(result.archivedCount).toBe(2);
+		expect(result.unassignedPersonaCount).toBe(2);
 		expect(result.impact).toEqual(impact);
 
 		const snapshot = await readOrganization(scope());
@@ -1348,6 +1403,17 @@ describe("locations store — the archive cascade", () => {
 				(location) => location.id === district,
 			)?.archivedAt,
 		).toBeNull();
+	});
+
+	it("refuses when persona assignments change after archive preflight", async () => {
+		await seedOrgApp();
+		const { facility } = await seedChain();
+		const impact = await describeArchiveImpact(scope(), facility);
+		await assignPersona(PERSONA_ASHA, facility);
+		expect((await readOrganization(scope())).revision).toBe(impact.revision);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "conflict" });
 	});
 
 	it("returns and attributes the exact Blueprint change for an SA archive", async () => {
@@ -1420,7 +1486,7 @@ describe("locations store — the archive cascade", () => {
 		const first = await setLocationArchived(scope(), facility, true);
 		const second = await setLocationArchived(scope(), facility, true);
 		expect(second.revision).toBe(first.revision);
-		expect(second.archivedIds).toEqual([]);
+		expect(second.archivedCount).toBe(0);
 	});
 
 	it("unarchives ancestors too, and does not restore assignments", async () => {
@@ -1618,6 +1684,65 @@ describe("locations store — custom field values", () => {
 			valuePatch: { [PROP_BEDS]: null },
 		});
 		expect(cleared.location.values).toEqual({ [PROP_PHONE]: "555" });
+	});
+
+	it("does not advance the clock when the same value bag arrives in another key order", async () => {
+		await seedOrgApp();
+		await declareProperties();
+		const created = await createLocation(scope(), {
+			levelUuid: REGION,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: { [PROP_BEDS]: "12", [PROP_PHONE]: "555" },
+		});
+		const result = await updateLocation(scope(), created.location.id, {
+			values: { [PROP_PHONE]: "555", [PROP_BEDS]: "12" },
+		});
+		expect(result.revision).toBe(created.revision);
+	});
+
+	it("refuses a value patch whose merged bag exceeds the store bound", async () => {
+		await seedOrgApp();
+		const propertyUuids = Array.from({ length: 251 }, (_, index) =>
+			asUuid(`10000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
+		);
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "declare-251-location-properties",
+			mutations: admitMutationBatch(
+				propertyUuids.map((uuid, index) => ({
+					kind: "addLocationProperty" as const,
+					property: {
+						uuid,
+						slug: `property_${index}`,
+						label: `Property ${index}`,
+					},
+				})),
+			),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		const values = Object.fromEntries(
+			propertyUuids.slice(0, 250).map((uuid) => [uuid, "value"]),
+		);
+		const created = await createLocation(scope(), {
+			levelUuid: REGION,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values,
+		});
+		await expect(
+			updateLocation(scope(), created.location.id, {
+				valuePatch: { [propertyUuids[250]]: "overflow" },
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
 	});
 
 	it("refuses a value against a property the app does not declare", async () => {

@@ -29,6 +29,8 @@ export function useRemovedRowFocus(count: number): {
 	readonly register: (index: number) => (el: HTMLButtonElement | null) => void;
 	/** Call when the author removes the row at `index`, before the commit. */
 	readonly onRemoved: (index: number) => void;
+	/** Focus a row after a reorder commits. */
+	readonly focusRow: (index: number) => void;
 	/** Attach to the Add control — where focus lands once nothing is left. */
 	readonly addRef: RefObject<HTMLButtonElement | null>;
 } {
@@ -75,6 +77,13 @@ export function useRemovedRowFocus(count: number): {
 		},
 		onRemoved: (index: number) => {
 			pending.current = { index, count };
+		},
+		focusRow: (index: number) => {
+			if (frame.current !== null) cancelAnimationFrame(frame.current);
+			frame.current = requestAnimationFrame(() => {
+				frame.current = null;
+				(rows.current[index] ?? addRef.current)?.focus();
+			});
 		},
 		addRef,
 	};

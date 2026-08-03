@@ -16,13 +16,20 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import type { BlueprintDoc, ProseTemplate, Uuid } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	ownerLocationAtLevel,
+	prop,
+	term,
+} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
 function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
@@ -140,6 +147,30 @@ function moduleUuidByName(doc: BlueprintDoc, name: string): Uuid {
 }
 
 describe("planCaseTypeRetirementOnRemove", () => {
+	it("blocks when a reverse location owner names the retiring owner case type", () => {
+		const doc = twoModuleDoc();
+		const patientModule = moduleUuidByName(doc, "Patients");
+		const formUuid = doc.formOrder[patientModule]?.[0];
+		if (formUuid === undefined) throw new Error("patient form missing");
+		doc.forms[formUuid].caseOperations = [
+			{
+				uuid: testUuid("reverse-owner-retirement"),
+				id: "reverse_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(ownerLocationAtLevel(testUuid("facility-level"), "visit")),
+			},
+		];
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+		expect(plan.references.join(" ")).toMatch(/owner.*visit|visit.*owner/i);
+	});
+
 	it("blocks on module and form display-condition case-type references", () => {
 		const doc = twoModuleDoc({
 			patientModuleDisplayReference: true,

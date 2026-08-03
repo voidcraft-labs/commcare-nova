@@ -28,7 +28,7 @@ import path from "node:path";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 import type { Pool } from "pg";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -49,6 +49,7 @@ import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
+import { buildUrl } from "@/lib/routing/location";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -116,6 +117,39 @@ const VIEWER_STATE_FILE = path.join(AUTH_DIR, "state-viewer.json");
 const SEED_FILE = path.join(AUTH_DIR, "seed.json");
 /** The two-user multiplayer fixture manifest (`multiplayer.spec.ts` reads it). */
 const MULTIPLAYER_FILE = path.join(AUTH_DIR, "multiplayer.json");
+
+/** Case-aware starter for the organization journey. Its single follow-up form
+ * lets the browser author both fixed-place and reverse-hop case owners after it
+ * has built the location tree; no model call or test-only UI path is involved. */
+function buildOrganizationBlueprint(appId: string) {
+	const doc = buildDoc({
+		appName: SEED.organizationAppName,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: "Name" }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		],
+	});
+	doc.appId = appId;
+	return doc;
+}
 
 /** A tall, realistic transcript makes the smoke fixture exercise the initial
  * bottom position instead of accidentally passing because two messages fit in
@@ -412,14 +446,36 @@ async function main(): Promise<void> {
 		},
 	);
 	const organizationAppIds: string[] = [];
+	const organizationCaseChangeRoutes: string[] = [];
 	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
-		organizationAppIds.push(
-			(
-				await createApp(SEED.userId, seedProjectId, randomUUID(), {
-					name: SEED.organizationAppName,
-					status: "complete",
-				})
-			).appId,
+		const { appId, baseSeq } = await createApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{
+				name: SEED.organizationAppName,
+				status: "complete",
+			},
+		);
+		const organizationDoc = buildOrganizationBlueprint(appId);
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: toPersistableDoc(organizationDoc),
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		const moduleUuid = organizationDoc.moduleOrder[0];
+		const formUuid = organizationDoc.formOrder[moduleUuid]?.[0];
+		if (moduleUuid === undefined || formUuid === undefined) {
+			throw new Error("Organization smoke fixture has no follow-up form.");
+		}
+		organizationAppIds.push(appId);
+		organizationCaseChangeRoutes.push(
+			buildUrl(`/build/${appId}`, {
+				kind: "form-operations",
+				moduleUuid,
+				formUuid,
+			}),
 		);
 	}
 
@@ -896,6 +952,7 @@ async function main(): Promise<void> {
 				...SEED,
 				openAppId,
 				organizationAppIds,
+				organizationCaseChangeRoutes,
 				caseWorkspace,
 				caseChanges,
 				deleteAppIds,

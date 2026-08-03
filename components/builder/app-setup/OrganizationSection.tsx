@@ -89,7 +89,10 @@ export function OrganizationSection() {
 							</Button>
 						</p>
 					)}
-					<LevelsSubsection occupiedLevelUuids={occupiedLevelUuids} />
+					<LevelsSubsection
+						occupiedLevelUuids={occupiedLevelUuids}
+						locations={organization.locations}
+					/>
 					<PlaceInformationSubsection locations={organization.locations} />
 					<PlacesSubsection organization={organization} />
 				</>

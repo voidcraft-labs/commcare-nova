@@ -18,7 +18,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import { columnContentSnapshot } from "@/lib/doc/caseListColumnMutations";
-import type { Mutation, Uuid } from "@/lib/doc/types";
+import { type Mutation, mutationSchema, type Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -346,6 +346,50 @@ describe("mutationTargetsInvalid — user collection identities", () => {
 				},
 				{ kind: "removeUserType", uuid: USER_TYPE },
 			]),
+		).toBe(false);
+	});
+});
+
+describe("mutationTargetsInvalid — organization level topology", () => {
+	const REGION = testUuid("organization-region");
+	const FACILITY = testUuid("organization-facility");
+	const level = (uuid: Uuid, name: string, parentLevelUuid?: Uuid) => ({
+		uuid,
+		code: name.toLowerCase(),
+		name,
+		...(parentLevelUuid === undefined ? {} : { parentLevelUuid }),
+		caseFlow: { workers: "none" as const, ownsCases: false },
+		addressBook: { reach: "own-branch" as const },
+	});
+
+	it("requires a same-batch parent to be admitted before its child", () => {
+		const { doc } = fixture();
+		const parent: Mutation = {
+			kind: "addOrganizationLevel",
+			level: level(REGION, "Region"),
+		};
+		const child: Mutation = {
+			kind: "addOrganizationLevel",
+			level: level(FACILITY, "Facility", REGION),
+		};
+		expect(mutationTargetsInvalid(doc, [child, parent])).toBe(true);
+		expect(mutationTargetsInvalid(doc, [parent, child])).toBe(false);
+	});
+
+	it("rejects empty canonical organization update patches", () => {
+		expect(
+			mutationSchema.safeParse({
+				kind: "updateOrganizationLevel",
+				uuid: REGION,
+				patch: {},
+			}).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse({
+				kind: "updateLocationProperty",
+				uuid: FACILITY,
+				patch: {},
+			}).success,
 		).toBe(false);
 	});
 });

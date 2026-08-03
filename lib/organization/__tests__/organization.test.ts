@@ -271,6 +271,7 @@ describe("planPersonaUnassignment", () => {
 		expect(planPersonaUnassignment(doc, new Set([asUuid("loc-z")]))).toEqual({
 			mutations: [],
 			personaNames: [],
+			fingerprintRows: [],
 		});
 	});
 
@@ -289,6 +290,13 @@ describe("planPersonaUnassignment", () => {
 			new Set([asUuid("loc-a"), asUuid("loc-b")]),
 		);
 		expect(plan.personaNames).toEqual(["Asha"]);
+		expect(plan.fingerprintRows).toEqual([
+			{
+				personaUuid: asUuid("p1"),
+				before: [asUuid("loc-a"), asUuid("loc-b")],
+				after: [],
+			},
+		]);
 		expect(plan.mutations).toEqual([
 			{
 				kind: "updatePersona",

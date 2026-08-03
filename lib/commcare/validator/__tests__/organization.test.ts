@@ -100,4 +100,41 @@ describe("organization address-book level references", () => {
 			]),
 		);
 	});
+
+	it("requires a limited own branch to include itself and every intermediate level", () => {
+		const value = doc();
+		const levels = value.organizationLevels;
+		if (levels === undefined) throw new Error("organization levels missing");
+		value.organizationLevels = {
+			...levels,
+			[REGION]: {
+				...levels[REGION],
+				addressBook: {
+					reach: "own-branch-limited",
+					levelUuids: [REGION, FACILITY],
+				},
+			},
+		};
+		expect(findings(value)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "ORGANIZATION_LEVEL_SCOPE_GAP" }),
+			]),
+		);
+
+		value.organizationLevels = {
+			...levels,
+			[DISTRICT]: {
+				...levels[DISTRICT],
+				addressBook: {
+					reach: "own-branch-limited",
+					levelUuids: [FACILITY],
+				},
+			},
+		};
+		expect(findings(value)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "ORGANIZATION_LEVEL_SCOPE_GAP" }),
+			]),
+		);
+	});
 });

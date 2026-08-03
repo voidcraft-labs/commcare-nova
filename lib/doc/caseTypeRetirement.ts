@@ -804,6 +804,9 @@ function collectModuleConfigReferences(
 // ── Leaf matchers ───────────────────────────────────────────────────────
 
 function termRefsCaseType(term: Term, caseType: string): boolean {
+	if (term.kind === "owner-location-at-level") {
+		return term.ownerCaseType === caseType;
+	}
 	if (term.kind !== "prop") return false;
 	if (term.caseType === caseType) return true;
 	return viaNamesCaseType(term.via, caseType);

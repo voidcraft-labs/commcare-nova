@@ -32,6 +32,7 @@ interface SeedManifest {
 	deleteAppName: string;
 	openAppId: string;
 	organizationAppIds: string[];
+	organizationCaseChangeRoutes: string[];
 	deleteAppIds: string[];
 	threadsAppId: string;
 	threadUserText: string;
@@ -338,9 +339,9 @@ test.describe("authenticated builder", () => {
 
 	test("authors and restores a responsive organization hierarchy", async ({
 		page,
-		browser,
 		baseURL,
 	}, testInfo) => {
+		test.setTimeout(300_000);
 		const appId = seed.organizationAppIds[testInfo.retry];
 		expect(appId).toBeTruthy();
 		await page.goto(`/build/${appId}/setup/organization`);
@@ -408,6 +409,7 @@ test.describe("authenticated builder", () => {
 			.click();
 
 		await places.getByRole("button", { name: "Add place" }).click();
+		await expect(places.getByLabel("Name")).toBeFocused();
 		await places.getByLabel("Name").fill("Coast Region");
 		await places.getByLabel("Code (optional)").fill("coast-region");
 		await places.getByLabel("Id in another system").fill("region-001");
@@ -490,14 +492,103 @@ test.describe("authenticated builder", () => {
 		await expect(personas.getByLabel("Add a place")).toBeFocused();
 		await personas.getByLabel("Add a place").click();
 		await page.getByRole("option", { name: "Kilifi District" }).click();
+		await personas.getByLabel("Add a place").click();
+		await page.getByRole("option", { name: "Mombasa District" }).click();
+		await personas.getByRole("button", { name: "Make main" }).click();
+		await expect(
+			personas.getByRole("button", { name: "Remove Mombasa District" }),
+		).toBeFocused();
+		await personas
+			.getByRole("button", { name: "Remove Mombasa District" })
+			.click();
+		await expect(
+			personas.getByRole("button", { name: "Remove Kilifi District" }),
+		).toBeFocused();
+		// Persona assignments live in the Blueprint while places live in the
+		// organization store. Wait for the final assignment to reach the
+		// authoritative document before opening Organization, or this journey can
+		// race the autosave debounce and briefly offer a cross-store-invalid level
+		// gesture that the committed Blueprint does not know is invalid yet.
+		await expect
+			.poll(async () => {
+				const response = await page.request.get(`/api/apps/${appId}`);
+				if (!response.ok()) return -1;
+				const body = (await response.json()) as {
+					blueprint?: {
+						personas?: Record<
+							string,
+							{
+								name?: string;
+								locations?: {
+									primaryUuid?: string;
+									additionalUuids?: string[];
+								};
+							}
+						>;
+					};
+				};
+				const asha = Object.values(body.blueprint?.personas ?? {}).find(
+					(persona) => persona.name === "Asha",
+				);
+				return asha?.locations?.primaryUuid === undefined
+					? 0
+					: 1 + (asha.locations.additionalUuids?.length ?? 0);
+			})
+			.toBe(1);
 
 		await page.goto(`/build/${appId}/setup/organization`);
 		const refreshedPlaces = page.getByRole("region", { name: "Places" });
+		const refreshedLevels = page.getByRole("region", { name: "Levels" });
+		await refreshedLevels.getByRole("button", { name: /District/ }).click();
 		await expect(
-			refreshedPlaces.getByRole("button", { name: /Coast Region/ }),
+			refreshedLevels
+				.getByRole("checkbox", { name: "People work here" })
+				.filter({ visible: true }),
+		).toBeDisabled();
+
+		await refreshedPlaces
+			.getByRole("button", { name: /Mombasa District/ })
+			.click();
+		await refreshedPlaces.getByRole("button", { name: "Archive" }).click();
+		await refreshedPlaces.getByRole("button", { name: "Archive" }).click();
+		await expect(
+			refreshedPlaces.getByText("Archived", { exact: true }),
 		).toBeVisible();
-		await refreshedPlaces.getByRole("button", { name: /Coast Region/ }).click();
-		const draftName = refreshedPlaces
+
+		const caseChangesRoute = seed.organizationCaseChangeRoutes[testInfo.retry];
+		if (caseChangesRoute === undefined) {
+			throw new Error("organization case-change route missing");
+		}
+		await page.goto(caseChangesRoute);
+		await page.getByRole("button", { name: "Add a change" }).click();
+		await page
+			.getByRole("button", { name: "Update the case this form opened" })
+			.click();
+		await page.getByRole("button", { name: "Choose an owner" }).click();
+		await page.getByLabel("How to choose the owner").click();
+		await page.getByRole("option", { name: "A particular place" }).click();
+		await page.getByLabel("Place that owns the case").click();
+		await page.getByRole("option", { name: "Kilifi District" }).click();
+		await expect(page.getByLabel("Place that owns the case")).toContainText(
+			"Kilifi District",
+		);
+		await page.getByLabel("How to choose the owner").click();
+		await page
+			.getByRole("option", { name: "A place beneath the current case owner" })
+			.click();
+		await page.getByLabel("Level to find beneath the current owner").click();
+		await page.getByRole("option", { name: "District" }).click();
+		await expect(
+			page.getByLabel("Level to find beneath the current owner"),
+		).toContainText("District");
+
+		await page.goto(`/build/${appId}/setup/organization`);
+		const conflictPlaces = page.getByRole("region", { name: "Places" });
+		await expect(
+			conflictPlaces.getByRole("button", { name: /Coast Region/ }),
+		).toBeVisible();
+		await conflictPlaces.getByRole("button", { name: /Coast Region/ }).click();
+		const draftName = conflictPlaces
 			.getByLabel("Name")
 			.filter({ visible: true });
 		await draftName.fill("Coast draft kept locally");
@@ -514,50 +605,30 @@ test.describe("authenticated builder", () => {
 				.fill("region-peer-update");
 			await peerPage.getByRole("heading", { name: "Organization" }).click();
 			await expect(
-				refreshedPlaces.getByText(
+				conflictPlaces.getByText(
 					"This place changed while you were editing. Your draft is still here.",
 				),
 			).toBeVisible();
 			await expect(draftName).toHaveValue("Coast draft kept locally");
-			await refreshedPlaces
-				.getByRole("button", { name: "Use latest saved values" })
+			await conflictPlaces
+				.getByRole("button", { name: "Keep my draft" })
 				.click();
-			await expect(draftName).toHaveValue("Coast Region");
+			await expect(draftName).toHaveValue("Coast draft kept locally");
+			await expect(
+				conflictPlaces.getByText(
+					"This place changed while you were editing. Your draft is still here.",
+				),
+			).toHaveCount(0);
+			await draftName.focus();
+			await page.getByRole("heading", { name: "Organization" }).click();
+			await expect(
+				conflictPlaces.getByRole("button", {
+					name: /Coast draft kept locally/,
+				}),
+			).toBeVisible();
 			peerGuard.assertNoErrors();
 		} finally {
 			await peerPage.close();
-		}
-
-		const viewerStateFile = seed.caseChanges[0]?.viewerStateFile;
-		if (viewerStateFile === undefined) throw new Error("viewer state missing");
-		const viewerContext = await browser.newContext({
-			baseURL: baseURL ?? undefined,
-			storageState: viewerStateFile,
-		});
-		const viewerPage = await viewerContext.newPage();
-		const viewerGuard = attachErrorGuard(viewerPage, baseURL);
-		try {
-			await viewerPage.goto(`/build/${appId}/setup/organization`);
-			await expect(
-				viewerPage.getByRole("heading", { name: "Organization" }),
-			).toBeVisible();
-			await expect(
-				viewerPage.getByRole("button", { name: "Add level" }),
-			).toHaveCount(0);
-			await expect(
-				viewerPage.getByRole("button", { name: "Add information" }),
-			).toHaveCount(0);
-			await expect(
-				viewerPage.getByRole("button", { name: "Add place" }),
-			).toHaveCount(0);
-			const viewerPlaces = viewerPage.getByRole("region", { name: "Places" });
-			await viewerPlaces.getByRole("button", { name: /Coast Region/ }).click();
-			await expect(
-				viewerPlaces.getByLabel("Name").filter({ visible: true }),
-			).toBeDisabled();
-			viewerGuard.assertNoErrors();
-		} finally {
-			await viewerContext.close();
 		}
 
 		for (const viewport of [
@@ -582,6 +653,36 @@ test.describe("authenticated builder", () => {
 			.getByRole("button", { name: "Add level" })
 			.boundingBox();
 		expect(addLevelBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+		const viewerStateFile = seed.caseChanges[0]?.viewerStateFile;
+		if (viewerStateFile === undefined) throw new Error("viewer state missing");
+		const context = page.context();
+		const viewerState = JSON.parse(readFileSync(viewerStateFile, "utf8")) as {
+			cookies: Parameters<typeof context.addCookies>[0];
+		};
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await context.clearCookies();
+		await context.addCookies(viewerState.cookies);
+		await page.goto(`/build/${appId}/setup/organization`);
+		await expect(
+			page.getByRole("heading", { name: "Organization" }),
+		).toBeVisible();
+		await expect(page.getByRole("button", { name: "Add level" })).toHaveCount(
+			0,
+		);
+		await expect(
+			page.getByRole("button", { name: "Add information" }),
+		).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Add place" })).toHaveCount(
+			0,
+		);
+		const viewerPlaces = page.getByRole("region", { name: "Places" });
+		await viewerPlaces
+			.getByRole("button", { name: /Coast draft kept locally/ })
+			.click();
+		await expect(
+			viewerPlaces.getByLabel("Name").filter({ visible: true }),
+		).toBeDisabled();
 	});
 
 	test("builder secondary headers stay aligned through sidebar and inspector states", async ({

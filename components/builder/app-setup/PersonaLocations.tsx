@@ -121,21 +121,22 @@ export function PersonaLocations({
 											<>
 												{index > 0 && (
 													<Button
-														ref={rowFocus.register(index)}
 														type="button"
 														variant="ghost"
 														className="min-h-11 shrink-0 px-2 text-[12px]"
-														onClick={() =>
+														onClick={() => {
 															set([
 																id,
 																...assigned.filter((other) => other !== id),
-															])
-														}
+															]);
+															rowFocus.focusRow(0);
+														}}
 													>
 														Make main
 													</Button>
 												)}
 												<Button
+													ref={rowFocus.register(index)}
 													type="button"
 													variant="ghost"
 													aria-label={`Remove ${location?.name ?? "this place"}`}

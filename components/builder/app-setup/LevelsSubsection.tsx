@@ -45,6 +45,11 @@ import {
 	type LevelCaseFlow,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import {
+	type OrganizationLevelPatch,
+	organizationLevelPatchIssue,
+} from "@/lib/organization/levelUpdateVerdicts";
+import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
@@ -58,10 +63,12 @@ const NO_LEVEL_LIMIT = "__none__";
 
 export function LevelsSubsection({
 	occupiedLevelUuids,
+	locations,
 }: {
 	/** Levels that currently hold at least one place, so a removal can say
 	 *  so immediately rather than after a round trip. */
 	occupiedLevelUuids: ReadonlySet<string>;
+	locations: readonly StoredLocation[];
 }) {
 	const levels = useOrganizationLevels();
 	const canEdit = useCanEdit();
@@ -122,6 +129,7 @@ export function LevelsSubsection({
 						level={level}
 						peers={levels}
 						occupied={occupiedLevelUuids.has(level.uuid)}
+						locations={locations}
 						open={openUuid === level.uuid}
 						onOpenChange={(next) => setOpenUuid(next ? level.uuid : undefined)}
 						rowFocusRef={rowFocus.register(index)}
@@ -261,6 +269,7 @@ function LevelRow({
 	level,
 	peers,
 	occupied,
+	locations,
 	open,
 	onOpenChange,
 	rowFocusRef,
@@ -269,6 +278,7 @@ function LevelRow({
 	level: OrganizationLevel;
 	peers: readonly OrganizationLevel[];
 	occupied: boolean;
+	locations: readonly StoredLocation[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	rowFocusRef: (element: HTMLButtonElement | null) => void;
@@ -276,6 +286,8 @@ function LevelRow({
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
+	const doc = useBlueprintDoc((state) => state);
+	const [levelIssue, setLevelIssue] = useState<string | undefined>();
 	const properties = useLocationProperties();
 	const nameId = useId();
 	const parentId = useId();
@@ -298,8 +310,22 @@ function LevelRow({
 			candidate.uuid !== level.uuid &&
 			!ancestorLevels(candidate, levelRecord).some(
 				(a) => a.uuid === level.uuid,
-			),
+			) &&
+			organizationLevelPatchIssue(doc, locations, level.uuid, {
+				parentLevelUuid: candidate.uuid,
+			}) === undefined,
 	);
+	const issueFor = (patch: OrganizationLevelPatch) =>
+		organizationLevelPatchIssue(doc, locations, level.uuid, patch);
+	const commitPatch = (patch: OrganizationLevelPatch) => {
+		const issue = issueFor(patch);
+		if (issue !== undefined) {
+			setLevelIssue(issue);
+			return;
+		}
+		setLevelIssue(undefined);
+		mutations.updateOrganizationLevel(level.uuid as Uuid, patch);
+	};
 
 	return (
 		<EntryRow
@@ -320,7 +346,12 @@ function LevelRow({
 					<DraftCommitInput
 						id={nameId}
 						value={level.name}
-						disabled={!canEdit}
+						disabled={
+							!canEdit ||
+							(level.parentLevelUuid !== undefined &&
+								issueFor({ parentLevelUuid: null }) !== undefined &&
+								parentOptions.length === 0)
+						}
 						validate={(name) =>
 							name === "" ? "Enter a name for this level." : undefined
 						}
@@ -350,7 +381,7 @@ function LevelRow({
 						disabled={!canEdit}
 						onValueChange={(value) => {
 							if (typeof value !== "string") return;
-							mutations.updateOrganizationLevel(level.uuid as Uuid, {
+							commitPatch({
 								parentLevelUuid: value === TOP_LEVEL ? null : (value as Uuid),
 							});
 						}}
@@ -364,7 +395,10 @@ function LevelRow({
 							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value={TOP_LEVEL}>
+							<SelectItem
+								value={TOP_LEVEL}
+								disabled={issueFor({ parentLevelUuid: null }) !== undefined}
+							>
 								Nothing — this is a top level
 							</SelectItem>
 							{parentOptions.map((candidate) => (
@@ -376,13 +410,26 @@ function LevelRow({
 					</Select>
 				</div>
 
-				<CaseFlowGroup level={level} peers={selfAndBelow} />
+				<CaseFlowGroup
+					level={level}
+					peers={selfAndBelow}
+					issueFor={issueFor}
+					onPatch={commitPatch}
+				/>
 				<AddressBookGroup
 					level={level}
 					above={above}
 					peers={peers}
 					selfAndBelow={selfAndBelow}
+					issueFor={issueFor}
+					onPatch={commitPatch}
 				/>
+
+				{levelIssue !== undefined && (
+					<p role="alert" className="text-[12px] leading-relaxed text-nova-red">
+						{levelIssue}
+					</p>
+				)}
 
 				<div className="flex flex-col gap-1.5">
 					<Label
@@ -441,17 +488,32 @@ function LevelRow({
 function CaseFlowGroup({
 	level,
 	peers,
+	issueFor,
+	onPatch,
 }: {
 	level: OrganizationLevel;
 	peers: readonly OrganizationLevel[];
+	issueFor: (patch: OrganizationLevelPatch) => string | undefined;
+	onPatch: (patch: OrganizationLevelPatch) => void;
 }) {
 	const canEdit = useCanEdit();
-	const mutations = useBlueprintMutations();
 	const descendantId = useId();
 	const flow = level.caseFlow;
 
-	const set = (next: LevelCaseFlow) =>
-		mutations.updateOrganizationLevel(level.uuid as Uuid, { caseFlow: next });
+	const set = (next: LevelCaseFlow) => onPatch({ caseFlow: next });
+	const workersOff: LevelCaseFlow = {
+		workers: "none",
+		ownsCases: flow.ownsCases,
+	};
+	const workersOn: LevelCaseFlow = {
+		workers: "assigned",
+		ownsCases: flow.ownsCases,
+		descendantCases: { kind: "none" },
+	};
+	const ownsCasesToggled: LevelCaseFlow =
+		flow.workers === "assigned"
+			? { ...flow, ownsCases: !flow.ownsCases }
+			: { workers: "none", ownsCases: !flow.ownsCases };
 
 	return (
 		<fieldset className="rounded-lg border border-nova-border p-3">
@@ -462,24 +524,21 @@ function CaseFlowGroup({
 				<Choice
 					label="People work here"
 					checked={flow.workers === "assigned"}
-					disabled={!canEdit}
-					onChange={(checked) =>
-						set(
-							checked
-								? {
-										workers: "assigned",
-										ownsCases: flow.ownsCases,
-										descendantCases: { kind: "none" },
-									}
-								: { workers: "none", ownsCases: flow.ownsCases },
-						)
+					disabled={
+						!canEdit ||
+						issueFor({
+							caseFlow: flow.workers === "assigned" ? workersOff : workersOn,
+						}) !== undefined
 					}
+					onChange={(checked) => set(checked ? workersOn : workersOff)}
 					hint="Personas and deployed workers can be assigned to places at this level."
 				/>
 				<Choice
 					label="Places here own cases"
 					checked={flow.ownsCases}
-					disabled={!canEdit}
+					disabled={
+						!canEdit || issueFor({ caseFlow: ownsCasesToggled }) !== undefined
+					}
 					onChange={(checked) =>
 						set(
 							flow.workers === "assigned"
@@ -590,14 +649,17 @@ function AddressBookGroup({
 	above,
 	peers,
 	selfAndBelow,
+	issueFor,
+	onPatch,
 }: {
 	level: OrganizationLevel;
 	above: readonly OrganizationLevel[];
 	peers: readonly OrganizationLevel[];
 	selfAndBelow: readonly OrganizationLevel[];
+	issueFor: (patch: OrganizationLevelPatch) => string | undefined;
+	onPatch: (patch: OrganizationLevelPatch) => void;
 }) {
 	const canEdit = useCanEdit();
-	const mutations = useBlueprintMutations();
 	const reachId = useId();
 	const fromId = useId();
 	const downToId = useId();
@@ -612,10 +674,62 @@ function AddressBookGroup({
 		if (!isDefault) setExpanded(true);
 	}, [isDefault]);
 
-	const set = (next: LevelAddressBook) =>
-		mutations.updateOrganizationLevel(level.uuid as Uuid, {
-			addressBook: next,
-		});
+	const set = (next: LevelAddressBook) => onPatch({ addressBook: next });
+	const downToOptions = (() => {
+		if (book.reach === "whole-organization") return peers;
+		if (book.reach === "shared-branch") {
+			const from = peers.find(
+				(candidate) => candidate.uuid === book.fromLevelUuid,
+			);
+			if (from === undefined) return [];
+			return peers.filter(
+				(candidate) =>
+					candidate.uuid === from.uuid ||
+					ancestorLevels(
+						candidate,
+						Object.fromEntries(peers.map((p) => [p.uuid, p])),
+					).some((ancestor) => ancestor.uuid === from.uuid),
+			);
+		}
+		return selfAndBelow;
+	})();
+	const limitedSelection = (candidate: OrganizationLevel, checked: boolean) => {
+		const current = new Set(
+			book.reach === "own-branch-limited" ? book.levelUuids : [],
+		);
+		if (checked) {
+			current.add(level.uuid);
+			current.add(candidate.uuid);
+			for (const ancestor of ancestorLevels(
+				candidate,
+				Object.fromEntries(peers.map((peer) => [peer.uuid, peer])),
+			)) {
+				if (
+					ancestor.uuid === level.uuid ||
+					selfAndBelow.some((below) => below.uuid === ancestor.uuid)
+				) {
+					current.add(ancestor.uuid);
+				}
+			}
+		} else {
+			for (const selectedUuid of [...current]) {
+				const selected = peers.find((peer) => peer.uuid === selectedUuid);
+				if (
+					selectedUuid === candidate.uuid ||
+					(selected !== undefined &&
+						ancestorLevels(
+							selected,
+							Object.fromEntries(peers.map((peer) => [peer.uuid, peer])),
+						).some((ancestor) => ancestor.uuid === candidate.uuid))
+				) {
+					current.delete(selectedUuid);
+				}
+			}
+		}
+		return selfAndBelow
+			.filter((candidateLevel) => current.has(candidateLevel.uuid))
+			.map((candidateLevel) => candidateLevel.uuid as Uuid);
+	};
 
 	if (!expanded) {
 		return (
@@ -672,19 +786,50 @@ function AddressBookGroup({
 						<SelectValue>{REACH_LABELS[book.reach]}</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value="own-branch">
+						<SelectItem
+							value="own-branch"
+							disabled={
+								issueFor({ addressBook: { reach: "own-branch" } }) !== undefined
+							}
+						>
 							Their own place, everything under it, and the chain above
 						</SelectItem>
 						<SelectItem
 							value="own-branch-limited"
-							disabled={peers.length === 0}
+							disabled={
+								selfAndBelow.length === 0 ||
+								issueFor({
+									addressBook: {
+										reach: "own-branch-limited",
+										levelUuids: [level.uuid as Uuid],
+									},
+								}) !== undefined
+							}
 						>
 							Their own place, but only certain levels
 						</SelectItem>
-						<SelectItem value="shared-branch" disabled={above.length === 0}>
+						<SelectItem
+							value="shared-branch"
+							disabled={
+								above[0] === undefined ||
+								issueFor({
+									addressBook: {
+										reach: "shared-branch",
+										fromLevelUuid: above[0]?.uuid as Uuid,
+									},
+								}) !== undefined
+							}
+						>
 							Everything under a level further up
 						</SelectItem>
-						<SelectItem value="whole-organization">
+						<SelectItem
+							value="whole-organization"
+							disabled={
+								issueFor({
+									addressBook: { reach: "whole-organization" },
+								}) !== undefined
+							}
+						>
 							The whole organization
 						</SelectItem>
 					</SelectContent>
@@ -726,7 +871,7 @@ function AddressBookGroup({
 						<legend className="text-[12px] font-medium text-nova-text-secondary">
 							Levels to carry in their own branch
 						</legend>
-						{peers.map((candidate) => {
+						{selfAndBelow.map((candidate) => {
 							const checked = book.levelUuids.includes(candidate.uuid);
 							return (
 								<Choice
@@ -734,17 +879,11 @@ function AddressBookGroup({
 									label={candidate.name}
 									hint=""
 									checked={checked}
-									disabled={
-										!canEdit || (checked && book.levelUuids.length === 1)
-									}
+									disabled={!canEdit || candidate.uuid === level.uuid}
 									onChange={(next) =>
 										set({
 											...book,
-											levelUuids: next
-												? [...book.levelUuids, candidate.uuid]
-												: book.levelUuids.filter(
-														(uuid) => uuid !== candidate.uuid,
-													),
+											levelUuids: limitedSelection(candidate, next),
 										})
 									}
 								/>
@@ -778,7 +917,7 @@ function AddressBookGroup({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value={NO_LEVEL_LIMIT}>No limit</SelectItem>
-								{selfAndBelow.map((candidate) => (
+								{downToOptions.map((candidate) => (
 									<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
 										{candidate.name}
 									</SelectItem>

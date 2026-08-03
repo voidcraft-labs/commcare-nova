@@ -215,9 +215,11 @@ a memory of an older one.
   the explicit app id the displayed state named, and maps typed errors to
   discriminated results.
 - Shared SA/MCP reads are bounded projections. `getOrganization` returns at
-  most 50 rows, a stable cursor, total/matching counts, and a completeness bit;
-  custom values are omitted unless explicitly requested. Every SA/MCP row
-  write requires the exact revision it read.
+  most 50 rows, an opaque cursor bound to the exact revision/query/projection,
+  total/matching counts, and a completeness bit; a changed snapshot makes a
+  later page say to restart. Custom values are omitted unless explicitly
+  requested. Every SA/MCP row write, including create, requires the exact
+  revision it read, and callers chain the revision each write returns.
 - `countCasesOwnedBy` in `service.ts` is the one place this package reads case
   rows, and it is raw SQL because `cases` belongs to the case store's schema
   rather than `AppDatabase`. It is advisory only — never a gate.

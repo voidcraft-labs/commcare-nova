@@ -190,9 +190,10 @@ export function PlacesSubsection({
 							setAdding(false);
 							setMessage(undefined);
 							if (result.id !== undefined) setOpenId(result.id);
-							return;
+							return true;
 						}
 						setMessage(result.message);
+						return false;
 					}}
 				/>
 			)}
@@ -250,7 +251,19 @@ function sameStoredLocation(
 		left.longitude === right.longitude &&
 		String(left.archivedAt) === String(right.archivedAt) &&
 		left.orderKey === right.orderKey &&
-		JSON.stringify(left.values) === JSON.stringify(right.values)
+		sameStringRecord(left.values, right.values)
+	);
+}
+
+function sameStringRecord(
+	left: Readonly<Record<string, string>>,
+	right: Readonly<Record<string, string>>,
+): boolean {
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every((key) => left[key] === right[key])
 	);
 }
 
@@ -304,6 +317,10 @@ function PlaceRow({
 	const [dirtyLevel, setDirtyLevel] = useState(false);
 	const [peerChanged, setPeerChanged] = useState(false);
 	const sourceRef = useRef(location);
+	// Server Actions return the authoritative row before the post-write refresh
+	// lands. Keep those accepted rows as a chain so an old render is not mistaken
+	// for a peer edit, while a genuinely different row still raises a conflict.
+	const localSavesRef = useRef<StoredLocation[]>([]);
 	const archived = location.archivedAt !== null;
 	const applicableProperties = propertiesForLevel(properties, draftLevelUuid);
 	const levelRecord = Object.fromEntries(
@@ -350,8 +367,17 @@ function PlaceRow({
 			dirtyLongitude ||
 			dirtyLevel
 		) {
-			if (!sameStoredLocation(sourceRef.current, location))
-				setPeerChanged(true);
+			if (sameStoredLocation(sourceRef.current, location)) return;
+			const acceptedIndex = localSavesRef.current.findIndex((saved) =>
+				sameStoredLocation(saved, location),
+			);
+			if (acceptedIndex >= 0) {
+				sourceRef.current = location;
+				localSavesRef.current.splice(0, acceptedIndex + 1);
+				setPeerChanged(false);
+				return;
+			}
+			setPeerChanged(true);
 			return;
 		}
 		setDraftName(location.name);
@@ -364,6 +390,7 @@ function PlaceRow({
 			valuesForLevel(properties, location.levelUuid, location.values),
 		);
 		sourceRef.current = location;
+		localSavesRef.current = [];
 		setPeerChanged(false);
 	}, [
 		location,
@@ -395,6 +422,22 @@ function PlaceRow({
 		setPeerChanged(false);
 		setMessage(undefined);
 		sourceRef.current = location;
+		localSavesRef.current = [];
+	};
+
+	const keepDraft = () => {
+		// The author explicitly chooses the just-read peer row as the new base.
+		// Draft fields stay untouched and the next write uses the hook's refreshed
+		// organization revision, so no peer value is silently overwritten.
+		sourceRef.current = location;
+		localSavesRef.current = [];
+		setPeerChanged(false);
+		setMessage(undefined);
+	};
+
+	const rebaseAfterLocalSave = (saved: StoredLocation | undefined) => {
+		if (saved !== undefined) localSavesRef.current.push(saved);
+		setPeerChanged(false);
 	};
 
 	const saveValues = async (next: Record<string, string>) => {
@@ -412,6 +455,7 @@ function PlaceRow({
 		if (!result.ok) {
 			setMessage(result.message);
 		} else {
+			rebaseAfterLocalSave(result.location);
 			setDirtyValues(false);
 			setMessage(undefined);
 		}
@@ -440,6 +484,14 @@ function PlaceRow({
 						className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] p-3 text-[12px] leading-relaxed text-nova-text-secondary"
 					>
 						This place changed while you were editing. Your draft is still here.
+						<Button
+							type="button"
+							variant="ghost"
+							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							onClick={keepDraft}
+						>
+							Keep my draft
+						</Button>
 						<Button
 							type="button"
 							variant="ghost"
@@ -484,6 +536,7 @@ function PlaceRow({
 							if (!result.ok) {
 								setMessage(result.message);
 							} else {
+								rebaseAfterLocalSave(result.location);
 								setDirtyName(false);
 								setMessage(undefined);
 							}
@@ -534,6 +587,7 @@ function PlaceRow({
 							if (!result.ok) {
 								setMessage(result.message);
 							} else {
+								rebaseAfterLocalSave(result.location);
 								setDirtyExternalId(false);
 								setMessage(undefined);
 							}
@@ -577,14 +631,14 @@ function PlaceRow({
 							setDraftValues(nextValues);
 							setDirtyLevel(value !== location.levelUuid);
 							setDirtyValues(
-								JSON.stringify(nextValues) !==
-									JSON.stringify(
-										valuesForLevel(
-											properties,
-											location.levelUuid,
-											location.values,
-										),
+								!sameStringRecord(
+									nextValues,
+									valuesForLevel(
+										properties,
+										location.levelUuid,
+										location.values,
 									),
+								),
 							);
 						}}
 					>
@@ -633,6 +687,7 @@ function PlaceRow({
 								});
 								if (!result.ok) setMessage(result.message);
 								else {
+									rebaseAfterLocalSave(result.location);
 									setDirtyLevel(false);
 									setDirtyValues(false);
 									setMessage(undefined);
@@ -677,6 +732,7 @@ function PlaceRow({
 								});
 								if (!result.ok) setMessage(result.message);
 								else {
+									rebaseAfterLocalSave(result.location);
 									setDirtyLatitude(false);
 									setMessage(undefined);
 								}
@@ -715,6 +771,7 @@ function PlaceRow({
 								});
 								if (!result.ok) setMessage(result.message);
 								else {
+									rebaseAfterLocalSave(result.location);
 									setDirtyLongitude(false);
 									setMessage(undefined);
 								}
@@ -740,6 +797,10 @@ function PlaceRow({
 									parentId: value,
 								});
 								if (!result.ok) setMessage(result.message);
+								else {
+									rebaseAfterLocalSave(result.location);
+									setMessage(undefined);
+								}
 							}}
 						>
 							<SelectTrigger wrapValue className="w-full" aria-label="Sits in">
@@ -784,7 +845,10 @@ function PlaceRow({
 									...(afterSiblingId === undefined ? {} : { afterSiblingId }),
 								});
 								if (!result.ok) setMessage(result.message);
-								else setMessage(undefined);
+								else {
+									rebaseAfterLocalSave(result.location);
+									setMessage(undefined);
+								}
 							}}
 						>
 							<SelectTrigger id={positionId} wrapValue className="w-full">
@@ -1033,16 +1097,21 @@ function ArchivePlace({
 				</p>
 			) : (
 				<ul className="flex list-disc flex-col gap-1 pl-4 text-[12px] leading-relaxed text-nova-text-secondary">
-					{impact.locationIds.length > 1 && (
+					{impact.affectedLocationCount > 1 && (
 						<li>
-							{impact.locationIds.length} places are archived — this one and
+							{impact.affectedLocationCount} places are archived — this one and
 							everything under it.
 						</li>
 					)}
-					{impact.unassignedPersonas.length > 0 && (
+					{impact.unassignedPersonaCount > 0 && (
 						<li>
-							{impact.unassignedPersonas.join(", ")} stop working there. Their
-							next remaining place becomes their main one.
+							{impact.unassignedPersonaPreview.join(", ")}
+							{impact.unassignedPersonaCount >
+							impact.unassignedPersonaPreview.length
+								? ` and ${impact.unassignedPersonaCount - impact.unassignedPersonaPreview.length} more`
+								: ""}{" "}
+							stop working there. Their next remaining place becomes their main
+							one.
 						</li>
 					)}
 					{impact.ownedCases > 0 && (
@@ -1053,11 +1122,16 @@ function ArchivePlace({
 							back is what makes them reachable again.
 						</li>
 					)}
-					{impact.blockingOwnerRuleForms.length > 0 && (
+					{impact.blockingOwnerRuleFormCount > 0 && (
 						<li className="text-nova-amber">
 							Used as a fixed case owner in{" "}
-							{impact.blockingOwnerRuleForms.join(", ")}. Change{" "}
-							{impact.blockingOwnerRuleForms.length === 1
+							{impact.blockingOwnerRuleFormPreview.join(", ")}
+							{impact.blockingOwnerRuleFormCount >
+							impact.blockingOwnerRuleFormPreview.length
+								? ` and ${impact.blockingOwnerRuleFormCount - impact.blockingOwnerRuleFormPreview.length} more`
+								: ""}
+							. Change{" "}
+							{impact.blockingOwnerRuleFormCount === 1
 								? "that rule"
 								: "those rules"}{" "}
 							before archiving.
@@ -1072,7 +1146,7 @@ function ArchivePlace({
 					variant="ghost"
 					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					disabled={
-						impact === undefined || impact.blockingOwnerRuleForms.length > 0
+						impact === undefined || impact.blockingOwnerRuleFormCount > 0
 					}
 					onClick={async () => {
 						setConfirming(false);
@@ -1121,7 +1195,7 @@ function AddPlaceForm({
 		longitude: string | null;
 		values: Record<string, string>;
 		afterSiblingId?: string | null;
-	}) => Promise<void>;
+	}) => Promise<boolean>;
 }) {
 	const nameId = useId();
 	const siteCodeId = useId();
@@ -1142,6 +1216,12 @@ function AddPlaceForm({
 		string | null | undefined
 	>();
 	const [values, setValues] = useState<Record<string, string>>({});
+	const [submitting, setSubmitting] = useState(false);
+	const nameRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		nameRef.current?.focus();
+	}, []);
 
 	const levelRecord = Object.fromEntries(levels.map((l) => [l.uuid, l]));
 	// Only places whose level is strictly above the chosen one can hold it —
@@ -1158,8 +1238,31 @@ function AddPlaceForm({
 	);
 	const applicableProperties = propertiesForLevel(properties, levelUuid);
 
+	const submit = async () => {
+		if (submitting) return;
+		setSubmitting(true);
+		const succeeded = await onSubmit({
+			levelUuid,
+			parentId: needsParent ? parent : null,
+			name: name.trim(),
+			...(siteCode.trim() === "" ? {} : { siteCode: siteCode.trim() }),
+			externalId: external === "" ? null : external,
+			latitude: latitude === "" ? null : latitude,
+			longitude: longitude === "" ? null : longitude,
+			values: valuesForLevel(properties, levelUuid, values),
+			afterSiblingId,
+		});
+		// A successful submit unmounts this form. A refusal leaves it available
+		// for correction without admitting a duplicate click while in flight.
+		if (!succeeded) setSubmitting(false);
+	};
+
 	return (
-		<div className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep p-3">
+		<fieldset
+			disabled={submitting}
+			aria-busy={submitting}
+			className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep p-3"
+		>
 			<div className="flex flex-col gap-1.5">
 				<Label
 					htmlFor={nameId}
@@ -1168,6 +1271,7 @@ function AddPlaceForm({
 					Name
 				</Label>
 				<Input
+					ref={nameRef}
 					id={nameId}
 					value={name}
 					autoComplete="off"
@@ -1389,27 +1493,16 @@ function AddPlaceForm({
 					variant="ghost"
 					className="min-h-11 gap-2 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 					disabled={
+						submitting ||
 						name.trim() === "" ||
 						levelUuid === "" ||
 						(needsParent && parent === "") ||
 						!requiredValuesPresent(properties, levelUuid, values)
 					}
-					onClick={() =>
-						void onSubmit({
-							levelUuid,
-							parentId: needsParent ? parent : null,
-							name: name.trim(),
-							...(siteCode.trim() === "" ? {} : { siteCode: siteCode.trim() }),
-							externalId: external === "" ? null : external,
-							latitude: latitude === "" ? null : latitude,
-							longitude: longitude === "" ? null : longitude,
-							values: valuesForLevel(properties, levelUuid, values),
-							afterSiblingId,
-						})
-					}
+					onClick={() => void submit()}
 				>
 					<Icon icon={tablerPlus} width="15" height="15" aria-hidden="true" />
-					Add place
+					{submitting ? "Adding…" : "Add place"}
 				</Button>
 				<Button
 					type="button"
@@ -1420,6 +1513,6 @@ function AddPlaceForm({
 					Cancel
 				</Button>
 			</div>
-		</div>
+		</fieldset>
 	);
 }

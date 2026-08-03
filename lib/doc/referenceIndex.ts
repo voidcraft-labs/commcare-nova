@@ -721,6 +721,7 @@ function termEdges(sink: EdgeSink, slot: string, term: Term): void {
 	}
 	if (term.kind === "owner-location-at-level") {
 		sink.edge(entityTargetKey(term.levelUuid), slot);
+		sink.edge(caseTypeTargetKey(term.ownerCaseType), slot);
 		return;
 	}
 	if (term.kind !== "prop") return;

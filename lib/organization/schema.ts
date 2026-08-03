@@ -49,7 +49,7 @@ export const EXTERNAL_ID_MAX_LENGTH = 255;
  */
 export const SITE_CODE_PATTERN = /^[-\w]+$/;
 
-const siteCodeSchema = z
+export const siteCodeSchema = z
 	.string()
 	.min(1)
 	.max(SITE_CODE_MAX_LENGTH)
@@ -102,7 +102,7 @@ const coordinateSchema = z
  */
 export const MAX_LOCATION_VALUES = 250;
 
-const locationValuesSchema = z
+export const locationValuesSchema = z
 	.record(
 		// Keyed on the property UUID, not any string. The whole design rests on
 		// that, and `shedRemovedLocationPropertyValues` only ever removes keys that
@@ -147,11 +147,17 @@ export const createLocationInputSchema = z
 		parentId: uuidSchema.nullable().default(null),
 		name: z.string().trim().min(1).max(LOCATION_NAME_MAX_LENGTH),
 		/** Omitted means Nova derives one from the name, as HQ does. */
-		siteCode: siteCodeSchema.optional(),
+		siteCode: z.preprocess(
+			(value) => (value === null ? undefined : value),
+			siteCodeSchema.optional(),
+		),
 		externalId: z.string().max(EXTERNAL_ID_MAX_LENGTH).nullable().default(null),
 		latitude: coordinateSchema.nullable().default(null),
 		longitude: coordinateSchema.nullable().default(null),
-		values: locationValuesSchema.default({}),
+		values: locationValuesSchema
+			.nullable()
+			.optional()
+			.transform((value) => value ?? {}),
 		/** Place it after this sibling; omitted appends. */
 		/** `null` means first; omitted means append. */
 		afterSiblingId: uuidSchema.nullable().optional(),
@@ -231,10 +237,13 @@ export const organizationRevisionSchema = z
 export const archiveImpactSchema = z
 	.object({
 		revision: organizationRevisionSchema,
-		locationIds: z.array(uuidSchema),
-		unassignedPersonas: z.array(z.string().max(255)),
+		confirmationToken: z.string().regex(/^[a-f0-9]{64}$/),
+		affectedLocationCount: z.number().int().nonnegative(),
+		unassignedPersonaCount: z.number().int().nonnegative(),
+		unassignedPersonaPreview: z.array(z.string().max(255)).max(10),
 		ownedCases: z.number().int().nonnegative(),
-		blockingOwnerRuleForms: z.array(z.string().max(255)),
+		blockingOwnerRuleFormCount: z.number().int().nonnegative(),
+		blockingOwnerRuleFormPreview: z.array(z.string().max(255)).max(10),
 	})
 	.strict();
 

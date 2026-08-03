@@ -205,11 +205,42 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 
 		const book = level.addressBook;
 		if (book.reach === "own-branch-limited") {
+			const selected = new Set(book.levelUuids);
+			if (!selected.has(level.uuid)) {
+				errors.push(
+					validationError(
+						"ORGANIZATION_LEVEL_SCOPE_GAP",
+						"app",
+						`"${level.name}" limits its address book without including its own level. Include ${level.name} so the assigned place itself reaches the device.`,
+						{},
+						{ level: level.name },
+					),
+				);
+			}
 			for (const uuid of book.levelUuids) {
 				if (levels[uuid] === undefined) {
 					errors.push(unknown(level, "limits its address book to"));
 				} else if (!isSelfOrBelow(level, uuid)) {
 					errors.push(notBelow(level, uuid, "limits its address book to"));
+				} else {
+					const candidate = levels[uuid];
+					const missing = ancestorLevels(candidate, levels).find(
+						(ancestor) =>
+							ancestor.uuid !== level.uuid &&
+							isSelfOrBelow(level, ancestor.uuid) &&
+							!selected.has(ancestor.uuid),
+					);
+					if (missing !== undefined) {
+						errors.push(
+							validationError(
+								"ORGANIZATION_LEVEL_SCOPE_GAP",
+								"app",
+								`"${level.name}" carries ${candidate.name} places but skips ${missing.name} on the way there. Include every level in between so CommCare can traverse the branch.`,
+								{},
+								{ level: level.name },
+							),
+						);
+					}
 				}
 			}
 		} else if (

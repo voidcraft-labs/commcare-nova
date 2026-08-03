@@ -196,6 +196,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"An organization setting names a level that no longer exists. Choose a current level.",
 	ORGANIZATION_LEVEL_CAP_NOT_BELOW: () =>
 		"A depth limit points sideways or upward. Choose the same level or one below it.",
+	ORGANIZATION_LEVEL_SCOPE_GAP: () =>
+		"A limited address-book branch must include the worker's own level and every level down to its deepest choice.",
 	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: () =>
 		"A shared address-book branch must start from a level above the workers. Choose one of its ancestors.",
 	LOCATION_PROPERTY_SLUG_INVALID: () =>

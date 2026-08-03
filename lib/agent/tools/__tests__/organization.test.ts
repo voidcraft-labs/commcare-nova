@@ -230,10 +230,22 @@ describe("organization authoring tools", () => {
 		).toBe(false);
 	});
 
+	it("treats null create optionals as absence", () => {
+		const parsed = createLocationToolInputSchema.parse({
+			levelUuid: testUuid("level-null-optionals"),
+			name: "Clinic",
+			siteCode: null,
+			values: null,
+			expectedRevision: "0",
+		});
+		expect(parsed.siteCode).toBeUndefined();
+		expect(parsed.values).toEqual({});
+	});
+
 	it("returns a bounded searchable page without custom values by default", async () => {
 		const ctx = context();
 		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
-		vi.spyOn(organizationService, "readOrganization").mockResolvedValueOnce({
+		const snapshot = {
 			revision: "7",
 			locations: Array.from({ length: 60 }, (_, index) => ({
 				id: testUuid(`location-${index}`),
@@ -248,9 +260,23 @@ describe("organization authoring tools", () => {
 				archivedAt: null,
 				orderKey: String(index),
 			})),
-		});
+		} as const;
+		vi.spyOn(organizationService, "readOrganization")
+			.mockResolvedValueOnce(snapshot)
+			.mockResolvedValueOnce(snapshot);
+		const first = await getOrganizationTool.execute(
+			{ query: "clinic", limit: 25, includeValues: false },
+			ctx,
+			doc,
+		);
+		const firstPage = first.data as { page: { nextCursor: string } };
 		const result = await getOrganizationTool.execute(
-			{ query: "clinic", cursor: 25, limit: 25, includeValues: false },
+			{
+				query: "clinic",
+				cursor: firstPage.page.nextCursor,
+				limit: 25,
+				includeValues: false,
+			},
 			ctx,
 			doc,
 		);
@@ -261,7 +287,7 @@ describe("organization authoring tools", () => {
 				matching: 60,
 				total: 60,
 				complete: false,
-				nextCursor: 50,
+				nextCursor: expect.any(String),
 			},
 		});
 		const data = result.data as { locations: Record<string, unknown>[] };
@@ -275,10 +301,13 @@ describe("organization authoring tools", () => {
 		const locationUuid = testUuid("archive-location");
 		const impact = {
 			revision: "9" as const,
-			locationIds: [locationUuid],
-			unassignedPersonas: [],
+			confirmationToken: "a".repeat(64),
+			affectedLocationCount: 1,
+			unassignedPersonaCount: 0,
+			unassignedPersonaPreview: [],
 			ownedCases: 2,
-			blockingOwnerRuleForms: [],
+			blockingOwnerRuleFormCount: 0,
+			blockingOwnerRuleFormPreview: [],
 		};
 		vi.spyOn(
 			organizationService,
@@ -288,8 +317,8 @@ describe("organization authoring tools", () => {
 			.spyOn(organizationService, "setLocationArchived")
 			.mockResolvedValueOnce({
 				revision: "10",
-				archivedIds: [locationUuid],
-				unassignedPersonas: [],
+				archivedCount: 1,
+				unassignedPersonaCount: 0,
 				impact,
 			});
 
@@ -327,5 +356,71 @@ describe("organization authoring tools", () => {
 			"9",
 			impact,
 		);
+	});
+
+	it("rejects a continuation cursor after the organization revision changes", async () => {
+		const ctx = context();
+		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const location = {
+			id: testUuid("paged-location"),
+			levelUuid: testUuid("paged-level"),
+			parentId: null,
+			siteCode: "clinic",
+			name: "Clinic",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: "1",
+		} as const;
+		vi.spyOn(organizationService, "readOrganization")
+			.mockResolvedValueOnce({
+				revision: "7",
+				locations: [
+					location,
+					{ ...location, id: testUuid("paged-location-2") },
+				],
+			})
+			.mockResolvedValueOnce({ revision: "8", locations: [location] });
+		const first = await getOrganizationTool.execute({ limit: 1 }, ctx, doc);
+		const cursor = (first.data as { page: { nextCursor: string } }).page
+			.nextCursor;
+		const second = await getOrganizationTool.execute(
+			{ cursor, limit: 1 },
+			ctx,
+			doc,
+		);
+		expect(second.data).toMatchObject({ restart: true, revision: "8" });
+	});
+
+	it("marks a fixed-owner archive preflight blocked instead of confirmable", async () => {
+		const ctx = context();
+		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		vi.spyOn(
+			organizationService,
+			"describeArchiveImpact",
+		).mockResolvedValueOnce({
+			revision: "9",
+			confirmationToken: "b".repeat(64),
+			affectedLocationCount: 1,
+			unassignedPersonaCount: 0,
+			unassignedPersonaPreview: [],
+			ownedCases: 0,
+			blockingOwnerRuleFormCount: 1,
+			blockingOwnerRuleFormPreview: ["Visit"],
+		});
+		const result = await setLocationArchivedTool.execute(
+			{
+				locationUuid: testUuid("blocked-location"),
+				archived: true,
+				expectedRevision: "9",
+			},
+			ctx,
+			doc,
+		);
+		expect(result).toMatchObject({
+			data: { blocked: true, confirmationRequired: false },
+		});
 	});
 });

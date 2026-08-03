@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
+import type { HumanSaveBarrierOutcome } from "@/lib/collab/reconciler";
 import {
 	createLocationAction,
 	describeArchiveImpactAction,
@@ -25,6 +26,41 @@ import {
 	updateLocationAction,
 } from "./actions";
 import type { ArchiveImpact, StoredLocation } from "./types";
+
+type LocalWriteFailure = {
+	readonly success: false;
+	readonly code: "blueprint-save-failed" | "transport";
+	readonly message: string;
+};
+
+function barrierFailure(
+	outcome: Exclude<HumanSaveBarrierOutcome, { readonly kind: "saved" }>,
+): LocalWriteFailure {
+	const message = (() => {
+		switch (outcome.kind) {
+			case "conflict":
+				return "The app changed before its places could be saved. Review the latest app, then try again.";
+			case "accessChanged":
+				return "Your access or the app's project changed before this place could be saved. Reload, then try again.";
+			case "permanent":
+				return outcome.message;
+			case "tooLarge":
+				return "Your pending app changes are too large to save. Reload before changing places.";
+			case "error":
+				return outcome.message;
+			case "cancelled":
+				return "Saving stopped before this place could be changed. Reload, then try again.";
+		}
+	})();
+	return { success: false, code: "blueprint-save-failed", message };
+}
+
+const transportFailure = (): LocalWriteFailure => ({
+	success: false,
+	code: "transport",
+	message:
+		"The organization could not be reached. Check your connection and try again.",
+});
 
 export interface OrganizationView {
 	readonly locations: readonly StoredLocation[];
@@ -47,11 +83,19 @@ export interface OrganizationWriter {
 	update: (
 		locationId: string,
 		patch: Parameters<typeof updateLocationAction>[2],
-	) => Promise<{ ok: boolean; message?: string }>;
+	) => Promise<{
+		ok: boolean;
+		message?: string;
+		location?: StoredLocation;
+	}>;
 	move: (
 		locationId: string,
 		target: { parentId: string | null; afterSiblingId?: string | null },
-	) => Promise<{ ok: boolean; message?: string }>;
+	) => Promise<{
+		ok: boolean;
+		message?: string;
+		location?: StoredLocation;
+	}>;
 	describeArchive: (
 		locationId: string,
 	) => Promise<
@@ -64,7 +108,7 @@ export interface OrganizationWriter {
 	) => Promise<{
 		ok: boolean;
 		message?: string;
-		unassignedPersonas?: readonly string[];
+		unassignedPersonaCount?: number;
 	}>;
 }
 
@@ -88,7 +132,18 @@ export function useOrganization(
 		const mine = ++generation.current;
 		if (loaded.current) setRefreshing(true);
 		else setLoading(true);
-		const result = await readOrganizationAction(appId);
+		let result: Awaited<ReturnType<typeof readOrganizationAction>>;
+		try {
+			result = await readOrganizationAction(appId);
+		} catch {
+			if (mine !== generation.current) return;
+			setLoading(false);
+			setRefreshing(false);
+			const message = transportFailure().message;
+			if (loaded.current) setWarning(message);
+			else setError(message);
+			return;
+		}
 		if (mine !== generation.current) return;
 		setLoading(false);
 		setRefreshing(false);
@@ -142,10 +197,13 @@ export function useOrganization(
 	 * id misses the common case where autosave won the dispatch race by a few
 	 * milliseconds but has not received its PUT acknowledgement yet.
 	 */
-	const flushBlueprint = useCallback(async (): Promise<void> => {
+	const flushBlueprint = useCallback(async (): Promise<
+		LocalWriteFailure | undefined
+	> => {
 		const reconciler = collab?.reconciler;
 		if (reconciler === undefined) return;
-		await reconciler.waitForHumanSaveBarrier();
+		const outcome = await reconciler.waitForHumanSaveBarrier();
+		return outcome.kind === "saved" ? undefined : barrierFailure(outcome);
 	}, [collab]);
 
 	/**
@@ -184,25 +242,31 @@ export function useOrganization(
 	const write = useCallback(
 		async <T extends { success: boolean; message?: string; code?: string }>(
 			run: (expectedRevision: string) => Promise<T>,
-		): Promise<T> => {
-			const execute = async (): Promise<T> => {
-				await flushBlueprint();
-				let result = await run(revisionRef.current);
-				if (!result.success && result.code === "not-committed") {
-					await flushBlueprint();
-					result = await run(revisionRef.current);
-				}
-				if (result.success) {
-					const next = (result as T & { data?: { revision?: string } }).data
-						?.revision;
-					if (next !== undefined) {
-						revisionRef.current = next;
-						setRevision(next);
+		): Promise<T | LocalWriteFailure> => {
+			const execute = async (): Promise<T | LocalWriteFailure> => {
+				try {
+					const firstBarrierFailure = await flushBlueprint();
+					if (firstBarrierFailure !== undefined) return firstBarrierFailure;
+					let result = await run(revisionRef.current);
+					if (!result.success && result.code === "not-committed") {
+						const retryBarrierFailure = await flushBlueprint();
+						if (retryBarrierFailure !== undefined) return retryBarrierFailure;
+						result = await run(revisionRef.current);
 					}
-				} else if (result.code === "conflict") {
-					await refresh();
+					if (result.success) {
+						const next = (result as T & { data?: { revision?: string } }).data
+							?.revision;
+						if (next !== undefined) {
+							revisionRef.current = next;
+							setRevision(next);
+						}
+					} else if (result.code === "conflict") {
+						await refresh();
+					}
+					return result;
+				} catch {
+					return transportFailure();
 				}
-				return result;
 			};
 			const queued = writeTail.current.then(execute, execute);
 			writeTail.current = queued.then(
@@ -235,21 +299,27 @@ export function useOrganization(
 			[appId, after, write],
 		),
 		update: useCallback(
-			async (locationId, patch) =>
-				after(
-					await write((expectedRevision) =>
-						updateLocationAction(appId, locationId, patch, expectedRevision),
-					),
-				),
+			async (locationId, patch) => {
+				const result = await write((expectedRevision) =>
+					updateLocationAction(appId, locationId, patch, expectedRevision),
+				);
+				const outcome = after(result);
+				return result.success
+					? { ...outcome, location: result.data.location }
+					: outcome;
+			},
 			[appId, after, write],
 		),
 		move: useCallback(
-			async (locationId, target) =>
-				after(
-					await write((expectedRevision) =>
-						moveLocationAction(appId, locationId, target, expectedRevision),
-					),
-				),
+			async (locationId, target) => {
+				const result = await write((expectedRevision) =>
+					moveLocationAction(appId, locationId, target, expectedRevision),
+				);
+				const outcome = after(result);
+				return result.success
+					? { ...outcome, location: result.data.location }
+					: outcome;
+			},
 			[appId, after, write],
 		),
 		describeArchive: useCallback(
@@ -276,7 +346,7 @@ export function useOrganization(
 				return result.success
 					? {
 							...outcome,
-							unassignedPersonas: result.data.unassignedPersonas,
+							unassignedPersonaCount: result.data.unassignedPersonaCount,
 						}
 					: outcome;
 			},

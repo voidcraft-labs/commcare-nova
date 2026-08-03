@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { type Selectable, sql, type Transaction } from "kysely";
 import {
 	AppAccessError,
@@ -13,7 +13,6 @@ import {
 import {
 	type AppDatabase,
 	type AppLocationsTable,
-	getAppDb,
 	withAppTx,
 } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -40,6 +39,7 @@ import {
 	type CreateLocationInput,
 	canonicalCoordinate,
 	deriveSiteCode,
+	locationValuesSchema,
 	MAX_LOCATIONS_PER_APP,
 	parseOrganizationRevision,
 	type UpdateLocationInput,
@@ -96,11 +96,8 @@ function toStoredLocation(row: LocationRow): StoredLocation {
 export async function readOrganization(
 	scope: OrganizationScope,
 ): Promise<OrganizationSnapshot> {
-	const db = await getAppDb();
-	return db
-		.transaction()
-		.setIsolationLevel("repeatable read")
-		.execute(async (tx) => {
+	return withAppTx(
+		async (tx) => {
 			// The action authorized this scope before constructing it, but an app
 			// that moved Projects in between must not be readable through the old
 			// one. Every WRITE re-proves this under its lock; a read-only
@@ -147,7 +144,9 @@ export async function readOrganization(
 					state === undefined ? "0" : parseOrganizationRevision(state.revision),
 				locations: locations.map(toStoredLocation),
 			};
-		});
+		},
+		{ isolationLevel: "repeatable read" },
+	);
 }
 
 /**
@@ -384,6 +383,14 @@ function assertValuesSatisfyCatalog(
 	levelUuid: string,
 	values: Readonly<Record<string, string>>,
 ): void {
+	const shape = locationValuesSchema.safeParse(values);
+	if (!shape.success) {
+		throw new OrganizationError(
+			"rejected",
+			shape.error.issues[0]?.message ??
+				"This place carries information Nova cannot store.",
+		);
+	}
 	const issue = locationValueCatalogIssue(doc, levelUuid, values);
 	if (issue !== undefined) throw new OrganizationError("rejected", issue);
 }
@@ -467,6 +474,18 @@ export interface UpdateLocationResult {
 	readonly location: StoredLocation;
 }
 
+function sameStringRecord(
+	left: Readonly<Record<string, string>>,
+	right: Readonly<Record<string, string>>,
+): boolean {
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every((key) => left[key] === right[key])
+	);
+}
+
 export async function updateLocation(
 	scope: OrganizationScope,
 	locationId: string,
@@ -495,8 +514,10 @@ export async function updateLocation(
 			})();
 		const nextParentId =
 			patch.parentId === undefined ? current.parent_id : patch.parentId;
-		const changesPlacement =
-			patch.parentId !== undefined || patch.afterSiblingId !== undefined;
+		const changesParent =
+			patch.parentId !== undefined && nextParentId !== current.parent_id;
+		const changesOrder = patch.afterSiblingId !== undefined;
+		const changesPlacement = changesParent || changesOrder;
 		if (
 			patch.values !== undefined ||
 			patch.valuePatch !== undefined ||
@@ -575,7 +596,7 @@ export async function updateLocation(
 		}
 		if (
 			(patch.values !== undefined || patch.valuePatch !== undefined) &&
-			JSON.stringify(nextValues) !== JSON.stringify(current.values)
+			!sameStringRecord(nextValues, current.values)
 		) {
 			values.values = JSON.stringify(nextValues);
 		}
@@ -636,6 +657,7 @@ export async function updateLocation(
 
 export interface MoveLocationResult {
 	readonly revision: OrganizationRevision;
+	readonly location: StoredLocation;
 }
 
 /**
@@ -673,7 +695,6 @@ export async function moveLocation(
 		}
 		const doc = await loadDocInTransaction(tx, scope.appId);
 		assertPlacement(doc, tree, current.level_uuid, target.parentId);
-
 		const orderKey = orderKeyForSlot(
 			tree,
 			target.parentId,
@@ -684,9 +705,12 @@ export async function moveLocation(
 			current.parent_id === target.parentId &&
 			current.order_key === orderKey
 		) {
-			return { revision: locked.revision };
+			return {
+				revision: locked.revision,
+				location: toStoredLocation(current),
+			};
 		}
-		await tx
+		const updated = await tx
 			.updateTable("app_locations")
 			.set({
 				parent_id: target.parentId,
@@ -696,7 +720,8 @@ export async function moveLocation(
 			})
 			.where("app_id", "=", scope.appId)
 			.where("id", "=", locationId)
-			.execute();
+			.returningAll()
+			.executeTakeFirstOrThrow();
 		// A move changes address-book ancestry even when neither endpoint row is
 		// itself referenced. Recheck every persona/fixed-owner edge against the
 		// tentative tree; any rejection rolls the row update back with it.
@@ -712,7 +737,10 @@ export async function moveLocation(
 			appId: scope.appId,
 			candidateDoc: doc,
 		});
-		return { revision: await commitOrganizationChange(tx, scope, 0) };
+		return {
+			revision: await commitOrganizationChange(tx, scope, 0),
+			location: toStoredLocation(updated),
+		};
 	});
 }
 
@@ -741,15 +769,35 @@ export async function moveLocation(
 export function planPersonaUnassignment(
 	doc: BlueprintDoc,
 	archivedIds: ReadonlySet<string>,
-): { readonly mutations: Mutation[]; readonly personaNames: string[] } {
+): {
+	readonly mutations: Mutation[];
+	readonly personaNames: string[];
+	readonly fingerprintRows: readonly {
+		readonly personaUuid: string;
+		readonly before: readonly string[];
+		readonly after: readonly string[];
+	}[];
+} {
 	const mutations: Mutation[] = [];
 	const personaNames: string[] = [];
-	for (const persona of Object.values(personasOf(doc))) {
+	const fingerprintRows: {
+		personaUuid: string;
+		before: readonly string[];
+		after: readonly string[];
+	}[] = [];
+	for (const persona of Object.values(personasOf(doc)).sort((left, right) =>
+		left.uuid.localeCompare(right.uuid),
+	)) {
 		const assigned = assignedLocationUuids(persona.locations);
 		if (assigned.length === 0) continue;
 		const remaining = assigned.filter((uuid) => !archivedIds.has(uuid));
 		if (remaining.length === assigned.length) continue;
 		personaNames.push(persona.name);
+		fingerprintRows.push({
+			personaUuid: persona.uuid,
+			before: assigned,
+			after: remaining,
+		});
 		if (remaining.length === 0) {
 			mutations.push({
 				kind: "updatePersona",
@@ -772,7 +820,7 @@ export function planPersonaUnassignment(
 			},
 		});
 	}
-	return { mutations, personaNames };
+	return { mutations, personaNames, fingerprintRows };
 }
 
 /**
@@ -810,8 +858,8 @@ async function countCasesOwnedBy(
 function fixedOwnerRuleForms(
 	doc: BlueprintDoc,
 	locationIds: ReadonlySet<string>,
-): string[] {
-	const forms = new Set<string>();
+): readonly { readonly uuid: string; readonly name: string }[] {
+	const forms = new Map<string, string>();
 	for (const form of Object.values(doc.forms)) {
 		for (const operation of form.caseOperations ?? []) {
 			const owner = operation.owner;
@@ -820,11 +868,73 @@ function fixedOwnerRuleForms(
 				owner.term.kind === "fixed-location" &&
 				locationIds.has(owner.term.locationUuid)
 			) {
-				forms.add(form.name);
+				forms.set(form.uuid, form.name);
 			}
 		}
 	}
-	return [...forms].sort((left, right) => left.localeCompare(right));
+	return [...forms]
+		.map(([uuid, name]) => ({ uuid, name }))
+		.sort((left, right) => left.uuid.localeCompare(right.uuid));
+}
+
+const ARCHIVE_IMPACT_PREVIEW_LIMIT = 10;
+
+async function buildArchivePlan(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly revision: OrganizationRevision;
+		readonly doc: BlueprintDoc;
+		readonly locationIds: readonly string[];
+	},
+): Promise<{
+	readonly impact: ArchiveImpact;
+	readonly mutations: readonly Mutation[];
+	readonly personaNames: readonly string[];
+	readonly blockingFormNames: readonly string[];
+}> {
+	const locationIds = [...args.locationIds].sort();
+	const planned = planPersonaUnassignment(args.doc, new Set(locationIds));
+	const blockingForms = fixedOwnerRuleForms(args.doc, new Set(locationIds));
+	const ownedCases = await countCasesOwnedBy(tx, args.appId, locationIds);
+	const confirmationToken = createHash("sha256")
+		.update(
+			JSON.stringify({
+				revision: args.revision,
+				locationIds,
+				personas: planned.fingerprintRows,
+				ownedCases,
+				blockingFormUuids: blockingForms.map((form) => form.uuid),
+			}),
+		)
+		.digest("hex");
+	const personaNames = [...planned.personaNames].sort((left, right) =>
+		left.localeCompare(right),
+	);
+	const blockingFormNames = blockingForms
+		.map((form) => form.name)
+		.sort((left, right) => left.localeCompare(right));
+	return {
+		impact: {
+			revision: args.revision,
+			confirmationToken,
+			affectedLocationCount: locationIds.length,
+			unassignedPersonaCount: personaNames.length,
+			unassignedPersonaPreview: personaNames.slice(
+				0,
+				ARCHIVE_IMPACT_PREVIEW_LIMIT,
+			),
+			ownedCases,
+			blockingOwnerRuleFormCount: blockingFormNames.length,
+			blockingOwnerRuleFormPreview: blockingFormNames.slice(
+				0,
+				ARCHIVE_IMPACT_PREVIEW_LIMIT,
+			),
+		},
+		mutations: planned.mutations,
+		personaNames,
+		blockingFormNames,
+	};
 }
 
 /**
@@ -848,22 +958,22 @@ export async function describeArchiveImpact(
 			(id) => tree.byId.get(id)?.archived_at === null,
 		);
 		const doc = await loadDocInTransaction(tx, scope.appId);
-		const { personaNames } = planPersonaUnassignment(doc, new Set(ids));
-		return {
-			revision: locked.revision,
-			locationIds: ids,
-			unassignedPersonas: personaNames,
-			ownedCases: await countCasesOwnedBy(tx, scope.appId, ids),
-			blockingOwnerRuleForms: fixedOwnerRuleForms(doc, new Set(ids)),
-		};
+		return (
+			await buildArchivePlan(tx, {
+				appId: scope.appId,
+				revision: locked.revision,
+				doc,
+				locationIds: ids,
+			})
+		).impact;
 	});
 }
 
 export interface SetArchivedResult {
 	readonly revision: OrganizationRevision;
 	readonly impact?: ArchiveImpact;
-	readonly archivedIds: readonly string[];
-	readonly unassignedPersonas: readonly string[];
+	readonly archivedCount: number;
+	readonly unassignedPersonaCount: number;
 	/** Present when the archive also committed persona mutations. Shared tools
 	 * adopt this exact fresh-store result instead of continuing on a stale doc. */
 	readonly blueprintChange?: {
@@ -922,28 +1032,24 @@ export async function setLocationArchived(
 			if (changing.length === 0) {
 				return {
 					revision: locked.revision,
-					archivedIds: [],
-					unassignedPersonas: [],
+					archivedCount: 0,
+					unassignedPersonaCount: 0,
 				};
 			}
 
 			let archiveDoc: BlueprintDoc | undefined;
-			let actualImpact: ArchiveImpact | undefined;
+			let archivePlan: Awaited<ReturnType<typeof buildArchivePlan>> | undefined;
 			if (archived) {
 				archiveDoc = await loadDocInTransaction(tx, scope.appId);
-				const changingSet = new Set(changing);
-				const planned = planPersonaUnassignment(archiveDoc, changingSet);
-				const blocked = fixedOwnerRuleForms(archiveDoc, changingSet);
-				actualImpact = {
+				archivePlan = await buildArchivePlan(tx, {
+					appId: scope.appId,
 					revision: locked.revision,
+					doc: archiveDoc,
 					locationIds: changing,
-					unassignedPersonas: planned.personaNames,
-					ownedCases: await countCasesOwnedBy(tx, scope.appId, changing),
-					blockingOwnerRuleForms: blocked,
-				};
+				});
 				if (
 					confirmedImpact !== undefined &&
-					JSON.stringify(confirmedImpact) !== JSON.stringify(actualImpact)
+					JSON.stringify(confirmedImpact) !== JSON.stringify(archivePlan.impact)
 				) {
 					throw new OrganizationError(
 						"conflict",
@@ -951,7 +1057,8 @@ export async function setLocationArchived(
 						{ currentRevision: locked.revision },
 					);
 				}
-				if (blocked.length > 0) {
+				if (archivePlan.blockingFormNames.length > 0) {
+					const blocked = archivePlan.blockingFormNames;
 					throw new OrganizationError(
 						"rejected",
 						`This place is used as a fixed case owner in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
@@ -978,11 +1085,17 @@ export async function setLocationArchived(
 				});
 			}
 
-			let unassignedPersonas: readonly string[] = [];
+			let unassignedPersonaCount = 0;
 			let blueprintChange: SetArchivedResult["blueprintChange"];
 			if (archived) {
-				const doc = archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
-				const plan = planPersonaUnassignment(doc, new Set(changing));
+				const plan =
+					archivePlan ??
+					(await buildArchivePlan(tx, {
+						appId: scope.appId,
+						revision: locked.revision,
+						doc: archiveDoc ?? (await loadDocInTransaction(tx, scope.appId)),
+						locationIds: changing,
+					}));
 				if (plan.mutations.length > 0) {
 					const admittedMutations = admitMutationBatch(plan.mutations);
 					const chatRunHolder = scope.chatRunHolder;
@@ -1008,13 +1121,13 @@ export async function setLocationArchived(
 						committedDoc: committed.committedDoc,
 					};
 				}
-				unassignedPersonas = plan.personaNames;
+				unassignedPersonaCount = plan.personaNames.length;
 			}
 			return {
 				revision: await commitOrganizationChange(tx, scope, 0),
-				...(actualImpact === undefined ? {} : { impact: actualImpact }),
-				archivedIds: changing,
-				unassignedPersonas,
+				...(archivePlan === undefined ? {} : { impact: archivePlan.impact }),
+				archivedCount: changing.length,
+				unassignedPersonaCount,
 				...(blueprintChange === undefined ? {} : { blueprintChange }),
 			};
 		});

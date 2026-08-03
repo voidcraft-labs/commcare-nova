@@ -60,7 +60,8 @@ The choices:
 - **Their own place, everything under it, and the chain above** — the default,
   and right for most levels.
 - **Their own place, but only certain levels** — narrows a large tree to the
-  rungs that matter.
+  rungs that matter. The choices stay contiguous from the worker's own level;
+  a skipped rung would make CommCare unable to traverse to the deeper one.
 - **Everything under a level further up** — lets a worker address places beside
   their own, such as the other clinics in their district.
 - **The whole organization** — every place, for apps small enough to afford it.
@@ -119,8 +120,10 @@ hierarchy.
 Places are archived rather than deleted, because deleting one would strand the
 cases it owns with no way back.
 
-Archiving a place also archives everything under it, and Nova tells you exactly
-what will happen before you confirm:
+Archiving a place also archives everything under it. Nova shows complete counts
+and a short name preview before you confirm; the confirmation itself is bound
+to the complete hidden plan, so a changed descendant or assignment forces a
+fresh review:
 
 - how many places go with it;
 - which personas stop working there — their next remaining place becomes their

@@ -90,9 +90,10 @@ export interface OrganizationSnapshot {
  * What archiving a place would actually do, read before the gesture so the
  * confirmation can state it rather than describe it vaguely.
  *
- * `locationIds` is the place plus every descendant, because archiving walks
- * down — `SQLLocation.archive` takes `get_descendants(include_self=True)`.
- * `unassignedPersonas` names the personas that would stop working there.
+ * Counts and previews stay bounded even when a root has 10,000 descendants.
+ * `confirmationToken` binds the complete hidden subtree plus every exact
+ * persona before/after assignment, so the write can detect a consequence that
+ * changed without asking a browser or model to echo an unbounded payload.
  * `ownedCases` is the count whose owner ids point into the archived set and
  * which therefore stop reaching anyone's device; nothing moves them, so the
  * number is the whole warning.
@@ -100,10 +101,13 @@ export interface OrganizationSnapshot {
 export interface ArchiveImpact {
 	/** Organization snapshot this preflight was computed against. */
 	readonly revision: OrganizationRevision;
-	readonly locationIds: readonly string[];
-	readonly unassignedPersonas: readonly string[];
+	readonly confirmationToken: string;
+	readonly affectedLocationCount: number;
+	readonly unassignedPersonaCount: number;
+	readonly unassignedPersonaPreview: readonly string[];
 	readonly ownedCases: number;
 	/** Forms whose fixed case-owner rule points into the subtree. Such a rule
 	 *  is authored intent, so archiving is blocked until it is changed. */
-	readonly blockingOwnerRuleForms: readonly string[];
+	readonly blockingOwnerRuleFormCount: number;
+	readonly blockingOwnerRuleFormPreview: readonly string[];
 }

@@ -136,6 +136,30 @@ function liveAssignments(
 	}));
 }
 
+/** Whether one assignment can RECEIVE cases owned by `source`.
+ *
+ * Case delivery is intentionally independent from address-book visibility.
+ * A reverse owner hop is applicable when a persona can receive the source
+ * case; only after that independent decision do we require the destination in
+ * the persona's address-book fixture.
+ */
+function assignmentReceivesCasesFrom(
+	source: OwnerVerdictLocation,
+	assigned: OwnerVerdictLocation,
+	byId: ReadonlyMap<string, OwnerVerdictLocation>,
+	doc: BlueprintDoc,
+): boolean {
+	const levels = organizationLevelsOf(doc);
+	const assignedLevel = levels[assigned.levelUuid];
+	if (assignedLevel?.caseFlow.workers !== "assigned") return false;
+	if (source.id === assigned.id) return true;
+	if (!isSameOrDescendant(source, assigned, byId)) return false;
+	const scope = assignedLevel.caseFlow.descendantCases;
+	if (scope.kind === "none") return false;
+	if (scope.kind === "all") return true;
+	return levelIsAtOrAbove(source.levelUuid, scope.levelUuid, doc);
+}
+
 /** The exact fixed-owner admission verdict, also used to filter its picker. */
 export function fixedLocationOwnerIssue(
 	doc: BlueprintDoc,
@@ -205,10 +229,10 @@ export function reverseLocationOwnerIssue(
 		firstBySource.set(source.id, destination);
 		for (const { persona, assigned } of assignments) {
 			if (assigned.length === 0) continue;
-			const sourceIsReachable = assigned.some((row) =>
-				assignmentFootprintIncludes(source, row, byId, doc),
+			const receivesSourceCases = assigned.some((row) =>
+				assignmentReceivesCasesFrom(source, row, byId, doc),
 			);
-			if (!sourceIsReachable) continue;
+			if (!receivesSourceCases) continue;
 			const destinationIsReachable = assigned.some((row) =>
 				assignmentFootprintIncludes(destination, row, byId, doc),
 			);

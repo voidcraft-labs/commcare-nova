@@ -19,6 +19,7 @@
 
 import {
 	type ColumnType,
+	type IsolationLevel,
 	type JSONColumnType,
 	Kysely,
 	PostgresDialect,
@@ -574,11 +575,16 @@ const TX_RETRY_DELAYS_MS = [50, 150, 400];
  */
 export async function withAppTx<T>(
 	body: (tx: Transaction<AppDatabase>) => Promise<T>,
+	options?: { readonly isolationLevel?: IsolationLevel },
 ): Promise<T> {
 	const db = await getAppDb();
 	for (let attempt = 0; ; attempt++) {
 		try {
-			return await db.transaction().execute(body);
+			const transaction = db.transaction();
+			return await (options?.isolationLevel === undefined
+				? transaction
+				: transaction.setIsolationLevel(options.isolationLevel)
+			).execute(body);
 		} catch (err) {
 			if (attempt === TX_RETRY_DELAYS_MS.length || !isRetryableTxError(err)) {
 				throw err;

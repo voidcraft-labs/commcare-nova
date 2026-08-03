@@ -110,7 +110,10 @@ async function commit(
 const levelCreateSchema = organizationLevelSchema.omit({ uuid: true }).extend({
 	/** Optional predeclared identity lets one atomic call add a parent and
 	 * children that reference it. Omitted identities remain server-minted. */
-	uuid: uuidSchema.optional(),
+	uuid: z.preprocess(
+		(value) => (value === null ? undefined : value),
+		uuidSchema.optional(),
+	),
 	description: organizationLevelSchema.shape.description.nullable(),
 	parentLevelUuid: uuidSchema.nullable().optional(),
 });
@@ -124,11 +127,40 @@ const propertyCreateSchema = locationPropertySchema
 
 const ORGANIZATION_PAGE_SIZE = 25;
 const ORGANIZATION_PAGE_MAX = 50;
+const organizationCursorPayloadSchema = z
+	.object({
+		revision: organizationRevisionSchema,
+		offset: z.number().int().nonnegative(),
+		query: z.string().max(255).nullable(),
+		includeValues: z.boolean(),
+	})
+	.strict();
+
+function encodeOrganizationCursor(
+	payload: z.infer<typeof organizationCursorPayloadSchema>,
+): string {
+	return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeOrganizationCursor(
+	cursor: string,
+): z.infer<typeof organizationCursorPayloadSchema> {
+	try {
+		return organizationCursorPayloadSchema.parse(
+			JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")),
+		);
+	} catch {
+		throw new Error(
+			"That organization cursor is invalid. Restart the read without a cursor.",
+		);
+	}
+}
+
 export const getOrganizationInputSchema = z
 	.object({
 		query: z.string().trim().max(255).nullable().optional(),
-		/** Zero-based offset in the current filtered result. */
-		cursor: z.number().int().nonnegative().optional(),
+		/** Opaque snapshot-bound cursor returned by the preceding page. */
+		cursor: z.string().max(1024).nullable().optional(),
 		limit: z
 			.number()
 			.int()
@@ -136,7 +168,7 @@ export const getOrganizationInputSchema = z
 			.max(ORGANIZATION_PAGE_MAX)
 			.default(ORGANIZATION_PAGE_SIZE),
 		/** Saved custom values can be large; request them only when needed. */
-		includeValues: z.boolean().default(false),
+		includeValues: z.boolean().nullable().optional(),
 	})
 	.strict();
 export const addOrganizationLevelsInputSchema = z
@@ -229,7 +261,7 @@ export const setLocationArchivedToolInputSchema = z
 
 export const getOrganizationTool = {
 	description:
-		"Read organization levels, place-information fields, the current revision, and a bounded page of places (including archived) with stable uuids. Use query/cursor until page.complete is true; request includeValues only when saved custom values are needed.",
+		"Read organization levels, place-information fields, the current revision, and a bounded page of places (including archived) with stable uuids. Follow the opaque snapshot-bound cursor until page.complete is true; if a page says restart, begin again without a cursor. Request includeValues only when saved custom values are needed.",
 	inputSchema: getOrganizationInputSchema,
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
@@ -238,7 +270,42 @@ export const getOrganizationTool = {
 	): Promise<ReadToolResult<unknown>> {
 		try {
 			const snapshot = await readOrganization(scope(ctx));
-			const needle = input.query?.toLocaleLowerCase();
+			const cursor =
+				input.cursor === undefined || input.cursor === null
+					? undefined
+					: decodeOrganizationCursor(input.cursor);
+			if (cursor !== undefined && cursor.revision !== snapshot.revision) {
+				return {
+					kind: "read",
+					data: {
+						error:
+							"The organization changed between pages. Restart without a cursor to read one complete snapshot.",
+						restart: true,
+						revision: snapshot.revision,
+					},
+				};
+			}
+			const requestedQuery = input.query?.trim() || null;
+			const requestedIncludeValues = input.includeValues ?? undefined;
+			if (
+				cursor !== undefined &&
+				((input.query !== undefined && requestedQuery !== cursor.query) ||
+					(requestedIncludeValues !== undefined &&
+						requestedIncludeValues !== cursor.includeValues))
+			) {
+				return {
+					kind: "read",
+					data: {
+						error:
+							"A paged organization read must keep the same query and value projection. Restart without a cursor to change them.",
+						restart: true,
+					},
+				};
+			}
+			const query = cursor?.query ?? requestedQuery;
+			const includeValues =
+				cursor?.includeValues ?? requestedIncludeValues ?? false;
+			const needle = query?.toLocaleLowerCase();
 			const matching =
 				needle === undefined || needle === ""
 					? snapshot.locations
@@ -247,10 +314,10 @@ export const getOrganizationTool = {
 								.filter((value): value is string => value !== null)
 								.some((value) => value.toLocaleLowerCase().includes(needle)),
 						);
-			const start = input.cursor ?? 0;
+			const start = cursor?.offset ?? 0;
 			const end = Math.min(start + input.limit, matching.length);
 			const locations = matching.slice(start, end).map((location) => {
-				if (input.includeValues) return location;
+				if (includeValues) return location;
 				const { values: _values, ...projection } = location;
 				return projection;
 			});
@@ -266,7 +333,15 @@ export const getOrganizationTool = {
 						matching: matching.length,
 						total: snapshot.locations.length,
 						complete: end >= matching.length,
-						nextCursor: end < matching.length ? end : null,
+						nextCursor:
+							end < matching.length
+								? encodeOrganizationCursor({
+										revision: snapshot.revision,
+										offset: end,
+										query,
+										includeValues,
+									})
+								: null,
 					},
 				},
 			};
@@ -563,7 +638,7 @@ function rowResult<T>(
 
 export const createLocationTool = {
 	description:
-		"Create one place after its level is saved. Omit siteCode to derive a create-once code from the name.",
+		"Create one place after its level is saved. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,
@@ -620,7 +695,7 @@ export const moveLocationTool = {
 
 export const setLocationArchivedTool = {
 	description:
-		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive the exact impact; after the user agrees, call with confirm=true and that unchanged confirmedImpact. It never reassigns case owners.",
+		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive a bounded impact plus an exact confirmation token; after the user agrees, call with confirm=true and that unchanged confirmedImpact. A blocked preflight must not be confirmed. It never reassigns case owners.",
 	inputSchema: setLocationArchivedToolInputSchema,
 	async execute(
 		input: z.infer<typeof setLocationArchivedToolInputSchema>,
@@ -636,9 +711,12 @@ export const setLocationArchivedTool = {
 				return {
 					kind: "read" as const,
 					data: {
-						confirmationRequired: true,
+						confirmationRequired: impact.blockingOwnerRuleFormCount === 0,
+						blocked: impact.blockingOwnerRuleFormCount > 0,
 						message:
-							"Review this archive impact with the user, then repeat the call with confirm=true and the unchanged confirmedImpact payload.",
+							impact.blockingOwnerRuleFormCount > 0
+								? "This archive is blocked by fixed case-owner rules. Change the listed forms before requesting confirmation again."
+								: "Review this bounded archive impact with the user, then repeat the call with confirm=true and the unchanged confirmedImpact payload.",
 						impact,
 					},
 				};
@@ -657,7 +735,7 @@ export const setLocationArchivedTool = {
 					mutations: blueprintChange.mutations,
 					newDoc: blueprintChange.committedDoc,
 					result: {
-						message: `Archived ${result.archivedIds.length} ${result.archivedIds.length === 1 ? "place" : "places"} and updated ${result.unassignedPersonas.length} persona ${result.unassignedPersonas.length === 1 ? "assignment" : "assignments"}.`,
+						message: `Archived ${result.archivedCount} ${result.archivedCount === 1 ? "place" : "places"} and updated ${result.unassignedPersonaCount} persona ${result.unassignedPersonaCount === 1 ? "assignment" : "assignments"}.`,
 						organization,
 					},
 				};

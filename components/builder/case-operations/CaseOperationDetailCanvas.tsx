@@ -641,6 +641,25 @@ function CaseOwnerSection({
 	);
 	const reverseAvailable = editorScope.caseDataScope !== "global";
 	const selected = locationOwnerExpression(value);
+	const selectedLocationUuid =
+		selected?.term.kind === "fixed-location"
+			? selected.term.locationUuid
+			: undefined;
+	const selectedLevelUuid =
+		selected?.term.kind === "owner-location-at-level"
+			? selected.term.levelUuid
+			: undefined;
+	const selectedLocationName =
+		selectedLocationUuid !== undefined
+			? (organization.locations.find(
+					(location) => location.id === selectedLocationUuid,
+				)?.name ?? "A place that is no longer available")
+			: undefined;
+	const selectedLevelName =
+		selectedLevelUuid !== undefined
+			? (levels.find((level) => level.uuid === selectedLevelUuid)?.name ??
+				"A level that no longer exists")
+			: undefined;
 	const mode =
 		selected?.term.kind === "fixed-location"
 			? "fixed"
@@ -764,8 +783,14 @@ function CaseOwnerSection({
 										: ""
 								}
 								onValueChange={(locationUuid) => {
+									if (
+										typeof locationUuid !== "string" ||
+										!locations.some((location) => location.id === locationUuid)
+									) {
+										return;
+									}
 									setDraftMode(undefined);
-									onChange(term(fixedLocation(asUuid(String(locationUuid)))));
+									onChange(term(fixedLocation(asUuid(locationUuid))));
 								}}
 								disabled={!canEdit || !organizationReady}
 							>
@@ -774,7 +799,9 @@ function CaseOwnerSection({
 									className="w-full"
 									aria-label="Place that owns the case"
 								>
-									<SelectValue placeholder="Choose a place" />
+									<SelectValue placeholder="Choose a place">
+										{selectedLocationName}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{locations.map((location) => (
@@ -801,11 +828,17 @@ function CaseOwnerSection({
 										: ""
 								}
 								onValueChange={(levelUuid) => {
+									if (
+										typeof levelUuid !== "string" ||
+										!reverseLevels.some((level) => level.uuid === levelUuid)
+									) {
+										return;
+									}
 									setDraftMode(undefined);
 									onChange(
 										term(
 											ownerLocationAtLevel(
-												asUuid(String(levelUuid)),
+												asUuid(levelUuid),
 												editorScope.currentCaseType,
 											),
 										),
@@ -818,7 +851,9 @@ function CaseOwnerSection({
 									className="w-full"
 									aria-label="Level to find beneath the current owner"
 								>
-									<SelectValue placeholder="Choose a level" />
+									<SelectValue placeholder="Choose a level">
+										{selectedLevelName}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{reverseLevels.map((level) => (

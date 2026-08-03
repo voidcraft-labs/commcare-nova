@@ -190,8 +190,12 @@ export const levelAddressBookSchema = z.discriminatedUnion("reach", [
 		})
 		.strict(),
 	/**
-	 * Their own place, but only the levels named. HQ's `include_only`,
-	 * which the query honours only when `expand_to` is unset — hence no
+	 * Their own place, but only the named CONTIGUOUS levels below it. HQ's
+	 * `include_only` is applied at every recursive step: a skipped type prevents
+	 * traversal to every selected type beneath it, and omitting this level's own
+	 * type omits the assigned place itself. Validation therefore requires this
+	 * level plus every intermediate type leading to a selected descendant. The
+	 * query honours `include_only` only when `expand_to` is unset — hence no
 	 * `downToLevelUuid` on this arm.
 	 */
 	z
@@ -528,9 +532,9 @@ export function ancestorLevels(
  * surface's parent picker filters by it, so an author is never offered a
  * placement the store will refuse.
  *
- * **A skipped rung is a deployment constraint, not a wire one.** The fixture
- * carries it faithfully, so preview and local `.ccz` export are correct — but
- * HQ refuses to CREATE one. Both its web form and its v0.6 location API route
+ * **A skipped rung is a deployment constraint, not a wire one.** The future
+ * location fixture can carry it faithfully, but HQ refuses to CREATE one.
+ * Both its web form and its v0.6 location API route
  * through `util.py::get_location_type`, which admits only the types
  * `forms.py::LocationForm.get_allowed_types` returns for the chosen parent,
  * and that query filters `parent_type=parent.location_type` — the immediate

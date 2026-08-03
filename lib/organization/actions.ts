@@ -135,7 +135,10 @@ async function withScope<T>(
 					"That app isn't available. It may have been deleted, or you may not have access to it.",
 			};
 		}
-		log.error("organization action failed", { error });
+		log.error("[organization] action failed", error, {
+			appId: parsedAppId.data,
+			userId: session.user.id,
+		});
 		return {
 			success: false,
 			code: "unavailable",
@@ -200,7 +203,7 @@ export async function moveLocationAction(
 	locationId: string,
 	target: unknown,
 	expectedRevision: string,
-): Promise<OrganizationResult<{ revision: string }>> {
+): Promise<OrganizationResult<{ location: StoredLocation; revision: string }>> {
 	const targetSchema = z
 		.object({
 			parentId: uuidSchema.nullable(),
@@ -235,8 +238,8 @@ export async function setLocationArchivedAction(
 ): Promise<
 	OrganizationResult<{
 		revision: string;
-		archivedIds: readonly string[];
-		unassignedPersonas: readonly string[];
+		archivedCount: number;
+		unassignedPersonaCount: number;
 	}>
 > {
 	return withScope(appId, async (scope) => {

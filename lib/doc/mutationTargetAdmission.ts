@@ -58,6 +58,12 @@ export function mutationTargetsInvalid(
 			new Set(caseType.properties.map((property) => property.name)),
 		]),
 	);
+	const organizationLevelParents = new Map<string, string | undefined>(
+		Object.values(doc.organizationLevels ?? {}).map((level) => [
+			level.uuid,
+			level.parentLevelUuid,
+		]),
+	);
 	// Sub-entity live sets at ITEM granularity, mirroring the entity sets: a
 	// column / search-input / option the batch edits, moves, or removes must
 	// still exist — a concurrent DELETE of the same item makes the reducer
@@ -700,15 +706,39 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "addOrganizationLevel":
+				if (
+					m.level.parentLevelUuid !== undefined &&
+					(!organizationLevels.has(m.level.parentLevelUuid) ||
+						m.level.parentLevelUuid === m.level.uuid)
+				) {
+					return true;
+				}
 				organizationLevels.add(m.level.uuid);
+				organizationLevelParents.set(m.level.uuid, m.level.parentLevelUuid);
 				break;
 			case "removeOrganizationLevel":
 				if (!organizationLevels.has(m.uuid)) return true;
 				organizationLevels.delete(m.uuid);
+				organizationLevelParents.delete(m.uuid);
 				break;
-			case "updateOrganizationLevel":
+			case "updateOrganizationLevel": {
 				if (!organizationLevels.has(m.uuid)) return true;
+				if (Object.hasOwn(m.patch, "parentLevelUuid")) {
+					const parent = m.patch.parentLevelUuid;
+					if (
+						parent !== null &&
+						parent !== undefined &&
+						(!organizationLevels.has(parent) || parent === m.uuid)
+					) {
+						return true;
+					}
+					organizationLevelParents.set(
+						m.uuid,
+						parent === null ? undefined : parent,
+					);
+				}
 				break;
+			}
 			case "addLocationProperty":
 				locationProperties.add(m.property.uuid);
 				break;

@@ -331,12 +331,18 @@ const personaEntityUpdatePatchSchema = personaUpdatePatchSchema.omit({
 });
 const organizationLevelUpdatePatchSchema = clearablePartialPatch(
 	organizationLevelSchema,
-).omit({
-	code: true,
-});
+)
+	.omit({
+		code: true,
+	})
+	.refine((patch) => Object.keys(patch).length > 0, {
+		message: "Change at least one organization-level field.",
+	});
 const locationPropertyUpdatePatchSchema = clearablePartialPatch(
 	locationPropertySchema,
-);
+).refine((patch) => Object.keys(patch).length > 0, {
+	message: "Change at least one location-property field.",
+});
 const userDataValuePatchSchema = z
 	.object({
 		userPropertyUuid: uuidSchema,
