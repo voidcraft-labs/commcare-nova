@@ -208,6 +208,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"Two pieces of place information save under the same name. Give one of them a different name.",
 	LOCATION_PROPERTY_LEVEL_UNKNOWN: () =>
 		"Place information applies to a level that no longer exists. Choose current levels or let it apply everywhere.",
+	LOCATION_PROPERTY_REQUIRED_CAPACITY: () =>
+		"A place would require more information than Nova can store. Make some place information optional or narrow which levels it applies to.",
 	PERSONA_LOCATION_PRIMARY_REPEATED: () =>
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>

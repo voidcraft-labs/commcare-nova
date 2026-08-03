@@ -75,6 +75,24 @@ export const LEVEL_NAME_MAX_LENGTH = 255;
  */
 export const MAX_ATOMIC_LOCATION_DESCENDANTS = 100;
 
+/** One place's bounded custom-data row contract. The Blueprint catalog uses
+ * these same limits so it cannot require values the row store cannot hold. */
+export const MAX_LOCATION_VALUES = 250;
+export const MAX_LOCATION_VALUE_LENGTH = 4096;
+export const MAX_LOCATION_PROPERTY_CHOICES = 250;
+
+export const locationValueTextSchema = z
+	.string()
+	.max(MAX_LOCATION_VALUE_LENGTH)
+	// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not valid
+	// UTF-8. Keep catalog choices and stored values on one scalar contract.
+	.refine((value) => !value.includes("\u0000"), {
+		message: "A value cannot contain a NUL character.",
+	})
+	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+		message: "A value cannot contain an unpaired surrogate.",
+	});
+
 // ── Case flow — which cases a worker receives ────────────────────────
 
 /**
@@ -337,8 +355,16 @@ export const locationPropertySchema = z
 		 *  catalog check lets empty text through because
 		 *  CommCare's fixture emits an empty element for an unset field. */
 		choices: z
-			.array(z.string().min(1))
+			.array(
+				locationValueTextSchema.refine((value) => value.length > 0, {
+					message: "An accepted place-information value cannot be empty.",
+				}),
+			)
 			.min(1, "Accepted place-information values cannot be empty.")
+			.max(
+				MAX_LOCATION_PROPERTY_CHOICES,
+				"Place information has too many accepted values.",
+			)
 			.refine((choices) => new Set(choices).size === choices.length, {
 				message: "Accepted place-information values must be unique.",
 			})

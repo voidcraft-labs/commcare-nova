@@ -608,7 +608,10 @@ function CaseOwnerSection({
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
 	const organizationReady =
-		!organization.loading && organization.error === undefined;
+		!organization.loading &&
+		organization.error === undefined &&
+		organization.warning === undefined &&
+		!organization.refreshing;
 	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevels();
 	const levelRecord = useMemo(
@@ -647,7 +650,9 @@ function CaseOwnerSection({
 	const reverseModeIssue = !organizationReady
 		? organization.loading
 			? "Places are still loading."
-			: "Places could not be loaded."
+			: organization.error !== undefined
+				? "Places could not be loaded."
+				: "Saved places are being refreshed."
 		: !reverseAvailable
 			? "This form does not open a case, so there is no current owner to start from."
 			: editorScope.currentCaseType === ""
@@ -721,7 +726,37 @@ function CaseOwnerSection({
 					role="alert"
 					className="mb-3 text-[12px] leading-relaxed text-nova-red"
 				>
-					Places could not be loaded: {organization.error}
+					Places could not be loaded: {organization.error}{" "}
+					<Button
+						type="button"
+						variant="ghost"
+						className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+						onClick={organization.reload}
+					>
+						Try again
+					</Button>
+				</p>
+			)}
+			{organization.warning !== undefined && (
+				<p
+					role="status"
+					className="mb-3 rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-2 text-[12px] leading-relaxed text-nova-text-secondary"
+				>
+					Saved places could not be refreshed, so place-based owner choices are
+					paused. {organization.warning}{" "}
+					<Button
+						type="button"
+						variant="ghost"
+						className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+						onClick={organization.reload}
+					>
+						Try again
+					</Button>
+				</p>
+			)}
+			{organization.refreshing && organization.warning === undefined && (
+				<p role="status" className="mb-3 text-[12px] text-nova-text-muted">
+					Refreshing places…
 				</p>
 			)}
 			{value === undefined ? (

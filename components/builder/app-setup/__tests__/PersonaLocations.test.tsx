@@ -114,6 +114,41 @@ beforeEach(() => {
 });
 
 describe("PersonaLocations", () => {
+	it("retries failed reads and pauses assignment gestures on a stale snapshot", () => {
+		const reload = vi.fn();
+		const { rerender } = render(
+			<PersonaLocations
+				persona={PERSONA}
+				locations={[]}
+				loading={false}
+				error="Connection failed."
+				reload={reload}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(reload).toHaveBeenCalledTimes(1);
+
+		rerender(
+			<PersonaLocations
+				persona={PERSONA}
+				locations={LOCATIONS}
+				loading={false}
+				error={undefined}
+				warning="Connection failed."
+				reload={reload}
+			/>,
+		);
+		expect(
+			screen.getByText(/Saved places could not be refreshed/),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", { name: /Remove Branch A/ }),
+		).toBeNull();
+		expect(screen.queryByRole("combobox", { name: "Add a place" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(reload).toHaveBeenCalledTimes(2);
+	});
+
 	it("preflights removals and explains an assignment that must stay", () => {
 		const { rerender } = render(
 			<PersonaLocations

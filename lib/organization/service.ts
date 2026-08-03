@@ -36,6 +36,7 @@ import {
 import { OrganizationError, organizationNotFound } from "./errors";
 import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
 import {
+	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	assertSiteCodeFree,
 	type CreateLocationDescendantInput,
 	type CreateLocationInput,
@@ -1098,6 +1099,15 @@ function fixedOwnerRuleForms(
 
 const ARCHIVE_IMPACT_PREVIEW_LIMIT = 10;
 
+function archiveImpactPreviewText(value: string): string {
+	let preview = value.slice(0, ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH);
+	// Do not manufacture an unpaired surrogate when the bound cuts an astral
+	// character in half. The confirmation token binds UUID facts, not this copy.
+	const last = preview.charCodeAt(preview.length - 1);
+	if (last >= 0xd800 && last <= 0xdbff) preview = preview.slice(0, -1);
+	return preview;
+}
+
 async function buildArchivePlan(
 	tx: Transaction<AppDatabase>,
 	args: {
@@ -1139,16 +1149,14 @@ async function buildArchivePlan(
 			confirmationToken,
 			affectedLocationCount: locationIds.length,
 			unassignedPersonaCount: personaNames.length,
-			unassignedPersonaPreview: personaNames.slice(
-				0,
-				ARCHIVE_IMPACT_PREVIEW_LIMIT,
-			),
+			unassignedPersonaPreview: personaNames
+				.slice(0, ARCHIVE_IMPACT_PREVIEW_LIMIT)
+				.map(archiveImpactPreviewText),
 			ownedCases,
 			blockingOwnerRuleFormCount: blockingFormNames.length,
-			blockingOwnerRuleFormPreview: blockingFormNames.slice(
-				0,
-				ARCHIVE_IMPACT_PREVIEW_LIMIT,
-			),
+			blockingOwnerRuleFormPreview: blockingFormNames
+				.slice(0, ARCHIVE_IMPACT_PREVIEW_LIMIT)
+				.map(archiveImpactPreviewText),
 		},
 		mutations: planned.mutations,
 		personaNames,

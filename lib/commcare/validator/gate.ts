@@ -130,6 +130,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOCATION_PROPERTY_SLUG_INVALID: "soundness",
 	LOCATION_PROPERTY_SLUG_DUPLICATE: "soundness",
 	LOCATION_PROPERTY_LEVEL_UNKNOWN: "soundness",
+	LOCATION_PROPERTY_REQUIRED_CAPACITY: "soundness",
 	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",

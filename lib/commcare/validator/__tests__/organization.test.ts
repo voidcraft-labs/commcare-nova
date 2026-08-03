@@ -4,6 +4,7 @@ import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import {
 	type BlueprintDoc,
 	MAX_ATOMIC_LOCATION_DESCENDANTS,
+	MAX_LOCATION_VALUES,
 	type OrganizationLevel,
 } from "@/lib/domain";
 import { ORGANIZATION_RULES } from "../rules/organization";
@@ -184,6 +185,51 @@ describe("organization reverse-hop construction bounds", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					code: "ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT",
+				}),
+			]),
+		);
+	});
+});
+
+describe("place-information row capacity", () => {
+	it("rejects more applicable required properties than one place can store", () => {
+		const value = doc();
+		const properties = Array.from(
+			{ length: MAX_LOCATION_VALUES + 1 },
+			(_, index) => {
+				const uuid = testUuid(`required-location-property-${index}`);
+				return {
+					uuid,
+					property: {
+						uuid,
+						slug: `required_${index}`,
+						label: `Required ${index}`,
+						required: true as const,
+						levelUuids: [FACILITY],
+					},
+				};
+			},
+		);
+		value.locationProperties = Object.fromEntries(
+			properties.map(({ uuid, property }) => [uuid, property]),
+		);
+		value.locationPropertyOrder = properties.map(({ uuid }) => uuid);
+
+		expect(findings(value)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "LOCATION_PROPERTY_REQUIRED_CAPACITY",
+				}),
+			]),
+		);
+
+		const last = properties.at(-1)?.property;
+		if (last === undefined) throw new Error("property fixture missing");
+		last.levelUuids = [REGION];
+		expect(findings(value)).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "LOCATION_PROPERTY_REQUIRED_CAPACITY",
 				}),
 			]),
 		);

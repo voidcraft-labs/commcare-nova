@@ -8,7 +8,12 @@
 // rather than a platform limit; see `SITE_CODE_PATTERN`.
 
 import { z } from "zod";
-import { MAX_ATOMIC_LOCATION_DESCENDANTS, uuidSchema } from "@/lib/domain";
+import {
+	locationValueTextSchema,
+	MAX_ATOMIC_LOCATION_DESCENDANTS,
+	MAX_LOCATION_VALUES,
+	uuidSchema,
+} from "@/lib/domain";
 import { OrganizationError } from "./errors";
 import type { OrganizationRevision } from "./types";
 
@@ -102,7 +107,7 @@ const coordinateSchema = z
  * declares it — but the schema has to carry its own ceiling, because an
  * unbounded record is unbounded whatever the catalog says.
  */
-export const MAX_LOCATION_VALUES = 250;
+export { MAX_LOCATION_VALUES } from "@/lib/domain";
 
 export const locationValuesSchema = z
 	.record(
@@ -112,37 +117,14 @@ export const locationValuesSchema = z
 		// unreachable by the shed AND by the catalog, permanent dead weight on a row
 		// every read carries.
 		uuidSchema,
-		z
-			.string()
-			.max(4096)
-			// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not
-			// valid UTF-8 — both fail at the driver rather than as a typed rejection
-			// the author can read.
-			.refine((value) => !value.includes("\u0000"), {
-				message: "A value cannot contain a NUL character.",
-			})
-			.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-				message: "A value cannot contain an unpaired surrogate.",
-			}),
+		locationValueTextSchema,
 	)
 	.refine((values) => Object.keys(values).length <= MAX_LOCATION_VALUES, {
 		message: "A place carries more information than Nova stores for one place.",
 	});
 
 const locationValuePatchSchema = z
-	.record(
-		uuidSchema,
-		z
-			.string()
-			.max(4096)
-			.refine((value) => !value.includes("\u0000"), {
-				message: "A value cannot contain a NUL character.",
-			})
-			.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-				message: "A value cannot contain an unpaired surrogate.",
-			})
-			.nullable(),
-	)
+	.record(uuidSchema, locationValueTextSchema.nullable())
 	.refine((values) => Object.keys(values).length === 1, {
 		message: "Change exactly one place-information value at a time.",
 	});
@@ -331,16 +313,22 @@ export const organizationRevisionSchema = z
 
 /** Stable payload an archive confirmation binds to. The writer recomputes it
  * under its own locks and refuses if any consequence changed. */
+export const ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH = 255;
+
 export const archiveImpactSchema = z
 	.object({
 		revision: organizationRevisionSchema,
 		confirmationToken: z.string().regex(/^[a-f0-9]{64}$/),
 		affectedLocationCount: z.number().int().nonnegative(),
 		unassignedPersonaCount: z.number().int().nonnegative(),
-		unassignedPersonaPreview: z.array(z.string().max(255)).max(10),
+		unassignedPersonaPreview: z
+			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+			.max(10),
 		ownedCases: z.number().int().nonnegative(),
 		blockingOwnerRuleFormCount: z.number().int().nonnegative(),
-		blockingOwnerRuleFormPreview: z.array(z.string().max(255)).max(10),
+		blockingOwnerRuleFormPreview: z
+			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+			.max(10),
 	})
 	.strict();
 

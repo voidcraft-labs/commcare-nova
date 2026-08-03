@@ -45,12 +45,18 @@ export function PersonaLocations({
 	locations,
 	loading,
 	error,
+	warning,
+	refreshing = false,
+	reload,
 }: {
 	persona: Persona;
 	/** Every place in the app, archived included. */
 	locations: readonly StoredLocation[];
 	loading: boolean;
 	error: string | undefined;
+	warning?: string;
+	refreshing?: boolean;
+	reload?: () => void;
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
@@ -61,6 +67,8 @@ export function PersonaLocations({
 		[persona.locations],
 	);
 	const assignedSet = useMemo(() => new Set(assigned), [assigned]);
+	const authoritative =
+		!loading && error === undefined && warning === undefined && !refreshing;
 	const [requestedPage, setRequestedPage] = useState(0);
 	const assignedPage = useMemo(
 		() => personaLocationPage(assigned, requestedPage),
@@ -87,7 +95,7 @@ export function PersonaLocations({
 	).length;
 	const removalIssues = useMemo(
 		() =>
-			canEdit && !loading
+			canEdit && authoritative
 				? personaAssignmentRemovalIssues(
 						doc,
 						locations,
@@ -101,7 +109,7 @@ export function PersonaLocations({
 			assignedPage.ids,
 			canEdit,
 			doc,
-			loading,
+			authoritative,
 			locations,
 			persona.uuid,
 		],
@@ -124,7 +132,17 @@ export function PersonaLocations({
 
 			{error !== undefined ? (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-red">
-					Places could not be loaded: {error}
+					Places could not be loaded: {error}{" "}
+					{reload !== undefined && (
+						<Button
+							type="button"
+							variant="ghost"
+							className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							onClick={reload}
+						>
+							Try again
+						</Button>
+					)}
 				</p>
 			) : loading ? (
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
@@ -138,6 +156,30 @@ export function PersonaLocations({
 				</p>
 			) : (
 				<>
+					{warning !== undefined && (
+						<p
+							role="status"
+							className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-2 text-[12px] leading-relaxed text-nova-text-secondary"
+						>
+							Saved places could not be refreshed, so assignments are paused.{" "}
+							{warning}{" "}
+							{reload !== undefined && (
+								<Button
+									type="button"
+									variant="ghost"
+									className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+									onClick={reload}
+								>
+									Try again
+								</Button>
+							)}
+						</p>
+					)}
+					{refreshing && warning === undefined && (
+						<p role="status" className="text-[12px] text-nova-text-muted">
+							Refreshing places…
+						</p>
+					)}
 					{assigned.length === 0 ? (
 						<p className="text-[13px] leading-relaxed text-nova-text-muted">
 							Not assigned anywhere. A worker with no place carries no location
@@ -171,7 +213,7 @@ export function PersonaLocations({
 													Main
 												</span>
 											)}
-											{canEdit && !loading && (
+											{canEdit && authoritative && (
 												<>
 													{index > 0 && (
 														<Button
@@ -270,7 +312,7 @@ export function PersonaLocations({
 						</div>
 					)}
 
-					{canEdit && !loading && available.length > 0 && (
+					{canEdit && authoritative && available.length > 0 && (
 						<LocationChoiceSelect
 							locations={available}
 							value=""

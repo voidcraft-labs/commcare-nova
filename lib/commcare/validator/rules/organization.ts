@@ -33,6 +33,7 @@ import {
 	levelOwnsCases,
 	locationPropertiesOf,
 	MAX_ATOMIC_LOCATION_DESCENDANTS,
+	MAX_LOCATION_VALUES,
 	type OrganizationLevel,
 	organizationLevelsOf,
 	personasOf,
@@ -410,6 +411,61 @@ function locationPropertyLevels(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
+ * Required catalog entries have to fit in the same bounded value bag every
+ * place write uses. Count their actual overlap per level: many optional or
+ * disjoint properties remain legal, while an impossible required row never
+ * reaches either the Builder or a locations-store refusal.
+ */
+function locationPropertyRequiredCapacity(
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const properties = Object.values(locationPropertiesOf(doc));
+	const levels = Object.values(organizationLevelsOf(doc));
+	const overCapacity = levels.find((level) => {
+		let required = 0;
+		for (const property of properties) {
+			if (property.required !== true) continue;
+			if (
+				property.levelUuids !== undefined &&
+				!property.levelUuids.includes(level.uuid)
+			)
+				continue;
+			required += 1;
+			if (required > MAX_LOCATION_VALUES) return true;
+		}
+		return false;
+	});
+	if (overCapacity !== undefined) {
+		return [
+			validationError(
+				"LOCATION_PROPERTY_REQUIRED_CAPACITY",
+				"app",
+				`Places at "${overCapacity.name}" would require more than ${MAX_LOCATION_VALUES} pieces of information, but one place can store at most ${MAX_LOCATION_VALUES}. Make some optional or narrow which levels they apply to.`,
+				{},
+			),
+		];
+	}
+
+	// With no levels yet, universally required fields still constrain every
+	// future level. Refuse a catalog that would make adding the first rung a
+	// dead end rather than waiting for that later gesture to fail.
+	const universalRequired = properties.filter(
+		(property) =>
+			property.required === true && property.levelUuids === undefined,
+	).length;
+	return universalRequired > MAX_LOCATION_VALUES
+		? [
+				validationError(
+					"LOCATION_PROPERTY_REQUIRED_CAPACITY",
+					"app",
+					`Every place would require ${universalRequired} pieces of information, but one place can store at most ${MAX_LOCATION_VALUES}. Make some optional before adding more.`,
+					{},
+				),
+			]
+		: [];
+}
+
+/**
  * A persona's primary place is not repeated in the rest of its list.
  *
  * HQ's `CommCareUserResource` takes `primary_location` and `locations`
@@ -453,5 +509,6 @@ export const ORGANIZATION_RULES = [
 	reverseOwnerDestinationLimit,
 	locationPropertyIdentities,
 	locationPropertyLevels,
+	locationPropertyRequiredCapacity,
 	personaAssignments,
 ];

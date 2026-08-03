@@ -18,6 +18,8 @@ import {
 	type BlueprintDoc,
 	levelMayNestUnder,
 	locationPropertySchema,
+	MAX_LOCATION_PROPERTY_CHOICES,
+	MAX_LOCATION_VALUE_LENGTH,
 	type OrganizationLevel,
 	organizationLevelSchema,
 	type Persona,
@@ -230,6 +232,35 @@ describe("organization authoring input identity", () => {
 				label: "Facility kind",
 				required: true,
 				choices: [],
+			}).success,
+		).toBe(false);
+	});
+
+	it("bounds closed choices to values and payloads the location store accepts", () => {
+		const base = {
+			uuid: lower,
+			slug: "kind",
+			label: "Facility kind",
+		};
+		expect(
+			locationPropertySchema.safeParse({
+				...base,
+				choices: ["a".repeat(MAX_LOCATION_VALUE_LENGTH)],
+			}).success,
+		).toBe(true);
+		expect(
+			locationPropertySchema.safeParse({
+				...base,
+				choices: ["a".repeat(MAX_LOCATION_VALUE_LENGTH + 1)],
+			}).success,
+		).toBe(false);
+		expect(
+			locationPropertySchema.safeParse({
+				...base,
+				choices: Array.from(
+					{ length: MAX_LOCATION_PROPERTY_CHOICES + 1 },
+					(_, index) => `choice-${index}`,
+				),
 			}).success,
 		).toBe(false);
 	});

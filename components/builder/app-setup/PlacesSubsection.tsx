@@ -526,6 +526,14 @@ function PlaceRow({
 		() => propertiesForLevel(properties, draftLevelUuid),
 		[properties, draftLevelUuid],
 	);
+	const applicablePropertyUuids: ReadonlySet<string> = useMemo(
+		() =>
+			new Set<string>(applicableProperties.map((property) => property.uuid)),
+		[applicableProperties],
+	);
+	const hiddenDirtyPropertyUuids = Object.keys(
+		dirtyValueDraftsRef.current,
+	).filter((uuid) => !applicablePropertyUuids.has(uuid));
 	const levelRecord = useMemo(
 		() =>
 			Object.fromEntries(
@@ -1016,6 +1024,27 @@ function PlaceRow({
 			setValuesNeedApply(Object.keys(dirtyValueDraftsRef.current).length > 0);
 			setMessage(undefined);
 		}
+	};
+
+	const discardHiddenValueDrafts = () => {
+		const remainingDrafts = Object.fromEntries(
+			Object.entries(dirtyValueDraftsRef.current).filter(([uuid]) =>
+				applicablePropertyUuids.has(uuid),
+			),
+		);
+		const nextValues = valuesForLevel(
+			properties,
+			draftLevelUuidRef.current,
+			rebaseLocationValueDraft(sourceRef.current.values, remainingDrafts),
+		);
+		dirtyValueDraftsRef.current = remainingDrafts;
+		draftValuesRef.current = nextValues;
+		setDraftValues(nextValues);
+		setDirtyValues(Object.keys(remainingDrafts).length > 0);
+		setValuesNeedApply(
+			dirtyPlacement && Object.keys(remainingDrafts).length > 0,
+		);
+		setMessage(undefined);
 	};
 
 	return (
@@ -1672,6 +1701,27 @@ function PlaceRow({
 								</span>
 							}
 						/>
+					</div>
+				)}
+
+				{hiddenDirtyPropertyUuids.length > 0 && (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] p-3 text-[12px] leading-relaxed text-nova-text-secondary"
+					>
+						Place information changed while you were editing.{" "}
+						{hiddenDirtyPropertyUuids.length}{" "}
+						{hiddenDirtyPropertyUuids.length === 1 ? "draft is" : "drafts are"}{" "}
+						no longer available here.
+						<Button
+							type="button"
+							variant="ghost"
+							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							onClick={discardHiddenValueDrafts}
+						>
+							Discard unavailable{" "}
+							{hiddenDirtyPropertyUuids.length === 1 ? "draft" : "drafts"}
+						</Button>
 					</div>
 				)}
 
@@ -2471,7 +2521,7 @@ function AddPlaceForm({
 					onClick={() => void submit()}
 				>
 					<Icon icon={tablerPlus} width="15" height="15" aria-hidden="true" />
-					{submitting ? "Adding…" : "Add place"}
+					{submitting ? "Adding" : "Add place"}
 				</Button>
 				<Button
 					type="button"

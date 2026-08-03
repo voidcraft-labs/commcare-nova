@@ -501,6 +501,43 @@ describe("PlacesSubsection", () => {
 		expect((value as HTMLInputElement).value).toBe("Warehouse value");
 	});
 
+	it("offers recovery when a catalog change hides a dirty value draft", async () => {
+		mocks.properties = [PROPERTY];
+		mocks.doc.locationProperties = { [PROPERTY_UUID]: PROPERTY };
+		mocks.doc.locationPropertyOrder = [PROPERTY_UUID];
+		const update = vi.fn();
+		const current = organization([LOCATION], update);
+		const { rerender } = render(<PlacesSubsection organization={current} />);
+
+		const row = screen.getByRole("button", {
+			name: /Clinic clinic Depth 1 Facility/,
+		});
+		fireEvent.click(row);
+		await settleBaseUiTransitions();
+		fireEvent.change(screen.getByRole("textbox", { name: "Place note" }), {
+			target: { value: "local draft" },
+		});
+
+		mocks.properties = [];
+		mocks.doc.locationProperties = {};
+		mocks.doc.locationPropertyOrder = [];
+		rerender(<PlacesSubsection organization={current} />);
+
+		expect(
+			screen.getByText(/Place information changed while you were editing/),
+		).toBeDefined();
+		fireEvent.click(row);
+		await settleBaseUiTransitions();
+		expect(screen.getByRole("textbox", { name: "Name" })).toBeDefined();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Discard unavailable draft" }),
+		);
+		fireEvent.click(row);
+		await settleBaseUiTransitions();
+		expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
+	});
+
 	it("keeps a failed parent move staged so it can be retried", async () => {
 		const regionLevelUuid = testUuid("parent-region-level");
 		const regionLevel: OrganizationLevel = {

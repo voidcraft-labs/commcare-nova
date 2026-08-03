@@ -95,6 +95,9 @@ export function PersonasSubsection() {
 						locations={organization.locations}
 						locationsLoading={organization.loading}
 						locationsError={organization.error}
+						locationsWarning={organization.warning}
+						locationsRefreshing={organization.refreshing}
+						onReloadLocations={organization.reload}
 					/>
 				))
 			)}
@@ -123,6 +126,9 @@ function PersonaRow({
 	locations,
 	locationsLoading,
 	locationsError,
+	locationsWarning,
+	locationsRefreshing,
+	onReloadLocations,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
@@ -135,6 +141,9 @@ function PersonaRow({
 	locations: Parameters<typeof PersonaLocations>[0]["locations"];
 	locationsLoading: boolean;
 	locationsError: string | undefined;
+	locationsWarning: string | undefined;
+	locationsRefreshing: boolean;
+	onReloadLocations: () => void;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
@@ -272,6 +281,9 @@ function PersonaRow({
 						locations={locations}
 						loading={locationsLoading}
 						error={locationsError}
+						warning={locationsWarning}
+						refreshing={locationsRefreshing}
+						reload={onReloadLocations}
 					/>
 				)}
 

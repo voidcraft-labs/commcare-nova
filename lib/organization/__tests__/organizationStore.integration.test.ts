@@ -51,7 +51,11 @@ import {
 	personaAssignmentIssue,
 	personaAssignmentRemovalIssues,
 } from "../ownerTargetVerdicts";
-import { MAX_LOCATIONS_PER_APP } from "../schema";
+import {
+	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
+	archiveImpactSchema,
+	MAX_LOCATIONS_PER_APP,
+} from "../schema";
 import {
 	createLocation,
 	describeArchiveImpact,
@@ -1832,6 +1836,45 @@ describe("locations store — the archive cascade", () => {
 			.where("app_id", "=", APP_ID)
 			.execute();
 		expect(edges).toEqual([]);
+	});
+
+	it("bounds long archive preview names and accepts the exact confirmation resend", async () => {
+		await seedOrgApp();
+		const longName = "A".repeat(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH + 40);
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "long-archive-preview-persona",
+			mutations: admitMutationBatch([
+				{
+					kind: "updatePersona",
+					uuid: PERSONA_ASHA,
+					patch: { name: longName },
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		const { district, facility } = await seedChain();
+		await assignPersona(PERSONA_ASHA, facility);
+
+		const impact = await describeArchiveImpact(scope(), district);
+		expect(archiveImpactSchema.safeParse(impact).success).toBe(true);
+		expect(impact.unassignedPersonaPreview).toEqual([
+			longName.slice(0, ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH),
+		]);
+		await expect(
+			setLocationArchived(
+				scope(),
+				district,
+				true,
+				impact.revision,
+				archiveImpactSchema.parse(impact),
+			),
+		).resolves.toMatchObject({
+			unassignedPersonaCount: 1,
+			impact,
+		});
 	});
 
 	it("refuses when a confirmed archive consequence changed", async () => {
