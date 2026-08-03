@@ -815,19 +815,17 @@ export async function runCanonicalRuntimeDatabaseProbe(
 			const streamRows = await readAppChangeStreamRowsSince(
 				tx,
 				candidate.app_id,
-				0,
+				app.mutation_seq,
 			);
+			const streamRow = streamRows[0];
 			if (
-				!streamRows.some(
-					(row) =>
-						(row.seq === 1 || row.seq === "1") && row.baseline_seq !== null,
-				) ||
-				!streamRows.some(
-					(row) => row.seq === write.seq || row.seq === String(write.seq),
-				)
+				streamRows.length !== 1 ||
+				streamRow === undefined ||
+				(streamRow.seq !== write.seq && streamRow.seq !== String(write.seq)) ||
+				streamRow.baseline_seq !== null
 			) {
 				throw new Error(
-					"The runtime database probe did not exercise the complete app-change stream read.",
+					"The runtime database probe did not read exactly its fresh app-change stream row.",
 				);
 			}
 

@@ -245,8 +245,10 @@ findings. It then strictly loads a gate-clean candidate through
 `loadAppInTransaction`, reauthorizes a real editable Project member, and sends a
 no-op name batch through the real guarded writer inside one transaction. It
 then executes the SSE route's shared `app_changes` plus immutable-baseline read
-under that same runtime role and proves both the baseline and fresh write are
-visible. Its content-free report carries actual parser, gate, and
+under that same runtime role, starting at the pre-write sequence so the
+permanent history is never loaded, and proves exactly the fresh write is
+visible. The integration test separately runs the shared query over a real
+baseline row. Its content-free report carries actual parser, gate, and
 reference-index finding counts; its intentional rollback must leave both the
 app sequence and stream unchanged.
 `commitGuardedBatchInTransaction` is the narrow seam for that probe: ordinary
