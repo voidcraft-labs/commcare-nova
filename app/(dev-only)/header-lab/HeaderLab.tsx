@@ -75,7 +75,6 @@ export function HeaderLab() {
 		<div className="flex h-dvh flex-col bg-nova-void">
 			<AppHeader
 				homeLabel={markOnly ? "Back to your apps" : "commcare nova"}
-				homeTooltip={markOnly ? "Back to your apps" : undefined}
 				markOnly={markOnly}
 				start={
 					banner ? (

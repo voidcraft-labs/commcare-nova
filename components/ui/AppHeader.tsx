@@ -39,12 +39,10 @@ import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 const ABSORB_ANIMATION = "nova-logo-absorb-rim";
 
 export interface AppHeaderProps {
-	/** The mark's accessible name. It says what following the link DOES, which
-	 *  is not the same sentence on a settings page as it is mid-build. */
+	/** The mark's accessible name, and its hover text. It says what following
+	 *  the link DOES, which is not the same sentence on a settings page as it
+	 *  is mid-build. */
 	homeLabel: string;
-	/** Hover text for the mark. Worth having wherever the sphere stands alone
-	 *  and the wordmark isn't there to name it. */
-	homeTooltip?: string;
 	/** Hand the wordmark back and keep the sphere. Flipping this on a mounted
 	 *  header plays the handoff: the word is drawn in, then the sphere answers
 	 *  with the swell it gives the pointer. */
@@ -70,7 +68,6 @@ export interface AppHeaderProps {
 
 export function AppHeader({
 	homeLabel,
-	homeTooltip,
 	markOnly = false,
 	start,
 	center,
@@ -97,6 +94,15 @@ export function AppHeader({
 		if (collapsing) setAbsorbing(true);
 	}, [markOnly]);
 
+	/* The tooltip is UNCONDITIONAL, and that is load-bearing rather than a
+	 * preference. `SimpleTooltip` returns its child bare when `content` is
+	 * falsy, so a tooltip that comes and goes moves the mark between two
+	 * positions in the tree — React rebuilds the `<Link>`, the fresh `Logo`
+	 * renders already collapsed, and the handoff loses its wordmark half while
+	 * the sphere (owned up here, and not remounted) still swells. It reads as
+	 * the word vanishing under a pulse. `homeLabel` is the right text anyway:
+	 * it is what the mark IS on this surface, which is exactly what a bare
+	 * sphere needs saying. */
 	const mark = (
 		<Link
 			href="/"
@@ -129,13 +135,9 @@ export function AppHeader({
 			className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-nova-border bg-nova-void px-2 sm:px-4"
 		>
 			<div className="col-start-1 row-start-1 flex min-w-0 items-center sm:gap-4">
-				{homeTooltip ? (
-					<SimpleTooltip content={homeTooltip} side="bottom">
-						{mark}
-					</SimpleTooltip>
-				) : (
-					mark
-				)}
+				<SimpleTooltip content={homeLabel} side="bottom">
+					{mark}
+				</SimpleTooltip>
 				{stacked ? null : start}
 			</div>
 

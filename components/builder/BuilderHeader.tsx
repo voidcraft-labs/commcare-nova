@@ -198,7 +198,6 @@ export function BuilderHeader({
 	return (
 		<AppHeader
 			homeLabel="Back to your apps"
-			homeTooltip="Back to your apps"
 			markOnly={!beforeAnyApp}
 			start={banner}
 			center={
