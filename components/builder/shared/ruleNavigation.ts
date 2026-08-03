@@ -590,6 +590,16 @@ function locateExpression(
 						"Date",
 					)
 				: undefined;
+		case "table-lookup":
+			return first === "table-lookup" && second === "where"
+				? descendPredicate(
+						value.where,
+						[first, second],
+						remaining.slice(2),
+						currentCaseType,
+						"Matching table row",
+					)
+				: undefined;
 	}
 }
 
@@ -864,8 +874,22 @@ function replaceExpression(
 				return { ...value, date: replaceExpressionChild(value.date, 1) };
 			}
 			break;
+		case "table-lookup":
+			if (first === "table-lookup" && second === "where") {
+				return { ...value, where: replacePredicateChild(value.where, 2) };
+			}
+			break;
 	}
 	throw new Error("Value path does not point to an editable node");
+}
+
+/** Replace one node inside a standalone ValueExpression root. */
+export function replaceExpressionNodeAtPath(
+	root: ValueExpression,
+	path: EditorPath,
+	next: EditableRuleNode,
+): ValueExpression {
+	return replaceExpression(root, path, next);
 }
 
 /** Replace only the addressed Predicate or ValueExpression node. Every

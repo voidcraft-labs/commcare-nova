@@ -28,16 +28,13 @@
  * `<prompt default>` is evaluated on-device.
  */
 
+import {
+	findOnDeviceDateAddIssue,
+	findOnDeviceDateAddIssueInPredicate,
+	type OnDeviceDateAddIssue,
+} from "@/lib/commcare/expression/onDeviceCompatibility";
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import {
-	checkExpression,
-	type Predicate,
-	type TypeContext,
-	type ValueExpression,
-	walkExpressionNodes,
-	walkPredicateExpressionNodes,
-} from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import {
@@ -45,14 +42,6 @@ import {
 	type ModuleWireSlotIdentity,
 } from "./moduleWireSlots";
 import { moduleTypeContext } from "./shared";
-
-type DateAddExpression = Extract<ValueExpression, { kind: "date-add" }>;
-type IncompatibilityReason = "calendar-interval" | "datetime-base";
-
-interface IncompatibleDateAdd {
-	readonly expression: DateAddExpression;
-	readonly reason: IncompatibilityReason;
-}
 
 export function dateAddOnDeviceCompatibility(
 	mod: Module,
@@ -64,74 +53,29 @@ export function dateAddOnDeviceCompatibility(
 
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
 		judgePredicate(predicate, slot) {
-			const offender = firstIncompatibleDateAddInPredicate(predicate, ctx);
+			const offender = findOnDeviceDateAddIssueInPredicate(predicate, ctx);
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 		judgeCsqlPredicate(predicate, slot) {
-			let offender: IncompatibleDateAdd | undefined;
+			let offender: OnDeviceDateAddIssue | undefined;
 			walkCsqlOnDeviceNodes(predicate, {
 				visitExpression(node) {
-					if (offender !== undefined || node.kind !== "date-add") return;
-					offender = incompatibilityFor(node, ctx);
+					if (offender === undefined)
+						offender = findOnDeviceDateAddIssue(node, ctx);
 				},
 			});
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 		judgeExpression(expression, slot) {
-			const offender = firstIncompatibleDateAdd(expression, ctx);
+			const offender = findOnDeviceDateAddIssue(expression, ctx);
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 	});
 }
 
-/** One finding per emitted slot gives the author one stable repair target
- * without repeating the same card for every nested date-add node. */
-function firstIncompatibleDateAddInPredicate(
-	predicate: Predicate,
-	ctx: TypeContext,
-): IncompatibleDateAdd | undefined {
-	let offender: IncompatibleDateAdd | undefined;
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (offender !== undefined || node.kind !== "date-add") return;
-		offender = incompatibilityFor(node, ctx);
-	});
-	return offender;
-}
-
-function firstIncompatibleDateAdd(
-	expression: ValueExpression,
-	ctx: TypeContext,
-): IncompatibleDateAdd | undefined {
-	let offender: IncompatibleDateAdd | undefined;
-	walkExpressionNodes(expression, (node) => {
-		if (offender !== undefined || node.kind !== "date-add") return;
-		offender = incompatibilityFor(node, ctx);
-	});
-	return offender;
-}
-
-function incompatibilityFor(
-	expression: DateAddExpression,
-	ctx: TypeContext,
-): IncompatibleDateAdd | undefined {
-	if (expression.interval === "months" || expression.interval === "years") {
-		return { expression, reason: "calendar-interval" };
-	}
-
-	// The ordinary type-check rules own malformed date operands. This rule only
-	// adds the portability finding when the otherwise-valid base is a datetime.
-	const operandErrors: Parameters<typeof checkExpression>[2] = [];
-	const operandType = checkExpression(expression.date, ctx, operandErrors, []);
-	if (operandType === "datetime") {
-		return { expression, reason: "datetime-base" };
-	}
-
-	return undefined;
-}
-
 function buildError(
 	args: ModuleWireSlotIdentity,
-	offender: IncompatibleDateAdd,
+	offender: OnDeviceDateAddIssue,
 ): ValidationError {
 	const interval = offender.expression.interval;
 	const message = (() => {

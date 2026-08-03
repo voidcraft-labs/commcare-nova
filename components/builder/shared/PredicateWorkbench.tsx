@@ -33,7 +33,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { predicateExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -499,18 +499,22 @@ export function PredicateWorkbench({
 			evaluationTarget,
 		],
 	);
-	const admitCaseSearchExpression = useCallback(
+	const admitRuntimeExpression = useCallback(
 		(path: EditorPath, next: ValueExpression) => {
 			const candidate = replaceRuleNodeAtPath(value, path, {
 				family: "expression",
 				value: next,
 			});
-			const verdict = caseSearchPredicateEditVerdict(candidate);
+			const verdict = predicateExpressionRuntimeEditVerdict(
+				candidate,
+				evaluationTarget,
+				typeContext,
+			);
 			return verdict.ok
 				? ({ admitted: true } as const)
 				: ({ admitted: false, reason: verdict.reason } as const);
 		},
-		[value],
+		[value, evaluationTarget, typeContext],
 	);
 
 	const updateFocusedPredicate = (next: Predicate) => {
@@ -659,9 +663,7 @@ export function PredicateWorkbench({
 			allowsNeverMatch={allowsNeverMatch}
 			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
-			admitExpressionChange={
-				evaluationTarget !== "on-device" ? admitCaseSearchExpression : undefined
-			}
+			admitExpressionChange={admitRuntimeExpression}
 		>
 			<RuleFocusProvider activePath={activePath} open={enterRule}>
 				<div ref={workbenchRef} className="@container space-y-3">

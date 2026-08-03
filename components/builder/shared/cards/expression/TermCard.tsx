@@ -808,9 +808,11 @@ function computeModeAdmission(
 				constraint.accepts === "any" ||
 				acceptsType(constraint, effectiveDataType(p)),
 		) ?? false;
-	const hasAcceptedInput =
-		constraint.accepts === "any" ||
-		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
+	const hasAcceptedInput = ctx.knownInputs.some(
+		(input) =>
+			constraint.accepts === "any" ||
+			acceptsType(constraint, input.data_type ?? "text"),
+	);
 	/* The decl list arrives already narrowed to the answers this slot may
 	 * read (repeat correlation is the mounting surface's call), so the only
 	 * question left here is the slot's own type. */

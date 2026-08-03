@@ -15,7 +15,15 @@
  * their related reads into explicit quantifiers before evaluating them.
  */
 
-import type { PropertyRef, ValueExpression } from "@/lib/domain/predicate";
+import {
+	checkExpression,
+	type Predicate,
+	type PropertyRef,
+	type TypeContext,
+	type ValueExpression,
+	walkExpressionNodes,
+	walkPredicateExpressionNodes,
+} from "@/lib/domain/predicate";
 import {
 	canonicalizeRelationPath,
 	type RelationEvaluationScopeContext,
@@ -25,6 +33,102 @@ export type OnDeviceScalarExpressionIssue = {
 	readonly reason: "multi-valued-relation-read";
 	readonly property: PropertyRef;
 };
+
+export type OnDeviceDateAddIssue = {
+	readonly reason: "calendar-interval" | "datetime-base";
+	readonly expression: Extract<ValueExpression, { kind: "date-add" }>;
+};
+
+/**
+ * Classify one `date-add` node against the real schema-derived type context.
+ *
+ * This is deliberately semantic rather than an emitter probe. A property term
+ * does not carry its resolved `date` / `datetime` type in the canonical AST,
+ * so a structural emitter can defend obvious `now()` shapes but cannot decide
+ * whether `prop("patient", "visited_at")` would lose its time-of-day. Every
+ * validator carrier calls this helper before emission and maps the structured
+ * reason into its own author-facing location and error code.
+ */
+export function onDeviceDateAddIssue(
+	expression: ValueExpression,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	if (expression.kind !== "date-add") return undefined;
+	if (expression.interval === "months" || expression.interval === "years") {
+		return { expression, reason: "calendar-interval" };
+	}
+
+	// The ordinary type checker owns malformed operands. This classifier adds
+	// only the target-runtime restriction for an otherwise valid datetime base.
+	// Property terms name their originating case type explicitly. Drop the
+	// checker's current-scope pin here so a node reached inside an exists/count
+	// destination can resolve its intrinsic type; the ordinary whole-carrier
+	// check already proves that the authored scope is legal. Keep tableScope,
+	// which is the only way a table-column term gets its data type.
+	const operandErrors: Parameters<typeof checkExpression>[2] = [];
+	if (
+		checkExpression(
+			expression.date,
+			{ ...context, currentCaseType: undefined },
+			operandErrors,
+			[],
+		) === "datetime"
+	) {
+		return { expression, reason: "datetime-base" };
+	}
+	return undefined;
+}
+
+/** Return the first non-portable date calculation in an expression carrier. */
+export function findOnDeviceDateAddIssue(
+	expression: ValueExpression,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	let issue: OnDeviceDateAddIssue | undefined;
+	walkExpressionNodes(expression, (node) => {
+		if (issue !== undefined) return;
+		issue = issueInNodeOrLookupRow(node, context);
+	});
+	return issue;
+}
+
+/** Return the first non-portable date calculation in a predicate carrier. */
+export function findOnDeviceDateAddIssueInPredicate(
+	predicate: Predicate,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	let issue: OnDeviceDateAddIssue | undefined;
+	walkPredicateExpressionNodes(predicate, (node) => {
+		if (issue !== undefined) return;
+		issue = issueInNodeOrLookupRow(node, context);
+	});
+	return issue;
+}
+
+/**
+ * A table lookup changes the meaning of table-column leaves in its filter.
+ * Structural walkers deliberately carry no semantic context, so install that
+ * one row scope before inspecting descendants. Case-relation scopes need no
+ * equivalent rebinding here because property leaves carry their case type and
+ * `onDeviceDateAddIssue` intentionally resolves them without the checker pin.
+ */
+function issueInNodeOrLookupRow(
+	expression: ValueExpression,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	if (expression.kind === "table-lookup") {
+		const columns = context.lookupTables?.get(expression.tableId);
+		if (columns !== undefined) {
+			const issue = findOnDeviceDateAddIssueInPredicate(expression.where, {
+				...context,
+				currentCaseType: undefined,
+				tableScope: { tableId: expression.tableId, columns },
+			});
+			if (issue !== undefined) return issue;
+		}
+	}
+	return onDeviceDateAddIssue(expression, context);
+}
 
 /** Return the first device incompatibility in a scalar expression root. */
 export function findOnDeviceScalarExpressionIssue(

@@ -162,6 +162,7 @@ export type ValidationErrorCode =
 	| "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER"
 	| "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE"
 	| "LOOKUP_SELECT_FILTER_TYPE_ERROR"
+	| "LOOKUP_SELECT_FILTER_NOT_ON_DEVICE"
 	// XForm output (post-expansion) — the parse-time oracle's FATAL contract.
 	| "XFORM_PARSE_ERROR"
 	| "XFORM_NO_INSTANCE"

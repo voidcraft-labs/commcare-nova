@@ -58,10 +58,18 @@ const applyBlueprintChange = (
 const {
 	applySchemaChangeMock,
 	applyCasePropertyRenamePhaseAMock,
+	retireSchemasPhaseAMock,
+	completeRetirementMock,
+	drainPendingIndexConvergenceMock,
+	drainRetiredIndexConvergenceMock,
 	withSchemaContextMock,
 } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
 	applyCasePropertyRenamePhaseAMock: vi.fn(),
+	retireSchemasPhaseAMock: vi.fn(),
+	completeRetirementMock: vi.fn(),
+	drainPendingIndexConvergenceMock: vi.fn(),
+	drainRetiredIndexConvergenceMock: vi.fn(),
 	withSchemaContextMock: vi.fn(),
 }));
 
@@ -177,10 +185,19 @@ beforeEach(() => {
 		parkedIds: [],
 		failureReasons: [],
 	});
+	completeRetirementMock.mockResolvedValue(undefined);
+	drainPendingIndexConvergenceMock.mockResolvedValue(undefined);
+	drainRetiredIndexConvergenceMock.mockResolvedValue(undefined);
+	retireSchemasPhaseAMock.mockResolvedValue({
+		caseTypes: ["patient"],
+		completeAfterCommit: completeRetirementMock,
+	});
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		applyCasePropertyRenamePhaseA: applyCasePropertyRenamePhaseAMock,
-		drainPendingIndexConvergence: vi.fn(),
+		retireSchemasPhaseA: retireSchemasPhaseAMock,
+		drainPendingIndexConvergence: drainPendingIndexConvergenceMock,
+		drainRetiredIndexConvergence: drainRetiredIndexConvergenceMock,
 	});
 });
 
@@ -351,6 +368,95 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 });
 
 describe("applyBlueprintChange — derived schema materialization", () => {
+	it("retires a removed case type inside the guarded Blueprint transaction", async () => {
+		const prior = minDoc();
+		const committed = {
+			...prior,
+			caseTypes: [],
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		} satisfies BlueprintDoc;
+		const tx = {};
+		commitGuardedBatchMock.mockImplementationOnce(async (_args, hooks) => {
+			await hooks?.beforeWrite?.({
+				tx,
+				freshDoc: prior,
+				nextDoc: committed,
+				seq: 11,
+			});
+			expect(completeRetirementMock).not.toHaveBeenCalled();
+			return { seq: 11, committedDoc: committed, deduped: false };
+		});
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			expectedProjectId: PROJECT_ID,
+			batchId: "retire-patient",
+			kind: "autosave",
+			guard: {
+				mutations: [{ kind: "retireCaseType", caseType: "patient" }],
+			},
+		});
+
+		expect(retireSchemasPhaseAMock).toHaveBeenCalledTimes(1);
+		const [retirementTx, retirementArgs] =
+			retireSchemasPhaseAMock.mock.calls[0] ?? [];
+		expect(retirementTx).toBe(tx);
+		expect(retirementArgs).toMatchObject({
+			appId: "app-1",
+			desiredSeq: 11,
+			caseTypes: ["patient"],
+		});
+		expect(retirementArgs.fallbackCaseTypeSchemas.has("patient")).toBe(true);
+		expect(completeRetirementMock).toHaveBeenCalledTimes(1);
+		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+		expect(result).toEqual({ seq: 11, committedDoc: committed });
+	});
+
+	it("retries durable retirement index work on an exact dedup", async () => {
+		const prior = minDoc();
+		const committed = {
+			...prior,
+			caseTypes: [],
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		} satisfies BlueprintDoc;
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 11,
+			committedDoc: committed,
+			deduped: true,
+		});
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			expectedProjectId: PROJECT_ID,
+			batchId: "retire-patient-retry",
+			kind: "autosave",
+			guard: {
+				mutations: [{ kind: "retireCaseType", caseType: "patient" }],
+			},
+		});
+
+		expect(retireSchemasPhaseAMock).not.toHaveBeenCalled();
+		expect(drainPendingIndexConvergenceMock).not.toHaveBeenCalled();
+		expect(drainRetiredIndexConvergenceMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			caseTypes: ["patient"],
+		});
+	});
+
 	it("classifies a queued field conversion from the peer-retargeted writer destination", async () => {
 		const fieldUuid = testUuid("peer-retargeted-writer");
 		const writerDoc = (

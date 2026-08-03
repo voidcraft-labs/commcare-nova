@@ -5,10 +5,10 @@
  * hook with the freshly locked prior and admitted candidate. Each affected
  * case type is then derived from the committed candidate after commit.
  *
- * The output is one schema-sync entry per affected case type. It carries no
+ * The output is one lifecycle entry per affected case type. It carries no
  * rename inference and no caller-intent row migration:
  *
- *   1. **Schema-sync-only** — `{ caseType }`. Issued for any case type whose property
+ *   1. **Schema sync** — `{ kind: "sync", caseType }`. Issued for any case type whose property
  *      surface changed in a way that carries no provable per-row
  *      migration: property add, option add, property remove, a
  *      `data_type` shift, or any mutation to a property's `label` /
@@ -17,16 +17,18 @@
  *      string↔array reshape may still rewrite flipped select rows
  *      inside the sync.
  *
- *   2. **Empty result** — pure non-case-type mutations (module name
+ *   2. **Schema retirement** — `{ kind: "retire", caseType }`. Issued when a
+ *      materializable case type disappears. Retained case rows are untouched;
+ *      the guarded commit atomically marks the durable schema inactive and
+ *      queues its expression indexes for removal.
+ *
+ *   3. **Empty result** — pure non-case-type mutations (module name
  *      edits, form text edits, field UI tweaks) yield no entries.
  *      No case-schema store is opened.
  *
- * Case-type removals between snapshots produce no entry. Existing
- * rows keep their values in JSONB — nothing rewrites or strips
- * them; the case-store's `case_type_schemas` row stays in place
- * (still admitting those values) because the runtime never reads
- * a schema for a case type the blueprint no longer references, so
- * the orphaned row is harmless. A property removal on a LIVE case
+ * Case-type retirement never deletes existing rows or their JSONB values. The
+ * inactive schema retains its last validation contract for safe reactivation,
+ * but ordinary runtime validation treats it as absent. A property removal on a LIVE case
  * type is schema-sync-only: rows keep the orphaned values, and the
  * store sheds them on each row's next properties write (the
  * merged-update strip in `PostgresCaseStore.update`).
@@ -54,9 +56,9 @@ import {
 /**
  * One case type whose derived schema must converge after commit.
  */
-export interface CaseTypeChangeEntry {
-	readonly caseType: string;
-}
+export type CaseTypeChangeEntry =
+	| { readonly kind: "sync"; readonly caseType: string }
+	| { readonly kind: "retire"; readonly caseType: string };
 
 /**
  * Input shape for `classifyCaseTypeChanges`. Exposed as a typed
@@ -81,8 +83,8 @@ export interface ClassifyArgs {
  *   2. Walk the prospective case types looking for additions
  *      (case types not present in `prior`). One schema-sync entry
  *      per added case type so `case_type_schemas` populates.
- *   3. Case-type removals are intentionally NOT emitted — see the
- *      module-level docblock for the orphan-row rationale.
+ *   3. Walk the prior case types for removals. Emit one retirement entry for
+ *      each name absent from the prospective materializable catalog.
  */
 export function classifyCaseTypeChanges(
 	args: ClassifyArgs,
@@ -107,14 +109,20 @@ export function classifyCaseTypeChanges(
 		if (priorType === undefined) {
 			// Case-type addition — schema-sync-only entry materializes
 			// the `case_type_schemas` row before the first insert.
-			entries.push({ caseType: name });
+			entries.push({ kind: "sync", caseType: name });
 			continue;
 		}
 
 		if (caseTypePropertySurfaceDiffers(priorType, prospectiveType)) {
 			// Property surface shifted — schema-sync-only entry
 			// regenerates the JSON Schema + diffs the index set.
-			entries.push({ caseType: name });
+			entries.push({ kind: "sync", caseType: name });
+		}
+	}
+
+	for (const name of priorByName.keys()) {
+		if (!prospectiveByName.has(name)) {
+			entries.push({ kind: "retire", caseType: name });
 		}
 	}
 
