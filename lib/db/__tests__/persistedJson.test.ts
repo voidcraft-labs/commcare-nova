@@ -286,7 +286,7 @@ describe("persisted JSON source boundaries", () => {
 		const appsSource = readFileSync(path.join(root, "lib/db/apps.ts"), "utf8");
 		expect(
 			appsSource.match(/\.select\(PERSISTED_BLUEPRINT_APP_COLUMNS\)/g),
-		).toHaveLength(4);
+		).toHaveLength(5);
 		expect(
 			appsSource.match(/\bassemblePersistedBlueprintJsonText\(/g),
 		).toHaveLength(1);
