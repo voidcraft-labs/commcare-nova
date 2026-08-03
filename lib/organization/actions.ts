@@ -250,7 +250,7 @@ export async function setLocationArchivedAction(
 				"Review the current archive impact before confirming this change.",
 			);
 		}
-		return setLocationArchived(
+		const result = await setLocationArchived(
 			scope,
 			parsed(uuidSchema, locationId),
 			parsedArchived,
@@ -259,5 +259,10 @@ export async function setLocationArchivedAction(
 				? undefined
 				: parsed(archiveImpactSchema, confirmedImpact),
 		);
+		return {
+			revision: result.revision,
+			archivedCount: result.archivedCount,
+			unassignedPersonaCount: result.unassignedPersonaCount,
+		};
 	});
 }

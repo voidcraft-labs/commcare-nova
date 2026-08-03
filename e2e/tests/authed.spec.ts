@@ -553,6 +553,11 @@ test.describe("authenticated builder", () => {
 				.getByRole("checkbox", { name: "People work here" })
 				.filter({ visible: true }),
 		).toBeDisabled();
+		await expect(
+			refreshedLevels.getByText(
+				/Asha is assigned to .*Move that assignment before changing who can work/,
+			),
+		).toBeVisible();
 
 		await refreshedPlaces
 			.getByRole("button", { name: /Mombasa District/ })

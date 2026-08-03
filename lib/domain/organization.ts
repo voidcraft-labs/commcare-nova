@@ -323,6 +323,7 @@ export const locationPropertySchema = z
 		 *  CommCare's fixture emits an empty element for an unset field. */
 		choices: z
 			.array(z.string().min(1))
+			.min(1, "Accepted place-information values cannot be empty.")
 			.refine((choices) => new Set(choices).size === choices.length, {
 				message: "Accepted place-information values must be unique.",
 			})

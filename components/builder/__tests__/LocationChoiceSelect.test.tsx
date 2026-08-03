@@ -55,4 +55,25 @@ describe("LocationChoiceSelect", () => {
 			screen.getByRole("option", { name: "Place 120 · place-120" }),
 		).toBeDefined();
 	});
+
+	it("keeps a rejected exact match visible with its refusal reason", async () => {
+		const blocked = location(1);
+		render(
+			<LocationChoiceSelect
+				locations={[blocked]}
+				value=""
+				onValueChange={() => undefined}
+				ariaLabel="Choose a place"
+				placeholder="Choose a place"
+				issueFor={() => "Outside Asha's address book."}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("combobox", { name: "Choose a place" }));
+		await settleBaseUiTransitions();
+		expect(screen.getByText("Outside Asha's address book.")).toBeDefined();
+		const [option] = screen.getAllByRole("option");
+		expect(option).toBeDefined();
+		expect(option?.getAttribute("aria-disabled")).toBe("true");
+	});
 });

@@ -206,9 +206,12 @@ confirmation is server-described: subtree, displaced personas, owned cases,
 and any fixed-owner form rules. A fixed-owner reference blocks the gesture
 until its form rule changes. Place rows own edits to their external ID, parent,
 and custom values; creating a place collects the same level-applicable values,
-and required values keep its Add action disabled. Property controls author the
-required and accepted-values contracts and preflight every existing place so a
-catalog change cannot create a cross-store state the server would refuse.
+and required values keep its Add action disabled. Each custom-value save sends
+one `valuePatch` entry, then rebases the complete local value bag from the
+authoritative returned row, so keeping a draft cannot overwrite a peer's edit
+to an unrelated property. Property controls author the required and
+accepted-values contracts and preflight every existing place so a catalog
+change cannot create a cross-store state the server would refuse.
 
 ## Preview mode
 
@@ -640,9 +643,12 @@ store bound it searches by name or unique site code, pages 50 rows at a time,
 mounts only that page's options, and runs cross-store candidate verdicts only
 for that bounded page. Never replace it with a full `SelectItem` map or a
 whole-snapshot verdict inside an unbounded `.filter(...)`; either one makes a
-single open picker quadratic. A persona's assigned-place list follows the same
-50-row paging bound, and its order-preserving mutation planner deduplicates with
-a set rather than rescanning the growing result. The Places hierarchy itself is an ordinary
+single open picker quadratic. A rejected candidate remains in that bounded
+page as a disabled option with its exact refusal reason; filtering it out hides
+the recovery path. Level authoring menus follow the same visible-reason rule.
+A persona's assigned-place list follows the same 50-row paging bound, and its
+order-preserving mutation planner deduplicates with a set rather than rescanning
+the growing result. The Places hierarchy itself is an ordinary
 paginated list of disclosures, not an ARIA treeview: its buttons own keyboard
 interaction, while every row carries a visible, non-shrinking numeric depth cue
 so compact-width indentation caps never make distinct depths look identical.

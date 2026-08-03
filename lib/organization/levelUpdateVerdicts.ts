@@ -63,7 +63,7 @@ export function organizationLevelPatchIssue(
 		}
 		if (location.parentId === null) {
 			if (level.parentLevelUuid !== undefined) {
-				return `“${location.name}” would be left without a parent place. Move that place first.`;
+				return `“${location.name}” would be left without a parent place. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`;
 			}
 			continue;
 		}
@@ -72,7 +72,7 @@ export function organizationLevelPatchIssue(
 			parent === undefined ||
 			!levelMayNestUnder(location.levelUuid, parent.levelUuid, levels)
 		) {
-			return `“${location.name}” would no longer sit under a place at a level above it. Move that place first.`;
+			return `“${location.name}” would no longer sit under a place at a level above it. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`;
 		}
 	}
 

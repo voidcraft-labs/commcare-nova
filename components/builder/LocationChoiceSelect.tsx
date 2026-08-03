@@ -75,9 +75,10 @@ export function LocationChoiceSelect({
 		pageStart,
 		pageStart + LOCATION_CHOICE_PAGE_SIZE,
 	);
-	const available = pageLocations.filter(
-		(location) => issueFor?.(location) === undefined,
-	);
+	const pageChoices = pageLocations.map((location) => ({
+		location,
+		issue: issueFor?.(location),
+	}));
 	const selected = locations.find((location) => location.id === value);
 
 	useEffect(() => {
@@ -146,15 +147,29 @@ export function LocationChoiceSelect({
 							{option.label}
 						</SelectItem>
 					))}
-					{available.length === 0 && specialOptions.length === 0 ? (
+					{pageChoices.length === 0 && specialOptions.length === 0 ? (
 						<SelectItem disabled value={NO_AVAILABLE_LOCATION}>
-							No available places on this page
+							No places match this search
 						</SelectItem>
 					) : (
-						available.map((location) => (
-							<SelectItem wrap key={location.id} value={location.id}>
-								{optionPrefix}
-								{locationChoiceLabel(location)}
+						pageChoices.map(({ location, issue }) => (
+							<SelectItem
+								wrap
+								key={location.id}
+								value={location.id}
+								disabled={issue !== undefined}
+							>
+								<span className="flex min-w-0 flex-col gap-0.5">
+									<span>
+										{optionPrefix}
+										{locationChoiceLabel(location)}
+									</span>
+									{issue !== undefined && (
+										<span className="whitespace-normal text-[11px] leading-snug text-nova-red">
+											{issue}
+										</span>
+									)}
+								</span>
 							</SelectItem>
 						))
 					)}

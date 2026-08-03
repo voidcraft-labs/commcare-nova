@@ -15,7 +15,7 @@
  */
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import { Input } from "@/components/shadcn/input";
@@ -302,18 +302,15 @@ function LevelRow({
 				(ancestor) => ancestor.uuid === level.uuid,
 			),
 	);
-	// A level may sit under any level ABOVE it, so the offer is every level
-	// that is not this one and not below it — the same predicate the store
-	// enforces, so nothing offered here can be refused there.
+	// The structural list excludes only self and descendants. Exact cross-store
+	// verdicts stay attached to each remaining choice so a refused move remains
+	// visible with its recovery reason instead of disappearing from the menu.
 	const parentOptions = peers.filter(
 		(candidate) =>
 			candidate.uuid !== level.uuid &&
 			!ancestorLevels(candidate, levelRecord).some(
 				(a) => a.uuid === level.uuid,
-			) &&
-			organizationLevelPatchIssue(doc, locations, level.uuid, {
-				parentLevelUuid: candidate.uuid,
-			}) === undefined,
+			),
 	);
 	const issueFor = (patch: OrganizationLevelPatch) =>
 		organizationLevelPatchIssue(doc, locations, level.uuid, patch);
@@ -395,16 +392,20 @@ function LevelRow({
 							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem
+							<IssueSelectItem
 								value={TOP_LEVEL}
-								disabled={issueFor({ parentLevelUuid: null }) !== undefined}
+								issue={issueFor({ parentLevelUuid: null })}
 							>
 								Nothing — this is a top level
-							</SelectItem>
+							</IssueSelectItem>
 							{parentOptions.map((candidate) => (
-								<SelectItem wrap key={candidate.uuid} value={candidate.uuid}>
+								<IssueSelectItem
+									key={candidate.uuid}
+									value={candidate.uuid}
+									issue={issueFor({ parentLevelUuid: candidate.uuid })}
+								>
 									{candidate.name}
-								</SelectItem>
+								</IssueSelectItem>
 							))}
 						</SelectContent>
 					</Select>
@@ -514,6 +515,10 @@ function CaseFlowGroup({
 		flow.workers === "assigned"
 			? { ...flow, ownsCases: !flow.ownsCases }
 			: { workers: "none", ownsCases: !flow.ownsCases };
+	const workersIssue = issueFor({
+		caseFlow: flow.workers === "assigned" ? workersOff : workersOn,
+	});
+	const ownsCasesIssue = issueFor({ caseFlow: ownsCasesToggled });
 
 	return (
 		<fieldset className="rounded-lg border border-nova-border p-3">
@@ -524,21 +529,16 @@ function CaseFlowGroup({
 				<Choice
 					label="People work here"
 					checked={flow.workers === "assigned"}
-					disabled={
-						!canEdit ||
-						issueFor({
-							caseFlow: flow.workers === "assigned" ? workersOff : workersOn,
-						}) !== undefined
-					}
+					disabled={!canEdit || workersIssue !== undefined}
+					issue={workersIssue}
 					onChange={(checked) => set(checked ? workersOn : workersOff)}
 					hint="Personas and deployed workers can be assigned to places at this level."
 				/>
 				<Choice
 					label="Places here own cases"
 					checked={flow.ownsCases}
-					disabled={
-						!canEdit || issueFor({ caseFlow: ownsCasesToggled }) !== undefined
-					}
+					disabled={!canEdit || ownsCasesIssue !== undefined}
+					issue={ownsCasesIssue}
 					onChange={(checked) =>
 						set(
 							flow.workers === "assigned"
@@ -574,45 +574,38 @@ function CaseFlowGroup({
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem
+								<IssueSelectItem
 									value="none"
-									disabled={
-										issueFor({
-											caseFlow: { ...flow, descendantCases: { kind: "none" } },
-										}) !== undefined
-									}
+									issue={issueFor({
+										caseFlow: { ...flow, descendantCases: { kind: "none" } },
+									})}
 								>
 									No — only their own place
-								</SelectItem>
-								<SelectItem
+								</IssueSelectItem>
+								<IssueSelectItem
 									value="all"
-									disabled={
-										issueFor({
-											caseFlow: { ...flow, descendantCases: { kind: "all" } },
-										}) !== undefined
-									}
+									issue={issueFor({
+										caseFlow: { ...flow, descendantCases: { kind: "all" } },
+									})}
 								>
 									Yes — everything below
-								</SelectItem>
+								</IssueSelectItem>
 								{peers.map((ancestor) => (
-									<SelectItem
-										wrap
+									<IssueSelectItem
 										key={ancestor.uuid}
 										value={`down-to:${ancestor.uuid}`}
-										disabled={
-											issueFor({
-												caseFlow: {
-													...flow,
-													descendantCases: {
-														kind: "down-to",
-														levelUuid: ancestor.uuid as Uuid,
-													},
+										issue={issueFor({
+											caseFlow: {
+												...flow,
+												descendantCases: {
+													kind: "down-to",
+													levelUuid: ancestor.uuid as Uuid,
 												},
-											}) !== undefined
-										}
+											},
+										})}
 									>
 										Down to {ancestor.name}
-									</SelectItem>
+									</IssueSelectItem>
 								))}
 							</SelectContent>
 						</Select>
@@ -821,52 +814,50 @@ function AddressBookGroup({
 						<SelectValue>{REACH_LABELS[book.reach]}</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem
+						<IssueSelectItem
 							value="own-branch"
-							disabled={
-								issueFor({ addressBook: { reach: "own-branch" } }) !== undefined
-							}
+							issue={issueFor({ addressBook: { reach: "own-branch" } })}
 						>
 							Their own place, everything under it, and the chain above
-						</SelectItem>
-						<SelectItem
+						</IssueSelectItem>
+						<IssueSelectItem
 							value="own-branch-limited"
-							disabled={
-								selfAndBelow.length === 0 ||
-								issueFor({
-									addressBook: {
-										reach: "own-branch-limited",
-										levelUuids: [level.uuid as Uuid],
-									},
-								}) !== undefined
+							issue={
+								selfAndBelow.length === 0
+									? "Add this level to the hierarchy before limiting its branch."
+									: issueFor({
+											addressBook: {
+												reach: "own-branch-limited",
+												levelUuids: [level.uuid as Uuid],
+											},
+										})
 							}
 						>
 							Their own place, but only certain levels
-						</SelectItem>
-						<SelectItem
+						</IssueSelectItem>
+						<IssueSelectItem
 							value="shared-branch"
-							disabled={
-								above[0] === undefined ||
-								issueFor({
-									addressBook: {
-										reach: "shared-branch",
-										fromLevelUuid: above[0]?.uuid as Uuid,
-									},
-								}) !== undefined
+							issue={
+								above[0] === undefined
+									? "Add a level above this one before sharing a higher branch."
+									: issueFor({
+											addressBook: {
+												reach: "shared-branch",
+												fromLevelUuid: above[0].uuid as Uuid,
+											},
+										})
 							}
 						>
 							Everything under a level further up
-						</SelectItem>
-						<SelectItem
+						</IssueSelectItem>
+						<IssueSelectItem
 							value="whole-organization"
-							disabled={
-								issueFor({
-									addressBook: { reach: "whole-organization" },
-								}) !== undefined
-							}
+							issue={issueFor({
+								addressBook: { reach: "whole-organization" },
+							})}
 						>
 							The whole organization
-						</SelectItem>
+						</IssueSelectItem>
 					</SelectContent>
 				</Select>
 				{book.reach === "shared-branch" && above.length > 0 && (
@@ -893,21 +884,18 @@ function AddressBookGroup({
 							</SelectTrigger>
 							<SelectContent>
 								{above.map((ancestor) => (
-									<SelectItem
-										wrap
+									<IssueSelectItem
 										key={ancestor.uuid}
 										value={ancestor.uuid}
-										disabled={
-											issueFor({
-												addressBook: {
-													...book,
-													fromLevelUuid: ancestor.uuid,
-												},
-											}) !== undefined
-										}
+										issue={issueFor({
+											addressBook: {
+												...book,
+												fromLevelUuid: ancestor.uuid,
+											},
+										})}
 									>
 										{ancestor.name}
-									</SelectItem>
+									</IssueSelectItem>
 								))}
 							</SelectContent>
 						</Select>
@@ -920,21 +908,27 @@ function AddressBookGroup({
 						</legend>
 						{selfAndBelow.map((candidate) => {
 							const checked = book.levelUuids.includes(candidate.uuid);
+							const issue = issueFor({
+								addressBook: {
+									...book,
+									levelUuids: limitedSelection(candidate, !checked),
+								},
+							});
 							return (
 								<Choice
 									key={candidate.uuid}
 									label={candidate.name}
 									hint=""
+									issue={
+										candidate.uuid === level.uuid
+											? "A worker always carries their own level."
+											: issue
+									}
 									checked={checked}
 									disabled={
 										!canEdit ||
 										candidate.uuid === level.uuid ||
-										issueFor({
-											addressBook: {
-												...book,
-												levelUuids: limitedSelection(candidate, !checked),
-											},
-										}) !== undefined
+										issue !== undefined
 									}
 									onChange={(next) =>
 										set({
@@ -972,32 +966,27 @@ function AddressBookGroup({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem
+								<IssueSelectItem
 									value={NO_LEVEL_LIMIT}
-									disabled={
-										issueFor({
-											addressBook: bookWithoutDownTo as LevelAddressBook,
-										}) !== undefined
-									}
+									issue={issueFor({
+										addressBook: bookWithoutDownTo as LevelAddressBook,
+									})}
 								>
 									No limit
-								</SelectItem>
+								</IssueSelectItem>
 								{downToOptions.map((candidate) => (
-									<SelectItem
-										wrap
+									<IssueSelectItem
 										key={candidate.uuid}
 										value={candidate.uuid}
-										disabled={
-											issueFor({
-												addressBook: {
-													...book,
-													downToLevelUuid: candidate.uuid,
-												},
-											}) !== undefined
-										}
+										issue={issueFor({
+											addressBook: {
+												...book,
+												downToLevelUuid: candidate.uuid,
+											},
+										})}
 									>
 										{candidate.name}
-									</SelectItem>
+									</IssueSelectItem>
 								))}
 							</SelectContent>
 						</Select>
@@ -1035,32 +1024,27 @@ function AddressBookGroup({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem
+								<IssueSelectItem
 									value={NO_LEVEL_LIMIT}
-									disabled={
-										issueFor({
-											addressBook: bookWithoutTopSlice as LevelAddressBook,
-										}) !== undefined
-									}
+									issue={issueFor({
+										addressBook: bookWithoutTopSlice as LevelAddressBook,
+									})}
 								>
 									Do not add a top slice
-								</SelectItem>
+								</IssueSelectItem>
 								{peers.map((candidate) => (
-									<SelectItem
-										wrap
+									<IssueSelectItem
 										key={candidate.uuid}
 										value={candidate.uuid}
-										disabled={
-											issueFor({
-												addressBook: {
-													...book,
-													alsoIncludeTopDownToLevelUuid: candidate.uuid,
-												},
-											}) !== undefined
-										}
+										issue={issueFor({
+											addressBook: {
+												...book,
+												alsoIncludeTopDownToLevelUuid: candidate.uuid,
+											},
+										})}
 									>
 										{candidate.name}
-									</SelectItem>
+									</IssueSelectItem>
 								))}
 							</SelectContent>
 						</Select>
@@ -1074,23 +1058,28 @@ function AddressBookGroup({
 function Choice({
 	label,
 	hint,
+	issue,
 	checked,
 	disabled,
 	onChange,
 }: {
 	label: string;
 	hint: string;
+	issue?: string;
 	checked: boolean;
 	disabled: boolean;
 	onChange: (checked: boolean) => void;
 }) {
 	const id = useId();
+	const hintId = `${id}-hint`;
+	const issueId = `${id}-issue`;
 	return (
 		<div className="flex items-start gap-2.5">
 			<Checkbox
 				id={id}
 				checked={checked}
 				disabled={disabled}
+				aria-describedby={`${hintId}${issue === undefined ? "" : ` ${issueId}`}`}
 				onCheckedChange={(next) => onChange(next === true)}
 				className="mt-1"
 			/>
@@ -1098,11 +1087,44 @@ function Choice({
 				<Label htmlFor={id} className="text-[13px] text-nova-text">
 					{label}
 				</Label>
-				<p className="text-[12px] leading-relaxed text-nova-text-muted">
+				<p
+					id={hintId}
+					className="text-[12px] leading-relaxed text-nova-text-muted"
+				>
 					{hint}
 				</p>
+				{issue !== undefined && (
+					<p id={issueId} className="text-[12px] leading-relaxed text-nova-red">
+						{issue}
+					</p>
+				)}
 			</div>
 		</div>
+	);
+}
+
+function IssueSelectItem({
+	value,
+	issue,
+	disabled = false,
+	children,
+}: {
+	value: string;
+	issue?: string;
+	disabled?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<SelectItem wrap value={value} disabled={disabled || issue !== undefined}>
+			<span className="flex min-w-0 flex-col gap-0.5">
+				<span>{children}</span>
+				{issue !== undefined && (
+					<span className="whitespace-normal text-[11px] leading-snug text-nova-red">
+						{issue}
+					</span>
+				)}
+			</span>
+		</SelectItem>
 	);
 }
 

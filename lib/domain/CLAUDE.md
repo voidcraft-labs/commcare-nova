@@ -83,9 +83,12 @@ name, forest parentage, and two independent closed settings: case flow (holds
 workers, owns cases, descendant reach) and address-book reach (which places a
 worker can see and name). A location property has immutable UUID identity,
 mutable slug/label/constraints, and optional level UUID membership; row values
-key by the property UUID, never the slug. Every collection reader follows its
-membership array. Persona locations store one nonempty primary-first identity
-list, and absence means unassigned rather than an empty second spelling.
+key by the property UUID, never the slug. A closed accepted-values catalog is
+nonempty at the schema boundary; an empty catalog would make a required field
+impossible to satisfy and dead-end every future place write. Every collection
+reader follows its membership array. Persona locations store one nonempty
+primary-first identity list, and absence means unassigned rather than an empty
+second spelling.
 
 ## Who runs the app — properties, roles, personas
 

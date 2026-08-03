@@ -287,7 +287,7 @@ export async function assertLocationPlacementsValid(
 		if (row.parent_id === null) {
 			if (locationLevel.parentLevelUuid !== undefined) {
 				throw new BlueprintCommitRejectedError(
-					`"${row.name}" would be left without a parent place after this level change. Move the place first.`,
+					`"${row.name}" would be left without a parent place after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
 				);
 			}
 			continue;
@@ -298,7 +298,7 @@ export async function assertLocationPlacementsValid(
 			!levelMayNestUnder(row.level_uuid, parent.level_uuid, levels)
 		) {
 			throw new BlueprintCommitRejectedError(
-				`"${row.name}" would no longer sit under a place at a level above it after this level change. Move the place first.`,
+				`"${row.name}" would no longer sit under a place at a level above it after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
 			);
 		}
 	}

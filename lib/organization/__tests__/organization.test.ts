@@ -220,6 +220,18 @@ describe("organization authoring input identity", () => {
 		).toBe(false);
 	});
 
+	it("refuses an empty closed choice catalog before it can dead-end places", () => {
+		expect(
+			locationPropertySchema.safeParse({
+				uuid: lower,
+				slug: "kind",
+				label: "Facility kind",
+				required: true,
+				choices: [],
+			}).success,
+		).toBe(false);
+	});
+
 	it("canonicalizes coordinates to the matching numeric(20,10) spelling", () => {
 		const parsed = createLocationInputSchema.parse({
 			levelUuid: lower,

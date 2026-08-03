@@ -91,6 +91,20 @@ describe("organizationLevelPatchIssue", () => {
 		).toMatch(/Clinic.*level above|Clinic.*parent place/);
 	});
 
+	it("explains how to move an archived place before changing its level", () => {
+		const { doc, locations } = fixture();
+		const archived = locations.map((location) =>
+			location.id === FACILITY_PLACE
+				? { ...location, archivedAt: new Date("2026-08-03T00:00:00.000Z") }
+				: location,
+		);
+		expect(
+			organizationLevelPatchIssue(doc, archived, FACILITY, {
+				parentLevelUuid: null,
+			}),
+		).toMatch(/bring it back.*move it to a valid parent/i);
+	});
+
 	it("refuses turning off workers while a persona remains assigned", () => {
 		const { doc, locations } = fixture();
 		expect(

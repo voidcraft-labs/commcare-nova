@@ -521,8 +521,9 @@ function PlaceRow({
 
 	const keepDraft = () => {
 		// The author explicitly chooses the just-read peer row as the new base.
-		// Draft fields stay untouched and the next write uses the hook's refreshed
-		// organization revision, so no peer value is silently overwritten.
+		// Draft fields stay untouched, but ordinary custom-field saves use a
+		// one-key valuePatch. Untouched peer values therefore remain authoritative;
+		// the returned row rebases the complete draft after the accepted patch.
 		sourceRef.current = location;
 		localSavesRef.current = [];
 		setPeerChanged(false);
@@ -537,7 +538,8 @@ function PlaceRow({
 		setPeerChanged(false);
 	};
 
-	const saveValues = async (next: Record<string, string>) => {
+	const saveValue = async (propertyUuid: string, value: string) => {
+		const next = { ...draftValues, [propertyUuid]: value };
 		const filtered = valuesForLevel(properties, draftLevelUuid, next);
 		setDraftValues(filtered);
 		setDirtyValues(true);
@@ -548,11 +550,18 @@ function PlaceRow({
 			);
 			return;
 		}
-		const result = await organization.update(location.id, { values: filtered });
+		const result = await organization.update(location.id, {
+			valuePatch: { [propertyUuid]: value },
+		});
 		if (!result.ok) {
 			setMessage(result.message);
 		} else {
 			rebaseAfterLocalSave(result.location);
+			if (result.location !== undefined) {
+				setDraftValues(
+					valuesForLevel(properties, draftLevelUuid, result.location.values),
+				);
+			}
 			setDirtyValues(false);
 			setMessage(undefined);
 		}
@@ -1004,9 +1013,7 @@ function PlaceRow({
 									}));
 									setDirtyValues(true);
 								}}
-								onCommit={(value) =>
-									void saveValues({ ...draftValues, [property.uuid]: value })
-								}
+								onCommit={(value) => void saveValue(property.uuid, value)}
 							/>
 						))}
 					</fieldset>
