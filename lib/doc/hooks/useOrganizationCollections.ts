@@ -28,39 +28,11 @@ function inSequence<T>(
 	return out;
 }
 
-/**
- * The app's organization levels, top rung first.
- *
- * Sorted by depth rather than by the fractional key, because a level's
- * place in the hierarchy IS its order and showing them any other way
- * would invite an author to read the list as the structure. Siblings
- * within a depth keep their authored order.
- */
+/** The app's organization levels, in canonical membership-array order. */
 export function useOrganizationLevels(): OrganizationLevel[] {
 	const record = useBlueprintDoc((s) => s.organizationLevels);
 	const order = useBlueprintDoc((s) => s.organizationLevelOrder);
-	return useMemo(() => {
-		const levels = inSequence(record, order);
-		const byUuid = new Map(levels.map((level) => [level.uuid, level]));
-		const depthOf = (level: OrganizationLevel): number => {
-			let depth = 0;
-			const seen = new Set<string>([level.uuid]);
-			let current = level;
-			while (current.parentLevelUuid !== undefined) {
-				if (seen.has(current.parentLevelUuid)) break;
-				const parent = byUuid.get(current.parentLevelUuid);
-				if (parent === undefined) break;
-				seen.add(parent.uuid);
-				depth += 1;
-				current = parent;
-			}
-			return depth;
-		};
-		const depths = new Map(levels.map((level) => [level.uuid, depthOf(level)]));
-		return levels
-			.slice()
-			.sort((a, b) => (depths.get(a.uuid) ?? 0) - (depths.get(b.uuid) ?? 0));
-	}, [order, record]);
+	return useMemo(() => inSequence(record, order), [order, record]);
 }
 
 /** The app's place-information catalog, in display order. */

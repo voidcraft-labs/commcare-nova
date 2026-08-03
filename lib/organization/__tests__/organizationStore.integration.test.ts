@@ -1810,6 +1810,60 @@ describe("locations store — the archive cascade", () => {
 		).toBeNull();
 	});
 
+	it("blocks preflight when unassignment would strand a live fixed owner", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		const narrowRegion = (
+			await createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "South",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		const fixedDestination = (
+			await createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "East",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "whole-organization-facility-address-book",
+			mutations: admitMutationBatch([
+				{
+					kind: "updateOrganizationLevel",
+					uuid: FACILITY,
+					patch: { addressBook: { reach: "whole-organization" } },
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		await assignPersona(PERSONA_ASHA, facility, [narrowRegion]);
+		await commitFixedOwnerForm(fixedDestination);
+
+		const impact = await describeArchiveImpact(scope(), facility);
+		expect(impact.blockingOwnerRuleFormCount).toBe(1);
+		expect(impact.blockingOwnerRuleFormPreview).toEqual(["Visit"]);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(await personaLocations(PERSONA_ASHA)).toEqual({
+			primaryUuid: facility,
+			additionalUuids: [narrowRegion],
+		});
+	});
+
 	it("archives the subtree and unassigns every persona in one transaction", async () => {
 		await seedOrgApp();
 		const { region, district, facility } = await seedChain();

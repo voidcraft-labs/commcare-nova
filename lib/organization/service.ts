@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
+import { produce } from "immer";
 import { type Selectable, sql, type Transaction } from "kysely";
 import {
 	AppAccessError,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	ancestorLevels,
@@ -36,7 +38,10 @@ import {
 } from "./commitIntegrity";
 import { OrganizationError, organizationNotFound } from "./errors";
 import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
-import { reverseLocationOwnerIssue } from "./ownerTargetVerdicts";
+import {
+	fixedLocationOwnerIssue,
+	reverseLocationOwnerIssue,
+} from "./ownerTargetVerdicts";
 import {
 	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	assertSiteCodeFree,
@@ -1091,6 +1096,16 @@ function archiveBlockingOwnerRuleForms(
 		archivedAt: locationIds.has(row.id) ? true : row.archived_at,
 	}));
 	const reverseIssueByLevelUuid = new Map<string, string | undefined>();
+	const fixedIssueByLocationUuid = new Map<string, string | undefined>();
+	const fixedIssue = (locationUuid: string) => {
+		if (!fixedIssueByLocationUuid.has(locationUuid)) {
+			fixedIssueByLocationUuid.set(
+				locationUuid,
+				fixedLocationOwnerIssue(doc, tentativeRows, locationUuid),
+			);
+		}
+		return fixedIssueByLocationUuid.get(locationUuid);
+	};
 	const reverseIssue = (levelUuid: string) => {
 		if (!reverseIssueByLevelUuid.has(levelUuid)) {
 			reverseIssueByLevelUuid.set(
@@ -1106,7 +1121,7 @@ function archiveBlockingOwnerRuleForms(
 			walkExpressionTerms(operation.owner, (term) => {
 				if (
 					(term.kind === "fixed-location" &&
-						locationIds.has(term.locationUuid)) ||
+						fixedIssue(term.locationUuid) !== undefined) ||
 					(term.kind === "owner-location-at-level" &&
 						reverseIssue(term.levelUuid) !== undefined)
 				) {
@@ -1148,8 +1163,14 @@ async function buildArchivePlan(
 }> {
 	const locationIds = [...args.locationIds].sort();
 	const planned = planPersonaUnassignment(args.doc, new Set(locationIds));
+	const candidateDoc =
+		planned.mutations.length === 0
+			? args.doc
+			: produce(args.doc, (draft) => {
+					applyMutations(draft, admitMutationBatch(planned.mutations));
+				});
 	const blockingForms = archiveBlockingOwnerRuleForms(
-		args.doc,
+		candidateDoc,
 		args.rows,
 		new Set(locationIds),
 	);

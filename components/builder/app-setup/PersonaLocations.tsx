@@ -148,7 +148,10 @@ export function PersonaLocations({
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
 					Loading places…
 				</p>
-			) : assignableCount === 0 && assigned.length === 0 ? (
+			) : assignableCount === 0 &&
+				assigned.length === 0 &&
+				warning === undefined &&
+				!refreshing ? (
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
 					{locations.length === 0
 						? "This app has no places yet. Add them in Organization, then assign this persona to one."

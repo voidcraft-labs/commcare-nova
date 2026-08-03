@@ -20,6 +20,11 @@ const PERSONA: Persona = {
 	},
 };
 
+const UNASSIGNED_PERSONA: Persona = {
+	uuid: testUuid("unassigned-persona"),
+	name: "Bimal",
+};
+
 const LEVEL: OrganizationLevel = {
 	uuid: LEVEL_UUID,
 	code: "facility",
@@ -114,6 +119,35 @@ beforeEach(() => {
 });
 
 describe("PersonaLocations", () => {
+	it("shows refresh state before drawing an empty-catalog conclusion", () => {
+		const { rerender } = render(
+			<PersonaLocations
+				persona={UNASSIGNED_PERSONA}
+				locations={[]}
+				loading={false}
+				error={undefined}
+				warning="Connection failed."
+				reload={vi.fn()}
+			/>,
+		);
+		expect(
+			screen.getByText(/Saved places could not be refreshed/),
+		).toBeDefined();
+		expect(screen.queryByText(/This app has no places yet/)).toBeNull();
+
+		rerender(
+			<PersonaLocations
+				persona={UNASSIGNED_PERSONA}
+				locations={[]}
+				loading={false}
+				error={undefined}
+				refreshing
+			/>,
+		);
+		expect(screen.getByText("Refreshing places…")).toBeDefined();
+		expect(screen.queryByText(/This app has no places yet/)).toBeNull();
+	});
+
 	it("retries failed reads and pauses assignment gestures on a stale snapshot", () => {
 		const reload = vi.fn();
 		const { rerender } = render(
