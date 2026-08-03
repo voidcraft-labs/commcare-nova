@@ -55,7 +55,6 @@ import {
 	type CasePropertyRenamePlanIssue,
 	planCasePropertyRenames,
 } from "@/lib/doc/casePropertyRenames";
-import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -117,13 +116,10 @@ function removeDateAddIssueFromExpression(
 	let replaced = false;
 	return mapExpressionAst(expression, {
 		mapExpression: (node) => {
-			if (
-				replaced ||
-				node.kind !== "date-add" ||
-				(node !== issue.expression && !deepEqual(node, issue.expression))
-			) {
+			if (replaced || node !== issue.expression) {
 				return undefined;
 			}
+			if (node.kind !== "date-add") return undefined;
 			replaced = true;
 			return node.date;
 		},
@@ -137,13 +133,10 @@ function removeDateAddIssueFromPredicate(
 	let replaced = false;
 	return mapPredicateAst(predicate, {
 		mapExpression: (node) => {
-			if (
-				replaced ||
-				node.kind !== "date-add" ||
-				(node !== issue.expression && !deepEqual(node, issue.expression))
-			) {
+			if (replaced || node !== issue.expression) {
 				return undefined;
 			}
+			if (node.kind !== "date-add") return undefined;
 			replaced = true;
 			return node.date;
 		},

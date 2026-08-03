@@ -43,7 +43,6 @@
 import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	valueExpressionRuntimeEditVerdict,
 	valueRuntimeDateAddRepair,
@@ -59,7 +58,6 @@ import {
 	type SlotConstraint,
 	type TypeContext,
 	type ValueExpression,
-	walkExpressionNodes,
 } from "@/lib/domain/predicate";
 import {
 	buildEditorTypeContext,
@@ -76,7 +74,11 @@ import type {
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import { RuntimeDateAddRepairAlert } from "./RuntimeDateAddRepairAlert";
-import { replaceExpressionNodeAtPath } from "./ruleNavigation";
+import {
+	locateExpressionNode,
+	type RuleNavigationContext,
+	replaceExpressionNodeAtPath,
+} from "./ruleNavigation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface ExpressionCardEditorProps {
@@ -136,17 +138,6 @@ interface ExpressionCardEditorProps {
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
-function expressionContains(
-	root: ValueExpression,
-	target: ValueExpression,
-): boolean {
-	let contains = false;
-	walkExpressionNodes(root, (node) => {
-		if (node === target || deepEqual(node, target)) contains = true;
-	});
-	return contains;
-}
-
 /**
  * Top-level ValueExpression card editor. Composes
  * `PredicateEditProvider` + `ExpressionPicker`. The dispatch shell
@@ -174,6 +165,10 @@ export function ExpressionCardEditor({
 	const effectiveLookupTables =
 		lookupTables ??
 		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
+	const navigationContext = useMemo<RuleNavigationContext>(
+		() => ({ caseTypes, currentCaseType, knownInputs, rootLabel: "Value" }),
+		[caseTypes, currentCaseType, knownInputs],
+	);
 	// Build the type-check context from props. The same context
 	// reaches both the validation pass below and the per-card
 	// helpers (`PropertyRefPicker`, `LiteralValueInput`, etc.) via
@@ -244,10 +239,20 @@ export function ExpressionCardEditor({
 				typeCtx,
 			);
 			if (verdict.ok) return { admitted: true } as const;
+			const editLocation = locateExpressionNode(
+				candidate,
+				path,
+				navigationContext,
+				constraint,
+			);
 			const atEditedExpression =
 				verdict.expression === undefined
 					? undefined
-					: expressionContains(next, verdict.expression);
+					: (editLocation?.trail.some(
+							(entry) =>
+								entry.node.family === "expression" &&
+								entry.node.value === verdict.expression,
+						) ?? false);
 			return {
 				admitted: false,
 				reason:
@@ -257,7 +262,7 @@ export function ExpressionCardEditor({
 				atEditedExpression,
 			} as const;
 		},
-		[value, evaluationTarget, typeCtx],
+		[value, evaluationTarget, typeCtx, navigationContext, constraint],
 	);
 
 	// Standardized parent-validity propagation: fires on mount + on

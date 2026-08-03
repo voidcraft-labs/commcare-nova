@@ -33,7 +33,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	predicateExpressionRuntimeEditVerdict,
 	predicateRuntimeDateAddRepair,
@@ -46,7 +45,6 @@ import {
 	type Predicate,
 	type RelationPath,
 	type ValueExpression,
-	walkExpressionNodes,
 } from "@/lib/domain/predicate";
 import {
 	ChildPredicateEditor,
@@ -92,6 +90,7 @@ import { RuntimeDateAddRepairAlert } from "./RuntimeDateAddRepairAlert";
 import { resolveRelationDestination } from "./relationDestination";
 import {
 	DEFAULT_RULE_ROOT_LABEL,
+	locateRuleNode,
 	nearestRuleLocation,
 	type RuleLocation,
 	type RuleNavigationContext,
@@ -123,17 +122,6 @@ export const STRUCTURE_KINDS = [
 type StructureKind = (typeof STRUCTURE_KINDS)[number];
 
 type WorkbenchFocusFallback = "condition" | "related-condition";
-
-function expressionContains(
-	root: ValueExpression,
-	target: ValueExpression,
-): boolean {
-	let contains = false;
-	walkExpressionNodes(root, (node) => {
-		if (node === target || deepEqual(node, target)) contains = true;
-	});
-	return contains;
-}
 
 type NavigationFocusRequest =
 	| {
@@ -532,10 +520,15 @@ export function PredicateWorkbench({
 				typeContext,
 			);
 			if (verdict.ok) return { admitted: true } as const;
+			const editLocation = locateRuleNode(candidate, path, navigationContext);
 			const atEditedExpression =
 				verdict.expression === undefined
 					? undefined
-					: expressionContains(next, verdict.expression);
+					: (editLocation?.trail.some(
+							(entry) =>
+								entry.node.family === "expression" &&
+								entry.node.value === verdict.expression,
+						) ?? false);
 			return {
 				admitted: false,
 				reason:
@@ -545,7 +538,7 @@ export function PredicateWorkbench({
 				atEditedExpression,
 			} as const;
 		},
-		[value, evaluationTarget, typeContext],
+		[value, evaluationTarget, typeContext, navigationContext],
 	);
 
 	const updateFocusedPredicate = (next: Predicate) => {

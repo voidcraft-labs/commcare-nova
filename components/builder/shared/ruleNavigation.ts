@@ -612,6 +612,29 @@ export function locateRuleNode(
 	return last === undefined ? undefined : { ...last, trail };
 }
 
+/** Locate one node and its exact ancestor trail inside a standalone value. */
+export function locateExpressionNode(
+	root: ValueExpression,
+	path: EditorPath,
+	ctx: RuleNavigationContext,
+	constraint: SlotConstraint = ANY_CONSTRAINT,
+): RuleLocation | undefined {
+	const trail = locateExpression(
+		root,
+		[],
+		path,
+		ctx.currentCaseType,
+		ctx,
+		[],
+		constraint,
+		"value",
+		ctx.rootLabel ?? "Value",
+	);
+	if (trail === undefined) return undefined;
+	const last = trail.at(-1);
+	return last === undefined ? undefined : { ...last, trail };
+}
+
 export function nearestRuleLocation(
 	root: Predicate,
 	requestedPath: EditorPath,

@@ -21,7 +21,7 @@ import {
 	walkExpressionPredicateNodes,
 } from "@/lib/domain/predicate";
 import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
-import { normalizeCsqlPredicate } from "./csqlRepresentability";
+import { isCsqlQueryAnchor } from "./csqlRepresentability";
 
 export interface CsqlOnDeviceNodeVisitor {
 	readonly visitPredicate?: (predicate: Predicate) => void;
@@ -35,7 +35,7 @@ export function walkCsqlOnDeviceNodes(
 	predicate: Predicate,
 	visitor: CsqlOnDeviceNodeVisitor,
 ): void {
-	walkServerPredicate(normalizeCsqlPredicate(predicate), visitor);
+	walkServerPredicate(predicate, visitor);
 }
 
 function walkServerPredicate(
@@ -53,6 +53,17 @@ function walkServerPredicate(
 		case "gte":
 		case "lt":
 		case "lte":
+			if (
+				!isCsqlQueryAnchor(predicate.left) &&
+				isCsqlQueryAnchor(predicate.right)
+			) {
+				// CSQL normalization swaps the query anchor onto the left. Walk the
+				// same runtime positions without cloning the authored operands: the
+				// visitor's identities must point back to exact repair targets.
+				walkServerOperand(predicate.right, "comparison-operand", visitor);
+				walkServerOperand(predicate.left, "value", visitor);
+				return;
+			}
 			walkServerOperand(predicate.left, "comparison-operand", visitor);
 			walkServerOperand(predicate.right, "value", visitor);
 			return;

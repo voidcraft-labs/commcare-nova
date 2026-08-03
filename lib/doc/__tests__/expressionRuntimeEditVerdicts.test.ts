@@ -180,4 +180,26 @@ describe("expression runtime edit verdicts", () => {
 			),
 		).toEqual({ ok: true });
 	});
+
+	it("keeps an identical native server calculation while repairing interpolation", () => {
+		const native = dateAdd(today(), "years", quantity);
+		const interpolated = dateAdd(today(), "years", quantity);
+		const predicate = and(
+			eq(prop("patient", "dob"), native),
+			eq(prop("patient", "dob"), ifExpr(matchAll(), interpolated, today())),
+		);
+		const repair = predicateRuntimeDateAddRepair(
+			predicate,
+			"case-search",
+			TYPE_CONTEXT,
+		);
+
+		expect(repair.removedAdjustments).toBe(1);
+		expect(repair.value.kind).toBe("and");
+		if (repair.value.kind !== "and") throw new Error("Expected and");
+		expect(repair.value.clauses[0]).toBe(predicate.clauses[0]);
+		expect(repair.value.clauses[1]).toEqual(
+			eq(prop("patient", "dob"), ifExpr(matchAll(), today(), today())),
+		);
+	});
 });

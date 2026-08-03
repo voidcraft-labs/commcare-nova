@@ -315,4 +315,30 @@ describe("PredicateWorkbench case-search admission", () => {
 			),
 		);
 	});
+
+	it("attributes a nested interval issue to its exact adjustment envelope", () => {
+		renderWorkbench({
+			value: eq(
+				prop("patient", "dob"),
+				dateAdd(
+					dateAdd(today(), "months", term(literal(1))),
+					"days",
+					term(literal(1)),
+				),
+			),
+			target: "on-device",
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
+		const outerInterval = screen.getByRole("combobox", {
+			name: "Interval Days",
+		});
+		expect(outerInterval.getAttribute("aria-invalid")).not.toBe("true");
+
+		fireEvent.click(screen.getByRole("button", { name: "Edit adjusted date" }));
+		const innerInterval = screen.getByRole("combobox", {
+			name: "Interval Months",
+		});
+		expect(innerInterval.getAttribute("aria-invalid")).toBe("true");
+	});
 });

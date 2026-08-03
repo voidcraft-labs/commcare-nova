@@ -180,6 +180,28 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 		expect(onChange).toHaveBeenCalledWith(now());
 	});
 
+	it("does not mark an outer adjustment invalid for its nested interval", () => {
+		render(
+			<ExpressionCardEditor
+				value={dateAdd(
+					dateAdd(today(), "months", term(literal(1))),
+					"days",
+					term(literal(1)),
+				)}
+				onChange={() => {}}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+				constraint={comparisonObjectConstraint("eq", "date")}
+			/>,
+		);
+
+		expect(
+			screen
+				.getByRole("combobox", { name: "Interval Days" })
+				.getAttribute("aria-invalid"),
+		).not.toBe("true");
+	});
+
 	it("renders an `if` card with a Predicate cond and ValueExpression branches", () => {
 		const value = ifExpr(
 			matchAll(),
