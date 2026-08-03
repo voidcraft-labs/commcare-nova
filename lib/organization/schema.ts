@@ -8,6 +8,7 @@
 // rather than a platform limit; see `SITE_CODE_PATTERN`.
 
 import { z } from "zod";
+import { uuidSchema } from "@/lib/domain";
 import { OrganizationError } from "./errors";
 import type { OrganizationRevision } from "./types";
 
@@ -91,7 +92,7 @@ const locationValuesSchema = z
 		// were once declared properties — so a key that was never a uuid is
 		// unreachable by the shed AND by the catalog, permanent dead weight on a row
 		// every read carries.
-		z.uuid(),
+		uuidSchema,
 		z
 			.string()
 			.max(4096)
@@ -111,8 +112,8 @@ const locationValuesSchema = z
 
 export const createLocationInputSchema = z
 	.object({
-		levelUuid: z.string().min(1),
-		parentId: z.uuid().nullable().default(null),
+		levelUuid: uuidSchema,
+		parentId: uuidSchema.nullable().default(null),
 		name: z.string().trim().min(1).max(LOCATION_NAME_MAX_LENGTH),
 		/** Omitted means Nova derives one from the name, as HQ does. */
 		siteCode: siteCodeSchema.optional(),
@@ -121,7 +122,8 @@ export const createLocationInputSchema = z
 		longitude: coordinateSchema.nullable().default(null),
 		values: locationValuesSchema.default({}),
 		/** Place it after this sibling; omitted appends. */
-		afterSiblingId: z.uuid().optional(),
+		/** `null` means first; omitted means append. */
+		afterSiblingId: uuidSchema.nullable().optional(),
 	})
 	.strict();
 export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
@@ -148,7 +150,7 @@ export const updateLocationInputSchema = z
 		/** A whole-bag replacement; a cleared field is an omitted key. */
 		values: locationValuesSchema.optional(),
 		/** Retype. Legal only while the place is a leaf — see the service. */
-		levelUuid: z.string().min(1).optional(),
+		levelUuid: uuidSchema.optional(),
 	})
 	.strict();
 export type UpdateLocationInput = z.infer<typeof updateLocationInputSchema>;

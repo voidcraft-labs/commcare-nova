@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
 import type { LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { fixedLocation, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
 	getLookupDefinitions,
@@ -146,6 +148,49 @@ function lookupCarrierDoc() {
 			},
 		],
 	});
+}
+
+function fixedOwnerDoc() {
+	const doc = buildDoc({
+		appName: "Fixed owner",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("11111111-1111-4111-8111-111111111111"),
+			id: "set_owner",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			owner: term(
+				fixedLocation(testUuid("22222222-2222-4222-8222-222222222222")),
+			),
+		},
+	];
+	return doc;
 }
 
 beforeEach(() => {
@@ -358,6 +403,39 @@ describe("prepareExportBoundary", () => {
 			expect(resolveMediaManifest).not.toHaveBeenCalled();
 		},
 	);
+
+	it.each(["hq-json", "hq-upload"] as const)(
+		"keeps local fixed-place identities closed for %s exports",
+		async (mode) => {
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: fixedOwnerDoc(),
+				compiledAtSeq: 16,
+			});
+
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("expected fixed-owner rejection");
+			expect(result.violations).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "FIXED_LOCATION_EXPORT_NOT_ACTIVE",
+						details: expect.objectContaining({ exportMode: mode }),
+					}),
+				]),
+			);
+		},
+	);
+
+	it("keeps the local fixed-place identity available for a self-contained ccz", async () => {
+		const result = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc: fixedOwnerDoc(),
+			compiledAtSeq: 17,
+		});
+		expect(result.ok).toBe(true);
+	});
 
 	it("prepares carrier-bearing ccz exports with the budget-checked lookup wire", async () => {
 		vi.mocked(getLookupFixtureData).mockResolvedValue({

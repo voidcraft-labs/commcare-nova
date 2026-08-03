@@ -601,6 +601,8 @@ function CaseOwnerSection({
 }) {
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
+	const organizationReady =
+		!organization.loading && organization.error === undefined;
 	const levels = useOrganizationLevels();
 	const levelRecord = useMemo(
 		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),
@@ -616,6 +618,7 @@ function CaseOwnerSection({
 			levelOwnsCases(level) &&
 			ancestorLevels(level, levelRecord).some(levelOwnsCases),
 	);
+	const reverseAvailable = editorScope.caseDataScope !== "global";
 	const selected = locationOwnerExpression(value);
 	const mode =
 		selected?.term.kind === "fixed-location"
@@ -631,6 +634,7 @@ function CaseOwnerSection({
 			return;
 		}
 		if (next === "fixed") {
+			if (!organizationReady) return;
 			const first = locations[0];
 			if (first !== undefined) {
 				onChange(term(fixedLocation(asUuid(first.id))));
@@ -638,6 +642,7 @@ function CaseOwnerSection({
 			return;
 		}
 		if (next === "reverse") {
+			if (!organizationReady) return;
 			const first = reverseLevels[0];
 			if (first !== undefined && editorScope.currentCaseType !== "") {
 				onChange(
@@ -666,6 +671,17 @@ function CaseOwnerSection({
 				) : undefined
 			}
 		>
+			{organization.loading && (
+				<p className="mb-3 text-[12px] text-nova-text-muted">Loading places…</p>
+			)}
+			{organization.error !== undefined && (
+				<p
+					role="alert"
+					className="mb-3 text-[12px] leading-relaxed text-nova-red"
+				>
+					Places could not be loaded: {organization.error}
+				</p>
+			)}
 			{value === undefined ? (
 				<AddSlotButton
 					ref={addRef}
@@ -690,10 +706,12 @@ function CaseOwnerSection({
 								<SelectItem value="expression">
 									A person, form answer, or case value
 								</SelectItem>
-								{locations.length > 0 && (
+								{organizationReady && locations.length > 0 && (
 									<SelectItem value="fixed">A particular place</SelectItem>
 								)}
-								{reverseLevels.length > 0 &&
+								{organizationReady &&
+									reverseAvailable &&
+									reverseLevels.length > 0 &&
 									editorScope.currentCaseType !== "" && (
 										<SelectItem value="reverse">
 											A place beneath the current case owner
@@ -713,7 +731,7 @@ function CaseOwnerSection({
 								onValueChange={(locationUuid) =>
 									onChange(term(fixedLocation(asUuid(String(locationUuid)))))
 								}
-								disabled={!canEdit}
+								disabled={!canEdit || !organizationReady}
 							>
 								<SelectTrigger
 									className="w-full"
@@ -751,7 +769,7 @@ function CaseOwnerSection({
 										),
 									)
 								}
-								disabled={!canEdit}
+								disabled={!canEdit || !organizationReady}
 							>
 								<SelectTrigger
 									className="w-full"

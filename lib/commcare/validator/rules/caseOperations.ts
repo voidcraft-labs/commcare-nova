@@ -1021,7 +1021,9 @@ function validateCaseSnapshotUse(
 function expressionUsesCaseSnapshot(expression: ValueExpression): boolean {
 	let usesSnapshot = false;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "prop") usesSnapshot = true;
+		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+			usesSnapshot = true;
+		}
 	});
 	walkExpressionNodes(expression, (node) => {
 		if (node.kind === "count") usesSnapshot = true;
@@ -1037,7 +1039,9 @@ function predicateUsesCaseSnapshot(
 ): boolean {
 	let usesSnapshot = false;
 	walkTerms(predicate, (term) => {
-		if (term.kind === "prop") usesSnapshot = true;
+		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+			usesSnapshot = true;
+		}
 	});
 	walkPredicateNodes(predicate, (node) => {
 		if (node.kind === "exists" || node.kind === "missing") usesSnapshot = true;

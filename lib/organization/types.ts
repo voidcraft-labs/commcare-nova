@@ -4,6 +4,8 @@
 // client surfaces can bind against them without pulling the server-only
 // service into a bundle.
 
+import type { Uuid } from "@/lib/domain";
+
 /**
  * An authorized handle on one app's organization.
  *
@@ -23,6 +25,23 @@ export interface OrganizationScope {
 	readonly projectId: string;
 	readonly role: string;
 	readonly actorUserId: string;
+	/** Durable Blueprint-change attribution for shared SA/MCP row tools. */
+	readonly changeSource?: {
+		readonly kind: "chat" | "mcp";
+		readonly runId: string;
+	};
+	/**
+	 * Exact authority carried only by a chat SA run. Browser actions and MCP
+	 * omit it; their request/user authorization is independent of a chat lease.
+	 * Organization writers prove this token against the locked app row before
+	 * any durable row or Blueprint side effect.
+	 */
+	readonly chatRunHolder?: {
+		readonly source: "chat";
+		readonly mode: "build" | "edit";
+		readonly runId: string;
+		readonly nonce: string;
+	};
 }
 
 /**
@@ -36,10 +55,10 @@ export type OrganizationRevision = string;
 
 /** One place in the organization, as stored. */
 export interface StoredLocation {
-	readonly id: string;
+	readonly id: Uuid;
 	/** The blueprint `organizationLevel` this place stands at. */
 	readonly levelUuid: string;
-	readonly parentId: string | null;
+	readonly parentId: Uuid | null;
 	/** Create-once external identity — the human and bulk-upload key. */
 	readonly siteCode: string;
 	readonly name: string;

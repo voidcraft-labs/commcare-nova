@@ -50,6 +50,7 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
+import { CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH } from "./customDataFieldLimits";
 import { personaLocationsSchema } from "./organization";
 import {
 	mergeOwnRecords,
@@ -71,7 +72,8 @@ import { type Uuid, uuidSchema } from "./uuid";
 export const USER_PROPERTY_SLUG_MAX_LENGTH = 127;
 
 /** `custom_data_fields/models.py::Field.label` is `CharField(max_length=255)`. */
-export const USER_PROPERTY_LABEL_MAX_LENGTH = 255;
+export const USER_PROPERTY_LABEL_MAX_LENGTH =
+	CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH;
 
 /**
  * Intersection of HQ's Django slug charset and the XML element-name shape

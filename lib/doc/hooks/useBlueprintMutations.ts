@@ -430,7 +430,7 @@ export interface BlueprintMutations {
 	) => AddCommitOutcome;
 	updateOrganizationLevel: (
 		uuid: Uuid,
-		patch: UserEntityPatch<OrganizationLevel>,
+		patch: Omit<UserEntityPatch<OrganizationLevel>, "code">,
 	) => CommitOutcome;
 	removeOrganizationLevel: (
 		uuid: Uuid,

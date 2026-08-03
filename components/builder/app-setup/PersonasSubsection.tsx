@@ -94,6 +94,7 @@ export function PersonasSubsection() {
 						returnFocusRef={addButtonRef}
 						locations={organization.locations}
 						locationsLoading={organization.loading}
+						locationsError={organization.error}
 					/>
 				))
 			)}
@@ -121,6 +122,7 @@ function PersonaRow({
 	returnFocusRef,
 	locations,
 	locationsLoading,
+	locationsError,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
@@ -132,6 +134,7 @@ function PersonaRow({
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
 	locations: Parameters<typeof PersonaLocations>[0]["locations"];
 	locationsLoading: boolean;
+	locationsError: string | undefined;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
@@ -267,6 +270,7 @@ function PersonaRow({
 					persona={persona}
 					locations={locations}
 					loading={locationsLoading}
+					error={locationsError}
 				/>
 
 				{canEdit && (

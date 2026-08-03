@@ -380,7 +380,8 @@ function BuiltInReference() {
 					{BUILT_IN_USER_PROPERTIES.map((property) => {
 						const availableInPreview =
 							property.availability === "derived" ||
-							property.availability === "constant";
+							property.availability === "constant" ||
+							property.availability === "needs-organization";
 						return (
 							<li key={property.slug} className="flex flex-col gap-1">
 								<div className="flex flex-wrap items-center gap-x-2 gap-y-1">

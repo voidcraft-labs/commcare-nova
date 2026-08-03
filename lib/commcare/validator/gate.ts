@@ -375,6 +375,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
+	FIXED_LOCATION_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",

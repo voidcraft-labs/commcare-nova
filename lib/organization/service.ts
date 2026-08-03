@@ -25,6 +25,11 @@ import {
 	personasOf,
 } from "@/lib/domain";
 import { deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
+import {
+	assertLocationOwnerTargetsValid,
+	assertPersonaAssignmentsValid,
+	assertReverseHopTargetsUnambiguous,
+} from "./commitIntegrity";
 import { OrganizationError, organizationNotFound } from "./errors";
 import {
 	assertSiteCodeFree,
@@ -52,9 +57,9 @@ type LocationRow = Selectable<AppLocationsTable>;
 
 function toStoredLocation(row: LocationRow): StoredLocation {
 	return {
-		id: row.id,
+		id: asUuid(row.id),
 		levelUuid: row.level_uuid,
-		parentId: row.parent_id,
+		parentId: row.parent_id === null ? null : asUuid(row.parent_id),
 		siteCode: row.site_code,
 		name: row.name,
 		externalId: row.external_id,
@@ -213,7 +218,7 @@ function subtreeIds(tree: LockedTree, rootId: string): string[] {
 function orderKeyForSlot(
 	tree: LockedTree,
 	parentId: string | null,
-	afterSiblingId: string | undefined,
+	afterSiblingId: string | null | undefined,
 	/** Excluded from the sibling set — a row being moved within its own parent
 	 *  must not be its own neighbour. */
 	movingId?: string,
@@ -221,6 +226,12 @@ function orderKeyForSlot(
 	const siblings = (tree.childrenOf.get(parentId) ?? []).filter(
 		(row) => row.id !== movingId,
 	);
+	if (afterSiblingId === null) {
+		return deriveKeyAtIndex(
+			siblings.map((row) => row.order_key),
+			0,
+		);
+	}
 	if (afterSiblingId === undefined) {
 		return deriveKeyAtIndex(
 			siblings.map((row) => row.order_key),
@@ -432,6 +443,10 @@ export async function createLocation(
 			})
 			.returningAll()
 			.executeTakeFirstOrThrow();
+		await assertReverseHopTargetsUnambiguous(tx, {
+			appId: scope.appId,
+			candidateDoc: doc,
+		});
 		const revision = await commitOrganizationChange(tx, scope, 1);
 		return { revision, location: toStoredLocation(inserted) };
 	});
@@ -539,6 +554,21 @@ export async function updateLocation(
 			.where("id", "=", locationId)
 			.returningAll()
 			.executeTakeFirstOrThrow();
+		if (updated.level_uuid !== current.level_uuid) {
+			const doc = await loadDocInTransaction(tx, scope.appId);
+			await assertPersonaAssignmentsValid(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+			await assertLocationOwnerTargetsValid(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+			await assertReverseHopTargetsUnambiguous(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+		}
 		const revision = await commitOrganizationChange(tx, scope, 0);
 		return { revision, location: toStoredLocation(updated) };
 	});
@@ -560,7 +590,7 @@ export async function moveLocation(
 	locationId: string,
 	target: {
 		readonly parentId: string | null;
-		readonly afterSiblingId?: string;
+		readonly afterSiblingId?: string | null;
 	},
 	expectedRevision?: OrganizationRevision,
 ): Promise<MoveLocationResult> {
@@ -607,6 +637,21 @@ export async function moveLocation(
 			.where("app_id", "=", scope.appId)
 			.where("id", "=", locationId)
 			.execute();
+		// A move changes address-book ancestry even when neither endpoint row is
+		// itself referenced. Recheck every persona/fixed-owner edge against the
+		// tentative tree; any rejection rolls the row update back with it.
+		await assertPersonaAssignmentsValid(tx, {
+			appId: scope.appId,
+			candidateDoc: doc,
+		});
+		await assertLocationOwnerTargetsValid(tx, {
+			appId: scope.appId,
+			candidateDoc: doc,
+		});
+		await assertReverseHopTargetsUnambiguous(tx, {
+			appId: scope.appId,
+			candidateDoc: doc,
+		});
 		return { revision: await commitOrganizationChange(tx, scope, 0) };
 	});
 }
@@ -755,6 +800,12 @@ export interface SetArchivedResult {
 	readonly revision: OrganizationRevision;
 	readonly archivedIds: readonly string[];
 	readonly unassignedPersonas: readonly string[];
+	/** Present when the archive also committed persona mutations. Shared tools
+	 * adopt this exact fresh-store result instead of continuing on a stale doc. */
+	readonly blueprintChange?: {
+		readonly mutations: readonly Mutation[];
+		readonly committedDoc: BlueprintDoc;
+	};
 }
 
 /**
@@ -834,19 +885,42 @@ export async function setLocationArchived(
 				.where("id", "in", changing)
 				.execute();
 
+			if (!archived) {
+				const doc = await loadDocInTransaction(tx, scope.appId);
+				await assertReverseHopTargetsUnambiguous(tx, {
+					appId: scope.appId,
+					candidateDoc: doc,
+				});
+			}
+
 			let unassignedPersonas: readonly string[] = [];
+			let blueprintChange: SetArchivedResult["blueprintChange"];
 			if (archived) {
 				const doc = archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
 				const plan = planPersonaUnassignment(doc, new Set(changing));
 				if (plan.mutations.length > 0) {
-					await commitGuardedBatchInTransaction(tx, {
+					const chatRunHolder = scope.chatRunHolder;
+					const changeSource = scope.changeSource;
+					const committed = await commitGuardedBatchInTransaction(tx, {
 						appId: scope.appId,
 						batchId: randomUUID(),
+						...(changeSource?.kind === "chat" && chatRunHolder !== undefined
+							? {
+									kind: "chat" as const,
+									runId: changeSource.runId,
+									chatRunHolder,
+								}
+							: changeSource?.kind === "mcp"
+								? { kind: "mcp" as const, runId: changeSource.runId }
+								: { kind: "autosave" as const }),
 						mutations: admitMutationBatch(plan.mutations),
 						actorUserId: scope.actorUserId,
-						kind: "autosave",
 						expectedProjectId: scope.projectId,
 					});
+					blueprintChange = {
+						mutations: plan.mutations,
+						committedDoc: committed.committedDoc,
+					};
 				}
 				unassignedPersonas = plan.personaNames;
 			}
@@ -854,6 +928,7 @@ export async function setLocationArchived(
 				revision: await commitOrganizationChange(tx, scope, 0),
 				archivedIds: changing,
 				unassignedPersonas,
+				...(blueprintChange === undefined ? {} : { blueprintChange }),
 			};
 		});
 

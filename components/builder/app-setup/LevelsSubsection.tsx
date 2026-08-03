@@ -15,10 +15,9 @@
  */
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
-import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
 	Select,
@@ -44,10 +43,12 @@ import {
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { DraftCommitInput } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 /** Sentinel for "no parent": a Select item cannot carry an empty value. */
 const TOP_LEVEL = "__top__";
+const NO_LEVEL_LIMIT = "__none__";
 
 export function LevelsSubsection({
 	occupiedLevelUuids,
@@ -174,6 +175,13 @@ function LevelRow({
 
 	const levelRecord = Object.fromEntries(peers.map((p) => [p.uuid, p]));
 	const above = ancestorLevels(level, levelRecord);
+	const selfAndBelow = peers.filter(
+		(candidate) =>
+			candidate.uuid === level.uuid ||
+			ancestorLevels(candidate, levelRecord).some(
+				(ancestor) => ancestor.uuid === level.uuid,
+			),
+	);
 	// A level may sit under any level ABOVE it, so the offer is every level
 	// that is not this one and not below it — the same predicate the store
 	// enforces, so nothing offered here can be refused there.
@@ -200,15 +208,16 @@ function LevelRow({
 					>
 						Name
 					</Label>
-					<Input
+					<DraftCommitInput
 						id={nameId}
 						value={level.name}
-						autoComplete="off"
-						data-1p-ignore
 						disabled={!canEdit}
-						onChange={(e) =>
-							mutations.updateOrganizationLevel(level.uuid as Uuid, {
-								name: e.target.value,
+						validate={(name) =>
+							name === "" ? "Enter a name for this level." : undefined
+						}
+						onCommit={(name) =>
+							mutations.inline.updateOrganizationLevel(level.uuid as Uuid, {
+								name,
 							})
 						}
 					/>
@@ -258,8 +267,13 @@ function LevelRow({
 					</Select>
 				</div>
 
-				<CaseFlowGroup level={level} peers={above} />
-				<AddressBookGroup level={level} above={above} peers={peers} />
+				<CaseFlowGroup level={level} peers={selfAndBelow} />
+				<AddressBookGroup
+					level={level}
+					above={above}
+					peers={peers}
+					selfAndBelow={selfAndBelow}
+				/>
 
 				<div className="flex flex-col gap-1.5">
 					<Label
@@ -406,7 +420,7 @@ function CaseFlowGroup({
 							<p className="text-[12px] leading-relaxed text-nova-amber">
 								Stopping at a level needs a setting enabled on the CommCare
 								project you deploy to. Without it, workers receive everything
-								below instead. Deployment lists it as a prerequisite.
+								below instead.
 							</p>
 						)}
 					</div>
@@ -455,29 +469,36 @@ function scopeFromValue(value: string): DescendantCaseScope {
 /**
  * Which places a worker at this level can see and name — the other axis.
  *
- * Four choices, not five dials. CommCare's five fixture flags have
- * combinations its own query calls undefined outcomes, so Nova admits the
- * four coherent configurations and makes the rest unexpressible.
+ * Four coherent starting shapes, followed by only the depth controls that
+ * apply to the selected shape. CommCare's raw fixture flags also admit
+ * combinations its own query calls undefined outcomes; those never appear.
  */
 function AddressBookGroup({
 	level,
 	above,
 	peers,
+	selfAndBelow,
 }: {
 	level: OrganizationLevel;
 	above: readonly OrganizationLevel[];
 	peers: readonly OrganizationLevel[];
+	selfAndBelow: readonly OrganizationLevel[];
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
 	const reachId = useId();
 	const fromId = useId();
+	const downToId = useId();
+	const topSliceId = useId();
 	const book = level.addressBook;
 	const isDefault =
 		book.reach === "own-branch" &&
 		book.downToLevelUuid === undefined &&
 		book.alsoIncludeTopDownToLevelUuid === undefined;
 	const [expanded, setExpanded] = useState(!isDefault);
+	useEffect(() => {
+		if (!isDefault) setExpanded(true);
+	}, [isDefault]);
 
 	const set = (next: LevelAddressBook) =>
 		mutations.updateOrganizationLevel(level.uuid as Uuid, {
@@ -493,7 +514,7 @@ function AddressBookGroup({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 shrink-0 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+					className="min-h-11 shrink-0 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 					onClick={() => setExpanded(true)}
 				>
 					Change
@@ -527,7 +548,7 @@ function AddressBookGroup({
 						if (value === "own-branch-limited") {
 							return set({
 								reach: "own-branch-limited",
-								levelUuids: [peers[0]?.uuid ?? (level.uuid as Uuid)],
+								levelUuids: [level.uuid as Uuid],
 							});
 						}
 						if (above[0] !== undefined) {
@@ -582,6 +603,116 @@ function AddressBookGroup({
 								{above.map((ancestor) => (
 									<SelectItem key={ancestor.uuid} value={ancestor.uuid}>
 										{ancestor.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+				{book.reach === "own-branch-limited" && (
+					<fieldset className="flex flex-col gap-2 pl-6">
+						<legend className="text-[12px] font-medium text-nova-text-secondary">
+							Levels to carry in their own branch
+						</legend>
+						{peers.map((candidate) => {
+							const checked = book.levelUuids.includes(candidate.uuid);
+							return (
+								<Choice
+									key={candidate.uuid}
+									label={candidate.name}
+									hint=""
+									checked={checked}
+									disabled={
+										!canEdit || (checked && book.levelUuids.length === 1)
+									}
+									onChange={(next) =>
+										set({
+											...book,
+											levelUuids: next
+												? [...book.levelUuids, candidate.uuid]
+												: book.levelUuids.filter(
+														(uuid) => uuid !== candidate.uuid,
+													),
+										})
+									}
+								/>
+							);
+						})}
+					</fieldset>
+				)}
+				{book.reach !== "own-branch-limited" && (
+					<div className="flex flex-col gap-1.5 pl-6">
+						<Label
+							htmlFor={downToId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Stop descending at
+						</Label>
+						<Select
+							value={book.downToLevelUuid ?? NO_LEVEL_LIMIT}
+							disabled={!canEdit}
+							onValueChange={(value) => {
+								if (typeof value !== "string") return;
+								const { downToLevelUuid: _downTo, ...withoutDownTo } = book;
+								set(
+									value === NO_LEVEL_LIMIT
+										? withoutDownTo
+										: { ...withoutDownTo, downToLevelUuid: value as Uuid },
+								);
+							}}
+						>
+							<SelectTrigger id={downToId} className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={NO_LEVEL_LIMIT}>No limit</SelectItem>
+								{selfAndBelow.map((candidate) => (
+									<SelectItem key={candidate.uuid} value={candidate.uuid}>
+										{candidate.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+				{(book.reach === "own-branch" ||
+					book.reach === "own-branch-limited") && (
+					<div className="flex flex-col gap-1.5 pl-6">
+						<Label
+							htmlFor={topSliceId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Also carry the top of the organization down to
+						</Label>
+						<Select
+							value={book.alsoIncludeTopDownToLevelUuid ?? NO_LEVEL_LIMIT}
+							disabled={!canEdit}
+							onValueChange={(value) => {
+								if (typeof value !== "string") return;
+								const {
+									alsoIncludeTopDownToLevelUuid: _topSlice,
+									...withoutTopSlice
+								} = book;
+								set(
+									value === NO_LEVEL_LIMIT
+										? withoutTopSlice
+										: {
+												...withoutTopSlice,
+												alsoIncludeTopDownToLevelUuid: value as Uuid,
+											},
+								);
+							}}
+						>
+							<SelectTrigger id={topSliceId} className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={NO_LEVEL_LIMIT}>
+									Do not add a top slice
+								</SelectItem>
+								{peers.map((candidate) => (
+									<SelectItem key={candidate.uuid} value={candidate.uuid}>
+										{candidate.name}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -654,7 +785,7 @@ function RemoveLevel({
 					ref={triggerRef}
 					type="button"
 					variant="ghost"
-					className="h-9 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					className="min-h-11 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
 						setRefusal(undefined);
 						setConfirming(true);
@@ -690,7 +821,7 @@ function RemoveLevel({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
 						const result = mutations.removeOrganizationLevel(
 							level.uuid as Uuid,
@@ -705,7 +836,7 @@ function RemoveLevel({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px]"
+					className="min-h-11 px-2.5 text-[12px]"
 					onClick={() => setConfirming(false)}
 				>
 					Keep it

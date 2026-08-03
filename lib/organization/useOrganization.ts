@@ -47,9 +47,13 @@ export interface OrganizationWriter {
 	) => Promise<{ ok: boolean; message?: string }>;
 	move: (
 		locationId: string,
-		target: { parentId: string | null; afterSiblingId?: string },
+		target: { parentId: string | null; afterSiblingId?: string | null },
 	) => Promise<{ ok: boolean; message?: string }>;
-	describeArchive: (locationId: string) => Promise<ArchiveImpact | undefined>;
+	describeArchive: (
+		locationId: string,
+	) => Promise<
+		{ ok: true; impact: ArchiveImpact } | { ok: false; message: string }
+	>;
 	setArchived: (
 		locationId: string,
 		archived: boolean,
@@ -151,7 +155,7 @@ export function useOrganization(
 	 * immediately followed by a drag, hit it every time.
 	 */
 	const after = useCallback(
-		<T extends { success: boolean; message?: string }>(
+		<T extends { success: boolean; message?: string; code?: string }>(
 			result: T & { data?: { revision?: string } },
 		): { ok: boolean; message?: string } => {
 			if (result.success) {
@@ -160,6 +164,7 @@ export function useOrganization(
 				reload();
 				return { ok: true };
 			}
+			if (result.code === "conflict") reload();
 			return { ok: false, message: result.message };
 		},
 		[reload],
@@ -226,7 +231,9 @@ export function useOrganization(
 		describeArchive: useCallback(
 			async (locationId) => {
 				const result = await describeArchiveImpactAction(appId, locationId);
-				return result.success ? result.data : undefined;
+				return result.success
+					? { ok: true as const, impact: result.data }
+					: { ok: false as const, message: result.message };
 			},
 			[appId],
 		),

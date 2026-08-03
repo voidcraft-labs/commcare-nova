@@ -39,8 +39,15 @@
 // consume via `eb(...)` / `where(...)` / `selectFrom(...)`).
 
 import type { AliasableExpression, Kysely } from "kysely";
-import { expressionBuilder } from "kysely";
-import type { CasePropertyDataType, CaseType, Uuid } from "@/lib/domain";
+import { expressionBuilder, sql } from "kysely";
+import {
+	ancestorLevels,
+	type CasePropertyDataType,
+	type CaseType,
+	levelOwnsCases,
+	type OrganizationLevel,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
@@ -184,6 +191,8 @@ export interface TermCompileContext {
 	 * term compiler throws rather than emit ambiguous SQL.
 	 */
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/** App organization hierarchy for owner-only location terms. */
+	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
 	 * Rows-free lookup-table definitions (table id → column id →
 	 * declared data type) for the lookup-table carriers. Optional —
@@ -263,10 +272,54 @@ export function compileTerm(
 		case "table-column":
 			return compileLookupColumnTerm(term, ctx);
 		case "fixed-location":
-		case "owner-location-at-level":
-			throw new Error(
-				`compileTerm: '${term.kind}' is valid only in an on-device case-owner expression.`,
-			);
+			// Preview's location fixture and app row store share this UUID.
+			return eb.val(term.locationUuid);
+		case "owner-location-at-level": {
+			if (ctx.currentCaseType === undefined) {
+				throw new Error(
+					"compileTerm: an owner-to-place hop requires a selected case.",
+				);
+			}
+			const levels = ctx.organizationLevels;
+			const destination = levels?.[term.levelUuid];
+			const source =
+				destination === undefined || levels === undefined
+					? undefined
+					: ancestorLevels(destination, levels).find(levelOwnsCases);
+			if (destination === undefined || source === undefined) {
+				throw new Error(
+					`compileTerm: organization level '${term.levelUuid}' has no resolvable case-owning ancestor.`,
+				);
+			}
+			// Same flat-lineage lookup as the device fixture, expressed over the
+			// local tree. Admission guarantees at most one live destination for a
+			// source, so the scalar result is deterministic.
+			return sql<string | null>`(
+				SELECT destination.id::text
+				FROM app_locations AS destination
+				WHERE destination.app_id = ${ctx.appId}
+					AND destination.archived_at IS NULL
+					AND destination.level_uuid = ${destination.uuid}
+					AND EXISTS (
+						WITH RECURSIVE lineage AS (
+							SELECT parent.id, parent.parent_id, parent.level_uuid
+							FROM app_locations AS parent
+							WHERE parent.app_id = ${ctx.appId}
+								AND parent.id = destination.parent_id
+							UNION ALL
+							SELECT parent.id, parent.parent_id, parent.level_uuid
+							FROM app_locations AS parent
+							JOIN lineage ON parent.id = lineage.parent_id
+							WHERE parent.app_id = ${ctx.appId}
+						)
+						SELECT 1
+						FROM lineage
+						WHERE lineage.level_uuid = ${source.uuid}
+							AND lineage.id::text = ${sql.ref(`${ctx.anchorAlias}.owner_id`)}
+					)
+				LIMIT 1
+			)`;
+		}
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

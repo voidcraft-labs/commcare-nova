@@ -65,6 +65,7 @@ import {
 	CASE_CHANGES_FIXTURE_COUNT,
 	DELETE_APP_COUNT,
 	MOVE_APP_COUNT,
+	ORGANIZATION_FIXTURE_COUNT,
 } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
@@ -78,6 +79,7 @@ export const SEED = {
 	viewerUserEmail: "smoke-viewer@dimagi.com",
 	viewerUserName: "Smoke Test Viewer",
 	openAppName: "Smoke — Open Me",
+	organizationAppName: "Smoke — Organization",
 	deleteAppName: "Smoke — Delete Me",
 	/** Cross-Project move journey: one app plus a second Project the seeded user
 	 *  also owns, so the spec drives a real move between two governed places. */
@@ -409,6 +411,17 @@ async function main(): Promise<void> {
 			status: "complete",
 		},
 	);
+	const organizationAppIds: string[] = [];
+	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
+		organizationAppIds.push(
+			(
+				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+					name: SEED.organizationAppName,
+					status: "complete",
+				})
+			).appId,
+		);
+	}
 
 	/* Full Search / Results / Details visual-QA fixture. The authored ids and
 	 * patient values are stable; the app + case ids are minted by their real
@@ -882,6 +895,7 @@ async function main(): Promise<void> {
 			{
 				...SEED,
 				openAppId,
+				organizationAppIds,
 				caseWorkspace,
 				caseChanges,
 				deleteAppIds,

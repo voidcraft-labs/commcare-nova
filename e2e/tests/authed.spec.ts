@@ -28,8 +28,10 @@ interface SeedManifest {
 	userId: string;
 	userEmail: string;
 	openAppName: string;
+	organizationAppName: string;
 	deleteAppName: string;
 	openAppId: string;
+	organizationAppIds: string[];
 	deleteAppIds: string[];
 	threadsAppId: string;
 	threadUserText: string;
@@ -332,6 +334,87 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Sign in with Google" }),
 		).toHaveCount(0);
+	});
+
+	test("authors and restores a responsive organization hierarchy", async ({
+		page,
+	}, testInfo) => {
+		const appId = seed.organizationAppIds[testInfo.retry];
+		expect(appId).toBeTruthy();
+		await page.goto(`/build/${appId}/setup/organization`);
+
+		const levels = page.getByRole("region", { name: "Levels" });
+		const places = page.getByRole("region", { name: "Places" });
+		await expect(levels.getByRole("heading", { name: "Levels" })).toBeVisible();
+		await expect(places.getByText("Add a level first.")).toBeVisible();
+
+		await levels.getByRole("button", { name: "Add level" }).click();
+		await levels.getByLabel("Name").fill("Region");
+		await levels.getByLabel("Name").press("Enter");
+		await expect(levels.getByRole("button", { name: /Region/ })).toBeVisible();
+
+		await levels.getByRole("button", { name: "Add level" }).click();
+		await levels.getByLabel("Name").last().fill("District");
+		await levels.getByLabel("Name").last().press("Enter");
+		await expect(
+			levels.getByRole("button", { name: /District/ }),
+		).toBeVisible();
+
+		await places.getByRole("button", { name: "Add place" }).click();
+		await places.getByLabel("Name").fill("Coast Region");
+		await places.getByLabel("Code (optional)").fill("coast-region");
+		await places.getByLabel("Id in another system").fill("region-001");
+		await places.getByLabel("Latitude").fill("-4.0435");
+		await places.getByLabel("Longitude").fill("39.6682");
+		await places.getByRole("button", { name: "Add place" }).click();
+		const coastRegion = places.getByRole("button", { name: /Coast Region/ });
+		await expect(coastRegion).toBeVisible();
+		await coastRegion.click();
+		await expect(
+			places.getByText("coast-region", { exact: true }),
+		).toBeVisible();
+		await expect(places.getByLabel("Latitude")).toHaveValue("-4.0435");
+
+		await places.getByRole("button", { name: "Add place" }).click();
+		await places.getByLabel("Name").last().fill("Kilifi District");
+		await places.getByLabel("Level").last().click();
+		await page.getByRole("option", { name: "District" }).click();
+		await places.getByLabel("Sits in").click();
+		await page.getByRole("option", { name: "Coast Region" }).click();
+		await places.getByRole("button", { name: "Add place" }).click();
+		const kilifiDistrict = places.getByRole("button", {
+			name: /Kilifi District/,
+		});
+		await expect(kilifiDistrict).toBeVisible();
+		await kilifiDistrict.click();
+
+		await places.getByRole("button", { name: "Archive" }).click();
+		await expect(places.getByText("Checking what this affects…")).toHaveCount(
+			0,
+		);
+		await places.getByRole("button", { name: "Archive" }).click();
+		await expect(places.getByText("Archived", { exact: true })).toBeVisible();
+		await places
+			.getByRole("button", { name: /Kilifi District.*Archived/ })
+			.click();
+		await places.getByRole("button", { name: "Bring back" }).click();
+		await expect(places.getByText("Archived", { exact: true })).toHaveCount(0);
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(
+			page.getByRole("navigation", { name: "App setup sections" }),
+		).toBeVisible();
+		const addLevelBox = await levels
+			.getByRole("button", { name: "Add level" })
+			.boundingBox();
+		expect(addLevelBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+		await expect
+			.poll(() =>
+				page
+					.locator("body")
+					.evaluate((element) => element.scrollWidth - element.clientWidth),
+			)
+			.toBeLessThanOrEqual(1);
 	});
 
 	test("builder secondary headers stay aligned through sidebar and inspector states", async ({
@@ -1845,6 +1928,15 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("heading", { name: "Case changes", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
+		// Lookup-backed expressions are intentionally read-only until their
+		// Project definitions snapshot arrives. Wait for that explicit readiness
+		// gate before sending keyboard mutations; otherwise a busy full-suite run
+		// can correctly refuse the gesture while an isolated run happens to pass.
+		await expect(
+			page
+				.getByRole("alert")
+				.filter({ hasText: "Project data is still loading" }),
+		).toHaveCount(0);
 
 		// Rows read as sentences, in the order the runtime applies them.
 		const list = page.getByRole("list", {

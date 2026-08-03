@@ -10,18 +10,22 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid as asUuid } from "@/__tests__/helpers/uuid";
+import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
 import {
 	type BlueprintDoc,
 	levelMayNestUnder,
+	locationPropertySchema,
 	type OrganizationLevel,
 	type Persona,
 } from "@/lib/domain";
 import { fixedLocation, term } from "@/lib/domain/predicate";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
 import {
+	createLocationInputSchema,
 	deriveSiteCode,
 	organizationRevisionSchema,
 	SITE_CODE_PATTERN,
+	updateLocationInputSchema,
 } from "@/lib/organization/schema";
 import { planPersonaUnassignment } from "@/lib/organization/service";
 
@@ -143,6 +147,76 @@ describe("organizationRevisionSchema", () => {
 		expect(
 			organizationRevisionSchema.safeParse("9223372036854775808").success,
 		).toBe(false);
+	});
+});
+
+describe("organization authoring input identity", () => {
+	const lower = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const upper = lower.toUpperCase();
+	const nil = "00000000-0000-0000-0000-000000000000";
+
+	it("admits only canonical lowercase non-nil UUID identities", () => {
+		const valid = {
+			levelUuid: lower,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: { [lower]: "value" },
+		};
+		expect(createLocationInputSchema.safeParse(valid).success).toBe(true);
+		for (const invalid of [upper, nil, "not-a-uuid"]) {
+			expect(
+				createLocationInputSchema.safeParse({ ...valid, levelUuid: invalid })
+					.success,
+			).toBe(false);
+			expect(
+				createLocationInputSchema.safeParse({
+					...valid,
+					values: { [invalid]: "value" },
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			updateLocationInputSchema.safeParse({ levelUuid: upper }).success,
+		).toBe(false);
+	});
+
+	it("keeps the exact upstream 255-character place-information label bound", () => {
+		const base = { uuid: lower, slug: "phone" };
+		expect(
+			locationPropertySchema.safeParse({ ...base, label: "a".repeat(255) })
+				.success,
+		).toBe(true);
+		expect(
+			locationPropertySchema.safeParse({ ...base, label: "a".repeat(256) })
+				.success,
+		).toBe(false);
+	});
+});
+
+describe("removeOrganizationLevelPlan", () => {
+	it("refuses to broaden a property that applies only to the removed level", () => {
+		const region = asUuid("11111111-1111-4111-8111-111111111111");
+		const property = asUuid("22222222-2222-4222-8222-222222222222");
+		const doc = docWithPersonas([]);
+		doc.organizationLevels = { [region]: level(region, "Region") };
+		doc.organizationLevelOrder = [region];
+		doc.locationProperties = {
+			[property]: {
+				uuid: property,
+				slug: "phone",
+				label: "Phone",
+				levelUuids: [region],
+			},
+		};
+		doc.locationPropertyOrder = [property];
+
+		expect(removeOrganizationLevelPlan(doc, region)).toMatchObject({
+			ok: false,
+			userMessage: expect.stringMatching(/applies only to "Region"/),
+		});
 	});
 });
 

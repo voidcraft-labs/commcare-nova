@@ -55,6 +55,7 @@
 
 import type { Mutation } from "@/lib/doc/types";
 import {
+	assignedLocationUuids,
 	type BlueprintDoc,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
@@ -68,10 +69,16 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	isOwnRecord,
 	isXPathExpression,
+	type LocationProperty,
+	locationPropertiesOf,
 	MODULE_REFERENCE_SLOTS,
 	type Module,
+	type OrganizationLevel,
+	organizationLevelsOf,
 	ownRecordValue,
+	type Persona,
 	type ProseTemplate,
+	personasOf,
 	type ReferenceIndex,
 	readSlotStrings,
 	readSlotValues,
@@ -174,6 +181,12 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	if (ownRecordValue(doc.forms, carrier)) formUuid = identity.data;
 	else if (ownRecordValue(doc.fields, carrier)) {
 		formUuid = findContainingForm(doc, identity.data);
+	} else if (
+		ownRecordValue(organizationLevelsOf(doc), carrier) ||
+		ownRecordValue(locationPropertiesOf(doc), carrier) ||
+		ownRecordValue(personasOf(doc), carrier)
+	) {
+		return {};
 	} else return {};
 	if (formUuid === undefined) return {};
 	const moduleUuid = resolveFormModule(doc, formUuid);
@@ -342,7 +355,68 @@ function extractCarrierEdges(
 		return;
 	}
 	const field = ownRecordValue(doc.fields, carrier);
-	if (field) extractFieldEdges(makeSink(index, carrier, ctx), field);
+	if (field) {
+		extractFieldEdges(makeSink(index, carrier, ctx), field);
+		return;
+	}
+	const level = ownRecordValue(organizationLevelsOf(doc), carrier);
+	if (level) {
+		extractOrganizationLevelEdges(makeSink(index, carrier, ctx), level);
+		return;
+	}
+	const property = ownRecordValue(locationPropertiesOf(doc), carrier);
+	if (property) {
+		extractLocationPropertyEdges(makeSink(index, carrier, ctx), property);
+		return;
+	}
+	const persona = ownRecordValue(personasOf(doc), carrier);
+	if (persona)
+		extractPersonaLocationEdges(makeSink(index, carrier, ctx), persona);
+}
+
+function extractOrganizationLevelEdges(
+	sink: EdgeSink,
+	level: OrganizationLevel,
+): void {
+	const targets = new Set<string>();
+	if (level.parentLevelUuid !== undefined) targets.add(level.parentLevelUuid);
+	if (level.caseFlow.workers === "assigned") {
+		const descendants = level.caseFlow.descendantCases;
+		if (descendants.kind === "down-to") targets.add(descendants.levelUuid);
+	}
+	const book = level.addressBook;
+	if (book.reach === "own-branch-limited") {
+		for (const uuid of book.levelUuids) targets.add(uuid);
+	} else if (book.reach === "shared-branch") {
+		targets.add(book.fromLevelUuid);
+	}
+	if (book.reach !== "own-branch-limited") {
+		if (book.downToLevelUuid !== undefined) targets.add(book.downToLevelUuid);
+	}
+	if (
+		(book.reach === "own-branch" || book.reach === "own-branch-limited") &&
+		book.alsoIncludeTopDownToLevelUuid !== undefined
+	) {
+		targets.add(book.alsoIncludeTopDownToLevelUuid);
+	}
+	for (const target of targets) {
+		sink.edge(entityTargetKey(target), "organization_level_setting");
+	}
+}
+
+function extractLocationPropertyEdges(
+	sink: EdgeSink,
+	property: LocationProperty,
+): void {
+	for (const levelUuid of property.levelUuids ?? []) {
+		sink.edge(entityTargetKey(levelUuid), "location_property_level");
+	}
+}
+
+function extractPersonaLocationEdges(sink: EdgeSink, persona: Persona): void {
+	for (const locationUuid of assignedLocationUuids(persona.locations)) {
+		sink.edge(entityTargetKey(locationUuid), "persona_location");
+	}
 }
 
 function extractFieldEdges(sink: EdgeSink, field: Field): void {
@@ -640,6 +714,14 @@ function termEdges(sink: EdgeSink, slot: string, term: Term): void {
 		sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
 		return;
 	}
+	if (term.kind === "fixed-location") {
+		sink.edge(entityTargetKey(term.locationUuid), slot);
+		return;
+	}
+	if (term.kind === "owner-location-at-level") {
+		sink.edge(entityTargetKey(term.levelUuid), slot);
+		return;
+	}
 	if (term.kind !== "prop") return;
 	if (typeof term.caseType === "string" && term.caseType.length > 0) {
 		sink.edge(caseTypeTargetKey(term.caseType), slot);
@@ -820,6 +902,9 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 		...Object.keys(doc.modules),
 		...Object.keys(doc.forms),
 		...Object.keys(doc.fields),
+		...Object.keys(organizationLevelsOf(doc)),
+		...Object.keys(locationPropertiesOf(doc)),
+		...Object.keys(personasOf(doc)),
 	];
 	for (const carrier of carriers) {
 		contexts.set(carrier, carrierContext(doc, carrier));
@@ -1128,7 +1213,7 @@ export function planReferenceIndexMaintenance(
 			carriers.add(mut.uuid);
 			break;
 		}
-		// User properties, user types, and personas register NO edges. The
+		// User properties and user types register NO edges. The
 		// index carries only structure a query consumes, and the two questions
 		// these collections raise — which value bags name a property, which
 		// personas name a user type — are answered by scanning collections
@@ -1140,15 +1225,23 @@ export function planReferenceIndexMaintenance(
 		case "addUserType":
 		case "updateUserType":
 		case "removeUserType":
+			break;
 		case "addPersona":
+			carriers.add(mut.persona.uuid);
+			break;
 		case "updatePersona":
 		case "removePersona":
-		case "addOrganizationLevel":
 		case "updateOrganizationLevel":
 		case "removeOrganizationLevel":
-		case "addLocationProperty":
 		case "updateLocationProperty":
 		case "removeLocationProperty":
+			carriers.add(mut.uuid);
+			break;
+		case "addOrganizationLevel":
+			carriers.add(mut.level.uuid);
+			break;
+		case "addLocationProperty":
+			carriers.add(mut.property.uuid);
 			break;
 		default: {
 			const _exhaustive: never = mut;

@@ -28,6 +28,7 @@ import {
 	isBlank,
 	literal,
 	match,
+	ownerLocationAtLevel,
 	prop,
 	subcasePath,
 	tableLookup,
@@ -826,6 +827,23 @@ describe("case-operation target and dependency safety", () => {
 						expr: term(literal("patient-id")),
 					},
 					condition: exists(subcasePath("parent", "visit")),
+				}),
+			],
+			"registration",
+		);
+	});
+
+	it("requires a loaded case for an owner-to-place reverse hop", () => {
+		expectCode(
+			"CASE_OPERATION_SESSION_UNAVAILABLE",
+			[
+				update({
+					owner: term(
+						ownerLocationAtLevel(
+							testUuid("owner-destination-level"),
+							"patient",
+						),
+					),
 				}),
 			],
 			"registration",

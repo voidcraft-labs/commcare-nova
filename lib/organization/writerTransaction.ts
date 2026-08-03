@@ -2,8 +2,12 @@ import "server-only";
 
 import { sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { RunHolderLostError } from "@/lib/db/commitGuard";
+import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, notifyAppOrganization } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { exactRunHolderMatches } from "@/lib/db/runHolderWrites";
+import { runLeaseState } from "@/lib/db/runLiveness";
 import { OrganizationError } from "./errors";
 import { parseOrganizationRevision } from "./schema";
 import type { OrganizationRevision, OrganizationScope } from "./types";
@@ -46,13 +50,13 @@ export async function lockOrganizationForWrite(
 	const app = await (options.exclusiveApp === true
 		? tx
 				.selectFrom("apps")
-				.select(["project_id", "deleted_at"])
+				.select(["project_id", "deleted_at", ...LEASE_COLUMNS])
 				.where("id", "=", scope.appId)
 				.forUpdate()
 				.executeTakeFirst()
 		: tx
 				.selectFrom("apps")
-				.select(["project_id", "deleted_at"])
+				.select(["project_id", "deleted_at", ...LEASE_COLUMNS])
 				.where("id", "=", scope.appId)
 				.forShare()
 				.executeTakeFirst());
@@ -88,6 +92,18 @@ export async function lockOrganizationForWrite(
 			"forbidden",
 			"You no longer have permission to change this app's organization.",
 		);
+	}
+
+	// A chat tool's user membership is necessary but not sufficient authority:
+	// the exact run generation must still own the app. The app lock makes this
+	// check a fence for the rest of the transaction, so a successor cannot take
+	// over between the comparison and a location/Blueprint write. MCP and
+	// browser actions omit the token and continue to use actor authorization.
+	if (scope.chatRunHolder !== undefined) {
+		const lease = runLeaseState(leaseView(app));
+		if (!exactRunHolderMatches(lease.holderIdentity, scope.chatRunHolder)) {
+			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
 	}
 
 	await tx

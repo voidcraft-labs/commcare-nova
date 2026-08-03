@@ -9,6 +9,7 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -16,15 +17,26 @@ import {
 	commitGuardedBatch,
 	loadApp,
 } from "@/lib/db/apps";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { RunHolderLostError } from "@/lib/db/commitGuard";
+import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	asUuid,
 	type BlueprintDoc,
 	type OrganizationLevel,
 	type Persona,
+	type Uuid,
 } from "@/lib/domain";
-import { fixedLocation, term } from "@/lib/domain/predicate";
+import {
+	fixedLocation,
+	ownerLocationAtLevel,
+	term,
+} from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	assertLocationOwnerTargetsValid,
 	assertPersonaAssignmentsValid,
@@ -99,6 +111,41 @@ function orgDoc(): BlueprintDoc {
 	};
 }
 
+function workflowOrgDoc(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Organization",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.appId = APP_ID;
+	doc.organizationLevels = orgDoc().organizationLevels;
+	doc.organizationLevelOrder = orgDoc().organizationLevelOrder;
+	doc.personas = orgDoc().personas;
+	doc.personaOrder = orgDoc().personaOrder;
+	return doc;
+}
+
 function scope(
 	projectId = PROJECT_A,
 	actorUserId = ACTOR_A,
@@ -114,11 +161,71 @@ async function seedOrgApp(): Promise<void> {
 	});
 }
 
+async function seedWorkflowOrgApp(): Promise<void> {
+	await h.seedAppWithBlueprint(workflowOrgDoc(), {
+		id: APP_ID,
+		owner: ACTOR_A,
+		projectId: PROJECT_A,
+	});
+}
+
+async function commitFixedOwnerForm(locationId: string): Promise<void> {
+	const loaded = await loadApp(APP_ID);
+	if (loaded === null) throw new Error("organization test app missing");
+	const moduleUuid = loaded.blueprint.moduleOrder[0];
+	const formUuid = loaded.blueprint.formOrder[moduleUuid]?.[0];
+	if (formUuid === undefined) throw new Error("organization test form missing");
+	const doc = hydratePersistedBlueprint(loaded.blueprint);
+	await commitGuardedBatch({
+		appId: APP_ID,
+		batchId: `fixed-owner-${locationId}`,
+		mutations: admitMutationBatch(
+			addCaseOperationMutations(doc, formUuid, {
+				uuid: asUuid("66666666-6666-4666-8666-666666666661"),
+				id: "fixed_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(fixedLocation(asUuid(locationId))),
+			}),
+		),
+		actorUserId: ACTOR_A,
+		kind: "autosave",
+		expectedProjectId: PROJECT_A,
+	});
+}
+
+async function commitReverseOwnerForm(levelUuid: Uuid): Promise<void> {
+	const loaded = await loadApp(APP_ID);
+	if (loaded === null) throw new Error("organization test app missing");
+	const moduleUuid = loaded.blueprint.moduleOrder[0];
+	const formUuid = loaded.blueprint.formOrder[moduleUuid]?.[0];
+	if (formUuid === undefined) throw new Error("organization test form missing");
+	const doc = hydratePersistedBlueprint(loaded.blueprint);
+	await commitGuardedBatch({
+		appId: APP_ID,
+		batchId: `reverse-owner-${levelUuid}`,
+		mutations: admitMutationBatch(
+			addCaseOperationMutations(doc, formUuid, {
+				uuid: asUuid("66666666-6666-4666-8666-666666666662"),
+				id: "reverse_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(ownerLocationAtLevel(levelUuid, "patient")),
+			}),
+		),
+		actorUserId: ACTOR_A,
+		kind: "autosave",
+		expectedProjectId: PROJECT_A,
+	});
+}
+
 /** Region → District → Facility, one place at each rung. */
 async function seedChain(): Promise<{
-	region: string;
-	district: string;
-	facility: string;
+	region: Uuid;
+	district: Uuid;
+	facility: Uuid;
 }> {
 	const region = (
 		await createLocation(scope(), {
@@ -386,6 +493,37 @@ describe("locations store — creation and structure", () => {
 		).resolves.toMatchObject({ location: { levelUuid: OUTPOST } });
 	});
 
+	it("rolls back a leaf retype that would strand a persona assignment", async () => {
+		await seedOrgApp();
+		const { facility } = await seedChain();
+		await assignPersona(PERSONA_ASHA, facility);
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "add-non-worker-outpost-level",
+			mutations: admitMutationBatch([
+				{
+					kind: "addOrganizationLevel",
+					level: {
+						...level(OUTPOST, "outpost", "Outpost", DISTRICT),
+						caseFlow: { workers: "none", ownsCases: true },
+					},
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+
+		await expect(
+			updateLocation(scope(), facility, { levelUuid: OUTPOST }),
+		).rejects.toThrow(/does not hold workers/);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === facility,
+			)?.levelUuid,
+		).toBe(FACILITY);
+	});
+
 	it("refuses a leaf level change that would nest a level under itself", async () => {
 		await seedOrgApp();
 		const { facility } = await seedChain();
@@ -425,6 +563,69 @@ describe("locations store — the optimistic clock", () => {
 		const result = await updateLocation(scope(), facility, {});
 		expect(result.revision).toBe(before);
 		expect((await readOrganization(scope())).revision).toBe(before);
+	});
+});
+
+describe("locations store — exact chat-run authority", () => {
+	it("refuses both superseded and released holders before a row write", async () => {
+		await seedOrgApp();
+		const liveNonce = "11111111-1111-4111-8111-111111111111";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				lock_run_id: "edit-run",
+				lock_actor_user_id: ACTOR_A,
+				lock_expire_at: new Date(Date.now() + 60_000),
+				run_holder_nonce: liveNonce,
+			})
+			.where("id", "=", APP_ID)
+			.execute();
+		const base = scope();
+		const stale: OrganizationScope = {
+			...base,
+			chatRunHolder: {
+				source: "chat",
+				mode: "edit",
+				runId: "edit-run",
+				nonce: "22222222-2222-4222-8222-222222222222",
+			},
+		};
+		const create = (candidate: OrganizationScope) =>
+			createLocation(candidate, {
+				levelUuid: REGION,
+				parentId: null,
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			});
+
+		await expect(create(stale)).rejects.toBeInstanceOf(RunHolderLostError);
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				lock_run_id: null,
+				lock_actor_user_id: null,
+				lock_expire_at: null,
+				run_holder_nonce: null,
+			})
+			.where("id", "=", APP_ID)
+			.execute();
+		await expect(
+			create({
+				...base,
+				chatRunHolder: {
+					source: "chat",
+					mode: "edit",
+					runId: "edit-run",
+					nonce: liveNonce,
+				},
+			}),
+		).rejects.toBeInstanceOf(RunHolderLostError);
+		expect((await readOrganization(scope())).locations).toHaveLength(0);
 	});
 });
 
@@ -624,6 +825,33 @@ describe("locations store — reference edges", () => {
 });
 
 describe("locations store — persona and fixed-owner validation", () => {
+	it("rolls back a move that would put a fixed owner outside every persona address book", async () => {
+		await seedWorkflowOrgApp();
+		const { district, facility } = await seedChain();
+		await assignPersona(PERSONA_ASHA, district);
+		await commitFixedOwnerForm(facility);
+		const otherRegion = (
+			await createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "South",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+
+		await expect(
+			moveLocation(scope(), facility, { parentId: otherRegion }),
+		).rejects.toThrow(/outside Asha's address book/);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === facility,
+			)?.parentId,
+		).toBe(district);
+	});
+
 	it("accepts a fixed owner inside an assigned persona's address book and refuses a sibling branch", async () => {
 		await seedOrgApp();
 		const { facility } = await seedChain();
@@ -674,6 +902,36 @@ describe("locations store — persona and fixed-owner validation", () => {
 		).rejects.toThrow(/outside Asha's address book/);
 	});
 
+	it("always includes ancestors for limited and shared address books", async () => {
+		await seedOrgApp();
+		const { region, facility } = await seedChain();
+		const addressBooks: OrganizationLevel["addressBook"][] = [
+			{ reach: "own-branch-limited", levelUuids: [FACILITY] },
+			{ reach: "shared-branch", fromLevelUuid: DISTRICT },
+		];
+		for (const addressBook of addressBooks) {
+			const candidate = candidateWithFixedOwner(region, facility);
+			candidate.organizationLevels = {
+				...candidate.organizationLevels,
+				[FACILITY]: {
+					...(candidate.organizationLevels?.[FACILITY] as OrganizationLevel),
+					addressBook,
+				},
+			};
+			await expect(
+				h
+					.db()
+					.transaction()
+					.execute((tx) =>
+						assertLocationOwnerTargetsValid(tx, {
+							appId: APP_ID,
+							candidateDoc: candidate,
+						}),
+					),
+			).resolves.toBeUndefined();
+		}
+	});
+
 	it("refuses fixed owners at non-owning levels and assignments at levels without workers", async () => {
 		await seedOrgApp();
 		const { facility } = await seedChain();
@@ -711,7 +969,174 @@ describe("locations store — persona and fixed-owner validation", () => {
 	});
 });
 
+describe("locations store — deterministic reverse-hop owners", () => {
+	it("refuses adding a reverse-hop rule to already-ambiguous rows", async () => {
+		await seedWorkflowOrgApp();
+		const { district } = await seedChain();
+		await createLocation(scope(), {
+			levelUuid: FACILITY,
+			parentId: district,
+			name: "Second Clinic",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+
+		await expect(commitReverseOwnerForm(FACILITY)).rejects.toThrow(
+			/owner rule for Facility is ambiguous below "Riverside"/,
+		);
+	});
+
+	it("rolls back creating a second destination under the same owner", async () => {
+		await seedWorkflowOrgApp();
+		const { district } = await seedChain();
+		await commitReverseOwnerForm(FACILITY);
+
+		await expect(
+			createLocation(scope(), {
+				levelUuid: FACILITY,
+				parentId: district,
+				name: "Second Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			}),
+		).rejects.toThrow(/owner rule for Facility is ambiguous below "Riverside"/);
+		expect((await readOrganization(scope())).locations).toHaveLength(3);
+	});
+
+	it("rolls back moving a second destination under the same owner", async () => {
+		await seedWorkflowOrgApp();
+		const { region, district } = await seedChain();
+		const otherDistrict = (
+			await createLocation(scope(), {
+				levelUuid: DISTRICT,
+				parentId: region,
+				name: "Lakeside",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		const otherFacility = (
+			await createLocation(scope(), {
+				levelUuid: FACILITY,
+				parentId: otherDistrict,
+				name: "Lakeside Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		await commitReverseOwnerForm(FACILITY);
+
+		await expect(
+			moveLocation(scope(), otherFacility, { parentId: district }),
+		).rejects.toThrow(/owner rule for Facility is ambiguous below "Riverside"/);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === otherFacility,
+			)?.parentId,
+		).toBe(otherDistrict);
+	});
+
+	it("rolls back retyping a second destination under the same owner", async () => {
+		await seedWorkflowOrgApp();
+		const { district } = await seedChain();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "add-retype-outpost-level",
+			mutations: admitMutationBatch([
+				{
+					kind: "addOrganizationLevel",
+					level: level(OUTPOST, "outpost", "Outpost", DISTRICT),
+				},
+			]),
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		const outpost = (
+			await createLocation(scope(), {
+				levelUuid: OUTPOST,
+				parentId: district,
+				name: "Mobile Outpost",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		await commitReverseOwnerForm(FACILITY);
+
+		await expect(
+			updateLocation(scope(), outpost, { levelUuid: FACILITY }),
+		).rejects.toThrow(/owner rule for Facility is ambiguous below "Riverside"/);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === outpost,
+			)?.levelUuid,
+		).toBe(OUTPOST);
+	});
+
+	it("rolls back restoring an archived second destination", async () => {
+		await seedWorkflowOrgApp();
+		const { district } = await seedChain();
+		const archived = (
+			await createLocation(scope(), {
+				levelUuid: FACILITY,
+				parentId: district,
+				name: "Seasonal Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		await setLocationArchived(scope(), archived, true);
+		await commitReverseOwnerForm(FACILITY);
+
+		await expect(setLocationArchived(scope(), archived, false)).rejects.toThrow(
+			/owner rule for Facility is ambiguous below "Riverside"/,
+		);
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === archived,
+			)?.archivedAt,
+		).not.toBeNull();
+	});
+});
+
 describe("locations store — removing a level", () => {
+	it("atomically refuses reparenting a level away from its existing places", async () => {
+		await seedOrgApp();
+		await seedChain();
+		await expect(
+			commitGuardedBatch({
+				appId: APP_ID,
+				batchId: "make-district-a-root",
+				mutations: admitMutationBatch([
+					{
+						kind: "updateOrganizationLevel",
+						uuid: DISTRICT,
+						patch: { parentLevelUuid: null },
+					},
+				]),
+				actorUserId: ACTOR_A,
+				kind: "autosave",
+				expectedProjectId: PROJECT_A,
+			}),
+		).rejects.toThrow(/Riverside.*no longer sit/);
+		expect(
+			(await loadApp(APP_ID))?.blueprint.organizationLevels?.[DISTRICT]
+				?.parentLevelUuid,
+		).toBe(REGION);
+	});
+
 	it("refuses while a place still stands at it", async () => {
 		await seedOrgApp();
 		await seedChain();
@@ -817,6 +1242,53 @@ describe("locations store — the archive cascade", () => {
 			.where("app_id", "=", APP_ID)
 			.execute();
 		expect(edges).toEqual([]);
+	});
+
+	it("returns and attributes the exact Blueprint change for an SA archive", async () => {
+		await seedOrgApp();
+		const { facility } = await seedChain();
+		await assignPersona(PERSONA_ASHA, facility);
+		const nonce = "77777777-7777-4777-8777-777777777777";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				lock_run_id: "organization-chat-run",
+				lock_actor_user_id: ACTOR_A,
+				lock_expire_at: new Date(Date.now() + 60_000),
+				run_holder_nonce: nonce,
+			})
+			.where("id", "=", APP_ID)
+			.execute();
+		const result = await setLocationArchived(
+			{
+				...scope(),
+				changeSource: { kind: "chat", runId: "organization-chat-run" },
+				chatRunHolder: {
+					source: "chat",
+					mode: "edit",
+					runId: "organization-chat-run",
+					nonce,
+				},
+			},
+			facility,
+			true,
+		);
+
+		expect(result.blueprintChange?.mutations).toEqual([
+			expect.objectContaining({ kind: "updatePersona", uuid: PERSONA_ASHA }),
+		]);
+		expect(
+			result.blueprintChange?.committedDoc.personas?.[PERSONA_ASHA]?.locations,
+		).toBeUndefined();
+		const change = await h
+			.db()
+			.selectFrom("app_changes")
+			.select(["kind", "run_id"])
+			.where("app_id", "=", APP_ID)
+			.orderBy("seq", "desc")
+			.executeTakeFirstOrThrow();
+		expect(change).toEqual({ kind: "chat", run_id: "organization-chat-run" });
 	});
 
 	it("promotes the next remaining place when the primary is archived", async () => {

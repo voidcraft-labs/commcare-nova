@@ -15,7 +15,6 @@
 import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
-import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
 	type UserEntityPatch,
@@ -33,7 +32,7 @@ import { locationValueCatalogIssueForProperties } from "@/lib/organization/value
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
-import { DraftLinesField } from "./DraftCommitField";
+import { DraftCommitInput, DraftLinesField } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 export function PlaceInformationSubsection({
@@ -143,13 +142,11 @@ function PropertyRow({
 	const slugId = useId();
 	const requiredId = useId();
 	const choicesId = useId();
-	const [draftSlug, setDraftSlug] = useState(property.slug);
 	const [message, setMessage] = useState<string | undefined>(undefined);
 
 	const claimed = new Set(
 		peers.filter((p) => p.uuid !== property.uuid).map((p) => p.slug),
 	);
-	const verdict = userPropertySlugVerdict(draftSlug, claimed);
 	const appliesEverywhere = property.levelUuids === undefined;
 	const commit = (patch: UserEntityPatch<LocationProperty>) => {
 		const candidate = { ...property } as LocationProperty;
@@ -201,17 +198,14 @@ function PropertyRow({
 					>
 						Name
 					</Label>
-					<Input
+					<DraftCommitInput
 						id={labelId}
 						value={property.label}
-						autoComplete="off"
-						data-1p-ignore
 						disabled={!canEdit}
-						onChange={(e) =>
-							mutations.updateLocationProperty(property.uuid as Uuid, {
-								label: e.target.value,
-							})
+						validate={(label) =>
+							label === "" ? "Enter a name for this field." : undefined
 						}
+						onCommit={(label) => commit({ label })}
 					/>
 				</div>
 
@@ -222,40 +216,20 @@ function PropertyRow({
 					>
 						Saves as
 					</Label>
-					<Input
+					<DraftCommitInput
 						id={slugId}
-						value={draftSlug}
-						autoComplete="off"
-						data-1p-ignore
-						aria-invalid={!verdict.ok}
+						value={property.slug}
 						disabled={!canEdit}
-						onChange={(e) => setDraftSlug(e.target.value)}
-						onBlur={() => {
-							// Committed on blur, and only when legal — a name CommCare
-							// refuses would bounce off the commit gate mid-keystroke and
-							// snap the field back under the person's cursor.
-							if (!verdict.ok || draftSlug === property.slug) {
-								setDraftSlug(property.slug);
-								return;
-							}
-							mutations.updateLocationProperty(property.uuid as Uuid, {
-								slug: draftSlug,
-							});
+						validate={(slug) => {
+							const verdict = userPropertySlugVerdict(slug, claimed);
+							return verdict.ok ? undefined : verdict.userMessage;
 						}}
+						validateAsYouType
+						onCommit={(slug) => commit({ slug })}
 					/>
-					{verdict.ok ? (
-						<p className="text-[12px] leading-relaxed text-nova-text-muted">
-							The name CommCare stores this under, and the name expressions
-							read.
-						</p>
-					) : (
-						<p
-							role="alert"
-							className="text-[12px] leading-relaxed text-nova-red"
-						>
-							{verdict.userMessage}
-						</p>
-					)}
+					<p className="text-[12px] leading-relaxed text-nova-text-muted">
+						The name CommCare stores this under, and the name expressions read.
+					</p>
 				</div>
 
 				<div className="flex items-center gap-2.5">
@@ -319,7 +293,7 @@ function PropertyRow({
 								disabled={!canEdit}
 								onChange={(checked) => {
 									const current = appliesEverywhere
-										? levels.map((l) => l.uuid)
+										? []
 										: (property.levelUuids ?? []);
 									const next = checked
 										? [...new Set([...current, level.uuid])]
@@ -389,7 +363,7 @@ function RemoveProperty({ property }: { property: LocationProperty }) {
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
-				className="h-9 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+				className="min-h-11 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 				onClick={() => setConfirming(true)}
 			>
 				Remove information
@@ -411,7 +385,7 @@ function RemoveProperty({ property }: { property: LocationProperty }) {
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					onClick={() => {
 						setConfirming(false);
 						mutations.removeLocationProperty(property.uuid as Uuid);
@@ -422,7 +396,7 @@ function RemoveProperty({ property }: { property: LocationProperty }) {
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px]"
+					className="min-h-11 px-2.5 text-[12px]"
 					onClick={() => setConfirming(false)}
 				>
 					Keep it

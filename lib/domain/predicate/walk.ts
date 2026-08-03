@@ -341,7 +341,9 @@ export function walkPropertyRefs(
 export function expressionReadsCaseData(expression: ValueExpression): boolean {
 	let readsCaseData = false;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "prop") readsCaseData = true;
+		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+			readsCaseData = true;
+		}
 	});
 	walkExpressionNodes(expression, (node) => {
 		if (node.kind === "count") readsCaseData = true;
@@ -364,7 +366,9 @@ export function expressionReadsCaseData(expression: ValueExpression): boolean {
 export function predicateReadsCaseData(predicate: Predicate): boolean {
 	let readsCaseData = false;
 	walkTerms(predicate, (term) => {
-		if (term.kind === "prop") readsCaseData = true;
+		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+			readsCaseData = true;
+		}
 	});
 	walkPredicateExpressionNodes(predicate, (node) => {
 		if (node.kind === "count") readsCaseData = true;

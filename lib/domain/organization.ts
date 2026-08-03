@@ -36,6 +36,7 @@
 // representation at all. Nothing here models it.
 
 import { z } from "zod";
+import { CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH } from "./customDataFieldLimits";
 import { recordFromEntries } from "./records";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -298,7 +299,7 @@ export const locationPropertySchema = z
 	.object({
 		uuid: uuidSchema,
 		slug: z.string().min(1),
-		label: z.string().min(1),
+		label: z.string().min(1).max(CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH),
 		/**
 		 * Whether a place must carry a value for this before it can be saved.
 		 *

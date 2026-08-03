@@ -115,9 +115,24 @@ function classifyIdentity(
 		return "lookup-column";
 	}
 	if (property === "rowId") return "lookup-row";
+	if (
+		property === "values" &&
+		(tool === "create_location" || tool === "update_location")
+	) {
+		return "location-property";
+	}
 
 	if (property === "moduleUuid") return "module";
 	if (property === "formUuid") return "form";
+	if (
+		(property === "parentUuid" ||
+			property === "parentId" ||
+			property === "afterSiblingUuid" ||
+			property === "afterSiblingId") &&
+		(tool === "create_location" || tool === "move_location")
+	) {
+		return "location";
+	}
 	if (
 		property === "fieldUuid" ||
 		property === "parentUuid" ||
@@ -194,12 +209,14 @@ function classifyIdentity(
 			return "persona";
 		}
 		if (
+			tool === "add_organization_levels" ||
 			tool === "update_organization_level" ||
 			tool === "remove_organization_level"
 		) {
 			return "organization-level";
 		}
 		if (
+			tool === "add_location_properties" ||
 			tool === "update_location_property" ||
 			tool === "remove_location_property"
 		) {

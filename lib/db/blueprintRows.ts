@@ -233,6 +233,11 @@ export function assembleBlueprint(
 		// loading rather than losing one row.
 		const flatSlot = flatSlotByKind.get(row.kind);
 		if (flatSlot !== undefined) {
+			if (row.parent_uuid !== null) {
+				throw new Error(
+					`Blueprint flat entity ${row.uuid} (${row.kind}) has unexpected parent ${row.parent_uuid}.`,
+				);
+			}
 			const collection = flat[flatSlot];
 			if (collection !== undefined) {
 				flat[flatSlot] = recordWithValue(

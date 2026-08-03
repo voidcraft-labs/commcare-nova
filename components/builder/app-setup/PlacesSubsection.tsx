@@ -17,7 +17,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArchiveOff from "@iconify-icons/tabler/archive-off";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
@@ -50,6 +50,8 @@ import {
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 type Organization = ReturnType<typeof useOrganization>;
+const FIRST_POSITION = "__first__";
+const END_POSITION = "__end__";
 
 /** One row plus its depth, in the order the tree reads top to bottom. */
 interface TreeRow {
@@ -96,6 +98,13 @@ export function PlacesSubsection({
 	const [openId, setOpenId] = useState<string | undefined>(undefined);
 	const [adding, setAdding] = useState(false);
 	const [message, setMessage] = useState<string | undefined>(undefined);
+	const authoritative =
+		!organization.loading && organization.error === undefined;
+
+	useEffect(() => {
+		if (canEdit) return;
+		setAdding(false);
+	}, [canEdit]);
 
 	const rows = flatten(organization.locations);
 
@@ -123,7 +132,7 @@ export function PlacesSubsection({
 			description="The districts, facilities, and wards themselves. Unlike levels, these are data — you can add thousands, and later push them to CommCare."
 			addLabel="Add place"
 			onAdd={() => setAdding(true)}
-			canEdit={canEdit && !adding}
+			canEdit={canEdit && authoritative && !adding}
 		>
 			{organization.loading ? (
 				<p className="flex items-center gap-2 px-3 py-4 text-[13px] text-nova-text-muted">
@@ -139,7 +148,7 @@ export function PlacesSubsection({
 					<Button
 						type="button"
 						variant="ghost"
-						className="h-9 px-2 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+						className="min-h-11 px-2 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 						onClick={organization.reload}
 					>
 						Try again
@@ -169,7 +178,7 @@ export function PlacesSubsection({
 				))
 			)}
 
-			{adding && (
+			{adding && canEdit && authoritative && (
 				<AddPlaceForm
 					levels={levels}
 					properties={properties}
@@ -226,6 +235,25 @@ function descendantIds(
 	return descendants;
 }
 
+function sameStoredLocation(
+	left: StoredLocation,
+	right: StoredLocation,
+): boolean {
+	return (
+		left.id === right.id &&
+		left.levelUuid === right.levelUuid &&
+		left.parentId === right.parentId &&
+		left.siteCode === right.siteCode &&
+		left.name === right.name &&
+		left.externalId === right.externalId &&
+		left.latitude === right.latitude &&
+		left.longitude === right.longitude &&
+		String(left.archivedAt) === String(right.archivedAt) &&
+		left.orderKey === right.orderKey &&
+		JSON.stringify(left.values) === JSON.stringify(right.values)
+	);
+}
+
 function PlaceRow({
 	location,
 	levels,
@@ -246,6 +274,10 @@ function PlaceRow({
 	const canEdit = useCanEdit();
 	const nameId = useId();
 	const externalId = useId();
+	const latitudeId = useId();
+	const longitudeId = useId();
+	const levelId = useId();
+	const positionId = useId();
 	const [draftName, setDraftName] = useState(location.name);
 	const [draftExternalId, setDraftExternalId] = useState(
 		location.externalId ?? "",
@@ -253,15 +285,63 @@ function PlaceRow({
 	const [draftValues, setDraftValues] = useState<Record<string, string>>(
 		valuesForLevel(properties, location.levelUuid, location.values),
 	);
-	const [message, setMessage] = useState<string | undefined>(undefined);
-	const archived = location.archivedAt !== null;
-	const applicableProperties = propertiesForLevel(
-		properties,
+	const [draftLatitude, setDraftLatitude] = useState(location.latitude ?? "");
+	const [draftLongitude, setDraftLongitude] = useState(
+		location.longitude ?? "",
+	);
+	const [draftLevelUuid, setDraftLevelUuid] = useState<string>(
 		location.levelUuid,
 	);
+	const [message, setMessage] = useState<string | undefined>(undefined);
+	const [dirtyName, setDirtyName] = useState(false);
+	const [dirtyExternalId, setDirtyExternalId] = useState(false);
+	const [dirtyValues, setDirtyValues] = useState(false);
+	const [dirtyLatitude, setDirtyLatitude] = useState(false);
+	const [dirtyLongitude, setDirtyLongitude] = useState(false);
+	const [dirtyLevel, setDirtyLevel] = useState(false);
+	const [peerChanged, setPeerChanged] = useState(false);
+	const sourceRef = useRef(location);
+	const archived = location.archivedAt !== null;
+	const applicableProperties = propertiesForLevel(properties, draftLevelUuid);
 	const level = levels.find(
 		(candidate) => candidate.uuid === location.levelUuid,
 	);
+	const levelRecord = Object.fromEntries(
+		levels.map((candidate) => [candidate.uuid, candidate]),
+	);
+	const parent =
+		location.parentId === null
+			? undefined
+			: locations.find((candidate) => candidate.id === location.parentId);
+	const hasChildren = locations.some(
+		(candidate) => candidate.parentId === location.id,
+	);
+	const retypeOptions = levels.filter(
+		(candidate) =>
+			candidate.uuid === location.levelUuid ||
+			(!hasChildren &&
+				(location.parentId === null
+					? candidate.parentLevelUuid === undefined
+					: parent !== undefined &&
+						levelMayNestUnder(candidate.uuid, parent.levelUuid, levelRecord))),
+	);
+	const siblings = locations.filter(
+		(candidate) =>
+			candidate.parentId === location.parentId && candidate.id !== location.id,
+	);
+	const siblingOrder = locations.filter(
+		(candidate) => candidate.parentId === location.parentId,
+	);
+	const ownIndex = siblingOrder.findIndex(
+		(candidate) => candidate.id === location.id,
+	);
+	const previousSibling = ownIndex > 0 ? siblingOrder[ownIndex - 1] : undefined;
+	const positionValue =
+		ownIndex === 0
+			? FIRST_POSITION
+			: ownIndex === siblingOrder.length - 1
+				? END_POSITION
+				: (previousSibling?.id ?? FIRST_POSITION);
 	const descendants = descendantIds(locations, location.id);
 	const parentOptions = locations.filter(
 		(candidate) =>
@@ -278,23 +358,77 @@ function PlaceRow({
 	);
 
 	useEffect(() => {
+		if (
+			dirtyName ||
+			dirtyExternalId ||
+			dirtyValues ||
+			dirtyLatitude ||
+			dirtyLongitude ||
+			dirtyLevel
+		) {
+			if (!sameStoredLocation(sourceRef.current, location))
+				setPeerChanged(true);
+			return;
+		}
 		setDraftName(location.name);
 		setDraftExternalId(location.externalId ?? "");
+		setDraftLatitude(location.latitude ?? "");
+		setDraftLongitude(location.longitude ?? "");
+		setDraftLevelUuid(location.levelUuid);
 		setDraftValues(
 			valuesForLevel(properties, location.levelUuid, location.values),
 		);
-	}, [location, properties]);
+		sourceRef.current = location;
+		setPeerChanged(false);
+	}, [
+		location,
+		properties,
+		dirtyName,
+		dirtyExternalId,
+		dirtyValues,
+		dirtyLatitude,
+		dirtyLongitude,
+		dirtyLevel,
+	]);
+
+	const adoptLatest = () => {
+		setDraftName(location.name);
+		setDraftExternalId(location.externalId ?? "");
+		setDraftLatitude(location.latitude ?? "");
+		setDraftLongitude(location.longitude ?? "");
+		setDraftLevelUuid(location.levelUuid);
+		setDraftValues(
+			valuesForLevel(properties, location.levelUuid, location.values),
+		);
+		setDirtyName(false);
+		setDirtyExternalId(false);
+		setDirtyValues(false);
+		setDirtyLatitude(false);
+		setDirtyLongitude(false);
+		setDirtyLevel(false);
+		setPeerChanged(false);
+		setMessage(undefined);
+		sourceRef.current = location;
+	};
 
 	const saveValues = async (next: Record<string, string>) => {
-		const filtered = valuesForLevel(properties, location.levelUuid, next);
+		const filtered = valuesForLevel(properties, draftLevelUuid, next);
 		setDraftValues(filtered);
+		setDirtyValues(true);
+		if (dirtyLevel) return;
+		if (peerChanged) {
+			setMessage(
+				"This place changed while you were editing. Use the latest saved values before saving your draft.",
+			);
+			return;
+		}
 		const result = await organization.update(location.id, { values: filtered });
 		if (!result.ok) {
-			setDraftValues(
-				valuesForLevel(properties, location.levelUuid, location.values),
-			);
 			setMessage(result.message);
-		} else setMessage(undefined);
+		} else {
+			setDirtyValues(false);
+			setMessage(undefined);
+		}
 	};
 
 	return (
@@ -314,6 +448,22 @@ function PlaceRow({
 			onOpenChange={onOpenChange}
 		>
 			<div className="flex flex-col gap-4">
+				{peerChanged && (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] p-3 text-[12px] leading-relaxed text-nova-text-secondary"
+					>
+						This place changed while you were editing. Your draft is still here.
+						<Button
+							type="button"
+							variant="ghost"
+							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							onClick={adoptLatest}
+						>
+							Use latest saved values
+						</Button>
+					</div>
+				)}
 				<div className="flex flex-col gap-1.5">
 					<Label
 						htmlFor={nameId}
@@ -327,15 +477,29 @@ function PlaceRow({
 						autoComplete="off"
 						data-1p-ignore
 						disabled={!canEdit || archived}
-						onChange={(e) => setDraftName(e.target.value)}
+						onChange={(e) => {
+							setDraftName(e.target.value);
+							setDirtyName(true);
+						}}
 						onBlur={async () => {
-							if (draftName === location.name) return;
+							if (draftName === location.name) {
+								setDirtyName(false);
+								return;
+							}
+							if (peerChanged) {
+								setMessage(
+									"This place changed while you were editing. Use the latest saved values before saving your draft.",
+								);
+								return;
+							}
 							const result = await organization.update(location.id, {
 								name: draftName,
 							});
 							if (!result.ok) {
-								setDraftName(location.name);
 								setMessage(result.message);
+							} else {
+								setDirtyName(false);
+								setMessage(undefined);
 							}
 						}}
 					/>
@@ -362,19 +526,188 @@ function PlaceRow({
 						autoComplete="off"
 						data-1p-ignore
 						disabled={!canEdit || archived}
-						onChange={(event) => setDraftExternalId(event.target.value)}
+						onChange={(event) => {
+							setDraftExternalId(event.target.value);
+							setDirtyExternalId(true);
+						}}
 						onBlur={async (e) => {
 							const next = e.target.value;
-							if (next === (location.externalId ?? "")) return;
+							if (next === (location.externalId ?? "")) {
+								setDirtyExternalId(false);
+								return;
+							}
+							if (peerChanged) {
+								setMessage(
+									"This place changed while you were editing. Use the latest saved values before saving your draft.",
+								);
+								return;
+							}
 							const result = await organization.update(location.id, {
 								externalId: next === "" ? null : next,
 							});
 							if (!result.ok) {
-								setDraftExternalId(location.externalId ?? "");
 								setMessage(result.message);
+							} else {
+								setDirtyExternalId(false);
+								setMessage(undefined);
 							}
 						}}
 					/>
+				</div>
+
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={levelId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Level
+					</Label>
+					<Select
+						value={draftLevelUuid}
+						disabled={!canEdit || archived || hasChildren || peerChanged}
+						onValueChange={(value) => {
+							if (typeof value !== "string") return;
+							setDraftLevelUuid(value);
+							const nextValues = valuesForLevel(properties, value, draftValues);
+							setDraftValues(nextValues);
+							setDirtyLevel(value !== location.levelUuid);
+							setDirtyValues(
+								JSON.stringify(nextValues) !==
+									JSON.stringify(
+										valuesForLevel(
+											properties,
+											location.levelUuid,
+											location.values,
+										),
+									),
+							);
+						}}
+					>
+						<SelectTrigger id={levelId} className="w-full">
+							<SelectValue>{levelName(levels, draftLevelUuid)}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{retypeOptions.map((candidate) => (
+								<SelectItem key={candidate.uuid} value={candidate.uuid}>
+									{candidate.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{hasChildren && (
+						<p className="text-[12px] leading-relaxed text-nova-text-muted">
+							A place with other places under it keeps its level. Move or
+							archive those places before changing this one.
+						</p>
+					)}
+					{dirtyLevel && (
+						<Button
+							type="button"
+							variant="ghost"
+							className="min-h-11 self-start px-2.5 text-[12px] text-nova-violet-bright"
+							disabled={
+								peerChanged ||
+								!requiredValuesPresent(properties, draftLevelUuid, draftValues)
+							}
+							onClick={async () => {
+								const result = await organization.update(location.id, {
+									levelUuid: draftLevelUuid,
+									values: valuesForLevel(
+										properties,
+										draftLevelUuid,
+										draftValues,
+									),
+								});
+								if (!result.ok) setMessage(result.message);
+								else {
+									setDirtyLevel(false);
+									setDirtyValues(false);
+									setMessage(undefined);
+								}
+							}}
+						>
+							Apply level change
+						</Button>
+					)}
+				</div>
+
+				<div className="grid gap-3 @sm:grid-cols-2">
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={latitudeId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Latitude
+						</Label>
+						<Input
+							id={latitudeId}
+							value={draftLatitude}
+							inputMode="decimal"
+							disabled={!canEdit || archived}
+							onChange={(event) => {
+								setDraftLatitude(event.target.value);
+								setDirtyLatitude(true);
+							}}
+							onBlur={async () => {
+								if (draftLatitude === (location.latitude ?? "")) {
+									setDirtyLatitude(false);
+									return;
+								}
+								if (peerChanged) {
+									setMessage(
+										"This place changed while you were editing. Use the latest saved values before saving your draft.",
+									);
+									return;
+								}
+								const result = await organization.update(location.id, {
+									latitude: draftLatitude === "" ? null : draftLatitude,
+								});
+								if (!result.ok) setMessage(result.message);
+								else {
+									setDirtyLatitude(false);
+									setMessage(undefined);
+								}
+							}}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={longitudeId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Longitude
+						</Label>
+						<Input
+							id={longitudeId}
+							value={draftLongitude}
+							inputMode="decimal"
+							disabled={!canEdit || archived}
+							onChange={(event) => {
+								setDraftLongitude(event.target.value);
+								setDirtyLongitude(true);
+							}}
+							onBlur={async () => {
+								if (draftLongitude === (location.longitude ?? "")) {
+									setDirtyLongitude(false);
+									return;
+								}
+								if (peerChanged) {
+									setMessage(
+										"This place changed while you were editing. Use the latest saved values before saving your draft.",
+									);
+									return;
+								}
+								const result = await organization.update(location.id, {
+									longitude: draftLongitude === "" ? null : draftLongitude,
+								});
+								if (!result.ok) setMessage(result.message);
+								else {
+									setDirtyLongitude(false);
+									setMessage(undefined);
+								}
+							}}
+						/>
+					</div>
 				</div>
 
 				{level?.parentLevelUuid !== undefined && (
@@ -384,7 +717,7 @@ function PlaceRow({
 						</Label>
 						<Select
 							value={location.parentId ?? ""}
-							disabled={!canEdit || archived}
+							disabled={!canEdit || archived || peerChanged || dirtyLevel}
 							onValueChange={async (value) => {
 								if (typeof value !== "string" || value === "") return;
 								const result = await organization.move(location.id, {
@@ -411,6 +744,49 @@ function PlaceRow({
 					</div>
 				)}
 
+				{siblings.length > 0 && (
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={positionId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Position
+						</Label>
+						<Select
+							value={positionValue}
+							disabled={!canEdit || archived || peerChanged}
+							onValueChange={async (value) => {
+								if (typeof value !== "string") return;
+								const afterSiblingId =
+									value === FIRST_POSITION
+										? null
+										: value === END_POSITION
+											? undefined
+											: value;
+								const result = await organization.move(location.id, {
+									parentId: location.parentId,
+									...(afterSiblingId === undefined ? {} : { afterSiblingId }),
+								});
+								if (!result.ok) setMessage(result.message);
+								else setMessage(undefined);
+							}}
+						>
+							<SelectTrigger id={positionId} className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={END_POSITION}>At the end</SelectItem>
+								<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
+								{siblings.map((sibling) => (
+									<SelectItem key={sibling.id} value={sibling.id}>
+										After {sibling.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+
 				{applicableProperties.length > 0 && (
 					<fieldset className="flex flex-col gap-3 rounded-lg border border-nova-border p-3">
 						<legend className="px-1 text-[12px] font-medium text-nova-text-secondary">
@@ -422,12 +798,13 @@ function PlaceRow({
 								property={property}
 								value={draftValues[property.uuid] ?? ""}
 								disabled={!canEdit || archived}
-								onDraft={(value) =>
+								onDraft={(value) => {
 									setDraftValues((current) => ({
 										...current,
 										[property.uuid]: value,
-									}))
-								}
+									}));
+									setDirtyValues(true);
+								}}
 								onCommit={(value) =>
 									void saveValues({ ...draftValues, [property.uuid]: value })
 								}
@@ -527,7 +904,7 @@ function PlaceValueField({
 						<Button
 							type="button"
 							variant="ghost"
-							className="h-9 shrink-0 px-2.5 text-[12px]"
+							className="min-h-11 shrink-0 px-2.5 text-[12px]"
 							disabled={disabled}
 							onClick={() => {
 								onDraft("");
@@ -571,6 +948,7 @@ function ArchivePlace({
 		  }
 		| undefined
 	>(undefined);
+	const [impactError, setImpactError] = useState<string | undefined>();
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 	const archived = location.archivedAt !== null;
 
@@ -579,7 +957,7 @@ function ArchivePlace({
 			<Button
 				type="button"
 				variant="ghost"
-				className="h-9 gap-2 self-start px-2.5 text-[12px]"
+				className="min-h-11 gap-2 self-start px-2.5 text-[12px]"
 				onClick={async () => {
 					const result = await organization.setArchived(location.id, false);
 					if (!result.ok) onMessage(result.message);
@@ -602,20 +980,21 @@ function ArchivePlace({
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
-				className="h-9 gap-2 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+				className="min-h-11 gap-2 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 				onClick={async () => {
 					onMessage(undefined);
 					setImpact(undefined);
+					setImpactError(undefined);
 					setConfirming(true);
 					const described = await organization.describeArchive(location.id);
-					if (described !== undefined) {
+					if (described.ok) {
 						setImpact({
-							locations: described.locationIds.length,
-							personas: described.unassignedPersonas,
-							cases: described.ownedCases,
-							blockingOwnerRuleForms: described.blockingOwnerRuleForms,
+							locations: described.impact.locationIds.length,
+							personas: described.impact.unassignedPersonas,
+							cases: described.impact.ownedCases,
+							blockingOwnerRuleForms: described.impact.blockingOwnerRuleForms,
 						});
-					}
+					} else setImpactError(described.message);
 				}}
 			>
 				<Icon icon={tablerArchive} width="15" height="15" aria-hidden="true" />
@@ -633,7 +1012,11 @@ function ArchivePlace({
 			<p className="text-[13px] leading-relaxed text-nova-text">
 				Archive “{location.name}”?
 			</p>
-			{impact === undefined ? (
+			{impactError !== undefined ? (
+				<p role="alert" className="text-[12px] leading-relaxed text-nova-red">
+					{impactError}
+				</p>
+			) : impact === undefined ? (
 				<p className="flex items-center gap-2 text-[12px] text-nova-text-muted">
 					<Spinner className="size-3.5" />
 					Checking what this affects…
@@ -676,7 +1059,7 @@ function ArchivePlace({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
 					disabled={
 						impact === undefined || impact.blockingOwnerRuleForms.length > 0
 					}
@@ -691,7 +1074,7 @@ function ArchivePlace({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px]"
+					className="min-h-11 px-2.5 text-[12px]"
 					onClick={() => setConfirming(false)}
 				>
 					Keep it
@@ -717,18 +1100,32 @@ function AddPlaceForm({
 		levelUuid: string;
 		parentId: string | null;
 		name: string;
-		externalId: null;
-		latitude: null;
-		longitude: null;
+		siteCode?: string;
+		externalId: string | null;
+		latitude: string | null;
+		longitude: string | null;
 		values: Record<string, string>;
+		afterSiblingId?: string | null;
 	}) => Promise<void>;
 }) {
 	const nameId = useId();
+	const siteCodeId = useId();
+	const externalId = useId();
+	const latitudeId = useId();
+	const longitudeId = useId();
 	const levelId = useId();
 	const parentId = useId();
+	const positionId = useId();
 	const [levelUuid, setLevelUuid] = useState(levels[0]?.uuid ?? "");
 	const [parent, setParent] = useState<string>("");
 	const [name, setName] = useState("");
+	const [siteCode, setSiteCode] = useState("");
+	const [external, setExternal] = useState("");
+	const [latitude, setLatitude] = useState("");
+	const [longitude, setLongitude] = useState("");
+	const [afterSiblingId, setAfterSiblingId] = useState<
+		string | null | undefined
+	>();
 	const [values, setValues] = useState<Record<string, string>>({});
 
 	const levelRecord = Object.fromEntries(levels.map((l) => [l.uuid, l]));
@@ -741,6 +1138,9 @@ function AddPlaceForm({
 			levelMayNestUnder(levelUuid, candidate.levelUuid, levelRecord),
 	);
 	const needsParent = levelRecord[levelUuid]?.parentLevelUuid !== undefined;
+	const siblings = locations.filter(
+		(location) => location.parentId === (needsParent ? parent : null),
+	);
 	const applicableProperties = propertiesForLevel(properties, levelUuid);
 
 	return (
@@ -761,6 +1161,67 @@ function AddPlaceForm({
 					onChange={(e) => setName(e.target.value)}
 				/>
 			</div>
+			<div className="grid gap-3 @sm:grid-cols-2">
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={siteCodeId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Code (optional)
+					</Label>
+					<Input
+						id={siteCodeId}
+						value={siteCode}
+						autoComplete="off"
+						data-1p-ignore
+						placeholder="Derived from the name"
+						onChange={(event) => setSiteCode(event.target.value)}
+					/>
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={externalId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Id in another system
+					</Label>
+					<Input
+						id={externalId}
+						value={external}
+						autoComplete="off"
+						data-1p-ignore
+						onChange={(event) => setExternal(event.target.value)}
+					/>
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={latitudeId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Latitude
+					</Label>
+					<Input
+						id={latitudeId}
+						value={latitude}
+						inputMode="decimal"
+						onChange={(event) => setLatitude(event.target.value)}
+					/>
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={longitudeId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Longitude
+					</Label>
+					<Input
+						id={longitudeId}
+						value={longitude}
+						inputMode="decimal"
+						onChange={(event) => setLongitude(event.target.value)}
+					/>
+				</div>
+			</div>
 			<div className="flex flex-col gap-1.5">
 				<Label
 					htmlFor={levelId}
@@ -774,6 +1235,7 @@ function AddPlaceForm({
 						if (typeof value !== "string") return;
 						setLevelUuid(value);
 						setParent("");
+						setAfterSiblingId(undefined);
 						setValues((current) => valuesForLevel(properties, value, current));
 					}}
 				>
@@ -803,7 +1265,10 @@ function AddPlaceForm({
 					<Select
 						value={parent}
 						onValueChange={(value) => {
-							if (typeof value === "string") setParent(value);
+							if (typeof value === "string") {
+								setParent(value);
+								setAfterSiblingId(undefined);
+							}
 						}}
 					>
 						<SelectTrigger id={parentId} className="w-full">
@@ -828,6 +1293,46 @@ function AddPlaceForm({
 							yet. Add a place at a level above it first.
 						</p>
 					)}
+				</div>
+			)}
+			{(!needsParent || parent !== "") && siblings.length > 0 && (
+				<div className="flex flex-col gap-1.5">
+					<Label
+						htmlFor={positionId}
+						className="text-[12px] font-medium text-nova-text-secondary"
+					>
+						Position
+					</Label>
+					<Select
+						value={
+							afterSiblingId === null
+								? FIRST_POSITION
+								: (afterSiblingId ?? END_POSITION)
+						}
+						onValueChange={(value) => {
+							if (typeof value !== "string") return;
+							setAfterSiblingId(
+								value === END_POSITION
+									? undefined
+									: value === FIRST_POSITION
+										? null
+										: value,
+							);
+						}}
+					>
+						<SelectTrigger id={positionId} className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value={END_POSITION}>At the end</SelectItem>
+							<SelectItem value={FIRST_POSITION}>At the beginning</SelectItem>
+							{siblings.map((sibling) => (
+								<SelectItem key={sibling.id} value={sibling.id}>
+									After {sibling.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</div>
 			)}
 			{applicableProperties.length > 0 && (
@@ -861,7 +1366,7 @@ function AddPlaceForm({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 gap-2 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+					className="min-h-11 gap-2 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 					disabled={
 						name.trim() === "" ||
 						levelUuid === "" ||
@@ -873,10 +1378,12 @@ function AddPlaceForm({
 							levelUuid,
 							parentId: needsParent ? parent : null,
 							name: name.trim(),
-							externalId: null,
-							latitude: null,
-							longitude: null,
+							...(siteCode.trim() === "" ? {} : { siteCode: siteCode.trim() }),
+							externalId: external === "" ? null : external,
+							latitude: latitude === "" ? null : latitude,
+							longitude: longitude === "" ? null : longitude,
 							values: valuesForLevel(properties, levelUuid, values),
+							afterSiblingId,
 						})
 					}
 				>
@@ -886,7 +1393,7 @@ function AddPlaceForm({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-9 px-2.5 text-[12px]"
+					className="min-h-11 px-2.5 text-[12px]"
 					onClick={onCancel}
 				>
 					Cancel

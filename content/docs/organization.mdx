@@ -45,8 +45,9 @@ Those two are independent, and all four combinations are useful:
 **Workers also receive cases from places below** widens what an assigned worker
 gets. "Everything below" is the common answer. Stopping at a particular level
 needs a setting enabled on the CommCare project you deploy to — Nova tells you
-that where you choose it, and Deployment lists it as a prerequisite, because
-without it workers would quietly receive everything below instead.
+that where you choose it. Direct Deployment is not available yet, so configure
+that setting on the target project yourself before installing the app; without
+it workers would quietly receive everything below instead.
 
 ### What workers here can see
 
@@ -97,9 +98,10 @@ because a made-up place is worse than an absent one: expressions that look for
 the district would find the fake one and give a confident wrong answer, where a
 genuine gap gives an honest empty one.
 
-One thing to know if you plan to publish: CommCare's own interface cannot create
-a place that skips a level. Your app previews and exports correctly either way,
-and Deployment tells you before it tries.
+One thing to know if you plan to publish: CommCare's ordinary place editor cannot
+create a place that skips a level. Nova previews and downloadable exports keep
+the gap accurately. Direct Deployment is not available yet, so Nova does not
+currently provision that hierarchy in an HQ project for you.
 
 Every place gets a **code** when you create it, and that code never changes —
 renaming a place leaves it alone. The code is what bulk uploads and CommCare use

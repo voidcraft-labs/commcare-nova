@@ -1,6 +1,7 @@
 /** Shared SA/MCP authoring for organization shape and app-scoped places. */
 
 import { z } from "zod";
+import { RunHolderLostError } from "@/lib/db/commitGuard";
 import {
 	addLocationPropertyMutations,
 	addOrganizationLevelMutations,
@@ -61,6 +62,13 @@ function scope(ctx: ToolExecutionContext): OrganizationScope {
 		// Informational only. Every writer re-authorizes the fresh membership
 		// under the app lock instead of trusting this snapshot.
 		role: "tool",
+		changeSource: {
+			kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
+			runId: ctx.runId,
+		},
+		...(ctx.chatRunHolder === undefined
+			? {}
+			: { chatRunHolder: ctx.chatRunHolder }),
 	};
 }
 
@@ -98,7 +106,11 @@ async function commit(
 	};
 }
 
-const levelCreateSchema = organizationLevelSchema.omit({ uuid: true });
+const levelCreateSchema = organizationLevelSchema.omit({ uuid: true }).extend({
+	/** Optional predeclared identity lets one atomic call add a parent and
+	 * children that reference it. Omitted identities remain server-minted. */
+	uuid: uuidSchema.optional(),
+});
 const propertyCreateSchema = locationPropertySchema.omit({ uuid: true });
 
 export const getOrganizationInputSchema = z.object({}).strict();
@@ -145,7 +157,8 @@ export const moveLocationToolInputSchema = z
 	.object({
 		locationUuid: uuidSchema,
 		parentUuid: uuidSchema.nullable(),
-		afterSiblingUuid: uuidSchema.optional(),
+		/** null means first; omitted means append. */
+		afterSiblingUuid: uuidSchema.nullable().optional(),
 		expectedRevision: organizationRevisionSchema.optional(),
 	})
 	.strict();
@@ -192,11 +205,14 @@ export const addOrganizationLevelsTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddResult>> {
 		try {
-			const uuids = input.levels.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.levels.map(
+				(level) => level.uuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, level] of input.levels.entries()) {
-				const next = addOrganizationLevelMutations(cursor, uuids[index], level);
+				const { uuid: _uuid, ...body } = level;
+				const next = addOrganizationLevelMutations(cursor, uuids[index], body);
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
 			}
@@ -410,10 +426,16 @@ function rowResult<T>(
 ): Promise<ReadToolResult<T | { error: string }>> {
 	return run().then(
 		(data) => ({ kind: "read" as const, data }),
-		(error) => ({
-			kind: "read" as const,
-			data: { error: errorMessage(error) },
-		}),
+		(error) => {
+			// Losing the exact chat generation is terminal. Turning it into an
+			// ordinary read result would let a stale SA keep spending and possibly
+			// report success after its successor took over.
+			if (error instanceof RunHolderLostError) throw error;
+			return {
+				kind: "read" as const,
+				data: { error: errorMessage(error) },
+			};
+		},
 	);
 }
 
@@ -483,16 +505,39 @@ export const setLocationArchivedTool = {
 		ctx: ToolExecutionContext,
 		_doc: BlueprintDoc,
 	) {
-		return rowResult(async () => ({
-			impact: input.archived
+		try {
+			const impact = input.archived
 				? await describeArchiveImpact(scope(ctx), input.locationUuid)
-				: undefined,
-			result: await setLocationArchived(
+				: undefined;
+			const result = await setLocationArchived(
 				scope(ctx),
 				input.locationUuid,
 				input.archived,
 				input.expectedRevision,
-			),
-		}));
+			);
+			if (result.blueprintChange !== undefined) {
+				const { blueprintChange, ...organization } = result;
+				return {
+					kind: "mutate" as const,
+					mutations: blueprintChange.mutations,
+					newDoc: blueprintChange.committedDoc,
+					result: {
+						message: `Archived ${result.archivedIds.length} ${result.archivedIds.length === 1 ? "place" : "places"} and updated ${result.unassignedPersonas.length} persona ${result.unassignedPersonas.length === 1 ? "assignment" : "assignments"}.`,
+						impact,
+						organization,
+					},
+				};
+			}
+			return {
+				kind: "read" as const,
+				data: { impact, result },
+			};
+		} catch (error) {
+			if (error instanceof RunHolderLostError) throw error;
+			return {
+				kind: "read" as const,
+				data: { error: errorMessage(error) },
+			};
+		}
 	},
 };

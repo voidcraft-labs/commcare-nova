@@ -39,17 +39,21 @@ export function PersonaLocations({
 	persona,
 	locations,
 	loading,
+	error,
 }: {
 	persona: Persona;
 	/** Every place in the app, archived included. */
 	locations: readonly StoredLocation[];
 	loading: boolean;
+	error: string | undefined;
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
 	const levels = useOrganizationLevelRecord();
 	const assigned = assignedLocationUuids(persona.locations);
-	const byId = new Map(locations.map((location) => [location.id, location]));
+	const byId = new Map<string, StoredLocation>(
+		locations.map((location) => [location.id, location]),
+	);
 	// A worker cannot be assigned to an archived place, so it is not offered —
 	// and archiving one already removed the assignments that pointed at it.
 	const available = locations.filter(
@@ -75,7 +79,11 @@ export function PersonaLocations({
 				Where they work
 			</h4>
 
-			{assignableCount === 0 && assigned.length === 0 ? (
+			{error !== undefined ? (
+				<p role="alert" className="text-[13px] leading-relaxed text-nova-red">
+					Places could not be loaded: {error}
+				</p>
+			) : assignableCount === 0 && assigned.length === 0 ? (
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
 					{loading
 						? "Loading places…"
@@ -107,13 +115,13 @@ export function PersonaLocations({
 												Main
 											</span>
 										)}
-										{canEdit && (
+										{canEdit && !loading && (
 											<>
 												{index > 0 && (
 													<Button
 														type="button"
 														variant="ghost"
-														className="h-9 shrink-0 px-2 text-[12px]"
+														className="min-h-11 shrink-0 px-2 text-[12px]"
 														onClick={() =>
 															set([
 																id,
@@ -128,7 +136,7 @@ export function PersonaLocations({
 													type="button"
 													variant="ghost"
 													aria-label={`Remove ${location?.name ?? "this place"}`}
-													className="size-9 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
+													className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
 													onClick={() =>
 														set(assigned.filter((other) => other !== id))
 													}
@@ -148,7 +156,7 @@ export function PersonaLocations({
 						</ul>
 					)}
 
-					{canEdit && available.length > 0 && (
+					{canEdit && !loading && available.length > 0 && (
 						<Select
 							value=""
 							onValueChange={(value) => {

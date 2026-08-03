@@ -1878,6 +1878,11 @@ function diffOrganizationCollections(
 	const out: Mutation[] = [];
 	const prevLevels = prev.organizationLevels ?? {};
 	const nextLevels = next.organizationLevels ?? {};
+	assertExistingRelativeOrderPreserved(
+		prev.organizationLevelOrder ?? [],
+		next.organizationLevelOrder ?? [],
+		"organization levels",
+	);
 	for (const [index, uuid] of (next.organizationLevelOrder ?? []).entries()) {
 		const level = ownRecordValue(nextLevels, uuid);
 		if (level === undefined) continue;
@@ -1911,6 +1916,11 @@ function diffOrganizationCollections(
 
 	const prevProperties = prev.locationProperties ?? {};
 	const nextProperties = next.locationProperties ?? {};
+	assertExistingRelativeOrderPreserved(
+		prev.locationPropertyOrder ?? [],
+		next.locationPropertyOrder ?? [],
+		"place-information fields",
+	);
 	for (const [index, uuid] of (next.locationPropertyOrder ?? []).entries()) {
 		const property = ownRecordValue(nextProperties, uuid);
 		if (property === undefined) continue;
@@ -1938,6 +1948,27 @@ function diffOrganizationCollections(
 		}
 	}
 	return out;
+}
+
+/**
+ * Organization collections currently have add-position but no standalone move
+ * mutation. Refuse a reorder endpoint explicitly instead of returning a batch
+ * that silently replays to a different document.
+ */
+function assertExistingRelativeOrderPreserved(
+	previous: readonly Uuid[],
+	next: readonly Uuid[],
+	label: string,
+): void {
+	const previousSet = new Set(previous);
+	const nextSet = new Set(next);
+	const oldShared = previous.filter((uuid) => nextSet.has(uuid));
+	const nextShared = next.filter((uuid) => previousSet.has(uuid));
+	if (!deepEqual(oldShared, nextShared)) {
+		throw new Error(
+			`Reordering existing ${label} is not representable by the current mutation dialect.`,
+		);
+	}
 }
 
 /**

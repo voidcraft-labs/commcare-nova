@@ -332,6 +332,7 @@ export type ValidationErrorCode =
 	// mode-aware Nova export boundary rejects every carrier for `hq-json` and
 	// `hq-upload`. `ccz` embeds its fixtures locally and never takes this.
 	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
+	| "FIXED_LOCATION_EXPORT_NOT_ACTIVE"
 	// Row-dependent lookup findings, produced only by the ccz export
 	// boundary: rows live outside the document, so these are functions of
 	// current Project data, not of any commit.

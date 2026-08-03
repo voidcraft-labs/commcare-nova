@@ -22,6 +22,7 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -133,5 +134,38 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 
 		expect("caseType" in replayed.modules[moduleUuid]).toBe(false);
 		expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(next));
+	});
+});
+
+describe("diffDocsToMutations — organization sequence admission", () => {
+	it("refuses an existing-level reorder instead of silently emitting no diff", () => {
+		const region = testUuid("11111111-1111-4111-8111-111111111111");
+		const facility = testUuid("22222222-2222-4222-8222-222222222222");
+		const prev = buildDoc({ appName: "Organization" });
+		prev.organizationLevels = {
+			[region]: {
+				uuid: region,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+			[facility]: {
+				uuid: facility,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: region,
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		prev.organizationLevelOrder = [region, facility];
+		const next = produce(prev, (draft) => {
+			draft.organizationLevelOrder = [facility, region];
+		});
+
+		expect(() => diffDocsToMutations(prev, next)).toThrow(
+			/Reordering existing organization levels/,
+		);
 	});
 });

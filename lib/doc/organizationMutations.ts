@@ -26,6 +26,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	assignedLocationUuids,
 	type BlueprintDoc,
+	entityTargetKey,
 	type LocationProperty,
 	locationPropertiesOf,
 	type OrganizationLevel,
@@ -34,7 +35,7 @@ import {
 	personasOf,
 	type Uuid,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { referencingCarrierUuids } from "./referenceIndex";
 
 function appendAfter(order: readonly Uuid[] | undefined): Uuid | null {
 	return order?.at(-1) ?? null;
@@ -92,10 +93,9 @@ export type RemoveOrganizationLevelPlan =
  *     rewritten because each one encodes an intent that has no automatic
  *     substitute.
  *
- * A location property that applies only to the removed level is NOT a
- * blocker: its `levelUuids` is narrowed in the same batch, and a property left
- * applying to no levels widens back to applying everywhere, which is the
- * schema's meaning for an absent list.
+ * A location property that applies only to the removed level IS a blocker.
+ * Empty scope has no stored spelling, while absent scope means every level;
+ * silently clearing the singleton would therefore broaden it globally.
  */
 export function removeOrganizationLevelPlan(
 	doc: BlueprintDoc,
@@ -135,25 +135,12 @@ export function removeOrganizationLevelPlan(
 		};
 	}
 
-	for (const form of Object.values(doc.forms)) {
-		for (const operation of form.caseOperations ?? []) {
-			if (operation.owner === undefined) continue;
-			let held = false;
-			walkExpressionTerms(operation.owner, (term) => {
-				if (
-					term.kind === "owner-location-at-level" &&
-					term.levelUuid === uuid
-				) {
-					held = true;
-				}
-			});
-			if (held) {
-				return {
-					ok: false,
-					userMessage: `A case-owner rule uses "${level.name}". Choose a different destination in that rule first, then remove the level.`,
-				};
-			}
-		}
+	const indexedReferrers = referencingCarrierUuids(doc, entityTargetKey(uuid));
+	if (indexedReferrers.some((carrier) => doc.forms[carrier] !== undefined)) {
+		return {
+			ok: false,
+			userMessage: `A case-owner rule uses "${level.name}". Choose a different destination in that rule first, then remove the level.`,
+		};
 	}
 
 	const mutations: Mutation[] = [];
@@ -163,13 +150,16 @@ export function removeOrganizationLevelPlan(
 		const remaining = property.levelUuids.filter(
 			(levelUuid) => levelUuid !== uuid,
 		);
+		if (remaining.length === 0) {
+			return {
+				ok: false,
+				userMessage: `The place-information field "${property.label}" applies only to "${level.name}". Change or remove that field before removing the level.`,
+			};
+		}
 		mutations.push({
 			kind: "updateLocationProperty",
 			uuid: property.uuid,
-			// An emptied list travels as `null`, which the patch reducer deletes —
-			// and an absent list means "every level", which is the honest reading
-			// of a property whose only level just went away.
-			patch: { levelUuids: remaining.length > 0 ? remaining : null },
+			patch: { levelUuids: remaining },
 		});
 	}
 	mutations.push({ kind: "removeOrganizationLevel", uuid });

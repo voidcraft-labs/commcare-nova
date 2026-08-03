@@ -42,6 +42,7 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
+import { walkExpressionTerms } from "@/lib/domain/predicate";
 import {
 	getLookupDefinitions,
 	getLookupFixtureData,
@@ -144,6 +145,7 @@ async function collectViolationsWithRegistry(
 				{},
 			),
 			...lookupExportFindings(doc, mode, lookupRows),
+			...organizationExportFindings(doc, mode),
 		];
 	}
 
@@ -161,8 +163,53 @@ async function collectViolationsWithRegistry(
 	return [
 		...errors,
 		...lookupExportFindings(doc, mode, lookupRows),
+		...organizationExportFindings(doc, mode),
 		...(budgetError === null ? [] : [budgetError]),
 	];
+}
+
+/**
+ * A local place UUID is the right identity in a `.ccz`, whose embedded
+ * locations fixture is compiled from the same rows. HQ creates different
+ * location ids, so HQ artifacts stay closed until deployment supplies and
+ * verifies the local-to-remote mapping.
+ */
+function organizationExportFindings(
+	doc: BlueprintDoc,
+	mode: ExportMode | undefined,
+): ValidationError[] {
+	if (mode === undefined || mode === "ccz") return [];
+	const findings: ValidationError[] = [];
+	for (const form of Object.values(doc.forms)) {
+		for (const [operationIndex, operation] of (
+			form.caseOperations ?? []
+		).entries()) {
+			if (operation.owner === undefined) continue;
+			let fixedLocationUuid: string | undefined;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (term.kind === "fixed-location") {
+					fixedLocationUuid = term.locationUuid;
+				}
+			});
+			if (fixedLocationUuid === undefined) continue;
+			findings.push(
+				validationError(
+					"FIXED_LOCATION_EXPORT_NOT_ACTIVE",
+					"form",
+					`A fixed place owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} until Deployment has created and mapped that place in HQ. Choose an owner-relative rule or remove the fixed owner before exporting.`,
+					{
+						formUuid: form.uuid,
+					},
+					{
+						exportMode: mode,
+						operationIndex: String(operationIndex),
+						locationUuid: fixedLocationUuid,
+					},
+				),
+			);
+		}
+	}
+	return findings;
 }
 
 /** Row snapshot plus the pre-built fixture set for the ccz row verdicts. */

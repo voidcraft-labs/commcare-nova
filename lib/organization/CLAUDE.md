@@ -42,7 +42,10 @@ this lock order (`writerTransaction.ts` — do not fork it in a new writer):
 1. the **app row** — `FOR SHARE`, or `FOR UPDATE` when this transaction will
    also commit a blueprint batch;
 2. re-prove the app is live and still in the scope's Project, then
-   re-authorize the actor against that freshly locked Project;
+   re-authorize the actor against that freshly locked Project; a
+   chat-originated write also re-proves that the exact run-holder generation
+   still owns the app, and losing that fence is terminal rather than a normal
+   tool result;
 3. create-if-missing and lock `app_organization_state` `FOR UPDATE`;
 4. compare `expectedRevision`;
 5. lock and write the location rows;
@@ -91,6 +94,11 @@ verdict and before the entity write.
   values that named it, because a property uuid is never reissued and an
   orphaned value is unreachable forever — the same choice `lib/lookup`'s column
   removal makes, at the one moment the orphaned key set is exactly known.
+  A level-hierarchy edit also revalidates every persisted row's complete
+  placement against the candidate hierarchy, including archived rows: roots
+  must remain at root levels, and every child place's level must remain a strict
+  descendant of its parent place's level. Checking only removed levels misses
+  an occupied level whose parent level changed.
 
 ## Archive is the reversible gesture, and it spans both stores
 
@@ -104,6 +112,12 @@ unreachable — archived places with a persona still standing on them, or a
 persona unassigned from places that are still live. It therefore takes the app
 row `FOR UPDATE` and performs a guarded blueprint commit on its own
 transaction.
+
+When archive unassigns personas, the nested blueprint commit keeps the calling
+surface's provenance (`chat` with the exact holder, `mcp`, or browser
+`autosave`) and returns the exact committed document and mutations. The shared
+SA/MCP tool adopts that fresh document as a mutating result; it must not keep
+reasoning from its pre-archive working copy.
 
 Three behaviours are HQ parity, each verified rather than assumed:
 
@@ -130,6 +144,14 @@ every target must be live and its current level must hold workers. Fixed owner
 targets must be live, stand at a case-owning level, and fall inside every
 assigned persona's address-book footprint. Those are cross-store facts and
 must never be approximated by a document-only validator.
+
+Retyping or moving a place changes those same facts, so both operations write a
+tentative row and then revalidate every persona assignment and fixed-owner rule
+inside the transaction. A move also changes ancestry for otherwise untouched
+rows. Create, retype, move, unarchive, and blueprint commits additionally prove
+that each authored reverse owner hop remains scalar: below any applicable
+case-owning ancestor there may be at most one live destination at the requested
+level. Any failure rolls back the row and revision together.
 
 Unarchiving deliberately does **not** restore assignments. The archive removed
 them and they are ordinary authored data now; silently re-adding a persona to a

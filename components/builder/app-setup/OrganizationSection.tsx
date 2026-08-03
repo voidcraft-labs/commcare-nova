@@ -13,6 +13,8 @@
  */
 "use client";
 
+import { Button } from "@/components/shadcn/button";
+import { Spinner } from "@/components/shadcn/spinner";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId } from "@/lib/session/hooks";
 import { LevelsSubsection } from "./LevelsSubsection";
@@ -31,6 +33,27 @@ export function OrganizationSection() {
 	const occupiedLevelUuids = new Set(
 		organization.locations.map((location) => location.levelUuid),
 	);
+	const status = organization.loading ? (
+		<p className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-4 text-[13px] text-nova-text-muted">
+			<Spinner className="size-4" />
+			Loading the organization…
+		</p>
+	) : organization.error !== undefined ? (
+		<p
+			role="alert"
+			className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+		>
+			{organization.error}{" "}
+			<Button
+				type="button"
+				variant="ghost"
+				className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+				onClick={organization.reload}
+			>
+				Try again
+			</Button>
+		</p>
+	) : undefined;
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -47,9 +70,13 @@ export function OrganizationSection() {
 					different things depending on where they are assigned.
 				</p>
 			</section>
-			<LevelsSubsection occupiedLevelUuids={occupiedLevelUuids} />
-			<PlaceInformationSubsection locations={organization.locations} />
-			<PlacesSubsection organization={organization} />
+			{status ?? (
+				<>
+					<LevelsSubsection occupiedLevelUuids={occupiedLevelUuids} />
+					<PlaceInformationSubsection locations={organization.locations} />
+					<PlacesSubsection organization={organization} />
+				</>
+			)}
 		</div>
 	);
 }

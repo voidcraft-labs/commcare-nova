@@ -6,6 +6,7 @@ import {
 	assignedLocationUuids,
 	type BlueprintDoc,
 	levelHoldsWorkers,
+	levelMayNestUnder,
 	levelOwnsCases,
 	locationPropertiesOf,
 	organizationLevelsOf,
@@ -230,14 +231,66 @@ export async function applyOrganizationCommitIntegrity(
 	},
 ): Promise<void> {
 	await assertRemovedLevelsUnused(tx, args);
+	await assertLocationPlacementsValid(tx, args);
 	await shedRemovedLocationPropertyValues(tx, args);
 	await assertLocationValuesValid(tx, args);
 	await assertPersonaAssignmentsValid(tx, args);
 	await assertLocationOwnerTargetsValid(tx, args);
+	await assertReverseHopTargetsUnambiguous(tx, args);
 	await replaceLocationReferenceEdges(tx, {
 		appId: args.appId,
 		targets: extractLocationReferenceTargets(args.candidateDoc),
 	});
+}
+
+/**
+ * Revalidate the persisted tree against a candidate level hierarchy.
+ *
+ * Place writers validate their own target slot, but a Blueprint edit can move
+ * an occupied level in the type hierarchy without touching any place row.
+ * Every row is therefore checked here under the guarded commit's app lock:
+ * roots must stand at root levels, and every child level must be a strict
+ * descendant of its parent place's level. Archived rows count because they can
+ * be restored later and must not resurrect an impossible topology.
+ */
+export async function assertLocationPlacementsValid(
+	tx: Transaction<AppDatabase>,
+	args: { readonly appId: string; readonly candidateDoc: BlueprintDoc },
+): Promise<void> {
+	const rows = await tx
+		.selectFrom("app_locations")
+		.select(["id", "name", "level_uuid", "parent_id"])
+		.where("app_id", "=", args.appId)
+		.execute();
+	if (rows.length === 0) return;
+	const levels = organizationLevelsOf(args.candidateDoc);
+	const byId = new Map(rows.map((row) => [row.id, row]));
+
+	for (const row of rows) {
+		const locationLevel = levels[row.level_uuid];
+		if (locationLevel === undefined) {
+			throw new BlueprintCommitRejectedError(
+				`"${row.name}" stands at a level this change removes. Move or archive that place first.`,
+			);
+		}
+		if (row.parent_id === null) {
+			if (locationLevel.parentLevelUuid !== undefined) {
+				throw new BlueprintCommitRejectedError(
+					`"${row.name}" would be left without a parent place after this level change. Move the place first.`,
+				);
+			}
+			continue;
+		}
+		const parent = byId.get(row.parent_id);
+		if (
+			parent === undefined ||
+			!levelMayNestUnder(row.level_uuid, parent.level_uuid, levels)
+		) {
+			throw new BlueprintCommitRejectedError(
+				`"${row.name}" would no longer sit under a place at a level above it after this level change. Move the place first.`,
+			);
+		}
+	}
 }
 
 /**
@@ -413,8 +466,8 @@ function assignmentFootprintIncludes(
 			);
 		case "own-branch-limited":
 			return (
-				((targetIsAncestor || targetInOwnBranch) &&
-					book.levelUuids.includes(target.level_uuid)) ||
+				targetIsAncestor ||
+				(targetInOwnBranch && book.levelUuids.includes(target.level_uuid)) ||
 				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
 					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
 			);
@@ -423,14 +476,77 @@ function assignmentFootprintIncludes(
 				(row) => row.level_uuid === book.fromLevelUuid,
 			);
 			return (
-				from !== undefined &&
-				isSameOrDescendant(target, from, byId) &&
-				(book.downToLevelUuid === undefined ||
-					levelIsAtOrAbove(target.level_uuid, book.downToLevelUuid, doc))
+				targetIsAncestor ||
+				(from !== undefined &&
+					isSameOrDescendant(target, from, byId) &&
+					(book.downToLevelUuid === undefined ||
+						levelIsAtOrAbove(target.level_uuid, book.downToLevelUuid, doc)))
 			);
 		}
 		case "whole-organization":
 			return topSliceIncludes(target, book.downToLevelUuid, doc);
+	}
+}
+
+function reverseHopDestinationLevelUuids(doc: BlueprintDoc): readonly string[] {
+	const targets = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			if (operation.owner === undefined) continue;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (term.kind === "owner-location-at-level") {
+					targets.add(term.levelUuid);
+				}
+			});
+		}
+	}
+	return [...targets].sort();
+}
+
+/**
+ * A reverse owner hop is scalar, so every owning ancestor may have at most one
+ * live destination at the referenced level. Without this invariant the XPath
+ * returns multiple `@id` nodes and owner choice depends on fixture order.
+ */
+export async function assertReverseHopTargetsUnambiguous(
+	tx: Transaction<AppDatabase>,
+	args: { readonly appId: string; readonly candidateDoc: BlueprintDoc },
+): Promise<void> {
+	const destinationLevelUuids = reverseHopDestinationLevelUuids(
+		args.candidateDoc,
+	);
+	if (destinationLevelUuids.length === 0) return;
+	const rows = await tx
+		.selectFrom("app_locations")
+		.selectAll()
+		.where("app_id", "=", args.appId)
+		.where("archived_at", "is", null)
+		.execute();
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	const levels = organizationLevelsOf(args.candidateDoc);
+
+	for (const destinationLevelUuid of destinationLevelUuids) {
+		const destinationLevel = levels[destinationLevelUuid];
+		if (destinationLevel === undefined) continue;
+		const sourceLevel = ancestorLevels(destinationLevel, levels).find((level) =>
+			levelOwnsCases(level),
+		);
+		if (sourceLevel === undefined) continue;
+		const firstBySource = new Map<string, LocationRow>();
+		for (const destination of rows) {
+			if (destination.level_uuid !== destinationLevelUuid) continue;
+			const source = rowAncestors(destination, byId).find(
+				(ancestor) => ancestor.level_uuid === sourceLevel.uuid,
+			);
+			if (source === undefined) continue;
+			const first = firstBySource.get(source.id);
+			if (first !== undefined) {
+				throw new BlueprintCommitRejectedError(
+					`The owner rule for ${destinationLevel.name} is ambiguous below "${source.name}": both "${first.name}" and "${destination.name}" match. Keep one live ${destinationLevel.name.toLowerCase()} there, or choose a fixed place owner.`,
+				);
+			}
+			firstBySource.set(source.id, destination);
+		}
 	}
 }
 
