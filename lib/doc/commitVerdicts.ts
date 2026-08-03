@@ -29,8 +29,14 @@
 
 import { produce } from "immer";
 import {
+	findOnDeviceDateAddIssue,
+	findOnDeviceDateAddIssueInPredicate,
+	type OnDeviceDateAddIssue,
+} from "@/lib/commcare/expression/onDeviceCompatibility";
+import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
+	walkCsqlOnDeviceNodes,
 } from "@/lib/commcare/predicate";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import {
@@ -70,11 +76,22 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { MutationResult } from "@/lib/doc/types";
 import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
-import type { MatchMode, Predicate } from "@/lib/domain/predicate";
+import type {
+	MatchMode,
+	Predicate,
+	TypeContext,
+	ValueExpression,
+} from "@/lib/domain/predicate";
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
+
+/** The runtime family that will evaluate one authored expression carrier. */
+export type ExpressionEvaluationTarget =
+	| "on-device"
+	| "case-search"
+	| "on-device-and-case-search";
 
 function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	if (issue.reason === "case-property-on-value-side") {
@@ -86,21 +103,70 @@ function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	return issue.message;
 }
 
+function dateAddEditIssueReason(issue: OnDeviceDateAddIssue): string {
+	return issue.reason === "datetime-base"
+		? "Date and time calculations aren't available here because the time would be lost. Use a whole date or choose another calculation."
+		: "Month and year calculations aren't available here. Use seconds, minutes, hours, days, or weeks.";
+}
+
+function caseSearchDateAddIssue(
+	predicate: Predicate,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	let issue: OnDeviceDateAddIssue | undefined;
+	walkCsqlOnDeviceNodes(predicate, {
+		visitExpression(expression) {
+			if (issue === undefined) {
+				issue = findOnDeviceDateAddIssue(expression, context);
+			}
+		},
+	});
+	return issue;
+}
+
 /**
- * Decide whether one in-place edit may be offered inside a case-search rule.
+ * Whole-candidate authoring verdict for a predicate expression edit.
  *
- * The builder deliberately asks this domain-facing question instead of
- * importing or re-implementing CommCare's CSQL grammar. The complete candidate
- * must be representable; an invalid existing arm cannot be carried forward by
- * changing a different value.
+ * A remote case-search rule is mixed-runtime: CSQL-native date functions stay
+ * on the server, while a non-native expression subtree is interpolated as
+ * JavaRosa XPath and must obey the on-device restriction. The shared dialect
+ * walker keeps this projection aligned with the validator and emitter.
  */
-export function caseSearchPredicateEditVerdict(
+export function predicateExpressionRuntimeEditVerdict(
 	candidate: Predicate,
+	target: ExpressionEvaluationTarget,
+	context: TypeContext,
 ): PredicateEditVerdict {
-	const finding = checkCsqlRepresentability(candidate)[0];
-	return finding === undefined
+	if (target !== "on-device") {
+		const representabilityIssue = checkCsqlRepresentability(candidate)[0];
+		if (representabilityIssue !== undefined) {
+			return {
+				ok: false,
+				reason: predicateEditIssueReason(representabilityIssue),
+			};
+		}
+	}
+
+	const dateIssue =
+		target === "case-search"
+			? caseSearchDateAddIssue(candidate, context)
+			: findOnDeviceDateAddIssueInPredicate(candidate, context);
+	return dateIssue === undefined
 		? { ok: true }
-		: { ok: false, reason: predicateEditIssueReason(finding) };
+		: { ok: false, reason: dateAddEditIssueReason(dateIssue) };
+}
+
+/** Whole-candidate authoring verdict for a standalone value expression. */
+export function valueExpressionRuntimeEditVerdict(
+	candidate: ValueExpression,
+	target: ExpressionEvaluationTarget,
+	context: TypeContext,
+): PredicateEditVerdict {
+	if (target === "case-search") return { ok: true };
+	const issue = findOnDeviceDateAddIssue(candidate, context);
+	return issue === undefined
+		? { ok: true }
+		: { ok: false, reason: dateAddEditIssueReason(issue) };
 }
 
 /**

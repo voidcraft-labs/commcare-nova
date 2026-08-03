@@ -273,6 +273,7 @@ export function ExpressionPicker({
 			tableScope: ctx.tableScope,
 			operationScope: ctx.operationScope,
 			ownerValues: ctx.ownerValues,
+			evaluationTarget: ctx.evaluationTarget,
 		};
 		const typeCtx = buildEditorTypeContext(ctx);
 		const pendingTermSourceLabel = termSourceLabel(
@@ -288,23 +289,36 @@ export function ExpressionPicker({
 					)
 					.map((s) => {
 						const typeAdmission = admitsValueExpressionKind(s.kind, constraint);
-						const countHasConnection =
-							s.kind !== "count" || hasCountableRelation(editCtx);
+						const contextAdmission = expressionSeedContextAdmission(
+							s.kind,
+							editCtx,
+							constraint,
+						);
 						const preserved = planPreservedExpressionReplacement(
 							value,
 							s.kind,
 							typeCtx,
 						);
 						const candidate =
-							preserved ??
-							defaultExpressionForSlot(s, editCtx, constraint, presentation);
-						const ruleAdmission = ctx.admitExpressionChange?.(path, candidate);
+							typeAdmission.admitted && contextAdmission.admitted
+								? (preserved ??
+									defaultExpressionForSlot(
+										s,
+										editCtx,
+										constraint,
+										presentation,
+									))
+								: undefined;
+						const ruleAdmission =
+							candidate === undefined
+								? undefined
+								: ctx.admitExpressionChange?.(path, candidate);
 						const admitted =
 							typeAdmission.admitted &&
-							countHasConnection &&
+							contextAdmission.admitted &&
 							(ruleAdmission?.admitted ?? true);
-						const reason = !countHasConnection
-							? "Add a parent or child case type before counting related cases"
+						const reason = !contextAdmission.admitted
+							? contextAdmission.reason
 							: ruleAdmission?.admitted === false
 								? ruleAdmission.reason
 								: typeAdmission.reason;
@@ -543,6 +557,37 @@ function termSeedForSlot(
 		: reseedValueForConstraint(term(literal("")), constraint.accepts);
 }
 
+function expressionSeedContextAdmission(
+	kind: ValueExpression["kind"],
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
+):
+	| { readonly admitted: true }
+	| { readonly admitted: false; readonly reason: string } {
+	if (kind === "count" && !hasCountableRelation(ctx)) {
+		return {
+			admitted: false,
+			reason: "Add a parent or child case type before counting related cases",
+		};
+	}
+	if (
+		kind === "table-lookup" &&
+		!(ctx.lookupTables ?? []).some((table) =>
+			table.columns.some(
+				(column) =>
+					constraint.accepts === "any" ||
+					acceptsType(constraint, column.dataType),
+			),
+		)
+	) {
+		return {
+			admitted: false,
+			reason: "Add a Project data column that fits this value first",
+		};
+	}
+	return { admitted: true };
+}
+
 /** Registry defaults are intentionally context-only. Depend-on-input kinds
  * (`term`, `if`, `switch`) need their result-bearing leaves reseeded for a
  * typed slot at selection time; otherwise choosing a calculated numeric
@@ -651,6 +696,7 @@ function KindReplaceMenu({
 		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
 		ownerValues: ctx.ownerValues,
+		evaluationTarget: ctx.evaluationTarget,
 	};
 	const typeCtx = buildEditorTypeContext(ctx);
 	const currentKind = currentValue.kind;
@@ -715,32 +761,39 @@ function KindReplaceMenu({
 									const typeAdmission = isCurrent
 										? { admitted: true, reason: undefined }
 										: admitsValueExpressionKind(schema.kind, constraint);
-									const countHasConnection =
-										isCurrent ||
-										schema.kind !== "count" ||
-										hasCountableRelation(editCtx);
-									const candidate = isCurrent
-										? currentValue
-										: (planPreservedExpressionReplacement(
-												currentValue,
+									const contextAdmission = isCurrent
+										? { admitted: true as const }
+										: expressionSeedContextAdmission(
 												schema.kind,
-												typeCtx,
-											) ??
-											defaultExpressionForSlot(
-												schema,
 												editCtx,
 												constraint,
-												presentation,
-											));
+											);
+									const candidate = isCurrent
+										? currentValue
+										: typeAdmission.admitted && contextAdmission.admitted
+											? (planPreservedExpressionReplacement(
+													currentValue,
+													schema.kind,
+													typeCtx,
+												) ??
+												defaultExpressionForSlot(
+													schema,
+													editCtx,
+													constraint,
+													presentation,
+												))
+											: undefined;
 									const ruleAdmission = isCurrent
 										? { admitted: true as const }
-										: ctx.admitExpressionChange?.(path, candidate);
+										: candidate === undefined
+											? undefined
+											: ctx.admitExpressionChange?.(path, candidate);
 									const admitted =
 										typeAdmission.admitted &&
-										countHasConnection &&
+										contextAdmission.admitted &&
 										(ruleAdmission?.admitted ?? true);
-									const reason = !countHasConnection
-										? "Add a parent or child case type before counting related cases"
+									const reason = !contextAdmission.admitted
+										? contextAdmission.reason
 										: ruleAdmission?.admitted === false
 											? ruleAdmission.reason
 											: typeAdmission.reason;

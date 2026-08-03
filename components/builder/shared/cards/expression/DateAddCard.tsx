@@ -39,8 +39,10 @@ import {
 	today,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
+import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
 /** The quantity is always numeric. The date operand's exact temporal type
@@ -81,6 +83,7 @@ export function DateAddCard({
 	path,
 	constraint = ANY_CONSTRAINT,
 }: DateAddCardProps) {
+	const ctx = usePredicateEditContext();
 	// Per-slot errors render via each `ExpressionPicker` shell's
 	// `CardShell` footer at the matching slot path. The type checker
 	// emits at `[..., "date"]` and `[..., "quantity"]`; the picker
@@ -97,7 +100,28 @@ export function DateAddCard({
 	const setQuantity = (next: ValueExpression) => {
 		onChange(dateAdd(value.date, value.interval, next));
 	};
-	const dateConstraint = dateAddOperandConstraint(constraint);
+	const parentDateConstraint = dateAddOperandConstraint(constraint);
+	const parentAcceptsDate =
+		parentDateConstraint.accepts === "any" ||
+		parentDateConstraint.accepts.has("date");
+	const dateConstraint =
+		ctx.evaluationTarget === "case-search"
+			? parentDateConstraint
+			: {
+					accepts: new Set(parentAcceptsDate ? (["date"] as const) : []),
+				};
+	const admissionFor = (interval: DateAddInterval) =>
+		ctx.admitExpressionChange?.(
+			path,
+			dateAdd(value.date, interval, value.quantity),
+		) ?? { admitted: true as const };
+	const currentAdmission = admissionFor(value.interval);
+	const runtimeErrors =
+		currentAdmission.admitted ||
+		(!currentAdmission.reason.startsWith("Date and time") &&
+			!currentAdmission.reason.startsWith("Month and year"))
+			? []
+			: [currentAdmission.reason];
 
 	return (
 		<div className="space-y-3">
@@ -126,8 +150,13 @@ export function DateAddCard({
 						constraint={QUANTITY_CONSTRAINT}
 						variant="nested"
 					/>
-					<IntervalMenu interval={value.interval} setInterval={setInterval} />
+					<IntervalMenu
+						interval={value.interval}
+						setInterval={setInterval}
+						admissionFor={admissionFor}
+					/>
 				</div>
+				<InlineError errors={runtimeErrors} />
 			</div>
 		</div>
 	);
@@ -136,9 +165,19 @@ export function DateAddCard({
 interface IntervalMenuProps {
 	readonly interval: DateAddInterval;
 	readonly setInterval: (interval: DateAddInterval) => void;
+	readonly admissionFor: (
+		interval: DateAddInterval,
+	) =>
+		| { readonly admitted: true }
+		| { readonly admitted: false; readonly reason: string };
 }
 
-function IntervalMenu({ interval, setInterval }: IntervalMenuProps) {
+function IntervalMenu({
+	interval,
+	setInterval,
+	admissionFor,
+}: IntervalMenuProps) {
+	const currentAdmission = admissionFor(interval);
 	return (
 		<Select
 			value={interval}
@@ -158,16 +197,32 @@ function IntervalMenu({ interval, setInterval }: IntervalMenuProps) {
 		>
 			<SelectTrigger
 				aria-label={`Interval ${INTERVAL_LABELS[interval]}`}
+				aria-invalid={!currentAdmission.admitted}
 				className="h-11 border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-violet-bright not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
 			>
 				<SelectValue>{INTERVAL_LABELS[interval]}</SelectValue>
 			</SelectTrigger>
 			<SelectContent align="end">
-				{DATE_ADD_INTERVALS.map((nextInterval) => (
-					<SelectItem key={nextInterval} value={nextInterval}>
-						{INTERVAL_LABELS[nextInterval]}
-					</SelectItem>
-				))}
+				{DATE_ADD_INTERVALS.map((nextInterval) => {
+					const admission = admissionFor(nextInterval);
+					return (
+						<SelectItem
+							key={nextInterval}
+							value={nextInterval}
+							disabled={!admission.admitted}
+							wrap
+						>
+							<span className="min-w-0">
+								<span className="block">{INTERVAL_LABELS[nextInterval]}</span>
+								{!admission.admitted ? (
+									<span className="block text-xs font-normal text-nova-text-muted">
+										{admission.reason}
+									</span>
+								) : null}
+							</span>
+						</SelectItem>
+					);
+				})}
 			</SelectContent>
 		</Select>
 	);

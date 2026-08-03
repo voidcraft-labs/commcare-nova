@@ -6,6 +6,11 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 } from "@/lib/commcare/constants";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
+import {
+	findOnDeviceDateAddIssue,
+	findOnDeviceDateAddIssueInPredicate,
+	type OnDeviceDateAddIssue,
+} from "@/lib/commcare/expression/onDeviceCompatibility";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import {
@@ -756,12 +761,12 @@ function validatePredicateSlot(
 }
 
 /**
- * The operation checker is the pre-emission gate, so a schema-valid AST may
- * not survive validation and then trip one of the on-device emitter's
- * deliberate portability guards. Running the real emitter here with inert
- * identity bindings keeps this rule coupled to the exact dialect it protects
- * (calendar date-add, server-only functions, relation cardinality, and future
- * guarded arms) without duplicating that compatibility vocabulary.
+ * Typed target compatibility is decided before emission. The remaining dry
+ * run is a totality backstop for context-free emitter guards (match functions,
+ * relation cardinality, and future guarded arms), not the semantic source for
+ * facts such as whether a property-backed date calculation starts from a
+ * datetime. The canonical AST carries property identity, not its resolved
+ * type, so only the shared TypeContext-aware classifier can make that decision.
  */
 function validateOnDeviceExpression(
 	ctx: OperationRuleContext,
@@ -770,6 +775,13 @@ function validateOnDeviceExpression(
 	typeContext: TypeContext,
 	errors: ValidationError[],
 ): void {
+	const compatibilityIssue = findOnDeviceDateAddIssue(expression, typeContext);
+	if (compatibilityIssue !== undefined) {
+		errors.push(
+			onDeviceDateAddOperationError(ctx, operation, compatibilityIssue),
+		);
+		return;
+	}
 	try {
 		emitOnDeviceExpression(expression, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
@@ -798,6 +810,16 @@ function validateOnDevicePredicate(
 	typeContext: TypeContext,
 	errors: ValidationError[],
 ): void {
+	const compatibilityIssue = findOnDeviceDateAddIssueInPredicate(
+		predicate,
+		typeContext,
+	);
+	if (compatibilityIssue !== undefined) {
+		errors.push(
+			onDeviceDateAddOperationError(ctx, operation, compatibilityIssue),
+		);
+		return;
+	}
 	try {
 		emitCaseListFilter(predicate, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
@@ -817,6 +839,27 @@ function validateOnDevicePredicate(
 			),
 		);
 	}
+}
+
+function onDeviceDateAddOperationError(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	issue: OnDeviceDateAddIssue,
+): ValidationError {
+	const reason =
+		issue.reason === "datetime-base"
+			? "it starts from a date and time, and running it on the device would discard the time"
+			: `it adds calendar-relative ${issue.expression.interval}, which the device cannot calculate faithfully`;
+	return opError(
+		ctx,
+		operation,
+		"CASE_OPERATION_EXPRESSION_TYPE",
+		`An expression in case operation "${operation.id}" cannot run on device because ${reason}. Use a whole date with seconds, minutes, hours, days, or weeks, or rewrite the calculation.`,
+		{
+			reason: issue.reason,
+			interval: issue.expression.interval,
+		},
+	);
 }
 
 function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, string> {
@@ -1127,6 +1170,7 @@ function opError(
 	operation: CaseOperation | undefined,
 	code: Parameters<typeof validationError>[0],
 	message: string,
+	details?: Record<string, string>,
 ): ValidationError {
 	return validationError(
 		code,
@@ -1140,7 +1184,11 @@ function opError(
 			field: operation?.uuid,
 		},
 		operation === undefined
-			? undefined
-			: { operationUuid: operation.uuid, operationId: operation.id },
+			? details
+			: {
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					...details,
+				},
 	);
 }
