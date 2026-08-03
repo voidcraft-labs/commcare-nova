@@ -139,7 +139,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 		const hits = errorsFor({
 			filter: eq(
 				prop("patient", "visited_at"),
-				dateAdd(now(), "days", term(literal(1))),
+				dateAdd(term(prop("patient", "visited_at")), "days", term(literal(1))),
 			),
 		});
 		expect(hits).toHaveLength(1);

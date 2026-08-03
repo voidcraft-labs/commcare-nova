@@ -6,7 +6,7 @@
 // validity index lookups land on the right cards.
 
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
 	ANY_TYPE,
 	arith,
@@ -21,6 +21,8 @@ import {
 	prop,
 	switchCase,
 	switchExpr,
+	tableColumn,
+	tableLookup,
 	term,
 	today,
 } from "@/lib/domain/predicate";
@@ -39,6 +41,7 @@ import {
 	locateRuleNode,
 	nearestRuleLocation,
 	type RuleNavigationContext,
+	replaceExpressionNodeAtPath,
 	replaceRuleNodeAtPath,
 } from "../ruleNavigation";
 
@@ -227,6 +230,61 @@ describe("mixed rule navigation", () => {
 			family: "expression",
 			value: replacement,
 		});
+	});
+
+	it("locates and replaces values inside a table lookup row condition", () => {
+		const tableId = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+		const resultColumnId =
+			"018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
+		const filterColumnId =
+			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+		const amount = term(literal(1));
+		const lookup = tableLookup(
+			tableId,
+			resultColumnId,
+			eq(
+				tableColumn(tableId, filterColumnId),
+				dateAdd(today(), "days", amount),
+			),
+		);
+		const lookupPath = [
+			"right",
+			"table-lookup",
+			"where",
+			"right",
+			"quantity",
+		] as const;
+		const root = eq(prop("patient", "dob"), lookup);
+
+		const location = locateRuleNode(root, lookupPath, NAVIGATION_CONTEXT);
+		expect(location?.node).toEqual({ family: "expression", value: amount });
+		expect(
+			location?.trail.some(
+				(entry) =>
+					entry.node.family === "expression" && entry.node.value === lookup,
+			),
+		).toBe(true);
+		const replacement = term(literal(2));
+		const nextRule = replaceRuleNodeAtPath(root, lookupPath, {
+			family: "expression",
+			value: replacement,
+		});
+		expect(
+			locateRuleNode(nextRule, lookupPath, NAVIGATION_CONTEXT)?.node,
+		).toEqual({ family: "expression", value: replacement });
+
+		const nextExpression = replaceExpressionNodeAtPath(
+			lookup,
+			lookupPath.slice(1),
+			{ family: "expression", value: replacement },
+		);
+		expect(nextExpression.kind).toBe("table-lookup");
+		if (nextExpression.kind !== "table-lookup") return;
+		expect(nextExpression.where.kind).toBe("eq");
+		if (nextExpression.where.kind !== "eq") return;
+		expect(nextExpression.where.right.kind).toBe("date-add");
+		if (nextExpression.where.right.kind !== "date-add") return;
+		expect(nextExpression.where.right.quantity).toBe(replacement);
 	});
 });
 

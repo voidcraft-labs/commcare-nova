@@ -399,7 +399,8 @@ interface StrictAppSnapshot {
 /**
  * The one current persisted-app admission owner.
  *
- * The caller has already read and locked the app row on `tx`. From there this
+ * The caller has already read the app row under either its share lock or one
+ * repeatable-read snapshot on `tx`. From there this
  * function reads every Blueprint JSONB carrier as exact `::text`, performs
  * strict schema assembly and hydration, reads the referenced Project lookup
  * definitions on the same transaction, and applies the absolute whole-document
@@ -3052,6 +3053,39 @@ export async function restoreApp(
  */
 export async function loadApp(appId: string): Promise<AppDoc | null> {
 	return withAppTx((tx) => loadAppInTransaction(tx, appId));
+}
+
+/**
+ * Load one strict app snapshot for a read-only inspector.
+ *
+ * Production scan identities intentionally have no row-lock privileges. A
+ * repeatable-read, read-only transaction gives the root row, entity rows, and
+ * lookup definitions one consistent snapshot without asking PostgreSQL for a
+ * `FOR SHARE` lock. Interactive/user-facing loads keep using {@link loadApp}
+ * and its writer-coordinated lock boundary.
+ */
+export async function loadAppForInspection(
+	appId: string,
+): Promise<AppDoc | null> {
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute(async (tx) => {
+			const row = (await tx
+				.selectFrom("apps")
+				.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+				.select(
+					sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+						"case_types_text",
+					),
+				)
+				.where("id", "=", appId)
+				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+			if (row === undefined) return null;
+			return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
+		});
 }
 
 /**

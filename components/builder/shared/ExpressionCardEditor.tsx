@@ -40,9 +40,10 @@
 // every mutation path refuses the last-row removal).
 
 "use client";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
+import { valueExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -60,7 +61,7 @@ import {
 	buildValidityIndex,
 	PredicateEditProvider,
 } from "./editorContext";
-import type { CaseDataScope } from "./editorSchemas";
+import type { CaseDataScope, EvaluationTarget } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
@@ -69,6 +70,7 @@ import type {
 } from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
+import { replaceExpressionNodeAtPath } from "./ruleNavigation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface ExpressionCardEditorProps {
@@ -106,6 +108,8 @@ interface ExpressionCardEditorProps {
 	 *  is selected: the provider-derived admission oracle drops every
 	 *  case-property / relationship source there. */
 	readonly caseDataScope?: CaseDataScope;
+	/** Runtime that evaluates this value. Defaults to the strict on-device path. */
+	readonly evaluationTarget?: EvaluationTarget;
 	/**
 	 * The root slot's type constraint. Flows to the root
 	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
@@ -145,6 +149,7 @@ export function ExpressionCardEditor({
 	operationScope,
 	ownerValues = false,
 	caseDataScope = "per-case",
+	evaluationTarget = "on-device",
 	constraint = ANY_CONSTRAINT,
 	onValidityChange,
 }: ExpressionCardEditorProps) {
@@ -206,6 +211,23 @@ export function ExpressionCardEditor({
 	}, [value, typeCtx, constraint]);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
+	const admitRuntimeExpression = useCallback(
+		(path: readonly (string | number)[], next: ValueExpression) => {
+			const candidate = replaceExpressionNodeAtPath(value, path, {
+				family: "expression",
+				value: next,
+			});
+			const verdict = valueExpressionRuntimeEditVerdict(
+				candidate,
+				evaluationTarget,
+				typeCtx,
+			);
+			return verdict.ok
+				? ({ admitted: true } as const)
+				: ({ admitted: false, reason: verdict.reason } as const);
+		},
+		[value, evaluationTarget, typeCtx],
+	);
 
 	// Standardized parent-validity propagation: fires on mount + on
 	// every transition. The helper ref-stashes the callback so a
@@ -226,7 +248,9 @@ export function ExpressionCardEditor({
 			operationScope={operationScope}
 			ownerValues={ownerValues}
 			caseDataScope={caseDataScope}
+			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
+			admitExpressionChange={admitRuntimeExpression}
 		>
 			<ExpressionPicker
 				value={value}

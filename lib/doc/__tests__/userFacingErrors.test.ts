@@ -217,3 +217,45 @@ describe("userFacingError — case-list expression repairs", () => {
 		if (reason !== "unwrap-list") expect(line).not.toMatch(/saved list text/i);
 	});
 });
+
+describe("userFacingError — date calculation findings", () => {
+	function dateFinding(
+		code:
+			| "DISPLAY_CONDITION_NOT_ON_DEVICE"
+			| "CASE_OPERATION_EXPRESSION_TYPE"
+			| "LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+		reason: "datetime-base" | "calendar-interval",
+	): ValidationError {
+		return validationError(
+			code,
+			code === "LOOKUP_SELECT_FILTER_NOT_ON_DEVICE" ? "field" : "form",
+			"internal implementation detail",
+			{
+				moduleName: "Clients",
+				formName: "Register Client",
+				fieldId: "visit_date",
+			},
+			{ reason, interval: reason === "datetime-base" ? "days" : "months" },
+		);
+	}
+
+	it.each([
+		"DISPLAY_CONDITION_NOT_ON_DEVICE",
+		"CASE_OPERATION_EXPRESSION_TYPE",
+		"LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+	] as const)("explains the lost-time refusal for %s", (code) => {
+		const line = userFacingError(dateFinding(code, "datetime-base"));
+		expect(line).toMatch(/time would be lost/i);
+		expect(line).toMatch(/whole date|another calculation/i);
+	});
+
+	it.each([
+		"DISPLAY_CONDITION_NOT_ON_DEVICE",
+		"CASE_OPERATION_EXPRESSION_TYPE",
+		"LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+	] as const)("explains the calendar-interval refusal for %s", (code) => {
+		const line = userFacingError(dateFinding(code, "calendar-interval"));
+		expect(line).toMatch(/month or year|months or years/i);
+		expect(line).toMatch(/days.*weeks/i);
+	});
+});

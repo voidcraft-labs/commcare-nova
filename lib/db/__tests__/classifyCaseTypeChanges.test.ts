@@ -6,11 +6,12 @@
 //
 //   1. Pure non-case-type mutations yield an empty array, so no
 //      case-schema materialization is needed.
-//   2. Case-type additions emit one schema-sync-only entry per
+//   2. Case-type additions emit one schema-sync entry per
 //      added case type so `case_type_schemas` materializes before
 //      the first row insert.
-//   3. Property-surface diffs (add, remove, type shift, option
-//      changes) emit one schema-sync-only entry per affected
+//   3. Case-type removals emit an explicit retirement entry.
+//   4. Property-surface diffs (add, remove, type shift, option
+//      changes) emit one schema-sync entry per affected
 //      case type.
 //
 // Explicit case-property renames never originate here: the batch-exclusive
@@ -83,7 +84,7 @@ describe("classifyCaseTypeChanges — case-type additions", () => {
 			prior: makeDoc(null),
 			prospective: makeDoc([PATIENT]),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("emits one entry per added case type when multiple land at once", () => {
@@ -104,15 +105,12 @@ describe("classifyCaseTypeChanges — case-type additions", () => {
 });
 
 describe("classifyCaseTypeChanges — case-type removals", () => {
-	it("does NOT emit an entry when a case type is removed", () => {
-		// Removed case types leave their `case_type_schemas` row
-		// orphaned — the runtime never reads a schema for a missing
-		// case type, so removal needs no schema materialization.
+	it("emits one retirement entry when a case type is removed", () => {
 		const result = classifyCaseTypeChanges({
 			prior: makeDoc([PATIENT]),
 			prospective: makeDoc([]),
 		});
-		expect(result).toEqual([]);
+		expect(result).toEqual([{ kind: "retire", caseType: "patient" }]);
 	});
 });
 
@@ -129,7 +127,7 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			prior: makeDoc([PATIENT]),
 			prospective: makeDoc([extended]),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("emits one schema-sync-only entry when a property is removed", () => {
@@ -150,7 +148,7 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			prior: makeDoc([PATIENT]),
 			prospective: makeDoc([reduced]),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("emits one schema-sync-only entry when a data_type shifts", () => {
@@ -172,7 +170,7 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			prior: makeDoc([PATIENT]),
 			prospective: makeDoc([retyped]),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("emits one schema-sync-only entry when option set narrows", () => {
@@ -205,7 +203,7 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			prior: makeDoc([withOptions]),
 			prospective: makeDoc([narrowed]),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("does NOT emit an entry when only modules / forms / fields differ", () => {
@@ -295,7 +293,7 @@ describe("classifyCaseTypeChanges — writer-derived type flips", () => {
 			prior: docWithWriterKind("text"),
 			prospective: docWithWriterKind("single_select"),
 		});
-		expect(result).toEqual([{ caseType: "patient" }]);
+		expect(result).toEqual([{ kind: "sync", caseType: "patient" }]);
 	});
 
 	it("an untouched writer surface emits nothing", () => {

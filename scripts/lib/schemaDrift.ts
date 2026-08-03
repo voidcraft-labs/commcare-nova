@@ -158,6 +158,7 @@ export async function computeSchemaDrift(
 		.selectFrom("case_type_schemas")
 		.select(["case_type", "schema"])
 		.where("app_id", "=", appId)
+		.where("is_active", "=", true)
 		.execute();
 	const storedByType = new Map(storedRows.map((r) => [r.case_type, r.schema]));
 
@@ -166,7 +167,6 @@ export async function computeSchemaDrift(
 		const desired = caseTypeToJsonSchema(ct);
 		const stored = storedByType.get(ct.name);
 		if (stored === undefined) {
-			if (Object.keys(desired.properties).length === 0) continue;
 			drifts.push({
 				caseType: ct.name,
 				missingRow: true,

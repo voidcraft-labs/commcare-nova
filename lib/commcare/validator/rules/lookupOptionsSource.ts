@@ -10,11 +10,13 @@
  * - form answers come from an earlier field in effective `(order, uuid)` DFS;
  * - repeated answers come only from the current or an enclosing repeat.
  *
- * Generic expression operators remain available. The policy is on their leaf
- * sources, so pure arithmetic/conditionals over legal leaves do not need a
- * second hand-maintained operator allowlist.
+ * Generic expression operators remain available when the device runtime can
+ * evaluate them. The policy is on their leaf sources, while the shared
+ * on-device capability analyzer owns target-specific restrictions such as
+ * calendar-relative or datetime-based date arithmetic.
  */
 
+import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -331,6 +333,36 @@ function selectFilterFindings(args: {
 				{
 					path: at,
 					checkCode: error.code,
+					tableId: source.tableId,
+				},
+			),
+		);
+	}
+
+	const compatibilityIssue = findOnDeviceDateAddIssueInPredicate(
+		source.filter,
+		ctx,
+	);
+	if (compatibilityIssue !== undefined) {
+		const reason =
+			compatibilityIssue.reason === "datetime-base"
+				? "starts from a date and time, and running it on the device would discard the time"
+				: `adds calendar-relative ${compatibilityIssue.expression.interval}, which the device cannot calculate faithfully`;
+		errors.push(
+			validationError(
+				"LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+				"field",
+				`Lookup choices for field "${field.id}" in "${args.formName}" have a filter that cannot run on device because it ${reason}. Use a whole date with seconds, minutes, hours, days, or weeks, or rewrite the comparison.`,
+				location(
+					args.mod,
+					args.moduleUuid,
+					args.formUuid,
+					args.formName,
+					field,
+				),
+				{
+					reason: compatibilityIssue.reason,
+					interval: compatibilityIssue.expression.interval,
 					tableId: source.tableId,
 				},
 			),

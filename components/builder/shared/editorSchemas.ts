@@ -39,6 +39,7 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
+import type { ExpressionEvaluationTarget } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import {
 	effectiveDataType,
@@ -220,10 +221,7 @@ export interface PredicateEditContext {
 
 /** The runtime a rule is evaluated by. See
  *  `PredicateEditContext.evaluationTarget`. */
-export type EvaluationTarget =
-	| "on-device"
-	| "case-search"
-	| "on-device-and-case-search";
+export type EvaluationTarget = ExpressionEvaluationTarget;
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */

@@ -26,12 +26,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, NoReturn
 
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 RESOURCE_PART_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+APP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SERVICE_READY_STATE = "CONDITION_SUCCEEDED"
 MAINTENANCE_RECOVERY_ACTIONS = (
     "detach-ingress",
@@ -48,6 +50,60 @@ RECOVERABLE_PHASES = (
     "cleanup-enabled",
 )
 TERMINAL_PHASE = "terminal-success"
+
+
+@dataclass(frozen=True)
+class JobTemplateContract:
+    service_account: str
+    command: tuple[str, ...]
+    stored_args: tuple[str, ...]
+    task_count: int
+    parallelism: int
+    max_retries: int
+    timeout: str
+
+
+# An etag prevents a Job mutation after it is inspected. These contracts also
+# prove that the inspected generation has the intended authority and execution
+# shape before it is allowed to run. Keep them aligned with cloudbuild.yaml.
+JOB_TEMPLATE_CONTRACTS = {
+    "commcare-nova-media-policy": JobTemplateContract(
+        service_account="nova-media-policy@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("media-bucket-policy.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=1,
+        timeout="300s",
+    ),
+    "commcare-nova-migrate": JobTemplateContract(
+        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("migrate.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=0,
+        timeout="3000s",
+    ),
+    "commcare-nova-capture-cleanup": JobTemplateContract(
+        service_account="nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("capture-cleanup.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=0,
+        timeout="1260s",
+    ),
+    "commcare-nova-case-type-schema-retirement": JobTemplateContract(
+        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("case-type-schema-retirement.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=0,
+        timeout="3000s",
+    ),
+}
 
 
 class DeploymentPolicyError(RuntimeError):
@@ -99,17 +155,19 @@ def assert_scaling(
 ) -> None:
     actual = scaling_prestate(service)
     if actual != expected_prestate:
-        fail(
-            f"Cloud Run scaling mode changed from {expected_prestate} to {actual}."
-        )
+        fail(f"Cloud Run scaling mode changed from {expected_prestate} to {actual}.")
     scaling = service.get("scaling") or {}
-    if expected_min is not None and _integer(
-        scaling.get("minInstanceCount"), "minInstanceCount"
-    ) != expected_min:
+    if (
+        expected_min is not None
+        and _integer(scaling.get("minInstanceCount"), "minInstanceCount")
+        != expected_min
+    ):
         fail(f"Cloud Run service minimum is not {expected_min}.")
-    if expected_max is not None and _integer(
-        scaling.get("maxInstanceCount"), "maxInstanceCount"
-    ) != expected_max:
+    if (
+        expected_max is not None
+        and _integer(scaling.get("maxInstanceCount"), "maxInstanceCount")
+        != expected_max
+    ):
         fail(f"Cloud Run service maximum is not {expected_max}.")
 
 
@@ -130,10 +188,7 @@ def assert_ready_service(service: dict[str, Any]) -> str:
         fail("Cloud Run service is still reconciling.")
     condition = service.get("terminalCondition") or {}
     if condition.get("state") != SERVICE_READY_STATE:
-        fail(
-            "Cloud Run service terminal condition is not successful: "
-            f"{condition!r}."
-        )
+        fail(f"Cloud Run service terminal condition is not successful: {condition!r}.")
     ready = service.get("latestReadyRevision")
     created = service.get("latestCreatedRevision")
     if not isinstance(ready, str) or not ready or ready != created:
@@ -154,17 +209,19 @@ def _normalize_revision_name(service: dict[str, Any], value: str) -> str:
     return f"{_service_name(service)}/revisions/{value}"
 
 
-def _traffic_target_revision(
-    service: dict[str, Any], target: dict[str, Any]
-) -> str:
+def _traffic_target_revision(service: dict[str, Any], target: dict[str, Any]) -> str:
     allocation_type = target.get("type")
     revision = target.get("revision")
-    if allocation_type in (
-        None,
-        "",
-        "TRAFFIC_TARGET_ALLOCATION_TYPE_UNSPECIFIED",
-        "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
-    ) and not revision:
+    if (
+        allocation_type
+        in (
+            None,
+            "",
+            "TRAFFIC_TARGET_ALLOCATION_TYPE_UNSPECIFIED",
+            "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
+        )
+        and not revision
+    ):
         latest = service.get("latestReadyRevision")
         if not isinstance(latest, str) or not latest:
             fail("LATEST traffic has no latest Ready revision.")
@@ -175,7 +232,9 @@ def _traffic_target_revision(
         "TRAFFIC_TARGET_ALLOCATION_TYPE_UNSPECIFIED",
         "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
     ):
-        fail(f"Cloud Run returned an unknown traffic allocation type: {allocation_type!r}.")
+        fail(
+            f"Cloud Run returned an unknown traffic allocation type: {allocation_type!r}."
+        )
     if not isinstance(revision, str) or not revision:
         fail("Explicit Cloud Run traffic omitted its revision.")
     return _normalize_revision_name(service, revision)
@@ -304,9 +363,7 @@ def _access_token() -> str:
 
 class CloudRunApi:
     def __init__(self, project: str, region: str, service: str) -> None:
-        self._service_name = (
-            f"projects/{project}/locations/{region}/services/{service}"
-        )
+        self._service_name = f"projects/{project}/locations/{region}/services/{service}"
         self._base = "https://run.googleapis.com/v2/"
         self._token = _access_token()
 
@@ -321,8 +378,7 @@ class CloudRunApi:
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", errors="replace")
             raise DeploymentPolicyError(
-                f"Cloud Run Admin API GET {path} failed with HTTP "
-                f"{error.code}: {body}"
+                f"Cloud Run Admin API GET {path} failed with HTTP {error.code}: {body}"
             ) from error
         if not isinstance(value, dict):
             fail(f"Cloud Run Admin API GET {path} returned non-object JSON.")
@@ -476,6 +532,132 @@ def _run_api_request(
     return value
 
 
+def _job_contract(expected_name: str) -> JobTemplateContract:
+    short_name = expected_name.rsplit("/", 1)[-1]
+    contract = JOB_TEMPLATE_CONTRACTS.get(short_name)
+    if contract is None:
+        fail(f"Cloud Run Job has no checked-in execution contract: {short_name!r}.")
+    return contract
+
+
+def _effective_execution_args(
+    expected_name: str, execution_args: Sequence[str]
+) -> tuple[str, ...]:
+    contract = _job_contract(expected_name)
+    requested = tuple(execution_args)
+    if not requested:
+        return contract.stored_args
+
+    short_name = expected_name.rsplit("/", 1)[-1]
+    exact_overrides = {
+        "commcare-nova-migrate": {
+            ("migrate.cjs", "--terminate-runtime-sessions-only"),
+        },
+        "commcare-nova-capture-cleanup": {
+            ("capture-cleanup.cjs", "--probe-schema"),
+        },
+    }
+    if requested in exact_overrides.get(short_name, set()):
+        return requested
+
+    if short_name == "commcare-nova-case-type-schema-retirement":
+        writer_prefixes = (
+            (
+                "case-type-schema-retirement.cjs",
+                "--execute",
+                "--confirm-old-revision-drained",
+            ),
+            ("schema-drift.cjs", "--execute"),
+        )
+        for prefix in writer_prefixes:
+            if requested == prefix:
+                return requested
+            if (
+                requested[: len(prefix)] == prefix
+                and len(requested) == len(prefix) + 2
+                and requested[-2] == "--app"
+                and APP_ID_RE.fullmatch(requested[-1]) is not None
+            ):
+                return requested
+
+    fail(
+        f"Cloud Run Job override args are not an allowed checked-in operation: "
+        f"job={short_name!r}, args={requested!r}."
+    )
+
+
+def _object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        fail(f"{label} is not an object.")
+    return value
+
+
+def _single_container(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, list) or len(value) != 1:
+        fail(f"{label} must contain exactly one container.")
+    return _object(value[0], f"{label}[0]")
+
+
+def _assert_task_template(
+    task_template: dict[str, Any],
+    contract: JobTemplateContract,
+    expected_image: str,
+    expected_args: Sequence[str],
+    label: str,
+) -> None:
+    container = _single_container(
+        task_template.get("containers"), f"{label} containers"
+    )
+    if container.get("image") != expected_image:
+        fail(
+            f"{label} container image is not the expected immutable image: "
+            f"expected={expected_image!r}, actual={container.get('image')!r}."
+        )
+    if tuple(container.get("command") or ()) != contract.command:
+        fail(
+            f"{label} command does not match the checked-in Job contract: "
+            f"expected={contract.command!r}, actual={container.get('command')!r}."
+        )
+    if tuple(container.get("args") or ()) != tuple(expected_args):
+        fail(
+            f"{label} args do not match the effective execution contract: "
+            f"expected={tuple(expected_args)!r}, actual={container.get('args')!r}."
+        )
+    if task_template.get("serviceAccount") != contract.service_account:
+        fail(
+            f"{label} service account does not match the checked-in authority: "
+            f"expected={contract.service_account!r}, "
+            f"actual={task_template.get('serviceAccount')!r}."
+        )
+    if (
+        _integer(task_template.get("maxRetries"), f"{label} maxRetries")
+        != contract.max_retries
+    ):
+        fail(f"{label} maxRetries does not match the checked-in Job contract.")
+    if task_template.get("timeout") != contract.timeout:
+        fail(
+            f"{label} timeout does not match the checked-in Job contract: "
+            f"expected={contract.timeout!r}, actual={task_template.get('timeout')!r}."
+        )
+
+
+def _assert_execution_shape(
+    execution_template: dict[str, Any],
+    contract: JobTemplateContract,
+    label: str,
+) -> None:
+    if (
+        _integer(execution_template.get("taskCount"), f"{label} taskCount")
+        != contract.task_count
+    ):
+        fail(f"{label} taskCount does not match the checked-in Job contract.")
+    if (
+        _integer(execution_template.get("parallelism"), f"{label} parallelism")
+        != contract.parallelism
+    ):
+        fail(f"{label} parallelism does not match the checked-in Job contract.")
+
+
 def _exact_ready_job_etag(
     job: dict[str, Any],
     expected_name: str,
@@ -491,12 +673,19 @@ def _exact_ready_job_etag(
     terminal = job.get("terminalCondition") or {}
     if terminal.get("state") != SERVICE_READY_STATE:
         fail("Cloud Run Job terminal condition is not successful.")
-    images = _all_image_values(job)
-    if images != [expected_image]:
-        fail(
-            "Cloud Run Job is not pinned to exactly one expected immutable image: "
-            f"expected={expected_image!r}, actual={images!r}."
-        )
+    contract = _job_contract(expected_name)
+    execution_template = _object(job.get("template"), "Cloud Run Job template")
+    _assert_execution_shape(execution_template, contract, "Cloud Run Job")
+    task_template = _object(
+        execution_template.get("template"), "Cloud Run Job task template"
+    )
+    _assert_task_template(
+        task_template,
+        contract,
+        expected_image,
+        contract.stored_args,
+        "Cloud Run Job",
+    )
     etag = job.get("etag")
     if not isinstance(etag, str) or not etag:
         fail("Cloud Run Job omitted its generation fingerprint.")
@@ -507,6 +696,7 @@ def _assert_exact_execution_succeeded(
     execution: dict[str, Any],
     expected_job: str,
     expected_image: str,
+    expected_args: Sequence[str],
 ) -> dict[str, Any]:
     # Bind the execution to its Job through its own resource name, which is
     # fully qualified and unambiguous. The `job` field carries only the short
@@ -520,20 +710,22 @@ def _assert_exact_execution_succeeded(
             "Cloud Run execution belongs to the wrong Job: "
             f"expected an execution of {expected_job!r}, got {execution_name!r}."
         )
-    images = _all_image_values(execution)
-    if images != [expected_image]:
-        raise TerminalDeploymentPolicyError(
-            "Cloud Run execution did not snapshot exactly the expected immutable "
-            f"image: expected={expected_image!r}, actual={images!r}."
-        )
+    contract = _job_contract(expected_job)
+    _assert_execution_shape(execution, contract, "Cloud Run execution")
+    task_template = _object(
+        execution.get("template"), "Cloud Run execution task template"
+    )
+    _assert_task_template(
+        task_template,
+        contract,
+        expected_image,
+        expected_args,
+        "Cloud Run execution",
+    )
     task_count = _integer(execution.get("taskCount"), "execution taskCount")
-    succeeded = _integer(
-        execution.get("succeededCount", 0), "execution succeededCount"
-    )
+    succeeded = _integer(execution.get("succeededCount", 0), "execution succeededCount")
     failed = _integer(execution.get("failedCount", 0), "execution failedCount")
-    cancelled = _integer(
-        execution.get("cancelledCount", 0), "execution cancelledCount"
-    )
+    cancelled = _integer(execution.get("cancelledCount", 0), "execution cancelledCount")
     if failed > 0 or cancelled > 0:
         raise TerminalDeploymentPolicyError(
             "Cloud Run Job execution failed or was cancelled."
@@ -570,6 +762,7 @@ def _execute_job_exact(
     token = _access_token()
     job_resource = _run_api_request(token, "GET", job_name)
     etag = _exact_ready_job_etag(job_resource, job_name, expected_image)
+    effective_args = _effective_execution_args(job_name, execution_args)
     request_body: dict[str, Any] = {"etag": etag}
     if execution_args:
         request_body["overrides"] = {
@@ -617,9 +810,31 @@ def _execute_job_exact(
             _run_api_request(token, "GET", execution_name),
             job_name,
             expected_image,
+            effective_args,
         ),
         timeout_seconds=wait_seconds,
     )
+
+
+def _ready_service_image(
+    service: dict[str, Any], revisions: Sequence[dict[str, Any]]
+) -> str:
+    candidate = _normalize_revision_name(service, assert_ready_service(service))
+    assert_candidate_traffic(service, candidate)
+    matches = [revision for revision in revisions if revision.get("name") == candidate]
+    if len(matches) != 1:
+        fail(
+            "Cloud Run did not return exactly one 100%-traffic Ready revision: "
+            f"candidate={candidate!r}, matches={len(matches)}."
+        )
+    images = _all_image_values(matches[0])
+    if len(images) != 1:
+        fail(
+            "The 100%-traffic Ready revision does not contain exactly one image: "
+            f"revision={candidate!r}, images={images!r}."
+        )
+    _immutable_image(images[0])
+    return images[0]
 
 
 def _candidate_revision_fact(
@@ -904,7 +1119,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.add_argument("--project", required=True)
         parser.add_argument("--region", required=True)
         parser.add_argument("--job", required=True)
-        parser.add_argument("--image", required=True)
+        image_source = parser.add_mutually_exclusive_group(required=True)
+        image_source.add_argument("--image")
+        image_source.add_argument("--service")
         parser.add_argument("--wait-seconds", required=True, type=int)
         parser.add_argument("--execution-arg", action="append", default=[])
         values = parser.parse_args(argv)
@@ -1026,9 +1243,7 @@ def _policy_self_test() -> None:
     observed_tagged = _production_service(
         latest=candidate,
         traffic=[{"revision": candidate, "percent": 100}],
-        observed=[
-            {"revision": candidate, "percent": 100, "tag": "preview"}
-        ],
+        observed=[{"revision": candidate, "percent": 100, "tag": "preview"}],
     )
     _expect_policy_failure(
         lambda: assert_candidate_traffic(observed_tagged, candidate),
@@ -1104,33 +1319,71 @@ def _policy_self_test() -> None:
         "deploy-time scaling override",
     )
     repository, digest = _immutable_image(
-        "us-central1-docker.pkg.dev/p/r/i@"
-        + "sha256:"
-        + "a" * 64
+        "us-central1-docker.pkg.dev/p/r/i@" + "sha256:" + "a" * 64
     )
     assert repository == "us-central1-docker.pkg.dev/p/r/i"
     assert digest == "sha256:" + "a" * 64
     immutable_image = repository + "@" + digest
-    job_name = "projects/p/locations/r/jobs/migrate"
     assert (
-        _exact_ready_job_etag(
-            {
-                "name": job_name,
-                "generation": "7",
-                "observedGeneration": "7",
-                "reconciling": False,
-                "terminalCondition": {"state": SERVICE_READY_STATE},
-                "etag": "job-etag-7",
-                "template": {
-                    "template": {
-                        "containers": [{"image": immutable_image}],
-                    }
-                },
-            },
-            job_name,
-            immutable_image,
+        _ready_service_image(
+            latest_service,
+            [
+                {"name": candidate, "containers": [{"image": immutable_image}]},
+                {"name": old, "containers": [{"image": immutable_image}]},
+            ],
         )
-        == "job-etag-7"
+        == immutable_image
+    )
+    _expect_policy_failure(
+        lambda: _ready_service_image(
+            split,
+            [{"name": candidate, "containers": [{"image": immutable_image}]}],
+        ),
+        "split-traffic production Job image",
+    )
+    job_name = "projects/p/locations/r/jobs/commcare-nova-migrate"
+    migrate_contract = JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
+    assert _effective_execution_args(job_name, ()) == migrate_contract.stored_args
+    assert _effective_execution_args(
+        "projects/p/locations/r/jobs/commcare-nova-case-type-schema-retirement",
+        ("schema-drift.cjs", "--execute", "--app", "app_123"),
+    ) == ("schema-drift.cjs", "--execute", "--app", "app_123")
+    _expect_policy_failure(
+        lambda: _effective_execution_args(job_name, ("arbitrary.cjs",)),
+        "arbitrary Job override args",
+    )
+    ready_job = {
+        "name": job_name,
+        "generation": "7",
+        "observedGeneration": "7",
+        "reconciling": False,
+        "terminalCondition": {"state": SERVICE_READY_STATE},
+        "etag": "job-etag-7",
+        "template": {
+            "taskCount": 1,
+            "parallelism": 1,
+            "template": {
+                "containers": [
+                    {
+                        "image": immutable_image,
+                        "command": list(migrate_contract.command),
+                        "args": list(migrate_contract.stored_args),
+                    }
+                ],
+                "serviceAccount": migrate_contract.service_account,
+                "maxRetries": 0,
+                "timeout": "3000s",
+            },
+        },
+    }
+    assert _exact_ready_job_etag(ready_job, job_name, immutable_image) == "job-etag-7"
+    wrong_authority_job = json.loads(json.dumps(ready_job))
+    wrong_authority_job["template"]["template"]["serviceAccount"] = (
+        "commcare-nova@commcare-nova.iam.gserviceaccount.com"
+    )
+    _expect_policy_failure(
+        lambda: _exact_ready_job_etag(wrong_authority_job, job_name, immutable_image),
+        "wrong Job service account",
     )
     _expect_policy_failure(
         lambda: _exact_ready_job_etag(
@@ -1142,9 +1395,20 @@ def _policy_self_test() -> None:
                 "terminalCondition": {"state": SERVICE_READY_STATE},
                 "etag": "stale",
                 "template": {
+                    "taskCount": 1,
+                    "parallelism": 1,
                     "template": {
-                        "containers": [{"image": immutable_image}],
-                    }
+                        "containers": [
+                            {
+                                "image": immutable_image,
+                                "command": list(migrate_contract.command),
+                                "args": list(migrate_contract.stored_args),
+                            }
+                        ],
+                        "serviceAccount": migrate_contract.service_account,
+                        "maxRetries": 0,
+                        "timeout": "3000s",
+                    },
                 },
             },
             job_name,
@@ -1162,14 +1426,30 @@ def _policy_self_test() -> None:
                 # proved only that the code agreed with itself.
                 "job": "migrate",
                 "taskCount": 1,
+                "parallelism": 1,
                 "succeededCount": 1,
                 "failedCount": 0,
                 "cancelledCount": 0,
                 "completionTime": "2026-07-30T00:00:00Z",
-                "template": {"containers": [{"image": immutable_image}]},
+                "template": {
+                    "containers": [
+                        {
+                            "image": immutable_image,
+                            "command": list(migrate_contract.command),
+                            "args": [
+                                "migrate.cjs",
+                                "--terminate-runtime-sessions-only",
+                            ],
+                        }
+                    ],
+                    "serviceAccount": migrate_contract.service_account,
+                    "maxRetries": 0,
+                    "timeout": "3000s",
+                },
             },
             job_name,
             immutable_image,
+            ("migrate.cjs", "--terminate-runtime-sessions-only"),
         )["name"]
         == execution_name
     )
@@ -1178,9 +1458,7 @@ def _policy_self_test() -> None:
         "mutable deployment image",
     )
     _expect_policy_failure(
-        lambda: _immutable_image(
-            "us-central1-docker.pkg.dev/p/r/i@sha256:" + "g" * 64
-        ),
+        lambda: _immutable_image("us-central1-docker.pkg.dev/p/r/i@sha256:" + "g" * 64),
         "non-hex deployment digest",
     )
     print("deploy-cloud-run policy self-test passed")
@@ -1211,11 +1489,15 @@ def _read_scaling_prestate_mode(args: argparse.Namespace) -> None:
 
 
 def _execute_job_mode(args: argparse.Namespace) -> None:
+    expected_image = args.image
+    if expected_image is None:
+        api = CloudRunApi(args.project, args.region, args.service)
+        expected_image = _ready_service_image(api.service(), api.revisions())
     execution = _execute_job_exact(
         project=args.project,
         region=args.region,
         job=args.job,
-        expected_image=args.image,
+        expected_image=expected_image,
         execution_args=args.execution_arg,
         wait_seconds=args.wait_seconds,
     )
@@ -1225,7 +1507,7 @@ def _execute_job_mode(args: argparse.Namespace) -> None:
             {
                 "job": args.job,
                 "execution": execution.get("name"),
-                "image": args.image,
+                "image": expected_image,
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -1327,7 +1609,9 @@ def _deploy_mode(args: argparse.Namespace) -> None:
         )
         if maintenance:
             if _scheduler_state(args) != "PAUSED" or _ingress_attached(args):
-                fail("Candidate deployment changed the maintenance ingress or cleanup posture.")
+                fail(
+                    "Candidate deployment changed the maintenance ingress or cleanup posture."
+                )
         print(
             "NOVA_DEPLOY_CANDIDATE="
             + json.dumps(
@@ -1385,7 +1669,9 @@ def _deploy_mode(args: argparse.Namespace) -> None:
         final_revisions = revision_names(api.revisions())
         if maintenance:
             if _scheduler_state(args) != "PAUSED" or _ingress_attached(args):
-                fail("Automatic scaling changed the maintenance ingress or cleanup posture.")
+                fail(
+                    "Automatic scaling changed the maintenance ingress or cleanup posture."
+                )
         success = True
         phase = TERMINAL_PHASE
         print(

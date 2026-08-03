@@ -1843,7 +1843,7 @@ export async function loadLookupTableSchemas(
  * transaction, so a heal retry re-runs the whole envelope safely —
  * nothing partial persisted.
  *
- * `applySchemaChange` / `dropSchema` delegate un-healed: they are the
+ * `applySchemaChange` delegates un-healed: it is the
  * schema-row writers themselves (`applySchemaChange` IS the heal's
  * remedy), so a self-heal there would recurse the remedy into itself.
  *
@@ -1865,7 +1865,6 @@ export function schemaHealingCaseStore(
 		close: (a) => heal(() => store.close(a)),
 		traverse: (a) => heal(() => store.traverse(a)),
 		applySchemaChange: (a) => store.applySchemaChange(a),
-		dropSchema: (a) => store.dropSchema(a),
 		// Un-healed: a read-only preview over raw rows — its cast checks
 		// value shape against the DESTINATION type, never the stored
 		// schema row, so the heal's missing/stale-schema signal can't

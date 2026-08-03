@@ -21,7 +21,7 @@
 import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { loadApp } from "@/lib/db/apps";
+import { loadAppForInspection } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
 import { countKeyValues, parseWherePair, scanNodes } from "./lib/blueprintScan";
 import { printTable, truncate } from "./lib/format";
@@ -114,7 +114,7 @@ async function main() {
 	const failedApps: string[] = [];
 
 	for (const { id } of appRows) {
-		const appDoc = await loadApp(id).catch((err: unknown) => {
+		const appDoc = await loadAppForInspection(id).catch((err: unknown) => {
 			failedApps.push(id);
 			console.log(
 				`${id}\n  ✗ COULDN'T SCAN — the stored blueprint couldn't be assembled:\n` +

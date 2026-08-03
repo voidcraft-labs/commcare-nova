@@ -4,7 +4,9 @@
  * validator or wire-emission internals directly.
  */
 export {
-	caseSearchPredicateEditVerdict,
 	caseSearchPredicateVerdict,
+	type ExpressionEvaluationTarget,
 	type PredicateEditVerdict,
+	predicateExpressionRuntimeEditVerdict,
+	valueExpressionRuntimeEditVerdict,
 } from "../commitVerdicts";

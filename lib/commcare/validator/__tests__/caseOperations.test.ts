@@ -86,6 +86,26 @@ function fixture(
 					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
 					{ name: "score", label: proseText("Score"), data_type: "int" },
 					{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+					{
+						name: "visited_at",
+						label: proseText("Visited at"),
+						data_type: "datetime",
+					},
+					{
+						name: "next_visit_at",
+						label: proseText("Next visit at"),
+						data_type: "datetime",
+					},
+					{
+						name: "visited_on",
+						label: proseText("Visited on"),
+						data_type: "date",
+					},
+					{
+						name: "next_visit_on",
+						label: proseText("Next visit on"),
+						data_type: "date",
+					},
 					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 					{ name: "mixed", label: proseText("Mixed") },
 					{ name: "not-wire-safe", label: proseText("Not wire safe") },
@@ -1493,5 +1513,64 @@ describe("case-operation links and on-device totality", () => {
 				),
 			}),
 		]);
+	});
+
+	it("rejects a property-backed datetime calculation before it can lose the time", () => {
+		const errors = errorsFor([
+			update({
+				writes: [
+					{
+						property: "next_visit_at",
+						value: dateAdd(
+							term(prop("patient", "visited_at")),
+							"days",
+							term(literal(1)),
+						),
+					},
+				],
+			}),
+		]);
+		const finding = errors.find(
+			(error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE",
+		);
+		expect(finding?.message).toContain("would discard the time");
+		expect(finding?.details).toEqual(
+			expect.objectContaining({ reason: "datetime-base", interval: "days" }),
+		);
+
+		const conditionFinding = errorsFor([
+			update({
+				condition: eq(
+					dateAdd(
+						term(prop("patient", "visited_at")),
+						"hours",
+						term(literal(1)),
+					),
+					term(prop("patient", "next_visit_at")),
+				),
+			}),
+		]).find((error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE");
+		expect(conditionFinding?.message).toContain("would discard the time");
+		expect(conditionFinding?.details).toEqual(
+			expect.objectContaining({ reason: "datetime-base", interval: "hours" }),
+		);
+	});
+
+	it("keeps fixed-duration date arithmetic available in case operations", () => {
+		const errors = errorsFor([
+			update({
+				writes: [
+					{
+						property: "next_visit_on",
+						value: dateAdd(
+							term(prop("patient", "visited_on")),
+							"weeks",
+							term(literal(2)),
+						),
+					},
+				],
+			}),
+		]);
+		expect(errors).toEqual([]);
 	});
 });

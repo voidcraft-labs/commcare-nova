@@ -256,8 +256,11 @@ read-only before opening the scanner's transaction.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
-Explicit `renameCaseProperties` saves compose their dedicated case-schema/data
-Phase A through the guarded writer's `beforeWrite` seam. Fresh Blueprint
+Explicit `renameCaseProperties` saves and case-type removals compose their
+dedicated case-schema/data Phase A through the guarded writer's `beforeWrite`
+seam. A removal marks the durable schema inactive at the same mutation sequence
+without deleting retained case data; its concurrent expression-index cleanup is
+post-commit retryable work. Fresh Blueprint
 admission, Project authorization, all live and parked row collision checks and
 moves, Blueprint persistence, and the accepted event share one app-locked
 transaction. Any correctness-bearing failure rolls the whole transaction back.

@@ -38,6 +38,7 @@ runMain(async () => {
 		const schemas = await db
 			.selectFrom("case_type_schemas")
 			.select(["app_id", "case_type", "schema"])
+			.where("is_active", "=", true)
 			.execute();
 		let schemasScanned = 0;
 		let rowsScanned = 0;

@@ -18,8 +18,9 @@
 //     write authority.
 //   - `withSchemaContext()` — the actor-free store for schema-only
 //     callers (the guarded rename transaction, chat-completion materialize,
-//     point-of-use heal, and deployment convergence drain). It can run `applySchemaChange` /
-//     `dropSchema` (app-scoped — they cover every member's rows of the
+//     point-of-use heal, guarded case-type retirement, and deployment
+//     convergence drain). It can run app-scoped schema operations (covering
+//     every member's rows of the
 //     app's case type). Each schema write locks the app `FOR SHARE` and
 //     observes its current Project in the write transaction, but the store
 //     exposes no tenant-bound case-data method.
@@ -75,7 +76,7 @@ export async function withProjectContext(
 
 /**
  * Construct an actor-free `SchemaCaseStore` for app-scoped schema
- * operations (`applySchemaChange` / `dropSchema`). The instance binds no
+ * operations (`applySchemaChange` and guarded retirement). The instance binds no
  * Project, but each write dynamically locks the live app and observes its
  * current Project before touching schema/case rows. The narrow return type
  * prevents a schema-only caller from reaching tenant-bound case data.

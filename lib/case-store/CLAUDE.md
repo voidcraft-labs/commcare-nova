@@ -160,14 +160,19 @@ materialized case schema because `owner_id` is a reserved scalar. The builder
 does not enable persona removal until that exact count succeeds, and a retry
 re-runs the same authorized snapshot flow.
 
-**Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
-`SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
+**Schema row work is the deliberate app-scoped exception.** `applySchemaChange`
+(the `SchemaCaseStore` slice, built by `withSchemaContext()`) and guarded
+case-type retirement migrate or fence
 EVERY member's rows of an app's case type, so their per-row
 migrations filter `(app_id, case_type)` ONLY — no `project_id` /
 `owner_id`. The store binds no actor or construction-time Project, but every
 standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
 deleted app, and holds the app's current Project placement stable through its
-schema/data transaction. Explicit case-property rename instead composes its
+schema/data transaction. Hard schema deletion exists only as the package-private
+`PostgresCaseStore.purgeSchemaForMaintenance` escape hatch used by maintenance
+tests; neither public store interface nor `withSchemaContext()` exposes it, so
+ordinary consumers cannot erase the archived contract or its sequence fence.
+Explicit case-property rename instead composes its
 Phase A directly into the guarded writer's already app-locked, authorized
 transaction.
 
@@ -193,7 +198,8 @@ User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes m
 
 `PostgresCaseStore.insert` and `PostgresCaseStore.update`
 validate the candidate `properties` payload against the case-
-type's JSON Schema (the row in `case_type_schemas`) via `ajv`
+type's ACTIVE JSON Schema (the row in `case_type_schemas` with
+`is_active = true`) via `ajv`
 BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
 `(appId, caseType, schemaContent)`.
@@ -216,6 +222,71 @@ we already have in TypeScript lives at the right layer for our
 architecture.
 
 ## `applySchemaChange` runs in two phases
+
+Case-type removal uses the sibling lifecycle operation rather than
+`applySchemaChange`: `classifyCaseTypeChanges` emits `retire`, and
+`applyBlueprintChange` marks the schema row inactive inside the SAME guarded,
+app-locked transaction that persists the Blueprint removal. Existing case rows
+and parked values remain untouched. The inactive row retains the last active
+JSON Schema and the removal's `mutation_seq` in `retired_seq`; the generated
+`is_active` column is exactly `retired_seq IS NULL OR synced_seq > retired_seq`.
+Normal validation treats an inactive row as absent, while a later
+higher-sequence reactivation diffs from that archived contract and runs the
+ordinary transition migrations. Because lifecycle is sequence-derived, a
+previous application revision that advances `synced_seq` also reactivates
+correctly without knowing the new columns. Its durable pending index
+state targets the empty set after commit. A delayed sync below the retirement
+sequence no-ops, and an equal-sequence sync may retry only an already-active
+row—never reactivate an inactive one. Historical orphaned active rows use the
+required scan-then-migrate pair:
+`scripts/scan-case-type-schema-retirement.ts` (read-only, supports `--prod`) and
+`scripts/migrate-case-type-schema-retirement.ts` (dry-run by default,
+`--execute --confirm-old-revision-drained` to write). Execute the backfill only
+AFTER the new revision has 100% traffic and every old-revision request has
+drained: the previous binary can remove a case type without writing
+`retired_seq`, so a pre-cutover pass cannot close the compatibility window. The
+writer performs its own post-write zero-finding verification; follow it with the
+standalone zero-finding rescan. The audit also reports
+inactive current types and retired rows with pending or residual indexes, so a
+failed Phase B or stale convergence watermark cannot disappear merely because
+Phase A made the row inactive.
+
+The production writer is not a human `--prod` connection: those IAM users are
+read-only. `Dockerfile` bundles `case-type-schema-retirement.cjs` and
+`schema-drift.cjs`; after the service deploy, `cloudbuild.yaml` configures (but
+does not execute) the write-capable
+`commcare-nova-case-type-schema-retirement` Cloud Run Job from that exact
+immutable image under the migration identity. Once the new revision owns 100%
+traffic, wait until every old-revision request has drained (the conservative
+bound is `cloudRunRequestSeconds` in `config/runtime-capabilities.json`,
+currently 3600 seconds), then run:
+
+```bash
+python3 scripts/rollout/deploy-cloud-run.py --execute-job \
+  --project=commcare-nova --region=us-central1 \
+  --job=commcare-nova-case-type-schema-retirement \
+  --service=commcare-nova --wait-seconds=3060 \
+  --execution-arg=case-type-schema-retirement.cjs \
+  --execution-arg=--execute \
+  --execution-arg=--confirm-old-revision-drained
+npx tsx scripts/scan-case-type-schema-retirement.ts --prod
+```
+
+The Job's stored args are dry-run only. Every write invocation must go through
+`deploy-cloud-run.py --execute-job --service=commcare-nova`: it proves the
+service is Ready at 100% traffic, resolves that revision's immutable image,
+requires the Job generation to carry the same digest, submits the Job etag,
+and verifies the immutable Execution snapshot plus every task. Explicit
+`--execution-arg` values supply the write flag and the operator's per-run drain
+acknowledgement; an accidental default execution cannot write.
+
+If the scanner reports an inactive current type, first run the same fenced
+executor with `--execution-arg=schema-drift.cjs` and
+`--execution-arg=--execute` (append `--execution-arg=--app` plus the app id for
+an app-scoped repair), then run the retirement command and the read-only
+production scan again. The scanner prints these exact target-preserving
+commands; do not substitute a bare local writer or plain `gcloud run jobs
+execute` command after a production scan.
 
 ### Phase A (one Kysely transaction)
 
@@ -366,18 +437,20 @@ on failure. The schema row + data are always consistent.
 ### The monotone `synced_seq` gate
 
 `case_type_schemas.synced_seq` records the `mutation_seq` a row was
-last synced from. When a caller passes `syncedSeq`,
+last synced OR retired from. When a caller passes `syncedSeq`,
 `applySchemaChange` gates on it in two halves so concurrent additive
 edits converge instead of clobbering each other:
 
 - **Coarse (a SELECT before Phase A):** read the row's recorded
   `synced_seq` (`Number(...)` — pg returns `int8` as a string; an
-  absent row means "proceed"). If the incoming seq is LOWER, the
-  ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
+  absent row means "proceed"). If the incoming seq is LOWER, or is EQUAL
+  while the stored row is inactive, the ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
   stale sync never rewinds a fresher row.
 - **Fine (the UPSERT SET):** the conflict `doUpdateSet` guards
   `synced_seq = excluded.synced_seq` with
-  `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so
+  `WHERE excluded.synced_seq > case_type_schemas.synced_seq OR
+  (case_type_schemas.is_active AND excluded.synced_seq =
+  case_type_schemas.synced_seq)`, so
   the UPSERT itself can't regress the row even if a fresher writer
   landed between the coarse SELECT and here. The UPSERT `RETURNING`s
   its row, which Postgres emits only when it actually inserted or
@@ -400,7 +473,9 @@ transaction, and a fine-gate loser skips the reshape along with
 Phase B.
 
 Absent `syncedSeq` (an explicit maintenance caller with no committed Blueprint
-sequence): a plain unversioned UPSERT that always wins its own conflict.
+sequence): a plain unversioned UPSERT that always wins its own ACTIVE conflict;
+it rejects an inactive row because maintenance code cannot bypass the
+reactivation sequence fence.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
@@ -482,10 +557,10 @@ materialize — `ctx.latestCommittedSeq()` for the drain-end,
 the monotone `synced_seq` gate converges them with a concurrent
 additive sync.
 
-The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
-calls) route through `lib/db/applyBlueprintChange.ts`. Explicit
-case-property rename Phase A shares the guarded Blueprint
-transaction; ordinary additive changes ride a post-commit sweep of
+The auto-save and MCP write boundaries route through
+`lib/db/applyBlueprintChange.ts`; chat batches containing `retireCaseType` do
+the same. Explicit case-property rename and case-type retirement Phase A share
+the guarded Blueprint transaction; ordinary additive changes ride a post-commit sweep of
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 

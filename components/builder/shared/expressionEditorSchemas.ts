@@ -87,6 +87,7 @@ import {
 	tableLookupDefault,
 } from "./cards/expression/TableLookupCard";
 import { TermCard, termDefault } from "./cards/expression/TermCard";
+import type { EvaluationTarget } from "./editorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
 	EditorLookupTableDecl,
@@ -119,6 +120,8 @@ export interface ExpressionEditContext {
 	readonly operationScope?: OperationValueScope;
 	/** Present only for the owner facet of a case operation. */
 	readonly ownerValues?: boolean;
+	/** Runtime that evaluates this value. Absent stays strict on-device. */
+	readonly evaluationTarget?: EvaluationTarget;
 }
 
 /** The submission-local vocabulary a case-operation expression may use. */
