@@ -784,11 +784,13 @@ body {
    costs no script and animates nothing: the collapsed state IS the initial
    computed style, so there is no transition to run. `/build/new` carries no
    marker, because it has no app and therefore IS the site band. */
-[data-nova-app-shell]:has([data-nova-build-open]) .nova-logo-chrome
+[data-nova-app-shell]:has([data-nova-build-open])
+	.nova-logo-chrome
 	.nova-logo-word {
 	grid-template-columns: 0fr;
 }
-[data-nova-app-shell]:has([data-nova-build-open]) .nova-logo-chrome
+[data-nova-app-shell]:has([data-nova-build-open])
+	.nova-logo-chrome
 	.nova-logo-word-clip {
 	opacity: 0;
 }
