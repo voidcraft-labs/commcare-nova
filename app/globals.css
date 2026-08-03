@@ -2191,7 +2191,8 @@ html.dark {
    the whole thing, so the active page's link showed a ring identical to its
    rest state (no ring at all) and code blocks showed a solid 2px inset one.
    Both are named here so the shared ring is what lands on top. */
-	.nova-docs #nd-sidebar
+	.nova-docs
+	#nd-sidebar
 	a[data-active="true"]:focus-visible,
 .nova-docs figure > div[tabindex="0"]:focus-visible {
 	outline: none;
