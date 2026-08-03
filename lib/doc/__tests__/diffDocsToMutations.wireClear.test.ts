@@ -168,4 +168,51 @@ describe("diffDocsToMutations — organization sequence admission", () => {
 			/Reordering existing organization levels/,
 		);
 	});
+
+	it("adds a new parent before reparenting an existing level to it", () => {
+		const region = testUuid("11111111-1111-4111-8111-111111111111");
+		const facility = testUuid("22222222-2222-4222-8222-222222222222");
+		const district = testUuid("33333333-3333-4333-8333-333333333333");
+		const prev = buildDoc({ appName: "Organization" });
+		prev.organizationLevels = {
+			[region]: {
+				uuid: region,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+			[facility]: {
+				uuid: facility,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: region,
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		prev.organizationLevelOrder = [region, facility];
+		const next = produce(prev, (draft) => {
+			draft.organizationLevels ??= {};
+			draft.organizationLevels[district] = {
+				uuid: district,
+				code: "district",
+				name: "District",
+				parentLevelUuid: region,
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			};
+			draft.organizationLevels[facility].parentLevelUuid = district;
+			draft.organizationLevelOrder = [region, facility, district];
+		});
+
+		const mutations = diffDocsToMutations(prev, next);
+		expect(mutations.map((mutation) => mutation.kind)).toEqual([
+			"addOrganizationLevel",
+			"updateOrganizationLevel",
+		]);
+		expect(toPersistableDoc(replayOverWire(prev, next))).toEqual(
+			toPersistableDoc(next),
+		);
+	});
 });

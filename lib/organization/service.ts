@@ -454,7 +454,15 @@ async function loadDocInTransaction(
 
 export interface CreateLocationResult {
 	readonly revision: OrganizationRevision;
+	/** Root row, retained for singular callers. */
 	readonly location: StoredLocation;
+	/** Root first, followed by every request-local descendant. */
+	readonly locations: readonly StoredLocation[];
+	/** Exact request-local key to server-minted identity mapping for SA/MCP. */
+	readonly descendants: readonly {
+		readonly key: string;
+		readonly location: StoredLocation;
+	}[];
 }
 
 export async function createLocation(
@@ -467,53 +475,121 @@ export async function createLocation(
 			capability: "edit",
 		});
 		assertExpectedOrganizationRevision(locked, expectedRevision);
-		if (locked.locationCount >= MAX_LOCATIONS_PER_APP) {
+		const requestedCount = 1 + (input.descendants?.length ?? 0);
+		if (locked.locationCount + requestedCount > MAX_LOCATIONS_PER_APP) {
 			throw new OrganizationError(
 				"limit",
-				`This app already holds ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps before adding more.`,
+				`This request would take the app past ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps or add a smaller branch.`,
 			);
 		}
 		const tree = await lockTree(tx, scope.appId);
 		const doc = await loadDocInTransaction(tx, scope.appId);
-		assertPlacement(doc, tree, input.levelUuid, input.parentId);
-		assertValuesSatisfyCatalog(doc, input.levelUuid, input.values);
+		const created: LocationRow[] = [];
+		const insert = async (
+			candidate: Pick<
+				CreateLocationInput,
+				| "levelUuid"
+				| "name"
+				| "siteCode"
+				| "externalId"
+				| "latitude"
+				| "longitude"
+				| "values"
+			>,
+			parentId: string | null,
+			afterSiblingId?: string | null,
+		): Promise<LocationRow> => {
+			assertPlacement(doc, tree, candidate.levelUuid, parentId);
+			assertValuesSatisfyCatalog(doc, candidate.levelUuid, candidate.values);
+			// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
+			// does, and checked against the locked set either way so two rows in
+			// this batch cannot collide with one another or a concurrent create.
+			const siteCode =
+				candidate.siteCode === undefined
+					? deriveSiteCode(candidate.name, tree.siteCodes)
+					: candidate.siteCode.toLowerCase();
+			if (candidate.siteCode !== undefined) {
+				assertSiteCodeFree(siteCode, tree.siteCodes);
+			}
+			const row = await tx
+				.insertInto("app_locations")
+				.values({
+					app_id: scope.appId,
+					level_uuid: asUuid(candidate.levelUuid),
+					parent_id: parentId,
+					site_code: siteCode,
+					name: candidate.name,
+					external_id: candidate.externalId,
+					latitude: candidate.latitude,
+					longitude: candidate.longitude,
+					// A jsonb column crosses Kysely as a string on the way in.
+					values: JSON.stringify(candidate.values),
+					order_key: orderKeyForSlot(tree, parentId, afterSiblingId),
+					created_by: scope.actorUserId,
+					updated_by: scope.actorUserId,
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			tree.byId.set(row.id, row);
+			const siblings = tree.childrenOf.get(parentId) ?? [];
+			siblings.push(row);
+			siblings.sort(
+				(left, right) =>
+					left.order_key.localeCompare(right.order_key) ||
+					left.id.localeCompare(right.id),
+			);
+			tree.childrenOf.set(parentId, siblings);
+			tree.siteCodes.add(siteCode);
+			created.push(row);
+			return row;
+		};
 
-		// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
-		// does, and checked against the locked set either way so a concurrent
-		// create cannot produce two places with the same code.
-		const siteCode =
-			input.siteCode === undefined
-				? deriveSiteCode(input.name, tree.siteCodes)
-				: input.siteCode.toLowerCase();
-		if (input.siteCode !== undefined) {
-			assertSiteCodeFree(siteCode, tree.siteCodes);
+		const root = await insert(input, input.parentId, input.afterSiblingId);
+		const idByKey = new Map<string, string>();
+		const descendants: Array<{ key: string; row: LocationRow }> = [];
+		const pending = [...(input.descendants ?? [])];
+		while (pending.length > 0) {
+			const readyIndex = pending.findIndex(
+				(descendant) =>
+					descendant.parentKey === null || idByKey.has(descendant.parentKey),
+			);
+			if (readyIndex === -1) {
+				throw new OrganizationError(
+					"invalid",
+					"New descendants must name the root or another new parent without a cycle.",
+				);
+			}
+			const [descendant] = pending.splice(readyIndex, 1);
+			if (descendant === undefined) continue;
+			const parentId =
+				descendant.parentKey === null
+					? root.id
+					: idByKey.get(descendant.parentKey);
+			if (parentId === undefined) {
+				throw new OrganizationError(
+					"invalid",
+					"A new descendant's parent could not be resolved.",
+				);
+			}
+			const row = await insert(descendant, parentId);
+			idByKey.set(descendant.key, row.id);
+			descendants.push({ key: descendant.key, row });
 		}
-
-		const inserted = await tx
-			.insertInto("app_locations")
-			.values({
-				app_id: scope.appId,
-				level_uuid: asUuid(input.levelUuid),
-				parent_id: input.parentId,
-				site_code: siteCode,
-				name: input.name,
-				external_id: input.externalId,
-				latitude: input.latitude,
-				longitude: input.longitude,
-				// A jsonb column crosses Kysely as a string on the way in.
-				values: JSON.stringify(input.values),
-				order_key: orderKeyForSlot(tree, input.parentId, input.afterSiblingId),
-				created_by: scope.actorUserId,
-				updated_by: scope.actorUserId,
-			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
 		await assertReverseHopTargetsUnambiguous(tx, {
 			appId: scope.appId,
 			candidateDoc: doc,
 		});
-		const revision = await commitOrganizationChange(tx, scope, 1);
-		return { revision, location: toStoredLocation(inserted) };
+		const revision = await commitOrganizationChange(tx, scope, created.length);
+		const locations = created.map(toStoredLocation);
+		return {
+			revision,
+			location: toStoredLocation(root),
+			locations,
+			descendants: descendants.map(({ key, row }) => ({
+				key,
+				location: toStoredLocation(row),
+			})),
+		};
 	});
 }
 

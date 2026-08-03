@@ -141,28 +141,120 @@ const locationValuePatchSchema = z.record(
 		.nullable(),
 );
 
+const locationNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(LOCATION_NAME_MAX_LENGTH)
+	.refine((value) => !value.includes("\u0000"), {
+		message: "A place name cannot contain a NUL character.",
+	})
+	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+		message: "A place name cannot contain an unpaired surrogate.",
+	});
+
+const externalIdSchema = z
+	.string()
+	.max(EXTERNAL_ID_MAX_LENGTH)
+	.refine((value) => !value.includes("\u0000"), {
+		message: "An external ID cannot contain a NUL character.",
+	})
+	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+		message: "An external ID cannot contain an unpaired surrogate.",
+	});
+
+const createLocationValueFields = {
+	levelUuid: uuidSchema,
+	name: locationNameSchema,
+	/** Omitted means Nova derives one from the name, as HQ does. */
+	siteCode: z.preprocess(
+		(value) => (value === null ? undefined : value),
+		siteCodeSchema.optional(),
+	),
+	externalId: externalIdSchema.nullable().default(null),
+	latitude: coordinateSchema.nullable().default(null),
+	longitude: coordinateSchema.nullable().default(null),
+	values: locationValuesSchema
+		.nullable()
+		.optional()
+		.transform((value) => value ?? {}),
+} as const;
+
+const branchKeySchema = z
+	.string()
+	.min(1)
+	.max(64)
+	.regex(/^[A-Za-z0-9_-]+$/, "A branch key uses letters, numbers, _ or -.");
+
+export const createLocationDescendantInputSchema = z
+	.object({
+		/** Request-local identity used only to name another new row's parent. */
+		key: branchKeySchema,
+		/** null means the root place in this same request. */
+		parentKey: branchKeySchema.nullable().default(null),
+		...createLocationValueFields,
+	})
+	.strict();
+export type CreateLocationDescendantInput = z.infer<
+	typeof createLocationDescendantInputSchema
+>;
+
 export const createLocationInputSchema = z
 	.object({
-		levelUuid: uuidSchema,
+		...createLocationValueFields,
 		parentId: uuidSchema.nullable().default(null),
-		name: z.string().trim().min(1).max(LOCATION_NAME_MAX_LENGTH),
-		/** Omitted means Nova derives one from the name, as HQ does. */
-		siteCode: z.preprocess(
-			(value) => (value === null ? undefined : value),
-			siteCodeSchema.optional(),
-		),
-		externalId: z.string().max(EXTERNAL_ID_MAX_LENGTH).nullable().default(null),
-		latitude: coordinateSchema.nullable().default(null),
-		longitude: coordinateSchema.nullable().default(null),
-		values: locationValuesSchema
-			.nullable()
-			.optional()
-			.transform((value) => value ?? {}),
 		/** Place it after this sibling; omitted appends. */
 		/** `null` means first; omitted means append. */
 		afterSiblingId: uuidSchema.nullable().optional(),
+		/**
+		 * New descendants committed with this root. This is the born-valid path
+		 * for growing an organization while a reverse-hop owner rule requires a
+		 * destination below every new source place.
+		 */
+		descendants: z
+			.array(createLocationDescendantInputSchema)
+			.max(MAX_LOCATIONS_PER_APP - 1)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((input, ctx) => {
+		const descendants = input.descendants ?? [];
+		const byKey = new Map<string, CreateLocationDescendantInput>();
+		for (const [index, descendant] of descendants.entries()) {
+			if (byKey.has(descendant.key)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["descendants", index, "key"],
+					message: `Branch key "${descendant.key}" appears more than once.`,
+				});
+			}
+			byKey.set(descendant.key, descendant);
+		}
+		for (const [index, descendant] of descendants.entries()) {
+			if (descendant.parentKey !== null && !byKey.has(descendant.parentKey)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["descendants", index, "parentKey"],
+					message: `Parent branch key "${descendant.parentKey}" does not exist in this request.`,
+				});
+				continue;
+			}
+			const seen = new Set([descendant.key]);
+			let parentKey = descendant.parentKey;
+			while (parentKey !== null) {
+				if (seen.has(parentKey)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["descendants", index, "parentKey"],
+						message: "New descendants cannot form a parent cycle.",
+					});
+					break;
+				}
+				seen.add(parentKey);
+				parentKey = byKey.get(parentKey)?.parentKey ?? null;
+			}
+		}
+	});
 export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
 
 /**
@@ -180,8 +272,8 @@ export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
  */
 export const updateLocationInputSchema = z
 	.object({
-		name: z.string().trim().min(1).max(LOCATION_NAME_MAX_LENGTH).optional(),
-		externalId: z.string().max(EXTERNAL_ID_MAX_LENGTH).nullable().optional(),
+		name: locationNameSchema.optional(),
+		externalId: externalIdSchema.nullable().optional(),
 		latitude: coordinateSchema.nullable().optional(),
 		longitude: coordinateSchema.nullable().optional(),
 		/** A whole-bag replacement; every omitted catalog value is cleared. */

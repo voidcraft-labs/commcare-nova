@@ -3,6 +3,7 @@ import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import * as organizationService from "@/lib/organization/service";
 import {
@@ -10,6 +11,7 @@ import {
 	addLocationPropertiesTool,
 	addOrganizationLevelsInputSchema,
 	addOrganizationLevelsTool,
+	createLocationTool,
 	createLocationToolInputSchema,
 	getOrganizationTool,
 	moveLocationToolInputSchema,
@@ -303,6 +305,123 @@ describe("organization authoring tools", () => {
 		expect(data.locations[0]).not.toHaveProperty("values");
 	});
 
+	it("bounds levels, place information, and places in one paged stream", async () => {
+		const ctx = context();
+		const doc = structuredClone(
+			makeCanonicalGenesisDoc("Organization", ctx.appId),
+		);
+		const levels = Array.from({ length: 40 }, (_, index) => {
+			const uuid = testUuid(`bounded-level-${index}`);
+			return {
+				uuid,
+				code: `level_${index}`,
+				name: `Level ${index}`,
+				caseFlow: { workers: "none" as const, ownsCases: false },
+				addressBook: { reach: "own-branch" as const },
+			};
+		});
+		const properties = Array.from({ length: 40 }, (_, index) => {
+			const uuid = testUuid(`bounded-property-${index}`);
+			return {
+				uuid,
+				slug: `property_${index}`,
+				label: `Property ${index}`,
+			};
+		});
+		doc.organizationLevels = Object.fromEntries(
+			levels.map((level) => [level.uuid, level]),
+		);
+		doc.organizationLevelOrder = levels.map((level) => level.uuid);
+		doc.locationProperties = Object.fromEntries(
+			properties.map((property) => [property.uuid, property]),
+		);
+		doc.locationPropertyOrder = properties.map((property) => property.uuid);
+		const locations = Array.from({ length: 40 }, (_, index) => ({
+			id: testUuid(`bounded-location-${index}`),
+			levelUuid: levels[0].uuid,
+			parentId: null,
+			siteCode: `clinic_${index}`,
+			name: `Clinic ${index}`,
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: String(index),
+		}));
+		vi.spyOn(
+			organizationService,
+			"readOrganizationAuthoringSnapshot",
+		).mockResolvedValue({
+			blueprint: doc,
+			blueprintSeq: 3,
+			organization: { revision: "7", locations },
+		});
+
+		let cursor: string | undefined;
+		let levelCount = 0;
+		let propertyCount = 0;
+		let locationCount = 0;
+		for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
+			const page = await getOrganizationTool.execute(
+				{ limit: 25, ...(cursor === undefined ? {} : { cursor }) },
+				ctx,
+				doc,
+			);
+			const data = page.data as {
+				levels: unknown[];
+				placeInformation: unknown[];
+				locations: unknown[];
+				page: {
+					returned: number;
+					complete: boolean;
+					nextCursor: string | null;
+				};
+			};
+			expect(data.page.returned).toBeLessThanOrEqual(25);
+			expect(
+				data.levels.length +
+					data.placeInformation.length +
+					data.locations.length,
+			).toBe(data.page.returned);
+			levelCount += data.levels.length;
+			propertyCount += data.placeInformation.length;
+			locationCount += data.locations.length;
+			if (data.page.complete) break;
+			if (data.page.nextCursor === null) throw new Error("cursor missing");
+			cursor = data.page.nextCursor;
+		}
+		expect({ levelCount, propertyCount, locationCount }).toEqual({
+			levelCount: 40,
+			propertyCount: 40,
+			locationCount: 40,
+		});
+	});
+
+	it("propagates terminal chat authorization loss from place writers", async () => {
+		const ctx = context();
+		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		vi.spyOn(organizationService, "createLocation").mockRejectedValueOnce(
+			new CommitReauthError("Project membership changed."),
+		);
+		await expect(
+			createLocationTool.execute(
+				{
+					levelUuid: testUuid("terminal-level"),
+					name: "Clinic",
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+					parentId: null,
+					expectedRevision: "0",
+				},
+				ctx,
+				doc,
+			),
+		).rejects.toBeInstanceOf(CommitReauthError);
+	});
+
 	it("preflights an archive without writing and binds confirmation to its payload", async () => {
 		const ctx = context();
 		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
@@ -364,6 +483,27 @@ describe("organization authoring tools", () => {
 			"9",
 			impact,
 		);
+	});
+
+	it("returns the archive revision at the same result depth on every branch", async () => {
+		const ctx = context();
+		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		vi.spyOn(organizationService, "setLocationArchived").mockResolvedValueOnce({
+			revision: "11",
+			archivedCount: 1,
+			unassignedPersonaCount: 0,
+		});
+		const result = await setLocationArchivedTool.execute(
+			{
+				locationUuid: testUuid("unarchive-location"),
+				archived: false,
+				expectedRevision: "10",
+			},
+			ctx,
+			doc,
+		);
+		expect(result).toMatchObject({ kind: "read", data: { revision: "11" } });
+		expect((result as { data: unknown }).data).not.toHaveProperty("result");
 	});
 
 	it("rejects a continuation cursor after the organization revision changes", async () => {

@@ -2,7 +2,11 @@ import "server-only";
 
 import { sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { RunHolderLostError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, notifyAppOrganization } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
@@ -66,12 +70,17 @@ export async function lockOrganizationForWrite(
 	// comparison is the same guarantee `expectedProjectId` gives a blueprint
 	// commit: an authorization decided before this lock is worthless if the
 	// app changed tenant in between.
-	if (
-		app === undefined ||
-		app.deleted_at !== null ||
-		app.project_id === null ||
-		app.project_id !== scope.projectId
-	) {
+	if (app === undefined || app.deleted_at !== null || app.project_id === null) {
+		if (scope.chatRunHolder !== undefined) {
+			throw new CommitReauthError("App not found.");
+		}
+		throw new OrganizationError(
+			"not_found",
+			"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
+		);
+	}
+	if (app.project_id !== scope.projectId) {
+		if (scope.chatRunHolder !== undefined) throw new AppProjectChangedError();
 		throw new OrganizationError(
 			"not_found",
 			"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
@@ -88,6 +97,11 @@ export async function lockOrganizationForWrite(
 		app.project_id,
 	);
 	if (role === null || !roleAllowsApp(role, options.capability)) {
+		if (scope.chatRunHolder !== undefined) {
+			throw new CommitReauthError(
+				"You no longer have edit access to this app's Project.",
+			);
+		}
 		throw new OrganizationError(
 			"not_found",
 			"This app's organization isn't available. It may have been deleted, moved, or you may no longer have access to it.",

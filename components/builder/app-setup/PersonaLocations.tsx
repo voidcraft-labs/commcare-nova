@@ -22,7 +22,6 @@ import { Button } from "@/components/shadcn/button";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrganizationLevelRecord } from "@/lib/doc/hooks/useOrganizationCollections";
-import type { Uuid } from "@/lib/doc/types";
 import {
 	assignedLocationUuids,
 	levelHoldsWorkers,
@@ -79,7 +78,7 @@ export function PersonaLocations({
 	).length;
 
 	const set = (next: readonly string[]) =>
-		mutations.setPersonaLocations(persona.uuid as Uuid, next);
+		mutations.setPersonaLocations(persona.uuid, next);
 
 	useEffect(() => {
 		if (requestedPage !== assignedPage.page) {
@@ -156,7 +155,7 @@ export function PersonaLocations({
 														ref={rowFocus.register(index)}
 														type="button"
 														variant="ghost"
-														aria-label={`Remove ${location?.name ?? "this place"}`}
+														aria-label={`Remove ${location === undefined ? "this place" : locationChoiceLabel(location)}`}
 														className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
 														onClick={() => {
 															rowFocus.onRemoved(index);

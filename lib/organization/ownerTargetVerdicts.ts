@@ -249,7 +249,7 @@ export function reverseLocationOwnerIssue(
 	for (const source of live) {
 		if (source.levelUuid !== sourceLevel.uuid) continue;
 		if (firstBySource.has(source.id)) continue;
-		return `The owner rule for ${destinationLevel.name} has no live ${destinationLevel.name.toLowerCase()} below "${source.name}". Add exactly one there, or choose a fixed place owner.`;
+		return `The owner rule for ${destinationLevel.name} has no live ${destinationLevel.name.toLowerCase()} below "${source.name}". Add exactly one there (include it in the same create request's descendants when adding this source), or choose a fixed place owner.`;
 	}
 	return undefined;
 }

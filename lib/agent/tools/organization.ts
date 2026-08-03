@@ -1,7 +1,11 @@
 /** Shared SA/MCP authoring for organization shape and app-scoped places. */
 
 import { z } from "zod";
-import { RunHolderLostError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import {
 	addLocationPropertyMutations,
 	addOrganizationLevelMutations,
@@ -262,7 +266,7 @@ export const setLocationArchivedToolInputSchema = z
 
 export const getOrganizationTool = {
 	description:
-		"Read organization levels, place-information fields, the current revision, and a bounded page of places (including archived) with stable uuids. Follow the opaque snapshot-bound cursor until page.complete is true; if a page says restart, begin again without a cursor. Request includeValues only when saved custom values are needed.",
+		"Read organization levels, place-information fields, the current revision, and places (including archived) with stable uuids. One bounded cursor pages across all three collections, so accumulate each collection until page.complete is true; if a page says restart, begin again without a cursor. Request includeValues only when saved custom values are needed.",
 	inputSchema: getOrganizationInputSchema,
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
@@ -321,35 +325,79 @@ export const getOrganizationTool = {
 								.some((value) => value.toLocaleLowerCase().includes(needle)),
 						);
 			const start = cursor?.offset ?? 0;
-			const end = Math.min(start + input.limit, matching.length);
-			const locations = matching.slice(start, end).map((location) => {
-				if (includeValues) return location;
-				const { values: _values, ...projection } = location;
-				return projection;
-			});
+			const pageEnd = start + input.limit;
+			const allLevels = orderedOrganizationLevels(authoring.blueprint);
+			const allPlaceInformation = orderedLocationProperties(
+				authoring.blueprint,
+			);
+			// One cursor covers one logical stream. Each response therefore carries
+			// at most `limit` total entities, rather than independently taking a full
+			// page from levels, fields, and places. Shape comes first so a caller can
+			// interpret the location rows that follow.
+			const levelStart = Math.min(start, allLevels.length);
+			const levelEnd = Math.min(pageEnd, allLevels.length);
+			const levels = allLevels.slice(levelStart, levelEnd);
+			const afterLevelsStart = Math.max(0, start - allLevels.length);
+			const afterLevelsEnd = Math.max(0, pageEnd - allLevels.length);
+			const placeInformationStart = Math.min(
+				afterLevelsStart,
+				allPlaceInformation.length,
+			);
+			const placeInformationEnd = Math.min(
+				afterLevelsEnd,
+				allPlaceInformation.length,
+			);
+			const placeInformation = allPlaceInformation.slice(
+				placeInformationStart,
+				placeInformationEnd,
+			);
+			const shapeCount = allLevels.length + allPlaceInformation.length;
+			const locationStart = Math.min(
+				Math.max(0, start - shapeCount),
+				matching.length,
+			);
+			const locationEnd = Math.min(
+				Math.max(0, pageEnd - shapeCount),
+				matching.length,
+			);
+			const locations = matching
+				.slice(locationStart, locationEnd)
+				.map((location) => {
+					if (includeValues) return location;
+					const { values: _values, ...projection } = location;
+					return projection;
+				});
+			const totalItems = shapeCount + matching.length;
+			const returned =
+				levels.length + placeInformation.length + locations.length;
+			const complete = pageEnd >= totalItems;
 			return {
 				kind: "read",
 				data: {
-					levels: orderedOrganizationLevels(authoring.blueprint),
-					placeInformation: orderedLocationProperties(authoring.blueprint),
+					levels,
+					placeInformation,
 					blueprintSeq: authoring.blueprintSeq,
 					revision: snapshot.revision,
 					locations,
 					page: {
-						returned: locations.length,
+						returned,
+						locationsReturned: locations.length,
 						matching: matching.length,
 						total: snapshot.locations.length,
-						complete: end >= matching.length,
-						nextCursor:
-							end < matching.length
-								? encodeOrganizationCursor({
-										revision: snapshot.revision,
-										blueprintSeq: authoring.blueprintSeq,
-										offset: end,
-										query,
-										includeValues,
-									})
-								: null,
+						levelsReturned: levels.length,
+						levelsTotal: allLevels.length,
+						placeInformationReturned: placeInformation.length,
+						placeInformationTotal: allPlaceInformation.length,
+						complete,
+						nextCursor: !complete
+							? encodeOrganizationCursor({
+									revision: snapshot.revision,
+									blueprintSeq: authoring.blueprintSeq,
+									offset: pageEnd,
+									query,
+									includeValues,
+								})
+							: null,
 					},
 				},
 			};
@@ -635,7 +683,13 @@ function rowResult<T>(
 			// Losing the exact chat generation is terminal. Turning it into an
 			// ordinary read result would let a stale SA keep spending and possibly
 			// report success after its successor took over.
-			if (error instanceof RunHolderLostError) throw error;
+			if (
+				error instanceof AppProjectChangedError ||
+				error instanceof CommitReauthError ||
+				error instanceof RunHolderLostError
+			) {
+				throw error;
+			}
 			return {
 				kind: "read" as const,
 				data: { error: errorMessage(error) },
@@ -646,7 +700,7 @@ function rowResult<T>(
 
 export const createLocationTool = {
 	description:
-		"Create one place after its level is saved. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
+		"Create one root place after its level is saved, optionally with a request-local descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below the new root. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,
@@ -744,16 +798,22 @@ export const setLocationArchivedTool = {
 					newDoc: blueprintChange.committedDoc,
 					result: {
 						message: `Archived ${result.archivedCount} ${result.archivedCount === 1 ? "place" : "places"} and updated ${result.unassignedPersonaCount} persona ${result.unassignedPersonaCount === 1 ? "assignment" : "assignments"}.`,
-						organization,
+						...organization,
 					},
 				};
 			}
 			return {
 				kind: "read" as const,
-				data: { result },
+				data: result,
 			};
 		} catch (error) {
-			if (error instanceof RunHolderLostError) throw error;
+			if (
+				error instanceof AppProjectChangedError ||
+				error instanceof CommitReauthError ||
+				error instanceof RunHolderLostError
+			) {
+				throw error;
+			}
 			return {
 				kind: "read" as const,
 				data: { error: errorMessage(error) },

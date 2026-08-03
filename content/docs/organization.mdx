@@ -12,6 +12,14 @@ There are three things on that screen, and the order is the order you build
 them: the **levels** of your organization, the **information** its places
 carry, and the **places** themselves.
 
+Nova authors this model and runs it in Preview today. It does not yet put the
+location address book into a downloadable app, provision these places or
+workers in a CommCare project, or map Nova's place identities to CommCare.
+Until that deployment work ships, the device behavior described below is the
+behavior you are designing and previewing, not behavior Nova can publish yet.
+Nova blocks place-based case-owner rules at export instead of producing an app
+whose destinations would be missing on the device.
+
 ## Levels
 
 A level is a rung — Region, District, Facility, Ward. You add them top down,
@@ -21,7 +29,7 @@ Each level answers two questions, and the screen keeps them apart on purpose,
 because they are genuinely separate and mixing them up is the most common way an
 app ends up behaving strangely.
 
-### Cases: what a worker receives
+### Case delivery (Preview today)
 
 **People work here** decides whether workers can be assigned to places at this
 level.
@@ -31,25 +39,25 @@ level.
 
 Those two are independent, and all four combinations are useful:
 
-- **Both on** — an ordinary place people work out of. Workers assigned there
-  receive the cases their place owns.
+- **Both on** — an ordinary place people work out of. Preview gives a persona
+  assigned there the cases their place owns. Deployment support will use the
+  same setting when it provisions workers and locations.
 - **Owns cases, nobody works here** — a queue. Cases live there and reach
-  nobody's device by assignment, so they stay out of every worker's app while
-  remaining searchable and addressable. This is how you keep a large backlog
-  from being downloaded onto every phone.
+  nobody by assignment, so Preview keeps them out of every persona's case list
+  while they remain searchable and addressable. Once device provisioning
+  ships, the same design keeps a large backlog off every phone.
 - **People work here, owns nothing** — an oversight rung. Everything those
   workers receive comes from the setting below.
 - **Neither** — pure structure, a rung that exists so places below it have
   something to sit in.
 
-**Workers also receive cases from places below** widens what an assigned worker
-gets. "Everything below" is the common answer. Stopping at a particular level
-needs a setting enabled on the CommCare project you deploy to — Nova tells you
-that where you choose it. Direct Deployment is not available yet, so configure
-that setting on the target project yourself before installing the app; without
-it workers would quietly receive everything below instead.
+**Workers also receive cases from places below** widens what an assigned
+persona gets in Preview. "Everything below" is the common answer. When Nova can
+deploy this model, stopping at a particular level will also require a setting
+on the target CommCare project. Nova does not configure that setting or publish
+the location model today.
 
-### What workers here can see
+### Address-book reach (Preview today)
 
 Seeing a place and receiving its cases are different things, and this is the
 setting people most often expect to do both. It does not. Widening it lets your
@@ -66,8 +74,9 @@ The choices:
   their own, such as the other clinics in their district.
 - **The whole organization** — every place, for apps small enough to afford it.
 
-The address book ships to every device, so widening it costs download size for
-every worker at that level. That is the trade you are making.
+Preview uses this address-book reach now. When device location data ships,
+widening it will increase the location fixture downloaded for every worker at
+that level. That future payload cost is the trade you are designing for.
 
 ## Place information
 
@@ -90,7 +99,8 @@ fits it.
 ## Places
 
 The places themselves — your actual districts and facilities. Unlike levels,
-these are data: you can add thousands, and later push them to CommCare.
+these are data, so you can add thousands. Nova stores and previews them today;
+it does not push them to CommCare yet.
 
 Each place sits at a level and inside a place above it. **A place may skip a
 level** — if some regions run districts and some do not, a facility can hang
@@ -149,10 +159,10 @@ A persona's places are set on **App setup → Users & personas**, under **Where
 they work**. The first place in the list is their main one; use **Make main** to
 promote another.
 
-A persona assigned nowhere carries no location information at all — the same as
-an unassigned CommCare worker. That is deliberate rather than an oversight: it
-is exactly what the app would see, so a condition that depends on a worker's
-location behaves in preview the way it will on a device.
+A persona assigned nowhere carries no location information in Preview. That is
+the same empty session shape CommCare gives an unassigned worker. Nova does not
+currently provision that worker or session on a device; Preview lets you test
+the authored condition before that deployment support exists.
 
 ## Sending a case to a place
 

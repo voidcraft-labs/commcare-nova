@@ -1883,20 +1883,49 @@ function diffOrganizationCollections(
 		next.organizationLevelOrder ?? [],
 		"organization levels",
 	);
-	for (const [index, uuid] of (next.organizationLevelOrder ?? []).entries()) {
+	const nextLevelOrder = next.organizationLevelOrder ?? [];
+	const availableLevels = new Set(prev.organizationLevelOrder ?? []);
+	const pendingLevelAdds = nextLevelOrder.filter(
+		(uuid) => ownRecordValue(prevLevels, uuid) === undefined,
+	);
+	while (pendingLevelAdds.length > 0) {
+		const readyIndex = pendingLevelAdds.findIndex((uuid) => {
+			const parent = ownRecordValue(nextLevels, uuid)?.parentLevelUuid;
+			return parent === undefined || availableLevels.has(parent);
+		});
+		if (readyIndex === -1) {
+			throw new Error(
+				"New organization levels cannot be ordered after their parent dependencies.",
+			);
+		}
+		const [uuid] = pendingLevelAdds.splice(readyIndex, 1);
+		if (uuid === undefined) continue;
 		const level = ownRecordValue(nextLevels, uuid);
 		if (level === undefined) continue;
+		const displayIndex = nextLevelOrder.indexOf(uuid);
+		let after: Uuid | null = null;
+		for (let index = displayIndex - 1; index >= 0; index--) {
+			const predecessor = nextLevelOrder[index];
+			if (predecessor !== undefined && availableLevels.has(predecessor)) {
+				after = predecessor;
+				break;
+			}
+		}
+		out.push({
+			kind: "addOrganizationLevel",
+			level: cloneEntity(level),
+			after,
+		});
+		availableLevels.add(uuid);
+	}
+	// Existing rows may now safely reparent to any level added above. Emitting
+	// updates in display order before additions made a valid whole-document
+	// target impossible whenever its new parent appeared later in the sequence.
+	for (const uuid of nextLevelOrder) {
+		const level = ownRecordValue(nextLevels, uuid);
 		const before = ownRecordValue(prevLevels, uuid);
-		if (before === undefined) {
-			out.push({
-				kind: "addOrganizationLevel",
-				level: cloneEntity(level),
-				after:
-					index === 0
-						? null
-						: asUuid(next.organizationLevelOrder?.[index - 1] ?? ""),
-			});
-		} else if (!deepEqual(before, level)) {
+		if (level === undefined || before === undefined) continue;
+		if (!deepEqual(before, level)) {
 			if (before.code !== level.code) {
 				throw new Error("An organization level's code is create-once.");
 			}

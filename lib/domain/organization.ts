@@ -40,6 +40,13 @@ import { CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH } from "./customDataFieldLimits";
 import { recordFromEntries } from "./records";
 import { type Uuid, uuidSchema } from "./uuid";
 
+const nonemptyUniqueUuidArraySchema = z
+	.array(uuidSchema)
+	.min(1)
+	.refine((values) => new Set(values).size === values.length, {
+		message: "Level identities must not repeat.",
+	});
+
 // ── Level codes ──────────────────────────────────────────────────────
 
 /**
@@ -201,7 +208,7 @@ export const levelAddressBookSchema = z.discriminatedUnion("reach", [
 	z
 		.object({
 			reach: z.literal("own-branch-limited"),
-			levelUuids: z.array(uuidSchema).min(1),
+			levelUuids: nonemptyUniqueUuidArraySchema,
 			alsoIncludeTopDownToLevelUuid: uuidSchema.optional(),
 		})
 		.strict(),
@@ -332,7 +339,7 @@ export const locationPropertySchema = z
 		 *  the shared catalog check, against the level a place will HAVE, so
 		 *  retyping a place into a level its information does not apply to is
 		 *  refused rather than silently leaving values nothing will emit. */
-		levelUuids: z.array(uuidSchema).min(1).optional(),
+		levelUuids: nonemptyUniqueUuidArraySchema.optional(),
 	})
 	.strict();
 export type LocationProperty = z.infer<typeof locationPropertySchema>;

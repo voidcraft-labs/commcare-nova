@@ -17,7 +17,11 @@ import {
 	commitGuardedBatch,
 	loadApp,
 } from "@/lib/db/apps";
-import { RunHolderLostError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
 import {
 	hydratePersistedBlueprint,
@@ -707,6 +711,74 @@ describe("locations store — exact chat-run authority", () => {
 		).rejects.toBeInstanceOf(RunHolderLostError);
 		expect((await readOrganization(scope())).locations).toHaveLength(0);
 	});
+
+	it("surfaces a Project move as a terminal chat signal", async () => {
+		await seedOrgApp();
+		await h.seedProjectMember(ACTOR_A, PROJECT_B, "owner");
+		await h.moveAppToProject(APP_ID, PROJECT_B, ACTOR_A);
+		await expect(
+			createLocation(
+				{
+					...scope(),
+					chatRunHolder: {
+						source: "chat",
+						mode: "edit",
+						runId: "moved-run",
+						nonce: "33333333-3333-4333-8333-333333333333",
+					},
+				},
+				{
+					levelUuid: REGION,
+					name: "North",
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+					parentId: null,
+				},
+			),
+		).rejects.toBeInstanceOf(AppProjectChangedError);
+	});
+
+	it("surfaces membership loss as a terminal chat signal", async () => {
+		await seedOrgApp();
+		const nonce = "44444444-4444-4444-8444-444444444445";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				lock_run_id: "membership-run",
+				lock_actor_user_id: ACTOR_A,
+				lock_expire_at: new Date(Date.now() + 60_000),
+				run_holder_nonce: nonce,
+			})
+			.where("id", "=", APP_ID)
+			.execute();
+		await h.seedProjectMember(ACTOR_A, PROJECT_A, "viewer");
+		await expect(
+			createLocation(
+				{
+					...scope(),
+					chatRunHolder: {
+						source: "chat",
+						mode: "edit",
+						runId: "membership-run",
+						nonce,
+					},
+				},
+				{
+					levelUuid: REGION,
+					name: "North",
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+					parentId: null,
+				},
+			),
+		).rejects.toBeInstanceOf(CommitReauthError);
+		expect((await readOrganization(scope())).locations).toEqual([]);
+	});
 });
 
 describe("locations store — the tenant boundary", () => {
@@ -1077,6 +1149,64 @@ describe("locations store — persona and fixed-owner validation", () => {
 });
 
 describe("locations store — deterministic reverse-hop owners", () => {
+	it("atomically grows a complete source branch while a reverse rule is active", async () => {
+		await seedWorkflowOrgApp();
+		const { region } = await seedChain();
+		await commitReverseOwnerForm(FACILITY);
+		const before = await readOrganization(scope());
+
+		await expect(
+			createLocation(scope(), {
+				levelUuid: DISTRICT,
+				parentId: region,
+				name: "Lakeside",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			}),
+		).rejects.toThrow(/same create request's descendants/i);
+		expect(await readOrganization(scope())).toEqual(before);
+
+		const result = await createLocation(scope(), {
+			levelUuid: DISTRICT,
+			parentId: region,
+			name: "Lakeside",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			descendants: [
+				{
+					key: "clinic",
+					parentKey: null,
+					levelUuid: FACILITY,
+					name: "Lakeside Clinic",
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+				},
+			],
+		});
+		expect(result.locations.map((location) => location.name)).toEqual([
+			"Lakeside",
+			"Lakeside Clinic",
+		]);
+		expect(result.descendants).toEqual([
+			{
+				key: "clinic",
+				location: expect.objectContaining({ name: "Lakeside Clinic" }),
+			},
+		]);
+		expect(result.revision).toBe(
+			String(Number.parseInt(before.revision, 10) + 1),
+		);
+		expect(
+			(await readOrganization(scope())).locations.map(({ name }) => name),
+		).toContain("Lakeside Clinic");
+	});
+
 	it("refuses a reverse rule when any case-owning source has no destination", async () => {
 		await seedWorkflowOrgApp();
 		const { region } = await seedChain();

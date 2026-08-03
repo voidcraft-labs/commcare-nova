@@ -652,6 +652,13 @@ the growing result. The Places hierarchy itself is an ordinary
 paginated list of disclosures, not an ARIA treeview: its buttons own keyboard
 interaction, while every row carries a visible, non-shrinking numeric depth cue
 so compact-width indentation caps never make distinct depths look identical.
+Collapsed level rows do not mount their editors or compute cross-store choice
+verdicts; only the open row may scan locations. A custom place-value save sends
+one UUID-addressed patch, uses `null` for Clear, and rebases the authoritative
+response under every draft typed while that response was in flight. When an
+active reverse-hop owner rule requires descendants below a newly created source
+place, the add form collects the complete required branch and sends it through
+the store's one atomic create rather than attempting invalid sequential rows.
 Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead

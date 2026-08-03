@@ -38,6 +38,7 @@ import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	ancestorLevels,
+	asUuid,
 	type DescendantCaseScope,
 	LEVEL_CODE_MAX_LENGTH,
 	LEVEL_CODE_PATTERN,
@@ -293,25 +294,33 @@ function LevelRow({
 	const parentId = useId();
 	const descriptionId = useId();
 
-	const levelRecord = Object.fromEntries(peers.map((p) => [p.uuid, p]));
-	const above = ancestorLevels(level, levelRecord);
-	const selfAndBelow = peers.filter(
-		(candidate) =>
-			candidate.uuid === level.uuid ||
-			ancestorLevels(candidate, levelRecord).some(
-				(ancestor) => ancestor.uuid === level.uuid,
-			),
-	);
+	// Collapsed rows render only their summary. Do not run hierarchy walks (or
+	// any cross-store verdict that consumes `locations`) for every closed row.
+	const levelRecord = open
+		? Object.fromEntries(peers.map((p) => [p.uuid, p]))
+		: {};
+	const above = open ? ancestorLevels(level, levelRecord) : [];
+	const selfAndBelow = open
+		? peers.filter(
+				(candidate) =>
+					candidate.uuid === level.uuid ||
+					ancestorLevels(candidate, levelRecord).some(
+						(ancestor) => ancestor.uuid === level.uuid,
+					),
+			)
+		: [];
 	// The structural list excludes only self and descendants. Exact cross-store
 	// verdicts stay attached to each remaining choice so a refused move remains
 	// visible with its recovery reason instead of disappearing from the menu.
-	const parentOptions = peers.filter(
-		(candidate) =>
-			candidate.uuid !== level.uuid &&
-			!ancestorLevels(candidate, levelRecord).some(
-				(a) => a.uuid === level.uuid,
-			),
-	);
+	const parentOptions = open
+		? peers.filter(
+				(candidate) =>
+					candidate.uuid !== level.uuid &&
+					!ancestorLevels(candidate, levelRecord).some(
+						(a) => a.uuid === level.uuid,
+					),
+			)
+		: [];
 	const issueFor = (patch: OrganizationLevelPatch) =>
 		organizationLevelPatchIssue(doc, locations, level.uuid, patch);
 	const commitPatch = (patch: OrganizationLevelPatch) => {
@@ -321,7 +330,7 @@ function LevelRow({
 			return;
 		}
 		setLevelIssue(undefined);
-		mutations.updateOrganizationLevel(level.uuid as Uuid, patch);
+		mutations.updateOrganizationLevel(level.uuid, patch);
 	};
 
 	return (
@@ -331,148 +340,158 @@ function LevelRow({
 			detail={summarize(level)}
 			open={open}
 			onOpenChange={onOpenChange}
+			keepMounted={false}
 		>
-			<div className="flex flex-col gap-4">
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={nameId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Name
-					</Label>
-					<DraftCommitInput
-						id={nameId}
-						value={level.name}
-						disabled={
-							!canEdit ||
-							(level.parentLevelUuid !== undefined &&
-								issueFor({ parentLevelUuid: null }) !== undefined &&
-								parentOptions.length === 0)
-						}
-						validate={(name) =>
-							name === "" ? "Enter a name for this level." : undefined
-						}
-						onCommit={(name) =>
-							mutations.inline.updateOrganizationLevel(level.uuid as Uuid, {
-								name,
-							})
-						}
-					/>
-					<p className="text-[12px] text-nova-text-muted">
-						Saves as{" "}
-						<code className="text-nova-text-secondary">{level.code}</code>. That
-						code goes to CommCare and to every expression that names this level,
-						so it stays fixed even when the name changes.
-					</p>
-				</div>
+			{open ? (
+				<div className="flex flex-col gap-4">
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={nameId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Name
+						</Label>
+						<DraftCommitInput
+							id={nameId}
+							value={level.name}
+							disabled={
+								!canEdit ||
+								(level.parentLevelUuid !== undefined &&
+									issueFor({ parentLevelUuid: null }) !== undefined &&
+									parentOptions.length === 0)
+							}
+							validate={(name) =>
+								name === "" ? "Enter a name for this level." : undefined
+							}
+							onCommit={(name) =>
+								mutations.inline.updateOrganizationLevel(level.uuid, {
+									name,
+								})
+							}
+						/>
+						<p className="text-[12px] text-nova-text-muted">
+							Saves as{" "}
+							<code className="text-nova-text-secondary">{level.code}</code>.
+							That code goes to CommCare and to every expression that names this
+							level, so it stays fixed even when the name changes.
+						</p>
+					</div>
 
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={parentId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Sits under
-					</Label>
-					<Select
-						value={level.parentLevelUuid ?? TOP_LEVEL}
-						disabled={!canEdit}
-						onValueChange={(value) => {
-							if (typeof value !== "string") return;
-							commitPatch({
-								parentLevelUuid: value === TOP_LEVEL ? null : (value as Uuid),
-							});
-						}}
-					>
-						<SelectTrigger id={parentId} wrapValue className="w-full">
-							<SelectValue>
-								{level.parentLevelUuid === undefined
-									? "Nothing — this is a top level"
-									: (peers.find((p) => p.uuid === level.parentLevelUuid)
-											?.name ?? "A level that no longer exists")}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							<IssueSelectItem
-								value={TOP_LEVEL}
-								issue={issueFor({ parentLevelUuid: null })}
-							>
-								Nothing — this is a top level
-							</IssueSelectItem>
-							{parentOptions.map((candidate) => (
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={parentId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Sits under
+						</Label>
+						<Select
+							value={level.parentLevelUuid ?? TOP_LEVEL}
+							disabled={!canEdit}
+							onValueChange={(value) => {
+								if (typeof value !== "string") return;
+								commitPatch({
+									parentLevelUuid: value === TOP_LEVEL ? null : asUuid(value),
+								});
+							}}
+						>
+							<SelectTrigger id={parentId} wrapValue className="w-full">
+								<SelectValue>
+									{level.parentLevelUuid === undefined
+										? "Nothing — this is a top level"
+										: (peers.find((p) => p.uuid === level.parentLevelUuid)
+												?.name ?? "A level that no longer exists")}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
 								<IssueSelectItem
-									key={candidate.uuid}
-									value={candidate.uuid}
-									issue={issueFor({ parentLevelUuid: candidate.uuid })}
+									value={TOP_LEVEL}
+									issue={issueFor({ parentLevelUuid: null })}
 								>
-									{candidate.name}
+									Nothing — this is a top level
 								</IssueSelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
+								{parentOptions.map((candidate) => (
+									<IssueSelectItem
+										key={candidate.uuid}
+										value={candidate.uuid}
+										issue={issueFor({ parentLevelUuid: candidate.uuid })}
+									>
+										{candidate.name}
+									</IssueSelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
 
-				<CaseFlowGroup
-					level={level}
-					peers={selfAndBelow}
-					issueFor={issueFor}
-					onPatch={commitPatch}
-				/>
-				<AddressBookGroup
-					level={level}
-					above={above}
-					peers={peers}
-					selfAndBelow={selfAndBelow}
-					issueFor={issueFor}
-					onPatch={commitPatch}
-				/>
-
-				{levelIssue !== undefined && (
-					<p role="alert" className="text-[12px] leading-relaxed text-nova-red">
-						{levelIssue}
-					</p>
-				)}
-
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={descriptionId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Notes
-					</Label>
-					<Textarea
-						id={descriptionId}
-						rows={2}
-						value={level.description ?? ""}
-						autoComplete="off"
-						data-1p-ignore
-						disabled={!canEdit}
-						onChange={(e) =>
-							mutations.updateOrganizationLevel(level.uuid as Uuid, {
-								description: e.target.value === "" ? null : e.target.value,
-							})
-						}
+					<CaseFlowGroup
+						level={level}
+						peers={selfAndBelow}
+						issueFor={issueFor}
+						onPatch={commitPatch}
 					/>
+					<AddressBookGroup
+						level={level}
+						above={above}
+						peers={peers}
+						selfAndBelow={selfAndBelow}
+						issueFor={issueFor}
+						onPatch={commitPatch}
+					/>
+
+					{levelIssue !== undefined && (
+						<p
+							role="alert"
+							className="text-[12px] leading-relaxed text-nova-red"
+						>
+							{levelIssue}
+						</p>
+					)}
+
+					<div className="flex flex-col gap-1.5">
+						<Label
+							htmlFor={descriptionId}
+							className="text-[12px] font-medium text-nova-text-secondary"
+						>
+							Notes
+						</Label>
+						<Textarea
+							id={descriptionId}
+							rows={2}
+							value={level.description ?? ""}
+							autoComplete="off"
+							data-1p-ignore
+							disabled={!canEdit}
+							onChange={(e) =>
+								mutations.updateOrganizationLevel(level.uuid, {
+									description: e.target.value === "" ? null : e.target.value,
+								})
+							}
+						/>
+					</div>
+
+					{properties.length > 0 && (
+						<p className="text-[12px] leading-relaxed text-nova-text-muted">
+							Places at this level carry{" "}
+							{properties
+								.filter(
+									(property) =>
+										property.levelUuids === undefined ||
+										property.levelUuids.some((uuid) => uuid === level.uuid),
+								)
+								.map((property) => property.label)
+								.join(", ") || "no extra information"}
+							.
+						</p>
+					)}
+
+					{canEdit && (
+						<RemoveLevel
+							level={level}
+							occupied={occupied}
+							onRemove={onRemove}
+						/>
+					)}
 				</div>
-
-				{properties.length > 0 && (
-					<p className="text-[12px] leading-relaxed text-nova-text-muted">
-						Places at this level carry{" "}
-						{properties
-							.filter(
-								(property) =>
-									property.levelUuids === undefined ||
-									property.levelUuids.some((uuid) => uuid === level.uuid),
-							)
-							.map((property) => property.label)
-							.join(", ") || "no extra information"}
-						.
-					</p>
-				)}
-
-				{canEdit && (
-					<RemoveLevel level={level} occupied={occupied} onRemove={onRemove} />
-				)}
-			</div>
+			) : null}
 		</EntryRow>
 	);
 }
@@ -599,7 +618,7 @@ function CaseFlowGroup({
 												...flow,
 												descendantCases: {
 													kind: "down-to",
-													levelUuid: ancestor.uuid as Uuid,
+													levelUuid: ancestor.uuid,
 												},
 											},
 										})}
@@ -653,7 +672,7 @@ function scopeFromValue(value: string): DescendantCaseScope {
 	if (value.startsWith("down-to:")) {
 		return {
 			kind: "down-to",
-			levelUuid: value.slice("down-to:".length) as Uuid,
+			levelUuid: asUuid(value.slice("down-to:".length)),
 		};
 	}
 	return { kind: "none" };
@@ -755,7 +774,7 @@ function AddressBookGroup({
 		}
 		return selfAndBelow
 			.filter((candidateLevel) => current.has(candidateLevel.uuid))
-			.map((candidateLevel) => candidateLevel.uuid as Uuid);
+			.map((candidateLevel) => candidateLevel.uuid);
 	};
 
 	if (!expanded) {
@@ -802,7 +821,7 @@ function AddressBookGroup({
 						if (value === "own-branch-limited") {
 							return set({
 								reach: "own-branch-limited",
-								levelUuids: [level.uuid as Uuid],
+								levelUuids: [level.uuid],
 							});
 						}
 						if (above[0] !== undefined) {
@@ -828,7 +847,7 @@ function AddressBookGroup({
 									: issueFor({
 											addressBook: {
 												reach: "own-branch-limited",
-												levelUuids: [level.uuid as Uuid],
+												levelUuids: [level.uuid],
 											},
 										})
 							}
@@ -843,7 +862,7 @@ function AddressBookGroup({
 									: issueFor({
 											addressBook: {
 												reach: "shared-branch",
-												fromLevelUuid: above[0].uuid as Uuid,
+												fromLevelUuid: above[0].uuid,
 											},
 										})
 							}
@@ -873,7 +892,7 @@ function AddressBookGroup({
 							disabled={!canEdit}
 							onValueChange={(value) => {
 								if (typeof value !== "string") return;
-								set({ ...book, fromLevelUuid: value as Uuid });
+								set({ ...book, fromLevelUuid: asUuid(value) });
 							}}
 						>
 							<SelectTrigger id={fromId} wrapValue className="w-full">
@@ -958,7 +977,7 @@ function AddressBookGroup({
 								set(
 									value === NO_LEVEL_LIMIT
 										? withoutDownTo
-										: { ...withoutDownTo, downToLevelUuid: value as Uuid },
+										: { ...withoutDownTo, downToLevelUuid: asUuid(value) },
 								);
 							}}
 						>
@@ -1015,7 +1034,7 @@ function AddressBookGroup({
 										? withoutTopSlice
 										: {
 												...withoutTopSlice,
-												alsoIncludeTopDownToLevelUuid: value as Uuid,
+												alsoIncludeTopDownToLevelUuid: asUuid(value),
 											},
 								);
 							}}
@@ -1204,7 +1223,7 @@ function RemoveLevel({
 					onClick={() => {
 						onRemove();
 						const result = mutations.removeOrganizationLevel(
-							level.uuid as Uuid,
+							level.uuid,
 							occupied ? new Set([level.uuid]) : undefined,
 						);
 						setConfirming(false);

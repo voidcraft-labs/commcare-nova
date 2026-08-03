@@ -19,6 +19,7 @@ import {
 	levelMayNestUnder,
 	locationPropertySchema,
 	type OrganizationLevel,
+	organizationLevelSchema,
 	type Persona,
 } from "@/lib/domain";
 import { fixedLocation, term } from "@/lib/domain/predicate";
@@ -228,6 +229,101 @@ describe("organization authoring input identity", () => {
 				label: "Facility kind",
 				required: true,
 				choices: [],
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses duplicate semantic level identities", () => {
+		expect(
+			organizationLevelSchema.safeParse({
+				uuid: lower,
+				code: "facility",
+				name: "Facility",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: {
+					reach: "own-branch-limited",
+					levelUuids: [lower, lower],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			locationPropertySchema.safeParse({
+				uuid: lower,
+				slug: "kind",
+				label: "Facility kind",
+				levelUuids: [lower, lower],
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses strings Postgres cannot persist", () => {
+		for (const invalid of ["North\u0000District", "North\uD800District"]) {
+			expect(
+				createLocationInputSchema.safeParse({
+					levelUuid: lower,
+					name: invalid,
+				}).success,
+			).toBe(false);
+			expect(
+				updateLocationInputSchema.safeParse({ name: invalid }).success,
+			).toBe(false);
+			expect(
+				createLocationInputSchema.safeParse({
+					levelUuid: lower,
+					name: "North",
+					externalId: invalid,
+				}).success,
+			).toBe(false);
+			expect(
+				updateLocationInputSchema.safeParse({ externalId: invalid }).success,
+			).toBe(false);
+		}
+		expect(
+			createLocationInputSchema.safeParse({
+				levelUuid: lower,
+				name: "North 😀",
+				externalId: "external-😀",
+			}).success,
+		).toBe(true);
+	});
+
+	it("admits only an acyclic request-local descendant tree", () => {
+		const base = {
+			levelUuid: lower,
+			name: "North",
+			descendants: [
+				{
+					key: "facility",
+					parentKey: null,
+					levelUuid: lower,
+					name: "Facility",
+				},
+			],
+		};
+		expect(createLocationInputSchema.safeParse(base).success).toBe(true);
+		expect(
+			createLocationInputSchema.safeParse({
+				...base,
+				descendants: [base.descendants[0], base.descendants[0]],
+			}).success,
+		).toBe(false);
+		expect(
+			createLocationInputSchema.safeParse({
+				...base,
+				descendants: [{ ...base.descendants[0], parentKey: "missing" }],
+			}).success,
+		).toBe(false);
+		expect(
+			createLocationInputSchema.safeParse({
+				...base,
+				descendants: [
+					{ ...base.descendants[0], parentKey: "ward" },
+					{
+						...base.descendants[0],
+						key: "ward",
+						parentKey: "facility",
+					},
+				],
 			}).success,
 		).toBe(false);
 	});

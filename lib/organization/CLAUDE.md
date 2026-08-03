@@ -76,6 +76,14 @@ exclusive in one request. Coordinates are canonical decimal strings and the
 database stores the HQ-compatible `numeric(20,10)` precision; do not introduce
 a floating-point conversion on either boundary.
 
+A create may carry a request-local descendant tree. The root and every named
+descendant are inserted under the same app/state/location locks, then reverse
+owner-hop totality is checked once against the completed branch before the
+revision advances once. This is the born-valid growth path when an existing
+owner rule requires a destination below every new source place. Never replace
+it with sequential creates: the first row would be an invalid intermediate
+organization and must correctly roll back.
+
 ## The two directions of cross-store reference
 
 `commitIntegrity.ts` holds both, and both run **inside the blueprint commit's
@@ -218,11 +226,13 @@ a memory of an older one.
   the explicit app id the displayed state named, and maps typed errors to
   discriminated results.
 - Shared SA/MCP reads are bounded projections. `getOrganization` returns at
-  most 50 rows, an opaque cursor bound to the exact revision/query/projection,
-  total/matching counts, and a completeness bit; a changed snapshot makes a
-  later page say to restart. Custom values are omitted unless explicitly
-  requested. Every SA/MCP row write, including create, requires the exact
-  revision it read, and callers chain the revision each write returns.
+  most 50 total entities across levels, place-information fields, and places,
+  with one opaque cursor bound to the exact Blueprint sequence, organization
+  revision, query, and projection. It returns per-collection counts and a
+  completeness bit; a changed snapshot makes a later page say to restart.
+  Custom values are omitted unless explicitly requested. Every SA/MCP row
+  write, including an atomic branch create, requires the exact revision it
+  read, and callers chain the revision each write returns.
 - `countCasesOwnedBy` in `service.ts` is the one place this package reads case
   rows, and it is raw SQL because `cases` belongs to the case store's schema
   rather than `AppDatabase`. It is advisory only — never a gate.

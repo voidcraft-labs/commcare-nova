@@ -420,9 +420,7 @@ test.describe("authenticated builder", () => {
 		await places.getByRole("button", { name: "Add place" }).click();
 		const coastRegion = places.getByRole("button", { name: /Coast Region/ });
 		await expect(coastRegion).toBeVisible();
-		await expect(
-			places.getByText("coast-region", { exact: true }),
-		).toBeVisible();
+		await expect(coastRegion).toContainText("coast-region");
 		await expect(places.getByLabel("Latitude")).toHaveValue("-4.0435");
 
 		await places.getByRole("button", { name: "Add place" }).click();
@@ -449,10 +447,16 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "Hospital" }).click();
 		await places.getByRole("button", { name: "Add place" }).click();
 		await expect(
+			places.getByRole("button", { name: /Mombasa District/ }),
+		).toBeVisible();
+		await expect(
 			places.getByRole("list", { name: "Place hierarchy" }),
 		).toBeVisible();
 		await expect(places.getByRole("tree")).toHaveCount(0);
-		await kilifiDistrict.click();
+		if ((await kilifiDistrict.getAttribute("aria-expanded")) !== "true") {
+			await kilifiDistrict.click();
+		}
+		await expect(kilifiDistrict).toHaveAttribute("aria-expanded", "true");
 		await places.getByLabel("Position").filter({ visible: true }).click();
 		await page.getByRole("option", { name: "At the end" }).click();
 		await expect(
@@ -738,7 +742,10 @@ test.describe("authenticated builder", () => {
 		await barrierLevels.getByLabel("Level name").press("Enter");
 		await rejectedSaveStarted;
 		await barrierPlaces.getByRole("button", { name: "Add place" }).click();
-		await barrierPlaces.getByLabel("Name").last().fill("Must not persist");
+		// The form initially opens at Region, whose active reverse-hop rule also
+		// renders a required District branch. Name the root explicitly before
+		// switching it to the newly authored Barrier level.
+		await barrierPlaces.getByLabel("Name").first().fill("Must not persist");
 		await barrierPlaces.getByLabel("Level").last().click();
 		await page.getByRole("option", { name: "Barrier level" }).click();
 		await barrierPlaces.getByLabel("Sits in").last().click();
@@ -746,7 +753,11 @@ test.describe("authenticated builder", () => {
 		await barrierPlaces.getByLabel("Facility kind").last().click();
 		await page.getByRole("option", { name: "Clinic" }).click();
 		const postsBeforeBlockedWrite = organizationActionPosts;
-		await barrierPlaces.getByRole("button", { name: "Add place" }).click();
+		const blockedAddPlace = barrierPlaces.getByRole("button", {
+			name: "Add place",
+		});
+		await expect(blockedAddPlace).toBeEnabled();
+		await blockedAddPlace.click();
 		releaseRejectedSave?.();
 		await expect(
 			barrierPlaces.getByText(

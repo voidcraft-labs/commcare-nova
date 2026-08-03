@@ -25,7 +25,6 @@ import {
 	useOrganizationLevels,
 } from "@/lib/doc/hooks/useOrganizationCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
-import type { Uuid } from "@/lib/doc/types";
 import type { LocationProperty, OrganizationLevel } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 import { locationValueCatalogIssueForProperties } from "@/lib/organization/valueCatalog";
@@ -194,10 +193,7 @@ function PropertyRow({
 				return { ok: false as const, messages: [refusal] };
 			}
 		}
-		const outcome = mutations.updateLocationProperty(
-			property.uuid as Uuid,
-			patch,
-		);
+		const outcome = mutations.updateLocationProperty(property.uuid, patch);
 		setMessage(outcome.ok ? undefined : outcome.messages[0]);
 		return outcome;
 	};
@@ -422,7 +418,7 @@ function RemoveProperty({
 					onClick={() => {
 						setConfirming(false);
 						onRemove();
-						mutations.removeLocationProperty(property.uuid as Uuid);
+						mutations.removeLocationProperty(property.uuid);
 					}}
 				>
 					Remove

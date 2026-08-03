@@ -173,13 +173,17 @@ export async function createLocationAction(
 	input: unknown,
 	expectedRevision: string,
 ): Promise<OrganizationResult<{ location: StoredLocation; revision: string }>> {
-	return withScope(appId, async (scope) =>
-		createLocation(
+	return withScope(appId, async (scope) => {
+		const result = await createLocation(
 			scope,
 			parsed(createLocationInputSchema, input),
 			parsed(organizationRevisionSchema, expectedRevision),
-		),
-	);
+		);
+		// The browser needs only the root identity it opens next. Keep the full
+		// request-local descendant mapping on the SA/MCP service boundary instead
+		// of serializing a potentially large branch through a Server Action.
+		return { location: result.location, revision: result.revision };
+	});
 }
 
 export async function updateLocationAction(

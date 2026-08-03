@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { asUuid, type LocationProperty } from "@/lib/domain";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { asUuid, type BlueprintDoc, type LocationProperty } from "@/lib/domain";
 import {
+	locationValuePatch,
 	PERSONA_LOCATION_PAGE_SIZE,
 	personaLocationPage,
 	propertiesForLevel,
+	rebaseLocationValueDraft,
+	requiredReverseHopDescendants,
 	requiredValuesPresent,
 	valuesForLevel,
 } from "../organizationUi";
@@ -64,5 +68,109 @@ describe("organization place-information UI", () => {
 		expect(
 			requiredValuesPresent(properties, FACILITY, { [EVERYWHERE]: "555-0100" }),
 		).toBe(true);
+	});
+
+	it("rebases an async field save without erasing another in-progress draft", () => {
+		expect(
+			rebaseLocationValueDraft(
+				{ [EVERYWHERE]: "saved A", [FACILITY_ONLY]: "peer B" },
+				{ [FACILITY_ONLY]: "local B" },
+			),
+		).toEqual({
+			[EVERYWHERE]: "saved A",
+			[FACILITY_ONLY]: "local B",
+		});
+	});
+
+	it("transports Clear as key deletion rather than a stored empty string", () => {
+		expect(locationValuePatch("")).toBeNull();
+		expect(locationValuePatch("Clinic")).toBe("Clinic");
+	});
+
+	it("plans every reverse-hop destination below a new source in one branch", () => {
+		const queue = asUuid("55555555-5555-4555-8555-555555555555");
+		const room = asUuid("66666666-6666-4666-8666-666666666666");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Organization",
+					forms: [{ name: "Route", type: "survey" }],
+				},
+			],
+		}) as BlueprintDoc;
+		const formUuid = doc.formOrder[doc.moduleOrder[0]]?.[0];
+		if (formUuid === undefined) throw new Error("fixture form missing");
+		doc.forms[formUuid].caseOperations = [
+			{
+				uuid: asUuid("77777777-7777-4777-8777-777777777777"),
+				id: "route-to-queue",
+				action: "update",
+				caseType: "case",
+				target: { kind: "session" },
+				owner: {
+					kind: "term",
+					term: {
+						kind: "owner-location-at-level",
+						levelUuid: queue,
+						ownerCaseType: "case",
+					},
+				},
+			},
+			{
+				uuid: asUuid("88888888-8888-4888-8888-888888888888"),
+				id: "route-to-room",
+				action: "update",
+				caseType: "case",
+				target: { kind: "session" },
+				owner: {
+					kind: "term",
+					term: {
+						kind: "owner-location-at-level",
+						levelUuid: room,
+						ownerCaseType: "case",
+					},
+				},
+			},
+		];
+		doc.organizationLevels = {
+			[FACILITY]: {
+				uuid: FACILITY,
+				code: "facility",
+				name: "Facility",
+				caseFlow: {
+					workers: "assigned" as const,
+					ownsCases: true,
+					descendantCases: { kind: "none" as const },
+				},
+				addressBook: { reach: "own-branch" as const },
+			},
+			[queue]: {
+				uuid: queue,
+				code: "queue",
+				name: "Queue",
+				parentLevelUuid: FACILITY,
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+			[room]: {
+				uuid: room,
+				code: "room",
+				name: "Room",
+				parentLevelUuid: queue,
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+		};
+		doc.organizationLevelOrder = [FACILITY, queue, room];
+
+		expect(
+			requiredReverseHopDescendants(doc, FACILITY).map((entry) => ({
+				level: entry.level.uuid,
+				parentKey: entry.parentKey,
+			})),
+		).toEqual([
+			{ level: queue, parentKey: null },
+			{ level: room, parentKey: "required-1" },
+		]);
 	});
 });

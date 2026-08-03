@@ -1,4 +1,12 @@
-import type { LocationProperty } from "@/lib/domain";
+import {
+	ancestorLevels,
+	type BlueprintDoc,
+	type LocationProperty,
+	levelOwnsCases,
+	type OrganizationLevel,
+	orderedOrganizationLevels,
+	organizationLevelsOf,
+} from "@/lib/domain";
 
 export const PERSONA_LOCATION_PAGE_SIZE = 50;
 
@@ -52,6 +60,19 @@ export function valuesForLevel(
 	);
 }
 
+/** Preserve only fields still being authored over an async per-field save. */
+export function rebaseLocationValueDraft(
+	authoritative: Readonly<Record<string, string>>,
+	dirtyDrafts: Readonly<Record<string, string>>,
+): Record<string, string> {
+	return { ...authoritative, ...dirtyDrafts };
+}
+
+/** Blank is absence in the row store, not a capacity-consuming empty value. */
+export function locationValuePatch(value: string): string | null {
+	return value === "" ? null : value;
+}
+
 /** Required place information is the only extra create-form completeness gate. */
 export function requiredValuesPresent(
 	properties: readonly LocationProperty[],
@@ -62,4 +83,62 @@ export function requiredValuesPresent(
 		(property) =>
 			property.required !== true || (values[property.uuid] ?? "") !== "",
 	);
+}
+
+export interface RequiredReverseHopDescendant {
+	/** Request-local branch key; never persisted as identity. */
+	readonly key: string;
+	/** null means the root place authored beside these rows. */
+	readonly parentKey: string | null;
+	readonly level: OrganizationLevel;
+	readonly depth: number;
+}
+
+/**
+ * Descendants a new root must carry in the SAME create transaction so every
+ * authored reverse-hop case-owner rule remains total. A destination can itself
+ * be the source for a deeper rule, so this is a tree rather than one flat row.
+ */
+export function requiredReverseHopDescendants(
+	doc: BlueprintDoc,
+	rootLevelUuid: string,
+): readonly RequiredReverseHopDescendant[] {
+	const levels = organizationLevelsOf(doc);
+	const destinationUuids = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			const owner = operation.owner;
+			if (
+				owner?.kind === "term" &&
+				owner.term.kind === "owner-location-at-level"
+			) {
+				destinationUuids.add(owner.term.levelUuid);
+			}
+		}
+	}
+	const destinationsBySource = new Map<string, OrganizationLevel[]>();
+	for (const destination of orderedOrganizationLevels(doc)) {
+		if (!destinationUuids.has(destination.uuid)) continue;
+		const source = ancestorLevels(destination, levels).find(levelOwnsCases);
+		if (source === undefined) continue;
+		const destinations = destinationsBySource.get(source.uuid) ?? [];
+		destinations.push(destination);
+		destinationsBySource.set(source.uuid, destinations);
+	}
+
+	const out: RequiredReverseHopDescendant[] = [];
+	let nextKey = 1;
+	const visit = (
+		sourceLevelUuid: string,
+		parentKey: string | null,
+		depth: number,
+	): void => {
+		for (const destination of destinationsBySource.get(sourceLevelUuid) ?? []) {
+			const key = `required-${nextKey++}`;
+			out.push({ key, parentKey, level: destination, depth });
+			visit(destination.uuid, key, depth + 1);
+		}
+	};
+	visit(rootLevelUuid, null, 0);
+	return out;
 }

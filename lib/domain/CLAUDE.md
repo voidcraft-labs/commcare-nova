@@ -86,7 +86,9 @@ mutable slug/label/constraints, and optional level UUID membership; row values
 key by the property UUID, never the slug. A closed accepted-values catalog is
 nonempty at the schema boundary; an empty catalog would make a required field
 impossible to satisfy and dead-end every future place write. Every collection
-reader follows its membership array. Persona locations store one nonempty
+reader follows its membership array. Semantic level UUID lists are nonempty
+and duplicate-free, so an address-book allowlist or property applicability set
+has one canonical spelling. Persona locations store one nonempty
 primary-first identity list, and absence means unassigned rather than an empty
 second spelling.
 
