@@ -7,10 +7,13 @@ migration Job, capture-cleanup Job, and direct service deployment. Do not add
 traffic controllers, candidate services, rollout accounts, compatibility
 paths, or deploy-time maintenance gates.
 Each Job execution first reads the reconciled Job generation, proves its sole
-container image is that exact digest, submits `jobs:run` with the Job `etag`,
-and proves the resulting immutable Execution snapshot and every task succeeded.
-This generation fence prevents overlapping builds from changing a shared Job
-between its update and execution.
+container image, service account, command, dry-run/default args, task count,
+parallelism, retry policy, and timeout match the checked-in contract, then
+submits `jobs:run` with the Job `etag`. It proves the resulting immutable
+Execution snapshots the effective override args under the same image,
+authority, and execution shape, and that every task succeeded. This generation
+fence prevents overlapping builds from changing a shared Job between its
+inspection and execution.
 
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
@@ -19,7 +22,14 @@ reconciles these permanent identities:
   act as the Job/runtime identities but never connects to Postgres. It reads
   only the build-time secrets used by `cloudbuild.yaml`.
 - `nova-migrate` connects as the migration database owner and runs the Kysely,
-  Better Auth, and Nova auth migrations plus privilege convergence.
+  Better Auth, and Nova auth migrations plus privilege convergence. It also
+  owns the separately configured one-off case-type-retirement Job: Cloud Build
+  pins that Job to the exact image only after the service deploy, but never
+  executes it. Its stored args are dry-run only. After old-revision requests
+  drain, an operator uses `deploy-cloud-run.py --execute-job
+  --service=commcare-nova` with explicit writer args; that path applies the
+  same service-image, Job-generation, authority/template, etag, effective-args,
+  Execution-image, and task-success proofs as deployment Jobs.
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact
   capture retention/CORS policy. It never connects to Postgres.
 - `nova-capture-cleanup` has no runtime-role membership. In Postgres it receives

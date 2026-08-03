@@ -42,7 +42,6 @@
 // `case_type_schemas` untouched — the database never holds a
 // schema row whose properties cannot all be indexed.
 
-import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
@@ -107,6 +106,7 @@ import type {
 } from "../sql/database";
 import type {
 	ApplyCasePropertyRenameArgs,
+	ApplyCaseTypeSchemaRetirementArgs,
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
@@ -121,6 +121,7 @@ import type {
 	MigrationReport,
 	ParkedValueEntry,
 	PreparedCasePropertyRenamePhaseB,
+	PreparedCaseTypeSchemaRetirementPhaseB,
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
@@ -132,6 +133,12 @@ import type {
 	SubmissionEnvelopeResult,
 } from "../submission";
 import {
+	caseSchemaIndexLockScope,
+	indexScopeTag,
+	propertyIndexTag,
+} from "./indexIdentity";
+import { retireCaseTypeSchemasPhaseA } from "./schemaRetirement";
+import {
 	executeSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
@@ -140,6 +147,8 @@ import {
 	prepareSubmissionReceipt,
 } from "./submissionReceipt";
 import { ajvErrorToCaseFailure } from "./validationFailure";
+
+export { indexScopeTag, propertyIndexTag } from "./indexIdentity";
 
 /**
  * Construction arguments. Production callers go through
@@ -1460,7 +1469,7 @@ export class PostgresCaseStore implements CaseStore {
 		// cases, matching every ordinary row writer's schema→case order.
 		const priorSchemaRows = await tx
 			.selectFrom("case_type_schemas")
-			.select(["case_type", "schema"])
+			.select(["case_type", "schema", "synced_seq", "is_active"])
 			.where("app_id", "=", args.appId)
 			.where("case_type", "in", caseTypes)
 			.orderBy("case_type")
@@ -1524,6 +1533,19 @@ export class PostgresCaseStore implements CaseStore {
 			const priorSchemaRow = priorSchemaRows.find(
 				(row) => row.case_type === caseType,
 			);
+			if (
+				priorSchemaRow !== undefined &&
+				!priorSchemaRow.is_active &&
+				desiredSeq <=
+					safePersistedSequence(
+						priorSchemaRow.synced_seq,
+						`stored case_type_schemas.synced_seq for ${args.appId}/${caseType}`,
+					)
+			) {
+				throw new Error(
+					`A stale case-property rename cannot reactivate retired case type ${caseType}.`,
+				);
+			}
 			const priorSchema =
 				priorSchemaRow === undefined
 					? undefined
@@ -1658,6 +1680,23 @@ export class PostgresCaseStore implements CaseStore {
 		};
 	}
 
+	async retireSchemasPhaseA(
+		tx: Transaction<Database>,
+		args: ApplyCaseTypeSchemaRetirementArgs,
+	): Promise<PreparedCaseTypeSchemaRetirementPhaseB> {
+		const retired = await retireCaseTypeSchemasPhaseA(tx, args);
+		return {
+			caseTypes: retired,
+			completeAfterCommit: async () => {
+				if (retired.length === 0) return;
+				await this.drainRetiredIndexConvergence({
+					appId: args.appId,
+					caseTypes: retired,
+				});
+			},
+		};
+	}
+
 	async drainPendingIndexConvergence(args: {
 		readonly appId: string;
 		readonly caseTypes?: readonly string[];
@@ -1690,7 +1729,34 @@ export class PostgresCaseStore implements CaseStore {
 		}
 	}
 
+	async drainRetiredIndexConvergence(args: {
+		readonly appId: string;
+		readonly caseTypes: readonly string[];
+	}): Promise<void> {
+		// Unlike the ordinary pending drain, this deliberately ignores the
+		// marker and rechecks the latest lifecycle state under the advisory lock.
+		// It closes the rollout-overlap window where an older worker can clear the
+		// marker without understanding that an inactive row wants no indexes.
+		for (const caseType of [...new Set(args.caseTypes)].sort()) {
+			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
+		}
+	}
+
 	async drainAllPendingIndexConvergence(): Promise<void> {
+		// A previous application revision can consume an inactive row's pending
+		// seq without understanding that its desired index set is empty. Force
+		// every durable retirement through the current reconciler once before the
+		// ordinary pending loop; this is finite even though retired rows persist.
+		const retired = await this.db
+			.selectFrom("case_type_schemas")
+			.select(["app_id", "case_type"])
+			.where("is_active", "=", false)
+			.orderBy("app_id")
+			.orderBy("case_type")
+			.execute();
+		for (const row of retired) {
+			await this.drainPendingIndexConvergenceForType(row.app_id, row.case_type);
+		}
 		while (true) {
 			const pending = await sql<{ app_id: string; case_type: string }>`
 				SELECT app_id, case_type
@@ -1723,7 +1789,7 @@ export class PostgresCaseStore implements CaseStore {
 			try {
 				const latest = await connection
 					.selectFrom("case_type_schemas")
-					.select(["schema", "index_pending_seq"])
+					.select(["schema", "is_active", "synced_seq", "index_pending_seq"])
 					.where("app_id", "=", appId)
 					.where("case_type", "=", caseType)
 					.executeTakeFirst();
@@ -1759,31 +1825,53 @@ export class PostgresCaseStore implements CaseStore {
 						.where("case_type", "=", caseType)
 						.execute();
 				}
-				if (latest.index_pending_seq === null) return;
-				const pendingSeq = safePersistedSequence(
-					latest.index_pending_seq,
-					`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-				);
+				if (latest.is_active && latest.index_pending_seq === null) return;
+				const pendingSeq =
+					latest.index_pending_seq === null
+						? undefined
+						: safePersistedSequence(
+								latest.index_pending_seq,
+								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+							);
 				await this.syncExpressionIndexes({
 					db: connection,
 					appId,
 					caseType,
-					desired: desiredIndexesFromStoredSchema(
-						appId,
-						caseType,
-						latest.schema,
-					),
+					desired: latest.is_active
+						? desiredIndexesFromStoredSchema(appId, caseType, latest.schema)
+						: new Map(),
 				});
-				await connection
-					.updateTable("case_type_schemas")
-					.set({
-						index_pending_seq: null,
-						index_synced_seq: pendingSeq,
-					})
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.where("index_pending_seq", "=", String(pendingSeq))
-					.execute();
+				if (pendingSeq !== undefined) {
+					await connection
+						.updateTable("case_type_schemas")
+						.set({
+							index_pending_seq: null,
+							index_synced_seq: pendingSeq,
+						})
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("index_pending_seq", "=", String(pendingSeq))
+						.execute();
+				} else if (!latest.is_active) {
+					// Forced retirement reconciliation can arrive after an older
+					// application revision consumed the marker while retaining the old
+					// desired indexes. The current reconciler has now observed the empty
+					// set, so advance the durable convergence watermark as well as the
+					// physical catalog state.
+					const syncedSeq = safePersistedSequence(
+						latest.synced_seq,
+						`case_type_schemas.synced_seq for forced index convergence ${appId}/${caseType}`,
+					);
+					await connection
+						.updateTable("case_type_schemas")
+						.set({ index_synced_seq: syncedSeq })
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("is_active", "=", false)
+						.where("synced_seq", "=", String(syncedSeq))
+						.where("index_pending_seq", "is", null)
+						.execute();
+				}
 			} finally {
 				await sql`
 					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))
@@ -1840,11 +1928,26 @@ export class PostgresCaseStore implements CaseStore {
 				)
 			)
 		`.execute(tx);
-		await tx
-			.deleteFrom("case_schema_index_deletions")
+		// The lifecycle row is the sequence fence. Lock and read it before
+		// clearing a hard-purge tombstone or doing any row work. In particular,
+		// an equal-sequence sync may retry an ACTIVE row, but it must never
+		// resurrect an INACTIVE row retired by that sequence.
+		const priorRow = await tx
+			.selectFrom("case_type_schemas")
+			.select(["schema", "synced_seq", "is_active"])
 			.where("app_id", "=", args.appId)
 			.where("case_type", "=", args.caseType)
-			.execute();
+			.forUpdate()
+			.executeTakeFirst();
+		if (
+			incomingSeq === undefined &&
+			priorRow !== undefined &&
+			!priorRow.is_active
+		) {
+			throw new Error(
+				`An unversioned schema migration cannot reactivate retired case type ${args.caseType}.`,
+			);
+		}
 
 		// Monotone `synced_seq` gate — the coarse half. When the caller carries
 		// a `syncedSeq` (the multiplayer additive sync + heal), read the row's
@@ -1863,20 +1966,20 @@ export class PostgresCaseStore implements CaseStore {
 		// fine half is the guarded UPSERT SET below — a lost SELECT→UPSERT race
 		// re-converges on the next sync (perf-only, not a correctness gate).
 		if (args.syncedSeq !== undefined) {
-			const existing = await tx
-				.selectFrom("case_type_schemas")
-				.select("synced_seq")
-				.where("app_id", "=", args.appId)
-				.where("case_type", "=", args.caseType)
-				.executeTakeFirst();
 			if (
-				existing !== undefined &&
+				priorRow !== undefined &&
 				incomingSeq !== undefined &&
-				incomingSeq <
+				(incomingSeq <
 					safePersistedSequence(
-						existing.synced_seq,
+						priorRow.synced_seq,
 						`stored case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
-					)
+					) ||
+					(!priorRow.is_active &&
+						incomingSeq ===
+							safePersistedSequence(
+								priorRow.synced_seq,
+								`stored case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
+							)))
 			) {
 				return {
 					report: {
@@ -1892,6 +1995,11 @@ export class PostgresCaseStore implements CaseStore {
 				};
 			}
 		}
+		await tx
+			.deleteFrom("case_schema_index_deletions")
+			.where("app_id", "=", args.appId)
+			.where("case_type", "=", args.caseType)
+			.execute();
 
 		// Phase A: schema sync + per-row work in one transaction. `won` records
 		// whether THIS call actually advanced the row — false only when the
@@ -1912,14 +2020,6 @@ export class PostgresCaseStore implements CaseStore {
 			// before this lock is granted; none can slip between the scan
 			// and the schema flip. An absent row locks nothing: first sync,
 			// nothing to reshape.
-			const priorRow = await trx
-				.selectFrom("case_type_schemas")
-				.select("schema")
-				.where("app_id", "=", args.appId)
-				.where("case_type", "=", args.caseType)
-				.forUpdate()
-				.executeTakeFirst();
-
 			// Step 1: schema regen + UPSERT. Always runs. `RETURNING synced_seq`
 			// is the win signal: Postgres emits a row only when the statement
 			// actually inserted or updated, so a versioned loser (the DO UPDATE
@@ -1935,7 +2035,9 @@ export class PostgresCaseStore implements CaseStore {
 				.onConflict((oc) => {
 					const conflict = oc.columns(["app_id", "case_type"]);
 					if (incomingSeq === undefined) {
-						return conflict.doUpdateSet({ schema: JSON.stringify(schema) });
+						return conflict.doUpdateSet({
+							schema: JSON.stringify(schema),
+						});
 					}
 					// The fine half of the monotone gate — the UPSERT SET itself
 					// can't regress `synced_seq` even if a fresher writer landed
@@ -1948,7 +2050,7 @@ export class PostgresCaseStore implements CaseStore {
 							synced_seq: eb.ref("excluded.synced_seq"),
 						}))
 						.where(
-							sql<boolean>`excluded.synced_seq >= case_type_schemas.synced_seq`,
+							sql<boolean>`excluded.synced_seq > case_type_schemas.synced_seq OR (case_type_schemas.is_active AND excluded.synced_seq = case_type_schemas.synced_seq)`,
 						);
 				})
 				.returning("synced_seq")
@@ -2169,7 +2271,11 @@ export class PostgresCaseStore implements CaseStore {
 		};
 	}
 
-	async dropSchema(args: { appId: string; caseType: string }): Promise<void> {
+	/** Package-private maintenance/test escape hatch; never exposed by the barrel factory. */
+	async purgeSchemaForMaintenance(args: {
+		appId: string;
+		caseType: string;
+	}): Promise<void> {
 		// Phase A: lock the live app placement, then DELETE the schema row in
 		// that same transaction. Idempotent when the schema row is absent.
 		await this.db.transaction().execute(async (trx) => {
@@ -2296,7 +2402,23 @@ export class PostgresCaseStore implements CaseStore {
 				transition.property,
 				BTREE_SUFFIX_FOR_DATA_TYPE[transition.fromType],
 			);
-			await sql`DROP INDEX IF EXISTS ${sql.id(staleName)}`.execute(trx);
+			const staleResult = await sql<{ name: string; schema: string }>`
+				SELECT index_relation.relname AS name,
+				       namespace.nspname AS schema
+				FROM pg_index AS index_row
+				JOIN pg_class AS index_relation
+				  ON index_relation.oid = index_row.indexrelid
+				JOIN pg_namespace AS namespace
+				  ON namespace.oid = index_relation.relnamespace
+				WHERE index_row.indrelid = to_regclass('cases')
+				  AND index_relation.relname = ${staleName}
+			`.execute(trx);
+			const stale = staleResult.rows[0];
+			if (stale !== undefined) {
+				await sql`DROP INDEX IF EXISTS ${sql.id(stale.schema, stale.name)}`.execute(
+					trx,
+				);
+			}
 		}
 	}
 
@@ -3410,6 +3532,7 @@ export class PostgresCaseStore implements CaseStore {
 			.select(["case_type", "schema"])
 			.where("app_id", "=", appId)
 			.where("case_type", "in", [...caseTypes].sort())
+			.where("is_active", "=", true)
 			.orderBy("case_type")
 			.forShare()
 			.execute();
@@ -3535,6 +3658,7 @@ export class PostgresCaseStore implements CaseStore {
 			.select("schema")
 			.where("app_id", "=", appId)
 			.where("case_type", "=", caseType)
+			.where("is_active", "=", true)
 			.forShare()
 			.executeTakeFirst();
 		if (row === undefined) {
@@ -4372,10 +4496,6 @@ function computeDesiredIndexSet(
 	return result;
 }
 
-function caseSchemaIndexLockScope(appId: string, caseType: string): string {
-	return `nova:case-schema-index:${JSON.stringify([appId, caseType])}`;
-}
-
 interface DecodedStoredCaseSchema {
 	readonly schema: CaseTypeJsonSchema;
 	readonly dataTypes: ReadonlyMap<string, CasePropertyDataType>;
@@ -4597,8 +4717,6 @@ export function desiredIndexForProperty(
  * is negligible, and the fixed width keeps the name's scope segment
  * bounded so the 63-byte budget below is predictable.
  */
-const INDEX_SCOPE_TAG_LENGTH = 12;
-
 /**
  * A short, fixed-length, Postgres-identifier-safe tag derived from
  * the `(appId, caseType)` pair, used as the FIRST name segment of
@@ -4620,13 +4738,6 @@ const INDEX_SCOPE_TAG_LENGTH = 12;
  * deterministic, so every write composes the same name for a given
  * scope — the catalog diff stays stable across runs.
  */
-export function indexScopeTag(appId: string, caseType: string): string {
-	return createHash("sha256")
-		.update(`${appId} ${caseType}`)
-		.digest("hex")
-		.slice(0, INDEX_SCOPE_TAG_LENGTH);
-}
-
 /**
  * A short, fixed-length, Postgres-identifier-safe tag for a property
  * name — the second name segment of every per-property expression
@@ -4640,13 +4751,6 @@ export function indexScopeTag(appId: string, caseType: string): string {
  * collision between two distinct properties in one scope is caught by
  * `computeDesiredIndexSet` (negligible at 48 bits).
  */
-export function propertyIndexTag(property: string): string {
-	return createHash("sha256")
-		.update(property)
-		.digest("hex")
-		.slice(0, INDEX_SCOPE_TAG_LENGTH);
-}
-
 /**
  * Compose the index name `cases_<scopeTag>_<propertyTag>_<mode>` from
  * `(appId, caseType, property, mode)`. Both identity segments are

@@ -113,7 +113,15 @@ RUN npx esbuild scripts/cleanup-form-attachments.ts \
     npx esbuild scripts/infra/apply-media-bucket-policy.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json \
-      --outfile=media-bucket-policy.cjs
+      --outfile=media-bucket-policy.cjs && \
+    npx esbuild scripts/migrate-case-type-schema-retirement.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-type-schema-retirement.cjs && \
+    npx esbuild scripts/migrate-schema-drift.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=schema-drift.cjs
 
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
@@ -165,6 +173,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cleanup.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/canonical-identity-audit.cjs ./canonical-identity-audit.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-bucket-policy.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/case-type-schema-retirement.cjs ./case-type-schema-retirement.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/schema-drift.cjs ./schema-drift.cjs
 
 USER nextjs
 

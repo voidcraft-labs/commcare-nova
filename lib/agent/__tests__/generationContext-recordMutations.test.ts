@@ -48,8 +48,8 @@ vi.mock("@/lib/db/apps", () => ({
 	refreshBuildLiveness: vi.fn(() => Promise.resolve()),
 }));
 
-/* The explicit rename command composes case-row movement into the guarded
- * commit through this boundary. */
+/* Explicit rename and case-type retirement compose their case-store state
+ * into the guarded commit through this boundary. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(),
 }));
@@ -206,7 +206,7 @@ describe("GenerationContext.recordMutations", () => {
 		});
 	});
 
-	it("routes only the explicit rename command through the cross-store boundary", async () => {
+	it("routes the explicit rename command through the cross-store boundary", async () => {
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 3,
 			committedDoc: committedDocFor("rename-committed"),
@@ -240,6 +240,35 @@ describe("GenerationContext.recordMutations", () => {
 			data: { seq: number };
 		};
 		expect(frame.data.seq).toBe(3);
+	});
+
+	it("routes any case-type retirement batch through the cross-store boundary", async () => {
+		vi.mocked(applyBlueprintChange).mockResolvedValue({
+			seq: 5,
+			committedDoc: committedDocFor("retirement-committed"),
+		});
+		const retirement: Mutation = {
+			kind: "retireCaseType",
+			caseType: "patient",
+		};
+		const companion: Mutation = { kind: "setAppName", name: "After retire" };
+
+		const result = await recordProposal(
+			ctx,
+			[companion, retirement],
+			renameableDoc(),
+		);
+
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
+		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(applyBlueprintChange).mock.calls[0]?.[0]).toMatchObject({
+			appId: "test-app",
+			runId: "run-1",
+			userId: "user-1",
+			kind: "chat",
+			guard: { mutations: [companion, retirement] },
+		});
+		expect(result.committedDoc?.appName).toBe("retirement-committed");
 	});
 
 	it("stashes a rename's park outcome as the consumable note for the tool wrapper", async () => {
