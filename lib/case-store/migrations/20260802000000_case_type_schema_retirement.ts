@@ -18,11 +18,11 @@ import { type Kysely, sql } from "kysely";
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
 		ALTER TABLE public.case_type_schemas
-			ADD COLUMN IF NOT EXISTS retired_seq bigint
+			ADD COLUMN retired_seq bigint
 	`.execute(db);
 	await sql`
 		ALTER TABLE public.case_type_schemas
-			ADD COLUMN IF NOT EXISTS is_active boolean
+			ADD COLUMN is_active boolean
 			GENERATED ALWAYS AS (
 				retired_seq IS NULL OR synced_seq > retired_seq
 			) STORED

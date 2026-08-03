@@ -19,4 +19,6 @@ scripts
 !scripts/cleanup-form-attachments.ts
 !scripts/audit-canonical-identity-foundation.ts
 !scripts/infra/apply-media-bucket-policy.ts
+!scripts/migrate-case-type-schema-retirement.ts
+!scripts/migrate-schema-drift.ts
 !scripts/infra/databaseOwnerBootstrap.ts

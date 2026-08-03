@@ -251,6 +251,30 @@ inactive current types and retired rows with pending or residual indexes, so a
 failed Phase B or stale convergence watermark cannot disappear merely because
 Phase A made the row inactive.
 
+The production writer is not a human `--prod` connection: those IAM users are
+read-only. `Dockerfile` bundles `case-type-schema-retirement.cjs` and
+`schema-drift.cjs`; after the service deploy, `cloudbuild.yaml` configures (but
+does not execute) the write-capable
+`commcare-nova-case-type-schema-retirement` Cloud Run Job from that exact
+immutable image under the migration identity. Once the new revision owns 100%
+traffic, wait until every old-revision request has drained (the conservative
+bound is `cloudRunRequestSeconds` in `config/runtime-capabilities.json`,
+currently 3600 seconds), then run:
+
+```bash
+gcloud run jobs execute commcare-nova-case-type-schema-retirement \
+  --project=commcare-nova --region=us-central1 --wait
+npx tsx scripts/scan-case-type-schema-retirement.ts --prod
+```
+
+If the scanner reports an inactive current type, first run the same Job with
+`--args=schema-drift.cjs,--execute` (append `,--app,<appId>` for an app-scoped
+repair), then run the default retirement Job and the read-only production scan
+again. A scoped retirement invocation overrides args with
+`case-type-schema-retirement.cjs,--execute,--confirm-old-revision-drained,--app,<appId>`.
+The scanner prints these exact target-preserving commands; do not substitute a
+bare local writer command after a production scan.
+
 ### Phase A (one Kysely transaction)
 
 1. **Schema sync** — read the stored schema row (`FOR UPDATE`, so

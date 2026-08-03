@@ -13,7 +13,7 @@ beforeEach(async () => {
 });
 
 describe("case-type schema retirement migration", () => {
-	it("backfills existing schema rows as active and is idempotent", async () => {
+	it("backfills existing schema rows as active", async () => {
 		await down(database.db);
 		await sql`
 			INSERT INTO public.case_type_schemas
@@ -25,7 +25,6 @@ describe("case-type schema retirement migration", () => {
 		`.execute(database.db);
 
 		await up(database.db);
-		await up(database.db);
 		const row = await sql<{
 			is_active: boolean;
 			retired_seq: string | null;
@@ -35,5 +34,35 @@ describe("case-type schema retirement migration", () => {
 			WHERE app_id = 'migration-app' AND case_type = 'patient'
 		`.execute(database.db);
 		expect(row.rows).toEqual([{ is_active: true, retired_seq: null }]);
+	});
+
+	it("fails closed and rolls back when a lifecycle column already has the wrong shape", async () => {
+		await down(database.db);
+		await sql`
+			ALTER TABLE public.case_type_schemas
+				ADD COLUMN is_active boolean NOT NULL DEFAULT true
+		`.execute(database.db);
+
+		await expect(
+			database.db.transaction().execute((tx) => up(tx)),
+		).rejects.toThrow(/is_active|already exists/i);
+
+		const columns = await sql<{
+			column_name: string;
+			data_type: string;
+			generated: string;
+		}>`
+			SELECT attribute.attname AS column_name,
+			       format_type(attribute.atttypid, attribute.atttypmod) AS data_type,
+			       attribute.attgenerated AS generated
+			FROM pg_attribute AS attribute
+			WHERE attribute.attrelid = 'public.case_type_schemas'::regclass
+			  AND attribute.attname IN ('retired_seq', 'is_active')
+			  AND NOT attribute.attisdropped
+			ORDER BY attribute.attname
+		`.execute(database.db);
+		expect(columns.rows).toEqual([
+			{ column_name: "is_active", data_type: "boolean", generated: "" },
+		]);
 	});
 });

@@ -19,7 +19,10 @@ reconciles these permanent identities:
   act as the Job/runtime identities but never connects to Postgres. It reads
   only the build-time secrets used by `cloudbuild.yaml`.
 - `nova-migrate` connects as the migration database owner and runs the Kysely,
-  Better Auth, and Nova auth migrations plus privilege convergence.
+  Better Auth, and Nova auth migrations plus privilege convergence. It also
+  owns the separately configured one-off case-type-retirement Job: Cloud Build
+  pins that Job to the exact image only after the service deploy, but never
+  executes it. An operator runs it after old-revision requests drain.
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact
   capture retention/CORS policy. It never connects to Postgres.
 - `nova-capture-cleanup` has no runtime-role membership. In Postgres it receives

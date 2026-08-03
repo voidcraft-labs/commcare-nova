@@ -9,11 +9,12 @@ import {
 import type { AppDatabase } from "../../lib/db/pg";
 import type { PersistableDoc } from "../../lib/domain";
 
-export async function loadPersistedBlueprintInTransaction(
+async function loadPersistedBlueprint(
 	tx: Transaction<AppDatabase>,
 	appId: string,
+	lockApp: boolean,
 ): Promise<PersistableDoc | null> {
-	const root = await tx
+	let rootQuery = tx
 		.selectFrom("apps")
 		.select(["app_name", "connect_type", "logo"])
 		.select(
@@ -21,9 +22,9 @@ export async function loadPersistedBlueprintInTransaction(
 				"case_types_text",
 			),
 		)
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst();
+		.where("id", "=", appId);
+	if (lockApp) rootQuery = rootQuery.forShare();
+	const root = await rootQuery.executeTakeFirst();
 	if (root === undefined) return null;
 	const entities = await tx
 		.selectFrom("blueprint_entities")
@@ -40,4 +41,27 @@ export async function loadPersistedBlueprintInTransaction(
 		root as PersistedBlueprintRootText,
 		entities as PersistedEntityRowText[],
 	);
+}
+
+/**
+ * Exact loader for a write-capable app transaction. The share lock keeps the
+ * Blueprint carriers stable while a separate derived-state proof runs.
+ */
+export function loadPersistedBlueprintInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<PersistableDoc | null> {
+	return loadPersistedBlueprint(tx, appId, true);
+}
+
+/**
+ * Exact nonlocking loader for a REPEATABLE READ, READ ONLY transaction. This
+ * is the production inspector path: human IAM users have SELECT but cannot
+ * take row locks, and the transaction snapshot supplies consistency instead.
+ */
+export function loadPersistedBlueprintReadOnly(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<PersistableDoc | null> {
+	return loadPersistedBlueprint(tx, appId, false);
 }

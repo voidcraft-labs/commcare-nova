@@ -140,17 +140,23 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
 							);
 				const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
-				const indexes = await sql<{ index_name: string }>`
-					SELECT index_relation.relname AS index_name
-					FROM pg_index AS index_row
-					JOIN pg_class AS index_relation
-					  ON index_relation.oid = index_row.indexrelid
-					WHERE index_row.indrelid = to_regclass('cases')
-					  AND index_relation.relname LIKE ${prefix} ESCAPE '\\'
-					ORDER BY index_relation.relname
-				`.execute(connection);
+				const indexes = await sql<{
+					index_name: string;
+					index_schema: string;
+				}>`
+				SELECT index_relation.relname AS index_name,
+				       namespace.nspname AS index_schema
+				FROM pg_index AS index_row
+				JOIN pg_class AS index_relation
+				  ON index_relation.oid = index_row.indexrelid
+				JOIN pg_namespace AS namespace
+				  ON namespace.oid = index_relation.relnamespace
+				WHERE index_row.indrelid = to_regclass('cases')
+				  AND index_relation.relname LIKE ${prefix} ESCAPE '\\'
+				ORDER BY namespace.nspname, index_relation.relname
+			`.execute(connection);
 				for (const index of indexes.rows) {
-					await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(index.index_name)}`.execute(
+					await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(index.index_schema, index.index_name)}`.execute(
 						connection,
 					);
 				}

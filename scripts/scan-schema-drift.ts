@@ -157,8 +157,8 @@ async function main() {
 	);
 	if (appsWithDrift > 0) {
 		console.log(
-			"\nNext: npx tsx scripts/migrate-schema-drift.ts        (dry-run plan)" +
-				"\n      npx tsx scripts/migrate-schema-drift.ts --execute",
+			"\nNext: npx tsx --conditions=react-server scripts/migrate-schema-drift.ts        (dry-run plan)" +
+				"\n      npx tsx --conditions=react-server scripts/migrate-schema-drift.ts --execute",
 		);
 	}
 	await closeCaseStoreDatabase();

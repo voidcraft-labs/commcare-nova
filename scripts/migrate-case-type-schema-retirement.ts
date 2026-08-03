@@ -24,7 +24,10 @@ import { buildCaseTypeMap } from "../lib/case-store/store";
 import { getAppDb, withAppTx } from "../lib/db/pg";
 import { safePersistedSequence } from "../lib/utils/persistedSequence";
 import { findCaseTypeSchemaRetirementFindings } from "./lib/caseTypeSchemaRetirement";
-import { loadPersistedBlueprintInTransaction } from "./lib/loadPersistedBlueprint";
+import {
+	loadPersistedBlueprintInTransaction,
+	loadPersistedBlueprintReadOnly,
+} from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 
 interface Options {
@@ -49,7 +52,8 @@ program
 		"after",
 		"\nExamples:\n" +
 			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts\n" +
-			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained\n",
+			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained\n" +
+			"\nProduction writes run through the configured commcare-nova-case-type-schema-retirement Cloud Run Job; human --prod credentials are read-only.\n",
 	);
 program.parse();
 const {
@@ -57,6 +61,12 @@ const {
 	app: appId,
 	confirmOldRevisionDrained = false,
 } = program.opts<Options>();
+const scopeArgs = appId === undefined ? "" : ` --app ${appId}`;
+const productionJob =
+	process.env.NOVA_CASE_TYPE_RETIREMENT_PRODUCTION_JOB === "true";
+const verificationCommand = productionJob
+	? `npx tsx scripts/scan-case-type-schema-retirement.ts --prod${scopeArgs}`
+	: `npx tsx scripts/scan-case-type-schema-retirement.ts${scopeArgs}`;
 
 async function main() {
 	if (execute && !confirmOldRevisionDrained) {
@@ -83,18 +93,19 @@ async function main() {
 	for (const app of apps) {
 		try {
 			if (!execute) {
-				const findings = await withAppTx(async (tx) => {
-					const blueprint = await loadPersistedBlueprintInTransaction(
-						tx,
-						app.id,
-					);
-					if (blueprint === null) return [];
-					return findCaseTypeSchemaRetirementFindings(
-						tx as unknown as Transaction<Database>,
-						app.id,
-						blueprint,
-					);
-				});
+				const findings = await appDb
+					.transaction()
+					.setIsolationLevel("repeatable read")
+					.setAccessMode("read only")
+					.execute(async (tx) => {
+						const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
+						if (blueprint === null) return [];
+						return findCaseTypeSchemaRetirementFindings(
+							tx as unknown as Transaction<Database>,
+							app.id,
+							blueprint,
+						);
+					});
 				for (const candidate of findings) {
 					console.log(
 						`${app.id} (${app.app_name || "unnamed"}): ${candidate.issues.join(", ")} for ${candidate.caseType} ` +
@@ -201,8 +212,8 @@ async function main() {
 						? ""
 						: `; failed apps: ${failedApps.join(", ")}`) +
 					`; post-write verification: ${verificationFindingCount} finding(s). ` +
-					"Re-run scan-case-type-schema-retirement.ts; it must also report zero findings."
-			: `Dry run: ${retiredCount} schema lifecycle finding(s) require action. After the new revision has 100% traffic and old requests have drained, re-run with --execute --confirm-old-revision-drained.`,
+					`Run the independent proof: ${verificationCommand}; it must report zero findings.`
+			: `Dry run: ${retiredCount} schema lifecycle finding(s) require action. After the new revision has 100% traffic and old requests have drained, re-run with --execute --confirm-old-revision-drained${scopeArgs}.`,
 	);
 	if (failedApps.length > 0 || verificationFindingCount > 0)
 		process.exitCode = 1;

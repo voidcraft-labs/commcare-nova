@@ -36,6 +36,7 @@ import { computeSchemaDrift } from "./lib/schemaDrift";
 
 interface MigrateOptions {
 	execute?: boolean;
+	app?: string;
 }
 
 const program = new Command();
@@ -46,14 +47,16 @@ program
 			"Dry-run by default; --execute writes. Run scan-schema-drift.ts before AND after.",
 	)
 	.option("--execute", "actually write (default: print the plan and exit)")
+	.option("--app <appId>", "scope the migration to one app")
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
-			"  $ npx tsx scripts/migrate-schema-drift.ts            # dry-run plan\n" +
-			"  $ npx tsx scripts/migrate-schema-drift.ts --execute\n",
+			"  $ npx tsx --conditions=react-server scripts/migrate-schema-drift.ts            # dry-run plan\n" +
+			"  $ npx tsx --conditions=react-server scripts/migrate-schema-drift.ts --execute\n" +
+			"\nProduction writes run through the configured commcare-nova-case-type-schema-retirement Cloud Run Job; human --prod credentials are read-only.\n",
 	);
 program.parse();
-const { execute = false } = program.opts<MigrateOptions>();
+const { execute = false, app: appId } = program.opts<MigrateOptions>();
 
 async function main() {
 	const appDb = await getAppDb();
@@ -65,7 +68,12 @@ async function main() {
 			: "DRY RUN — printing the migration plan (nothing writes without --execute)…\n",
 	);
 
-	const appRows = await appDb.selectFrom("apps").select("id").execute();
+	let appQuery = appDb.selectFrom("apps").select("id");
+	if (appId !== undefined) appQuery = appQuery.where("id", "=", appId);
+	const appRows = await appQuery.execute();
+	if (appId !== undefined && appRows.length === 0) {
+		throw new Error(`App ${appId} not found.`);
+	}
 	let migratedTypes = 0;
 	let retypesRun = 0;
 	let rowsMigrated = 0;
@@ -159,6 +167,7 @@ async function main() {
 					"\nRe-run scan-schema-drift.ts now — it must report zero drift."
 			: "Dry run complete. Re-run with --execute to write.",
 	);
+	if (failedApps.length > 0) process.exitCode = 1;
 	await closeCaseStoreDatabase();
 }
 

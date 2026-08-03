@@ -1,8 +1,10 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AppDatabase } from "@/lib/db/pg";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
+import { loadPersistedBlueprintReadOnly } from "../../../../scripts/lib/loadPersistedBlueprint";
 import { computeSchemaDrift } from "../../../../scripts/lib/schemaDrift";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { SchemaNotSyncedError } from "../../errors";
@@ -63,6 +65,19 @@ beforeEach(async () => {
 });
 
 describe("durable case-schema index convergence", () => {
+	it("loads the exact Blueprint in a nonlocking read-only snapshot", async () => {
+		const appDb = database.db as unknown as Kysely<AppDatabase>;
+		const blueprint = await appDb
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute((tx) => loadPersistedBlueprintReadOnly(tx, APP_ID));
+
+		expect(blueprint).toMatchObject({
+			appName: "Index convergence",
+		});
+	});
+
 	it("audits residual indexes after production relocates cases out of public", async () => {
 		const caseStore = store();
 		await caseStore.applySchemaChange({
@@ -130,6 +145,36 @@ describe("durable case-schema index convergence", () => {
 				expressionIndexCount: 1,
 			}),
 		]);
+
+		// Index names are schema-local. A public collision must survive while
+		// maintenance drops the identically named index attached to the relocated
+		// production cases table.
+		await sql`CREATE TABLE public.retirement_index_decoy (id text)`.execute(
+			database.db,
+		);
+		await sql`
+			CREATE INDEX ${sql.id(indexName("fuzzy"))}
+			ON public.retirement_index_decoy (id)
+		`.execute(database.db);
+		await drainRetiredCaseTypeSchemaIndexes(db(), APP_ID, ["patient"]);
+		const remaining = await sql<{
+			public_index: string | null;
+			runtime_index: string | null;
+		}>`
+			SELECT to_regclass(${`public.${indexName("fuzzy")}`})::text AS public_index,
+			       to_regclass(${`${isolated}.${indexName("fuzzy")}`})::text AS runtime_index
+		`.execute(database.db);
+		expect(remaining.rows[0]).toEqual({
+			public_index: indexName("fuzzy"),
+			runtime_index: null,
+		});
+		expect(
+			await findCaseTypeSchemaRetirementFindings(
+				db(),
+				APP_ID,
+				buildSimpleBlueprint([], APP_ID),
+			),
+		).toEqual([]);
 	});
 
 	it("schema-drift repair reactivates a current zero-property case type", async () => {

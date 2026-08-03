@@ -86,7 +86,7 @@ describe("durable deployment policy", () => {
 	test("pins one image and the final runtime platform limits", () => {
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
 		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
-		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(7);
+		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(8);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
@@ -189,7 +189,7 @@ describe("durable deployment policy", () => {
 		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
 
-	test("ships only the final migration, media-policy, and cleanup Job entrypoints", () => {
+	test("ships only the final deployment and maintenance Job entrypoints", () => {
 		const esbuildEntrypoints = [
 			...dockerfile.matchAll(/npx esbuild (scripts\/[^\s\\]+)/g),
 		].map((match) => match[1]);
@@ -198,6 +198,8 @@ describe("durable deployment policy", () => {
 			"scripts/cleanup-form-attachments.ts",
 			"scripts/audit-canonical-identity-foundation.ts",
 			"scripts/infra/apply-media-bucket-policy.ts",
+			"scripts/migrate-case-type-schema-retirement.ts",
+			"scripts/migrate-schema-drift.ts",
 		]);
 		for (const entrypoint of esbuildEntrypoints) {
 			expect(dockerignore).toContain(`!${entrypoint}`);
@@ -290,7 +292,7 @@ describe("durable deployment policy", () => {
 		expect(packageJson).toContain(
 			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
 		);
-		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(2);
+		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(3);
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);
@@ -320,5 +322,29 @@ describe("durable deployment policy", () => {
 		expect(captureBucketPolicy).toContain(
 			'from "./capture-storage-policy.mjs"',
 		);
+	});
+
+	test("packages the post-cutover case-type retirement repair as a non-automatic immutable Job", () => {
+		expect(dockerfile).toContain(
+			"scripts/migrate-case-type-schema-retirement.ts",
+		);
+		expect(dockerfile).toContain("scripts/migrate-schema-drift.ts");
+		expect(dockerfile).toContain("case-type-schema-retirement.cjs");
+		expect(dockerfile).toContain("schema-drift.cjs");
+		expect(cloudBuild).toContain(
+			"gcloud run jobs deploy commcare-nova-case-type-schema-retirement",
+		);
+		expect(cloudBuild).toContain(
+			"--args=case-type-schema-retirement.cjs,--execute,--confirm-old-revision-drained",
+		);
+		expect(cloudBuild).toContain(
+			"NOVA_CASE_TYPE_RETIREMENT_PRODUCTION_JOB=true",
+		);
+		expect(cloudBuild).not.toContain(
+			"gcloud run jobs execute commcare-nova-case-type-schema-retirement",
+		);
+		expect(
+			cloudBuild.indexOf("- id: case-type-schema-retirement-job"),
+		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
 	});
 });

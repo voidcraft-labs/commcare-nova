@@ -11,9 +11,9 @@ import {
 	closeCaseStoreDatabase,
 	type Database,
 } from "../lib/case-store/postgres/connection";
-import { getAppDb, withAppTx } from "../lib/db/pg";
+import { getAppDb } from "../lib/db/pg";
 import { findCaseTypeSchemaRetirementFindings } from "./lib/caseTypeSchemaRetirement";
-import { loadPersistedBlueprintInTransaction } from "./lib/loadPersistedBlueprint";
+import { loadPersistedBlueprintReadOnly } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -43,6 +43,18 @@ program.parse();
 const options = program.opts<Options>();
 if (options.prod === true) targetProdDb();
 
+const scopeArgs = options.app === undefined ? "" : ` --app ${options.app}`;
+const productionJob =
+	"gcloud run jobs execute commcare-nova-case-type-schema-retirement " +
+	"--project=commcare-nova --region=us-central1 --wait";
+
+function productionOverrideArgs(
+	entrypoint: string,
+	args: readonly string[],
+): string {
+	return ` --args=${[entrypoint, ...args, ...(options.app === undefined ? [] : ["--app", options.app])].join(",")}`;
+}
+
 async function main() {
 	const appDb = await getAppDb();
 	let query = appDb.selectFrom("apps").select(["id", "app_name"]);
@@ -60,15 +72,19 @@ async function main() {
 	const failedApps: string[] = [];
 	for (const app of apps) {
 		try {
-			const findings = await withAppTx(async (tx) => {
-				const blueprint = await loadPersistedBlueprintInTransaction(tx, app.id);
-				if (blueprint === null) return [];
-				return findCaseTypeSchemaRetirementFindings(
-					tx as unknown as Transaction<Database>,
-					app.id,
-					blueprint,
-				);
-			});
+			const findings = await appDb
+				.transaction()
+				.setIsolationLevel("repeatable read")
+				.setAccessMode("read only")
+				.execute(async (tx) => {
+					const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
+					if (blueprint === null) return [];
+					return findCaseTypeSchemaRetirementFindings(
+						tx as unknown as Transaction<Database>,
+						app.id,
+						blueprint,
+					);
+				});
 			if (findings.length === 0) continue;
 			console.log(`${app.id} (${app.app_name || "unnamed"})`);
 			for (const candidate of findings) {
@@ -109,18 +125,45 @@ async function main() {
 				? ""
 				: `; ${failedApps.length} failed app(s): ${failedApps.join(", ")}`),
 	);
-	if (needsRetirement || needsIndexCleanup) {
-		console.log(
-			"\nNext: npx tsx scripts/migrate-case-type-schema-retirement.ts (dry run)\n" +
-				"      after the new revision has 100% traffic and old requests have drained:\n" +
-				"      npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained",
-		);
-	}
 	if (needsSchemaRepair) {
+		if (options.prod === true) {
+			console.log(
+				"\nCurrent Blueprint types with inactive schemas need the write-capable production Job first:\n" +
+					`      ${productionJob}${productionOverrideArgs("schema-drift.cjs", ["--execute"])}`,
+			);
+		} else {
+			console.log(
+				"\nCurrent Blueprint types with inactive schemas need schema repair:\n" +
+					`      npx tsx --conditions=react-server scripts/migrate-schema-drift.ts${scopeArgs} (dry run)\n` +
+					`      npx tsx --conditions=react-server scripts/migrate-schema-drift.ts --execute${scopeArgs}`,
+			);
+		}
+	}
+	if (needsRetirement || needsIndexCleanup) {
+		if (options.prod === true) {
+			const override =
+				options.app === undefined
+					? ""
+					: productionOverrideArgs("case-type-schema-retirement.cjs", [
+							"--execute",
+							"--confirm-old-revision-drained",
+						]);
+			console.log(
+				"\nAfter the new revision has 100% traffic and every old-revision request has drained, run the immutable write-capable Job:\n" +
+					`      ${productionJob}${override}`,
+			);
+		} else {
+			console.log(
+				`\nNext: npx tsx scripts/migrate-case-type-schema-retirement.ts${scopeArgs} (dry run)\n` +
+					"      after the new revision has 100% traffic and old requests have drained:\n" +
+					`      npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained${scopeArgs}`,
+			);
+		}
+	}
+	if (options.prod === true && candidateCount > 0) {
 		console.log(
-			"\nCurrent Blueprint types with inactive schemas need schema repair:\n" +
-				"      npx tsx scripts/migrate-schema-drift.ts (dry run)\n" +
-				"      npx tsx scripts/migrate-schema-drift.ts --execute",
+			"\nIndependent read-only production proof after every required Job succeeds:\n" +
+				`      npx tsx scripts/scan-case-type-schema-retirement.ts --prod${scopeArgs}`,
 		);
 	}
 	if (candidateCount > 0 || failedApps.length > 0) process.exitCode = 1;
