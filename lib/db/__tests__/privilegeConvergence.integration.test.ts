@@ -25,6 +25,7 @@ import {
 	executeDatabaseOwnerBootstrap,
 	quoteIdentifier,
 } from "@/scripts/infra/databaseOwnerBootstrap";
+import { readAppChangeStreamRowsSince } from "../appChangeStream";
 import { createApp } from "../apps";
 import { runCaptureCleanupSchemaProbe } from "../captureCleanupSchemaProbe";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
@@ -592,6 +593,33 @@ describe("database privilege convergence", () => {
 			expect(genesisProof.rows).toEqual([
 				{ baselines: "1", digest_matches: true },
 			]);
+			const runtimeStreamRows = await readAppChangeStreamRowsSince(
+				runtime.db as Kysely<AppDatabase>,
+				genesis.appId,
+				0,
+			);
+			expect(runtimeStreamRows).toHaveLength(1);
+			expect(runtimeStreamRows[0]).toMatchObject({
+				seq: "1",
+				baseline_seq: "1",
+				kind: "fold-baseline",
+			});
+			await expect(
+				sql`
+					SELECT seq
+					FROM app_changes
+					WHERE app_id = ${genesis.appId}
+					FOR SHARE
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					SELECT seq
+					FROM app_change_fold_baselines
+					WHERE app_id = ${genesis.appId}
+					FOR SHARE
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
 			await expect(
 				sql`
 					INSERT INTO app_change_fold_baselines

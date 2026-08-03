@@ -24,6 +24,7 @@ import {
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import { readAppChangeStreamRowsSince } from "./appChangeStream";
 import { commitGuardedBatchInTransaction, loadAppInTransaction } from "./apps";
 import {
 	assemblePersistedBlueprintJsonText,
@@ -809,6 +810,24 @@ export async function runCanonicalRuntimeDatabaseProbe(
 			if (write.deduped || write.seq !== app.mutation_seq + 1) {
 				throw new Error(
 					"The runtime database probe did not exercise one fresh guarded write.",
+				);
+			}
+			const streamRows = await readAppChangeStreamRowsSince(
+				tx,
+				candidate.app_id,
+				0,
+			);
+			if (
+				!streamRows.some(
+					(row) =>
+						(row.seq === 1 || row.seq === "1") && row.baseline_seq !== null,
+				) ||
+				!streamRows.some(
+					(row) => row.seq === write.seq || row.seq === String(write.seq),
+				)
+			) {
+				throw new Error(
+					"The runtime database probe did not exercise the complete app-change stream read.",
 				);
 			}
 
