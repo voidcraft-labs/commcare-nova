@@ -10,7 +10,10 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid as asUuid } from "@/__tests__/helpers/uuid";
-import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
+import {
+	removeOrganizationLevelPlan,
+	setPersonaLocationsMutations,
+} from "@/lib/doc/organizationMutations";
 import {
 	type BlueprintDoc,
 	levelMayNestUnder,
@@ -131,6 +134,27 @@ describe("deriveSiteCode", () => {
 	it("leaves room for the dedupe suffix on a very long name", () => {
 		const derived = deriveSiteCode("a".repeat(400), new Set());
 		expect(derived.length).toBeLessThanOrEqual(247);
+	});
+});
+
+describe("setPersonaLocationsMutations", () => {
+	it("deduplicates a maximum-size assignment in first-seen order", () => {
+		const ids = Array.from({ length: 10_000 }, (_, index) =>
+			asUuid(`00000000-0000-4000-8000-${String(index).padStart(12, "0")}`),
+		);
+		const [mutation] = setPersonaLocationsMutations(
+			asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
+			[...ids, ...ids],
+		);
+		expect(mutation).toMatchObject({
+			kind: "updatePersona",
+			patch: {
+				locations: {
+					primaryUuid: ids[0],
+					additionalUuids: ids.slice(1),
+				},
+			},
+		});
 	});
 });
 

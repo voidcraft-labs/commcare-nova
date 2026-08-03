@@ -640,7 +640,9 @@ store bound it searches by name or unique site code, pages 50 rows at a time,
 mounts only that page's options, and runs cross-store candidate verdicts only
 for that bounded page. Never replace it with a full `SelectItem` map or a
 whole-snapshot verdict inside an unbounded `.filter(...)`; either one makes a
-single open picker quadratic. The Places hierarchy itself is an ordinary
+single open picker quadratic. A persona's assigned-place list follows the same
+50-row paging bound, and its order-preserving mutation planner deduplicates with
+a set rather than rescanning the growing result. The Places hierarchy itself is an ordinary
 paginated list of disclosures, not an ARIA treeview: its buttons own keyboard
 interaction, while every row carries a visible, non-shrinking numeric depth cue
 so compact-width indentation caps never make distinct depths look identical.

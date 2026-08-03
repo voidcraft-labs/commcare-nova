@@ -215,8 +215,11 @@ export function setPersonaLocationsMutations(
 	locationIds: readonly string[],
 ): Mutation[] {
 	const unique: string[] = [];
+	const seen = new Set<string>();
 	for (const id of locationIds) {
-		if (!unique.includes(id)) unique.push(id);
+		if (seen.has(id)) continue;
+		seen.add(id);
+		unique.push(id);
 	}
 	if (unique.length === 0) {
 		return [

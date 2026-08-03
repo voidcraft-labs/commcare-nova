@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { asUuid, type LocationProperty } from "@/lib/domain";
 import {
+	PERSONA_LOCATION_PAGE_SIZE,
+	personaLocationPage,
 	propertiesForLevel,
 	requiredValuesPresent,
 	valuesForLevel,
@@ -28,6 +30,17 @@ const properties: LocationProperty[] = [
 ];
 
 describe("organization place-information UI", () => {
+	it("mounts only one bounded page of a maximum-size persona assignment", () => {
+		const assigned = Array.from({ length: 10_000 }, (_, index) =>
+			String(index),
+		);
+		const page = personaLocationPage(assigned, 199);
+		expect(page.ids).toHaveLength(PERSONA_LOCATION_PAGE_SIZE);
+		expect(page.ids[0]).toBe("9950");
+		expect(page.ids.at(-1)).toBe("9999");
+		expect(page.pageCount).toBe(200);
+	});
+
 	it("projects the authored catalog to the selected level", () => {
 		expect(
 			propertiesForLevel(properties, REGION).map(({ uuid }) => uuid),

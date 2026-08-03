@@ -42,6 +42,7 @@ import {
 	assertPersonaAssignmentsValid,
 } from "../commitIntegrity";
 import { OrganizationError } from "../errors";
+import { MAX_LOCATIONS_PER_APP } from "../schema";
 import {
 	createLocation,
 	describeArchiveImpact,
@@ -330,6 +331,33 @@ function candidateWithFixedOwner(
 }
 
 describe("locations store — creation and structure", () => {
+	it("states that archived rows still count when the app reaches capacity", async () => {
+		await seedOrgApp();
+		await h
+			.db()
+			.insertInto("app_organization_state")
+			.values({
+				app_id: APP_ID,
+				location_count: MAX_LOCATIONS_PER_APP,
+			})
+			.execute();
+
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "Over capacity",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			}),
+		).rejects.toMatchObject({
+			code: "limit",
+			message: expect.stringMatching(/including archived places.*split/i),
+		});
+	});
+
 	it("derives a unique site code and appends in sibling order", async () => {
 		await seedOrgApp();
 		const first = await createLocation(scope(), {

@@ -1,5 +1,31 @@
 import type { LocationProperty } from "@/lib/domain";
 
+export const PERSONA_LOCATION_PAGE_SIZE = 50;
+
+/** Keep a maximum-size persona's authored place rows bounded in the DOM. */
+export function personaLocationPage(
+	locationIds: readonly string[],
+	requestedPage: number,
+): {
+	readonly ids: readonly string[];
+	readonly page: number;
+	readonly pageCount: number;
+	readonly start: number;
+} {
+	const pageCount = Math.max(
+		1,
+		Math.ceil(locationIds.length / PERSONA_LOCATION_PAGE_SIZE),
+	);
+	const page = Math.min(Math.max(0, requestedPage), pageCount - 1);
+	const start = page * PERSONA_LOCATION_PAGE_SIZE;
+	return {
+		ids: locationIds.slice(start, start + PERSONA_LOCATION_PAGE_SIZE),
+		page,
+		pageCount,
+		start,
+	};
+}
+
 /** Place-information fields that apply to one level, in authored order. */
 export function propertiesForLevel(
 	properties: readonly LocationProperty[],

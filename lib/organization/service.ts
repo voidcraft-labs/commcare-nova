@@ -470,7 +470,7 @@ export async function createLocation(
 		if (locked.locationCount >= MAX_LOCATIONS_PER_APP) {
 			throw new OrganizationError(
 				"limit",
-				`This app already holds ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, which is as many as Nova stores for one app. Archive places you no longer need, or split the organization across apps.`,
+				`This app already holds ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps before adding more.`,
 			);
 		}
 		const tree = await lockTree(tx, scope.appId);

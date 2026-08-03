@@ -16,6 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
+import { useEffect, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -32,6 +33,10 @@ import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
+import {
+	PERSONA_LOCATION_PAGE_SIZE,
+	personaLocationPage,
+} from "./organizationUi";
 
 export function PersonaLocations({
 	persona,
@@ -51,6 +56,8 @@ export function PersonaLocations({
 	const levels = useOrganizationLevelRecord();
 	const assigned = assignedLocationUuids(persona.locations);
 	const assignedSet = new Set(assigned);
+	const [requestedPage, setRequestedPage] = useState(0);
+	const assignedPage = personaLocationPage(assigned, requestedPage);
 	const rowFocus = useRemovedRowFocus(assigned.length);
 	const byId = new Map<string, StoredLocation>(
 		locations.map((location) => [location.id, location]),
@@ -73,6 +80,12 @@ export function PersonaLocations({
 
 	const set = (next: readonly string[]) =>
 		mutations.setPersonaLocations(persona.uuid as Uuid, next);
+
+	useEffect(() => {
+		if (requestedPage !== assignedPage.page) {
+			setRequestedPage(assignedPage.page);
+		}
+	}, [assignedPage.page, requestedPage]);
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -100,73 +113,122 @@ export function PersonaLocations({
 							information at all — the same as an unassigned CommCare worker.
 						</p>
 					) : (
-						<ul className="flex flex-col gap-1.5">
-							{assigned.map((id, index) => {
-								const location = byId.get(id);
-								return (
-									<li
-										key={id}
-										className="flex min-h-11 items-center gap-2.5 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
-									>
-										<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
-											{location === undefined
-												? "A place that no longer exists"
-												: locationChoiceLabel(location)}
-										</span>
-										{index === 0 && (
-											<span className="shrink-0 rounded-sm bg-nova-violet/[0.15] px-1.5 py-0.5 text-[11px] text-nova-violet-bright">
-												Main
+						<div className="flex flex-col gap-2">
+							<ul className="flex flex-col gap-1.5">
+								{assignedPage.ids.map((id, pageIndex) => {
+									const index = assignedPage.start + pageIndex;
+									const location = byId.get(id);
+									return (
+										<li
+											key={id}
+											className="flex min-h-11 items-center gap-2.5 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
+										>
+											<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
+												{location === undefined
+													? "A place that no longer exists"
+													: locationChoiceLabel(location)}
 											</span>
-										)}
-										{canEdit && !loading && (
-											<>
-												{index > 0 && (
+											{index === 0 && (
+												<span className="shrink-0 rounded-sm bg-nova-violet/[0.15] px-1.5 py-0.5 text-[11px] text-nova-violet-bright">
+													Main
+												</span>
+											)}
+											{canEdit && !loading && (
+												<>
+													{index > 0 && (
+														<Button
+															type="button"
+															variant="ghost"
+															className="min-h-11 shrink-0 px-2 text-[12px]"
+															onClick={() => {
+																set([
+																	id,
+																	...assigned.filter((other) => other !== id),
+																]);
+																setRequestedPage(0);
+																rowFocus.focusRow(0);
+															}}
+														>
+															Make main
+														</Button>
+													)}
 													<Button
+														ref={rowFocus.register(index)}
 														type="button"
 														variant="ghost"
-														className="min-h-11 shrink-0 px-2 text-[12px]"
+														aria-label={`Remove ${location?.name ?? "this place"}`}
+														className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
 														onClick={() => {
-															set([
-																id,
-																...assigned.filter((other) => other !== id),
-															]);
-															rowFocus.focusRow(0);
+															rowFocus.onRemoved(index);
+															set(assigned.filter((other) => other !== id));
 														}}
 													>
-														Make main
+														<Icon
+															icon={tablerX}
+															width="15"
+															height="15"
+															aria-hidden="true"
+														/>
 													</Button>
-												)}
-												<Button
-													ref={rowFocus.register(index)}
-													type="button"
-													variant="ghost"
-													aria-label={`Remove ${location?.name ?? "this place"}`}
-													className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
-													onClick={() => {
-														rowFocus.onRemoved(index);
-														set(assigned.filter((other) => other !== id));
-													}}
-												>
-													<Icon
-														icon={tablerX}
-														width="15"
-														height="15"
-														aria-hidden="true"
-													/>
-												</Button>
-											</>
-										)}
-									</li>
-								);
-							})}
-						</ul>
+												</>
+											)}
+										</li>
+									);
+								})}
+							</ul>
+							{assignedPage.pageCount > 1 && (
+								<fieldset className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-nova-border px-3 py-2">
+									<legend className="sr-only">Assigned place pages</legend>
+									<Button
+										type="button"
+										variant="ghost"
+										className="min-h-11 px-2 text-[12px]"
+										disabled={assignedPage.page === 0}
+										onClick={() =>
+											setRequestedPage((current) => Math.max(0, current - 1))
+										}
+									>
+										Previous
+									</Button>
+									<span
+										className="text-[12px] text-nova-text-muted"
+										aria-live="polite"
+									>
+										Places {assignedPage.start + 1}–
+										{Math.min(
+											assignedPage.start + PERSONA_LOCATION_PAGE_SIZE,
+											assigned.length,
+										)}{" "}
+										of {assigned.length}
+									</span>
+									<Button
+										type="button"
+										variant="ghost"
+										className="min-h-11 px-2 text-[12px]"
+										disabled={assignedPage.page === assignedPage.pageCount - 1}
+										onClick={() =>
+											setRequestedPage((current) =>
+												Math.min(assignedPage.pageCount - 1, current + 1),
+											)
+										}
+									>
+										Next
+									</Button>
+								</fieldset>
+							)}
+						</div>
 					)}
 
 					{canEdit && !loading && available.length > 0 && (
 						<LocationChoiceSelect
 							locations={available}
 							value=""
-							onValueChange={(value) => set([...assigned, value])}
+							onValueChange={(value) => {
+								setRequestedPage(
+									Math.floor(assigned.length / PERSONA_LOCATION_PAGE_SIZE),
+								);
+								set([...assigned, value]);
+							}}
 							ariaLabel="Add a place"
 							placeholder="Choose a place"
 							triggerRef={rowFocus.addRef}
