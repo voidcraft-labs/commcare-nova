@@ -241,9 +241,15 @@ row—never reactivate an inactive one. Historical orphaned active rows use the
 required scan-then-migrate pair:
 `scripts/scan-case-type-schema-retirement.ts` (read-only, supports `--prod`) and
 `scripts/migrate-case-type-schema-retirement.ts` (dry-run by default,
-`--execute` to write), followed by a zero-finding rescan. The audit also reports
+`--execute --confirm-old-revision-drained` to write). Execute the backfill only
+AFTER the new revision has 100% traffic and every old-revision request has
+drained: the previous binary can remove a case type without writing
+`retired_seq`, so a pre-cutover pass cannot close the compatibility window. The
+writer performs its own post-write zero-finding verification; follow it with the
+standalone zero-finding rescan. The audit also reports
 inactive current types and retired rows with pending or residual indexes, so a
-failed Phase B cannot disappear merely because Phase A made the row inactive.
+failed Phase B or stale convergence watermark cannot disappear merely because
+Phase A made the row inactive.
 
 ### Phase A (one Kysely transaction)
 

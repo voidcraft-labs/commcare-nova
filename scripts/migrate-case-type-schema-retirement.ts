@@ -30,6 +30,7 @@ import { runMain } from "./lib/main";
 interface Options {
 	execute?: boolean;
 	app?: string;
+	confirmOldRevisionDrained?: boolean;
 }
 
 const program = new Command();
@@ -39,17 +40,30 @@ program
 		"Mark historical orphaned active case_type_schemas rows inactive. Dry-run by default.",
 	)
 	.option("--execute", "write retirement state and converge indexes")
+	.option(
+		"--confirm-old-revision-drained",
+		"confirm the new revision has 100% traffic and all old-revision requests have drained (required with --execute)",
+	)
 	.option("--app <appId>", "scope the migration to one app")
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
 			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts\n" +
-			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts --execute\n",
+			"  $ npx tsx scripts/migrate-case-type-schema-retirement.ts --execute --confirm-old-revision-drained\n",
 	);
 program.parse();
-const { execute = false, app: appId } = program.opts<Options>();
+const {
+	execute = false,
+	app: appId,
+	confirmOldRevisionDrained = false,
+} = program.opts<Options>();
 
 async function main() {
+	if (execute && !confirmOldRevisionDrained) {
+		throw new Error(
+			"--execute requires --confirm-old-revision-drained. Run only after the new revision has 100% traffic and every old-revision request has drained; otherwise an old writer can create a new orphan after this backfill.",
+		);
+	}
 	const appDb = await getAppDb();
 	const caseDb = await getCaseStoreDatabase();
 	let query = appDb.selectFrom("apps").select(["id", "app_name"]);
@@ -146,16 +160,49 @@ async function main() {
 		}
 	}
 
+	let verificationFindingCount = 0;
+	if (execute) {
+		for (const app of apps) {
+			try {
+				const findings = await withAppTx(async (tx) => {
+					const blueprint = await loadPersistedBlueprintInTransaction(
+						tx,
+						app.id,
+					);
+					if (blueprint === null) return [];
+					return findCaseTypeSchemaRetirementFindings(
+						tx as unknown as Transaction<Database>,
+						app.id,
+						blueprint,
+					);
+				});
+				verificationFindingCount += findings.length;
+				for (const finding of findings) {
+					console.log(
+						`${app.id}: VERIFICATION FINDING — ${finding.caseType}: ${finding.issues.join(", ")}`,
+					);
+				}
+			} catch (error) {
+				if (!failedApps.includes(app.id)) failedApps.push(app.id);
+				console.log(
+					`${app.id}: VERIFICATION FAILED — ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
+	}
+
 	console.log(
 		execute
 			? `Done: ${retiredCount} schema row(s) retired` +
 					(failedApps.length === 0
 						? ""
 						: `; failed apps: ${failedApps.join(", ")}`) +
-					". Re-run scan-case-type-schema-retirement.ts; it must report zero findings."
-			: `Dry run: ${retiredCount} schema lifecycle finding(s) require action. Re-run with --execute to retire missing types and drain retired indexes.`,
+					`; post-write verification: ${verificationFindingCount} finding(s). ` +
+					"Re-run scan-case-type-schema-retirement.ts; it must also report zero findings."
+			: `Dry run: ${retiredCount} schema lifecycle finding(s) require action. After the new revision has 100% traffic and old requests have drained, re-run with --execute --confirm-old-revision-drained.`,
 	);
-	if (failedApps.length > 0) process.exitCode = 1;
+	if (failedApps.length > 0 || verificationFindingCount > 0)
+		process.exitCode = 1;
 	await closeCaseStoreDatabase();
 }
 

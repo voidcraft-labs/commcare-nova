@@ -1789,7 +1789,7 @@ export class PostgresCaseStore implements CaseStore {
 			try {
 				const latest = await connection
 					.selectFrom("case_type_schemas")
-					.select(["schema", "is_active", "index_pending_seq"])
+					.select(["schema", "is_active", "synced_seq", "index_pending_seq"])
 					.where("app_id", "=", appId)
 					.where("case_type", "=", caseType)
 					.executeTakeFirst();
@@ -1851,6 +1851,25 @@ export class PostgresCaseStore implements CaseStore {
 						.where("app_id", "=", appId)
 						.where("case_type", "=", caseType)
 						.where("index_pending_seq", "=", String(pendingSeq))
+						.execute();
+				} else if (!latest.is_active) {
+					// Forced retirement reconciliation can arrive after an older
+					// application revision consumed the marker while retaining the old
+					// desired indexes. The current reconciler has now observed the empty
+					// set, so advance the durable convergence watermark as well as the
+					// physical catalog state.
+					const syncedSeq = safePersistedSequence(
+						latest.synced_seq,
+						`case_type_schemas.synced_seq for forced index convergence ${appId}/${caseType}`,
+					);
+					await connection
+						.updateTable("case_type_schemas")
+						.set({ index_synced_seq: syncedSeq })
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("is_active", "=", false)
+						.where("synced_seq", "=", String(syncedSeq))
+						.where("index_pending_seq", "is", null)
 						.execute();
 				}
 			} finally {

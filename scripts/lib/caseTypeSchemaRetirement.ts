@@ -25,6 +25,7 @@ export interface CaseTypeSchemaRetirementFinding {
 	readonly isActive: boolean;
 	readonly issues: readonly CaseTypeSchemaRetirementIssue[];
 	readonly syncedSeq: number;
+	readonly indexSyncedSeq: number;
 	readonly pendingIndexSeq: number | null;
 	readonly caseCount: number;
 	readonly activeParkedValueCount: number;
@@ -42,7 +43,13 @@ export async function findCaseTypeSchemaRetirementFindings(
 	);
 	const schemaRows = await db
 		.selectFrom("case_type_schemas")
-		.select(["case_type", "is_active", "synced_seq", "index_pending_seq"])
+		.select([
+			"case_type",
+			"is_active",
+			"synced_seq",
+			"index_synced_seq",
+			"index_pending_seq",
+		])
 		.where("app_id", "=", appId)
 		.orderBy("case_type")
 		.execute();
@@ -51,6 +58,9 @@ export async function findCaseTypeSchemaRetirementFindings(
 	);
 	const relevantNames = relevantRows.map((row) => row.case_type);
 	if (relevantNames.length === 0) return [];
+	const relevantIndexPrefixes = relevantRows.map(
+		(row) => `cases\\_${indexScopeTag(appId, row.case_type)}\\_%`,
+	);
 
 	const [caseCounts, parkedCounts, indexRows] = await Promise.all([
 		db
@@ -89,6 +99,12 @@ export async function findCaseTypeSchemaRetirementFindings(
 			-- public.cases would therefore hide every residual production
 			-- index and let the required zero-finding rescan pass falsely.
 			WHERE index_row.indrelid = to_regclass('cases')
+			  AND (${sql.join(
+					relevantIndexPrefixes.map(
+						(prefix) => sql`index_relation.relname LIKE ${prefix} ESCAPE '\\'`,
+					),
+					sql` OR `,
+				)})
 		`.execute(db),
 	]);
 	const caseCountByType = new Map(
@@ -119,7 +135,9 @@ export async function findCaseTypeSchemaRetirementFindings(
 		}
 		if (
 			!row.is_active &&
-			(row.index_pending_seq !== null || expressionIndexCount > 0)
+			(row.index_pending_seq !== null ||
+				expressionIndexCount > 0 ||
+				row.index_synced_seq !== row.synced_seq)
 		) {
 			issues.push("inactive-index-cleanup");
 		}
@@ -132,6 +150,10 @@ export async function findCaseTypeSchemaRetirementFindings(
 				syncedSeq: safePersistedSequence(
 					row.synced_seq,
 					`case_type_schemas.synced_seq for ${appId}/${row.case_type}`,
+				),
+				indexSyncedSeq: safePersistedSequence(
+					row.index_synced_seq,
+					`case_type_schemas.index_synced_seq for ${appId}/${row.case_type}`,
 				),
 				pendingIndexSeq:
 					row.index_pending_seq === null

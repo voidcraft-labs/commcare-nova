@@ -125,7 +125,7 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 			try {
 				const row = await connection
 					.selectFrom("case_type_schemas")
-					.select(["is_active", "index_pending_seq"])
+					.select(["is_active", "synced_seq", "index_pending_seq"])
 					.where("app_id", "=", appId)
 					.where("case_type", "=", caseType)
 					.executeTakeFirst();
@@ -154,16 +154,25 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 						connection,
 					);
 				}
-				if (pendingSeq !== undefined) {
-					await connection
-						.updateTable("case_type_schemas")
-						.set({ index_pending_seq: null, index_synced_seq: pendingSeq })
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.where("is_active", "=", false)
-						.where("index_pending_seq", "=", String(pendingSeq))
-						.execute();
-				}
+				const convergedSeq =
+					pendingSeq ??
+					safePersistedSequence(
+						row.synced_seq,
+						`case_type_schemas.synced_seq for forced retirement drain ${appId}/${caseType}`,
+					);
+				let update = connection
+					.updateTable("case_type_schemas")
+					.set({ index_pending_seq: null, index_synced_seq: convergedSeq })
+					.where("app_id", "=", appId)
+					.where("case_type", "=", caseType)
+					.where("is_active", "=", false);
+				update =
+					pendingSeq === undefined
+						? update
+								.where("synced_seq", "=", String(convergedSeq))
+								.where("index_pending_seq", "is", null)
+						: update.where("index_pending_seq", "=", String(pendingSeq));
+				await update.execute();
 			} finally {
 				await sql`
 					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))

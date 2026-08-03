@@ -85,6 +85,7 @@ async function main() {
 				retainedCaseCount += candidate.caseCount;
 				console.log(
 					`  ${candidate.caseType}: ${candidate.issues.join(", ")}; schema seq ${candidate.syncedSeq}; ` +
+						`index synced seq ${candidate.indexSyncedSeq}; ` +
 						`${candidate.caseCount} retained case(s); ` +
 						`${candidate.activeParkedValueCount} active + ${candidate.dismissedParkedValueCount} dismissed parked value(s); ` +
 						`${candidate.expressionIndexCount} expression index(es)` +

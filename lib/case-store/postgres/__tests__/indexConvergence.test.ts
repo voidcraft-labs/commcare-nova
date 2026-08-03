@@ -533,6 +533,18 @@ describe("durable case-schema index convergence", () => {
 		]);
 		await prepared.completeAfterCommit();
 		expect(
+			await db()
+				.selectFrom("case_type_schemas")
+				.select(["synced_seq", "index_synced_seq", "index_pending_seq"])
+				.where("app_id", "=", APP_ID)
+				.where("case_type", "=", "patient")
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			synced_seq: "2",
+			index_synced_seq: "2",
+			index_pending_seq: null,
+		});
+		expect(
 			await findCaseTypeSchemaRetirementFindings(
 				db(),
 				APP_ID,
