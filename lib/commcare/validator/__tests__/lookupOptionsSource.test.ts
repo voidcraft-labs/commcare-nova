@@ -19,6 +19,7 @@ import {
 	and,
 	arith,
 	concat,
+	dateAdd,
 	eq,
 	formField,
 	gt,
@@ -46,6 +47,7 @@ const MISSING_TABLE = "00000000-0000-7000-8000-0000000000f1" as LookupTableId;
 const TEXT_A = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
 const INT_A = "10000000-0000-7000-8000-0000000000a2" as LookupColumnId;
 const DATE_A = "10000000-0000-7000-8000-0000000000a3" as LookupColumnId;
+const DATETIME_A = "10000000-0000-7000-8000-0000000000a4" as LookupColumnId;
 const TEXT_B = "10000000-0000-7000-8000-0000000000b1" as LookupColumnId;
 const MISSING_COLUMN = "10000000-0000-7000-8000-0000000000f1" as LookupColumnId;
 
@@ -83,6 +85,12 @@ const LOOKUP_CONTEXT: LookupValidationContext = {
 			{ id: TEXT_A, wireName: "label", label: "Label", dataType: "text" },
 			{ id: INT_A, wireName: "rank", label: "Rank", dataType: "int" },
 			{ id: DATE_A, wireName: "day", label: "Day", dataType: "date" },
+			{
+				id: DATETIME_A,
+				wireName: "moment",
+				label: "Moment",
+				dataType: "datetime",
+			},
 		]),
 		definition(TABLE_B, "TableB", [
 			{ id: TEXT_B, wireName: "label", label: "Label", dataType: "text" },
@@ -205,6 +213,69 @@ describe("lookup-backed select filter semantics", () => {
 		]);
 
 		expect(semanticFindings(doc)).toEqual([]);
+	});
+
+	it("rejects date arithmetic that would discard a lookup column's time", () => {
+		const doc = surveyDoc([
+			select(
+				FIELD_2,
+				"district",
+				eq(
+					dateAdd(
+						term(tableColumn(TABLE_A, DATETIME_A)),
+						"days",
+						term(literal(1)),
+					),
+					term(tableColumn(TABLE_A, DATETIME_A)),
+				),
+			),
+		]);
+
+		expect(semanticFindings(doc)).toEqual([
+			expect.objectContaining({
+				code: "LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+				details: expect.objectContaining({ reason: "datetime-base" }),
+			}),
+		]);
+	});
+
+	it("rejects calendar intervals but keeps fixed-duration whole-date arithmetic", () => {
+		const calendar = surveyDoc([
+			select(
+				FIELD_2,
+				"district",
+				eq(
+					dateAdd(
+						term(tableColumn(TABLE_A, DATE_A)),
+						"months",
+						term(literal(1)),
+					),
+					term(tableColumn(TABLE_A, DATE_A)),
+				),
+			),
+		]);
+		expect(semanticFindings(calendar)).toEqual([
+			expect.objectContaining({
+				code: "LOOKUP_SELECT_FILTER_NOT_ON_DEVICE",
+				details: expect.objectContaining({ reason: "calendar-interval" }),
+			}),
+		]);
+
+		const fixed = surveyDoc([
+			select(
+				FIELD_2,
+				"district",
+				eq(
+					dateAdd(
+						term(tableColumn(TABLE_A, DATE_A)),
+						"weeks",
+						term(literal(1)),
+					),
+					term(tableColumn(TABLE_A, DATE_A)),
+				),
+			),
+		]);
+		expect(semanticFindings(fixed)).toEqual([]);
 	});
 
 	it("reports only the read that sits BELOW the select in the form", () => {

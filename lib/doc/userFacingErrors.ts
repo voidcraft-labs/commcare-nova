@@ -565,6 +565,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using a repeated answer from a different repetition context. Use a root answer or an earlier answer from the current or an enclosing repeat.`,
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice filter whose values don't fit the comparison. Adjust the referenced columns, values, or operator.`,
+	LOOKUP_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice date calculation that won't work on a device. Use a whole date with seconds, minutes, hours, days, or weeks, or rewrite the comparison.`,
 
 	// ── XPath / formula deep validation ──────────────────────────────
 	XPATH_SYNTAX: (e) =>

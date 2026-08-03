@@ -32,7 +32,6 @@ import {
 	findOnDeviceDateAddIssue,
 	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
-	onDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
@@ -62,7 +61,7 @@ export function dateAddOnDeviceCompatibility(
 			walkCsqlOnDeviceNodes(predicate, {
 				visitExpression(node) {
 					if (offender === undefined)
-						offender = onDeviceDateAddIssue(node, ctx);
+						offender = findOnDeviceDateAddIssue(node, ctx);
 				},
 			});
 			return offender === undefined ? undefined : buildError(slot, offender);

@@ -60,9 +60,19 @@ export function onDeviceDateAddIssue(
 
 	// The ordinary type checker owns malformed operands. This classifier adds
 	// only the target-runtime restriction for an otherwise valid datetime base.
+	// Property terms name their originating case type explicitly. Drop the
+	// checker's current-scope pin here so a node reached inside an exists/count
+	// destination can resolve its intrinsic type; the ordinary whole-carrier
+	// check already proves that the authored scope is legal. Keep tableScope,
+	// which is the only way a table-column term gets its data type.
 	const operandErrors: Parameters<typeof checkExpression>[2] = [];
 	if (
-		checkExpression(expression.date, context, operandErrors, []) === "datetime"
+		checkExpression(
+			expression.date,
+			{ ...context, currentCaseType: undefined },
+			operandErrors,
+			[],
+		) === "datetime"
 	) {
 		return { expression, reason: "datetime-base" };
 	}
@@ -76,7 +86,8 @@ export function findOnDeviceDateAddIssue(
 ): OnDeviceDateAddIssue | undefined {
 	let issue: OnDeviceDateAddIssue | undefined;
 	walkExpressionNodes(expression, (node) => {
-		if (issue === undefined) issue = onDeviceDateAddIssue(node, context);
+		if (issue !== undefined) return;
+		issue = issueInNodeOrLookupRow(node, context);
 	});
 	return issue;
 }
@@ -88,9 +99,35 @@ export function findOnDeviceDateAddIssueInPredicate(
 ): OnDeviceDateAddIssue | undefined {
 	let issue: OnDeviceDateAddIssue | undefined;
 	walkPredicateExpressionNodes(predicate, (node) => {
-		if (issue === undefined) issue = onDeviceDateAddIssue(node, context);
+		if (issue !== undefined) return;
+		issue = issueInNodeOrLookupRow(node, context);
 	});
 	return issue;
+}
+
+/**
+ * A table lookup changes the meaning of table-column leaves in its filter.
+ * Structural walkers deliberately carry no semantic context, so install that
+ * one row scope before inspecting descendants. Case-relation scopes need no
+ * equivalent rebinding here because property leaves carry their case type and
+ * `onDeviceDateAddIssue` intentionally resolves them without the checker pin.
+ */
+function issueInNodeOrLookupRow(
+	expression: ValueExpression,
+	context: TypeContext,
+): OnDeviceDateAddIssue | undefined {
+	if (expression.kind === "table-lookup") {
+		const columns = context.lookupTables?.get(expression.tableId);
+		if (columns !== undefined) {
+			const issue = findOnDeviceDateAddIssueInPredicate(expression.where, {
+				...context,
+				currentCaseType: undefined,
+				tableScope: { tableId: expression.tableId, columns },
+			});
+			if (issue !== undefined) return issue;
+		}
+	}
+	return onDeviceDateAddIssue(expression, context);
 }
 
 /** Return the first device incompatibility in a scalar expression root. */
