@@ -711,6 +711,16 @@ export function BuilderContentArea({
 									}
 								/>
 							}
+							/* `DrawerPopup` carries the modal drawer's elevation, which
+							 * is right for the narrow overlay floating over its scrim and
+							 * wrong everywhere else: docked on desktop this is a flank in
+							 * the layout, the mirror of the structure panel, and that one
+							 * casts nothing. A drop shadow bleeding from its border onto
+							 * the canvas is what made the two edges read as different
+							 * kinds of surface. */
+							className={
+								narrowLayout && !isCentered ? undefined : "shadow-none"
+							}
 							data-builder-chat-panel
 							style={
 								isCentered
