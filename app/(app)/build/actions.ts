@@ -138,14 +138,12 @@ export async function createStarterApp(
 			throw err;
 		}
 
-		/* No `revalidatePath` here, unlike the app-list actions, and the
-		 * difference is which page is being asked to refresh. Those run FROM the
-		 * app list and revalidating it IS their refresh. This one runs from
-		 * `/build/new` and would be revalidating a page nobody is on — while the
-		 * router re-render that carries the revalidation restores Next's own
-		 * canonical URL, undoing the promotion to `/build/{id}` that this
-		 * receipt exists to make. The app list is a dynamic route (it reads the
-		 * session), so it re-renders on arrival regardless. */
+		/* Deliberately no `revalidatePath("/")`, unlike the app-list actions.
+		 * The router re-render that carries a revalidation restores Next's own
+		 * canonical URL, undoing the promotion to `/build/{id}` this receipt
+		 * exists to make — and running it afterwards instead leaves a second
+		 * history entry, so Back lands in the builder rather than on the list.
+		 * The client marks the list stale instead (`lib/ui/appListFreshness`). */
 		return { success: true, receipt: payload };
 	} catch (err) {
 		log.error("[build/create-starter-app] error", err);

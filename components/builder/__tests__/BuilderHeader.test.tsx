@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	/* `BuilderPhase.Ready` — spelled by value because `vi.hoisted` runs before
 	 * any import. Every case here has an app, so the mark stands alone. */
 	phase: "ready",
+	appId: "app-under-test" as string | undefined,
 	canEdit: true,
 	compact: true,
 	ultraCompact: false,
@@ -53,6 +54,7 @@ vi.mock("@/lib/routing/builderActions", () => ({
 }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => mocks.accessPhase,
+	useAppId: () => mocks.appId,
 	useBuilderIsReady: () => true,
 	useBuilderPhase: () => mocks.phase,
 	useCanEdit: () => mocks.canEdit,
@@ -138,6 +140,7 @@ describe("BuilderHeader responsive actions", () => {
 	beforeEach(() => {
 		mocks.accessPhase = "authorized";
 		mocks.phase = "ready";
+		mocks.appId = "app-under-test";
 		mocks.canEdit = true;
 		mocks.compact = true;
 		mocks.ultraCompact = false;
@@ -153,7 +156,13 @@ describe("BuilderHeader responsive actions", () => {
 			markOnly: true,
 			stacked: false,
 			showAccount: true,
+			/* This page opened with an app, so nothing changed hands and there is
+			 * no gesture to play. */
+			handoff: false,
 		});
+		/* Omitted, never `false`: the file manager defers to the live session
+		 * capability, and an explicit `false` would make an editor read-only. */
+		expect(band.latest()).not.toHaveProperty("canManageFiles");
 		expect(
 			screen.getByRole("button", { name: "5 collaborators here" }).dataset
 				.compact,

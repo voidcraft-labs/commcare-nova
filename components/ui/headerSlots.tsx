@@ -35,9 +35,22 @@ export interface HeaderClaim {
 	 *  no while app access is unresolved: a control whose popup is deliberately
 	 *  quarantined must not be left visible. */
 	readonly showAccount: boolean;
-	/** Whether the account's file manager may write. The builder says no,
-	 *  which is what it has always done. */
-	readonly canManageFiles: boolean;
+	/** Whether the account's file manager may write. OMIT to defer to the live
+	 *  session capability, which is what the builder wants: `MediaPickerDialog`
+	 *  resolves `canWriteOverride ?? sessionCanEdit`, so an explicit `false`
+	 *  is not "unspecified", it is a hard read-only that takes upload and
+	 *  delete away from an editor. */
+	readonly canManageFiles?: boolean;
+	/** Whether this claim IS a build starting, rather than the state the page
+	 *  opened in. Only a handoff plays the brand animation.
+	 *
+	 *  The band cannot infer this. A claim can only come from BELOW it, so it
+	 *  necessarily arrives one commit after the band's own first render, and a
+	 *  hard load of an existing build is indistinguishable from a build
+	 *  starting if you only watch the prop change: both are "the mark went
+	 *  mark-only". The claiming surface is the only thing that knows which it
+	 *  is, because it knows whether it opened with an app. */
+	readonly handoff: boolean;
 }
 
 export interface HeaderSlots {
@@ -75,6 +88,7 @@ export function sameHeaderClaim(
 		a.markOnly === b.markOnly &&
 		a.stacked === b.stacked &&
 		a.showAccount === b.showAccount &&
-		a.canManageFiles === b.canManageFiles
+		a.canManageFiles === b.canManageFiles &&
+		a.handoff === b.handoff
 	);
 }

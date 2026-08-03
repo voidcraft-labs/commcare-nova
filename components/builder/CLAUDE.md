@@ -24,11 +24,22 @@ control mid-fade is still visible and still takes a click.
 the screen is still the site with a composer on it and the nav, the Project
 switcher, and Help all still belong; the band changes hands at the moment the
 app lands, where the menus leaving, the word being drawn into the sphere, and
-the tools arriving are one gesture. `BuilderBandClaim`, mounted in
-`build/[id]/layout.tsx`, is the same claim one layer higher for an EXISTING
-app: that page awaits an authorized snapshot and its threads, so without it a
-hard load of `/build/{id}` paints the site's menus inside a real build for as
-long as those reads take.
+the tools arriving are one gesture. "No app" is `phase === Idle && appId ===
+undefined`, and both halves are load-bearing: `phase` keeps the band in lockstep
+with the chat's centred-to-docked morph, which reads the same value, while
+`appId` excludes an EXISTING app whose blueprint happens to be empty — a build
+interrupted before its first module lands reads as Idle and would otherwise
+wear the site's menus inside a real build.
+
+`build/[id]/layout.tsx` covers an EXISTING app twice over, because a hard load
+has two distinct gaps. `BuilderBandClaim` claims in the first client commit,
+ahead of a page that awaits an authorized snapshot and its threads. A
+server-rendered `data-nova-build-open` marker plus one `:has()` rule in
+`globals.css` covers the first PAINT, which no claim can reach: the band is
+mounted above both route groups, so its server render is structurally
+unclaimed. That claim also carries `handoff: false` — a page that opened as a
+build never had the word to draw in, and the band cannot work that out for
+itself.
 
 Two builder-owned decisions ride on that band. **The mark is the exit**, which
 is why the builder can hand the wordmark back: the app being built carries its

@@ -37,7 +37,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
@@ -65,6 +65,7 @@ import { useUndoRedo } from "@/lib/routing/builderActions";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useAccessPhase,
+	useAppId,
 	useBuilderIsReady,
 	useBuilderPhase,
 	useCanEdit,
@@ -87,6 +88,7 @@ export function BuilderHeader({
 	onSetPreviewing,
 }: BuilderHeaderProps) {
 	const slots = useHeaderSlots();
+	const appId = useAppId();
 	const phase = useBuilderPhase();
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
@@ -109,10 +111,18 @@ export function BuilderHeader({
 	const showToolbar = showAccessStatus && accessPhase === "authorized";
 	const showDocumentRow = showToolbar || showAccessStatus;
 
-	/* Idle is `/build/new` with nothing sent: no app, so nothing else on screen
-	 * is carrying the name. Every other phase means a blueprint exists (or is
-	 * arriving), and the sphere takes over. */
-	const beforeAnyApp = phase === BuilderPhase.Idle;
+	/* No app yet: `/build/new` with nothing sent. BOTH halves are load-bearing.
+	 * `phase` keeps the band in lockstep with the chat's centred-to-docked
+	 * morph, which is driven by the same value, so the two never desync. And
+	 * `appId` excludes an EXISTING app whose blueprint happens to be empty — a
+	 * build interrupted before its first module lands reads as Idle, and
+	 * without this it would wear the site's menus inside a real build. */
+	const beforeAnyApp = phase === BuilderPhase.Idle && appId === undefined;
+
+	/* Whether this page was already a build when it mounted, captured once.
+	 * A collapse is only a handoff when it is a build STARTING; a page that
+	 * opened with an app never had the word to draw in. */
+	const openedWithApp = useRef(!beforeAnyApp);
 
 	/* Below 560px the band cannot hold the mark, Preview, the document tools,
 	 * and the account control at their real sizes, and nothing here shrinks.
@@ -140,10 +150,13 @@ export function BuilderHeader({
 			markOnly: true,
 			stacked,
 			showAccount: accessPhase === "authorized",
-			/* What the builder has always given the account's file manager.
-			 * Worth revisiting on its own terms, not as a side effect of moving
-			 * the control up a level. */
-			canManageFiles: false,
+			/* `canManageFiles` is deliberately absent. `MediaPickerDialog`
+			 * resolves `canWriteOverride ?? sessionCanEdit` and its own prop doc
+			 * says to omit it inside the builder so the live session capability
+			 * stays authoritative — an explicit `false` is not "unspecified",
+			 * it is a hard read-only that takes upload and delete away from an
+			 * editor who had them. */
+			handoff: !openedWithApp.current,
 		});
 	}, [claim, beforeAnyApp, stacked, accessPhase]);
 	useEffect(() => () => claim?.(null), [claim]);

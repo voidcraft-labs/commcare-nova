@@ -47,10 +47,15 @@ export interface AppHeaderProps {
 	 *  the link DOES, which is not the same sentence on a settings page as it
 	 *  is mid-build. */
 	homeLabel: string;
-	/** Hand the wordmark back and keep the sphere. Flipping this on a mounted
-	 *  header plays the handoff: the word is drawn in, then the sphere answers
-	 *  with the swell it gives the pointer. */
+	/** Hand the wordmark back and keep the sphere. */
 	markOnly?: boolean;
+	/** Whether losing the wordmark means a build just STARTED, as opposed to
+	 *  a page that was already a build settling into its opening state. Only
+	 *  the first plays the handoff — the word drawn in, then the sphere's
+	 *  answering swell. The band cannot work this out for itself: its own
+	 *  first render is necessarily unclaimed, so every hard load of a build
+	 *  looks like a collapse from where it stands. */
+	handoff?: boolean;
 	/** Right of the mark: the site's nav links. */
 	start?: ReactNode;
 	/** The impersonation banner, or null. Its own slot rather than part of
@@ -78,6 +83,7 @@ export interface AppHeaderProps {
 export function AppHeader({
 	homeLabel,
 	markOnly = false,
+	handoff = false,
 	start,
 	banner,
 	center,
@@ -90,19 +96,24 @@ export function AppHeader({
 	const shortViewport = useIsBreakpoint("max", 360, "height");
 	const band = shortViewport ? "60px" : "64px";
 
-	/* The handoff is a consequence of the lockup collapsing, so it is armed by
-	 * the change and never by a caller: a surface that renders `markOnly` from
-	 * its first frame is not handing anything over, it simply never had the
-	 * word. `onAnimationEnd` clears it rather than a timer, so the state and
-	 * the animation cannot disagree — including under reduced motion, where the
-	 * global near-zero rule ends it almost immediately. */
+	/* Armed by the lockup collapsing AND the claiming surface saying that
+	 * collapse is a build starting. `onAnimationEnd` clears it rather than a
+	 * timer, so the state and the animation cannot disagree — including under
+	 * reduced motion, where the global near-zero rule ends it almost
+	 * immediately. The run counter is what keeps a finishing animation from
+	 * clearing the one that replaced it: a second handoff inside the first
+	 * one's 1.35s would otherwise be cut short by a stale end event. */
 	const [absorbing, setAbsorbing] = useState(false);
 	const wasMarkOnly = useRef(markOnly);
+	const absorbRun = useRef(0);
 	useEffect(() => {
 		const collapsing = markOnly && !wasMarkOnly.current;
 		wasMarkOnly.current = markOnly;
-		if (collapsing) setAbsorbing(true);
-	}, [markOnly]);
+		if (collapsing && handoff) {
+			absorbRun.current += 1;
+			setAbsorbing(true);
+		}
+	}, [markOnly, handoff]);
 
 	/* The mark carries hover text exactly when the wordmark is not beside it to
 	 * say the same thing — a bare sphere needs naming, a lockup does not, and a
@@ -117,7 +128,9 @@ export function AppHeader({
 			href="/"
 			aria-label={homeLabel}
 			onAnimationEnd={(event) => {
-				if (event.animationName === ABSORB_ANIMATION) setAbsorbing(false);
+				if (event.animationName !== ABSORB_ANIMATION) return;
+				const run = absorbRun.current;
+				setAbsorbing(() => run !== absorbRun.current);
 			}}
 			/* No horizontal padding: the 44px mark IS the 44px target, so the
 			 * band's own inset is the only thing between it and the edge, and the

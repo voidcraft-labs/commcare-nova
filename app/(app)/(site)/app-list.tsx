@@ -22,6 +22,7 @@ import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
+import { RefreshStaleAppList } from "./RefreshStaleAppList";
 
 interface AppListProps {
 	/** Active Project id (Better Auth organizationId): the tenancy scope. */
@@ -61,6 +62,9 @@ export async function AppList({ projectId, userId }: AppListProps) {
 
 	return (
 		<>
+			{/* An app created in the builder never navigated, so a list reached
+			    with Back comes from the client Router Cache and predates it. */}
+			<RefreshStaleAppList />
 			<div className="flex items-center justify-between mb-8">
 				<h1 className="text-2xl font-display font-semibold tracking-tighter">
 					Your apps

@@ -16,28 +16,24 @@
  * surface says what the band should be, its controls portal into the band's
  * cells, and the site's menus step aside for the duration.
  *
- * The site's menus wait for mount before rendering, which is deliberate and
- * costs them one frame on the app list. A claim can only come from BELOW this
- * component, so it cannot exist during the server render — and a band that
- * rendered site menus on the server would flash the nav, the Project switcher,
- * and Help inside the builder on every hard load of `/build/*`. Waiting a
- * frame lets the claim land in the same commit, and the wrong menus are never
- * painted at all. The account control already sets this precedent for its own
- * reasons. The other half of that guarantee is `BuilderBandClaim`, which
- * claims from the build route's LAYOUT rather than its page, so a page that
- * awaits its data cannot leave the band unclaimed while it reads.
+ * The site's menus are server-rendered, unconditionally. They have to be: they
+ * are the only navigation on every non-builder page, and gating them on a
+ * client mount takes them out of the HTML — invisible for the whole hydration
+ * window on a slow connection, and gone entirely if the bundle never arrives.
+ *
+ * That leaves the band's server render structurally unable to know it is
+ * inside a build, since a claim can only come from below it. Two things cover
+ * that gap, and neither is this component's own state: `BuilderBandClaim`
+ * claims in the first client commit, and a server-rendered marker plus one
+ * `:has()` rule in `globals.css` settles the first PAINT (see
+ * `build/[id]/layout.tsx`). What survives here is the claim itself, which
+ * owns everything after that first paint.
  */
 
 "use client";
 
 import { AnimatePresence } from "motion/react";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
@@ -83,9 +79,6 @@ export function AppChrome({
 	const [claim, setClaim] = useState<HeaderClaim | null>(null);
 	const [centerSlot, setCenterSlot] = useState<HTMLElement | null>(null);
 	const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-	const [mounted, setMounted] = useState(false);
-	useEffect(() => setMounted(true), []);
-
 	/* Claims are rebuilt every render by whatever is claiming, so hold the
 	 * value and ignore an identical one: storing each new object would
 	 * re-render the band on every keystroke in the builder. */
@@ -110,7 +103,7 @@ export function AppChrome({
 	);
 
 	/* The band's own menus are the unclaimed state. */
-	const siteMenus = mounted && claim === null;
+	const siteMenus = claim === null;
 
 	const banner = impersonating ? (
 		<ImpersonationBanner
@@ -127,6 +120,7 @@ export function AppChrome({
 			<AppHeader
 				homeLabel={claim?.homeLabel ?? "commcare nova"}
 				markOnly={claim?.markOnly ?? false}
+				handoff={claim?.handoff ?? false}
 				stacked={claim?.stacked ?? false}
 				/* Beside the mark on every surface. It used to be centred on the
 				 * site, but the centre is where a claimed control the user is meant
@@ -134,13 +128,18 @@ export function AppChrome({
 				 * extra prominence. */
 				banner={banner}
 				start={
-					<>
+					/* `data-header-site-menus` is what the build marker's `:has()` rule
+					   in `globals.css` hides, and it sits on a plain wrapper rather
+					   than being handed to `HeaderCluster`: the wrapper is here in the
+					   server HTML whether or not the cluster inside it is, which is
+					   exactly what has to be true for CSS to settle the first paint. */
+					<span data-header-site-menus className="flex min-w-0 items-center">
 						{/* The `AnimatePresence` is rendered unconditionally and the
 						    CONTENT is what comes and goes. Swapping the presence itself
-						    for the banner would take the nav's exit with it: a presence
-						    can only animate a child it is still rendering, so the nav
-						    would vanish in a frame at the exact moment the handoff is
-						    meant to be visible. */}
+						    for other content would take the nav's exit with it: a
+						    presence can only animate a child it is still rendering, so
+						    the nav would vanish in a frame at the exact moment the
+						    handoff is meant to be visible. */}
 						<AnimatePresence>
 							{siteMenus ? (
 								<HeaderCluster
@@ -152,25 +151,37 @@ export function AppChrome({
 								</HeaderCluster>
 							) : null}
 						</AnimatePresence>
-					</>
+					</span>
 				}
-				/* `contents`, so a claimed control lands as a child of the centre
-				 * cell itself and inherits its placement. */
-				center={<span ref={setCenterSlot} className="contents" />}
+				/* A real box, not `display: contents`. The band places its overlap
+				 * grid's DIRECT children, and a contents span is skipped by that
+				 * rule while its portaled child — the actual grid item — is left
+				 * unplaced and auto-flows into a second row. */
+				center={
+					<span ref={setCenterSlot} className="flex min-w-0 items-center" />
+				}
 				actions={
 					<>
-						<span ref={setActionsSlot} className="contents" />
-						<AnimatePresence>
-							{siteMenus ? (
-								<HeaderCluster key="site-actions" delay={HEADER_HANDOFF_DELAY}>
-									<ProjectSwitcher
-										projects={projects}
-										activeProjectId={activeProjectId}
-									/>
-									<HelpMenu />
-								</HeaderCluster>
-							) : null}
-						</AnimatePresence>
+						<span
+							ref={setActionsSlot}
+							className="flex min-w-0 items-center justify-end"
+						/>
+						<span data-header-site-menus className="flex min-w-0 items-center">
+							<AnimatePresence>
+								{siteMenus ? (
+									<HeaderCluster
+										key="site-actions"
+										delay={HEADER_HANDOFF_DELAY}
+									>
+										<ProjectSwitcher
+											projects={projects}
+											activeProjectId={activeProjectId}
+										/>
+										<HelpMenu />
+									</HeaderCluster>
+								) : null}
+							</AnimatePresence>
+						</span>
 					</>
 				}
 				account={

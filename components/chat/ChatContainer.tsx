@@ -69,6 +69,7 @@ import {
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
+import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 
 type ProjectToastEmitter = (
@@ -349,6 +350,14 @@ export function parseCreatedAppActivation(
  * `BuilderProvider`'s `key={buildId}` and remount every store under it,
  * discarding the document this function just installed and severing a live run
  * to fetch state the client already holds.
+ *
+ * The last line is the app list. Installing in place means the history entry
+ * behind this one is the list as it stood before the app existed, and
+ * back/forward is served from the client Router Cache regardless of how fresh
+ * the route itself is — so a user pressing Back would not see the app they just
+ * made. `lib/ui/appListFreshness` records that; the list refreshes itself when
+ * it is next shown, which is the one cure that touches neither the URL nor the
+ * history stack.
  */
 function installCreatedApp(
 	activation: CreatedAppActivation,
@@ -370,6 +379,7 @@ function installCreatedApp(
 	}
 	pushBuilderHistory(`/build/${activation.appId}`, true);
 	reconcilerCtx?.activate(activation.appId, activation.baseSeq);
+	markAppListStale();
 }
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.

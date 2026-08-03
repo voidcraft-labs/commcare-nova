@@ -772,6 +772,30 @@ body {
 	transition-timing-function: cubic-bezier(0.55, 0, 0.85, 0.4);
 }
 
+/* A page that is ALREADY a build says so in its HTML, and this is what reads
+   it. The band is mounted above both route groups, so its server render cannot
+   know which surface it is rendering — a claim only ever arrives from below it,
+   one commit later. Without this, every hard load of an existing app painted
+   the whole lockup and the site's menus for a beat and then took them away,
+   turning a gesture that is supposed to mean "a build just started" into
+   something that fires on a page that was already a build.
+
+   CSS is the only thing that can be right on the first paint here, and it
+   costs no script and animates nothing: the collapsed state IS the initial
+   computed style, so there is no transition to run. `/build/new` carries no
+   marker, because it has no app and therefore IS the site band. */
+[data-nova-app-shell]:has([data-nova-build-open]) .nova-logo-chrome
+	.nova-logo-word {
+	grid-template-columns: 0fr;
+}
+[data-nova-app-shell]:has([data-nova-build-open]) .nova-logo-chrome
+	.nova-logo-word-clip {
+	opacity: 0;
+}
+[data-nova-app-shell]:has([data-nova-build-open]) [data-header-site-menus] {
+	display: none;
+}
+
 /* Below 800px the row cannot hold the lockup beside the nav and the account
    cluster. That is a measurement of this row, not a nominal phone breakpoint:
    the nearest named breakpoint below it would take the word away for another

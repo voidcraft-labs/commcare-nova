@@ -39,13 +39,17 @@ export function HeaderCluster({
 	children,
 	delay = 0,
 	className = "flex min-w-0 items-center gap-1 sm:gap-2",
+	...rest
 }: {
 	children: ReactNode;
 	delay?: number;
 	className?: string;
+	/** Marker attributes the band's own CSS reads. */
+	"data-header-site-menus"?: boolean;
 }) {
 	return (
 		<motion.div
+			{...rest}
 			className={className}
 			initial={{ opacity: 0, y: -6 }}
 			animate={{ opacity: 1, y: 0, transition: { ...ENTER, delay } }}

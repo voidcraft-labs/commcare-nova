@@ -395,7 +395,13 @@ export function BuilderLayout({
 	return (
 		<BuilderReferenceProvider>
 			<CaseTargetDraftProvider>
-				<div className="h-full flex flex-col overflow-hidden">
+				{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
+				    `key={buildId}` would rebuild. Creation installs its app in
+				    place precisely so this node survives, and the end-to-end test
+				    stamps it to prove that; the header cannot serve, since it is
+				    mounted above both route groups and survives a route change
+				    whether or not the builder does. */}
+				<div data-builder-tree className="h-full flex flex-col overflow-hidden">
 					{/* Fills the shared band with the builder's own controls: Preview
 					 *  dead centre, the document tools on the right. It renders nothing
 					 *  in place; the band itself is mounted above both route groups. */}
