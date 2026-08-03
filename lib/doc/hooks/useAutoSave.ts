@@ -106,6 +106,10 @@ export function projectSaveSlice(
 		userTypeOrder: s.userTypeOrder,
 		personas: s.personas,
 		personaOrder: s.personaOrder,
+		organizationLevels: s.organizationLevels,
+		organizationLevelOrder: s.organizationLevelOrder,
+		locationProperties: s.locationProperties,
+		locationPropertyOrder: s.locationPropertyOrder,
 		commandQueueRevision: s.commandQueueRevision ?? 0,
 	};
 }

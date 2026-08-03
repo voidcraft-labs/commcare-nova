@@ -31,6 +31,7 @@
 // emitter so a reader scanning either dialect sees the rationale
 // next to the code.
 
+import type { OrganizationLevel } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
 import type {
@@ -154,6 +155,8 @@ export interface OnDeviceTermEmissionContext
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Current runtime names for identity-backed search inputs. */
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
+	/** Organization topology for identity-backed location terms. */
+	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 }
 
 /** Drop the fixture-row scope when emission leaves the fixture predicate. */
@@ -397,6 +400,46 @@ export function emitTerm(
 		}
 		case "literal":
 			return emitOnDeviceLiteralValue(term.value);
+		case "fixed-location":
+			return quoteLiteral(term.locationUuid, "case-list-filter");
+		case "owner-location-at-level": {
+			const levels = context.organizationLevels;
+			const destination = levels?.[term.levelUuid];
+			if (levels === undefined || destination === undefined) {
+				throw new Error(
+					`emitTerm: organization level '${term.levelUuid}' is not available in this expression context.`,
+				);
+			}
+			let source =
+				destination.parentLevelUuid === undefined
+					? undefined
+					: levels[destination.parentLevelUuid];
+			const seen = new Set<string>([destination.uuid]);
+			while (source !== undefined && !source.caseFlow.ownsCases) {
+				if (seen.has(source.uuid)) break;
+				seen.add(source.uuid);
+				source =
+					source.parentLevelUuid === undefined
+						? undefined
+						: levels[source.parentLevelUuid];
+			}
+			if (source === undefined || !source.caseFlow.ownsCases) {
+				throw new Error(
+					`emitTerm: organization level '${destination.name}' has no case-owning ancestor for an owner reverse hop.`,
+				);
+			}
+			const owner = emitTerm(
+				{
+					kind: "prop",
+					caseType: term.ownerCaseType,
+					property: "owner_id",
+				},
+				root,
+				context,
+				casePropertyScope,
+			);
+			return `instance('locations')/locations/location[@type=${quoteLiteral(destination.code, "case-list-filter")}][@${source.code}_id = ${owner}]/@id`;
+		}
 		case "table-column": {
 			const lookup = context.lookup;
 			if (lookup?.rowScope === undefined) {
@@ -632,6 +675,11 @@ export function emitTermSegment(
 			);
 		case "literal":
 			return emitCsqlLiteralSegment(t.value);
+		case "fixed-location":
+		case "owner-location-at-level":
+			throw new Error(
+				`emitTermSegment: '${t.kind}' is an on-device organization lookup and cannot be emitted into server-side CSQL.`,
+			);
 		case "table-column":
 			throw new Error(
 				"emitTermSegment: a lookup-table column term is valid only inside its table-lookup row predicate. It cannot be emitted directly into a case-query CSQL value; validation should reject the escaped table-row term before emission.",

@@ -50,6 +50,7 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
+import { personaLocationsSchema } from "./organization";
 import {
 	mergeOwnRecords,
 	ownRecordSchema,
@@ -397,6 +398,8 @@ export const personaSchema = z
 		userTypeUuid: uuidSchema.optional(),
 		/** Values that differ from the user type's defaults. */
 		values: userDataValuesSchema.optional(),
+		/** One valid-by-construction primary plus optional additional places. */
+		locations: personaLocationsSchema.optional(),
 	})
 	.strict();
 export type Persona = z.infer<typeof personaSchema>;

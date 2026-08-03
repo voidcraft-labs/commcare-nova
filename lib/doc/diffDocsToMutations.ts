@@ -493,6 +493,7 @@ export function diffDocsToMutations(
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
 	collections.push(...diffUserCollections(prev, next));
+	collections.push(...diffOrganizationCollections(prev, next));
 
 	// ── Module / form / field set deltas ──────────────────────────────
 	const moduleDelta = setDelta(
@@ -1864,6 +1865,76 @@ function diffUserCollections(
 	for (const uuid of Object.keys(prevPersonas)) {
 		if (!hasOwnRecordKey(nextPersonas, uuid)) {
 			out.push({ kind: "removePersona", uuid: asUuid(uuid) });
+		}
+	}
+	return out;
+}
+
+/** The Blueprint-owned organization shape, using its exact membership arrays. */
+function diffOrganizationCollections(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevLevels = prev.organizationLevels ?? {};
+	const nextLevels = next.organizationLevels ?? {};
+	for (const [index, uuid] of (next.organizationLevelOrder ?? []).entries()) {
+		const level = ownRecordValue(nextLevels, uuid);
+		if (level === undefined) continue;
+		const before = ownRecordValue(prevLevels, uuid);
+		if (before === undefined) {
+			out.push({
+				kind: "addOrganizationLevel",
+				level: cloneEntity(level),
+				after:
+					index === 0
+						? null
+						: asUuid(next.organizationLevelOrder?.[index - 1] ?? ""),
+			});
+		} else if (!deepEqual(before, level)) {
+			if (before.code !== level.code) {
+				throw new Error("An organization level's code is create-once.");
+			}
+			const { code: _code, ...patch } = userPatch(before, level);
+			out.push({
+				kind: "updateOrganizationLevel",
+				uuid: asUuid(uuid),
+				patch,
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevLevels)) {
+		if (!hasOwnRecordKey(nextLevels, uuid)) {
+			out.push({ kind: "removeOrganizationLevel", uuid: asUuid(uuid) });
+		}
+	}
+
+	const prevProperties = prev.locationProperties ?? {};
+	const nextProperties = next.locationProperties ?? {};
+	for (const [index, uuid] of (next.locationPropertyOrder ?? []).entries()) {
+		const property = ownRecordValue(nextProperties, uuid);
+		if (property === undefined) continue;
+		const before = ownRecordValue(prevProperties, uuid);
+		if (before === undefined) {
+			out.push({
+				kind: "addLocationProperty",
+				property: cloneEntity(property),
+				after:
+					index === 0
+						? null
+						: asUuid(next.locationPropertyOrder?.[index - 1] ?? ""),
+			});
+		} else if (!deepEqual(before, property)) {
+			out.push({
+				kind: "updateLocationProperty",
+				uuid: asUuid(uuid),
+				patch: userPatch(before, property),
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevProperties)) {
+		if (!hasOwnRecordKey(nextProperties, uuid)) {
+			out.push({ kind: "removeLocationProperty", uuid: asUuid(uuid) });
 		}
 	}
 	return out;

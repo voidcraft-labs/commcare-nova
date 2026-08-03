@@ -57,6 +57,7 @@ import {
 	casePropertyDataTypes,
 } from "@/lib/domain/casePropertyTypes";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type { OrganizationLevel } from "@/lib/domain/organization";
 import type { Uuid } from "@/lib/domain/uuid";
 import { unhandledKindMessage } from "./errors";
 import type {
@@ -140,6 +141,8 @@ export type TypeContext = {
 	operationIds?: ReadonlySet<Uuid>;
 	/** Submission-local owner sentinels admitted only by owner-value slots. */
 	ownerValues?: boolean;
+	/** Organization topology available to case-owner location terms. */
+	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/** Current saved names for identity-backed custom worker information. */
 	userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Rows-free lookup definition types available to table-lookup nodes. */
@@ -1751,6 +1754,75 @@ export function resolveTermType(
 				return undefined;
 			}
 			return type;
+		}
+		case "fixed-location":
+			if (ctx.ownerValues !== true) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message:
+						"A fixed place is available only as the complete value of a case-owner expression.",
+				});
+				return undefined;
+			}
+			return "text";
+		case "owner-location-at-level": {
+			if (ctx.ownerValues !== true) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message:
+						"An owner-to-place hop is available only as the complete value of a case-owner expression.",
+				});
+				return undefined;
+			}
+			const levels = ctx.organizationLevels;
+			const destination = levels?.[term.levelUuid];
+			if (destination === undefined) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message:
+						"This owner hop points at an organization level that no longer exists.",
+				});
+				return undefined;
+			}
+			if (!destination.caseFlow.ownsCases) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message: `The destination level '${destination.name}' does not own cases.`,
+				});
+				return undefined;
+			}
+			let ancestor =
+				destination.parentLevelUuid === undefined
+					? undefined
+					: levels?.[destination.parentLevelUuid];
+			const seen = new Set<string>([destination.uuid]);
+			while (ancestor !== undefined && !ancestor.caseFlow.ownsCases) {
+				if (seen.has(ancestor.uuid)) break;
+				seen.add(ancestor.uuid);
+				ancestor =
+					ancestor.parentLevelUuid === undefined
+						? undefined
+						: levels?.[ancestor.parentLevelUuid];
+			}
+			if (ancestor === undefined || !ancestor.caseFlow.ownsCases) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message: `The destination level '${destination.name}' has no case-owning level above it to match against the current owner.`,
+				});
+				return undefined;
+			}
+			const ownerType = resolveTermType(
+				{ kind: "prop", caseType: term.ownerCaseType, property: "owner_id" },
+				ctx,
+				errors,
+				path,
+			);
+			return ownerType === undefined ? undefined : "text";
 		}
 		case "literal":
 			return literalType(term);

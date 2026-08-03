@@ -1,0 +1,166 @@
+---
+title: Organization
+description: Describe where people work, and control what each place owns and who can see it.
+---
+
+Apps that serve more than one site need to know about places. A referral has to
+land somewhere; a supervisor should see their whole district while a clinic
+worker sees only their clinic; a form needs to name the site a worker belongs
+to. **App setup → Organization** is where you describe that structure.
+
+There are three things on that screen, and the order is the order you build
+them: the **levels** of your organization, the **information** its places
+carry, and the **places** themselves.
+
+## Levels
+
+A level is a rung — Region, District, Facility, Ward. You add them top down,
+each sitting under the one above it.
+
+Each level answers two questions, and the screen keeps them apart on purpose,
+because they are genuinely separate and mixing them up is the most common way an
+app ends up behaving strangely.
+
+### Cases: what a worker receives
+
+**People work here** decides whether workers can be assigned to places at this
+level.
+
+**Places here own cases** decides whether cases can belong to a place at this
+level.
+
+Those two are independent, and all four combinations are useful:
+
+- **Both on** — an ordinary place people work out of. Workers assigned there
+  receive the cases their place owns.
+- **Owns cases, nobody works here** — a queue. Cases live there and reach
+  nobody's device by assignment, so they stay out of every worker's app while
+  remaining searchable and addressable. This is how you keep a large backlog
+  from being downloaded onto every phone.
+- **People work here, owns nothing** — an oversight rung. Everything those
+  workers receive comes from the setting below.
+- **Neither** — pure structure, a rung that exists so places below it have
+  something to sit in.
+
+**Workers also receive cases from places below** widens what an assigned worker
+gets. "Everything below" is the common answer. Stopping at a particular level
+needs a setting enabled on the CommCare project you deploy to — Nova tells you
+that where you choose it, and Deployment lists it as a prerequisite, because
+without it workers would quietly receive everything below instead.
+
+### What workers here can see
+
+Seeing a place and receiving its cases are different things, and this is the
+setting people most often expect to do both. It does not. Widening it lets your
+expressions **name** more places; it moves no cases at all.
+
+The choices:
+
+- **Their own place, everything under it, and the chain above** — the default,
+  and right for most levels.
+- **Their own place, but only certain levels** — narrows a large tree to the
+  rungs that matter.
+- **Everything under a level further up** — lets a worker address places beside
+  their own, such as the other clinics in their district.
+- **The whole organization** — every place, for apps small enough to afford it.
+
+The address book ships to every device, so widening it costs download size for
+every worker at that level. That is the trade you are making.
+
+## Place information
+
+Places already carry a name and a code. **Place information** is anything else
+you need on them — a phone number, a catchment population, an opening date.
+
+Each entry has a name people read and a key CommCare stores it under. Nova
+checks that key as you type against the rules CommCare applies, and this matters
+more than it looks: CommCare accepts a key it does not recognize without
+complaining and stores it where nothing will ever read it. A typo would not fail
+loudly; it would quietly do nothing. So Nova refuses the bad key up front
+instead.
+
+An entry applies to every level by default. Narrow it when only some kinds of
+place have that information. You can also require a value or give the entry a
+closed list of accepted values. Nova checks existing places before tightening
+any of those rules, so a catalog edit cannot strand information that no longer
+fits it.
+
+## Places
+
+The places themselves — your actual districts and facilities. Unlike levels,
+these are data: you can add thousands, and later push them to CommCare.
+
+Each place sits at a level and inside a place above it. **A place may skip a
+level** — if some regions run districts and some do not, a facility can hang
+directly off its region. Nova does not make you invent a placeholder district,
+because a made-up place is worse than an absent one: expressions that look for
+the district would find the fake one and give a confident wrong answer, where a
+genuine gap gives an honest empty one.
+
+One thing to know if you plan to publish: CommCare's own interface cannot create
+a place that skips a level. Your app previews and exports correctly either way,
+and Deployment tells you before it tries.
+
+Every place gets a **code** when you create it, and that code never changes —
+renaming a place leaves it alone. The code is what bulk uploads and CommCare use
+to identify the place, so it has to stay put even as the name changes.
+
+Open a place to edit its name, its ID in another system, where it sits, and the
+place-information values that apply at its level. Moving a place keeps its code
+and its whole subtree; Nova offers only destinations that preserve the level
+hierarchy.
+
+### Archiving
+
+Places are archived rather than deleted, because deleting one would strand the
+cases it owns with no way back.
+
+Archiving a place also archives everything under it, and Nova tells you exactly
+what will happen before you confirm:
+
+- how many places go with it;
+- which personas stop working there — their next remaining place becomes their
+  main one, and a persona left with nowhere carries no location information at
+  all;
+- how many cases are owned there. **Those cases do not move.** They stay where
+  they are and stop reaching anyone, which is what CommCare itself does. Bringing
+  the place back is what makes them reachable again.
+
+If a form uses the place as a fixed case owner, Nova names that form and blocks
+the archive. Change the owner rule first; silently removing it would change
+where future cases go.
+
+Bringing a place back also restores the path to it, since a place is unreachable
+while anything above it is archived. It does not restore assignments — those are
+your edits now, and Nova will not overwrite a deliberate change with the memory
+of an older one.
+
+## Assigning a persona
+
+A persona's places are set on **App setup → Users & personas**, under **Where
+they work**. The first place in the list is their main one; use **Make main** to
+promote another.
+
+A persona assigned nowhere carries no location information at all — the same as
+an unassigned CommCare worker. That is deliberate rather than an oversight: it
+is exactly what the app would see, so a condition that depends on a worker's
+location behaves in preview the way it will on a device.
+
+## Sending a case to a place
+
+On a form's **Case changes** screen, **Who owns the case** can point to a place
+in two safe ways:
+
+- **A particular place** stores that place's identity. Renaming the place does
+  not break the rule. The place must own cases, and every assigned persona must
+  be able to carry it in their address book.
+- **A place beneath the current case owner** finds a place at a chosen level by
+  following the organization's built-in lineage. This is useful for queues
+  such as a facility's private data bucket: the selected case belongs to the
+  facility, and the new case goes to the bucket under that same facility.
+
+These are structural references, not pasted expressions. Nova updates their
+printed names from the current organization and refuses a rule whose level or
+place can no longer work. Case flow still decides whether the destination owns
+cases; address-book visibility decides whether a worker can name it. One does
+not substitute for the other.

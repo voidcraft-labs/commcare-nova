@@ -60,6 +60,7 @@ vi.mock("../pg", () => ({
 	PRESENCE_CHANNEL: "nova_presence",
 	CHAT_STREAM_CHANNEL: "nova_chat_stream",
 	LOOKUP_STREAM_CHANNEL: "nova_lookup_stream",
+	ORGANIZATION_STREAM_CHANNEL: "nova_organization_stream",
 }));
 
 const {
@@ -68,6 +69,7 @@ const {
 	subscribeAppStream,
 	subscribeChatStream,
 	subscribeLookupProject,
+	subscribeAppOrganization,
 } = await import("../streamListener");
 
 async function waitForClientCount(count: number): Promise<void> {
@@ -79,7 +81,7 @@ async function waitForClientCount(count: number): Promise<void> {
 
 async function settleMicrotasks(): Promise<void> {
 	/* A reconnect crosses the old client's end promise, config resolution,
-	 * connect, four sequential LISTEN queries, and the connecting-promise
+	 * connect, five sequential LISTEN queries, and the connecting-promise
 	 * cleanup. Drain that whole deterministic chain without a real timer. */
 	for (let i = 0; i < 50; i += 1) await Promise.resolve();
 }
@@ -105,18 +107,23 @@ afterEach(async () => {
 });
 
 describe("shared stream listener", () => {
-	it("uses one client for all four LISTEN channels and preserves existing fan-out", async () => {
+	it("uses one client for all five LISTEN channels and preserves fan-out", async () => {
 		const onMutation = vi.fn();
 		const onPresence = vi.fn();
 		const onChat = vi.fn();
 		const onLookup = vi.fn();
+		const onOrganization = vi.fn();
 
 		const unsubscribeApp = subscribeAppStream("app-a", onMutation, onPresence);
 		const unsubscribeChat = subscribeChatStream("stream-a", onChat);
 		const unsubscribeLookup = subscribeLookupProject("project-a", onLookup);
+		const unsubscribeOrganization = subscribeAppOrganization(
+			"app-a",
+			onOrganization,
+		);
 		await waitForClientCount(1);
 		await vi.waitFor(() =>
-			expect(fakePg.instances[0]?.query).toHaveBeenCalledTimes(4),
+			expect(fakePg.instances[0]?.query).toHaveBeenCalledTimes(5),
 		);
 		await vi.waitFor(() => expect(onLookup).toHaveBeenCalledWith("0"));
 
@@ -127,6 +134,7 @@ describe("shared stream listener", () => {
 			"LISTEN nova_presence",
 			"LISTEN nova_chat_stream",
 			"LISTEN nova_lookup_stream",
+			"LISTEN nova_organization_stream",
 		]);
 
 		// Ignore the initial-connect catch-up; the assertions below pin ordinary
@@ -135,18 +143,25 @@ describe("shared stream listener", () => {
 		onPresence.mockClear();
 		onChat.mockClear();
 		onLookup.mockClear();
+		onOrganization.mockClear();
 		notify(current, "nova_app_stream", { appId: "app-a", seq: 41 });
 		notify(current, "nova_presence", { appId: "app-a" });
 		notify(current, "nova_chat_stream", { streamId: "stream-a" });
+		notify(current, "nova_organization_stream", {
+			appId: "app-a",
+			revision: "17",
+		});
 
 		expect(onMutation).toHaveBeenCalledExactlyOnceWith(41);
 		expect(onPresence).toHaveBeenCalledOnce();
 		expect(onChat).toHaveBeenCalledOnce();
 		expect(onLookup).not.toHaveBeenCalled();
+		expect(onOrganization).toHaveBeenCalledExactlyOnceWith("17");
 
 		unsubscribeApp();
 		unsubscribeChat();
 		unsubscribeLookup();
+		unsubscribeOrganization();
 	});
 
 	it("fans exact bigint revisions only to the named Project", async () => {

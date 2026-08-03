@@ -199,6 +199,7 @@ describe("runtime row-lock privilege contract", () => {
 			"app_changes",
 			"case_schema_index_deletions",
 			"media_asset_refs",
+			"app_location_references",
 			"app_change_fold_baselines",
 		]);
 		for (const table of RUNTIME_TABLES_WITHOUT_UPDATE) {

@@ -262,6 +262,11 @@ export function compileTerm(
 			);
 		case "table-column":
 			return compileLookupColumnTerm(term, ctx);
+		case "fixed-location":
+		case "owner-location-at-level":
+			throw new Error(
+				`compileTerm: '${term.kind}' is valid only in an on-device case-owner expression.`,
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

@@ -184,6 +184,28 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A role or persona has a value that isn't one of the accepted options. Pick one from the list, or add it to the list first.",
 	USER_PROPERTY_REFERENCE_UNKNOWN: () =>
 		"A condition or calculation uses worker information that no longer exists. Choose current worker information or add it back first.",
+	ORGANIZATION_LEVEL_CODE_DUPLICATE: () =>
+		"Two organization levels use the same code. Give each level its own stable code.",
+	ORGANIZATION_LEVEL_NAME_DUPLICATE: () =>
+		"Two organization levels have the same name. Give each level a name of its own.",
+	ORGANIZATION_LEVEL_PARENT_UNKNOWN: () =>
+		"An organization level sits under a level that no longer exists. Choose a current parent or make it a top level.",
+	ORGANIZATION_LEVEL_CYCLE: () =>
+		"The organization levels loop back on themselves. Change a parent so every path reaches a top level.",
+	ORGANIZATION_LEVEL_REFERENCE_UNKNOWN: () =>
+		"An organization setting names a level that no longer exists. Choose a current level.",
+	ORGANIZATION_LEVEL_CAP_NOT_BELOW: () =>
+		"A depth limit points sideways or upward. Choose the same level or one below it.",
+	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: () =>
+		"A shared address-book branch must start from a level above the workers. Choose one of its ancestors.",
+	LOCATION_PROPERTY_SLUG_INVALID: () =>
+		"CommCare won't accept the saved name for this place information. Use a letter or underscore first, then letters, numbers, underscores, or hyphens.",
+	LOCATION_PROPERTY_SLUG_DUPLICATE: () =>
+		"Two pieces of place information save under the same name. Give one of them a different name.",
+	LOCATION_PROPERTY_LEVEL_UNKNOWN: () =>
+		"Place information applies to a level that no longer exists. Choose current levels or let it apply everywhere.",
+	PERSONA_LOCATION_PRIMARY_REPEATED: () =>
+		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>

@@ -29,9 +29,11 @@ import {
 import { asUuid } from "@/lib/doc/types";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useOrganization } from "@/lib/organization/useOrganization";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { DraftCommitInput } from "./DraftCommitField";
+import { PersonaLocations } from "./PersonaLocations";
 import { PersonaRemoveConfirm } from "./PersonaRemoveConfirm";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
@@ -42,6 +44,8 @@ export function PersonasSubsection() {
 	const properties = useUserProperties();
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
+	const appId = useAppId();
+	const organization = useOrganization(appId ?? "");
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
 	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
@@ -88,6 +92,8 @@ export function PersonasSubsection() {
 						focusOnMount={focusUuid === persona.uuid}
 						onFocused={() => setFocusUuid(undefined)}
 						returnFocusRef={addButtonRef}
+						locations={organization.locations}
+						locationsLoading={organization.loading}
 					/>
 				))
 			)}
@@ -113,6 +119,8 @@ function PersonaRow({
 	focusOnMount,
 	onFocused,
 	returnFocusRef,
+	locations,
+	locationsLoading,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
@@ -122,6 +130,8 @@ function PersonaRow({
 	focusOnMount: boolean;
 	onFocused: () => void;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
+	locations: Parameters<typeof PersonaLocations>[0]["locations"];
+	locationsLoading: boolean;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
@@ -252,6 +262,12 @@ function PersonaRow({
 						))
 					)}
 				</div>
+
+				<PersonaLocations
+					persona={persona}
+					locations={locations}
+					loading={locationsLoading}
+				/>
 
 				{canEdit && (
 					<PersonaRemoveConfirm

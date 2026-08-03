@@ -100,6 +100,8 @@ export function mutationTargetsInvalid(
 	const userProperties = new Set(Object.keys(doc.userProperties ?? {}));
 	const userTypes = new Set(Object.keys(doc.userTypes ?? {}));
 	const personas = new Set(Object.keys(doc.personas ?? {}));
+	const organizationLevels = new Set(Object.keys(doc.organizationLevels ?? {}));
+	const locationProperties = new Set(Object.keys(doc.locationProperties ?? {}));
 	const userTypeValues = new Map(
 		Object.values(doc.userTypes ?? {}).map((userType) => [
 			userType.uuid,
@@ -697,6 +699,26 @@ export function mutationTargetsInvalid(
 				}
 				break;
 			}
+			case "addOrganizationLevel":
+				organizationLevels.add(m.level.uuid);
+				break;
+			case "removeOrganizationLevel":
+				if (!organizationLevels.has(m.uuid)) return true;
+				organizationLevels.delete(m.uuid);
+				break;
+			case "updateOrganizationLevel":
+				if (!organizationLevels.has(m.uuid)) return true;
+				break;
+			case "addLocationProperty":
+				locationProperties.add(m.property.uuid);
+				break;
+			case "removeLocationProperty":
+				if (!locationProperties.has(m.uuid)) return true;
+				locationProperties.delete(m.uuid);
+				break;
+			case "updateLocationProperty":
+				if (!locationProperties.has(m.uuid)) return true;
+				break;
 			// ── App-level scalars — no entity target, always safe ──────
 			case "setAppName":
 			case "setConnectType":

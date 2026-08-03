@@ -1143,6 +1143,12 @@ export function planReferenceIndexMaintenance(
 		case "addPersona":
 		case "updatePersona":
 		case "removePersona":
+		case "addOrganizationLevel":
+		case "updateOrganizationLevel":
+		case "removeOrganizationLevel":
+		case "addLocationProperty":
+		case "updateLocationProperty":
+		case "removeLocationProperty":
 			break;
 		default: {
 			const _exhaustive: never = mut;

@@ -34,6 +34,7 @@ import {
 	double,
 	eq,
 	exists,
+	fixedLocation,
 	formatDate,
 	gt,
 	ifExpr,
@@ -51,6 +52,7 @@ import {
 	not,
 	now,
 	or,
+	ownerLocationAtLevel,
 	prop,
 	relationStep,
 	selfPath,
@@ -362,6 +364,86 @@ describe("checkPredicate — comparison operators", () => {
 	it("accepts null literal compared against any typed property (is-unset filter)", () => {
 		const p = eq(prop("patient", "age"), literal(null));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+});
+
+describe("case-owner location terms", () => {
+	const REGION = testUuid("owner-region-level");
+	const FACILITY = testUuid("owner-facility-level");
+	const BUCKET = testUuid("owner-bucket-level");
+	const ownerContext = {
+		...ctx,
+		ownerValues: true,
+		caseTypes: [
+			{
+				...PATIENT,
+				properties: [
+					...PATIENT.properties,
+					{
+						name: "owner_id",
+						label: proseText("Owner"),
+						data_type: "text" as const,
+					},
+				],
+			},
+		],
+		organizationLevels: {
+			[REGION]: {
+				uuid: REGION,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none" as const, ownsCases: false },
+				addressBook: { reach: "own-branch" as const },
+			},
+			[FACILITY]: {
+				uuid: FACILITY,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: REGION,
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+			[BUCKET]: {
+				uuid: BUCKET,
+				code: "facility_data",
+				name: "Facility data",
+				parentLevelUuid: FACILITY,
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+		},
+	};
+
+	it("admits both typed terms only in a case-owner value slot", () => {
+		const fixed = term(fixedLocation(testUuid("fixed-place")));
+		expect(checkValueExpression(fixed, ownerContext).ok).toBe(true);
+		expect(checkValueExpression(fixed, ctx).ok).toBe(false);
+
+		const reverse = term(ownerLocationAtLevel(BUCKET, "patient"));
+		expect(checkValueExpression(reverse, ownerContext).ok).toBe(true);
+		expect(checkValueExpression(reverse, ctx).ok).toBe(false);
+	});
+
+	it("refuses a reverse hop without a case-owning ancestor", () => {
+		const result = checkValueExpression(
+			term(ownerLocationAtLevel(FACILITY, "patient")),
+			{
+				...ownerContext,
+				organizationLevels: {
+					...ownerContext.organizationLevels,
+					[FACILITY]: {
+						...ownerContext.organizationLevels[FACILITY],
+						caseFlow: { workers: "none", ownsCases: true },
+					},
+				},
+			},
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.map((error) => error.message).join(" ")).toContain(
+				"no case-owning level above",
+			);
+		}
 	});
 });
 

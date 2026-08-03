@@ -21,6 +21,7 @@ import {
 	double,
 	eq,
 	exists,
+	fixedLocation,
 	formField,
 	idOf,
 	ifExpr,
@@ -1498,6 +1499,18 @@ describe("case-operation links and on-device totality", () => {
 		]) {
 			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [operation]);
 		}
+	});
+
+	it("admits a fixed place only as the complete owner expression", () => {
+		const fixed = term(fixedLocation(testUuid("fixed-owner-location")));
+		const whole = errorsFor([update({ owner: fixed })]);
+		expect(whole.map((error) => error.code)).not.toContain(
+			"CASE_OPERATION_EXPRESSION_TYPE",
+		);
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({ owner: concat(fixed, term(literal("suffix"))) }),
+		]);
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [create({ name: fixed })]);
 	});
 
 	it("rejects schema-valid expressions that the on-device emitter cannot execute", () => {

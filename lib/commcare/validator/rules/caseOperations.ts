@@ -39,6 +39,7 @@ import {
 	type Module,
 	operationCanReadFormField,
 	orderedCaseOperations,
+	organizationLevelsOf,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
@@ -698,6 +699,31 @@ function validateTextExpression(
 	errors: ValidationError[],
 ): void {
 	if (expression === undefined) return;
+	const locationTerms: Term[] = [];
+	walkExpressionTerms(expression, (term) => {
+		if (
+			term.kind === "fixed-location" ||
+			term.kind === "owner-location-at-level"
+		) {
+			locationTerms.push(term);
+		}
+	});
+	if (
+		locationTerms.length > 0 &&
+		(facet !== "owner" ||
+			expression.kind !== "term" ||
+			(expression.term.kind !== "fixed-location" &&
+				expression.term.kind !== "owner-location-at-level"))
+	) {
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_EXPRESSION_TYPE",
+				"A place destination must be the complete case-owner value; it cannot be nested inside another calculation or used for a case name or rename.",
+			),
+		);
+	}
 	validateExpressionSlot(ctx, operation, expression, typeContext, errors, {
 		storageTypes: ["text"],
 	});
@@ -1088,6 +1114,7 @@ function expressionContext(
 		knownInputs: [],
 		currentCaseType: ctx.module.caseType,
 		userPropertySlugs: userPropertySlugsByUuid(ctx.doc),
+		organizationLevels: organizationLevelsOf(ctx.doc),
 		formFields: new Map(
 			[...ctx.fields]
 				.filter(

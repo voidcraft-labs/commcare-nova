@@ -69,9 +69,10 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Ten authorable kinds share ONE global identity namespace — modules, forms,
+Twelve authorable kinds share ONE global identity namespace — modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
-worker properties, user types, and personas
+worker properties, user types, personas, organization levels, and location
+properties
 (`lib/domain/authoredIdentities.ts`) — because `blueprint_entities` keys every
 entity row by `(app_id, uuid)`, and because a nested identity is both an SA/MCP
 address and an expression leaf. App, case, Project, actor/owner, thread, run,
@@ -96,6 +97,71 @@ every record key equals its entity's embedded UUID. Both ends of
 the commit gate, and persistence cannot disagree about which topology is
 constructible. There is no orphan sentinel and no authorable entity outside
 the runnable tree. `lib/domain/CLAUDE.md` owns the detail.
+
+### Organization shape, places, and owner destinations
+
+An app's organization has two deliberately separate stores. The blueprint owns
+the shape: a branching forest of organization levels plus one flat catalog of
+place properties. Postgres owns the contents: app-scoped place rows whose
+parent, level, values, order, archive state, site code, and server-minted UUID
+are independently editable without folding a potentially large tree through
+the blueprint. Levels and properties are canonical authored identities; level
+codes are create-once because they become the location fixture's `@type` and
+`{code}_id` lineage attribute names
+(`corehq/apps/locations/models.py::LocationType`,
+`corehq/apps/locations/fixtures.py::FlatLocationSerializer._fill_in_location_element`).
+Property values key by property UUID, so a slug rename rewrites no place, and
+the catalog mirrors HQ's shared custom-data machinery with `LocationFields`
+rather than inventing a second field model
+(`corehq/apps/custom_data_fields/models.py::CustomDataFieldsDefinition`).
+
+A level answers two independent authoring questions. `caseFlow` says whether
+workers stand there, whether the level owns cases, and whether assigned workers
+also receive descendant-owned cases. `addressBook` says which part of the
+organization those workers may see and name. Nova exposes closed, coherent
+choices rather than HQ's interacting storage flags: `shares_cases`,
+`view_descendants`, and `expand_view_child_data_to` govern case delivery, while
+`expand_from`, `expand_from_root`, `expand_to`, `include_without_expanding`, and
+`include_only` govern fixture contents
+(`corehq/apps/locations/models.py::LocationType`,
+`corehq/apps/locations/sql_templates/get_location_fixture_ids.sql`). A place
+that owns cases and a place a worker may address are therefore never treated as
+the same concept. HQ's location-scoped web permissions remain absent because
+they are a console-authorization axis with no device wire representation
+(`corehq/apps/locations/permissions.py::location_safe`).
+
+Each persona holds one adjacent assignment value: a primary place followed by
+zero or more additional places. Every target must be live and at a level that
+accepts workers, and Preview projects the assignment into the built-in location
+identity values while leaving them empty for an unassigned persona. The Builder,
+SA tools, and MCP tools create and edit the same levels, properties, places, and
+assignments; public documentation uses the same Organization vocabulary.
+
+Case ownership is typed rather than authored as a free-form location XPath. A
+fixed-place owner stores a place UUID and is admitted only when that live place
+owns cases and lies within every applicable persona's address book. An
+owner-relative destination stores the destination level UUID plus a typed owner
+case expression; admission requires a case-owning destination and the nearest
+case-owning ancestor needed for the reverse hop. Emission resolves those
+identities to either the fixed location id or the exact flat-fixture lineage
+lookup, and declares the `locations` and `casedb` instances only when required.
+Location terms occupy the entire owner rule, so they cannot become a subtly
+wrong arithmetic, name, or nested expression.
+
+Blueprint commits and place writes share the app-row-first lock order. Each
+commit replaces the exact set of concrete place-reference edges for persona
+assignments and fixed owners, so a concurrent delete cannot strand either;
+removing a place-property declaration atomically sheds its UUID-keyed values,
+and a level cannot be removed while any live or archived place still uses it
+(`corehq/apps/locations/views.py::LocationTypesView.remove_old_location_types`).
+Archiving a subtree clears its persona assignments in the same transaction,
+refuses while a fixed owner rule names the subtree, and reports case-owning
+places before confirmation. It never reassigns cases: removing the last worker
+merely leaves existing `owner_id` values orphaned, matching HQ's warning-only
+behavior. Because place rows are keyed by app rather than Project, the
+authoritative cross-Project app move carries the whole organization without a
+second retenant operation. `lib/domain/CLAUDE.md` and
+`lib/organization/CLAUDE.md` own the implementation detail.
 
 ### Expressions and prose store identity; text is a projection
 
@@ -1274,7 +1340,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Twelve units, one file each. **Every entry below is a pointer, not a summary of
+Eleven units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1306,22 +1372,10 @@ bytes endpoint and the HTML viewer route that must never be linked instead, the
 calculate that builds the URL, and why Web Apps never displays a case attachment
 in-app.
 
-### Organization model and locations store
-
-[`complex-app/organization-model-and-locations-store.md`](complex-app/organization-model-and-locations-store.md)
-· depends on nothing · blocks the usercase, automations, deployment-core, and
-app-setup-UI units
-
-The app-wide custom-field catalog, stable level and site codes, app-scoped
-location rows, archive and reassignment rules, and role-aware owner validation.
-**The file holds** the two independent flag axes that are classically conflated,
-the owner-set assembly with its two easily-dropped filters, and what actually
-happens to cases when a location loses its last worker.
-
 ### Usercase, owner sets, restore scope, and wire
 
 [`complex-app/usercase-owner-sets-and-wire.md`](complex-app/usercase-owner-sets-and-wire.md)
-· depends on the organization model · blocks the app-setup-UI unit
+· depends on nothing outstanding · blocks the app-setup-UI unit
 
 Usercase materialization, owner-set derivation, tenant-complete restore closure,
 and the flat location fixture. **The file holds** the three-rule liveness fixpoint
@@ -1332,7 +1386,7 @@ fixture when missed.
 ### Representable automations and setup guidance
 
 [`complex-app/automations-and-setup-guidance.md`](complex-app/automations-and-setup-guidance.md)
-· depends on the organization model · blocks the deployment-core and
+· depends on nothing outstanding · blocks the deployment-core and
 app-setup-UI units
 
 Automation schemas limited to what HQ can represent, plus regenerated setup
@@ -1344,7 +1398,7 @@ versus setup-artifact-only.
 ### Deployment core and artifact
 
 [`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
-· depends on the organization model and automations · blocks the
+· depends on automations · blocks the
 attachment-emission, push-and-provisioning, and app-setup-UI units
 
 Durable deployment and resource-mapping records, preflight, ownership and
@@ -1367,13 +1421,13 @@ the org model is not pushable at all.
 ### App setup UI, SA, MCP, and docs
 
 [`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
-· depends on every other unit in the deployment chain plus the usercase unit
+· depends on the remaining deployment-chain units plus the usercase unit
 · blocks nothing
 
-The App setup workspace's three remaining sections — Organization, Automations,
-and Deployment — plus the SA and MCP surfaces and public docs for the five
-prerequisite units. **The file is deliberately short**: its substance is the
-prerequisite units' files and the baseline UI review in the contracts.
+The App setup workspace's two remaining sections — Automations and Deployment —
+plus the SA and MCP surfaces and public docs for the four prerequisite units.
+**The file is deliberately short**: its substance is the prerequisite units'
+files and the baseline UI review in the contracts.
 
 ### Exclusive form links and sections
 
@@ -1428,23 +1482,22 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | --- | --- |
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
-| [organization model and locations store](complex-app/organization-model-and-locations-store.md) | — |
-| [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | organization model |
-| [automations](complex-app/automations-and-setup-guidance.md) | organization model |
-| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | organization model, automations |
+| [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
+| [automations](complex-app/automations-and-setup-guidance.md) | — |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | automations |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | organization model, usercase, automations, deployment core, push and provisioning |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, automations, deployment core, push and provisioning |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Three units have no outstanding prerequisites and can start in any order:
-grouped case tiles, the organization model, and form links and sections. They
+Four units have no outstanding prerequisites and can start in any order:
+grouped case tiles, the usercase, automations, and form links and sections. They
 are the independent entry points — every other unit descends from one of them.
 
-The deployment chain (organization model → automations → deployment core →
-push and provisioning) is the critical path: it gates attachment emission, the
+The remaining deployment chain (automations → deployment core → push and
+provisioning) is the critical path: it gates attachment emission, the
 App setup UI, session endpoints, and multi-select, so anything needing a real
 HQ target waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
@@ -1455,8 +1508,7 @@ its own prerequisites are met. Grouped case tiles are both an entry point and
 a leaf: nothing blocks them and nothing waits on them, which makes them the
 natural filler whenever the deployment chain is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
-on it, so it can follow the organization model without holding up deployment
-core.
+on it, so it can proceed independently without holding up deployment core.
 
 ---
 

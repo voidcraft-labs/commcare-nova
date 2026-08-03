@@ -27,11 +27,13 @@ import {
 	fieldSchema,
 	formIconRefSchema,
 	formSchema,
+	locationPropertySchema,
 	mediaAssetIdSchema,
 	mediaSchema,
 	moduleIconRefSchema,
 	moduleSchema,
 	ordinaryCaseSearchConfigSchema,
+	organizationLevelSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
 	type SearchInputDef,
@@ -327,6 +329,14 @@ const userTypeEntityUpdatePatchSchema = userTypeUpdatePatchSchema.omit({
 const personaEntityUpdatePatchSchema = personaUpdatePatchSchema.omit({
 	values: true,
 });
+const organizationLevelUpdatePatchSchema = clearablePartialPatch(
+	organizationLevelSchema,
+).omit({
+	code: true,
+});
+const locationPropertyUpdatePatchSchema = clearablePartialPatch(
+	locationPropertySchema,
+);
 const userDataValuePatchSchema = z
 	.object({
 		userPropertyUuid: uuidSchema,
@@ -911,6 +921,38 @@ function createMutationSchema({
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
+		// ─── Organization levels and place-information fields ────────────────
+		// The organization shape uses the same record + membership-array model
+		// as worker information. A level's external code is create-once, so its
+		// update schema deliberately has no `code` slot.
+		z.object({
+			kind: z.literal("addOrganizationLevel"),
+			level: organizationLevelSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
+		z.object({
+			kind: z.literal("updateOrganizationLevel"),
+			uuid: uuidSchema,
+			patch: organizationLevelUpdatePatchSchema,
+		}),
+		z.object({
+			kind: z.literal("removeOrganizationLevel"),
+			uuid: uuidSchema,
+		}),
+		z.object({
+			kind: z.literal("addLocationProperty"),
+			property: locationPropertySchema,
+			after: uuidSchema.nullable().optional(),
+		}),
+		z.object({
+			kind: z.literal("updateLocationProperty"),
+			uuid: uuidSchema,
+			patch: locationPropertyUpdatePatchSchema,
+		}),
+		z.object({
+			kind: z.literal("removeLocationProperty"),
+			uuid: uuidSchema,
+		}),
 		// ─── Granular case-list collections ──────────────────────────────────
 		//
 		// `caseListConfig.columns` / `.searchInputs` are membership arrays whose

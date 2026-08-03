@@ -8,6 +8,7 @@
  */
 
 import { type Kysely, sql } from "kysely";
+import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "../postFrozenCanonicalIdentityRelations";
 import {
 	type FrozenStorageSnapshot,
 	frozenExactTextSequenceDigest,
@@ -290,6 +291,10 @@ export async function captureFrozenCutoverCatalogEvidence<DB>(
 	for (const table of FROZEN_PROJECT_ORPHAN_AUTH_TABLES) {
 		allowedRelations.add(`public.${table}`);
 	}
+	const allowedDependencyRelations = new Set(allowedRelations);
+	for (const table of POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES) {
+		allowedDependencyRelations.add(`public.${table}`);
+	}
 	const ownedRelationsJson = JSON.stringify(
 		[...allowedRelations].map((qualified) => {
 			const [schema_name, relation_name] = qualified.split(".");
@@ -406,7 +411,7 @@ export async function captureFrozenCutoverCatalogEvidence<DB>(
 			row.dependent_relation === null ? [] : [row.dependent_relation],
 		),
 		...incomingForeignKeys.rows.map((row) => row.source_relation),
-	].find((relation) => !allowedRelations.has(relation));
+	].find((relation) => !allowedDependencyRelations.has(relation));
 	if (unexpectedRelation !== undefined) {
 		throw new Error(
 			"Frozen cutover discovered an unowned apps dependency relation.",

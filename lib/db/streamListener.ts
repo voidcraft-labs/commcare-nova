@@ -4,7 +4,8 @@
  * One dedicated `pg.Client` per process (built from the SAME config source as
  * the case-store pool via `buildDedicatedClientConfig`) holds a persistent
  * `LISTEN nova_app_stream; LISTEN nova_presence; LISTEN nova_chat_stream;
- * LISTEN nova_lookup_stream;`. The commit paths poke the channels only after
+ * LISTEN nova_lookup_stream; LISTEN nova_organization_stream;`. The commit
+ * paths poke the channels only after
  * their authoritative rows are visible; this module fans each poke out to the
  * in-process subscribers registered by the `/stream` relay routes.
  *
@@ -29,6 +30,7 @@ import {
 	APP_STREAM_CHANNEL,
 	CHAT_STREAM_CHANNEL,
 	LOOKUP_STREAM_CHANNEL,
+	ORGANIZATION_STREAM_CHANNEL,
 	PRESENCE_CHANNEL,
 } from "./pg";
 
@@ -51,6 +53,10 @@ const chatSubscribers = new Map<string, Set<() => void>>();
  * Revisions remain decimal strings end to end because the Project clock is a
  * Postgres bigint and can exceed JavaScript's safe-integer range. */
 const lookupSubscribers = new Map<string, Set<(revision: string) => void>>();
+const organizationSubscribers = new Map<
+	string,
+	Set<(revision: string) => void>
+>();
 
 /** The dedicated LISTEN connection; `null` until the first subscriber builds it. */
 let client: Client | null = null;
@@ -83,7 +89,7 @@ const RECONNECT_MAX_MS = 5_000;
  * stranding the realtime listener for the process lifetime:
  *
  *   - `CONNECT_TIMEOUT_MS` bounds `Client.connect()` (pg default: no limit).
- *   - `QUERY_TIMEOUT_MS` bounds the four `LISTEN` commands (pg default: no
+ *   - `QUERY_TIMEOUT_MS` bounds the five `LISTEN` commands (pg default: no
  *     limit) — instant on a healthy server.
  *   - `END_TIMEOUT_MS` bounds the graceful `end()`'s wait for the server to
  *     close the socket; past it `endClientBounded` destroys the socket.
@@ -216,6 +222,9 @@ function dispatchCatchUpAll(): void {
 	for (const set of lookupSubscribers.values()) {
 		for (const onPoke of set) safeCall(() => onPoke("0"));
 	}
+	for (const set of organizationSubscribers.values()) {
+		for (const onPoke of set) safeCall(() => onPoke("0"));
+	}
 }
 
 function onNotification(msg: { channel: string; payload?: string }): void {
@@ -261,6 +270,21 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 	}
 	const appId = parsed.appId;
 	if (typeof appId !== "string") return;
+	if (msg.channel === ORGANIZATION_STREAM_CHANNEL) {
+		const revision = parsed.revision;
+		if (
+			appId.length === 0 ||
+			typeof revision !== "string" ||
+			!/^(?:0|[1-9]\d*)$/.test(revision) ||
+			BigInt(revision) > LOOKUP_REVISION_MAX
+		) {
+			return;
+		}
+		const set = organizationSubscribers.get(appId);
+		if (set === undefined) return;
+		for (const onPoke of set) safeCall(() => onPoke(revision));
+		return;
+	}
 	if (msg.channel === APP_STREAM_CHANNEL) {
 		const seq = typeof parsed.seq === "number" ? parsed.seq : 0;
 		dispatch(appId, (sub) => sub.onMutationPoke(seq));
@@ -287,6 +311,7 @@ async function establish(): Promise<void> {
 		await c.query(`LISTEN ${PRESENCE_CHANNEL}`);
 		await c.query(`LISTEN ${CHAT_STREAM_CHANNEL}`);
 		await c.query(`LISTEN ${LOOKUP_STREAM_CHANNEL}`);
+		await c.query(`LISTEN ${ORGANIZATION_STREAM_CHANNEL}`);
 	} catch (err) {
 		/* A throw AFTER a successful connect (a LISTEN query failing) would
 		 * otherwise leak a live connection that was never latched into `client`
@@ -462,6 +487,29 @@ export function subscribeLookupProject(
 	};
 }
 
+export function subscribeAppOrganization(
+	appId: string,
+	onPoke: (revision: string) => void,
+): () => void {
+	torndown = false;
+	let set = organizationSubscribers.get(appId);
+	if (set === undefined) {
+		set = new Set();
+		organizationSubscribers.set(appId, set);
+	}
+	set.add(onPoke);
+	void ensureConnected();
+	let unsubscribed = false;
+	return () => {
+		if (unsubscribed) return;
+		unsubscribed = true;
+		const current = organizationSubscribers.get(appId);
+		if (current === undefined) return;
+		current.delete(onPoke);
+		if (current.size === 0) organizationSubscribers.delete(appId);
+	};
+}
+
 /**
  * Tear down the dedicated LISTEN connection and cancel any pending reconnect.
  * For tests (and process teardown): drops every subscriber, ends the client, and
@@ -479,6 +527,7 @@ export async function closeStreamListener(): Promise<void> {
 	subscribers.clear();
 	chatSubscribers.clear();
 	lookupSubscribers.clear();
+	organizationSubscribers.clear();
 	// Await any in-flight connect so a client it establishes can't latch AFTER
 	// this returns (its own `torndown` check discards it, but awaiting closes the
 	// race window against the next test's connection).

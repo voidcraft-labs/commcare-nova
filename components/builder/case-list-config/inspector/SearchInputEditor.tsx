@@ -1131,6 +1131,9 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 			return value.term.field.length > 0;
 		case "session-user-property":
 			return true;
+		case "fixed-location":
+		case "owner-location-at-level":
+			return true;
 		case "table-column":
 			throw new Error(
 				"Lookup table columns are dormant and cannot reach the search-input editor.",

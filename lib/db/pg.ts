@@ -396,6 +396,42 @@ export interface LookupColumnReferencesTable {
 	app_id: string;
 }
 
+export interface AppOrganizationStateTable {
+	app_id: string;
+	revision: DefaultedLookupRevisionColumn;
+	location_count: ColumnType<number, number | undefined, number>;
+	updated_at: Timestamp;
+}
+
+export interface AppLocationsTable {
+	id: DefaultedUuidV7Column<string>;
+	app_id: string;
+	level_uuid: Uuid;
+	parent_id: string | null;
+	site_code: string;
+	name: string;
+	external_id: string | null;
+	/** Postgres numeric columns are returned as exact decimal strings. */
+	latitude: string | null;
+	longitude: string | null;
+	values: JSONColumnType<Record<string, string>>;
+	archived_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	order_key: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	created_by: string | null;
+	updated_by: string | null;
+}
+
+export interface AppLocationReferencesTable {
+	app_id: string;
+	location_id: string;
+}
+
 /**
  * One file a worker attached to a form in the running preview.
  *
@@ -490,6 +526,9 @@ export interface AppDatabase {
 	lookup_rows: LookupRowsTable;
 	lookup_table_references: LookupTableReferencesTable;
 	lookup_column_references: LookupColumnReferencesTable;
+	app_organization_state: AppOrganizationStateTable;
+	app_locations: AppLocationsTable;
+	app_location_references: AppLocationReferencesTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;
@@ -563,6 +602,7 @@ export const APP_STREAM_CHANNEL = "nova_app_stream";
 export const PRESENCE_CHANNEL = "nova_presence";
 export const CHAT_STREAM_CHANNEL = "nova_chat_stream";
 export const LOOKUP_STREAM_CHANNEL = "nova_lookup_stream";
+export const ORGANIZATION_STREAM_CHANNEL = "nova_organization_stream";
 
 /** Poke the stream channel from INSIDE the commit transaction. */
 export async function notifyAppStream(
@@ -583,6 +623,17 @@ export async function notifyLookupProject(
 	revision: string,
 ): Promise<void> {
 	await sql`SELECT pg_notify(${LOOKUP_STREAM_CHANNEL}, ${JSON.stringify({ projectId, revision })})`.execute(
+		tx,
+	);
+}
+
+/** Poke organization subscribers after one app-scoped tree revision commits. */
+export async function notifyAppOrganization(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	revision: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${ORGANIZATION_STREAM_CHANNEL}, ${JSON.stringify({ appId, revision })})`.execute(
 		tx,
 	);
 }

@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import { type Kysely, sql } from "kysely";
+import { POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES } from "../postFrozenCanonicalIdentityRelations";
 import {
 	captureFrozenCutoverCatalogEvidence,
 	captureFrozenCutoverLeaseState,
@@ -385,6 +386,10 @@ const FROZEN_UUID_SQL_IDENTITY_CONVERSION_DIGEST =
 	"feaae4f6007c3c1f3ed5cdb71ebffaf214867760bf6d98ef41264c883ebac1e0";
 const FROZEN_UUID_SQL_IDENTITY_STRUCTURAL_DIGEST =
 	"3bb842078df6a916496cd8517720c85e985c7be40a4e0d71d32f11bf2acad4a6";
+const FROZEN_BLUEPRINT_ENTITY_KIND_CHECK =
+	"CHECK ((kind = ANY (ARRAY['module'::text, 'form'::text, 'field'::text, 'user_property'::text, 'user_type'::text, 'persona'::text])))";
+const POST_ORGANIZATION_BLUEPRINT_ENTITY_KIND_CHECK =
+	"CHECK ((kind = ANY (ARRAY['module'::text, 'form'::text, 'field'::text, 'user_property'::text, 'user_type'::text, 'persona'::text, 'organization_level'::text, 'location_property'::text])))";
 
 /**
  * Where `cases` lives is a deployment choice, not a property of this cutover.
@@ -409,6 +414,26 @@ function frozenCasesSchemaInvariantConstraint(
 		: constraint;
 }
 
+/**
+ * The organization migration deliberately widens this non-identity CHECK after
+ * the cutover. Project only that one exact approved successor back to the
+ * frozen definition for the identity digest; any third spelling remains raw
+ * and therefore still fails the catalog assertion.
+ */
+function frozenPostCutoverConstraint(
+	constraint: FrozenSqlConstraint,
+): FrozenSqlConstraint {
+	if (
+		constraint.schema_name !== "public" ||
+		constraint.table_name !== "blueprint_entities" ||
+		constraint.constraint_name !== "blueprint_entities_kind_check" ||
+		constraint.definition !== POST_ORGANIZATION_BLUEPRINT_ENTITY_KIND_CHECK
+	) {
+		return constraint;
+	}
+	return { ...constraint, definition: FROZEN_BLUEPRINT_ENTITY_KIND_CHECK };
+}
+
 function frozenSqlIdentityStructuralSchema(
 	schema: FrozenSqlIdentitySchema,
 ): FrozenSqlIdentitySchema {
@@ -423,6 +448,7 @@ function frozenSqlIdentityStructuralSchema(
 		),
 		constraints: schema.constraints
 			.map(frozenCasesSchemaInvariantConstraint)
+			.map(frozenPostCutoverConstraint)
 			.sort(
 				(left, right) =>
 					Buffer.compare(
@@ -4280,8 +4306,16 @@ async function captureSqlIdentitySchema(
 		  ON referenced_relation.oid = con.confrelid
 		LEFT JOIN pg_namespace referenced_namespace
 		  ON referenced_namespace.oid = referenced_relation.relnamespace
-		WHERE con.conrelid IN (SELECT relid FROM targets)
-		   OR con.confrelid IN (SELECT relid FROM targets)
+		WHERE (
+			con.conrelid IN (SELECT relid FROM targets)
+			OR con.confrelid IN (SELECT relid FROM targets)
+		  )
+		  AND NOT (
+			n.nspname = 'public'
+			AND rel.relname = ANY(
+				${sql.val([...POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES])}::text[]
+			)
+		  )
 		ORDER BY n.nspname, rel.relname, con.conname
 	`.execute(db);
 
@@ -4386,6 +4420,22 @@ async function captureSqlIdentitySchema(
 			  ON dependency.refclassid = 'pg_class'::regclass
 			 AND dependency.refobjid = target.relid
 			 AND dependency.refobjsubid = target.attnum
+			WHERE NOT (
+				dependency.classid = 'pg_constraint'::regclass
+				AND EXISTS (
+					SELECT 1
+					FROM pg_constraint constraint_row
+					JOIN pg_class relation
+					  ON relation.oid = constraint_row.conrelid
+					JOIN pg_namespace namespace
+					  ON namespace.oid = relation.relnamespace
+					WHERE constraint_row.oid = dependency.objid
+					  AND namespace.nspname = 'public'
+					  AND relation.relname = ANY(
+						${sql.val([...POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES])}::text[]
+					  )
+				)
+			)
 			UNION
 			SELECT
 				dependency.classid,
@@ -4419,6 +4469,22 @@ async function captureSqlIdentitySchema(
 				FROM pg_trigger trigger
 				WHERE trigger.oid = closure.objid
 				  AND trigger.tgisinternal
+			)
+		)
+		AND NOT (
+			classid = 'pg_constraint'::regclass
+			AND EXISTS (
+				SELECT 1
+				FROM pg_constraint constraint_row
+				JOIN pg_class relation
+				  ON relation.oid = constraint_row.conrelid
+				JOIN pg_namespace namespace
+				  ON namespace.oid = relation.relnamespace
+				WHERE constraint_row.oid = closure.objid
+				  AND namespace.nspname = 'public'
+				  AND relation.relname = ANY(
+					${sql.val([...POST_FROZEN_CANONICAL_IDENTITY_PUBLIC_TABLES])}::text[]
+				  )
 			)
 		)
 		ORDER BY

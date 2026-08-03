@@ -2,8 +2,7 @@
 
 **PR:** `Automations as blueprint objects with a regenerated HQ setup artifact`
 
-**Depends on:** [the organization model](organization-model-and-locations-store.md)
-(location criteria). · **Blocks:**
+**Depends on:** nothing outstanding. · **Blocks:**
 [deployment core](deployment-core-and-artifact.md) and
 [App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 

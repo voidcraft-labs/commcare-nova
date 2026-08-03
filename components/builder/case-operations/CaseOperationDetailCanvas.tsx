@@ -38,6 +38,13 @@ import type { OperationValueScope } from "@/components/builder/shared/expression
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
 } from "@/lib/doc/caseOperationIntents";
@@ -48,21 +55,29 @@ import {
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
+import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
-import type {
-	CaseOperation,
-	CaseOperationWrite,
-	CasePropertyDataType,
+import {
+	ancestorLevels,
+	asUuid,
+	type CaseOperation,
+	type CaseOperationWrite,
+	type CasePropertyDataType,
+	levelOwnsCases,
 } from "@/lib/domain";
 import {
 	actingUser,
+	fixedLocation,
+	ownerLocationAtLevel,
 	type Predicate,
 	storageAssignmentConstraint,
+	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { useOrganization } from "@/lib/organization/useOrganization";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
@@ -421,20 +436,11 @@ export function CaseOperationDetailCanvas({
 				)}
 
 				{operation.action !== "close" && (
-					<OptionalExpressionSection
-						title="Who owns the case"
-						description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
-						addLabel="Choose an owner"
-						clearLabel="Use the default owner"
-						clearTitle="Use the default owner?"
-						clearConsequence="The case will belong to whoever submits the form."
+					<CaseOwnerSection
 						value={operation.owner}
 						canEdit={operationCanEdit}
-						seed={() => actingUser()}
 						onChange={(owner) => commit({ ...operation, owner })}
-						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
-						ownerValues
 					/>
 				)}
 
@@ -550,6 +556,234 @@ export function CaseOperationDetailCanvas({
 				)}
 			</fieldset>
 		</ContentFrame>
+	);
+}
+
+type LocationOwnerExpression = Extract<ValueExpression, { kind: "term" }> & {
+	readonly term:
+		| { readonly kind: "fixed-location"; readonly locationUuid: Uuid }
+		| {
+				readonly kind: "owner-location-at-level";
+				readonly levelUuid: Uuid;
+				readonly ownerCaseType: string;
+		  };
+};
+
+function locationOwnerExpression(
+	value: ValueExpression | undefined,
+): LocationOwnerExpression | undefined {
+	if (
+		value?.kind !== "term" ||
+		(value.term.kind !== "fixed-location" &&
+			value.term.kind !== "owner-location-at-level")
+	) {
+		return undefined;
+	}
+	return value as LocationOwnerExpression;
+}
+
+/**
+ * A case owner is the one expression slot whose choices include organization
+ * rows. Those identities live outside the blueprint, so this small owner owns
+ * their picker instead of teaching the generic expression menu to fetch an
+ * app-scoped store it otherwise never needs.
+ */
+function CaseOwnerSection({
+	value,
+	canEdit,
+	onChange,
+	editorScope,
+}: {
+	readonly value: ValueExpression | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly editorScope: EditorScope;
+}) {
+	const appId = useAppId();
+	const organization = useOrganization(appId ?? "");
+	const levels = useOrganizationLevels();
+	const levelRecord = useMemo(
+		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),
+		[levels],
+	);
+	const locations = organization.locations.filter((location) => {
+		if (location.archivedAt !== null) return false;
+		const level = levelRecord[location.levelUuid];
+		return level !== undefined && levelOwnsCases(level);
+	});
+	const reverseLevels = levels.filter(
+		(level) =>
+			levelOwnsCases(level) &&
+			ancestorLevels(level, levelRecord).some(levelOwnsCases),
+	);
+	const selected = locationOwnerExpression(value);
+	const mode =
+		selected?.term.kind === "fixed-location"
+			? "fixed"
+			: selected?.term.kind === "owner-location-at-level"
+				? "reverse"
+				: "expression";
+	const { addRef, onCleared } = useClearedSlotFocus(value);
+
+	const changeMode = (next: unknown) => {
+		if (next === "expression") {
+			onChange(actingUser());
+			return;
+		}
+		if (next === "fixed") {
+			const first = locations[0];
+			if (first !== undefined) {
+				onChange(term(fixedLocation(asUuid(first.id))));
+			}
+			return;
+		}
+		if (next === "reverse") {
+			const first = reverseLevels[0];
+			if (first !== undefined && editorScope.currentCaseType !== "") {
+				onChange(
+					term(ownerLocationAtLevel(first.uuid, editorScope.currentCaseType)),
+				);
+			}
+		}
+	};
+
+	return (
+		<Section
+			title="Who owns the case"
+			description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
+			action={
+				value !== undefined && canEdit ? (
+					<ClearConditionButton
+						label="Use the default owner"
+						title="Use the default owner?"
+						consequence="The case will belong to whoever submits the form."
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							onCleared();
+							onChange(undefined);
+						}}
+					/>
+				) : undefined
+			}
+		>
+			{value === undefined ? (
+				<AddSlotButton
+					ref={addRef}
+					label="Choose an owner"
+					disabled={!canEdit}
+					onClick={() => onChange(actingUser())}
+				/>
+			) : (
+				<div className="space-y-3">
+					<div>
+						<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+							How to choose the owner
+						</p>
+						<Select value={mode} onValueChange={changeMode} disabled={!canEdit}>
+							<SelectTrigger
+								className="w-full"
+								aria-label="How to choose the owner"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="expression">
+									A person, form answer, or case value
+								</SelectItem>
+								{locations.length > 0 && (
+									<SelectItem value="fixed">A particular place</SelectItem>
+								)}
+								{reverseLevels.length > 0 &&
+									editorScope.currentCaseType !== "" && (
+										<SelectItem value="reverse">
+											A place beneath the current case owner
+										</SelectItem>
+									)}
+							</SelectContent>
+						</Select>
+					</div>
+
+					{selected?.term.kind === "fixed-location" ? (
+						<div>
+							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+								Place that owns the case
+							</p>
+							<Select
+								value={selected.term.locationUuid}
+								onValueChange={(locationUuid) =>
+									onChange(term(fixedLocation(asUuid(String(locationUuid)))))
+								}
+								disabled={!canEdit}
+							>
+								<SelectTrigger
+									className="w-full"
+									aria-label="Place that owns the case"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{locations.map((location) => (
+										<SelectItem key={location.id} value={location.id}>
+											{location.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+								The place is stored by identity, so renaming it will not change
+								this rule.
+							</p>
+						</div>
+					) : selected?.term.kind === "owner-location-at-level" ? (
+						<div>
+							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+								Level to find beneath the current owner
+							</p>
+							<Select
+								value={selected.term.levelUuid}
+								onValueChange={(levelUuid) =>
+									onChange(
+										term(
+											ownerLocationAtLevel(
+												asUuid(String(levelUuid)),
+												editorScope.currentCaseType,
+											),
+										),
+									)
+								}
+								disabled={!canEdit}
+							>
+								<SelectTrigger
+									className="w-full"
+									aria-label="Level to find beneath the current owner"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{reverseLevels.map((level) => (
+										<SelectItem key={level.uuid} value={level.uuid}>
+											{level.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+								Uses the current case owner to find the matching place at this
+								level.
+							</p>
+						</div>
+					) : (
+						<ExpressionCardEditor
+							value={value}
+							onChange={onChange}
+							constraint={caseOperationTextConstraint()}
+							{...editorScope}
+							ownerValues
+						/>
+					)}
+				</div>
+			)}
+		</Section>
 	);
 }
 
