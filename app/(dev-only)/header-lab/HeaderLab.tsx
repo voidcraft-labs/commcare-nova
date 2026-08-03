@@ -22,9 +22,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerApps from "@iconify-icons/tabler/apps";
 import tablerHelp from "@iconify-icons/tabler/help";
 import tablerUserCircle from "@iconify-icons/tabler/user-circle";
+import { AnimatePresence } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { AppHeader } from "@/components/ui/AppHeader";
+import {
+	HEADER_HANDOFF_DELAY,
+	HeaderCluster,
+} from "@/components/ui/headerMotion";
 import { selectableSegmentCls } from "@/lib/styles";
 
 /** The three compositions the band actually ships in. */
@@ -76,42 +81,60 @@ export function HeaderLab() {
 			<AppHeader
 				homeLabel={markOnly ? "Back to your apps" : "commcare nova"}
 				markOnly={markOnly}
-				start={
+				brand={surface === "newBuild" ? "roomy" : "loaded"}
+				banner={
 					banner ? (
 						<span className="rounded-full border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-1 text-xs text-nova-text-secondary">
 							Viewing as Ada Lovelace
 						</span>
-					) : surface === "site" ? (
-						<nav aria-label="Main navigation" className="flex items-center">
-							<span className={selectableSegmentCls(true)}>
-								<Icon icon={tablerApps} width="16" height="16" />
-								<span className="hidden sm:inline">Apps</span>
-							</span>
-						</nav>
 					) : null
+				}
+				start={
+					<AnimatePresence>
+						{surface === "site" ? (
+							<HeaderCluster
+								key="nav"
+								delay={HEADER_HANDOFF_DELAY}
+								className="flex min-w-0 items-center"
+							>
+								<nav aria-label="Main navigation" className="flex items-center">
+									<span className={selectableSegmentCls(true)}>
+										<Icon icon={tablerApps} width="16" height="16" />
+										<span className="hidden sm:inline">Apps</span>
+									</span>
+								</nav>
+							</HeaderCluster>
+						) : null}
+					</AnimatePresence>
 				}
 				center={
-					surface === "building" ? (
-						<Button type="button" variant="secondary">
-							Preview
-						</Button>
-					) : null
+					<AnimatePresence>
+						{surface === "building" ? (
+							<HeaderCluster key="preview" delay={HEADER_HANDOFF_DELAY}>
+								<Button type="button" variant="secondary">
+									Preview
+								</Button>
+							</HeaderCluster>
+						) : null}
+					</AnimatePresence>
 				}
 				actions={
-					surface === "building" ? (
-						<>
-							<ToolStandIn label="Undo" />
-							<ToolStandIn label="Redo" />
-							<Button type="button">Publish</Button>
-						</>
-					) : surface === "site" ? (
-						<>
-							<Button type="button" variant="ghost">
-								Personal
-							</Button>
-							<ToolStandIn label="Help" />
-						</>
-					) : null
+					<AnimatePresence>
+						{surface === "building" ? (
+							<HeaderCluster key="tools" delay={HEADER_HANDOFF_DELAY}>
+								<ToolStandIn label="Undo" />
+								<ToolStandIn label="Redo" />
+								<Button type="button">Publish</Button>
+							</HeaderCluster>
+						) : surface === "site" ? (
+							<HeaderCluster key="site-actions" delay={HEADER_HANDOFF_DELAY}>
+								<Button type="button" variant="ghost">
+									Personal
+								</Button>
+								<ToolStandIn label="Help" />
+							</HeaderCluster>
+						) : null}
+					</AnimatePresence>
 				}
 				account={
 					<Button
@@ -155,10 +178,10 @@ export function HeaderLab() {
 						</div>
 						<p className="text-sm text-nova-text-secondary">
 							Collapse is what a build starting looks like: the word is drawn
-							in, then the sphere answers with the swell it gives the pointer.
-							Unfolding is leaving the builder, and decelerates instead. Below
-							800px the row can't hold the lockup, so the word is already gone
-							and only the swell plays.
+							in, the tools arrive a beat behind it, and the sphere answers with
+							the swell it gives the pointer. Unfolding is leaving the builder,
+							and decelerates instead. Below 800px a loaded row can't hold the
+							lockup, so the word is already gone and only the swell plays.
 						</p>
 					</div>
 

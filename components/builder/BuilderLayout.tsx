@@ -79,10 +79,6 @@ interface BuilderLayoutProps {
 	/** CommCare HQ settings read by the RSC page: drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
-	/** Active impersonation info, or null/omitted when viewing as
-	 *  yourself: surfaces the banner in BuilderHeader, mirroring the
-	 *  site header. */
-	impersonating?: { userName: string; userEmail: string } | null;
 }
 
 /**
@@ -100,7 +96,6 @@ export function BuilderLayout({
 	currentUserId,
 	isExistingApp,
 	commcareSettings,
-	impersonating,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -386,7 +381,6 @@ export function BuilderLayout({
 					commcareConfigured={commcareConfigured}
 					commcareAvailableDomains={commcareAvailableDomains}
 					onSetPreviewing={handleSetPreviewing}
-					impersonating={impersonating ?? null}
 				/>
 				{/* Not a second lockup. The header above is already showing the mark,
 				    and the mark breathes: two of them on one screen turns presence
@@ -402,13 +396,13 @@ export function BuilderLayout({
 		<BuilderReferenceProvider>
 			<CaseTargetDraftProvider>
 				<div className="h-full flex flex-col overflow-hidden">
-					{/* Builder header: logo, centered Preview toggle, doc tools, account.
-					 *  Always rendered: it replaces the site AppHeader inside /build. */}
+					{/* Fills the shared band with the builder's own controls: Preview
+					 *  dead centre, the document tools on the right. It renders nothing
+					 *  in place; the band itself is mounted above both route groups. */}
 					<BuilderHeader
 						commcareConfigured={commcareConfigured}
 						commcareAvailableDomains={commcareAvailableDomains}
 						onSetPreviewing={handleSetPreviewing}
-						impersonating={impersonating ?? null}
 					/>
 
 					<BuilderAccessGate>

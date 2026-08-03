@@ -47,9 +47,14 @@ export interface AppHeaderProps {
 	 *  header plays the handoff: the word is drawn in, then the sphere answers
 	 *  with the swell it gives the pointer. */
 	markOnly?: boolean;
-	/** Right of the mark: the site's nav links, the builder's impersonation
-	 *  banner. Takes its own row under the tools when `stacked`. */
+	/** Right of the mark: the site's nav links. */
 	start?: ReactNode;
+	/** The impersonation banner, or null. Its own slot rather than part of
+	 *  `start`, because it is the one thing that takes a row of its own when
+	 *  `stacked` — and a slot that is merely PASSED cannot be distinguished
+	 *  from a slot with something standing in it, which is how the band grew a
+	 *  17px row of nothing under a header that had no banner. */
+	banner?: ReactNode;
 	/** Dead centre, whatever the row's flanks weigh: the builder's Preview
 	 *  control sits directly above the canvas it flips. */
 	center?: ReactNode;
@@ -60,20 +65,27 @@ export interface AppHeaderProps {
 	 *  because the builder unmounts it while app access is unresolved: a
 	 *  control whose popup is deliberately quarantined must not be on screen. */
 	account?: ReactNode;
-	/** Give `actions` (and then `start`) rows of their own under the band, for
-	 *  a surface whose tools cannot fit beside everything else at the width it
-	 *  is being asked to. Nothing shrinks: the 44px floor is a floor. */
+	/** Give `actions` (and then the banner) rows of their own under the band,
+	 *  for a surface whose tools cannot fit beside everything else at the width
+	 *  it is being asked to. Nothing shrinks: the 44px floor is a floor. */
 	stacked?: boolean;
+	/** How much width the wordmark needs, which is a question about the ROW and
+	 *  so cannot be read off the slots: a surface always passes them, empty or
+	 *  not. `loaded` is a row with menus in it (800px); `roomy` is the mark and
+	 *  the account control alone (360px). Both numbers live in `globals.css`. */
+	brand?: "loaded" | "roomy";
 }
 
 export function AppHeader({
 	homeLabel,
 	markOnly = false,
 	start,
+	banner,
 	center,
 	actions,
 	account,
 	stacked = false,
+	brand = "loaded",
 }: AppHeaderProps) {
 	/* Under 360px of height every band gives up its outer air first: the
 	 * controls inside are already at the floor and cannot. */
@@ -126,11 +138,7 @@ export function AppHeader({
 		<header
 			data-app-header
 			data-header-layout={stacked ? "stacked" : "standard"}
-			/* What else stands in this row decides the width the wordmark needs,
-			 * so the row says which it is and `globals.css` holds both numbers.
-			 * Derived rather than passed: a caller that had to remember it would
-			 * be the thing that drifts. */
-			data-header-brand={start || center || actions ? "loaded" : "roomy"}
+			data-header-brand={brand}
 			style={{ gridTemplateRows: stacked ? `${band} auto` : band }}
 			className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-nova-border bg-nova-void px-2 sm:px-4"
 		>
@@ -138,7 +146,8 @@ export function AppHeader({
 				<SimpleTooltip content={homeLabel} side="bottom">
 					{mark}
 				</SimpleTooltip>
-				{stacked ? null : start}
+				{stacked ? null : banner}
+				{start}
 			</div>
 
 			<div className="col-start-2 row-start-1 min-w-0 justify-self-center">
@@ -166,9 +175,9 @@ export function AppHeader({
 				</div>
 			) : null}
 
-			{stacked && start ? (
+			{stacked && banner ? (
 				<div className="col-span-3 row-start-3 -mx-2 min-w-0 border-t border-nova-border px-2 py-2 sm:-mx-4 sm:px-4">
-					{start}
+					{banner}
 				</div>
 			) : null}
 		</header>

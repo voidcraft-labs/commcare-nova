@@ -1,9 +1,16 @@
 /**
  * What the shared header holds inside `/build/*`.
  *
- * The band is `AppHeader`'s, not this file's: the builder used to run its own
- * header 8px shorter with its mark 4px further left, and crossing between the
- * two made the brand hop. Everything here is a slot.
+ * This component renders no header. The band is mounted once, above both route
+ * groups (`components/ui/AppChrome`), precisely so that crossing between the
+ * app list and the builder cannot rebuild it — and these controls cannot go up
+ * there with it, because Preview, undo/redo, the save indicator, and Publish
+ * all read the doc and session stores that live under `BuilderProvider`. So
+ * they stay in the builder's tree, where the stores reach them, and portal
+ * into the band's own cells. What this file emits in place is nothing at all.
+ *
+ * It also CLAIMS the band, which is what makes the site's nav, Project
+ * switcher, and Help step aside for as long as the builder is on screen.
  *
  * Preview goes dead centre because reach matters more than corner convention:
  * the canvas is centre-aligned, so the toggle sits directly above the user's
@@ -21,14 +28,17 @@
  *
  * Portal-opening header controls stay unmounted while app access is
  * unresolved, so the access mask never leaves a visible button whose popup is
- * intentionally quarantined. The mark is never one of them: it renders in
- * every phase.
+ * intentionally quarantined. That now includes the account control, which the
+ * band owns: the claim carries permission to show it. The mark is never one of
+ * them — it renders in every phase.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
@@ -43,9 +53,11 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { AccountMenu } from "@/components/ui/AccountMenu";
-import { AppHeader } from "@/components/ui/AppHeader";
-import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
+import {
+	HEADER_HANDOFF_DELAY,
+	HeaderCluster,
+} from "@/components/ui/headerMotion";
+import { useHeaderSlots } from "@/components/ui/headerSlots";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
@@ -67,17 +79,14 @@ interface BuilderHeaderProps {
 	/** Preview toggle handler: BuilderLayout's scroll-anchor-capturing
 	 *  wrapper around the store's `setPreviewing`. */
 	onSetPreviewing: (on: boolean) => void;
-	/** Active impersonation info, or null when viewing as yourself:
-	 *  resolved by the build page's RSC, mirroring the site header. */
-	impersonating: { userName: string; userEmail: string } | null;
 }
 
 export function BuilderHeader({
 	commcareConfigured,
 	commcareAvailableDomains,
 	onSetPreviewing,
-	impersonating,
 }: BuilderHeaderProps) {
+	const slots = useHeaderSlots();
 	const phase = useBuilderPhase();
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
@@ -99,12 +108,38 @@ export function BuilderHeader({
 	const showAccessStatus = isReady && hasData;
 	const showToolbar = showAccessStatus && accessPhase === "authorized";
 	const showDocumentRow = showToolbar || showAccessStatus;
-	const showAccount = accessPhase === "authorized";
 
 	/* Idle is `/build/new` with nothing sent: no app, so nothing else on screen
 	 * is carrying the name. Every other phase means a blueprint exists (or is
 	 * arriving), and the sphere takes over. */
 	const beforeAnyApp = phase === BuilderPhase.Idle;
+
+	/* Below 560px the band cannot hold the mark, Preview, the document tools,
+	 * and the account control at their real sizes, and nothing here shrinks.
+	 * Only ask for the extra row when something would actually stand in it. */
+	const stacked = ultraCompactHeader && showDocumentRow;
+
+	/* Take the band for as long as the builder is on screen, and hand it back
+	 * on the way out so the site's own menus return. The claim is compared by
+	 * value up there, so rebuilding it every render costs nothing. */
+	const claim = slots?.claim;
+	useEffect(() => {
+		claim?.({
+			homeLabel: "Back to your apps",
+			markOnly: !beforeAnyApp,
+			stacked,
+			/* `/build/new` before a send holds nothing but the mark and the
+			 * account control, so the lockup fits far below the width a loaded
+			 * row needs — and it is the only place the product's name appears. */
+			brand: showDocumentRow || showToolbar ? "loaded" : "roomy",
+			showAccount: accessPhase === "authorized",
+			/* What the builder has always given the account's file manager.
+			 * Worth revisiting on its own terms, not as a side effect of moving
+			 * the control up a level. */
+			canManageFiles: false,
+		});
+	}, [claim, beforeAnyApp, stacked, accessPhase, showDocumentRow, showToolbar]);
+	useEffect(() => () => claim?.(null), [claim]);
 
 	const documentActions = showAccessStatus ? (
 		<>
@@ -188,36 +223,48 @@ export function BuilderHeader({
 		</>
 	) : null;
 
-	const banner = impersonating ? (
-		<ImpersonationBanner
-			userName={impersonating.userName}
-			userEmail={impersonating.userEmail}
-		/>
+	/* Both clusters ARRIVE rather than appear, waiting out the beat the site's
+	 * menus take to leave. On `/build/new` there is nothing to show yet, so the
+	 * arrival that matters is the one an app landing triggers: the same moment
+	 * the wordmark is drawn into the sphere. Tools appearing in a single frame
+	 * under an animating mark is what makes the mark look like the only thing
+	 * that noticed.
+	 *
+	 * No `AnimatePresence`, so there is no exit. These go when app access stops
+	 * being resolved, and a control mid-fade is still visible and still takes a
+	 * click — which is the whole point of unmounting them. Leaving the builder
+	 * unmounts this tree anyway, so there would be nothing left to animate. */
+	const center = showToolbar ? (
+		<HeaderCluster
+			delay={HEADER_HANDOFF_DELAY}
+			className="flex min-w-0 items-center gap-1"
+		>
+			<PreviewToggle onSetPreviewing={onSetPreviewing} />
+			{/* Sits beside the toggle because it answers the question the
+			 *  toggle raises: the app is running, as whom? It renders
+			 *  nothing outside Preview. */}
+			<PreviewIdentityMenu />
+		</HeaderCluster>
 	) : null;
 
+	/* One cluster element for the life of the builder once it appears: the save
+	 * indicator inside it owns `useAutoSave`, so this must never be swapped for
+	 * a sibling on a resize or an access transition. */
+	const actions = documentActions ? (
+		<HeaderCluster
+			delay={HEADER_HANDOFF_DELAY}
+			className="flex min-w-0 items-center gap-1"
+		>
+			{documentActions}
+		</HeaderCluster>
+	) : null;
+
+	/* The elements live here, in the tree that can read the builder's stores;
+	 * only their DOM lands in the band. Nothing renders in place. */
 	return (
-		<AppHeader
-			homeLabel="Back to your apps"
-			markOnly={!beforeAnyApp}
-			start={banner}
-			center={
-				showToolbar ? (
-					<div className="flex min-w-0 items-center gap-1">
-						<PreviewToggle onSetPreviewing={onSetPreviewing} />
-						{/* Sits beside the toggle because it answers the question the
-						 *  toggle raises: the app is running, as whom? It renders
-						 *  nothing outside Preview. */}
-						<PreviewIdentityMenu />
-					</div>
-				) : null
-			}
-			actions={documentActions}
-			account={showAccount ? <AccountMenu /> : null}
-			/* Below 560px the band cannot hold the mark, Preview, the document
-			 * tools, and the account control at their real sizes, and nothing here
-			 * shrinks. Only ask for the extra rows when something would actually
-			 * stand in them. */
-			stacked={ultraCompactHeader && (showDocumentRow || banner !== null)}
-		/>
+		<>
+			{slots?.center ? createPortal(center, slots.center) : null}
+			{slots?.actions ? createPortal(actions, slots.actions) : null}
+		</>
 	);
 }

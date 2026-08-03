@@ -8,11 +8,14 @@
  * this split, docs requests never run the auth lookup, and the docs
  * subdomain stays available even if Postgres is briefly unreachable.
  *
- * Chrome lives one level down: `(site)/layout.tsx` renders the global
- * AppHeader for the app list / admin / settings surfaces, while
- * `build/` renders its own BuilderHeader: the builder doesn't carry
- * the site nav. Each group also owns its `#main-content` wrapper
- * (scrolling site pages vs the builder's fixed full-height shell).
+ * The header is HERE, not in either route group, and that is the whole
+ * reason this layout now resolves the session. `(site)` and `build` are
+ * siblings: a header rendered in either is destroyed and rebuilt every time
+ * the user crosses between them, and nothing that is rebuilt can animate
+ * across the crossing. `AppChrome` owns the band; each surface fills it from
+ * below (`components/ui/headerSlots`). Each group still owns its own
+ * `#main-content` wrapper — scrolling site pages vs the builder's fixed
+ * full-height shell.
  *
  * The `nova-noise` class lives here, on the wrapper div: its `::before`
  * is fixed-position, so it still covers the whole viewport even though
@@ -23,9 +26,39 @@
 import { ErrorReporter } from "@/components/ErrorReporter";
 import { SentryUser } from "@/components/SentryUser";
 import { TooltipProvider } from "@/components/shadcn/tooltip";
+import { AppChrome } from "@/components/ui/AppChrome";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { listUserProjects } from "@/lib/projects/membership";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
+	const session = await getSession();
+	/* Impersonated sessions are blocked from admin routes, so hide the nav link. */
+	const isAdmin =
+		session?.user?.role === "admin" && !session?.session?.impersonatedBy;
+
+	/* During impersonation, session.user is the target: pass their
+	 * identity so the header banner shows who is being viewed. */
+	const impersonating = session?.session?.impersonatedBy
+		? { userName: session.user.name, userEmail: session.user.email }
+		: null;
+
+	/* The Projects the header switcher offers + which one is active. Resolve the
+	 * active Project FIRST: it get-or-creates the personal Project (a WRITE),
+	 * which must commit before `listUserProjects` READS membership, or a
+	 * just-provisioned Project is missing from the switcher. `cache()` dedupes
+	 * both calls with every page's. */
+	let projects: Awaited<ReturnType<typeof listUserProjects>> = [];
+	let activeProjectId: string | null = null;
+	if (session) {
+		activeProjectId = await resolveActiveProjectId(session);
+		projects = await listUserProjects(session.user.id);
+	}
+
 	return (
 		<div
 			data-nova-app-shell
@@ -41,7 +74,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 			<ErrorReporter />
 			<SentryUser />
 			<TooltipProvider>
-				{children}
+				<AppChrome
+					isAdmin={isAdmin}
+					isAuthenticated={!!session}
+					impersonating={impersonating}
+					projects={projects}
+					activeProjectId={activeProjectId}
+				>
+					{children}
+				</AppChrome>
 				<ToastContainer />
 			</TooltipProvider>
 		</div>

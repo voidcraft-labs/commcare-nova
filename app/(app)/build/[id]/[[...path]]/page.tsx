@@ -60,13 +60,6 @@ export default async function BuilderPage({
 	if (!session) redirect("/");
 	const commcareSettings = await getCommCareSettings(session.user.id);
 
-	/* During impersonation, session.user is the target: surface their
-	 * identity so BuilderHeader shows the banner, mirroring the site
-	 * header in `(site)/layout.tsx`. */
-	const impersonating = session.session.impersonatedBy
-		? { userName: session.user.name, userEmail: session.user.email }
-		: null;
-
 	/* New apps have no blueprint/cursor yet, but they DO have a Project
 	 * authority: creation targets the active Project. Resolve that role on the
 	 * server and seed `{ baseSeq: 0 }` so a viewer's first client frame is
@@ -90,10 +83,7 @@ export default async function BuilderPage({
 					baseSeq: 0,
 				}}
 			>
-				<BuilderLayout
-					commcareSettings={commcareSettings}
-					impersonating={impersonating}
-				/>
+				<BuilderLayout commcareSettings={commcareSettings} />
 			</BuilderProvider>
 		);
 	}
@@ -191,7 +181,6 @@ export default async function BuilderPage({
 			<BuilderLayout
 				isExistingApp
 				commcareSettings={commcareSettings}
-				impersonating={impersonating}
 				threads={threads}
 				initialThread={initialThread}
 				/* An interrupted build counts: its re-drive must run in build

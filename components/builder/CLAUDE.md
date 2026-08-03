@@ -2,14 +2,28 @@
 
 ## The header is the app's, not the builder's
 
-`BuilderHeader` fills `components/ui/AppHeader` — the ONE band every signed-in
-surface stands in — and owns no geometry of its own. Height, insets, the mark's
-position, and the wordmark's width rule live there and nowhere else (see
-`components/CLAUDE.md`); the builder supplies slot contents and one flag,
-`stacked`, for the width where its document tools can't fit beside everything
-else. Re-spelling a height or an inset here is what produced two headers 8px
-apart with their marks 4px apart, and the brand visibly hopped on every
-crossing.
+**`BuilderHeader` renders no header.** The band is mounted once in
+`(app)/layout.tsx`, above both route groups, so crossing between the app list
+and the builder cannot rebuild it — the app list and the builder are one page
+wearing different menus. The builder's controls can't go up there with it
+(Preview, undo/redo, the save indicator, and Publish all read stores that live
+under `BuilderProvider`), so they stay in the builder's tree and PORTAL into
+the band's cells, and `BuilderHeader` claims the band alongside them. Height,
+insets, the mark, and the wordmark's width rule live in `components/ui`
+(`AppHeader`, `AppChrome`, `headerSlots`, `headerMotion`) and nowhere else —
+re-spelling any of them here is what produced two headers 8px apart with their
+marks 4px apart.
+
+Two consequences worth knowing. The account control is the BAND's now, so the
+access-mask quarantine travels as `showAccount` on the claim rather than as a
+local unmount. And the builder's clusters arrive animated but leave instantly
+(no `AnimatePresence`): they go when app access stops being resolved, and a
+control mid-fade is still visible and still takes a click.
+
+`BuilderBandClaim`, mounted in `build/[id]/layout.tsx`, claims the same opening
+state one layer higher. The build page awaits an authorized app snapshot and
+its threads, so without it a hard load of `/build/{id}` paints the site's nav,
+Project switcher, and Help inside the builder for as long as those reads take.
 
 Two builder-owned decisions ride on that band. **The mark is the exit**, which
 is why the builder can hand the wordmark back: the app being built carries its
