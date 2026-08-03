@@ -66,7 +66,7 @@ export function PlaceInformationSubsection({
 		<Subsection
 			id="app-setup-place-information"
 			title="Place information"
-			description="Anything else a place carries — a phone number, a catchment population, an opening date. Expressions can read these, and they travel to CommCare with the place."
+			description="Anything else a place carries — a phone number, a catchment population, an opening date. Nova stores these values with the place for future location deployment."
 			addLabel="Add information"
 			onAdd={add}
 			canEdit={canEdit && levels.length > 0}
@@ -80,7 +80,7 @@ export function PlaceInformationSubsection({
 			) : properties.length === 0 ? (
 				<SubsectionEmpty>
 					Nothing yet. A place already carries its name and its code — add
-					information here only when workers or expressions need more.
+					information here only when your workflow needs more.
 				</SubsectionEmpty>
 			) : (
 				properties.map((property, index) => (
@@ -251,7 +251,8 @@ function PropertyRow({
 						onCommit={(slug) => commit({ slug })}
 					/>
 					<p className="text-[12px] leading-relaxed text-nova-text-muted">
-						The name CommCare stores this under, and the name expressions read.
+						The stored key Nova will use when it can push this information with
+						the place.
 					</p>
 				</div>
 

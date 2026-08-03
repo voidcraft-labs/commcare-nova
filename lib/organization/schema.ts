@@ -207,6 +207,37 @@ export const createLocationDescendantInputSchema: z.ZodType<CreateLocationDescen
 			.strict(),
 	);
 
+function preflightAtomicLocationDescendants(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): unknown {
+	if (!Array.isArray(value)) return value;
+	let count = 0;
+	const pending: unknown[] = [...value];
+	while (pending.length > 0) {
+		const descendant = pending.pop();
+		count += 1;
+		if (count > MAX_ATOMIC_LOCATION_DESCENDANTS) {
+			ctx.addIssue({
+				code: "custom",
+				message: `One create may add at most ${MAX_ATOMIC_LOCATION_DESCENDANTS} descendants. Split a larger import into bounded branches.`,
+			});
+			return value;
+		}
+		if (
+			typeof descendant !== "object" ||
+			descendant === null ||
+			!("descendants" in descendant)
+		) {
+			continue;
+		}
+		const nested = (descendant as { readonly descendants?: unknown })
+			.descendants;
+		if (Array.isArray(nested)) pending.push(...nested);
+	}
+	return value;
+}
+
 export const createLocationInputSchema = z
 	.object({
 		...createLocationValueFields,
@@ -220,29 +251,15 @@ export const createLocationInputSchema = z
 		 * destination below every new source place.
 		 */
 		descendants: z
-			.array(createLocationDescendantInputSchema)
-			.max(MAX_ATOMIC_LOCATION_DESCENDANTS)
+			.preprocess(
+				preflightAtomicLocationDescendants,
+				z
+					.array(createLocationDescendantInputSchema)
+					.max(MAX_ATOMIC_LOCATION_DESCENDANTS),
+			)
 			.optional(),
 	})
-	.strict()
-	.superRefine((input, ctx) => {
-		let count = 0;
-		const pending = [...(input.descendants ?? [])];
-		while (pending.length > 0) {
-			const descendant = pending.pop();
-			if (descendant === undefined) continue;
-			count += 1;
-			if (count > MAX_ATOMIC_LOCATION_DESCENDANTS) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["descendants"],
-					message: `One create may add at most ${MAX_ATOMIC_LOCATION_DESCENDANTS} descendants. Split a larger import into bounded branches.`,
-				});
-				return;
-			}
-			pending.push(...(descendant.descendants ?? []));
-		}
-	});
+	.strict();
 export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
 
 /**

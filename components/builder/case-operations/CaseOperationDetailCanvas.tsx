@@ -629,13 +629,32 @@ function CaseOwnerSection({
 			levels.filter(
 				(level) =>
 					levelOwnsCases(level) &&
-					ancestorLevels(level, levelRecord).some(levelOwnsCases) &&
-					reverseLocationOwnerIssue(doc, organization.locations, level.uuid) ===
-						undefined,
+					ancestorLevels(level, levelRecord).some(levelOwnsCases),
 			),
-		[doc, levelRecord, levels, organization.locations],
+		[levelRecord, levels],
 	);
 	const reverseAvailable = editorScope.caseDataScope !== "global";
+	const reverseLevelIssues = useMemo(
+		() =>
+			new Map(
+				reverseLevels.map((level) => [
+					level.uuid,
+					reverseLocationOwnerIssue(doc, organization.locations, level.uuid),
+				]),
+			),
+		[doc, organization.locations, reverseLevels],
+	);
+	const reverseModeIssue = !organizationReady
+		? organization.loading
+			? "Places are still loading."
+			: "Places could not be loaded."
+		: !reverseAvailable
+			? "This form does not open a case, so there is no current owner to start from."
+			: editorScope.currentCaseType === ""
+				? "This case change has no current case type to follow."
+				: reverseLevels.length === 0
+					? "Add a case-owning level beneath another case-owning level first."
+					: undefined;
 	const selected = locationOwnerExpression(value);
 	const selectedLevelUuid =
 		selected?.term.kind === "owner-location-at-level"
@@ -670,13 +689,7 @@ function CaseOwnerSection({
 			return;
 		}
 		if (next === "reverse") {
-			if (
-				organizationReady &&
-				reverseLevels.length > 0 &&
-				editorScope.currentCaseType !== ""
-			) {
-				setDraftMode("reverse");
-			}
+			if (reverseModeIssue === undefined) setDraftMode("reverse");
 		}
 	};
 
@@ -746,14 +759,9 @@ function CaseOwnerSection({
 								{organizationReady && fixedLocationCandidates.length > 0 && (
 									<SelectItem value="fixed">A particular place</SelectItem>
 								)}
-								{organizationReady &&
-									reverseAvailable &&
-									reverseLevels.length > 0 &&
-									editorScope.currentCaseType !== "" && (
-										<SelectItem value="reverse">
-											A place beneath the current case owner
-										</SelectItem>
-									)}
+								<OwnerIssueSelectItem value="reverse" issue={reverseModeIssue}>
+									A place beneath the current case owner
+								</OwnerIssueSelectItem>
 							</SelectContent>
 						</Select>
 					</div>
@@ -804,7 +812,8 @@ function CaseOwnerSection({
 								onValueChange={(levelUuid) => {
 									if (
 										typeof levelUuid !== "string" ||
-										!reverseLevels.some((level) => level.uuid === levelUuid)
+										!reverseLevels.some((level) => level.uuid === levelUuid) ||
+										reverseLevelIssues.get(asUuid(levelUuid)) !== undefined
 									) {
 										return;
 									}
@@ -831,9 +840,13 @@ function CaseOwnerSection({
 								</SelectTrigger>
 								<SelectContent>
 									{reverseLevels.map((level) => (
-										<SelectItem wrap key={level.uuid} value={level.uuid}>
+										<OwnerIssueSelectItem
+											key={level.uuid}
+											value={level.uuid}
+											issue={reverseLevelIssues.get(level.uuid)}
+										>
 											{level.name}
-										</SelectItem>
+										</OwnerIssueSelectItem>
 									))}
 								</SelectContent>
 							</Select>
@@ -854,6 +867,29 @@ function CaseOwnerSection({
 				</div>
 			)}
 		</Section>
+	);
+}
+
+function OwnerIssueSelectItem({
+	value,
+	issue,
+	children,
+}: {
+	readonly value: string;
+	readonly issue?: string;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<SelectItem wrap value={value} disabled={issue !== undefined}>
+			<span className="flex min-w-0 flex-col gap-0.5">
+				<span>{children}</span>
+				{issue !== undefined && (
+					<span className="whitespace-normal text-[11px] leading-snug text-nova-red">
+						{issue}
+					</span>
+				)}
+			</span>
+		</SelectItem>
 	);
 }
 

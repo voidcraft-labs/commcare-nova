@@ -115,7 +115,18 @@ beforeEach(() => {
 
 describe("PersonaLocations", () => {
 	it("preflights removals and explains an assignment that must stay", () => {
-		render(
+		const { rerender } = render(
+			<PersonaLocations
+				persona={PERSONA}
+				locations={[]}
+				loading
+				error={undefined}
+			/>,
+		);
+		expect(screen.getByText("Loading places…")).toBeDefined();
+		expect(screen.queryByText("A place that no longer exists")).toBeNull();
+
+		rerender(
 			<PersonaLocations
 				persona={PERSONA}
 				locations={LOCATIONS}

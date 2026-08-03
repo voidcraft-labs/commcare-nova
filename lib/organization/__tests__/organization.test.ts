@@ -323,6 +323,19 @@ describe("organization authoring input identity", () => {
 			],
 		};
 		expect(createLocationInputSchema.safeParse(tooMany).success).toBe(false);
+
+		let deep: Record<string, unknown> = {
+			levelUuid: lower,
+			name: "Deep leaf",
+		};
+		for (let depth = 0; depth < 2_500; depth += 1) {
+			deep = {
+				levelUuid: lower,
+				name: `Deep ${depth}`,
+				descendants: [deep],
+			};
+		}
+		expect(createLocationInputSchema.safeParse(deep).success).toBe(false);
 	});
 
 	it("canonicalizes coordinates to the matching numeric(20,10) spelling", () => {

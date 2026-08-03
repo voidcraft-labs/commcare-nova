@@ -283,7 +283,7 @@ async function orderKeyForSlot(
 	/** Excluded from the sibling set — a row being moved within its own parent
 	 *  must not be its own neighbour. */
 	movingId?: string,
-): Promise<string> {
+): Promise<{ readonly key: string; readonly rebalanced: boolean }> {
 	const siblings = (tree.childrenOf.get(parentId) ?? []).filter(
 		(row) => row.id !== movingId,
 	);
@@ -341,7 +341,10 @@ async function orderKeyForSlot(
 			}
 		}
 	}
-	return plan.key;
+	return {
+		key: plan.key,
+		rebalanced: plan.rebalancedExistingKeys !== undefined,
+	};
 }
 
 /** Whether the requested semantic slot is exactly the row's current slot. */
@@ -591,13 +594,15 @@ export async function createLocation(
 					longitude: candidate.longitude,
 					// A jsonb column crosses Kysely as a string on the way in.
 					values: JSON.stringify(candidate.values),
-					order_key: await orderKeyForSlot(
-						tx,
-						scope.appId,
-						tree,
-						parentId,
-						afterSiblingId,
-					),
+					order_key: (
+						await orderKeyForSlot(
+							tx,
+							scope.appId,
+							tree,
+							parentId,
+							afterSiblingId,
+						)
+					).key,
 					created_by: scope.actorUserId,
 					updated_by: scope.actorUserId,
 				})
@@ -732,6 +737,7 @@ export async function updateLocation(
 			const doc = await loadDocInTransaction(tx, scope.appId);
 			assertPlacement(doc, tree, patch.levelUuid, nextParentId);
 		}
+		let rebalancedSiblings = false;
 		if (changesPlacement) {
 			if (
 				nextParentId !== null &&
@@ -799,7 +805,7 @@ export async function updateLocation(
 					patch.afterSiblingId,
 				)
 			) {
-				const orderKey = await orderKeyForSlot(
+				const orderPlan = await orderKeyForSlot(
 					tx,
 					scope.appId,
 					tree,
@@ -807,14 +813,16 @@ export async function updateLocation(
 					patch.afterSiblingId,
 					locationId,
 				);
+				rebalancedSiblings = orderPlan.rebalanced;
 				if (nextParentId !== current.parent_id) values.parent_id = nextParentId;
-				if (orderKey !== current.order_key) values.order_key = orderKey;
+				if (orderPlan.key !== current.order_key)
+					values.order_key = orderPlan.key;
 			}
 		}
 		// One key means nothing but provenance changed, and provenance alone is
 		// not a change: advancing the clock would invalidate every client's
 		// snapshot to record that someone pressed Save on an unedited form.
-		if (Object.keys(values).length === 1) {
+		if (Object.keys(values).length === 1 && !rebalancedSiblings) {
 			return { revision: locked.revision, location: toStoredLocation(current) };
 		}
 		values.updated_at = new Date();
@@ -903,7 +911,7 @@ export async function moveLocation(
 				location: toStoredLocation(current),
 			};
 		}
-		const orderKey = await orderKeyForSlot(
+		const orderPlan = await orderKeyForSlot(
 			tx,
 			scope.appId,
 			tree,
@@ -913,7 +921,8 @@ export async function moveLocation(
 		);
 		if (
 			current.parent_id === target.parentId &&
-			current.order_key === orderKey
+			current.order_key === orderPlan.key &&
+			!orderPlan.rebalanced
 		) {
 			return {
 				revision: locked.revision,
@@ -924,7 +933,7 @@ export async function moveLocation(
 			.updateTable("app_locations")
 			.set({
 				parent_id: target.parentId,
-				order_key: orderKey,
+				order_key: orderPlan.key,
 				updated_by: scope.actorUserId,
 				updated_at: new Date(),
 			})

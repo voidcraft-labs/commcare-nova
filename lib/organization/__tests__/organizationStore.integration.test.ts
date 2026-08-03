@@ -339,6 +339,54 @@ function candidateWithFixedOwner(
 	return doc;
 }
 
+async function seedRebalanceWithUnchangedMovingKey(): Promise<{
+	readonly lowerId: Uuid;
+	readonly movingId: Uuid;
+}> {
+	const lower = await createLocation(scope(), {
+		levelUuid: REGION,
+		parentId: null,
+		name: "Lower",
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+	});
+	const upper = await createLocation(scope(), {
+		levelUuid: REGION,
+		parentId: null,
+		name: "Upper",
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+	});
+	const moving = await createLocation(scope(), {
+		levelUuid: REGION,
+		parentId: null,
+		name: "Moving",
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+	});
+	const crowdedPrefix = `U${"V".repeat(MAX_LOCATION_ORDER_KEY_LENGTH - 2)}`;
+	for (const [id, orderKey] of [
+		[lower.location.id, `${crowdedPrefix}A`],
+		[upper.location.id, `${crowdedPrefix}B`],
+		[moving.location.id, "V"],
+	] as const) {
+		await h
+			.db()
+			.updateTable("app_locations")
+			.set({ order_key: orderKey })
+			.where("app_id", "=", APP_ID)
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+	}
+	return { lowerId: lower.location.id, movingId: moving.location.id };
+}
+
 describe("locations store — creation and structure", () => {
 	it("states that archived rows still count when the app reaches capacity", async () => {
 		await seedOrgApp();
@@ -446,6 +494,59 @@ describe("locations store — creation and structure", () => {
 		expect(
 			Math.max(...snapshot.locations.map(({ orderKey }) => orderKey.length)),
 		).toBeLessThanOrEqual(MAX_LOCATION_ORDER_KEY_LENGTH);
+	});
+
+	it("advances the clock when update rebalances peers but keeps the moving key", async () => {
+		await seedOrgApp();
+		const { lowerId, movingId } = await seedRebalanceWithUnchangedMovingKey();
+		const before = await readOrganization(scope());
+
+		const result = await updateLocation(
+			scope(),
+			movingId,
+			{ parentId: null, afterSiblingId: lowerId },
+			before.revision,
+		);
+		const after = await readOrganization(scope());
+
+		expect(BigInt(result.revision)).toBe(BigInt(before.revision) + BigInt(1));
+		expect(after.locations.map(({ name }) => name)).toEqual([
+			"Lower",
+			"Moving",
+			"Upper",
+		]);
+		await expect(
+			updateLocation(scope(), movingId, { name: "Stale" }, before.revision),
+		).rejects.toMatchObject({ code: "conflict" });
+	});
+
+	it("advances the clock when move rebalances peers but keeps the moving key", async () => {
+		await seedOrgApp();
+		const { lowerId, movingId } = await seedRebalanceWithUnchangedMovingKey();
+		const before = await readOrganization(scope());
+
+		const result = await moveLocation(
+			scope(),
+			movingId,
+			{ parentId: null, afterSiblingId: lowerId },
+			before.revision,
+		);
+		const after = await readOrganization(scope());
+
+		expect(BigInt(result.revision)).toBe(BigInt(before.revision) + BigInt(1));
+		expect(after.locations.map(({ name }) => name)).toEqual([
+			"Lower",
+			"Moving",
+			"Upper",
+		]);
+		await expect(
+			moveLocation(
+				scope(),
+				movingId,
+				{ parentId: null, afterSiblingId: lowerId },
+				before.revision,
+			),
+		).rejects.toMatchObject({ code: "conflict" });
 	});
 
 	it("refuses a caller-supplied code that collides case-insensitively", async () => {

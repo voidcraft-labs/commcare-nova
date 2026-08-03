@@ -126,13 +126,15 @@ export function PersonaLocations({
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-red">
 					Places could not be loaded: {error}
 				</p>
+			) : loading ? (
+				<p className="text-[13px] leading-relaxed text-nova-text-muted">
+					Loading places…
+				</p>
 			) : assignableCount === 0 && assigned.length === 0 ? (
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
-					{loading
-						? "Loading places…"
-						: locations.length === 0
-							? "This app has no places yet. Add them in Organization, then assign this persona to one."
-							: "No live place is at a level where people work. Change a level in Organization, then assign this persona."}
+					{locations.length === 0
+						? "This app has no places yet. Add them in Organization, then assign this persona to one."
+						: "No live place is at a level where people work. Change a level in Organization, then assign this persona."}
 				</p>
 			) : (
 				<>
