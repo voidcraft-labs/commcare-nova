@@ -590,7 +590,7 @@ export async function updateLocation(
 			if ((tree.childrenOf.get(locationId) ?? []).length > 0) {
 				throw new OrganizationError(
 					"rejected",
-					`"${current.name}" has places under it, so it can't move to a different level. Move or archive those first.`,
+					`"${current.name}" has places under it, so it can't move to a different level. Move every place under it somewhere else first; bring back any archived child places before moving them.`,
 				);
 			}
 			const doc = await loadDocInTransaction(tx, scope.appId);

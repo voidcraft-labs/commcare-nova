@@ -744,8 +744,9 @@ function PlaceRow({
 					</Select>
 					{hasChildren && (
 						<p className="text-[12px] leading-relaxed text-nova-text-muted">
-							A place with other places under it keeps its level. Move or
-							archive those places before changing this one.
+							A place with other places under it keeps its level. Move every
+							child somewhere else first; bring archived children back before
+							moving them.
 						</p>
 					)}
 					{dirtyLevel && (

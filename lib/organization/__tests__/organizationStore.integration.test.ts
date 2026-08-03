@@ -484,7 +484,10 @@ describe("locations store — creation and structure", () => {
 		const { district } = await seedChain();
 		await expect(
 			updateLocation(scope(), district, { levelUuid: FACILITY }),
-		).rejects.toMatchObject({ code: "rejected" });
+		).rejects.toMatchObject({
+			code: "rejected",
+			message: expect.stringMatching(/bring back any archived child places/i),
+		});
 	});
 
 	it("allows a leaf to change level when the new level still sits below its parent", async () => {
@@ -1376,7 +1379,7 @@ describe("locations store — removing a level", () => {
 				kind: "autosave",
 				expectedProjectId: PROJECT_A,
 			}),
-		).rejects.toThrow(/still has places in it/);
+		).rejects.toThrow(/bring back any archived places.*move every place/i);
 	});
 
 	it("still refuses when the only place at it is ARCHIVED", async () => {
@@ -1397,7 +1400,7 @@ describe("locations store — removing a level", () => {
 				kind: "autosave",
 				expectedProjectId: PROJECT_A,
 			}),
-		).rejects.toThrow(/still has places in it/);
+		).rejects.toThrow(/bring back any archived places.*move every place/i);
 	});
 
 	it("allows removing a level nothing stands at", async () => {

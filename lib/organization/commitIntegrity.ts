@@ -217,8 +217,8 @@ export async function assertRemovedLevelsUnused(
 		.map((level) => `"${level.name}"`);
 	throw new BlueprintCommitRejectedError(
 		names.length === 1
-			? `${names[0]} still has places in it, so the level can't be removed. Move or archive those places first.`
-			: `${names.join(" and ")} still have places in them, so those levels can't be removed. Move or archive those places first.`,
+			? `${names[0]} still has places in it, so the level can't be removed. Bring back any archived places, then move every place to another level.`
+			: `${names.join(" and ")} still have places in them, so those levels can't be removed. Bring back any archived places, then move every place to another level.`,
 	);
 }
 
@@ -281,7 +281,7 @@ export async function assertLocationPlacementsValid(
 		const locationLevel = levels[row.level_uuid];
 		if (locationLevel === undefined) {
 			throw new BlueprintCommitRejectedError(
-				`"${row.name}" stands at a level this change removes. Move or archive that place first.`,
+				`"${row.name}" stands at a level this change removes. Bring it back first if it is archived, then move it to another level.`,
 			);
 		}
 		if (row.parent_id === null) {

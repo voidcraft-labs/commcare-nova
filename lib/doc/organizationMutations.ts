@@ -109,7 +109,7 @@ export function removeOrganizationLevelPlan(
 	if (occupiedLevelUuids?.has(uuid) === true) {
 		return {
 			ok: false,
-			userMessage: `"${level.name}" still has places in it. Move or archive those places first, then remove the level.`,
+			userMessage: `"${level.name}" still has places in it. Bring back any archived places, move every place to another level, then remove the level.`,
 		};
 	}
 

@@ -264,6 +264,22 @@ describe("organization authoring input identity", () => {
 });
 
 describe("removeOrganizationLevelPlan", () => {
+	it("gives a workable recovery when archived rows still occupy the level", () => {
+		const region = asUuid("11111111-1111-4111-8111-111111111111");
+		const doc = docWithPersonas([]);
+		doc.organizationLevels = { [region]: level(region, "Region") };
+		doc.organizationLevelOrder = [region];
+
+		expect(
+			removeOrganizationLevelPlan(doc, region, new Set([region])),
+		).toMatchObject({
+			ok: false,
+			userMessage: expect.stringMatching(
+				/bring back any archived places.*move every place/i,
+			),
+		});
+	});
+
 	it("refuses to broaden a property that applies only to the removed level", () => {
 		const region = asUuid("11111111-1111-4111-8111-111111111111");
 		const property = asUuid("22222222-2222-4222-8222-222222222222");
