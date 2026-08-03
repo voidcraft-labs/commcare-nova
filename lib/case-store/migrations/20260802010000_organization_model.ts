@@ -43,6 +43,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				CHECK (
 					order_key ~ '^[0-9A-Za-z]+$'
 					AND right(order_key, 1) <> '0'
+					AND char_length(order_key) <= 256
 				),
 			created_at timestamptz(3) NOT NULL DEFAULT now(),
 			updated_at timestamptz(3) NOT NULL DEFAULT now(),

@@ -30,7 +30,9 @@
 import {
 	ancestorLevels,
 	type BlueprintDoc,
+	levelOwnsCases,
 	locationPropertiesOf,
+	MAX_ATOMIC_LOCATION_DESCENDANTS,
 	type OrganizationLevel,
 	organizationLevelsOf,
 	personasOf,
@@ -41,6 +43,61 @@ import { userPropertySlugVerdict } from "../userPropertySlug";
 /** Case-insensitive display-name key, so two levels can't look identical. */
 function nameKey(name: string): string {
 	return name.trim().toLowerCase();
+}
+
+/**
+ * A source's complete reverse-hop destination branch must fit in one atomic
+ * create. Count per source rather than globally: independent organization
+ * branches remain representable even when the app has many destinations in
+ * total.
+ */
+function reverseOwnerDestinationLimit(doc: BlueprintDoc): ValidationError[] {
+	const destinations = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			const owner = operation.owner;
+			if (
+				owner?.kind === "term" &&
+				owner.term.kind === "owner-location-at-level"
+			) {
+				destinations.add(owner.term.levelUuid);
+			}
+		}
+	}
+	const levels = organizationLevelsOf(doc);
+	const bySource = new Map<string, OrganizationLevel[]>();
+	for (const destinationUuid of destinations) {
+		const destination = levels[destinationUuid];
+		if (destination === undefined) continue;
+		const source = ancestorLevels(destination, levels).find(levelOwnsCases);
+		if (source === undefined) continue;
+		const entries = bySource.get(source.uuid) ?? [];
+		entries.push(destination);
+		bySource.set(source.uuid, entries);
+	}
+	const branchSize = (sourceUuid: string, visiting: Set<string>): number => {
+		if (visiting.has(sourceUuid)) return 0;
+		const nextVisiting = new Set(visiting).add(sourceUuid);
+		return (bySource.get(sourceUuid) ?? []).reduce(
+			(total, destination) =>
+				total + 1 + branchSize(destination.uuid, nextVisiting),
+			0,
+		);
+	};
+	for (const source of Object.values(levels)) {
+		const count = branchSize(source.uuid, new Set());
+		if (count <= MAX_ATOMIC_LOCATION_DESCENDANTS) continue;
+		return [
+			validationError(
+				"ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT",
+				"app",
+				`A new ${source.name} place would require ${count} reverse-hop owner destinations, but Nova can create at most ${MAX_ATOMIC_LOCATION_DESCENDANTS} required descendants atomically. Reuse destination levels or use fixed place owners so every future place can still be created.`,
+				{},
+				{ sourceLevelUuid: source.uuid, destinationCount: String(count) },
+			),
+		];
+	}
+	return [];
 }
 
 function levelIdentities(doc: BlueprintDoc): ValidationError[] {
@@ -393,6 +450,7 @@ export const ORGANIZATION_RULES = [
 	levelIdentities,
 	levelHierarchy,
 	levelReferences,
+	reverseOwnerDestinationLimit,
 	locationPropertyIdentities,
 	locationPropertyLevels,
 	personaAssignments,

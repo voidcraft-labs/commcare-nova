@@ -700,7 +700,7 @@ function rowResult<T>(
 
 export const createLocationTool = {
 	description:
-		"Create one root place after its level is saved, optionally with a bounded structurally nested descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below the new root; nesting declares parentage and the compact result mirrors it with final UUIDs. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
+		"Create one place after its level is saved. It is a root place only when parentId is null; otherwise parentId creates it under that existing place. The new place may carry a bounded structurally nested descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below this new source place; nesting declares parentage and the compact result mirrors it with final UUIDs. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,
@@ -757,7 +757,7 @@ export const moveLocationTool = {
 
 export const setLocationArchivedTool = {
 	description:
-		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive a bounded impact plus an exact confirmation token; after the user agrees, call with confirm=true and that unchanged confirmedImpact. A blocked preflight must not be confirmed. It never reassigns case owners.",
+		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive a bounded impact, its exact confirmation token, and the expectedRevisionForConfirmation; after the user agrees, call with confirm=true, expectedRevision set to that returned revision, and the unchanged confirmedImpact. A blocked preflight must not be confirmed. It never reassigns case owners.",
 	inputSchema: setLocationArchivedToolInputSchema,
 	async execute(
 		input: z.infer<typeof setLocationArchivedToolInputSchema>,
@@ -775,10 +775,11 @@ export const setLocationArchivedTool = {
 					data: {
 						confirmationRequired: impact.blockingOwnerRuleFormCount === 0,
 						blocked: impact.blockingOwnerRuleFormCount > 0,
+						expectedRevisionForConfirmation: impact.revision,
 						message:
 							impact.blockingOwnerRuleFormCount > 0
 								? "This archive is blocked by fixed case-owner rules. Change the listed forms before requesting confirmation again."
-								: "Review this bounded archive impact with the user, then repeat the call with confirm=true and the unchanged confirmedImpact payload.",
+								: "Review this bounded archive impact with the user, then repeat the call with confirm=true, expectedRevision set to expectedRevisionForConfirmation, and the unchanged confirmedImpact payload.",
 						impact,
 					},
 				};

@@ -67,6 +67,14 @@ export const LEVEL_CODE_MAX_LENGTH = 50;
 /** `LocationType.name` is `models.CharField(max_length=255)`. */
 export const LEVEL_NAME_MAX_LENGTH = 255;
 
+/**
+ * A reverse-hop owner rule can require its destination branch to be born in
+ * the same location transaction as a new source. Keeping the declaration
+ * ceiling beside the Blueprint vocabulary lets the validator and row-input
+ * schema share one valid-by-construction bound.
+ */
+export const MAX_ATOMIC_LOCATION_DESCENDANTS = 100;
+
 // ── Case flow — which cases a worker receives ────────────────────────
 
 /**

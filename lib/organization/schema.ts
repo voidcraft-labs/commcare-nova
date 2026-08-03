@@ -8,7 +8,7 @@
 // rather than a platform limit; see `SITE_CODE_PATTERN`.
 
 import { z } from "zod";
-import { uuidSchema } from "@/lib/domain";
+import { MAX_ATOMIC_LOCATION_DESCENDANTS, uuidSchema } from "@/lib/domain";
 import { OrganizationError } from "./errors";
 import type { OrganizationRevision } from "./types";
 
@@ -28,8 +28,7 @@ import type { OrganizationRevision } from "./types";
  */
 export const MAX_LOCATIONS_PER_APP = 10_000;
 
-/** Keep one atomic branch fast and its model-facing identity receipt bounded. */
-export const MAX_ATOMIC_LOCATION_DESCENDANTS = 100;
+export { MAX_ATOMIC_LOCATION_DESCENDANTS } from "@/lib/domain";
 
 /** `SQLLocation.site_code` is `models.CharField(max_length=255)`. */
 export const SITE_CODE_MAX_LENGTH = 255;

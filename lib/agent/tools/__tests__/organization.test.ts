@@ -461,7 +461,12 @@ describe("organization authoring tools", () => {
 		);
 		expect(preflight).toMatchObject({
 			kind: "read",
-			data: { confirmationRequired: true, impact },
+			data: {
+				confirmationRequired: true,
+				expectedRevisionForConfirmation: "9",
+				message: expect.stringContaining("expectedRevisionForConfirmation"),
+				impact,
+			},
 		});
 		expect(write).not.toHaveBeenCalled();
 

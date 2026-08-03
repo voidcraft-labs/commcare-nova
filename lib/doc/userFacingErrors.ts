@@ -200,6 +200,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A limited address-book branch must include the worker's own level and every level down to its deepest choice.",
 	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: () =>
 		"A shared address-book branch must start from a level above the workers. Choose one of its ancestors.",
+	ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT: () =>
+		"One new source place would need too many automatic destination places beneath it. Reuse destination levels or use fixed place owners to keep that branch within the limit.",
 	LOCATION_PROPERTY_SLUG_INVALID: () =>
 		"CommCare won't accept the saved name for this place information. Use a letter or underscore first, then letters, numbers, underscores, or hyphens.",
 	LOCATION_PROPERTY_SLUG_DUPLICATE: () =>

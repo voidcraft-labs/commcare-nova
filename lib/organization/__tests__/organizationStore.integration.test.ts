@@ -46,6 +46,7 @@ import {
 	assertPersonaAssignmentsValid,
 } from "../commitIntegrity";
 import { OrganizationError } from "../errors";
+import { MAX_LOCATION_ORDER_KEY_LENGTH } from "../orderKeys";
 import {
 	personaAssignmentIssue,
 	personaAssignmentRemovalIssues,
@@ -402,6 +403,49 @@ describe("locations store — creation and structure", () => {
 		expect(
 			snapshot.locations[0].orderKey < snapshot.locations[1].orderKey,
 		).toBe(true);
+	});
+
+	it("atomically rebalances a sibling run before an append exceeds the order-key cap", async () => {
+		await seedOrgApp();
+		const first = await createLocation(scope(), {
+			levelUuid: REGION,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			parentId: null,
+		});
+		await h
+			.db()
+			.updateTable("app_locations")
+			.set({ order_key: "V".repeat(MAX_LOCATION_ORDER_KEY_LENGTH) })
+			.where("app_id", "=", APP_ID)
+			.where("id", "=", first.location.id)
+			.executeTakeFirstOrThrow();
+
+		await createLocation(
+			scope(),
+			{
+				levelUuid: REGION,
+				name: "South",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				parentId: null,
+			},
+			first.revision,
+		);
+
+		const snapshot = await readOrganization(scope());
+		expect(snapshot.locations.map(({ name }) => name)).toEqual([
+			"North",
+			"South",
+		]);
+		expect(
+			Math.max(...snapshot.locations.map(({ orderKey }) => orderKey.length)),
+		).toBeLessThanOrEqual(MAX_LOCATION_ORDER_KEY_LENGTH);
 	});
 
 	it("refuses a caller-supplied code that collides case-insensitively", async () => {

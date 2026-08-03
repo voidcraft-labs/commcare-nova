@@ -52,29 +52,32 @@ function levelDepth(levelUuid: string, doc: BlueprintDoc): number | undefined {
 	return level === undefined ? undefined : ancestorLevels(level, levels).length;
 }
 
-/** HQ applies these ceilings by absolute level depth, across sibling branches. */
-function levelIsWithinDepth(
-	candidateLevelUuid: string,
+/**
+ * HQ compares a candidate's actual location-tree depth with the configured
+ * location-type depth. Those differ on Nova's legal ragged trees: a Facility
+ * directly below a Region is one location hop deep even if Facility is two
+ * rungs deep in the authored level forest.
+ */
+function locationIsWithinDepth(
+	candidate: OwnerVerdictLocation,
 	bottomLevelUuid: string,
+	byId: ReadonlyMap<string, OwnerVerdictLocation>,
 	doc: BlueprintDoc,
 ): boolean {
-	const candidateDepth = levelDepth(candidateLevelUuid, doc);
+	const candidateDepth = ancestors(candidate, byId).length;
 	const bottomDepth = levelDepth(bottomLevelUuid, doc);
-	return (
-		candidateDepth !== undefined &&
-		bottomDepth !== undefined &&
-		candidateDepth <= bottomDepth
-	);
+	return bottomDepth !== undefined && candidateDepth <= bottomDepth;
 }
 
 function topSliceIncludes(
 	target: OwnerVerdictLocation,
 	downToLevelUuid: string | undefined,
+	byId: ReadonlyMap<string, OwnerVerdictLocation>,
 	doc: BlueprintDoc,
 ): boolean {
 	return (
 		downToLevelUuid === undefined ||
-		levelIsWithinDepth(target.levelUuid, downToLevelUuid, doc)
+		locationIsWithinDepth(target, downToLevelUuid, byId, doc)
 	);
 }
 
@@ -99,9 +102,14 @@ export function assignmentFootprintIncludes(
 				targetIsAncestor ||
 				(targetInOwnBranch &&
 					(book.downToLevelUuid === undefined ||
-						levelIsWithinDepth(target.levelUuid, book.downToLevelUuid, doc))) ||
+						locationIsWithinDepth(target, book.downToLevelUuid, byId, doc))) ||
 				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
-					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
+					topSliceIncludes(
+						target,
+						book.alsoIncludeTopDownToLevelUuid,
+						byId,
+						doc,
+					))
 			);
 		case "own-branch-limited":
 			return (
@@ -109,7 +117,12 @@ export function assignmentFootprintIncludes(
 				(targetInOwnBranch &&
 					book.levelUuids.some((uuid) => uuid === target.levelUuid)) ||
 				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
-					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
+					topSliceIncludes(
+						target,
+						book.alsoIncludeTopDownToLevelUuid,
+						byId,
+						doc,
+					))
 			);
 		case "shared-branch": {
 			const from = [assigned, ...ancestors(assigned, byId)].find(
@@ -120,11 +133,11 @@ export function assignmentFootprintIncludes(
 				(from !== undefined &&
 					isSameOrDescendant(target, from, byId) &&
 					(book.downToLevelUuid === undefined ||
-						levelIsWithinDepth(target.levelUuid, book.downToLevelUuid, doc)))
+						locationIsWithinDepth(target, book.downToLevelUuid, byId, doc)))
 			);
 		}
 		case "whole-organization":
-			return topSliceIncludes(target, book.downToLevelUuid, doc);
+			return topSliceIncludes(target, book.downToLevelUuid, byId, doc);
 	}
 }
 
@@ -164,7 +177,7 @@ function assignmentReceivesCasesFrom(
 	const scope = assignedLevel.caseFlow.descendantCases;
 	if (scope.kind === "none") return false;
 	if (scope.kind === "all") return true;
-	return levelIsWithinDepth(source.levelUuid, scope.levelUuid, doc);
+	return locationIsWithinDepth(source, scope.levelUuid, byId, doc);
 }
 
 /** The exact fixed-owner admission verdict, also used to filter its picker. */

@@ -1,6 +1,7 @@
 import {
 	ancestorLevels,
 	type BlueprintDoc,
+	LEVEL_CODE_MAX_LENGTH,
 	type LocationProperty,
 	levelOwnsCases,
 	type OrganizationLevel,
@@ -9,6 +10,27 @@ import {
 } from "@/lib/domain";
 
 export const PERSONA_LOCATION_PAGE_SIZE = 50;
+
+/** Derive a valid, collision-free, fixed identity without exceeding HQ's cap. */
+export function uniqueLevelCode(
+	name: string,
+	peers: readonly OrganizationLevel[],
+): string {
+	const taken = new Set(peers.map((peer) => peer.code));
+	const derived =
+		name
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "_")
+			.replace(/^_+|_+$/g, "") || "level";
+	const safe = /^[a-z_]/.test(derived) ? derived : `l_${derived}`;
+	const base = safe.slice(0, LEVEL_CODE_MAX_LENGTH);
+	if (!taken.has(base)) return base;
+	for (let number = 2; ; number++) {
+		const suffix = `_${number}`;
+		const candidate = `${base.slice(0, LEVEL_CODE_MAX_LENGTH - suffix.length)}${suffix}`;
+		if (!taken.has(candidate)) return candidate;
+	}
+}
 
 /** Keep a maximum-size persona's authored place rows bounded in the DOM. */
 export function personaLocationPage(
@@ -74,6 +96,38 @@ export function scalarDraftStillMatchesSave(
 	submittedDraft: string,
 ): boolean {
 	return currentDraft === submittedDraft;
+}
+
+/** How an accepted custom-value response relates to a concurrent retype. */
+export function localValueSaveDisposition(input: {
+	readonly currentBaseLevelUuid: string;
+	readonly beforeLevelUuid: string;
+	readonly currentDraftLevelUuid: string;
+	readonly submittedLevelUuid: string;
+}): "obsolete" | "record-only" | "settle-draft" {
+	if (input.currentBaseLevelUuid !== input.beforeLevelUuid) return "obsolete";
+	return input.currentDraftLevelUuid === input.submittedLevelUuid
+		? "settle-draft"
+		: "record-only";
+}
+
+/** Preserve a newer value draft when a placement response settles first. */
+export function placementSaveDraftDisposition(input: {
+	readonly responseIsLatest: boolean;
+	readonly levelMatches: boolean;
+	readonly parentMatches: boolean;
+	readonly valuesMatch: boolean;
+	readonly dirtyValueCount: number;
+}): { readonly current: boolean; readonly valuesNeedApply: boolean } {
+	const current =
+		input.responseIsLatest &&
+		input.levelMatches &&
+		input.parentMatches &&
+		input.valuesMatch;
+	return {
+		current,
+		valuesNeedApply: !current && input.dirtyValueCount > 0,
+	};
 }
 
 /** Blank is absence in the row store, not a capacity-consuming empty value. */

@@ -129,6 +129,27 @@ describe("owner target depth ceilings", () => {
 		).toBeUndefined();
 	});
 
+	it("uses actual place depth when a place skips an authored level", () => {
+		const doc = depthDoc();
+		doc.organizationLevels = {
+			...doc.organizationLevels,
+			[ROOT]: {
+				...(doc.organizationLevels?.[ROOT] as OrganizationLevel),
+				addressBook: {
+					reach: "own-branch",
+					downToLevelUuid: asUuid(SIBLING),
+				},
+			},
+		};
+		const raggedRows = rows.map((row) =>
+			row.id === DESTINATION_PLACE ? { ...row, parentId: ROOT_PLACE } : row,
+		);
+
+		expect(
+			fixedLocationOwnerIssue(doc, raggedRows, DESTINATION_PLACE),
+		).toBeUndefined();
+	});
+
 	it("applies descendant-case caps by absolute depth across branches", () => {
 		const doc = depthDoc();
 		doc.organizationLevels = {

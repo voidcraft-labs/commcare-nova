@@ -56,7 +56,9 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
 	flattenRequiredReverseHopDescendants,
+	localValueSaveDisposition,
 	locationValuePatch,
+	placementSaveDraftDisposition,
 	propertiesForLevel,
 	type RequiredReverseHopDescendant,
 	rebaseLocationValueDraft,
@@ -443,6 +445,7 @@ function PlaceRow({
 	const [dirtyLatitude, setDirtyLatitude] = useState(false);
 	const [dirtyLongitude, setDirtyLongitude] = useState(false);
 	const [dirtyLevel, setDirtyLevel] = useState(false);
+	const [valuesNeedApply, setValuesNeedApply] = useState(false);
 	const [peerChanged, setPeerChanged] = useState(false);
 	const [pendingWrites, setPendingWrites] = useState(0);
 	// Scalar inputs remain editable while their blur save is in flight. These
@@ -631,6 +634,7 @@ function PlaceRow({
 		dirtyLatitude ||
 		dirtyLongitude ||
 		dirtyPlacement ||
+		valuesNeedApply ||
 		pendingWrites > 0 ||
 		peerChanged;
 	useEffect(() => {
@@ -648,6 +652,7 @@ function PlaceRow({
 			dirtyLatitude ||
 			dirtyLongitude ||
 			dirtyPlacement ||
+			valuesNeedApply ||
 			pendingWrites > 0 ||
 			peerChanged
 		) {
@@ -737,6 +742,7 @@ function PlaceRow({
 		dirtyLatitude,
 		dirtyLongitude,
 		dirtyPlacement,
+		valuesNeedApply,
 		pendingWrites,
 		peerChanged,
 		onConflictChange,
@@ -795,6 +801,7 @@ function PlaceRow({
 		setDirtyLatitude(false);
 		setDirtyLongitude(false);
 		setDirtyLevel(false);
+		setValuesNeedApply(false);
 		setPeerChanged(false);
 		peerSnapshotRef.current = undefined;
 		onConflictChange(location.id, false);
@@ -851,7 +858,10 @@ function PlaceRow({
 			return nextValues;
 		});
 		setDirtyValues(true);
-		if (dirtyPlacement) return;
+		if (dirtyPlacement) {
+			setValuesNeedApply(true);
+			return;
+		}
 		if (peerChanged) {
 			setMessage(
 				"This place changed while you were editing. Use the latest saved values before saving your draft.",
@@ -875,15 +885,22 @@ function PlaceRow({
 		if (!result.ok) {
 			setMessage(result.message);
 		} else {
-			// A retype carries its own complete level-specific value bag. An older
-			// response from the previous level must not restore that old bag.
+			// Record an accepted value row even when the author staged a retype while
+			// it was in flight. The later refresh can then be recognized as this local
+			// write instead of being fenced as a peer edit. A completed retype has
+			// already advanced the base and still makes this older response obsolete.
+			const disposition = localValueSaveDisposition({
+				currentBaseLevelUuid: sourceRef.current.levelUuid,
+				beforeLevelUuid: before.levelUuid,
+				currentDraftLevelUuid: draftLevelUuidRef.current,
+				submittedLevelUuid,
+			});
+			if (disposition === "obsolete") return;
 			if (
-				draftLevelUuidRef.current !== submittedLevelUuid ||
-				sourceRef.current.levelUuid !== before.levelUuid ||
 				!rebaseAfterLocalSave(result.location, before, recoveryEpoch, peerEpoch)
-			) {
+			)
 				return;
-			}
+			if (disposition === "record-only") return;
 			if (dirtyValueDraftsRef.current[propertyUuid] === value) {
 				delete dirtyValueDraftsRef.current[propertyUuid];
 			}
@@ -900,6 +917,7 @@ function PlaceRow({
 				draftValuesRef.current = nextValues;
 			}
 			setDirtyValues(Object.keys(dirtyValueDraftsRef.current).length > 0);
+			setValuesNeedApply(Object.keys(dirtyValueDraftsRef.current).length > 0);
 			setMessage(undefined);
 		}
 	};
@@ -1163,7 +1181,7 @@ function PlaceRow({
 							moving them.
 						</p>
 					)}
-					{dirtyPlacement && (
+					{(dirtyPlacement || valuesNeedApply) && (
 						<Button
 							type="button"
 							variant="ghost"
@@ -1209,11 +1227,18 @@ function PlaceRow({
 									recoveryEpoch === recoveryEpochRef.current &&
 									peerEpoch === peerEpochRef.current &&
 									generation === clock.generation;
-								const current =
-									latest &&
-									draftLevelUuidRef.current === submittedLevelUuid &&
-									draftParentIdRef.current === submittedParentId &&
-									sameStringRecord(draftValuesRef.current, submittedValues);
+								const draftDisposition = placementSaveDraftDisposition({
+									responseIsLatest: latest,
+									levelMatches:
+										draftLevelUuidRef.current === submittedLevelUuid,
+									parentMatches: draftParentIdRef.current === submittedParentId,
+									valuesMatch: sameStringRecord(
+										draftValuesRef.current,
+										submittedValues,
+									),
+									dirtyValueCount: Object.keys(dirtyValueDraftsRef.current)
+										.length,
+								});
 								if (!result.ok) {
 									if (latest) setMessage(result.message);
 								} else if (
@@ -1225,7 +1250,7 @@ function PlaceRow({
 									) &&
 									result.location !== undefined
 								) {
-									if (current) {
+									if (draftDisposition.current) {
 										const savedValues = valuesForLevel(
 											properties,
 											result.location.levelUuid,
@@ -1240,6 +1265,7 @@ function PlaceRow({
 										dirtyValueDraftsRef.current = {};
 										setDirtyLevel(false);
 										setDirtyValues(false);
+										setValuesNeedApply(false);
 									} else {
 										setDirtyLevel(
 											draftLevelUuidRef.current !== result.location.levelUuid,
@@ -1254,12 +1280,17 @@ function PlaceRow({
 												),
 											),
 										);
+										setValuesNeedApply(draftDisposition.valuesNeedApply);
 									}
 									if (latest) setMessage(undefined);
 								}
 							}}
 						>
-							{dirtyLevel ? "Apply level change" : "Apply parent change"}
+							{dirtyLevel
+								? "Apply level change"
+								: dirtyPlacement
+									? "Apply parent change"
+									: "Apply place information"}
 						</Button>
 					)}
 					{dirtyPlacement && draftPlacementIssue !== undefined && (

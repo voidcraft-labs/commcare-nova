@@ -1,16 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, type LocationProperty } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	LEVEL_CODE_MAX_LENGTH,
+	type LocationProperty,
+	type OrganizationLevel,
+} from "@/lib/domain";
 import {
 	flattenRequiredReverseHopDescendants,
+	localValueSaveDisposition,
 	locationValuePatch,
 	PERSONA_LOCATION_PAGE_SIZE,
 	personaLocationPage,
+	placementSaveDraftDisposition,
 	propertiesForLevel,
 	rebaseLocationValueDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
 	scalarDraftStillMatchesSave,
+	uniqueLevelCode,
 	valuesForLevel,
 } from "../organizationUi";
 
@@ -36,6 +45,20 @@ const properties: LocationProperty[] = [
 ];
 
 describe("organization place-information UI", () => {
+	it("bounds derived level codes and reserves space for collision suffixes", () => {
+		const longName = "A".repeat(LEVEL_CODE_MAX_LENGTH + 20);
+		const first = uniqueLevelCode(longName, []);
+		const peers = [{ code: first }] as OrganizationLevel[];
+		const second = uniqueLevelCode(longName, peers);
+
+		expect(first).toHaveLength(LEVEL_CODE_MAX_LENGTH);
+		expect(second).toHaveLength(LEVEL_CODE_MAX_LENGTH);
+		expect(second.endsWith("_2")).toBe(true);
+		expect(second).not.toBe(first);
+		expect(first).toMatch(/^[a-z_][a-z0-9_-]*$/);
+		expect(second).toMatch(/^[a-z_][a-z0-9_-]*$/);
+	});
+
 	it("mounts only one bounded page of a maximum-size persona assignment", () => {
 		const assigned = Array.from({ length: 10_000 }, (_, index) =>
 			String(index),
@@ -91,6 +114,46 @@ describe("organization place-information UI", () => {
 		expect(
 			scalarDraftStillMatchesSave("submitted name", "submitted name"),
 		).toBe(true);
+	});
+
+	it("records an accepted value save before a staged retype without settling its draft", () => {
+		expect(
+			localValueSaveDisposition({
+				currentBaseLevelUuid: REGION,
+				beforeLevelUuid: REGION,
+				currentDraftLevelUuid: FACILITY,
+				submittedLevelUuid: REGION,
+			}),
+		).toBe("record-only");
+		expect(
+			localValueSaveDisposition({
+				currentBaseLevelUuid: FACILITY,
+				beforeLevelUuid: REGION,
+				currentDraftLevelUuid: FACILITY,
+				submittedLevelUuid: REGION,
+			}),
+		).toBe("obsolete");
+	});
+
+	it("requires a second apply for values authored during a placement save", () => {
+		expect(
+			placementSaveDraftDisposition({
+				responseIsLatest: true,
+				levelMatches: true,
+				parentMatches: true,
+				valuesMatch: false,
+				dirtyValueCount: 1,
+			}),
+		).toEqual({ current: false, valuesNeedApply: true });
+		expect(
+			placementSaveDraftDisposition({
+				responseIsLatest: true,
+				levelMatches: true,
+				parentMatches: true,
+				valuesMatch: true,
+				dirtyValueCount: 0,
+			}),
+		).toEqual({ current: true, valuesNeedApply: false });
 	});
 
 	it("transports Clear as key deletion rather than a stored empty string", () => {

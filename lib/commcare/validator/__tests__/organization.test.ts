@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
-import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	MAX_ATOMIC_LOCATION_DESCENDANTS,
+	type OrganizationLevel,
+} from "@/lib/domain";
 import { ORGANIZATION_RULES } from "../rules/organization";
 
 const REGION = testUuid("organization-rule-region");
@@ -134,6 +138,53 @@ describe("organization address-book level references", () => {
 		expect(findings(value)).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ code: "ORGANIZATION_LEVEL_SCOPE_GAP" }),
+			]),
+		);
+	});
+});
+
+describe("organization reverse-hop construction bounds", () => {
+	it("rejects more distinct destinations than one atomic source create can carry", () => {
+		const value = doc();
+		const destinationUuids = Array.from(
+			{ length: MAX_ATOMIC_LOCATION_DESCENDANTS + 1 },
+			(_, index) => testUuid(`reverse-destination-${index}`),
+		);
+		value.organizationLevels = {
+			[REGION]: level(REGION, "Region"),
+			...Object.fromEntries(
+				destinationUuids.map((uuid, index) => [
+					uuid,
+					level(uuid, `Destination_${index}`, REGION),
+				]),
+			),
+		};
+		value.organizationLevelOrder = [REGION, ...destinationUuids];
+		const formUuid = value.formOrder[value.moduleOrder[0]]?.[0];
+		if (formUuid === undefined) throw new Error("fixture form missing");
+		value.forms[formUuid].caseOperations = destinationUuids.map(
+			(levelUuid, index) => ({
+				uuid: testUuid(`reverse-operation-${index}`),
+				id: `route_${index}`,
+				action: "update" as const,
+				caseType: "case",
+				target: { kind: "session" as const },
+				owner: {
+					kind: "term" as const,
+					term: {
+						kind: "owner-location-at-level" as const,
+						levelUuid,
+						ownerCaseType: "case",
+					},
+				},
+			}),
+		);
+
+		expect(findings(value)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT",
+				}),
 			]),
 		);
 	});

@@ -28,13 +28,13 @@ import {
 	personasOf,
 	type Uuid,
 } from "@/lib/domain";
-import { deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
 import {
 	assertLocationOwnerTargetsValid,
 	assertPersonaAssignmentsValid,
 	assertReverseHopTargetsUnambiguous,
 } from "./commitIntegrity";
 import { OrganizationError, organizationNotFound } from "./errors";
+import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
 import {
 	assertSiteCodeFree,
 	type CreateLocationDescendantInput,
@@ -274,40 +274,74 @@ function subtreeIds(tree: LockedTree, rootId: string): string[] {
  * ordinary insert into a 500 instead of a placement. `keysForSlot` widens past
  * the tied run to a distinct bound, which is the whole reason it exists.
  */
-function orderKeyForSlot(
+async function orderKeyForSlot(
+	tx: Transaction<AppDatabase>,
+	appId: string,
 	tree: LockedTree,
 	parentId: string | null,
 	afterSiblingId: string | null | undefined,
 	/** Excluded from the sibling set — a row being moved within its own parent
 	 *  must not be its own neighbour. */
 	movingId?: string,
-): string {
+): Promise<string> {
 	const siblings = (tree.childrenOf.get(parentId) ?? []).filter(
 		(row) => row.id !== movingId,
 	);
-	if (afterSiblingId === null) {
-		return deriveKeyAtIndex(
-			siblings.map((row) => row.order_key),
-			0,
-		);
+	let slotIndex: number;
+	if (afterSiblingId === null) slotIndex = 0;
+	else if (afterSiblingId === undefined) slotIndex = siblings.length;
+	else {
+		const index = siblings.findIndex((row) => row.id === afterSiblingId);
+		if (index === -1) {
+			throw new OrganizationError(
+				"rejected",
+				"The place you asked to put this one after isn't in the same part of the organization. Reload to get the latest places, then try again.",
+			);
+		}
+		slotIndex = index + 1;
 	}
-	if (afterSiblingId === undefined) {
-		return deriveKeyAtIndex(
-			siblings.map((row) => row.order_key),
-			siblings.length,
-		);
-	}
-	const index = siblings.findIndex((row) => row.id === afterSiblingId);
-	if (index === -1) {
-		throw new OrganizationError(
-			"rejected",
-			"The place you asked to put this one after isn't in the same part of the organization. Reload to get the latest places, then try again.",
-		);
-	}
-	return deriveKeyAtIndex(
+	const plan = boundedLocationOrderKeyAtIndex(
 		siblings.map((row) => row.order_key),
-		index + 1,
+		slotIndex,
 	);
+	if (plan.rebalancedExistingKeys !== undefined) {
+		const ids = siblings.map((row) => row.id);
+		await sql`
+			UPDATE app_locations AS target
+			SET order_key = replacement.order_key,
+				updated_at = now()
+			FROM unnest(
+				${sql.val(ids)}::uuid[],
+				${sql.val([...plan.rebalancedExistingKeys])}::text[]
+			) AS replacement(id, order_key)
+			WHERE target.app_id = ${appId}
+				AND target.id = replacement.id
+		`.execute(tx);
+		for (let index = 0; index < siblings.length; index++) {
+			const sibling = siblings[index];
+			const replacementKey: string | undefined =
+				plan.rebalancedExistingKeys[index];
+			if (sibling === undefined || replacementKey === undefined) continue;
+			const rebalanced: LocationRow = {
+				...sibling,
+				order_key: replacementKey,
+			};
+			siblings[index] = rebalanced;
+			tree.byId.set(rebalanced.id, rebalanced);
+			const treeSiblings = tree.childrenOf.get(parentId);
+			const treeIndex = treeSiblings?.findIndex(
+				(candidate: LocationRow) => candidate.id === rebalanced.id,
+			);
+			if (
+				treeSiblings !== undefined &&
+				treeIndex !== undefined &&
+				treeIndex >= 0
+			) {
+				treeSiblings[treeIndex] = rebalanced;
+			}
+		}
+	}
+	return plan.key;
 }
 
 /** Whether the requested semantic slot is exactly the row's current slot. */
@@ -557,7 +591,13 @@ export async function createLocation(
 					longitude: candidate.longitude,
 					// A jsonb column crosses Kysely as a string on the way in.
 					values: JSON.stringify(candidate.values),
-					order_key: orderKeyForSlot(tree, parentId, afterSiblingId),
+					order_key: await orderKeyForSlot(
+						tx,
+						scope.appId,
+						tree,
+						parentId,
+						afterSiblingId,
+					),
 					created_by: scope.actorUserId,
 					updated_by: scope.actorUserId,
 				})
@@ -759,7 +799,9 @@ export async function updateLocation(
 					patch.afterSiblingId,
 				)
 			) {
-				const orderKey = orderKeyForSlot(
+				const orderKey = await orderKeyForSlot(
+					tx,
+					scope.appId,
 					tree,
 					nextParentId,
 					patch.afterSiblingId,
@@ -861,7 +903,9 @@ export async function moveLocation(
 				location: toStoredLocation(current),
 			};
 		}
-		const orderKey = orderKeyForSlot(
+		const orderKey = await orderKeyForSlot(
+			tx,
+			scope.appId,
 			tree,
 			target.parentId,
 			target.afterSiblingId,

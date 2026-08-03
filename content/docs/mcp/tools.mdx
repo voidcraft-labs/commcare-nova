@@ -271,10 +271,12 @@ Preview only until device location data and HQ identity mapping ship.
 
 Archiving is a two-call confirmation flow. First call
 `set_location_archived` with `archived: true` and no confirmation, review its
-bounded impact and exact confirmation token, then repeat with `confirm: true`
-and the unchanged `confirmedImpact`. Never confirm a blocked preflight. The
-subtree is archived and persona assignments there are removed, but owned cases
-are never reassigned.
+bounded impact and exact confirmation token, then repeat with `confirm: true`,
+`expectedRevision` set to the returned
+`expectedRevisionForConfirmation` (the impact revision), and the unchanged
+`confirmedImpact`. Never confirm a blocked preflight. The subtree is archived
+and persona assignments there are removed, but owned cases are never
+reassigned.
 
 | Tool | What it does |
 |---|---|

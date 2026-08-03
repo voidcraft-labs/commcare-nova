@@ -56,6 +56,7 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { DraftCommitInput } from "./DraftCommitField";
+import { uniqueLevelCode } from "./organizationUi";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 /** Sentinel for "no parent": a Select item cannot carry an empty value. */
@@ -85,7 +86,7 @@ export function LevelsSubsection({
 			name,
 			code:
 				authoredCode.trim() === ""
-					? uniqueCode(name, levels)
+					? uniqueLevelCode(name, levels)
 					: authoredCode.trim(),
 			// A new rung goes under the deepest existing one, which is what an
 			// author adding levels top-down means every time. Changing it is one
@@ -147,23 +148,6 @@ export function LevelsSubsection({
 			)}
 		</Subsection>
 	);
-}
-
-function uniqueCode(name: string, peers: readonly OrganizationLevel[]): string {
-	const taken = new Set(peers.map((p) => p.code));
-	const base =
-		name
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "_")
-			.replace(/^_+|_+$/g, "") || "level";
-	// A code must start with a letter or underscore — it becomes an XML
-	// attribute name in the fixture, and `2_id` is unaddressable.
-	const safe = /^[a-z_]/.test(base) ? base : `l_${base}`;
-	if (!taken.has(safe)) return safe;
-	for (let n = 2; ; n++) {
-		const candidate = `${safe}_${n}`;
-		if (!taken.has(candidate)) return candidate;
-	}
 }
 
 function AddLevelForm({
@@ -229,7 +213,7 @@ function AddLevelForm({
 					value={code}
 					onChange={(event) => setCode(event.target.value)}
 					placeholder={
-						name.trim() === "" ? "facility" : uniqueCode(name, levels)
+						name.trim() === "" ? "facility" : uniqueLevelCode(name, levels)
 					}
 				/>
 				<p className="text-[12px] leading-relaxed text-nova-text-muted">
@@ -371,9 +355,11 @@ function LevelRow({
 						/>
 						<p className="text-[12px] text-nova-text-muted">
 							Saves as{" "}
-							<code className="text-nova-text-secondary">{level.code}</code>.
-							That code goes to CommCare and to every expression that names this
-							level, so it stays fixed even when the name changes.
+							<code className="text-nova-text-secondary [overflow-wrap:anywhere]">
+								{level.code}
+							</code>
+							. That code goes to CommCare and to every expression that names
+							this level, so it stays fixed even when the name changes.
 						</p>
 					</div>
 
