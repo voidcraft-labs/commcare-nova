@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { parseCreatedAppActivation } from "@/components/chat/ChatContainer";
 import { CommitReauthError } from "@/lib/db/commitGuard";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
+import type { BlueprintDoc } from "@/lib/doc/types";
 
 const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {}
@@ -22,6 +28,41 @@ vi.mock("@/lib/db/apps", () => ({ createApp: mocks.createApp }));
 
 import { createStarterApp } from "../actions";
 
+/** What `createApp` really hands back: the canonical starter, admitted through
+ *  the same gate the database write runs behind. */
+function canonicalReceipt(appId: string) {
+	const empty: BlueprintDoc = {
+		appId,
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
+	const genesis = canonicalAppGenesis(empty);
+	const verdict = mutationCommitVerdict(
+		empty,
+		genesis.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) throw new Error("canonical genesis must commit");
+	return {
+		appId,
+		baseSeq: 1 as const,
+		blueprint: toPersistableDoc(verdict.nextDoc),
+		starter: {
+			moduleUuid: genesis.moduleUuid,
+			formUuid: genesis.formUuid,
+			fieldUuid: genesis.fieldUuid,
+		},
+	};
+}
+
 describe("createStarterApp Project binding", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -31,13 +72,12 @@ describe("createStarterApp Project binding", () => {
 			role: "editor",
 			actorUserId: "user-1",
 		});
-		mocks.createApp.mockResolvedValue({ appId: "app-1" });
+		mocks.createApp.mockResolvedValue(canonicalReceipt("app-1"));
 	});
 
 	it("creates in the server-rendered Project even after another tab changes the active Project", async () => {
-		await expect(
-			createStarterApp("project-seeded-by-build-new"),
-		).resolves.toEqual({ success: true, appId: "app-1" });
+		const result = await createStarterApp("project-seeded-by-build-new");
+		expect(result.success).toBe(true);
 
 		expect(mocks.resolveProjectAccess).toHaveBeenCalledWith(
 			"user-1",
@@ -50,6 +90,25 @@ describe("createStarterApp Project binding", () => {
 			expect.any(String),
 			{ status: "complete" },
 		);
+	});
+
+	/* The blank-app path and the SA's `data-app-id` frame install the new app
+	 * through the same client-side boundary, so this action's return value has
+	 * to satisfy that boundary exactly. If they drift, the blank-app path stops
+	 * being able to open its own app. */
+	it("returns a receipt the client's creation boundary accepts", async () => {
+		const result = await createStarterApp("project-seeded-by-build-new");
+		if (!result.success) throw new Error(result.error);
+
+		const activation = parseCreatedAppActivation(
+			result.receipt as unknown as Record<string, unknown>,
+		);
+		expect(activation).not.toBeNull();
+		expect(activation?.appId).toBe("app-1");
+		/* The capability the server gate resolved, never one the caller sent. */
+		expect(activation?.projectId).toBe("project-seeded-by-build-new");
+		expect(activation?.role).toBe("editor");
+		expect(activation?.canEdit).toBe(true);
 	});
 
 	it("fails closed when the actor cannot edit the captured Project", async () => {

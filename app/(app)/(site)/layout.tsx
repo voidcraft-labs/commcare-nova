@@ -1,14 +1,14 @@
 /**
- * Site layout: the global AppHeader for every non-builder surface
+ * Site layout: the shared header, filled for every non-builder surface
  * (app list, admin, settings, consent).
  *
- * The builder is deliberately OUTSIDE this group: it renders its own
- * chrome (`BuilderHeader`) with the document tools and the Preview
- * toggle, so it doesn't carry the site nav (Apps/Admin links, Docs,
- * Give feedback) that has no job mid-build. Splitting at the route
- * group keeps the suppression structural: no pathname checks.
+ * The builder is deliberately OUTSIDE this group: it fills the SAME
+ * `AppHeader` band with the document tools and the Preview toggle, and drops
+ * the site nav (Apps/Admin links, Docs, Give feedback) that has no job
+ * mid-build. Splitting at the route group keeps that suppression structural:
+ * no pathname checks.
  */
-import { AppHeader } from "@/components/ui/AppHeader";
+import { SiteHeader } from "@/components/ui/SiteHeader";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { listUserProjects } from "@/lib/projects/membership";
 
@@ -42,7 +42,7 @@ export default async function SiteLayout({
 
 	return (
 		<>
-			<AppHeader
+			<SiteHeader
 				isAdmin={isAdmin}
 				isAuthenticated={!!session}
 				impersonating={impersonating}

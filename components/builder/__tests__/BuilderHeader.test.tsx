@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 		| "reconnecting"
 		| "upgradeRequired"
 		| "revoked",
+	/* `BuilderPhase.Ready` — spelled by value because `vi.hoisted` runs before
+	 * any import. Every case here has an app, so the mark stands alone. */
+	phase: "ready",
 	canEdit: true,
 	compact: true,
 	ultraCompact: false,
@@ -45,10 +48,19 @@ vi.mock("@/components/ui/ImpersonationBanner", () => ({
 	ImpersonationBanner: () => null,
 }));
 vi.mock("@/components/ui/Logo", () => ({
-	Logo: ({ markOnly, size }: { markOnly?: boolean; size?: string }) => (
+	Logo: ({
+		markOnly,
+		size,
+		absorbing,
+	}: {
+		markOnly?: boolean;
+		size?: string;
+		absorbing?: boolean;
+	}) => (
 		<span
 			data-testid="logo"
 			data-mark-only={markOnly || undefined}
+			data-absorbing={absorbing || undefined}
 			data-size={size}
 		>
 			commcare nova
@@ -68,6 +80,7 @@ vi.mock("@/lib/routing/builderActions", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => mocks.accessPhase,
 	useBuilderIsReady: () => true,
+	useBuilderPhase: () => mocks.phase,
 	useCanEdit: () => mocks.canEdit,
 	useProjectScopeEpoch: () => 0,
 	/* The identity menu beside the Preview toggle reads these. It renders
@@ -92,6 +105,7 @@ import { BuilderHeader } from "@/components/builder/BuilderHeader";
 describe("BuilderHeader responsive actions", () => {
 	beforeEach(() => {
 		mocks.accessPhase = "authorized";
+		mocks.phase = "ready";
 		mocks.canEdit = true;
 		mocks.compact = true;
 		mocks.ultraCompact = false;
@@ -110,9 +124,10 @@ describe("BuilderHeader responsive actions", () => {
 		const home = screen.getByRole("link", { name: "Back to your apps" });
 		expect(home.className).toContain("min-h-11");
 		expect(home.className).toContain("min-w-11");
-		// The builder wears the mark alone at every width. The app being built
-		// carries the name on this screen, and the sphere needs the `chrome`
-		// rung to be the sphere rather than the flattened favicon form.
+		// Once an app exists the builder wears the mark alone at every width.
+		// The app being built carries the name on this screen, and the sphere
+		// needs the `chrome` rung to be the sphere rather than the flattened
+		// favicon form.
 		expect(screen.getByTestId("logo").dataset.markOnly).toBe("true");
 		expect(screen.getByTestId("logo").dataset.size).toBe("chrome");
 		expect(
@@ -141,15 +156,15 @@ describe("BuilderHeader responsive actions", () => {
 		);
 
 		expect(container.querySelector("header")?.dataset.headerLayout).toBe(
-			"ultra-compact",
+			"stacked",
 		);
-		expect(container.querySelector("header")?.className).toContain(
-			"grid-rows-[60px_auto]",
+		expect(container.querySelector("header")?.style.gridTemplateRows).toBe(
+			"64px auto",
 		);
 		expect(screen.getByTestId("logo").dataset.markOnly).toBe("true");
 		expect(screen.getByTestId("logo").dataset.size).toBe("chrome");
 		const actions = container.querySelector<HTMLElement>(
-			"[data-header-document-actions]",
+			"[data-app-header-tools]",
 		);
 		expect(actions?.className).toContain("row-start-2");
 		expect(actions?.className).toContain("border-t");

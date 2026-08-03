@@ -9,16 +9,45 @@
 
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { createApp } from "@/lib/db/apps";
 import { CommitReauthError } from "@/lib/db/commitGuard";
+import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
-/** Result of `createStarterApp`. Carries the new app's id so the client can navigate to it. */
+/**
+ * The one-shot creation receipt, byte-identical in shape to the `data-app-id`
+ * frame the chat route emits when the SA creates an app.
+ *
+ * Nova has exactly two ways an app is born, and both hand the client the same
+ * thing: identity, the Project capability the SERVER resolved (never one the
+ * client asserted), the exact sequence-1 blueprint, and the cursor multiplayer
+ * must start from. Keeping one shape is what lets one client-side installer
+ * serve both, so a new app can never land two different ways.
+ * `ChatContainer.parseCreatedAppActivation` is the strict boundary that admits
+ * it, and it accepts this key set exactly.
+ */
+export interface CreatedAppReceiptPayload {
+	readonly appId: string;
+	readonly projectId: string;
+	readonly role: string;
+	readonly canEdit: boolean;
+	readonly baseSeq: 1;
+	readonly blueprint: PersistableDoc;
+	readonly starter: {
+		readonly moduleUuid: string;
+		readonly formUuid: string;
+		readonly fieldUuid: string;
+	};
+}
+
+/** Result of `createStarterApp`. Carries the whole creation receipt, not just
+ *  the id: the caller installs the app in place rather than navigating to it. */
 export type CreateStarterAppResult =
-	| { success: true; appId: string }
+	| { success: true; receipt: CreatedAppReceiptPayload }
 	| { success: false; error: string };
 
 /**
@@ -32,6 +61,12 @@ export type CreateStarterAppResult =
  *
  * Born `complete` with no run behind it, so nothing to charge, reserve or
  * finalize: the credit ledger only meters generation.
+ *
+ * Returns the whole creation receipt so the caller can install the app without
+ * leaving the page. The builder is a single-page app: a route change here would
+ * remount the entire builder tree under a new `key={buildId}`, throwing away a
+ * live chat session and the brand handoff mid-gesture, to arrive at state the
+ * client already holds.
  */
 export async function createStarterApp(
 	expectedProjectId: string,
@@ -53,8 +88,14 @@ export async function createStarterApp(
 		 * tab may have switched the session's active Project since then, so creation
 		 * authorizes and writes the captured id directly instead of re-resolving a
 		 * mutable cookie. */
+		let role: string;
 		try {
-			await resolveProjectAccess(session.user.id, expectedProjectId, "edit");
+			const access = await resolveProjectAccess(
+				session.user.id,
+				expectedProjectId,
+				"edit",
+			);
+			role = access.role;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return {
@@ -65,7 +106,7 @@ export async function createStarterApp(
 			throw err;
 		}
 
-		let appId: string;
+		let payload: CreatedAppReceiptPayload;
 		try {
 			const receipt = await createApp(
 				session.user.id,
@@ -75,7 +116,18 @@ export async function createStarterApp(
 					status: "complete",
 				},
 			);
-			appId = receipt.appId;
+			payload = {
+				appId: receipt.appId,
+				projectId: expectedProjectId,
+				role,
+				/* The capability the gate above resolved, never one the caller sent. */
+				canEdit: roleAllowsApp(role, "edit"),
+				baseSeq: receipt.baseSeq,
+				/* React Flight can't carry the null-prototype records the reducer
+				 * builds, and the client normalizes what it receives anyway. */
+				blueprint: toRscSerializableDoc(receipt.blueprint),
+				starter: receipt.starter,
+			};
 		} catch (err) {
 			if (err instanceof CommitReauthError) {
 				return {
@@ -86,8 +138,15 @@ export async function createStarterApp(
 			throw err;
 		}
 
-		revalidatePath("/");
-		return { success: true, appId };
+		/* No `revalidatePath` here, unlike the app-list actions, and the
+		 * difference is which page is being asked to refresh. Those run FROM the
+		 * app list and revalidating it IS their refresh. This one runs from
+		 * `/build/new` and would be revalidating a page nobody is on — while the
+		 * router re-render that carries the revalidation restores Next's own
+		 * canonical URL, undoing the promotion to `/build/{id}` that this
+		 * receipt exists to make. The app list is a dynamic route (it reads the
+		 * session), so it re-renders on arrival regardless. */
+		return { success: true, receipt: payload };
 	} catch (err) {
 		log.error("[build/create-starter-app] error", err);
 		return {

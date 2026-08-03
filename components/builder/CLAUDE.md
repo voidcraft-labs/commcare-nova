@@ -1,5 +1,45 @@
 # Builder Components
 
+## The header is the app's, not the builder's
+
+`BuilderHeader` fills `components/ui/AppHeader` — the ONE band every signed-in
+surface stands in — and owns no geometry of its own. Height, insets, the mark's
+position, and the wordmark's width rule live there and nowhere else (see
+`components/CLAUDE.md`); the builder supplies slot contents and one flag,
+`stacked`, for the width where its document tools can't fit beside everything
+else. Re-spelling a height or an inset here is what produced two headers 8px
+apart with their marks 4px apart, and the brand visibly hopped on every
+crossing.
+
+Two builder-owned decisions ride on that band. **The mark is the exit**, which
+is why the builder can hand the wordmark back: the app being built carries its
+own name in the structure sidebar's app row, and a second name on the screen
+makes the reader decide which one they are looking at. And **`/build/new` is the
+exception**: with no app yet, the whole lockup stands there as Nova's own
+presence (there is no hero logo over the chat box — the logomark breathes, and
+two of them running the same wave stops reading as presence), so a build
+starting is the moment the word is drawn into the sphere it will leave by.
+`BuilderHeader` reads that off `phase === Idle` alone, so the collapse and the
+chat's centered-to-docked morph are one gesture on one tick.
+
+## Creation never navigates
+
+Both ways an app is born — the SA's `data-app-id` frame and the blank-app
+Server Action's return value — hand the client the SAME receipt (identity, the
+server-resolved Project capability, the exact sequence-1 blueprint, the cursor)
+and land it through ONE installer, `ChatContainer.installCreatedApp`, behind the
+same strict `parseCreatedAppActivation` boundary. It promotes `/build/new` to
+`/build/{id}` through `pushBuilderHistory`, the builder's own History-API path,
+never the Next router: a route change swaps `BuilderProvider`'s `key={buildId}`
+and rebuilds every store under it, severing a live run and discarding the
+document just installed to fetch state the client already holds.
+
+That is also why `createStarterApp` does NOT `revalidatePath("/")` the way the
+app-list actions do. Those run FROM the app list and revalidating it IS their
+refresh; this one runs from `/build/new`, and the router re-render carrying the
+revalidation restores Next's own canonical URL, undoing the promotion. The app
+list is dynamic (it reads the session), so it is fresh on arrival regardless.
+
 ## Builder state — three sources of truth
 
 The builder's state is split across three stores, each with a distinct lifecycle, and each reached ONLY through its named domain hooks (raw stores and selector-accepting hooks are lib-private; Biome enforces it):

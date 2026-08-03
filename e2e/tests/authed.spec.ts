@@ -2287,10 +2287,23 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toHaveCount(0);
 
+		// Stamp the live builder tree. Creation installs the app in place, so
+		// this node has to survive it: a route change here would swap
+		// `BuilderProvider`'s `key={buildId}` and rebuild everything under it,
+		// which is what the SPA path exists to avoid.
+		await page.locator("[data-app-header]").evaluate((el) => {
+			el.dataset.e2eBuilderGeneration = "before-create";
+		});
+
 		await startFromScratch.click();
 
-		// The real createStarterApp Server Action → createApp → router.replace.
+		// The real createStarterApp Server Action → createApp → the client
+		// installs the returned receipt and promotes the URL through the
+		// builder's own History API path.
 		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
+		await expect(
+			page.locator("[data-app-header][data-e2e-builder-generation]"),
+		).toHaveCount(1);
 
 		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
 		// non-empty). That is the load-bearing assertion: the from-scratch path

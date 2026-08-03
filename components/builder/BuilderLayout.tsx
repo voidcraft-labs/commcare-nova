@@ -41,7 +41,7 @@ import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceP
 import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
-import { Logo } from "@/components/ui/Logo";
+import { Spinner } from "@/components/shadcn/spinner";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -388,10 +388,11 @@ export function BuilderLayout({
 					onSetPreviewing={handleSetPreviewing}
 					impersonating={impersonating ?? null}
 				/>
+				{/* Not a second lockup. The header above is already showing the mark,
+				    and the mark breathes: two of them on one screen turns presence
+				    into a loop. A blueprint on its way is an ordinary wait. */}
 				<div className="flex-1 flex items-center justify-center">
-					<div className="animate-pulse">
-						<Logo size="lg" />
-					</div>
+					<Spinner className="size-8 text-nova-text-muted" />
 				</div>
 			</div>
 		);
