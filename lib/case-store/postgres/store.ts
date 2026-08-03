@@ -2402,7 +2402,23 @@ export class PostgresCaseStore implements CaseStore {
 				transition.property,
 				BTREE_SUFFIX_FOR_DATA_TYPE[transition.fromType],
 			);
-			await sql`DROP INDEX IF EXISTS ${sql.id(staleName)}`.execute(trx);
+			const staleResult = await sql<{ name: string; schema: string }>`
+				SELECT index_relation.relname AS name,
+				       namespace.nspname AS schema
+				FROM pg_index AS index_row
+				JOIN pg_class AS index_relation
+				  ON index_relation.oid = index_row.indexrelid
+				JOIN pg_namespace AS namespace
+				  ON namespace.oid = index_relation.relnamespace
+				WHERE index_row.indrelid = to_regclass('cases')
+				  AND index_relation.relname = ${staleName}
+			`.execute(trx);
+			const stale = staleResult.rows[0];
+			if (stale !== undefined) {
+				await sql`DROP INDEX IF EXISTS ${sql.id(stale.schema, stale.name)}`.execute(
+					trx,
+				);
+			}
 		}
 	}
 

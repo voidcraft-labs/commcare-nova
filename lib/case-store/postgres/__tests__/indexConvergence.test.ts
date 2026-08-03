@@ -266,6 +266,85 @@ describe("durable case-schema index convergence", () => {
 		).toEqual([]);
 	});
 
+	it("reactivates across a numeric index collision in the relocated production schema", async () => {
+		const caseStore = store();
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("int"),
+			syncedSeq: 1,
+		});
+		await caseStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "numeric-retained-patient",
+				case_type: "patient",
+				case_name: "Numeric retained patient",
+				status: "open",
+				properties: { value: 12 },
+			},
+		});
+		const retirement = await db()
+			.transaction()
+			.execute((tx) =>
+				caseStore.retireSchemasPhaseA(tx, {
+					appId: APP_ID,
+					desiredSeq: 2,
+					caseTypes: ["patient"],
+					fallbackCaseTypeSchemas: schema("int"),
+				}),
+			);
+
+		const isolated = "nova_case_runtime_reactivation";
+		await database.pool.query(`CREATE SCHEMA ${isolated}`);
+		await database.pool.query(
+			`ALTER TABLE public.cases SET SCHEMA ${isolated}`,
+		);
+		await database.pool.query(
+			`ALTER DATABASE ${database.databaseName} SET search_path TO public, ${isolated}`,
+		);
+		await database.pool.query(`SET search_path TO public, ${isolated}`);
+		await sql`CREATE TABLE public.numeric_index_decoy (id integer)`.execute(
+			database.db,
+		);
+		await sql`
+			CREATE INDEX ${sql.id(indexName("int"))}
+			ON public.numeric_index_decoy (id)
+		`.execute(database.db);
+
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schema("text"),
+			syncedSeq: 3,
+		});
+		// A delayed retirement completion must observe the newer active row and
+		// leave its new fuzzy index intact.
+		await retirement.completeAfterCommit();
+
+		const indexes = await sql<{
+			public_int: string | null;
+			runtime_fuzzy: string | null;
+			runtime_int: string | null;
+		}>`
+			SELECT to_regclass(${`public.${indexName("int")}`})::text AS public_int,
+			       to_regclass(${`${isolated}.${indexName("int")}`})::text AS runtime_int,
+			       to_regclass(${`${isolated}.${indexName("fuzzy")}`})::text AS runtime_fuzzy
+		`.execute(database.db);
+		expect(indexes.rows[0]).toEqual({
+			public_int: indexName("int"),
+			runtime_int: null,
+			runtime_fuzzy: indexName("fuzzy"),
+		});
+		const retained = await db()
+			.selectFrom("cases")
+			.select("properties")
+			.where("app_id", "=", APP_ID)
+			.where("case_id", "=", "numeric-retained-patient")
+			.executeTakeFirstOrThrow();
+		expect(retained.properties).toEqual({ value: "12" });
+	});
+
 	it("schema-drift repair reactivates a current zero-property case type", async () => {
 		const caseStore = store();
 		const emptySchema = new Map<string, CaseType>([
