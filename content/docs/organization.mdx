@@ -147,9 +147,10 @@ fresh review:
   their list visibility today. Future device delivery will use the restored path
   and the worker's current assignments.
 
-If a form uses the place as a fixed case owner, Nova names that form and blocks
-the archive. Change the owner rule first; silently removing it would change
-where future cases go.
+If an archive would break a fixed-place or next-level case-owner rule, Nova
+names that form and blocks the archive. Change the owner rule first; silently
+removing it or leaving it without a destination would change where future cases
+go.
 
 Bringing a place back also restores the path to it, since a place is unreachable
 while anything above it is archived. It does not restore assignments — those are

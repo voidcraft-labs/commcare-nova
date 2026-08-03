@@ -1686,7 +1686,7 @@ describe("locations store — deterministic reverse-hop owners", () => {
 		await commitReverseOwnerForm(FACILITY);
 
 		await expect(setLocationArchived(scope(), facility, true)).rejects.toThrow(
-			/no live facility below "Riverside"/i,
+			/archiving this place would break a case-owner rule/i,
 		);
 		expect(
 			(await readOrganization(scope())).locations.find(
@@ -1792,6 +1792,24 @@ describe("locations store — removing a level", () => {
 });
 
 describe("locations store — the archive cascade", () => {
+	it("blocks preflight when archiving the sole reverse-owner destination", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		await commitReverseOwnerForm(FACILITY);
+
+		const impact = await describeArchiveImpact(scope(), facility);
+		expect(impact.blockingOwnerRuleFormCount).toBe(1);
+		expect(impact.blockingOwnerRuleFormPreview).toEqual(["Visit"]);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === facility,
+			)?.archivedAt,
+		).toBeNull();
+	});
+
 	it("archives the subtree and unassigns every persona in one transaction", async () => {
 		await seedOrgApp();
 		const { region, district, facility } = await seedChain();

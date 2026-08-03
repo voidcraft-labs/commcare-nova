@@ -599,7 +599,7 @@ describe("organization authoring tools", () => {
 		expect(second.data).toMatchObject({ restart: true, revision: "7" });
 	});
 
-	it("marks a fixed-owner archive preflight blocked instead of confirmable", async () => {
+	it("marks an owner-rule archive preflight blocked instead of confirmable", async () => {
 		const ctx = context();
 		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
 		vi.spyOn(

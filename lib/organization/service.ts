@@ -28,6 +28,7 @@ import {
 	personasOf,
 	type Uuid,
 } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/predicate";
 import {
 	assertLocationOwnerTargetsValid,
 	assertPersonaAssignmentsValid,
@@ -35,6 +36,7 @@ import {
 } from "./commitIntegrity";
 import { OrganizationError, organizationNotFound } from "./errors";
 import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
+import { reverseLocationOwnerIssue } from "./ownerTargetVerdicts";
 import {
 	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	assertSiteCodeFree,
@@ -1074,22 +1076,43 @@ async function countCasesOwnedBy(
 	return Number(result.rows[0]?.count ?? "0");
 }
 
-/** Forms whose complete owner expression fixes a case to this subtree. */
-function fixedOwnerRuleForms(
+/** Forms whose owner expression would become invalid after this archive. */
+function archiveBlockingOwnerRuleForms(
 	doc: BlueprintDoc,
+	rows: readonly LocationRow[],
 	locationIds: ReadonlySet<string>,
 ): readonly { readonly uuid: string; readonly name: string }[] {
 	const forms = new Map<string, string>();
+	const tentativeRows = rows.map((row) => ({
+		id: row.id,
+		name: row.name,
+		levelUuid: row.level_uuid,
+		parentId: row.parent_id,
+		archivedAt: locationIds.has(row.id) ? true : row.archived_at,
+	}));
+	const reverseIssueByLevelUuid = new Map<string, string | undefined>();
+	const reverseIssue = (levelUuid: string) => {
+		if (!reverseIssueByLevelUuid.has(levelUuid)) {
+			reverseIssueByLevelUuid.set(
+				levelUuid,
+				reverseLocationOwnerIssue(doc, tentativeRows, levelUuid),
+			);
+		}
+		return reverseIssueByLevelUuid.get(levelUuid);
+	};
 	for (const form of Object.values(doc.forms)) {
 		for (const operation of form.caseOperations ?? []) {
-			const owner = operation.owner;
-			if (
-				owner?.kind === "term" &&
-				owner.term.kind === "fixed-location" &&
-				locationIds.has(owner.term.locationUuid)
-			) {
-				forms.set(form.uuid, form.name);
-			}
+			if (operation.owner === undefined) continue;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (
+					(term.kind === "fixed-location" &&
+						locationIds.has(term.locationUuid)) ||
+					(term.kind === "owner-location-at-level" &&
+						reverseIssue(term.levelUuid) !== undefined)
+				) {
+					forms.set(form.uuid, form.name);
+				}
+			});
 		}
 	}
 	return [...forms]
@@ -1114,6 +1137,7 @@ async function buildArchivePlan(
 		readonly appId: string;
 		readonly revision: OrganizationRevision;
 		readonly doc: BlueprintDoc;
+		readonly rows: readonly LocationRow[];
 		readonly locationIds: readonly string[];
 	},
 ): Promise<{
@@ -1124,7 +1148,11 @@ async function buildArchivePlan(
 }> {
 	const locationIds = [...args.locationIds].sort();
 	const planned = planPersonaUnassignment(args.doc, new Set(locationIds));
-	const blockingForms = fixedOwnerRuleForms(args.doc, new Set(locationIds));
+	const blockingForms = archiveBlockingOwnerRuleForms(
+		args.doc,
+		args.rows,
+		new Set(locationIds),
+	);
 	const ownedCases = await countCasesOwnedBy(tx, args.appId, locationIds);
 	const confirmationToken = createHash("sha256")
 		.update(
@@ -1190,6 +1218,7 @@ export async function describeArchiveImpact(
 				appId: scope.appId,
 				revision: locked.revision,
 				doc,
+				rows: [...tree.byId.values()],
 				locationIds: ids,
 			})
 		).impact;
@@ -1272,6 +1301,7 @@ export async function setLocationArchived(
 					appId: scope.appId,
 					revision: locked.revision,
 					doc: archiveDoc,
+					rows: [...tree.byId.values()],
 					locationIds: changing,
 				});
 				if (
@@ -1288,7 +1318,7 @@ export async function setLocationArchived(
 					const blocked = archivePlan.blockingFormNames;
 					throw new OrganizationError(
 						"rejected",
-						`This place is used as a fixed case owner in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
+						`Archiving this place would break a case-owner rule in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
 					);
 				}
 			}
@@ -1325,6 +1355,7 @@ export async function setLocationArchived(
 						appId: scope.appId,
 						revision: locked.revision,
 						doc: archiveDoc ?? (await loadDocInTransaction(tx, scope.appId)),
+						rows: [...tree.byId.values()],
 						locationIds: changing,
 					}));
 				if (plan.mutations.length > 0) {

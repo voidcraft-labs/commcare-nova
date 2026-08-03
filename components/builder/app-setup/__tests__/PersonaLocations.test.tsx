@@ -131,7 +131,7 @@ describe("PersonaLocations", () => {
 		rerender(
 			<PersonaLocations
 				persona={PERSONA}
-				locations={LOCATIONS}
+				locations={[]}
 				loading={false}
 				error={undefined}
 				warning="Connection failed."
@@ -141,12 +141,40 @@ describe("PersonaLocations", () => {
 		expect(
 			screen.getByText(/Saved places could not be refreshed/),
 		).toBeDefined();
+		expect(screen.getAllByText("Refreshing assigned place")).toHaveLength(2);
+		expect(screen.queryByText("A place that no longer exists")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: /Remove Branch A/ }),
 		).toBeNull();
 		expect(screen.queryByRole("combobox", { name: "Add a place" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		expect(reload).toHaveBeenCalledTimes(2);
+
+		rerender(
+			<PersonaLocations
+				persona={PERSONA}
+				locations={[]}
+				loading={false}
+				error={undefined}
+				refreshing
+				reload={reload}
+			/>,
+		);
+		expect(screen.getAllByText("Refreshing assigned place")).toHaveLength(2);
+		expect(screen.queryByText("A place that no longer exists")).toBeNull();
+
+		rerender(
+			<PersonaLocations
+				persona={PERSONA}
+				locations={[]}
+				loading={false}
+				error={undefined}
+				reload={reload}
+			/>,
+		);
+		expect(screen.getAllByText("A place that no longer exists")).toHaveLength(
+			2,
+		);
 	});
 
 	it("preflights removals and explains an assignment that must stay", () => {

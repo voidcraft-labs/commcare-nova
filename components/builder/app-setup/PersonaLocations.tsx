@@ -205,7 +205,9 @@ export function PersonaLocations({
 										>
 											<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
 												{location === undefined
-													? "A place that no longer exists"
+													? authoritative
+														? "A place that no longer exists"
+														: "Refreshing assigned place"
 													: locationChoiceLabel(location)}
 											</span>
 											{index === 0 && (

@@ -778,7 +778,7 @@ export const setLocationArchivedTool = {
 						expectedRevisionForConfirmation: impact.revision,
 						message:
 							impact.blockingOwnerRuleFormCount > 0
-								? "This archive is blocked by fixed case-owner rules. Change the listed forms before requesting confirmation again."
+								? "This archive is blocked by case-owner rules. Change the listed forms before requesting confirmation again."
 								: "Review this bounded archive impact with the user, then repeat the call with confirm=true, expectedRevision set to expectedRevisionForConfirmation, and the unchanged confirmedImpact payload.",
 						impact,
 					},

@@ -1996,7 +1996,7 @@ function ArchivePlace({
 					)}
 					{impact.blockingOwnerRuleFormCount > 0 && (
 						<li className="text-nova-amber">
-							Used as a fixed case owner in{" "}
+							Archiving would break a case-owner rule in{" "}
 							{impact.blockingOwnerRuleFormPreview.join(", ")}
 							{impact.blockingOwnerRuleFormCount >
 							impact.blockingOwnerRuleFormPreview.length

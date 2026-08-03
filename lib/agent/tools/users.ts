@@ -24,6 +24,7 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
+	assignedLocationUuids,
 	asUuid,
 	type BlueprintDoc,
 	orderedPersonas,
@@ -778,8 +779,9 @@ export const getUsersTool = {
 				}
 			>;
 			personas: Array<
-				Omit<Persona, "values"> & {
+				Omit<Persona, "locations" | "values"> & {
 					values: ReturnType<typeof valuesOutput>;
+					locationUuids?: readonly string[];
 				}
 			>;
 		}>
@@ -797,10 +799,15 @@ export const getUsersTool = {
 					...role,
 					values: valuesOutput(values, propertyOrder),
 				})),
-				personas: orderedPersonas(doc).map(({ values, ...persona }) => ({
-					...persona,
-					values: valuesOutput(values, propertyOrder),
-				})),
+				personas: orderedPersonas(doc).map(
+					({ locations, values, ...persona }) => ({
+						...persona,
+						values: valuesOutput(values, propertyOrder),
+						...(locations === undefined
+							? {}
+							: { locationUuids: assignedLocationUuids(locations) }),
+					}),
+				),
 			},
 		};
 	},

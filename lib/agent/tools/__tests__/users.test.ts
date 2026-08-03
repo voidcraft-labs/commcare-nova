@@ -71,6 +71,15 @@ describe("user authoring tools", () => {
 			primaryUuid: first,
 			additionalUuids: [second],
 		});
+		const read = await getUsersTool.execute({}, ctx, added.newDoc);
+		expect(read.data.personas[0]?.locationUuids).toEqual([first, second]);
+		expect(read.data.personas[0]).not.toHaveProperty("locations");
+		expect(
+			updatePersonaInputSchema.safeParse({
+				uuid: added.result.uuids[0],
+				locationUuids: read.data.personas[0]?.locationUuids,
+			}).success,
+		).toBe(true);
 	});
 
 	it("uses the same XML-safe worker-property grammar on the SA and MCP schema", () => {
