@@ -23,26 +23,31 @@ interface NavItem {
 	href: string;
 	label: string;
 	icon: IconifyIcon;
-	/** Pathname prefix for active detection (e.g. '/admin' matches '/admin/*'). */
-	matchPrefix?: string;
-	/** Exact pathname match instead of prefix (e.g. '/' matches only '/'). */
-	matchExact?: boolean;
+	/** Every pathname this section owns, not just the one it links to. A
+	 *  section is active wherever the user is somewhere it took them. */
+	owns: (pathname: string) => boolean;
 	/** Only render when user has admin role. */
 	adminOnly?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
+export const NAV_ITEMS: NavItem[] = [
 	{
 		href: "/",
 		label: "Apps",
 		icon: tablerApps,
-		matchExact: true,
+		/* `/` exactly, because a prefix would match every page in the app. Plus
+		 * the builder: an app you are building is not an orphan with no
+		 * ancestor, it is where "New app" took you, and Apps is the way back.
+		 * `/build/new` is simply the builder screen where the nav is still on
+		 * screen to say so — once a build starts the band changes hands and
+		 * the sphere becomes the exit. */
+		owns: (pathname) => pathname === "/" || pathname.startsWith("/build"),
 	},
 	{
 		href: "/admin",
 		label: "Admin",
 		icon: tablerUserShield,
-		matchPrefix: "/admin",
+		owns: (pathname) => pathname.startsWith("/admin"),
 		adminOnly: true,
 	},
 ];
@@ -73,9 +78,7 @@ export function HeaderNavLinks({ isAdmin }: HeaderNavProps) {
 		<nav className="flex items-center gap-1" aria-label="Main navigation">
 			{NAV_ITEMS.map((item) => {
 				if (item.adminOnly && !isAdmin) return null;
-				const isActive = item.matchExact
-					? pathname === item.href
-					: !!item.matchPrefix && pathname.startsWith(item.matchPrefix);
+				const isActive = item.owns(pathname);
 				return (
 					<Link
 						key={item.href}
