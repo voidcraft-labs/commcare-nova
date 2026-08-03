@@ -106,8 +106,8 @@ export interface ArchiveImpact {
 	readonly unassignedPersonaCount: number;
 	readonly unassignedPersonaPreview: readonly string[];
 	readonly ownedCases: number;
-	/** Forms whose fixed case-owner rule points into the subtree. Such a rule
-	 *  is authored intent, so archiving is blocked until it is changed. */
+	/** Forms whose fixed-place or next-level case-owner rule the tentative
+	 *  archive would invalidate. Authored intent blocks until it is changed. */
 	readonly blockingOwnerRuleFormCount: number;
 	readonly blockingOwnerRuleFormPreview: readonly string[];
 }

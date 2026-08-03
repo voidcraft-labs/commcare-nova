@@ -36,9 +36,9 @@ export function organizationOwnerModeIssue(
 ): string | undefined {
 	if (organization.loading) return "Places are still loading.";
 	if (organization.error !== undefined) return "Places could not be loaded.";
-	if (organization.warning !== undefined || organization.refreshing) {
-		return "Saved places are being refreshed.";
-	}
+	if (organization.warning !== undefined)
+		return "Saved places are unavailable until they reload.";
+	if (organization.refreshing) return "Saved places are being refreshed.";
 	return undefined;
 }
 
@@ -64,8 +64,8 @@ export function pendingFixedOwnerLabel(
 	if (organization.error !== undefined) {
 		return "Saved place unavailable until places reload";
 	}
-	if (organization.warning !== undefined || organization.refreshing) {
-		return "Refreshing saved place";
-	}
+	if (organization.warning !== undefined)
+		return "Saved place unavailable until places reload";
+	if (organization.refreshing) return "Refreshing saved place";
 	return undefined;
 }

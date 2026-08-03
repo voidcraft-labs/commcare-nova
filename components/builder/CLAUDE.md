@@ -203,15 +203,16 @@ pending blueprint changes first and then carries the latest organization
 revision. Persona assignment offers only live places whose level holds workers,
 stores main place first, and never invents a reassignment for cases. Archive
 confirmation is server-described: subtree, displaced personas, owned cases,
-and any fixed-owner form rules. A fixed-owner reference blocks the gesture
-until its form rule changes. Place rows own edits to their external ID, parent,
-and custom values; creating a place collects the same level-applicable values,
-and required values keep its Add action disabled. Each custom-value save sends
-one `valuePatch` entry, then rebases the complete local value bag from the
-authoritative returned row, so keeping a draft cannot overwrite a peer's edit
-to an unrelated property. Property controls author the required and
-accepted-values contracts and preflight every existing place so a catalog
-change cannot create a cross-store state the server would refuse.
+and any fixed-place or next-level owner rules the tentative archive would
+break. Such an owner-rule blocker disables the gesture until its form rule
+changes. Place rows own edits to their external ID, parent, and custom values;
+creating a place collects the same level-applicable values, and required values
+keep its Add action disabled. Each custom-value save sends one `valuePatch`
+entry, then rebases the complete local value bag from the authoritative returned
+row, so keeping a draft cannot overwrite a peer's edit to an unrelated
+property. Property controls author the required and accepted-values contracts
+and preflight every existing place so a catalog change cannot create a
+cross-store state the server would refuse.
 
 ## Preview mode
 

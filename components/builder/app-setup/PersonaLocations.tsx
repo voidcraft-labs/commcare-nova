@@ -207,7 +207,9 @@ export function PersonaLocations({
 												{location === undefined
 													? authoritative
 														? "A place that no longer exists"
-														: "Refreshing assigned place"
+														: warning !== undefined
+															? "Assigned place unavailable until places reload"
+															: "Refreshing assigned place"
 													: locationChoiceLabel(location)}
 											</span>
 											{index === 0 && (

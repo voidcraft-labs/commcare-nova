@@ -158,13 +158,14 @@ removing a place-property declaration atomically sheds its UUID-keyed values,
 and a level cannot be removed while any live or archived place still uses it
 (`corehq/apps/locations/views.py::LocationTypesView.remove_old_location_types`).
 Archiving a subtree clears its persona assignments in the same transaction,
-refuses while a fixed owner rule names the subtree, and reports case-owning
-places before confirmation. It never reassigns cases: removing the last worker
-merely leaves existing `owner_id` values orphaned, matching HQ's warning-only
-behavior. Because place rows are keyed by app rather than Project, the
-authoritative cross-Project app move carries the whole organization without a
-second retenant operation. `lib/domain/CLAUDE.md` and
-`lib/organization/CLAUDE.md` own the implementation detail.
+refuses when the tentative archive would break either a fixed-place or
+next-level case-owner rule, and reports case-owning places before confirmation.
+It never reassigns cases: removing the last worker merely leaves existing
+`owner_id` values orphaned, matching HQ's warning-only behavior. Because place
+rows are keyed by app rather than Project, the authoritative cross-Project app
+move carries the whole organization without a second retenant operation.
+`lib/domain/CLAUDE.md` and `lib/organization/CLAUDE.md` own the implementation
+detail.
 
 ### Expressions and prose store identity; text is a projection
 

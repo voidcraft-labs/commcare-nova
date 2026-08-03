@@ -87,8 +87,9 @@ export function extractLocationReferenceTargets(
  * stranding an edge, which no application-level check can promise.
  *
  * Archived places are not legal targets. The archive workflow clears persona
- * assignments in the subtree and refuses fixed owner rules before archiving;
- * this live-row check closes the concurrent-commit race around both workflows.
+ * assignments in the subtree and refuses case-owner rules the tentative
+ * archive would invalidate; this live-row check closes the concurrent-commit
+ * race around both workflows.
  */
 export async function replaceLocationReferenceEdges(
 	tx: Transaction<AppDatabase>,

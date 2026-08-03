@@ -694,9 +694,16 @@ export function CaseOwnerSection({
 				? "reverse"
 				: "expression";
 	const [draftMode, setDraftMode] = useState<
-		"expression" | "fixed" | "reverse" | undefined
+		| {
+				readonly mode: "expression" | "fixed" | "reverse";
+				readonly baseValue: ValueExpression | undefined;
+		  }
+		| undefined
 	>();
-	const displayedMode = draftMode ?? mode;
+	const displayedMode =
+		draftMode !== undefined && draftMode.baseValue === value
+			? draftMode.mode
+			: mode;
 	const copy = caseOwnerCopy(action);
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 
@@ -707,11 +714,15 @@ export function CaseOwnerSection({
 			return;
 		}
 		if (next === "fixed") {
-			if (fixedModeIssue === undefined) setDraftMode("fixed");
+			if (fixedModeIssue === undefined) {
+				setDraftMode({ mode: "fixed", baseValue: value });
+			}
 			return;
 		}
 		if (next === "reverse") {
-			if (reverseModeIssue === undefined) setDraftMode("reverse");
+			if (reverseModeIssue === undefined) {
+				setDraftMode({ mode: "reverse", baseValue: value });
+			}
 		}
 	};
 

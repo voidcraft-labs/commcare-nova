@@ -141,7 +141,9 @@ describe("PersonaLocations", () => {
 		expect(
 			screen.getByText(/Saved places could not be refreshed/),
 		).toBeDefined();
-		expect(screen.getAllByText("Refreshing assigned place")).toHaveLength(2);
+		expect(
+			screen.getAllByText("Assigned place unavailable until places reload"),
+		).toHaveLength(2);
 		expect(screen.queryByText("A place that no longer exists")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: /Remove Branch A/ }),

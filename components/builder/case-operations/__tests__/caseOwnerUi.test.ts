@@ -34,7 +34,10 @@ describe("case owner authoring copy", () => {
 		).toBe("Places could not be loaded.");
 		expect(
 			fixedOwnerModeIssue({ ...ready, warning: "Connection failed." }, 1),
-		).toBe("Saved places are being refreshed.");
+		).toBe("Saved places are unavailable until they reload.");
+		expect(fixedOwnerModeIssue({ ...ready, refreshing: true }, 1)).toBe(
+			"Saved places are being refreshed.",
+		);
 		expect(fixedOwnerModeIssue(ready, 0)).toBe(
 			"Add a live place at a level that owns cases first.",
 		);
@@ -46,6 +49,12 @@ describe("case owner authoring copy", () => {
 		expect(
 			pendingFixedOwnerLabel({ ...ready, error: "Connection failed." }),
 		).toBe("Saved place unavailable until places reload");
+		expect(
+			pendingFixedOwnerLabel({ ...ready, warning: "Connection failed." }),
+		).toBe("Saved place unavailable until places reload");
+		expect(pendingFixedOwnerLabel({ ...ready, refreshing: true })).toBe(
+			"Refreshing saved place",
+		);
 		expect(pendingFixedOwnerLabel(ready)).toBeUndefined();
 	});
 });
