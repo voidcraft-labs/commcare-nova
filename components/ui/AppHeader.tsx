@@ -69,11 +69,6 @@ export interface AppHeaderProps {
 	 *  for a surface whose tools cannot fit beside everything else at the width
 	 *  it is being asked to. Nothing shrinks: the 44px floor is a floor. */
 	stacked?: boolean;
-	/** How much width the wordmark needs, which is a question about the ROW and
-	 *  so cannot be read off the slots: a surface always passes them, empty or
-	 *  not. `loaded` is a row with menus in it (800px); `roomy` is the mark and
-	 *  the account control alone (360px). Both numbers live in `globals.css`. */
-	brand?: "loaded" | "roomy";
 }
 
 export function AppHeader({
@@ -85,7 +80,6 @@ export function AppHeader({
 	actions,
 	account,
 	stacked = false,
-	brand = "loaded",
 }: AppHeaderProps) {
 	/* Under 360px of height every band gives up its outer air first: the
 	 * controls inside are already at the floor and cannot. */
@@ -138,7 +132,6 @@ export function AppHeader({
 		<header
 			data-app-header
 			data-header-layout={stacked ? "stacked" : "standard"}
-			data-header-brand={brand}
 			style={{ gridTemplateRows: stacked ? `${band} auto` : band }}
 			className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-nova-border bg-nova-void px-2 sm:px-4"
 		>
@@ -165,7 +158,20 @@ export function AppHeader({
 						: "col-start-3 row-start-1 flex min-w-0 items-center gap-1 justify-self-end sm:gap-2"
 				}
 			>
-				{actions}
+				{/* The handing-over cluster and the arriving one share ONE cell,
+				    stacked on top of each other. Side by side they would both hold
+				    layout width for the length of the swap — an entering cluster is
+				    transparent but not weightless — and the visible menus would jump
+				    sideways to make room for something nobody can see yet. Overlapped,
+				    only the box's own left edge moves, and the account control beyond
+				    it never shifts at all. */}
+				<div
+					className={`grid min-w-0 items-center [&>*]:[grid-area:1/1] ${
+						stacked ? "justify-items-center" : "justify-items-end"
+					}`}
+				>
+					{actions}
+				</div>
 				{stacked ? null : account}
 			</div>
 

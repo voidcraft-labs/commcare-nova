@@ -31,10 +31,6 @@ export interface HeaderClaim {
 	readonly markOnly: boolean;
 	/** Give the claimed tools their own row under the band. */
 	readonly stacked: boolean;
-	/** How loaded the row is, which decides the width the wordmark needs. The
-	 *  claiming surface is the only thing that knows whether its controls are
-	 *  actually standing there yet. */
-	readonly brand: "loaded" | "roomy";
 	/** Whether the account control may be on screen at all. The builder says
 	 *  no while app access is unresolved: a control whose popup is deliberately
 	 *  quarantined must not be left visible. */
@@ -78,7 +74,6 @@ export function sameHeaderClaim(
 		a.homeLabel === b.homeLabel &&
 		a.markOnly === b.markOnly &&
 		a.stacked === b.stacked &&
-		a.brand === b.brand &&
 		a.showAccount === b.showAccount &&
 		a.canManageFiles === b.canManageFiles
 	);

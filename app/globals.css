@@ -772,35 +772,15 @@ body {
 	transition-timing-function: cubic-bezier(0.55, 0, 0.85, 0.4);
 }
 
-/* How much width the wordmark needs is a question about the ROW, so the row
-   answers it rather than one number standing in for every composition.
-
-   A LOADED row (nav links, the Project switcher, Help, an account control, or
-   the builder's document tools) needs 800px before the lockup fits beside
-   them. That is a measurement of that row, not a nominal phone breakpoint:
+/* Below 800px the row cannot hold the lockup beside the nav and the account
+   cluster. That is a measurement of this row, not a nominal phone breakpoint:
    the nearest named breakpoint below it would take the word away for another
-   244px of perfectly usable width.
-
-   A ROOMY row carries the mark and the account control and nothing else, which
-   is `/build/new` — where the lockup is not decoration but the only place the
-   product's name appears, standing in for the hero that used to sit over the
-   chat box. It fits from 360px (44 mark + 12 gap + the word, plus one 44px
-   control and the insets, is 342), and applying the loaded row's number there
-   would blank the brand on a screen with room to spare. */
+   244px of perfectly usable width. */
 @media (max-width: 799px) {
-	[data-header-brand="loaded"] .nova-logo-word {
+	.nova-logo-chrome .nova-logo-word {
 		grid-template-columns: 0fr;
 	}
-	[data-header-brand="loaded"] .nova-logo-word-clip {
-		opacity: 0;
-	}
-}
-
-@media (max-width: 359px) {
-	[data-header-brand="roomy"] .nova-logo-word {
-		grid-template-columns: 0fr;
-	}
-	[data-header-brand="roomy"] .nova-logo-word-clip {
+	.nova-logo-chrome .nova-logo-word-clip {
 		opacity: 0;
 	}
 }

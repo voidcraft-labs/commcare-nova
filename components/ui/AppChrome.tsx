@@ -128,7 +128,6 @@ export function AppChrome({
 				homeLabel={claim?.homeLabel ?? "commcare nova"}
 				markOnly={claim?.markOnly ?? false}
 				stacked={claim?.stacked ?? false}
-				brand={claim?.brand ?? "loaded"}
 				/* Beside the mark on every surface. It used to be centred on the
 				 * site, but the centre is where a claimed control the user is meant
 				 * to reach goes, and one placement everywhere is worth more than the

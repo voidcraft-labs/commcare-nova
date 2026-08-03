@@ -20,10 +20,15 @@ local unmount. And the builder's clusters arrive animated but leave instantly
 (no `AnimatePresence`): they go when app access stops being resolved, and a
 control mid-fade is still visible and still takes a click.
 
-`BuilderBandClaim`, mounted in `build/[id]/layout.tsx`, claims the same opening
-state one layer higher. The build page awaits an authorized app snapshot and
-its threads, so without it a hard load of `/build/{id}` paints the site's nav,
-Project switcher, and Help inside the builder for as long as those reads take.
+**`/build/new` claims nothing until a build starts.** No app exists there, so
+the screen is still the site with a composer on it and the nav, the Project
+switcher, and Help all still belong; the band changes hands at the moment the
+app lands, where the menus leaving, the word being drawn into the sphere, and
+the tools arriving are one gesture. `BuilderBandClaim`, mounted in
+`build/[id]/layout.tsx`, is the same claim one layer higher for an EXISTING
+app: that page awaits an authorized snapshot and its threads, so without it a
+hard load of `/build/{id}` paints the site's menus inside a real build for as
+long as those reads take.
 
 Two builder-owned decisions ride on that band. **The mark is the exit**, which
 is why the builder can hand the wordmark back: the app being built carries its

@@ -119,26 +119,33 @@ export function BuilderHeader({
 	 * Only ask for the extra row when something would actually stand in it. */
 	const stacked = ultraCompactHeader && showDocumentRow;
 
-	/* Take the band for as long as the builder is on screen, and hand it back
-	 * on the way out so the site's own menus return. The claim is compared by
-	 * value up there, so rebuilding it every render costs nothing. */
+	/* Take the band for as long as there is an app, and hand it back on the way
+	 * out. The claim is compared by value up there, so rebuilding it every
+	 * render costs nothing.
+	 *
+	 * `/build/new` before a send claims NOTHING, and that is the point: no app
+	 * exists yet, so the screen is still the site with a composer on it, and
+	 * the nav, the Project switcher, and Help all still belong. Taking them
+	 * away the moment someone opens the page would make a screen they have not
+	 * committed to anything on feel like somewhere they cannot leave. The
+	 * handoff belongs to the app landing, where everything moves at once. */
 	const claim = slots?.claim;
 	useEffect(() => {
+		if (beforeAnyApp) {
+			claim?.(null);
+			return;
+		}
 		claim?.({
 			homeLabel: "Back to your apps",
-			markOnly: !beforeAnyApp,
+			markOnly: true,
 			stacked,
-			/* `/build/new` before a send holds nothing but the mark and the
-			 * account control, so the lockup fits far below the width a loaded
-			 * row needs — and it is the only place the product's name appears. */
-			brand: showDocumentRow || showToolbar ? "loaded" : "roomy",
 			showAccount: accessPhase === "authorized",
 			/* What the builder has always given the account's file manager.
 			 * Worth revisiting on its own terms, not as a side effect of moving
 			 * the control up a level. */
 			canManageFiles: false,
 		});
-	}, [claim, beforeAnyApp, stacked, accessPhase, showDocumentRow, showToolbar]);
+	}, [claim, beforeAnyApp, stacked, accessPhase]);
 	useEffect(() => () => claim?.(null), [claim]);
 
 	const documentActions = showAccessStatus ? (

@@ -1,19 +1,24 @@
 /**
- * Dev-only bench for the shared header band and the brand handoff.
+ * Dev-only bench for the shared header band and the handoff into the builder.
  *
- * The real `AppHeader`, filled with stand-ins for the slots each surface
- * fills, so the collapse can be watched and re-watched without minting an app
- * per attempt. Three things it exists to answer:
+ * The real `AppHeader` and the real motion primitives, filled with stand-ins,
+ * so the swap can be watched and re-watched without minting an app per
+ * attempt. Three things it exists to answer:
  *
- *  - does the mark sit at the same x and y in every composition (the whole
- *    reason the two headers were merged);
- *  - does the wordmark travel into the sphere rather than snapping away, and
- *    does the sphere's answer land after the word rather than under it;
+ *  - does the mark sit at the same x and y in both states (the whole reason
+ *    the two headers were merged);
+ *  - does the band change hands as ONE gesture — menus out, word drawn into
+ *    the sphere, tools in — rather than as three things that happen to fire at
+ *    once;
  *  - does the band survive its stacked and short-window variants.
  *
+ * The two states here are the two the band really has. `/build/new` is not a
+ * third: no app exists there, so it wears the site band exactly, and the
+ * handoff is what a build STARTING looks like.
+ *
  * The stand-ins are deliberately not the real controls: this bench is about
- * the band and the brand, and importing the builder's document tools would
- * drag the doc and session stores in behind them.
+ * the band, and importing the builder's document tools would drag the doc and
+ * session stores in behind them.
  */
 
 "use client";
@@ -32,24 +37,6 @@ import {
 } from "@/components/ui/headerMotion";
 import { selectableSegmentCls } from "@/lib/styles";
 
-/** The three compositions the band actually ships in. */
-const SURFACES = {
-	site: {
-		label: "Site",
-		hint: "App list, admin, settings: nav, Project switcher, Help, account.",
-	},
-	newBuild: {
-		label: "Build: new",
-		hint: "`/build/new`. No app exists, so the lockup is Nova's own presence.",
-	},
-	building: {
-		label: "Build: app open",
-		hint: "The app carries its own name, so the sphere alone stands here.",
-	},
-} as const;
-
-type Surface = keyof typeof SURFACES;
-
 function ToolStandIn({ label }: { label: string }) {
 	return (
 		<Button type="button" variant="ghost" size="icon" aria-label={label}>
@@ -59,29 +46,26 @@ function ToolStandIn({ label }: { label: string }) {
 }
 
 export function HeaderLab() {
-	const [surface, setSurface] = useState<Surface>("newBuild");
+	const [building, setBuilding] = useState(false);
 	const [stacked, setStacked] = useState(false);
 	const [banner, setBanner] = useState(false);
 
-	/* Replaying the handoff means going back to the lockup and collapsing it
-	 * again, because that IS the handoff: the header plays it off the change,
+	/* Replaying means going back to the unclaimed band and handing it over
+	 * again, because that IS the handoff: the band plays it off the change,
 	 * never off a caller asking for an animation. Two frames apart so the
 	 * browser has a computed lockup to transition FROM. */
 	const replay = () => {
-		setSurface("newBuild");
+		setBuilding(false);
 		requestAnimationFrame(() => {
-			requestAnimationFrame(() => setSurface("building"));
+			requestAnimationFrame(() => setBuilding(true));
 		});
 	};
-
-	const markOnly = surface === "building";
 
 	return (
 		<div className="flex h-dvh flex-col bg-nova-void">
 			<AppHeader
-				homeLabel={markOnly ? "Back to your apps" : "commcare nova"}
-				markOnly={markOnly}
-				brand={surface === "newBuild" ? "roomy" : "loaded"}
+				homeLabel={building ? "Back to your apps" : "commcare nova"}
+				markOnly={building}
 				banner={
 					banner ? (
 						<span className="rounded-full border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-1 text-xs text-nova-text-secondary">
@@ -91,7 +75,7 @@ export function HeaderLab() {
 				}
 				start={
 					<AnimatePresence>
-						{surface === "site" ? (
+						{building ? null : (
 							<HeaderCluster
 								key="nav"
 								delay={HEADER_HANDOFF_DELAY}
@@ -104,37 +88,41 @@ export function HeaderLab() {
 									</span>
 								</nav>
 							</HeaderCluster>
-						) : null}
+						)}
 					</AnimatePresence>
 				}
 				center={
-					<AnimatePresence>
-						{surface === "building" ? (
-							<HeaderCluster key="preview" delay={HEADER_HANDOFF_DELAY}>
-								<Button type="button" variant="secondary">
-									Preview
-								</Button>
-							</HeaderCluster>
-						) : null}
-					</AnimatePresence>
+					/* No `AnimatePresence`: the builder's own controls arrive animated
+					 * and leave instantly, because they go when app access stops being
+					 * resolved and a control mid-fade still takes a click. */
+					building ? (
+						<HeaderCluster delay={HEADER_HANDOFF_DELAY}>
+							<Button type="button" variant="secondary">
+								Preview
+							</Button>
+						</HeaderCluster>
+					) : null
 				}
 				actions={
-					<AnimatePresence>
-						{surface === "building" ? (
-							<HeaderCluster key="tools" delay={HEADER_HANDOFF_DELAY}>
+					<>
+						{building ? (
+							<HeaderCluster delay={HEADER_HANDOFF_DELAY}>
 								<ToolStandIn label="Undo" />
 								<ToolStandIn label="Redo" />
 								<Button type="button">Publish</Button>
 							</HeaderCluster>
-						) : surface === "site" ? (
-							<HeaderCluster key="site-actions" delay={HEADER_HANDOFF_DELAY}>
-								<Button type="button" variant="ghost">
-									Personal
-								</Button>
-								<ToolStandIn label="Help" />
-							</HeaderCluster>
 						) : null}
-					</AnimatePresence>
+						<AnimatePresence>
+							{building ? null : (
+								<HeaderCluster key="site-actions" delay={HEADER_HANDOFF_DELAY}>
+									<Button type="button" variant="ghost">
+										Personal
+									</Button>
+									<ToolStandIn label="Help" />
+								</HeaderCluster>
+							)}
+						</AnimatePresence>
+					</>
 				}
 				account={
 					<Button
@@ -146,7 +134,7 @@ export function HeaderLab() {
 						<Icon icon={tablerUserCircle} width="22" height="22" />
 					</Button>
 				}
-				stacked={stacked}
+				stacked={stacked && building}
 			/>
 
 			<div className="flex-1 overflow-auto p-6">
@@ -156,51 +144,41 @@ export function HeaderLab() {
 							Header lab
 						</h1>
 						<p className="text-sm text-nova-text-secondary">
-							{SURFACES[surface].hint}
+							{building
+								? "A build is open. The app carries its own name, so the sphere alone stands here and the band holds the document tools."
+								: "The app list, settings, and /build/new all look like this. No app exists yet on /build/new, so nothing has changed hands."}
 						</p>
 					</div>
 
 					<div className="flex flex-col gap-3">
 						<span className="text-xs uppercase tracking-wide text-nova-text-muted">
-							Brand handoff
+							The handoff
 						</span>
 						<div className="flex flex-wrap gap-2">
 							<Button type="button" onClick={replay}>
-								Replay the collapse
+								Replay a build starting
 							</Button>
 							<Button
 								type="button"
 								variant="secondary"
-								onClick={() => setSurface("newBuild")}
+								onClick={() => setBuilding(false)}
 							>
-								Unfold back out
+								Hand it back
 							</Button>
 						</div>
 						<p className="text-sm text-nova-text-secondary">
-							Collapse is what a build starting looks like: the word is drawn
-							in, the tools arrive a beat behind it, and the sphere answers with
-							the swell it gives the pointer. Unfolding is leaving the builder,
-							and decelerates instead. Below 800px a loaded row can't hold the
+							One gesture with two beats: the site's menus leave, the word is
+							drawn into the sphere, and the tools arrive behind them while the
+							sphere answers with the swell it gives the pointer. Handing it
+							back decelerates instead. Below 800px the row can't hold the
 							lockup, so the word is already gone and only the swell plays.
 						</p>
 					</div>
 
 					<div className="flex flex-col gap-3">
 						<span className="text-xs uppercase tracking-wide text-nova-text-muted">
-							Composition
+							Variants
 						</span>
-						<div className="flex flex-wrap gap-2">
-							{(Object.keys(SURFACES) as Surface[]).map((key) => (
-								<Button
-									key={key}
-									type="button"
-									variant={surface === key ? "default" : "outline"}
-									onClick={() => setSurface(key)}
-								>
-									{SURFACES[key].label}
-								</Button>
-							))}
-						</div>
 						<div className="flex flex-wrap gap-2">
 							<Button
 								type="button"
@@ -219,8 +197,9 @@ export function HeaderLab() {
 						</div>
 						<p className="text-sm text-nova-text-secondary">
 							Stacked is the builder under 560px, where the tools take their own
-							row rather than any control shrinking. Narrow the window under
-							360px tall to see the band give up its outer air.
+							row rather than any control shrinking, so it only applies to an
+							open build. Narrow the window under 360px tall to see the band
+							give up its outer air.
 						</p>
 					</div>
 				</div>

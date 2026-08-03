@@ -12,9 +12,13 @@
  *
  * The two writers do not disagree: what this claims IS the state the builder
  * opens in — an existing app starts in the loading phase and therefore wears
- * the mark alone, `/build/new` has no app and therefore wears the whole
- * lockup, and access begins authorized from the server-resolved tuple. The
- * band takes the last write, so `BuilderHeader` keeps it current from here.
+ * the mark alone, and access begins authorized from the server-resolved tuple.
+ * The band takes the last write, so `BuilderHeader` keeps it current from
+ * here.
+ *
+ * `/build/new` claims nothing, because there is nothing yet: no app, so the
+ * screen is still the site with a composer on it and the site's menus still
+ * belong. The band changes hands when a build starts, not when the page opens.
  */
 
 "use client";
@@ -26,12 +30,13 @@ export function BuilderBandClaim({ newBuild }: { newBuild: boolean }) {
 	const slots = useHeaderSlots();
 	const claim = slots?.claim;
 	useEffect(() => {
+		/* `/build/new` has no app, so there is nothing to hand the band yet: it
+		 * stays the ordinary site band until a build actually starts. */
+		if (newBuild) return;
 		claim?.({
 			homeLabel: "Back to your apps",
-			markOnly: !newBuild,
+			markOnly: true,
 			stacked: false,
-			/* Nothing has arrived in the row yet either way. */
-			brand: "roomy",
 			showAccount: true,
 			canManageFiles: false,
 		});
