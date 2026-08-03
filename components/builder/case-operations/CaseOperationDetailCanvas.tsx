@@ -89,6 +89,11 @@ import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
+	caseOwnerCopy,
+	fixedOwnerModeIssue,
+	organizationOwnerModeIssue,
+} from "./caseOwnerUi";
+import {
 	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
 	operationCaseDataScope,
@@ -443,6 +448,7 @@ export function CaseOperationDetailCanvas({
 
 				{operation.action !== "close" && (
 					<CaseOwnerSection
+						action={operation.action}
 						value={operation.owner}
 						canEdit={operationCanEdit}
 						onChange={(owner) => commit({ ...operation, owner })}
@@ -595,11 +601,13 @@ function locationOwnerExpression(
  * app-scoped store it otherwise never needs.
  */
 function CaseOwnerSection({
+	action,
 	value,
 	canEdit,
 	onChange,
 	editorScope,
 }: {
+	readonly action: "create" | "update";
 	readonly value: ValueExpression | undefined;
 	readonly canEdit: boolean;
 	readonly onChange: (next: ValueExpression | undefined) => void;
@@ -607,11 +615,8 @@ function CaseOwnerSection({
 }) {
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
-	const organizationReady =
-		!organization.loading &&
-		organization.error === undefined &&
-		organization.warning === undefined &&
-		!organization.refreshing;
+	const organizationIssue = organizationOwnerModeIssue(organization);
+	const organizationReady = organizationIssue === undefined;
 	const doc = useBlueprintDoc((state) => state);
 	const levels = useOrganizationLevels();
 	const levelRecord = useMemo(
@@ -647,19 +652,19 @@ function CaseOwnerSection({
 			),
 		[doc, organization.locations, reverseLevels],
 	);
-	const reverseModeIssue = !organizationReady
-		? organization.loading
-			? "Places are still loading."
-			: organization.error !== undefined
-				? "Places could not be loaded."
-				: "Saved places are being refreshed."
-		: !reverseAvailable
+	const fixedModeIssue = fixedOwnerModeIssue(
+		organization,
+		fixedLocationCandidates.length,
+	);
+	const reverseModeIssue =
+		organizationIssue ??
+		(!reverseAvailable
 			? "This form does not open a case, so there is no current owner to start from."
 			: editorScope.currentCaseType === ""
 				? "This case change has no current case type to follow."
 				: reverseLevels.length === 0
 					? "Add a case-owning level beneath another case-owning level first."
-					: undefined;
+					: undefined);
 	const selected = locationOwnerExpression(value);
 	const selectedLevelUuid =
 		selected?.term.kind === "owner-location-at-level"
@@ -680,6 +685,7 @@ function CaseOwnerSection({
 		"expression" | "fixed" | "reverse" | undefined
 	>();
 	const displayedMode = draftMode ?? mode;
+	const copy = caseOwnerCopy(action);
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 
 	const changeMode = (next: unknown) => {
@@ -689,8 +695,7 @@ function CaseOwnerSection({
 			return;
 		}
 		if (next === "fixed") {
-			if (organizationReady && fixedLocationCandidates.length > 0)
-				setDraftMode("fixed");
+			if (fixedModeIssue === undefined) setDraftMode("fixed");
 			return;
 		}
 		if (next === "reverse") {
@@ -701,13 +706,13 @@ function CaseOwnerSection({
 	return (
 		<Section
 			title="Who owns the case"
-			description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
+			description={copy.description}
 			action={
 				value !== undefined && canEdit ? (
 					<ClearConditionButton
-						label="Use the default owner"
-						title="Use the default owner?"
-						consequence="The case will belong to whoever submits the form."
+						label={copy.clearLabel}
+						title={copy.clearTitle}
+						consequence={copy.clearConsequence}
 						finalFocus={() => addRef.current}
 						onConfirm={() => {
 							setDraftMode(undefined);
@@ -791,9 +796,9 @@ function CaseOwnerSection({
 								<SelectItem value="expression">
 									A person, form answer, or case value
 								</SelectItem>
-								{organizationReady && fixedLocationCandidates.length > 0 && (
-									<SelectItem value="fixed">A particular place</SelectItem>
-								)}
+								<OwnerIssueSelectItem value="fixed" issue={fixedModeIssue}>
+									A particular place
+								</OwnerIssueSelectItem>
 								<OwnerIssueSelectItem value="reverse" issue={reverseModeIssue}>
 									A place beneath the current case owner
 								</OwnerIssueSelectItem>
@@ -819,7 +824,7 @@ function CaseOwnerSection({
 								}}
 								ariaLabel="Place that owns the case"
 								placeholder="Choose a place"
-								disabled={!canEdit || !organizationReady}
+								disabled={!canEdit || fixedModeIssue !== undefined}
 								issueFor={(location) =>
 									fixedLocationOwnerIssue(
 										doc,
