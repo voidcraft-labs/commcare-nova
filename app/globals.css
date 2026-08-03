@@ -724,6 +724,107 @@ body {
 	transition: opacity var(--duration-default) var(--ease-default);
 }
 
+/* ─── The header lockup, and the handoff into the sphere ────────────
+ *
+ * One header serves the whole signed-in app, so the lockup has to be able
+ * to become the sphere without the row moving under it. The wordmark
+ * therefore lives in a grid track that collapses to zero rather than in an
+ * element that is swapped away: the track carries the gap (as the clip's
+ * padding, so word and gap leave together), the clip hides what no longer
+ * fits, and only `grid-template-columns` animates, so nothing beside the
+ * mark ever reflows in a step.
+ *
+ * Two independent reasons the word goes, one collapse. `[data-mark-only]`
+ * is the SURFACE saying the app being built owns the name on this screen.
+ * The media queries below are the ROW.
+ *
+ * Direction owns the curve. Collapsing accelerates, because the word is
+ * being drawn in; unfolding decelerates on the shared entrance ease,
+ * because it is arriving. Declaring one on each state is what gives the
+ * two directions different curves off a single transition. */
+.nova-logo-chrome {
+	--nova-logo-absorb: 0.42s;
+}
+
+.nova-logo-chrome .nova-logo-word {
+	display: grid;
+	grid-template-columns: 1fr;
+	transition: grid-template-columns var(--nova-logo-absorb) var(--ease-out);
+}
+
+.nova-logo-chrome .nova-logo-word-clip {
+	overflow: hidden;
+	transition:
+		opacity var(--duration-default) var(--ease-default),
+		transform var(--nova-logo-absorb) var(--ease-out);
+}
+
+.nova-logo-chrome[data-mark-only] .nova-logo-word {
+	grid-template-columns: 0fr;
+	transition-timing-function: cubic-bezier(0.55, 0, 0.85, 0.4);
+}
+
+.nova-logo-chrome[data-mark-only] .nova-logo-word-clip {
+	opacity: 0;
+	/* Toward the sphere, not just away: the word reads as taken IN rather
+	   than as text that faded while its box shrank. */
+	transform: translateX(-0.18em);
+	transition-timing-function: cubic-bezier(0.55, 0, 0.85, 0.4);
+}
+
+/* A page that is ALREADY a build says so in its HTML, and this is what reads
+   it. The band is mounted above both route groups, so its server render cannot
+   know which surface it is rendering — a claim only ever arrives from below it,
+   one commit later. Without this, every hard load of an existing app painted
+   the whole lockup and the site's menus for a beat and then took them away,
+   turning a gesture that is supposed to mean "a build just started" into
+   something that fires on a page that was already a build.
+
+   CSS is the only thing that can be right on the first paint here, and it
+   costs no script and animates nothing: the collapsed state IS the initial
+   computed style, so there is no transition to run. `/build/new` carries no
+   marker, because it has no app and therefore IS the site band. */
+[data-nova-app-shell]:has([data-nova-build-open])
+	.nova-logo-chrome
+	.nova-logo-word {
+	grid-template-columns: 0fr;
+}
+[data-nova-app-shell]:has([data-nova-build-open])
+	.nova-logo-chrome
+	.nova-logo-word-clip {
+	opacity: 0;
+}
+[data-nova-app-shell]:has([data-nova-build-open]) [data-header-site-menus] {
+	display: none;
+}
+
+/* Below 800px the row cannot hold the lockup beside the nav and the account
+   cluster. That is a measurement of this row, not a nominal phone breakpoint:
+   the nearest named breakpoint below it would take the word away for another
+   244px of perfectly usable width. */
+@media (max-width: 799px) {
+	.nova-logo-chrome .nova-logo-word {
+		grid-template-columns: 0fr;
+	}
+	.nova-logo-chrome .nova-logo-word-clip {
+		opacity: 0;
+	}
+}
+
+/* The sphere's answer. Hover already says "this does something" with a rim
+   that brightens and sharpens under a quiet swell; the handoff is that same
+   gesture played once, at a livelier tempo, on the beat the word lands. It
+   is the whole story of the collapse: the mark took the word in, and is now
+   how you leave. Both layers start after the word is mostly gone, so the
+   two halves read as cause and effect rather than as one busy moment. */
+.nova-logo-chrome[data-absorbing] .nova-logo-rim {
+	animation: nova-logo-absorb-rim 1.15s var(--ease-default) 0.2s 1;
+}
+
+.nova-logo-chrome[data-absorbing] .nova-logo-pulse {
+	animation: nova-logo-absorb-pulse 1s var(--ease-default) 0.26s 1;
+}
+
 .nova-logo-waving .nova-logo-dawn {
 	/* TWO animations, on deliberately unrelated periods. One carries the
 	   light across the face; the other varies how far around the limb it
@@ -814,6 +915,34 @@ body {
 	}
 	50% {
 		opacity: 0.5;
+	}
+}
+
+/* The handoff's two layers. Both start and end at the resting value the
+   class already declares, so the mark is never left holding a keyframe: the
+   animation can be removed the moment it ends and nothing moves. The rim
+   passes through exactly the hover values, which is what makes the beat
+   read as the same gesture rather than as a second effect that happens to
+   live here. */
+@keyframes nova-logo-absorb-rim {
+	0%,
+	100% {
+		opacity: 0.68;
+		filter: blur(0.045em);
+	}
+	38% {
+		opacity: 1;
+		filter: blur(0.025em);
+	}
+}
+
+@keyframes nova-logo-absorb-pulse {
+	0%,
+	100% {
+		opacity: 0;
+	}
+	44% {
+		opacity: 0.55;
 	}
 }
 

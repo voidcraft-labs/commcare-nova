@@ -1,57 +1,26 @@
 /**
- * Site layout: the global AppHeader for every non-builder surface
+ * Site layout: the scrolling document shell for every non-builder surface
  * (app list, admin, settings, consent).
  *
- * The builder is deliberately OUTSIDE this group: it renders its own
- * chrome (`BuilderHeader`) with the document tools and the Preview
- * toggle, so it doesn't carry the site nav (Apps/Admin links, Docs,
- * Give feedback) that has no job mid-build. Splitting at the route
- * group keeps the suppression structural: no pathname checks.
+ * It renders no header. There is one band for the whole signed-in app and it
+ * is mounted above both route groups (`(app)/layout.tsx` → `AppChrome`),
+ * because a header owned by a route group is rebuilt on every crossing between
+ * groups. The site's own menus — the nav, the Project switcher, Help — are the
+ * band's UNCLAIMED state, so they need no wiring here: the builder claims the
+ * band while it is on screen and they step aside for exactly that long.
+ *
+ * What this layout still owns is the scroller. The builder's own
+ * `#main-content` is a fixed full-height flex cell instead, because it manages
+ * its internal scrolling itself.
  */
-import { AppHeader } from "@/components/ui/AppHeader";
-import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
-import { listUserProjects } from "@/lib/projects/membership";
-
-export default async function SiteLayout({
+export default function SiteLayout({
 	children,
 }: {
 	children: React.ReactNode;
 }) {
-	const session = await getSession();
-	/* Impersonated sessions are blocked from admin routes, so hide the nav link. */
-	const isAdmin =
-		session?.user?.role === "admin" && !session?.session?.impersonatedBy;
-
-	/* During impersonation, session.user is the target: pass their
-	 * identity so the header banner shows who is being viewed. */
-	const impersonating = session?.session?.impersonatedBy
-		? { userName: session.user.name, userEmail: session.user.email }
-		: null;
-
-	/* The Projects the header switcher offers + which one is active. Resolve the
-	 * active Project FIRST: it get-or-creates the personal Project (a WRITE),
-	 * which must commit before `listUserProjects` READS membership, or a
-	 * just-provisioned Project is missing from the switcher. `cache()` dedupes
-	 * both calls with the page's. */
-	let projects: Awaited<ReturnType<typeof listUserProjects>> = [];
-	let activeProjectId: string | null = null;
-	if (session) {
-		activeProjectId = await resolveActiveProjectId(session);
-		projects = await listUserProjects(session.user.id);
-	}
-
 	return (
-		<>
-			<AppHeader
-				isAdmin={isAdmin}
-				isAuthenticated={!!session}
-				impersonating={impersonating}
-				projects={projects}
-				activeProjectId={activeProjectId}
-			/>
-			<div id="main-content" className="flex-1 overflow-auto">
-				{children}
-			</div>
-		</>
+		<div id="main-content" className="flex-1 overflow-auto">
+			{children}
+		</div>
 	);
 }

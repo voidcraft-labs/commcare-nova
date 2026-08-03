@@ -1,5 +1,75 @@
 # Builder Components
 
+## The header is the app's, not the builder's
+
+**`BuilderHeader` renders no header.** The band is mounted once in
+`(app)/layout.tsx`, above both route groups, so crossing between the app list
+and the builder cannot rebuild it — the app list and the builder are one page
+wearing different menus. The builder's controls can't go up there with it
+(Preview, undo/redo, the save indicator, and Publish all read stores that live
+under `BuilderProvider`), so they stay in the builder's tree and PORTAL into
+the band's cells, and `BuilderHeader` claims the band alongside them. Height,
+insets, the mark, and the wordmark's width rule live in `components/ui`
+(`AppHeader`, `AppChrome`, `headerSlots`, `headerMotion`) and nowhere else —
+re-spelling any of them here is what produced two headers 8px apart with their
+marks 4px apart.
+
+Two consequences worth knowing. The account control is the BAND's now, so the
+access-mask quarantine travels as `showAccount` on the claim rather than as a
+local unmount. And the builder's clusters arrive animated but leave instantly
+(no `AnimatePresence`): they go when app access stops being resolved, and a
+control mid-fade is still visible and still takes a click.
+
+**`/build/new` claims nothing until a build starts.** No app exists there, so
+the screen is still the site with a composer on it and the nav, the Project
+switcher, and Help all still belong; the band changes hands at the moment the
+app lands, where the menus leaving, the word being drawn into the sphere, and
+the tools arriving are one gesture. "No app" is `phase === Idle && appId ===
+undefined`, and both halves are load-bearing: `phase` keeps the band in lockstep
+with the chat's centred-to-docked morph, which reads the same value, while
+`appId` excludes an EXISTING app whose blueprint happens to be empty — a build
+interrupted before its first module lands reads as Idle and would otherwise
+wear the site's menus inside a real build.
+
+`build/[id]/layout.tsx` covers an EXISTING app twice over, because a hard load
+has two distinct gaps. `BuilderBandClaim` claims in the first client commit,
+ahead of a page that awaits an authorized snapshot and its threads. A
+server-rendered `data-nova-build-open` marker plus one `:has()` rule in
+`globals.css` covers the first PAINT, which no claim can reach: the band is
+mounted above both route groups, so its server render is structurally
+unclaimed. That claim also carries `handoff: false` — a page that opened as a
+build never had the word to draw in, and the band cannot work that out for
+itself.
+
+Two builder-owned decisions ride on that band. **The mark is the exit**, which
+is why the builder can hand the wordmark back: the app being built carries its
+own name in the structure sidebar's app row, and a second name on the screen
+makes the reader decide which one they are looking at. And **`/build/new` is the
+exception**: with no app yet, the whole lockup stands there as Nova's own
+presence (there is no hero logo over the chat box — the logomark breathes, and
+two of them running the same wave stops reading as presence), so a build
+starting is the moment the word is drawn into the sphere it will leave by.
+`BuilderHeader` reads that off `phase === Idle` alone, so the collapse and the
+chat's centered-to-docked morph are one gesture on one tick.
+
+## Creation never navigates
+
+Both ways an app is born — the SA's `data-app-id` frame and the blank-app
+Server Action's return value — hand the client the SAME receipt (identity, the
+server-resolved Project capability, the exact sequence-1 blueprint, the cursor)
+and land it through ONE installer, `ChatContainer.installCreatedApp`, behind the
+same strict `parseCreatedAppActivation` boundary. It promotes `/build/new` to
+`/build/{id}` through `pushBuilderHistory`, the builder's own History-API path,
+never the Next router: a route change swaps `BuilderProvider`'s `key={buildId}`
+and rebuilds every store under it, severing a live run and discarding the
+document just installed to fetch state the client already holds.
+
+That is also why `createStarterApp` does NOT `revalidatePath("/")` the way the
+app-list actions do. Those run FROM the app list and revalidating it IS their
+refresh; this one runs from `/build/new`, and the router re-render carrying the
+revalidation restores Next's own canonical URL, undoing the promotion. The app
+list is dynamic (it reads the session), so it is fresh on arrival regardless.
+
 ## Builder state — three sources of truth
 
 The builder's state is split across three stores, each with a distinct lifecycle, and each reached ONLY through its named domain hooks (raw stores and selector-accepting hooks are lib-private; Biome enforces it):

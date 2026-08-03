@@ -2271,6 +2271,39 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 	});
 
+	test("the header mark keeps its touch target and its home link on every surface", async ({
+		page,
+	}) => {
+		/* One band serves the whole signed-in app, and this mark is its only
+		 * home link — and the builder's only way out. It has to stay a real
+		 * 44px target at every width, on both the lockup surface and the
+		 * sphere-alone one. */
+		const mark = page.locator("[data-app-header] a").first();
+
+		for (const width of [1280, 380]) {
+			await page.setViewportSize({ width, height: 800 });
+			await page.goto("/");
+			await expect(mark).toBeVisible({ timeout: 20_000 });
+			const site = await mark.boundingBox();
+			expect(site, `app list @${width}`).not.toBeNull();
+			expect(site?.width, `app list @${width}`).toBeGreaterThanOrEqual(44);
+			expect(site?.height, `app list @${width}`).toBeGreaterThanOrEqual(44);
+			await expect(mark).toHaveAttribute("href", "/");
+
+			await page.goto(`/build/${seed.openAppId}`);
+			await expect(mark).toBeVisible({ timeout: 20_000 });
+			const builder = await mark.boundingBox();
+			expect(builder, `builder @${width}`).not.toBeNull();
+			expect(builder?.width, `builder @${width}`).toBeGreaterThanOrEqual(44);
+			expect(builder?.height, `builder @${width}`).toBeGreaterThanOrEqual(44);
+			/* The band never moves between surfaces: that is the whole reason
+			 * there is one of it. */
+			expect(builder?.x, `builder @${width} x`).toBe(site?.x);
+			expect(builder?.y, `builder @${width} y`).toBe(site?.y);
+			await expect(mark).toHaveAttribute("href", "/");
+		}
+	});
+
 	test("the from-scratch escape hatch mints the canonical starter and opens it (no LLM)", async ({
 		page,
 	}) => {
@@ -2287,10 +2320,25 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toHaveCount(0);
 
+		// Stamp the live builder tree. Creation installs the app in place, so
+		// this node has to survive it: a route change here would swap
+		// `BuilderProvider`'s `key={buildId}` and rebuild everything under it,
+		// which is what the SPA path exists to avoid. It has to be a node the
+		// BUILDER owns — the header is mounted above both route groups and
+		// survives a route change either way, so stamping it proves nothing.
+		await page.locator("[data-builder-tree]").evaluate((el) => {
+			el.dataset.e2eBuilderGeneration = "before-create";
+		});
+
 		await startFromScratch.click();
 
-		// The real createStarterApp Server Action → createApp → router.replace.
+		// The real createStarterApp Server Action → createApp → the client
+		// installs the returned receipt and promotes the URL through the
+		// builder's own History API path.
 		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
+		await expect(
+			page.locator("[data-builder-tree][data-e2e-builder-generation]"),
+		).toHaveCount(1);
 
 		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
 		// non-empty). That is the load-bearing assertion: the from-scratch path
@@ -2945,15 +2993,23 @@ test.describe("authenticated builder", () => {
 				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
 			})
 			.click();
+		/* Wait for the first picker to commit and its popup to leave before
+		 * opening the second. Both list the SAME table's columns, so while a
+		 * closing popup is still mounted for its exit animation every column
+		 * name matches twice and the next click is ambiguous. Asserting the
+		 * committed value and an empty listbox says exactly that, rather than
+		 * hoping the animation lost the race. */
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(page.getByRole("listbox")).toHaveCount(0);
+
 		await shownValue.click();
 		await page
 			.getByRole("option", {
 				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 			})
 			.click();
-		await expect(savedValue).toHaveText(
-			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
-		);
 		await expect(shownValue).toHaveText(
 			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 		);

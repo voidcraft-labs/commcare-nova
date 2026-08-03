@@ -62,7 +62,6 @@ export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
 
 interface ChatSidebarProps {
 	centered: boolean;
-	heroLogo?: ReactNode;
 	/** Rendered under the chat card in centered mode: the from-scratch escape
 	 *  hatch on a new build. Sharing the centered column is the point: it holds
 	 *  the chat above true center until it collapses away. */
@@ -143,7 +142,6 @@ export function shouldShowShortChatFallback({
 
 export function ChatSidebar({
 	centered,
-	heroLogo,
 	startFromScratch,
 	composerBusy,
 	interactionBlocked = false,
@@ -462,7 +460,11 @@ export function ChatSidebar({
 					: "shrink-0 h-full"
 			}
 		>
-			{centered && heroLogo}
+			{/* No lockup over the card. Nova started as this logo above this box,
+			    and everything since has been built around it: the header now
+			    carries the whole lockup on `/build/new`, and the mark breathes,
+			    so a second one on the same screen turns presence into a loop.
+			    Starting a build draws that one into the sphere it leaves by. */}
 			<motion.div
 				layout={morphing ? "position" : false}
 				data-inspector-rail={centered ? undefined : true}

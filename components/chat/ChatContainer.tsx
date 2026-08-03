@@ -38,7 +38,6 @@ import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { StartFromScratch } from "@/components/chat/StartFromScratch";
-import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
 	type AttachmentRef,
@@ -60,7 +59,6 @@ import {
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
-import { useExternalNavigate } from "@/lib/routing/hooks";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -71,6 +69,7 @@ import {
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
+import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 
 type ProjectToastEmitter = (
@@ -335,6 +334,54 @@ export function parseCreatedAppActivation(
 	};
 }
 
+/**
+ * Land a validated creation receipt. Nova has two ways an app is born, the SA's
+ * `data-app-id` frame and the blank-app action's return value, and both arrive
+ * here, so a new app cannot land two different ways.
+ *
+ * The order is the contract. Identity and capability first, then the exact
+ * sequence-1 blueprint under a remote-apply bracket (which is what keeps this
+ * authoritative hydration out of undo and away from auto-save), then the URL
+ * promotion from `/build/new`, and only then multiplayer, seeded at the same
+ * cursor the document it just installed came from.
+ *
+ * The URL moves through `pushBuilderHistory`, the builder's own History-API
+ * write path, NOT the Next router: a route change would swap
+ * `BuilderProvider`'s `key={buildId}` and remount every store under it,
+ * discarding the document this function just installed and severing a live run
+ * to fetch state the client already holds.
+ *
+ * The last line is the app list. Installing in place means the history entry
+ * behind this one is the list as it stood before the app existed, and
+ * back/forward is served from the client Router Cache regardless of how fresh
+ * the route itself is — so a user pressing Back would not see the app they just
+ * made. `lib/ui/appListFreshness` records that; the list refreshes itself when
+ * it is next shown, which is the one cure that touches neither the URL nor the
+ * history stack.
+ */
+function installCreatedApp(
+	activation: CreatedAppActivation,
+	docApi: BlueprintDocStore,
+	sessionApi: BuilderSessionStoreApi,
+	reconcilerCtx: ReconcilerContextValue | null,
+): void {
+	sessionApi.getState().activateCreatedApp(activation.appId, {
+		projectId: activation.projectId,
+		role: activation.role,
+		canEdit: activation.canEdit,
+	});
+	const store = docApi.getState();
+	store.beginRemoteApply();
+	try {
+		store.commitDoc(hydratePersistedBlueprint(activation.blueprint));
+	} finally {
+		store.endRemoteApply();
+	}
+	pushBuilderHistory(`/build/${activation.appId}`, true);
+	reconcilerCtx?.activate(activation.appId, activation.baseSeq);
+	markAppListStale();
+}
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references: safe across re-renders within the same app session. */
@@ -565,29 +612,11 @@ function createChatInstance(
 					);
 					return;
 				}
-				sessionApi.getState().activateCreatedApp(activation.appId, {
-					projectId: activation.projectId,
-					role: activation.role,
-					canEdit: activation.canEdit,
-				});
-				/* Install the exact sequence-1 server receipt before activating the
-				 * reconciler. The remote-apply bracket makes this authoritative
-				 * hydration invisible to undo and auto-save; the reconciler then
-				 * captures this same document as its confirmed base. */
-				const store = docApi.getState();
-				store.beginRemoteApply();
-				try {
-					store.commitDoc(hydratePersistedBlueprint(activation.blueprint));
-				} finally {
-					store.endRemoteApply();
-				}
-				pushBuilderHistory(`/build/${activation.appId}`, true);
-				/* Activate the dormant new-build reconciler: seed it at
-				 * the receipt's confirmed cursor with the current doc, so subsequent
-				 * chat batches + human edits reconcile. */
-				reconcilerCtxRef.current?.activate(
-					activation.appId,
-					activation.baseSeq,
+				installCreatedApp(
+					activation,
+					docApi,
+					sessionApi,
+					reconcilerCtxRef.current,
 				);
 				return;
 			}
@@ -736,17 +765,16 @@ export function ChatContainer({
 	 * through its collapse (deliberately: it must not flash disabled mid-fade),
 	 * so a click landing in that window has to meet a latch that was already set
 	 * when the message was sent, rather than wait on a re-render. */
-	const { replace } = useExternalNavigate();
 	const [creatingStarterApp, setCreatingStarterApp] = useState(false);
 	const agentEngagedRef = useRef(false);
 	const creatingStarterAppRef = useRef(false);
 	/** Set when a send failed before any app was minted: see the `chatError`
 	 *  effect. Un-collapses the starter so the user isn't left with neither path. */
 	const [sendFailedBeforeApp, setSendFailedBeforeApp] = useState(false);
-	/** `createStarterApp` resolves against an app-wide router and a global toast
-	 *  store, neither of which unmounts with us. Without this, abandoning a slow
-	 *  create (Back, or the header logo) yanks the user into the new app seconds
-	 *  later, or toasts a create failure onto a page that never had the button.
+	/** `createStarterApp` resolves against stores and a global toast that don't
+	 *  unmount with us. Without this, abandoning a slow create (Back, or the
+	 *  header logo) installs the new app into a screen the user has left, or
+	 *  toasts a create failure onto a page that never had the button.
 	 *  Re-armed in the effect body, not just the cleanup, so a StrictMode
 	 *  mount→unmount→mount doesn't leave it stuck false. */
 	const mountedRef = useRef(true);
@@ -1478,16 +1506,59 @@ export function ChatContainer({
 			(result) => {
 				/* The app was created either way; we just no longer own the screen. */
 				if (!mountedRef.current) return;
-				if (!result.success) {
+				const release = () => {
 					creatingStarterAppRef.current = false;
 					setCreatingStarterApp(false);
+				};
+				if (!result.success) {
+					release();
 					projectToast("error", "Couldn't create the app", result.error);
 					return;
 				}
-				/* `replace`, not `push`: the app exists now, so `/build/new` is not
-				 * a place to go back to. Leave the latches set: the RSC navigation
-				 * unmounts this tree, and nothing should send in the meantime. */
-				replace(`/build/${result.appId}`);
+				/* Same strict boundary the SA's creation frame passes through, for
+				 * the same reason: identity, capability, blueprint, and cursor are
+				 * one authority, and multiplayer must never be activated from a
+				 * partial one. */
+				const activation = parseCreatedAppActivation(
+					result.receipt as unknown as Record<string, unknown>,
+				);
+				const docApi = docStoreRef.current;
+				const sessionApi = sessionStoreRef.current;
+				const current = sessionApi?.getState();
+				if (
+					activation === null ||
+					!docApi ||
+					!sessionApi ||
+					current === undefined ||
+					current.scopeEpoch !== scopeEpoch ||
+					current.projectId !== activation.projectId
+				) {
+					release();
+					projectToast(
+						"error",
+						"Reload to finish opening this app",
+						"Nova created your app, but couldn't verify its Project scope in this tab. It's waiting in your app list.",
+						{
+							persistent: true,
+							action: {
+								label: "Reload page",
+								onPress: () => window.location.reload(),
+							},
+						},
+					);
+					return;
+				}
+				/* No navigation: this installs the app the client was just handed,
+				 * in the tree that is already mounted. The blueprint arriving is
+				 * what carries the builder out of its centered new-build state, so
+				 * release the latches only after it lands. */
+				installCreatedApp(
+					activation,
+					docApi,
+					sessionApi,
+					reconcilerCtxRef.current,
+				);
+				release();
 			},
 			/* The action itself never rejects: it returns its failures. Landing
 			 * here means the Server Action CALL didn't complete (offline, a deploy
@@ -1506,7 +1577,7 @@ export function ChatContainer({
 				);
 			},
 		);
-	}, [projectToast, replace, scopeEpoch]);
+	}, [projectToast, scopeEpoch]);
 
 	// ── Derived values ───────────────────────────────────────────────────
 
@@ -1531,7 +1602,6 @@ export function ChatContainer({
 		<ChatSidebar
 			key="chat"
 			centered={centered}
-			heroLogo={centered ? <Logo size="hero" /> : undefined}
 			startFromScratch={
 				showFromScratch ? (
 					<StartFromScratch

@@ -41,7 +41,7 @@ import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceP
 import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
-import { Logo } from "@/components/ui/Logo";
+import { Spinner } from "@/components/shadcn/spinner";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -79,10 +79,6 @@ interface BuilderLayoutProps {
 	/** CommCare HQ settings read by the RSC page: drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
-	/** Active impersonation info, or null/omitted when viewing as
-	 *  yourself: surfaces the banner in BuilderHeader, mirroring the
-	 *  site header. */
-	impersonating?: { userName: string; userEmail: string } | null;
 }
 
 /**
@@ -100,7 +96,6 @@ export function BuilderLayout({
 	currentUserId,
 	isExistingApp,
 	commcareSettings,
-	impersonating,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -386,12 +381,12 @@ export function BuilderLayout({
 					commcareConfigured={commcareConfigured}
 					commcareAvailableDomains={commcareAvailableDomains}
 					onSetPreviewing={handleSetPreviewing}
-					impersonating={impersonating ?? null}
 				/>
+				{/* Not a second lockup. The header above is already showing the mark,
+				    and the mark breathes: two of them on one screen turns presence
+				    into a loop. A blueprint on its way is an ordinary wait. */}
 				<div className="flex-1 flex items-center justify-center">
-					<div className="animate-pulse">
-						<Logo size="lg" />
-					</div>
+					<Spinner className="size-8 text-nova-text-muted" />
 				</div>
 			</div>
 		);
@@ -400,14 +395,20 @@ export function BuilderLayout({
 	return (
 		<BuilderReferenceProvider>
 			<CaseTargetDraftProvider>
-				<div className="h-full flex flex-col overflow-hidden">
-					{/* Builder header: logo, centered Preview toggle, doc tools, account.
-					 *  Always rendered: it replaces the site AppHeader inside /build. */}
+				{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
+				    `key={buildId}` would rebuild. Creation installs its app in
+				    place precisely so this node survives, and the end-to-end test
+				    stamps it to prove that; the header cannot serve, since it is
+				    mounted above both route groups and survives a route change
+				    whether or not the builder does. */}
+				<div data-builder-tree className="h-full flex flex-col overflow-hidden">
+					{/* Fills the shared band with the builder's own controls: Preview
+					 *  dead centre, the document tools on the right. It renders nothing
+					 *  in place; the band itself is mounted above both route groups. */}
 					<BuilderHeader
 						commcareConfigured={commcareConfigured}
 						commcareAvailableDomains={commcareAvailableDomains}
 						onSetPreviewing={handleSetPreviewing}
-						impersonating={impersonating ?? null}
 					/>
 
 					<BuilderAccessGate>

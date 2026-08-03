@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectSummary } from "@/lib/projects/membership";
-import { AppHeader } from "./AppHeader";
+import { AppChrome } from "./AppChrome";
 
 vi.mock("@/components/ui/AccountMenu", () => ({
 	AccountMenu: () => {
@@ -53,20 +53,21 @@ const PROJECTS: ProjectSummary[] = [
 	},
 ];
 
-describe("AppHeader Project scope", () => {
+describe("AppChrome Project scope", () => {
 	it("closes and resets Files when the active Project changes", () => {
 		const props = {
 			isAdmin: false,
 			isAuthenticated: true,
 			impersonating: null,
 			projects: PROJECTS,
+			children: null,
 		};
-		const view = render(<AppHeader {...props} activeProjectId="project-a" />);
+		const view = render(<AppChrome {...props} activeProjectId="project-a" />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Open files" }));
 		expect(screen.getByRole("dialog", { name: "Files" })).toBeTruthy();
 
-		view.rerender(<AppHeader {...props} activeProjectId="project-b" />);
+		view.rerender(<AppChrome {...props} activeProjectId="project-b" />);
 
 		expect(screen.queryByRole("dialog", { name: "Files" })).toBeNull();
 	});

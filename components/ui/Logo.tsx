@@ -26,6 +26,12 @@
  * 0.875em with line-height 1, minus half the 0.486em x-height); the
  * translateY carries that offset, bounded so the mark stays inside the
  * line box it is set in.
+ *
+ * The `chrome` rung alone has a wordmark that comes and goes, so it alone
+ * sets the word in a collapsing track: it joins the sphere where the header
+ * row can hold the whole lockup, and it is drawn INTO the sphere when a
+ * build starts. Every other rung is a fixed lockup whose word is either
+ * rendered or, under `markOnly`, left to a screen reader.
  */
 
 const MARK_DISC_SHADOW =
@@ -69,6 +75,7 @@ export function Logo({
 	variant,
 	animate = true,
 	markOnly = false,
+	absorbing = false,
 }: {
 	size?: keyof typeof SIZES;
 	/** Force the flattened crescent where the size alone wouldn't: a light
@@ -79,9 +86,18 @@ export function Logo({
 	/** Keep the mark when a wordmark cannot fit. The surrounding control must
 	 * provide its accessible name. */
 	markOnly?: boolean;
+	/** Play the handoff once: the sphere answers the word's arrival with the
+	 * swell it gives the pointer. Set it in the same commit that sets
+	 * `markOnly`, and clear it when the animation ends. `chrome` only. */
+	absorbing?: boolean;
 }) {
 	const s = SIZES[size];
 	const flat = variant === "flat" || s.mark < FULL_MARK_MIN;
+	/* The header rung is the only one whose word travels, so it is the only one
+	 * that pays for a collapsing track. `size` decides it for the same reason it
+	 * decides the flattened sibling: it is a property of the room the lockup has,
+	 * not something each call site should have to remember. */
+	const inChrome = size === "chrome";
 	/* The lockup aligns on the lowercase INK, never on the two boxes: the ink
 	 * band sits 0.132em below the text box's center, so centering the boxes
 	 * leaves the mark visibly high. Move whichever box has the room. The mark
@@ -91,11 +107,25 @@ export function Logo({
 	const inkOffset = `${(0.132 * s.font).toFixed(1)}px`;
 	const markDrops = s.mark < s.font;
 
+	const word = (
+		<>
+			<span className="text-nova-text">commcare </span>
+			<span className="text-nova-violet-bright">nova</span>
+		</>
+	);
+
 	return (
 		<div
-			className="inline-flex items-center font-display font-bold"
+			className={`inline-flex items-center font-display font-bold${
+				inChrome ? " nova-logo-chrome" : ""
+			}`}
+			data-mark-only={markOnly || undefined}
+			data-absorbing={absorbing || undefined}
 			style={{
-				gap: s.gap,
+				/* In chrome the gap rides INSIDE the collapsing track (see below), so
+				 * it leaves with the word rather than holding a dead 12px open beside
+				 * a lone sphere. */
+				gap: inChrome ? undefined : s.gap,
 				fontSize: s.font,
 				letterSpacing: "-0.02em",
 				lineHeight: 1,
@@ -151,17 +181,44 @@ export function Logo({
 			</span>
 			{/* One lockup, one line: without this the two tones wrap onto
 			    separate lines in a narrow header and the mark reads as a
-			    stacked logo it is not. */}
-			<span
-				className={markOnly ? "sr-only" : "whitespace-nowrap"}
-				style={{
-					transform:
-						markOnly || markDrops ? undefined : `translateY(-${inkOffset})`,
-				}}
-			>
-				<span className="text-nova-text">commcare </span>
-				<span className="text-nova-violet-bright">nova</span>
-			</span>
+			    stacked logo it is not.
+
+			    In chrome the word is set in a track that collapses to zero rather
+			    than swapped for `sr-only`: `sr-only` takes the word out of layout
+			    in one frame, and the whole point here is that it TRAVELS. The
+			    clip's padding carries the gap so both leave together, and the
+			    three spans each do one job (track, clip, ink offset) because a
+			    single element cannot hold a collapsing width, an overflow clip,
+			    and two transforms at once. */}
+			{inChrome ? (
+				<span className="nova-logo-word">
+					<span className="nova-logo-word-clip">
+						{/* The gap is padding on the TEXT, never on the clip. A clipped
+						    box is still at least as wide as its own padding, so a gap
+						    spelled one level out survives the collapse as 12px of dead
+						    air beside a lone sphere. */}
+						<span
+							className="block whitespace-nowrap"
+							style={{
+								paddingLeft: s.gap,
+								transform: markDrops ? undefined : `translateY(-${inkOffset})`,
+							}}
+						>
+							{word}
+						</span>
+					</span>
+				</span>
+			) : (
+				<span
+					className={markOnly ? "sr-only" : "whitespace-nowrap"}
+					style={{
+						transform:
+							markOnly || markDrops ? undefined : `translateY(-${inkOffset})`,
+					}}
+				>
+					{word}
+				</span>
+			)}
 		</div>
 	);
 }
