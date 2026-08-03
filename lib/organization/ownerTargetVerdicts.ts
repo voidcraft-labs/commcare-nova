@@ -46,19 +46,24 @@ function isSameOrDescendant(
 	);
 }
 
-function levelIsAtOrAbove(
+function levelDepth(levelUuid: string, doc: BlueprintDoc): number | undefined {
+	const levels = organizationLevelsOf(doc);
+	const level = levels[levelUuid];
+	return level === undefined ? undefined : ancestorLevels(level, levels).length;
+}
+
+/** HQ applies these ceilings by absolute level depth, across sibling branches. */
+function levelIsWithinDepth(
 	candidateLevelUuid: string,
 	bottomLevelUuid: string,
 	doc: BlueprintDoc,
 ): boolean {
-	if (candidateLevelUuid === bottomLevelUuid) return true;
-	const levels = organizationLevelsOf(doc);
-	const bottom = levels[bottomLevelUuid];
+	const candidateDepth = levelDepth(candidateLevelUuid, doc);
+	const bottomDepth = levelDepth(bottomLevelUuid, doc);
 	return (
-		bottom !== undefined &&
-		ancestorLevels(bottom, levels).some(
-			(ancestor) => ancestor.uuid === candidateLevelUuid,
-		)
+		candidateDepth !== undefined &&
+		bottomDepth !== undefined &&
+		candidateDepth <= bottomDepth
 	);
 }
 
@@ -69,7 +74,7 @@ function topSliceIncludes(
 ): boolean {
 	return (
 		downToLevelUuid === undefined ||
-		levelIsAtOrAbove(target.levelUuid, downToLevelUuid, doc)
+		levelIsWithinDepth(target.levelUuid, downToLevelUuid, doc)
 	);
 }
 
@@ -94,7 +99,7 @@ export function assignmentFootprintIncludes(
 				targetIsAncestor ||
 				(targetInOwnBranch &&
 					(book.downToLevelUuid === undefined ||
-						levelIsAtOrAbove(target.levelUuid, book.downToLevelUuid, doc))) ||
+						levelIsWithinDepth(target.levelUuid, book.downToLevelUuid, doc))) ||
 				(book.alsoIncludeTopDownToLevelUuid !== undefined &&
 					topSliceIncludes(target, book.alsoIncludeTopDownToLevelUuid, doc))
 			);
@@ -115,7 +120,7 @@ export function assignmentFootprintIncludes(
 				(from !== undefined &&
 					isSameOrDescendant(target, from, byId) &&
 					(book.downToLevelUuid === undefined ||
-						levelIsAtOrAbove(target.levelUuid, book.downToLevelUuid, doc)))
+						levelIsWithinDepth(target.levelUuid, book.downToLevelUuid, doc)))
 			);
 		}
 		case "whole-organization":
@@ -159,7 +164,7 @@ function assignmentReceivesCasesFrom(
 	const scope = assignedLevel.caseFlow.descendantCases;
 	if (scope.kind === "none") return false;
 	if (scope.kind === "all") return true;
-	return levelIsAtOrAbove(source.levelUuid, scope.levelUuid, doc);
+	return levelIsWithinDepth(source.levelUuid, scope.levelUuid, doc);
 }
 
 /** The exact fixed-owner admission verdict, also used to filter its picker. */
@@ -345,11 +350,12 @@ export function personaAssignmentRemovalIssues(
 	rows: readonly OwnerVerdictLocation[],
 	personaUuid: string,
 	locationIds: readonly string[],
+	candidateRemovalIds: readonly string[] = locationIds,
 ): ReadonlyMap<string, string> {
 	const issues = new Map<string, string>();
 	const persona = personasOf(doc)[personaUuid];
 	if (persona === undefined) {
-		for (const id of locationIds)
+		for (const id of candidateRemovalIds)
 			issues.set(id, "This persona no longer exists.");
 		return issues;
 	}
@@ -399,7 +405,7 @@ export function personaAssignmentRemovalIssues(
 		}
 	}
 
-	for (const removedId of locationIds) {
+	for (const removedId of candidateRemovalIds) {
 		const assigned = locationIds
 			.filter((id) => id !== removedId)
 			.map((id) => byId.get(id));

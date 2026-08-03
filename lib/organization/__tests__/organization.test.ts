@@ -365,6 +365,11 @@ describe("organization authoring input identity", () => {
 				valuePatch: { [lower]: "one" },
 			}).success,
 		).toBe(false);
+		expect(
+			updateLocationInputSchema.safeParse({
+				valuePatch: { [lower]: "one", [upper]: "two" },
+			}).success,
+		).toBe(false);
 	});
 });
 

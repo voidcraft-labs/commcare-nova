@@ -80,9 +80,11 @@ export function LocationChoiceSelect({
 		() =>
 			pageLocations.map((location) => ({
 				location,
-				issue: open ? issueFor?.(location) : undefined,
+				// The saved selection is already valid and choosing it is a no-op.
+				// Do not spend a full cross-store preflight on it when a picker opens.
+				issue: open && location.id !== value ? issueFor?.(location) : undefined,
 			})),
-		[issueFor, open, pageLocations],
+		[issueFor, open, pageLocations, value],
 	);
 	const selected = locations.find((location) => location.id === value);
 

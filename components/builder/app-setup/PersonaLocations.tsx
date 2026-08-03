@@ -60,9 +60,12 @@ export function PersonaLocations({
 		() => assignedLocationUuids(persona.locations),
 		[persona.locations],
 	);
-	const assignedSet = new Set(assigned);
+	const assignedSet = useMemo(() => new Set(assigned), [assigned]);
 	const [requestedPage, setRequestedPage] = useState(0);
-	const assignedPage = personaLocationPage(assigned, requestedPage);
+	const assignedPage = useMemo(
+		() => personaLocationPage(assigned, requestedPage),
+		[assigned, requestedPage],
+	);
 	const rowFocus = useRemovedRowFocus(assigned.length);
 	const byId = new Map<string, StoredLocation>(
 		locations.map((location) => [location.id, location]),
@@ -85,9 +88,23 @@ export function PersonaLocations({
 	const removalIssues = useMemo(
 		() =>
 			canEdit && !loading
-				? personaAssignmentRemovalIssues(doc, locations, persona.uuid, assigned)
+				? personaAssignmentRemovalIssues(
+						doc,
+						locations,
+						persona.uuid,
+						assigned,
+						assignedPage.ids,
+					)
 				: new Map<string, string>(),
-		[assigned, canEdit, doc, loading, locations, persona.uuid],
+		[
+			assigned,
+			assignedPage.ids,
+			canEdit,
+			doc,
+			loading,
+			locations,
+			persona.uuid,
+		],
 	);
 
 	const set = (next: readonly string[]) =>

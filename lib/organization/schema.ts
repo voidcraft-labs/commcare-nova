@@ -130,19 +130,23 @@ export const locationValuesSchema = z
 		message: "A place carries more information than Nova stores for one place.",
 	});
 
-const locationValuePatchSchema = z.record(
-	uuidSchema,
-	z
-		.string()
-		.max(4096)
-		.refine((value) => !value.includes("\u0000"), {
-			message: "A value cannot contain a NUL character.",
-		})
-		.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-			message: "A value cannot contain an unpaired surrogate.",
-		})
-		.nullable(),
-);
+const locationValuePatchSchema = z
+	.record(
+		uuidSchema,
+		z
+			.string()
+			.max(4096)
+			.refine((value) => !value.includes("\u0000"), {
+				message: "A value cannot contain a NUL character.",
+			})
+			.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+				message: "A value cannot contain an unpaired surrogate.",
+			})
+			.nullable(),
+	)
+	.refine((values) => Object.keys(values).length === 1, {
+		message: "Change exactly one place-information value at a time.",
+	});
 
 const locationNameSchema = z
 	.string()

@@ -22,8 +22,9 @@ whose destinations would be missing on the device.
 
 ## Levels
 
-A level is a rung — Region, District, Facility, Ward. You add them top down,
-each sitting under the one above it.
+A level is a rung — Region, District, Facility, Ward. You add parent levels
+before their children. Levels may branch: for example, a Region can define
+District and Warehouse children without forcing either beneath the other.
 
 Each level answers two questions, and the screen keeps them apart on purpose,
 because they are genuinely separate and mixing them up is the most common way an
@@ -84,11 +85,8 @@ Places already carry a name and a code. **Place information** is anything else
 you need on them — a phone number, a catchment population, an opening date.
 
 Each entry has a name people read and a key CommCare stores it under. Nova
-checks that key as you type against the rules CommCare applies, and this matters
-more than it looks: CommCare accepts a key it does not recognize without
-complaining and stores it where nothing will ever read it. A typo would not fail
-loudly; it would quietly do nothing. So Nova refuses the bad key up front
-instead.
+checks that key as you type against the rules CommCare applies. Illegal or
+reserved keys are rejected, so Nova refuses them before they can reach a push.
 
 An entry applies to every level by default. Narrow it when only some kinds of
 place have that information. You can also require a value or give the entry a
@@ -102,11 +100,12 @@ The places themselves — your actual districts and facilities. Unlike levels,
 these are data, so you can add thousands. Nova stores and previews them today;
 it does not push them to CommCare yet.
 
-Each place sits at a level and inside a place above it. **A place may skip a
-level** — if some regions run districts and some do not, a facility can hang
-directly off its region. Nova does not make you invent a placeholder district,
-because a made-up place is worse than an absent one: expressions that look for
-the district would find the fake one and give a confident wrong answer, where a
+Each place sits at a level. A root place has no containing place; every other
+place sits inside a compatible place above it. **A place may skip a level** — if
+some regions run districts and some do not, a facility can hang directly off
+its region. Nova does not make you invent a placeholder district, because a
+made-up place is worse than an absent one: expressions that look for the
+district would find the fake one and give a confident wrong answer, where a
 genuine gap gives an honest empty one.
 
 One thing to know if you plan to publish: CommCare's ordinary place editor cannot

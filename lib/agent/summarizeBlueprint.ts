@@ -339,7 +339,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 			lines.push("  levels:");
 			for (const level of organizationLevels) {
 				lines.push(
-					`    - "${level.name}" [uuid ${level.uuid}, code ${level.code}]${level.parentLevelUuid === undefined ? " root" : ` parent uuid ${level.parentLevelUuid}`}${level.caseFlow.workers === "assigned" ? " holds workers" : " no workers"}${level.caseFlow.ownsCases ? " owns cases" : " owns no cases"} address_book=${level.addressBook.reach}`,
+					`    - "${level.name}" [uuid ${level.uuid}, code ${level.code}]${level.parentLevelUuid === undefined ? " root" : ` parent uuid ${level.parentLevelUuid}`}${level.caseFlow.workers === "assigned" ? " holds workers" : " no workers"}${level.caseFlow.ownsCases ? " owns cases" : " owns no cases"} case_flow=${JSON.stringify(level.caseFlow)} address_book=${JSON.stringify(level.addressBook)}`,
 				);
 			}
 		}

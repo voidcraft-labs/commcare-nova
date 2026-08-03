@@ -5,6 +5,46 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 
 describe("summarizeBlueprint users projection", () => {
+	it("keeps complete organization level settings visible for replacement edits", () => {
+		const rootUuid = testUuid("summary-root-level");
+		const leafUuid = testUuid("summary-leaf-level");
+		const doc = buildDoc() as BlueprintDoc;
+		doc.organizationLevels = {
+			[rootUuid]: {
+				uuid: rootUuid,
+				code: "region",
+				name: "Region",
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "down-to", levelUuid: leafUuid },
+				},
+				addressBook: {
+					reach: "own-branch",
+					downToLevelUuid: leafUuid,
+					alsoIncludeTopDownToLevelUuid: rootUuid,
+				},
+			},
+			[leafUuid]: {
+				uuid: leafUuid,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: rootUuid,
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "whole-organization" },
+			},
+		};
+		doc.organizationLevelOrder = [rootUuid, leafUuid];
+
+		const summary = summarizeBlueprint(doc);
+		expect(summary).toContain(
+			`case_flow=${JSON.stringify(doc.organizationLevels[rootUuid]?.caseFlow)}`,
+		);
+		expect(summary).toContain(
+			`address_book=${JSON.stringify(doc.organizationLevels[rootUuid]?.addressBook)}`,
+		);
+	});
+
 	it("exposes stable property, role, and persona identities for follow-up edits", () => {
 		const propertyUuid = testUuid("property-region");
 		const roleUuid = testUuid("role-chw");

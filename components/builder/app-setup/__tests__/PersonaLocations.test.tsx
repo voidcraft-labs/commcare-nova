@@ -138,6 +138,7 @@ describe("PersonaLocations", () => {
 			LOCATIONS,
 			PERSONA.uuid,
 			[BRANCH_A_UUID, BRANCH_B_UUID],
+			[BRANCH_A_UUID, BRANCH_B_UUID],
 		);
 
 		fireEvent.click(blocked);
@@ -184,5 +185,40 @@ describe("PersonaLocations", () => {
 		const focused = document.activeElement;
 		expect(focused?.tagName).toBe("LI");
 		expect(focused?.textContent).toContain("Branch B · branch-b");
+	});
+
+	it("preflights removals only for the visible assignment page", () => {
+		const manyLocations = Array.from({ length: 60 }, (_, index) =>
+			location(
+				testUuid(`persona-page-${index}`),
+				`Place ${index}`,
+				`place-${index}`,
+			),
+		);
+		const manyPersona: Persona = {
+			...PERSONA,
+			locations: {
+				primaryUuid: manyLocations[0].id,
+				additionalUuids: manyLocations.slice(1).map(({ id }) => id),
+			},
+		};
+		mocks.personaAssignmentRemovalIssues.mockReturnValue(new Map());
+
+		render(
+			<PersonaLocations
+				persona={manyPersona}
+				locations={manyLocations}
+				loading={false}
+				error={undefined}
+			/>,
+		);
+
+		expect(mocks.personaAssignmentRemovalIssues).toHaveBeenCalledWith(
+			mocks.doc,
+			manyLocations,
+			PERSONA.uuid,
+			manyLocations.map(({ id }) => id),
+			manyLocations.slice(0, 50).map(({ id }) => id),
+		);
 	});
 });
