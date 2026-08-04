@@ -141,6 +141,26 @@ Inside an operation, SA/MCP read and write the same canonical AST the document s
 
 Action legality is structural in `caseOperationInputSchema`: create requires a new target plus name and cannot carry rename/retype; update targets an existing case and cannot carry a create name; close targets an existing case and cannot carry owner/rename/retype/links. Operation ids, write properties, and link identifiers import the validator-owned ASCII letter/digit/underscore rules from `lib/domain/caseOperationIdentifiers.ts`; no surface maintains a more permissive XML-name copy. Platform-owned case types and reserved write properties are rejected at this boundary as well as by the validator backstop. Batch add plans against a working overlay, so a later item can target an earlier create in the same call and the one guarded commit remains atomic. Full-shape update does not imply whole-object replacement: `updateCaseOperationMutations` diffs it into identity-keyed operation, write-property, and link-identifier mutations, preserving unrelated concurrent edits. A move names the operation it now follows; an anchor cannot be shifted by a peer's insert, so there is no rank to fence, and the tool reports the rank derived from `commit.newDoc`.
 
+### Automation authoring — canonical intent plus a derived setup guide
+
+`tools/automations.ts` is the shared SA/MCP family: read, batch add, singular
+complete update, and singular remove. The input is the exact domain union, so
+every automation and nested criterion, setup-only instruction, update,
+recipient, event, and user-data filter is addressed by canonical UUID. Add may
+predeclare those final UUIDs; update must preserve the automation's UUID and
+kind. A full update is only a boundary convenience: it diffs through
+`diffDocsToMutations` into the same identity-keyed item changes the Builder
+uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
+schema.
+
+Read and successful write messages are explicit that Nova does not execute or
+install the automation. `getAutomations` derives its CommCare HQ setup guide
+from the current document on every call; no guide or match count is persisted.
+The prompt sends the SA to this family and forbids promising Preview execution,
+message delivery, schedule progress, or HQ installation. MCP registers the
+same four tool objects through `sharedToolRegistry`, with identity pointers for
+every nested UUID and no alternate wire schema.
+
 ### Media authoring — dedicated carriers + the asset library
 
 The generic mutation tools deliberately omit every media slot (`toolSchemaGenerator.ts`'s `saOptionSchema` drops `media`; the field-edit schema carries no `*_media` key). The SA can neither mint nor discover an asset id from those surfaces, so a media slot there would only let it write a dangling reference. Media authoring lives in its own `tools/media/` package:

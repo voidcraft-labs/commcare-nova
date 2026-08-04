@@ -435,6 +435,8 @@ describe("organization authoring tools", () => {
 			ownedCases: 2,
 			blockingOwnerRuleFormCount: 0,
 			blockingOwnerRuleFormPreview: [],
+			blockingAutomationCount: 0,
+			blockingAutomationPreview: [],
 		};
 		vi.spyOn(
 			organizationService,
@@ -614,6 +616,8 @@ describe("organization authoring tools", () => {
 			ownedCases: 0,
 			blockingOwnerRuleFormCount: 1,
 			blockingOwnerRuleFormPreview: ["Visit"],
+			blockingAutomationCount: 0,
+			blockingAutomationPreview: [],
 		});
 		const result = await setLocationArchivedTool.execute(
 			{

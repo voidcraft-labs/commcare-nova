@@ -3,6 +3,7 @@ import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
 	assignedLocationUuids,
+	automationsOf,
 	type BlueprintDoc,
 	levelHoldsWorkers,
 	levelMayNestUnder,
@@ -72,6 +73,16 @@ export function extractLocationReferenceTargets(
 					targets.add(term.locationUuid);
 				}
 			});
+		}
+	}
+	for (const automation of Object.values(automationsOf(doc))) {
+		for (const criterion of automation.criteria) {
+			if (criterion.kind === "location") targets.add(criterion.locationUuid);
+		}
+		if (automation.kind === "conditional-alert") {
+			for (const recipient of automation.recipients) {
+				if (recipient.kind === "location") targets.add(recipient.locationUuid);
+			}
 		}
 	}
 	return [...targets].sort();

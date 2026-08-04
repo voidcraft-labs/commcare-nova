@@ -773,12 +773,17 @@ export const setLocationArchivedTool = {
 				return {
 					kind: "read" as const,
 					data: {
-						confirmationRequired: impact.blockingOwnerRuleFormCount === 0,
-						blocked: impact.blockingOwnerRuleFormCount > 0,
+						confirmationRequired:
+							impact.blockingOwnerRuleFormCount === 0 &&
+							impact.blockingAutomationCount === 0,
+						blocked:
+							impact.blockingOwnerRuleFormCount > 0 ||
+							impact.blockingAutomationCount > 0,
 						expectedRevisionForConfirmation: impact.revision,
 						message:
-							impact.blockingOwnerRuleFormCount > 0
-								? "This archive is blocked by case-owner rules. Change the listed forms before requesting confirmation again."
+							impact.blockingOwnerRuleFormCount > 0 ||
+							impact.blockingAutomationCount > 0
+								? "This archive is blocked by case-owner rules or automation location references. Change the listed forms or automations before requesting confirmation again."
 								: "Review this bounded archive impact with the user, then repeat the call with confirm=true, expectedRevision set to expectedRevisionForConfirmation, and the unchanged confirmedImpact payload.",
 						impact,
 					},

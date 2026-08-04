@@ -104,6 +104,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
 	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
+	AUTOMATION_INVALID: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or

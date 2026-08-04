@@ -1,0 +1,258 @@
+import { produce } from "immer";
+import { z } from "zod";
+import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	automationNestedUuids,
+	automationSchema,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+	orderedAutomations,
+	ownRecordValue,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
+import type { ToolExecutionContext } from "../toolExecutionContext";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	type ReadToolResult,
+	toToolErrorResult,
+} from "./common";
+import type { MutationSuccess } from "./shared/toolCallSummary";
+
+export const getAutomationsInputSchema = z.object({}).strict();
+
+export const addAutomationsInputSchema = z
+	.object({
+		automations: z
+			.array(automationSchema)
+			.min(1)
+			.max(50)
+			.describe(
+				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID.",
+			),
+		afterAutomationUuid: uuidSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Existing automation after which the new contiguous block belongs, null for first, or omit to append.",
+			),
+	})
+	.strict();
+
+export const updateAutomationInputSchema = z
+	.object({
+		automation: automationSchema.describe(
+			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed.",
+		),
+	})
+	.strict();
+
+export const removeAutomationInputSchema = z
+	.object({ automationUuid: uuidSchema })
+	.strict();
+
+type AutomationMutationResult =
+	| (MutationSuccess & { automationUuids: readonly Uuid[] })
+	| { error: string };
+
+function mutationError(
+	doc: BlueprintDoc,
+	error: string,
+): MutatingToolResult<{ error: string }> {
+	return {
+		kind: "mutate",
+		mutations: [],
+		newDoc: doc,
+		result: { error },
+	};
+}
+
+function allIdentities(
+	automation: z.infer<typeof automationSchema>,
+): readonly Uuid[] {
+	return [automation.uuid, ...automationNestedUuids(automation)];
+}
+
+export const getAutomationsTool = {
+	description:
+		"Read every representable automatic case-update rule and conditional alert in display order, with stable UUIDs and freshly derived manual CommCare HQ setup guidance. Nova describes and locally counts matching cases but never executes these automations.",
+	inputSchema: getAutomationsInputSchema,
+	async execute(
+		_input: z.infer<typeof getAutomationsInputSchema>,
+		_ctx: ToolExecutionContext,
+		doc: BlueprintDoc,
+	): Promise<ReadToolResult<unknown>> {
+		return {
+			kind: "read",
+			data: orderedAutomations(doc).map((automation) => ({
+				automation,
+				setupGuide: buildAutomationSetupGuide(doc, automation, []),
+				executesInPreview: false as const,
+			})),
+		};
+	},
+};
+
+export const addAutomationsTool = {
+	description:
+		"Add one or more complete automatic case-update rules or conditional alerts to the app. This records canonical Nova definitions and setup guidance; it does not install or run them in CommCare HQ.",
+	inputSchema: addAutomationsInputSchema,
+	async execute(
+		input: z.infer<typeof addAutomationsInputSchema>,
+		ctx: ToolExecutionContext,
+		doc: BlueprintDoc,
+	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		try {
+			const existing = new Set<string>();
+			for (const automation of input.automations) {
+				for (const uuid of allIdentities(automation)) {
+					if (
+						existing.has(uuid) ||
+						findAuthoredBlueprintIdentity(doc, uuid) !== undefined
+					) {
+						return mutationError(doc, `UUID "${uuid}" is already in use.`);
+					}
+					existing.add(uuid);
+				}
+			}
+			if (
+				input.afterAutomationUuid !== undefined &&
+				input.afterAutomationUuid !== null &&
+				ownRecordValue(doc.automations, input.afterAutomationUuid) === undefined
+			) {
+				return mutationError(
+					doc,
+					`Automation UUID "${input.afterAutomationUuid}" does not exist.`,
+				);
+			}
+			const mutations: Mutation[] = [];
+			let after = input.afterAutomationUuid;
+			for (const automation of input.automations) {
+				mutations.push({
+					kind: "addAutomation",
+					automation: structuredClone(automation),
+					...(after === undefined ? {} : { after }),
+				});
+				after = automation.uuid;
+			}
+			const commit = await guardedMutate(ctx, doc, mutations, "automations");
+			if (!commit.ok) return mutationError(doc, commit.error);
+			const names = input.automations.map((automation) => automation.name);
+			return {
+				kind: "mutate",
+				mutations: commit.mutations,
+				newDoc: commit.newDoc,
+				result: {
+					message: `Added ${names.length} ${names.length === 1 ? "automation" : "automations"}: ${names.join(", ")}. Nova will not run them in Preview; use each generated guide to configure CommCare HQ manually.`,
+					automationUuids: input.automations.map(
+						(automation) => automation.uuid,
+					),
+					summary: { count: names.length },
+				},
+			};
+		} catch (error) {
+			return toToolErrorResult(error, doc);
+		}
+	},
+};
+
+export const updateAutomationTool = {
+	description:
+		"Replace one existing automation with its complete desired canonical state. The automation kind and UUID are create-once; nested UUIDs preserve identity across edits.",
+	inputSchema: updateAutomationInputSchema,
+	async execute(
+		input: z.infer<typeof updateAutomationInputSchema>,
+		ctx: ToolExecutionContext,
+		doc: BlueprintDoc,
+	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		try {
+			const before = ownRecordValue(doc.automations, input.automation.uuid);
+			if (before === undefined) {
+				return mutationError(
+					doc,
+					`Automation UUID "${input.automation.uuid}" does not exist.`,
+				);
+			}
+			if (before.kind !== input.automation.kind) {
+				return mutationError(doc, "An automation's kind cannot be changed.");
+			}
+			const next = produce(doc, (draft) => {
+				if (draft.automations !== undefined) {
+					draft.automations[input.automation.uuid] = structuredClone(
+						input.automation,
+					);
+				}
+			});
+			const mutations = diffDocsToMutations(doc, next);
+			if (mutations.length === 0) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						message: `Automation "${before.name}" already has the requested settings.`,
+						automationUuids: [before.uuid],
+						summary: { subject: before.name },
+					},
+				};
+			}
+			const commit = await guardedMutate(ctx, doc, mutations, "automations");
+			if (!commit.ok) return mutationError(doc, commit.error);
+			return {
+				kind: "mutate",
+				mutations: commit.mutations,
+				newDoc: commit.newDoc,
+				result: {
+					message: `Updated automation "${input.automation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
+					automationUuids: [input.automation.uuid],
+					summary: { subject: input.automation.name },
+				},
+			};
+		} catch (error) {
+			return toToolErrorResult(error, doc);
+		}
+	},
+};
+
+export const removeAutomationTool = {
+	description:
+		"Remove one automation definition and its generated setup guidance from the app. This does not remove a rule already configured manually in CommCare HQ.",
+	inputSchema: removeAutomationInputSchema,
+	async execute(
+		input: z.infer<typeof removeAutomationInputSchema>,
+		ctx: ToolExecutionContext,
+		doc: BlueprintDoc,
+	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		try {
+			const automation = ownRecordValue(doc.automations, input.automationUuid);
+			if (automation === undefined) {
+				return mutationError(
+					doc,
+					`Automation UUID "${input.automationUuid}" does not exist.`,
+				);
+			}
+			const commit = await guardedMutate(
+				ctx,
+				doc,
+				[{ kind: "removeAutomation", uuid: automation.uuid }],
+				"automations",
+			);
+			if (!commit.ok) return mutationError(doc, commit.error);
+			return {
+				kind: "mutate",
+				mutations: commit.mutations,
+				newDoc: commit.newDoc,
+				result: {
+					message: `Removed automation "${automation.name}" from Nova. A copy configured manually in CommCare HQ is unchanged.`,
+					automationUuids: [automation.uuid],
+					summary: { subject: automation.name },
+				},
+			};
+		} catch (error) {
+			return toToolErrorResult(error, doc);
+		}
+	},
+};

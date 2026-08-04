@@ -214,6 +214,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases with a place-based owner, but Nova does not yet ship the matching device location data and CommCare identity mapping. Use a non-location owner, or remove this owner rule before publishing.`,
+	AUTOMATION_INVALID: () =>
+		"This automation no longer fits the app. Open it and replace any case, form, place, or worker information that has changed.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>

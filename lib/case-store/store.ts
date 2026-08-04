@@ -219,6 +219,20 @@ export type CountArgs =
 			/** Runtime values for input/session terms used by the predicate. */
 			bindings?: TermBindings;
 			predicate?: Predicate;
+			/** Local-only automation criterion group. `predicate` carries every
+			 * ordinary criterion; regex leaves stay separate because they have no
+			 * CommCare case-search AST spelling. The same Kysely query composes the
+			 * group, preserving ALL/ANY without inventing a persisted second AST. */
+			automationCriteria?: {
+				operator: "all" | "any";
+				predicate?: Predicate;
+				regexes: readonly { property: string; pattern: string }[];
+				closedParents: readonly {
+					identifier: string;
+					parentCaseType: string;
+					relationship: "child" | "extension";
+				}[];
+			};
 			/** Same hold contract as `QueryArgs.includeHeld` — a count must
 			 * agree with the row list its caller pairs it with. */
 			includeHeld?: boolean;
@@ -233,6 +247,7 @@ export type CountArgs =
 			appId: string;
 			ownerId: string;
 			caseType?: never;
+			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;
 			bindings?: never;

@@ -69,10 +69,11 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Twelve authorable kinds share ONE global identity namespace — modules, forms,
+Nineteen authorable kinds share ONE global identity namespace — modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
-worker properties, user types, personas, organization levels, and location
-properties
+worker properties, user types, personas, organization levels, location
+properties, automations, and their criteria, setup-only criteria, updates,
+recipients, events, and user-data filters
 (`lib/domain/authoredIdentities.ts`) — because `blueprint_entities` keys every
 entity row by `(app_id, uuid)`, and because a nested identity is both an SA/MCP
 address and an expression leaf. App, case, Project, actor/owner, thread, run,
@@ -166,6 +167,59 @@ rows are keyed by app rather than Project, the authoritative cross-Project app
 move carries the whole organization without a second retenant operation.
 `lib/domain/CLAUDE.md` and `lib/organization/CLAUDE.md` own the implementation
 detail.
+
+### Representable automations and regenerated setup guidance
+
+Nova authors two automation families in one canonical Blueprint collection:
+automatic case updates and conditional alerts. Every rule and every nested
+criterion, setup-only instruction, update, recipient, schedule event, and
+user-data filter has global UUID identity. The Builder, Solutions Architect,
+and MCP API edit those exact objects through one granular mutation grammar;
+there is no draft object, whole-rule persistence shortcut, compatibility shape,
+or second tool schema. Entity-row decomposition persists an automation as a
+flat top-level entity, and replay admits the same UUID and ordering laws as the
+rest of the document.
+
+The vocabulary is closed to current `AutomaticUpdateRule` shapes. Ordinary
+criteria are HQ's nine `MatchPropertyDefinition` comparisons, closed-parent,
+and place-owner filters with `ALL` or `ANY`; server-modified age is a separate
+HQ switch. A case update may set case, parent, or host properties from a literal
+or property value and may close the case. A conditional alert carries the
+closed case-relative/generic/custom recipient union, SMS/email/survey/Connect/
+registered-custom content, immediate or timed schedules, and optional
+user-data or usercase filters. IVR and SMS/callback survive only so a historical
+configuration remains representable; current HQ refuses new activation, which
+the Builder and guide state rather than silently treating them as deployable.
+There is no push-notification arm and no untyped escape hatch
+(`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
+`corehq/messaging/scheduling/models.py::Schedule`).
+
+Preview presents a read-only count over the same real open case rows used by the
+running app. Nova's AST-to-Kysely boundary can exactly lower the nine property
+comparisons, closed-parent relations, and place-owner sets; the outer query
+always excludes closed cases and relation walks retain app/Project tenancy.
+UCR filters, instance-registered custom criteria, and HQ server-modified age
+have no honest local evaluator, so they are explicit setup-only text and every
+omission is named beside a partial count. Preview never updates a case, sends a
+message, advances a schedule, or implies that current matching predicts HQ's
+next sweep.
+
+Each read regenerates a human-applied setup guide from current identities and
+names. HQ provides HTML setup pages only (plus the conditional-alert content
+spreadsheet); no REST resource exists for rules, alerts, or schedules. Publishing
+therefore does not install an automation, and changing or removing one in Nova
+does not claim to alter a manually configured HQ rule. The guide carries the
+actual gates and runtime facts: case updates require Data Cleanup (Pro+), alerts
+require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
+the hourly task visits each project once daily at `auto_case_update_hour`
+(midnight UTC by default), and the default cap is 10,000 updates per project,
+case type, and database partition per run. The unrelated 50,000 outbound-SMS
+daily limit never appears as an automation cap. A zero-ordinary-criterion claim
+cleanup rule remains constructible with only server-modified age plus close,
+and its guide warns that the boundary is latest server modification, not a
+business claim date. `lib/domain/CLAUDE.md`, `lib/doc/CLAUDE.md`,
+`lib/case-store/CLAUDE.md`, `lib/agent/CLAUDE.md`, and
+`components/builder/CLAUDE.md` own the implementation detail.
 
 ### Expressions and prose store identity; text is a projection
 
@@ -1344,7 +1398,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Eleven units, one file each. **Every entry below is a pointer, not a summary of
+Ten units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1387,22 +1441,10 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### Representable automations and setup guidance
-
-[`complex-app/automations-and-setup-guidance.md`](complex-app/automations-and-setup-guidance.md)
-· depends on nothing outstanding · blocks the deployment-core and
-app-setup-UI units
-
-Automation schemas limited to what HQ can represent, plus regenerated setup
-guidance. **The file holds** the closed criteria, action, recipient, and content
-vocabularies, the real cadence and cap (and the widely cited figure that is
-wrong), the total absence of a REST surface, and which criteria are constructible
-versus setup-artifact-only.
-
 ### Deployment core and artifact
 
 [`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
-· depends on automations · blocks the
+· depends on nothing outstanding · blocks the
 attachment-emission, push-and-provisioning, and app-setup-UI units
 
 Durable deployment and resource-mapping records, preflight, ownership and
@@ -1428,8 +1470,8 @@ the org model is not pushable at all.
 · depends on the remaining deployment-chain units plus the usercase unit
 · blocks nothing
 
-The App setup workspace's two remaining sections — Automations and Deployment —
-plus the SA and MCP surfaces and public docs for the four prerequisite units.
+The App setup workspace's remaining Deployment section, plus the SA and MCP
+surfaces and public docs for the remaining prerequisite units.
 **The file is deliberately short**: its substance is the prerequisite units'
 files and the baseline UI review in the contracts.
 
@@ -1487,21 +1529,20 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [automations](complex-app/automations-and-setup-guidance.md) | — |
-| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | automations |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | — |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, automations, deployment core, push and provisioning |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, deployment core, push and provisioning |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
 Four units have no outstanding prerequisites and can start in any order:
-grouped case tiles, the usercase, automations, and form links and sections. They
+grouped case tiles, the usercase, deployment core, and form links and sections. They
 are the independent entry points — every other unit descends from one of them.
 
-The remaining deployment chain (automations → deployment core → push and
-provisioning) is the critical path: it gates attachment emission, the
+The remaining deployment chain (deployment core → push and provisioning) is
+the critical path: it gates attachment emission, the
 App setup UI, session endpoints, and multi-select, so anything needing a real
 HQ target waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.

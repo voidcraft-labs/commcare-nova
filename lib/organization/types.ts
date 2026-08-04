@@ -110,4 +110,8 @@ export interface ArchiveImpact {
 	 *  archive would invalidate. Authored intent blocks until it is changed. */
 	readonly blockingOwnerRuleFormCount: number;
 	readonly blockingOwnerRuleFormPreview: readonly string[];
+	/** Automations whose location criterion or recipient names a place in the
+	 * subtree. A structural location reference cannot be silently erased. */
+	readonly blockingAutomationCount: number;
+	readonly blockingAutomationPreview: readonly string[];
 }

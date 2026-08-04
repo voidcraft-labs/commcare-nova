@@ -48,6 +48,7 @@ import {
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
@@ -99,6 +100,8 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
+	type Automation,
+	type AutomationSchedule,
 	asUuid,
 	type CaseProperty,
 	type CommitOutcome,
@@ -111,6 +114,7 @@ import {
 	type FormIconRef,
 	type FormType,
 	fieldRegistry,
+	findAuthoredBlueprintIdentity,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type LocationProperty,
 	type MediaAssetId,
@@ -444,6 +448,26 @@ export interface BlueprintMutations {
 		patch: UserEntityPatch<LocationProperty>,
 	) => CommitOutcome;
 	removeLocationProperty: (uuid: Uuid) => CommitOutcome;
+	/** Human-applied HQ automation authoring. Nested values already carry their
+	 * stable UUIDs; every subsequent item edit is a distinct merge unit. */
+	addAutomation: (automation: Automation) => AddCommitOutcome;
+	replaceAutomation: (automation: Automation) => CommitOutcome;
+	updateAutomation: (
+		mutation: Omit<Extract<Mutation, { kind: "updateAutomation" }>, "kind">,
+	) => CommitOutcome;
+	removeAutomation: (uuid: Uuid) => CommitOutcome;
+	editAutomationItem: (
+		automationUuid: Uuid,
+		edit: Extract<Mutation, { kind: "editAutomationItem" }>["edit"],
+	) => CommitOutcome;
+	setAutomationSchedule: (
+		uuid: Uuid,
+		schedule: AutomationSchedule,
+	) => CommitOutcome;
+	updateAutomationSchedule: (
+		uuid: Uuid,
+		patch: Extract<Mutation, { kind: "updateAutomationSchedule" }>["patch"],
+	) => CommitOutcome;
 	/** Set a persona's primary place followed by any additional places. */
 	setPersonaLocations: (
 		personaUuid: Uuid,
@@ -1326,6 +1350,83 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						return NOOP_REJECTION;
 					}
 					return toOutcome(guardedApply(removeLocationPropertyMutations(uuid)));
+				},
+
+				addAutomation(automation) {
+					const uuid = automation.uuid;
+					if (findAuthoredBlueprintIdentity(get(), uuid) !== undefined) {
+						warnUnresolved("addAutomation", { uuid });
+						return NOOP_REJECTION;
+					}
+					const applied = guardedApply([
+						{
+							kind: "addAutomation",
+							automation,
+						},
+					]);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				replaceAutomation(automation) {
+					const before = ownRecordValue(get().automations, automation.uuid);
+					if (before === undefined) {
+						warnUnresolved("replaceAutomation", { uuid: automation.uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply(automationChangesForUpdate(before, automation)),
+					);
+				},
+
+				updateAutomation(mutation) {
+					if (ownRecordValue(get().automations, mutation.uuid) === undefined) {
+						warnUnresolved("updateAutomation", { uuid: mutation.uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateAutomation", ...mutation }]),
+					);
+				},
+
+				removeAutomation(uuid) {
+					if (ownRecordValue(get().automations, uuid) === undefined) {
+						warnUnresolved("removeAutomation", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply([{ kind: "removeAutomation", uuid }]));
+				},
+
+				editAutomationItem(automationUuid, edit) {
+					if (ownRecordValue(get().automations, automationUuid) === undefined) {
+						warnUnresolved("editAutomationItem", { uuid: automationUuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([
+							{ kind: "editAutomationItem", automationUuid, edit },
+						]),
+					);
+				},
+
+				setAutomationSchedule(uuid, schedule) {
+					if (ownRecordValue(get().automations, uuid) === undefined) {
+						warnUnresolved("setAutomationSchedule", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "setAutomationSchedule", uuid, schedule }]),
+					);
+				},
+
+				updateAutomationSchedule(uuid, patch) {
+					if (ownRecordValue(get().automations, uuid) === undefined) {
+						warnUnresolved("updateAutomationSchedule", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateAutomationSchedule", uuid, patch }]),
+					);
 				},
 
 				setPersonaLocations(personaUuid, locationIds) {

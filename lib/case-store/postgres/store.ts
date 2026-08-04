@@ -104,6 +104,7 @@ import type {
 	JsonValue,
 	ParkedCaseValuesTable,
 } from "../sql/database";
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "../sql/dataTypeTokens";
 import type {
 	ApplyCasePropertyRenameArgs,
 	ApplyCaseTypeSchemaRetirementArgs,
@@ -731,6 +732,49 @@ export class PostgresCaseStore implements CaseStore {
 
 		if (args.predicate !== undefined) {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
+		}
+		if (args.automationCriteria !== undefined) {
+			const group = args.automationCriteria;
+			qb = qb.where((whereEb) => {
+				const clauses = [
+					...(group.predicate === undefined
+						? []
+						: [compilePredicate(group.predicate, ctx)]),
+					...group.regexes.map((criterion) => {
+						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+							criterion.property,
+						);
+						const value =
+							scalar === undefined
+								? sql`c.properties ->> ${criterion.property}`
+								: sql`${sql.ref(`c.${scalar.column}`)}::text`;
+						return (
+							// HQ's REGEX uses Python `re.match`, anchored at the
+							// beginning. PostgreSQL `~` searches, so add the anchor.
+							sql<boolean>`coalesce(${value}, '') ~ ${`^(?:${criterion.pattern})`}`
+						);
+					}),
+					...group.closedParents.map(
+						(criterion) => sql<boolean>`exists (
+							select 1
+							from case_indices as automation_parent_index
+							join cases as automation_parent
+								on automation_parent.case_id = automation_parent_index.ancestor_id
+								and automation_parent.app_id = c.app_id
+								and automation_parent.project_id = c.project_id
+							where automation_parent_index.case_id = c.case_id
+								and automation_parent_index.identifier = ${criterion.identifier}
+								and automation_parent_index.relationship = ${criterion.relationship}
+								and automation_parent_index.depth = 1
+								and automation_parent.case_type = ${criterion.parentCaseType}
+								and automation_parent.closed_on is not null
+						)`,
+					),
+				];
+				return group.operator === "all"
+					? whereEb.and(clauses)
+					: whereEb.or(clauses);
+			});
 		}
 
 		// `executeTakeFirstOrThrow` is appropriate here — Postgres'

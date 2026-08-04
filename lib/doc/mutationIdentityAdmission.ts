@@ -1,5 +1,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type Automation,
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentity,
 	type BlueprintAuthoredIdentityKind,
@@ -46,6 +47,67 @@ function nestedFormIdentities(
 			ownerUuid: form.uuid,
 		})),
 	];
+}
+
+function nestedAutomationIdentities(
+	automation: Automation,
+): BlueprintAuthoredIdentity[] {
+	return [
+		{ uuid: automation.uuid, kind: "automation" },
+		...automation.criteria.map((criterion) => ({
+			uuid: criterion.uuid,
+			kind: "automationCriterion" as const,
+			ownerUuid: automation.uuid,
+		})),
+		...automation.setupOnlyCriteria.map((criterion) => ({
+			uuid: criterion.uuid,
+			kind: "automationSetupOnlyCriterion" as const,
+			ownerUuid: automation.uuid,
+		})),
+		...(automation.kind === "case-update"
+			? automation.updates.map((update) => ({
+					uuid: update.uuid,
+					kind: "automationUpdate" as const,
+					ownerUuid: automation.uuid,
+				}))
+			: [
+					...automation.recipients.map((recipient) => ({
+						uuid: recipient.uuid,
+						kind: "automationRecipient" as const,
+						ownerUuid: automation.uuid,
+					})),
+					...automation.schedule.events.map((event) => ({
+						uuid: event.uuid,
+						kind: "automationEvent" as const,
+						ownerUuid: automation.uuid,
+					})),
+					...automation.userDataFilters.map((filter) => ({
+						uuid: filter.uuid,
+						kind: "automationUserDataFilter" as const,
+						ownerUuid: automation.uuid,
+					})),
+				]),
+	];
+}
+
+function automationEditIdentity(
+	mutation: Extract<Mutation, { kind: "editAutomationItem" }>,
+): BlueprintAuthoredIdentity | undefined {
+	const edit = mutation.edit;
+	if (edit.operation !== "add") return undefined;
+	const kind: BlueprintAuthoredIdentityKind =
+		edit.collection === "criterion"
+			? "automationCriterion"
+			: edit.collection === "setup-only-criterion"
+				? "automationSetupOnlyCriterion"
+				: edit.collection === "update"
+					? "automationUpdate"
+					: edit.collection === "recipient"
+						? "automationRecipient"
+						: edit.collection === "user-data-filter"
+							? "automationUserDataFilter"
+							: "automationEvent";
+	return { uuid: edit.value.uuid, kind, ownerUuid: mutation.automationUuid };
 }
 
 function inlineOptionIdentities(
@@ -169,6 +231,21 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 			return createClaims([
 				{ uuid: mutation.property.uuid, kind: "locationProperty" },
 			]);
+		case "addAutomation":
+			return createClaims(nestedAutomationIdentities(mutation.automation));
+		case "editAutomationItem": {
+			const identity = automationEditIdentity(mutation);
+			return identity === undefined ? [] : createClaims([identity]);
+		}
+		case "setAutomationSchedule":
+			return mutation.schedule.events.map((event) => ({
+				identity: {
+					uuid: event.uuid,
+					kind: "automationEvent",
+					ownerUuid: mutation.uuid,
+				},
+				preserveIfOwnedBy: mutation.uuid,
+			}));
 		case "updateForm":
 			return mutation.caseOperationChange?.operation === "add"
 				? createClaims([
@@ -210,6 +287,10 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "updateOrganizationLevel":
 		case "removeLocationProperty":
 		case "updateLocationProperty":
+		case "updateAutomation":
+		case "removeAutomation":
+		case "moveAutomation":
+		case "updateAutomationSchedule":
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":

@@ -4,6 +4,7 @@
 // imports from here or from the kind-specific files under ./fields.
 
 export * from "./authoredIdentities";
+export * from "./automations";
 export * from "./blueprint";
 export * from "./builtinIcons";
 export * from "./caseOperationIdentifiers";

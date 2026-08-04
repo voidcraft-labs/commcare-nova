@@ -106,6 +106,15 @@ surviving children but atomically detaches them (`parent_case_id = null` and
 removes the corresponding `case_indices` edges); it never cascades deletion
 into another case type or invents random relationships to the new sample rows.
 
+Automation matching is another read over these same rows, not an execution
+runtime. `countCases({ automationCriteria })` composes ordinary property,
+closed-parent, and place-owner criteria into one tenant-bound SQL count and
+always limits the outer case to `status = "open"`. Closed-parent relation walks
+bind both sides to the store's app and Project. Setup-only UCR/custom criteria
+and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
+those omissions in the result. No case-store method updates a case, sends a
+message, or advances a schedule on an automation's behalf.
+
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
 Case data is shared at **Project** scope. Every tenant-bound

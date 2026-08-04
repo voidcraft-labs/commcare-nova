@@ -14,7 +14,8 @@ It's a long result, a whole system prompt. Some agent frameworks cap how much of
 ## Stable identities and structured content
 
 Read an app before editing it. Commcare Nova returns stable UUIDs for modules, forms,
-fields, choices, case-list columns, search inputs, worker-information
+fields, choices, case-list columns, search inputs, automations and their nested
+criteria, updates, recipients, events, and filters, worker-information
 properties, roles, personas, organization levels, place-information properties,
 places, case operations, Project data tables, columns, and rows. Editing tools address those
 objects by their UUID parameters, such as `moduleUuid`, `formUuid`,
@@ -291,6 +292,36 @@ reassigned.
 | `update_location` | Change one place's editable data, retype it, or set/clear one UUID-keyed custom value. |
 | `move_location` | Move one place within the valid level topology while preserving its UUID. |
 | `set_location_archived` | Preflight and confirm subtree archive, or unarchive with the current revision. |
+
+## Working with automations
+
+Automations are canonical app objects, not commands that execute in Preview.
+Read them first and preserve the stable UUID on the automation and every nested
+criterion, setup-only instruction, case update, recipient, schedule event, and
+user-data filter that still represents the same item. A complete update removes
+any nested UUID it omits, but the server projects that desired state into the
+same granular mutation grammar used by the Builder and Solutions Architect.
+
+Nova can describe automatic case-update rules and conditional alerts that
+CommCare HQ can represent. It never claims to install them: HQ exposes HTML
+setup pages and an alert-content spreadsheet import, but no REST resource for
+rules, alerts, or schedules. Every read and successful write returns freshly
+derived manual setup guidance. Removing a Nova automation likewise leaves a
+rule already configured in HQ unchanged.
+
+Preview may count current real case rows against ordinary property,
+closed-parent, and place-owner criteria. It never updates a case, sends a
+message, or advances a schedule. UCR filters, instance-registered custom
+criteria, and HQ server-modified age have no honest local evaluator; carry them
+as setup-only instructions and treat the returned count as partial when the
+result names omissions.
+
+| Tool | What it does |
+|---|---|
+| `get_automations` | Read every automation in display order, including stable nested UUIDs, regenerated setup guidance, and an explicit statement that Preview does not execute it. |
+| `add_automations` | Add one or more complete automatic case-update rules or conditional alerts atomically. Caller-supplied UUIDs are final identities and must be globally unused. |
+| `update_automation` | Set one automation's complete desired state while preserving its immutable UUID and kind. Existing nested UUIDs preserve identity; omitted nested items are removed. |
+| `remove_automation` | Remove one automation and its derived guide from Nova without claiming to change CommCare HQ. |
 
 ## Working on modules
 

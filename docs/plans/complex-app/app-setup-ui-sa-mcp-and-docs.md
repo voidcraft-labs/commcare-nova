@@ -1,9 +1,8 @@
 # App setup UI, SA, MCP, and docs
 
-**PR:** `App setup: automations and deployment`
+**PR:** `App setup: deployment`
 
 **Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md),
-[automations](automations-and-setup-guidance.md),
 [deployment core](deployment-core-and-artifact.md), and
 [push and provisioning](push-and-provisioning-drivers.md). · **Blocks:** nothing.
 
@@ -16,15 +15,15 @@ URL-owned at `/build/<appId>/setup/<section>`, reachable from expanded and
 collapsed desktop navigation and the mobile path menu, and it already owns
 breadcrumbs, deep links, route recovery, viewer mode, focus restoration, mobile
 layout, and global Preview behavior. Its section vocabulary already names all
-four sections; **Users & Personas** and **Organization** are built, while the
-other two render an honest not-built-yet state. Filling one is adding its
-content, not adding a workspace.
+four sections; **Users & Personas**, **Organization**, and **Automations** are
+built, while **Deployment** renders an honest not-built-yet state. Filling it is
+adding its content, not adding a workspace. Automations already ships on the
+Builder, SA, and MCP surfaces with its public guide.
 
-Build the Automations and Deployment sections with responsive layout,
-permissions, conflict and recovery states, deployment progress and retry, and
-honest target prerequisites. Complete the SA and MCP tools and the public docs
-for the four prerequisite units, and the cross-facility owner/restore walkthrough
-scenario.
+Build the Deployment section with responsive layout, permissions, conflict and
+recovery states, deployment progress and retry, and honest target prerequisites.
+Complete the SA and MCP tools and the public docs for the remaining prerequisite
+units, and the cross-facility owner/restore walkthrough scenario.
 
 The **user-property, user-type, and persona** vocabulary is already shipped on
 all three authoring surfaces — builder, Solutions Architect, and MCP
@@ -34,6 +33,6 @@ contract. This unit may consume and preserve those tools while completing the
 remaining App setup vocabulary; it must not rebuild, duplicate, defer, or
 rename them.
 
-**Observed:** every capability from the four prerequisite units is reachable
+**Observed:** every capability from the prerequisite units is reachable
 without chat, and everything App setup can author is reachable from chat and
 MCP.

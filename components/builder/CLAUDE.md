@@ -214,6 +214,37 @@ property. Property controls author the required and accepted-values contracts
 and preflight every existing place so a catalog change cannot create a
 cross-store state the server would refuse.
 
+## App setup — Automations
+
+`app-setup/AutomationsSection.tsx` edits the Blueprint's canonical automation
+union. A new rule is born as one complete valid object with caller-minted UUIDs;
+editing works on a local complete copy and saves through
+`replaceAutomation`, which derives the shared item-granular mutation grammar.
+An open editor fingerprints the authoritative automation: if a peer changes or
+removes it, Save refuses with a visible conflict and keeps the person's local
+work for comparison. Gate findings stay in the editor, and removal uses an
+explicit confirmation. Viewers receive the same expanded readable rule,
+current-match information, and generated setup guide with every mutating
+control absent or disabled.
+
+The section is structured vocabulary, never raw CommCare JSON: closed property
+criteria, closed-parent and place-owner filters, explicit setup-only
+instructions, typed update targets/values, recipients, content, schedules, and
+worker-information filters. Forms, worker properties, organization levels, and
+places resolve through current UUID-backed catalogs. HQ-only UCR/custom and
+server-modified behavior are setup-only and visibly omitted from the current
+match count. A count is read-only over real open case rows; the persistent note
+states that Preview never updates cases, sends messages, advances schedules, or
+installs anything in HQ. The regenerated guide names the exact HTML route,
+privilege, cadence, cap, omissions, and unsupported historical IVR/callback
+activation. Copy acts on the derived text only.
+
+Responsive behavior is owned by the App setup container. The list and editor
+must remain usable at the 320px dock layout, and all repeated rows keep explicit
+labels, remove names, keyboard focus, and visible refusal text. Add focuses the
+new rule, successful removal returns focus to Add, and no meaning relies on
+color alone.
+
 ## Preview mode
 
 One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle. **The mode flip is one layout commit choreographed by transforms** — centered (max-width) content can't track a sliding sidebar edge through layout (it stays pinned until the column narrows past the frame, then rushes), so the flip commits the final layout in a single render and everything that travels does so on the shared `SIDEBAR_TRANSITION`: **both flanks are the same shape — an in-flow SPACER that owns the layout width plus an absolute dock that slides via `x`**. Neither the app-tree panel nor the never-unmounted chat panel unmounts on a preview flip (unmounting the tree reset its scroll + expand + search; unmounting chat would sever the live run), so the preview flip is a transform + a spacer-width snap, never a remount. `AnimatePresence` still carries each flank's COARSE enter/exit slide (app open/close, the handset dock swap) — not the preview flip. The collapsed chat rail is a separate `AnimatePresence` element. Every centered surface is a `ContentFrame` gliding a delta computed from the column geometry (`ModeFlipGlideProvider`) — computed, not FLIP-measured, because Activity-swapped frames have no "before" box yet must stay edge-locked with the breadcrumbs. **New centered canvas surfaces must use ContentFrame** or they'll snap while everything else glides. Manual sidebar toggles keep the plain width tween. There is no per-surface preview affordance and no cursor-mode pill. Entering stashes open-state and closes both sidebars atomically (`setPreviewing`), so leaving restores the layout; keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`. That close only selects the panel's CONTENT, it never unmounts it: the app-tree panel renders against the EFFECTIVE open-state (`structureStashed ?? structureOpen`), so an open tree stays the mounted `StructureSidebar` (scroll intact) as it slides off rather than swapping to the rail. The layout widths collapse off the `previewing` flag alone, so hiding the flanks never depends on that close.

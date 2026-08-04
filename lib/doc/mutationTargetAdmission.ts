@@ -108,6 +108,60 @@ export function mutationTargetsInvalid(
 	const personas = new Set(Object.keys(doc.personas ?? {}));
 	const organizationLevels = new Set(Object.keys(doc.organizationLevels ?? {}));
 	const locationProperties = new Set(Object.keys(doc.locationProperties ?? {}));
+	const automations = new Map<string, "case-update" | "conditional-alert">();
+	const automationScheduleKinds = new Map<string, "immediate" | "timed">();
+	const automationItemOwners = new Map<
+		string,
+		{ automationUuid: string; collection: string }
+	>();
+	const seedAutomation = (
+		automation: NonNullable<BlueprintDoc["automations"]>[string],
+	): void => {
+		automations.set(automation.uuid, automation.kind);
+		for (const criterion of automation.criteria) {
+			automationItemOwners.set(criterion.uuid, {
+				automationUuid: automation.uuid,
+				collection: "criterion",
+			});
+		}
+		for (const criterion of automation.setupOnlyCriteria) {
+			automationItemOwners.set(criterion.uuid, {
+				automationUuid: automation.uuid,
+				collection: "setup-only-criterion",
+			});
+		}
+		if (automation.kind === "case-update") {
+			for (const update of automation.updates) {
+				automationItemOwners.set(update.uuid, {
+					automationUuid: automation.uuid,
+					collection: "update",
+				});
+			}
+			return;
+		}
+		automationScheduleKinds.set(automation.uuid, automation.schedule.kind);
+		for (const recipient of automation.recipients) {
+			automationItemOwners.set(recipient.uuid, {
+				automationUuid: automation.uuid,
+				collection: "recipient",
+			});
+		}
+		for (const event of automation.schedule.events) {
+			automationItemOwners.set(event.uuid, {
+				automationUuid: automation.uuid,
+				collection: `${automation.schedule.kind}-event`,
+			});
+		}
+		for (const filter of automation.userDataFilters) {
+			automationItemOwners.set(filter.uuid, {
+				automationUuid: automation.uuid,
+				collection: "user-data-filter",
+			});
+		}
+	};
+	for (const automation of Object.values(doc.automations ?? {})) {
+		seedAutomation(automation);
+	}
 	const userTypeValues = new Map(
 		Object.values(doc.userTypes ?? {}).map((userType) => [
 			userType.uuid,
@@ -749,6 +803,90 @@ export function mutationTargetsInvalid(
 			case "updateLocationProperty":
 				if (!locationProperties.has(m.uuid)) return true;
 				break;
+			case "addAutomation":
+				seedAutomation(m.automation);
+				break;
+			case "removeAutomation":
+				if (!automations.has(m.uuid)) return true;
+				automations.delete(m.uuid);
+				automationScheduleKinds.delete(m.uuid);
+				for (const [uuid, owner] of automationItemOwners) {
+					if (owner.automationUuid === m.uuid)
+						automationItemOwners.delete(uuid);
+				}
+				break;
+			case "updateAutomation":
+				if (automations.get(m.uuid) !== m.targetKind) return true;
+				break;
+			case "moveAutomation":
+				if (!automations.has(m.uuid)) return true;
+				break;
+			case "setAutomationSchedule":
+				if (automations.get(m.uuid) !== "conditional-alert") return true;
+				for (const [uuid, owner] of automationItemOwners) {
+					if (
+						owner.automationUuid === m.uuid &&
+						(owner.collection === "immediate-event" ||
+							owner.collection === "timed-event")
+					) {
+						automationItemOwners.delete(uuid);
+					}
+				}
+				automationScheduleKinds.set(m.uuid, m.schedule.kind);
+				for (const event of m.schedule.events) {
+					automationItemOwners.set(event.uuid, {
+						automationUuid: m.uuid,
+						collection: `${m.schedule.kind}-event`,
+					});
+				}
+				break;
+			case "updateAutomationSchedule":
+				if (
+					automations.get(m.uuid) !== "conditional-alert" ||
+					automationScheduleKinds.get(m.uuid) !== "timed"
+				) {
+					return true;
+				}
+				break;
+			case "editAutomationItem": {
+				const edit = m.edit;
+				const kind = automations.get(m.automationUuid);
+				if (kind === undefined) return true;
+				if (
+					(edit.collection === "update" && kind !== "case-update") ||
+					((edit.collection === "recipient" ||
+						edit.collection === "user-data-filter" ||
+						edit.collection === "immediate-event" ||
+						edit.collection === "timed-event") &&
+						kind !== "conditional-alert") ||
+					(edit.collection === "immediate-event" &&
+						automationScheduleKinds.get(m.automationUuid) !== "immediate") ||
+					(edit.collection === "timed-event" &&
+						automationScheduleKinds.get(m.automationUuid) !== "timed")
+				) {
+					return true;
+				}
+				if (edit.operation === "add") {
+					automationItemOwners.set(edit.value.uuid, {
+						automationUuid: m.automationUuid,
+						collection: edit.collection,
+					});
+					break;
+				}
+				const itemUuid =
+					edit.operation === "update" ? edit.value.uuid : edit.uuid;
+				const owner = automationItemOwners.get(itemUuid);
+				if (
+					owner?.automationUuid !== m.automationUuid ||
+					owner.collection !== edit.collection
+				) {
+					return true;
+				}
+				if (edit.operation === "remove") {
+					automationItemOwners.delete(itemUuid);
+				}
+				break;
+			}
 			// ── App-level scalars — no entity target, always safe ──────
 			case "setAppName":
 			case "setConnectType":

@@ -1,0 +1,80 @@
+---
+title: Automations
+description: Describe case updates and conditional alerts, check current matches, and follow exact CommCare HQ setup guidance.
+---
+
+Automations let a CommCare HQ project update cases or send messages when cases
+match a rule. In Nova, open **App setup → Automations** to describe the rule once
+using the same app vocabulary as the Builder, Solutions Architect, and MCP API.
+
+Nova does not run automations in Preview, and publishing an app does not install
+them in CommCare HQ. Each saved automation produces a fresh setup guide for a
+person to apply in the target project space. CommCare HQ currently provides
+HTML setup pages for these rules, not a REST resource Nova could safely drive.
+
+## Automatic case updates
+
+An automatic case update can set a property to fixed text or copy another
+property from the case, its parent, or its host. It can also close the case.
+Criteria can match case properties, require a closed parent, or limit the rule
+to cases owned by one place or its descendants.
+
+The setup guide points to **Data → Edit Data → Automatic Case Update Rules**.
+These rules require CommCare HQ's **Data Cleanup** privilege (Pro or higher).
+CommCare HQ's hourly task visits each project space once each day, at midnight
+UTC by default. One run processes at most 10,000 updates per project space,
+case type, and database partition unless that project has a different limit.
+Reaching the limit stops that run; the next daily sweep tries again.
+
+**Run when a case is saved** is an additional path, not a replacement for the
+daily sweep. Leave it off unless the target project explicitly needs immediate
+processing.
+
+## Conditional alerts
+
+A conditional alert sends one or more scheduled events to case-relative or
+explicit recipients. Supported content includes SMS, email, SMS survey,
+Connect messages and surveys, and instance-registered custom content. A timed
+schedule can start when the rule matches, on a fixed date, or from a case date
+property; negative repeat values mean months and positive values mean days.
+
+The setup guide points to **Messaging → Conditional Alerts**. Conditional
+alerts require **Reminders Framework** (Standard or higher). SMS delivery also
+requires **Outbound SMS** when the message is sent; an email-only alert does
+not. Current CommCare HQ retains IVR and SMS/callback to display historical
+configurations but refuses new activation, so Nova makes that refusal visible
+instead of presenting those types as deployable choices.
+
+Recipient filters can use the app's custom worker information or the user case.
+Message templates may use case, owner, parent, host, and recipient values. A
+custom recipient or content handler must already be registered on the target HQ
+instance; Nova cannot create one.
+
+## Current matches
+
+Preview can count the real, open Nova case rows that currently match the parts
+of a rule it can evaluate. The count is information only. It never changes a
+case, sends a message, advances a schedule, or predicts the next HQ sweep.
+
+Nova can count the nine ordinary property comparisons, closed-parent criteria,
+and place ownership criteria. Three HQ-only inputs have no honest local
+equivalent: a UCR filter, an instance-registered custom criterion, and HQ's
+server-modified age. Store those as setup-only instructions. When a rule mixes
+countable and setup-only criteria, the screen names every omitted part beside
+the count instead of presenting a partial count as complete.
+
+Closed cases are always excluded. A rule with no ordinary criteria is valid;
+for example, a claim-cleanup rule can use only HQ's server-modified boundary and
+the close action. That boundary measures the latest server modification, not a
+business date such as when a claim was created.
+
+## Applying the guide
+
+Open the automation and choose **Copy setup guide**. The guide is regenerated
+from the current canonical rule, including current form, worker-information,
+and place names. Apply it to the intended CommCare HQ project space and review
+its privilege, cadence, cap, and instance-specific caveats before saving.
+
+Removing or changing an automation in Nova does not alter a rule previously
+configured by hand in CommCare HQ. Keep the two in sync until Nova's Deployment
+work can track the setup artifact against an explicit target.

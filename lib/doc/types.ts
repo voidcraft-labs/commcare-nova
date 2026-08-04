@@ -14,6 +14,15 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	authoredCasePropertyNameSchema,
+	automationCaseUpdateSchema,
+	automationCriterionSchema,
+	automationImmediateEventSchema,
+	automationRecipientSchema,
+	automationScheduleSchema,
+	automationSchema,
+	automationSetupOnlyCriterionSchema,
+	automationTimedEventSchema,
+	automationUserDataFilterSchema,
 	CONNECT_TYPES,
 	type Column,
 	caseOperationSchema,
@@ -343,6 +352,102 @@ const locationPropertyUpdatePatchSchema = clearablePartialPatch(
 ).refine((patch) => Object.keys(patch).length > 0, {
 	message: "Change at least one location-property field.",
 });
+
+const automationCaseUpdatePatchSchema = z
+	.object({
+		name: automationSchema.options[0].shape.name.optional(),
+		caseType: automationSchema.options[0].shape.caseType.optional(),
+		criteriaOperator:
+			automationSchema.options[0].shape.criteriaOperator.optional(),
+		serverModifiedBoundaryDays:
+			automationSchema.options[0].shape.serverModifiedBoundaryDays.nullable(),
+		runOnSave: automationSchema.options[0].shape.runOnSave.optional(),
+		closeCase: automationSchema.options[0].shape.closeCase.optional(),
+	})
+	.partial()
+	.strict()
+	.refine((patch) => Object.keys(patch).length > 0, {
+		message: "Change at least one automation field.",
+	});
+
+const alertShape = automationSchema.options[1].shape;
+const automationAlertUpdatePatchSchema = z
+	.object({
+		name: alertShape.name.optional(),
+		caseType: alertShape.caseType.optional(),
+		criteriaOperator: alertShape.criteriaOperator.optional(),
+		serverModifiedBoundaryDays:
+			alertShape.serverModifiedBoundaryDays.nullable(),
+		includeDescendantLocations:
+			alertShape.includeDescendantLocations.optional(),
+		locationLevelUuids: alertShape.locationLevelUuids.optional(),
+		defaultLanguageCode: alertShape.defaultLanguageCode.nullable(),
+		useUserCaseForFilter: alertShape.useUserCaseForFilter.optional(),
+		resetCaseProperty: alertShape.resetCaseProperty.nullable(),
+		stopDateCaseProperty: alertShape.stopDateCaseProperty.nullable(),
+	})
+	.partial()
+	.strict()
+	.refine((patch) => Object.keys(patch).length > 0, {
+		message: "Change at least one automation field.",
+	});
+
+function automationItemEditSchemas<
+	C extends string,
+	S extends z.ZodType<{ uuid: z.infer<typeof uuidSchema> }>,
+>(collection: C, valueSchema: S) {
+	return [
+		z
+			.object({
+				collection: z.literal(collection),
+				operation: z.literal("add"),
+				value: valueSchema,
+				after: uuidSchema.nullable().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				collection: z.literal(collection),
+				operation: z.literal("update"),
+				value: valueSchema,
+			})
+			.strict(),
+		z
+			.object({
+				collection: z.literal(collection),
+				operation: z.literal("remove"),
+				uuid: uuidSchema,
+			})
+			.strict(),
+		z
+			.object({
+				collection: z.literal(collection),
+				operation: z.literal("move"),
+				uuid: uuidSchema,
+				after: uuidSchema.nullable(),
+			})
+			.strict(),
+	] as const;
+}
+
+const automationItemEditSchema = z.union([
+	...automationItemEditSchemas("criterion", automationCriterionSchema),
+	...automationItemEditSchemas(
+		"setup-only-criterion",
+		automationSetupOnlyCriterionSchema,
+	),
+	...automationItemEditSchemas("update", automationCaseUpdateSchema),
+	...automationItemEditSchemas("recipient", automationRecipientSchema),
+	...automationItemEditSchemas(
+		"immediate-event",
+		automationImmediateEventSchema,
+	),
+	...automationItemEditSchemas("timed-event", automationTimedEventSchema),
+	...automationItemEditSchemas(
+		"user-data-filter",
+		automationUserDataFilterSchema,
+	),
+]);
 const userDataValuePatchSchema = z
 	.object({
 		userPropertyUuid: uuidSchema,
@@ -958,6 +1063,64 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("removeLocationProperty"),
 			uuid: uuidSchema,
+		}),
+		// ─── Human-applied automations ────────────────────────────────────────
+		// Automation children are identity-keyed merge units. A peer editing one
+		// criterion, recipient, event, update, or filter never replaces a sibling.
+		z.object({
+			kind: z.literal("addAutomation"),
+			automation: automationSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
+		z.discriminatedUnion("targetKind", [
+			z
+				.object({
+					kind: z.literal("updateAutomation"),
+					uuid: uuidSchema,
+					targetKind: z.literal("case-update"),
+					patch: automationCaseUpdatePatchSchema,
+				})
+				.strict(),
+			z
+				.object({
+					kind: z.literal("updateAutomation"),
+					uuid: uuidSchema,
+					targetKind: z.literal("conditional-alert"),
+					patch: automationAlertUpdatePatchSchema,
+				})
+				.strict(),
+		]),
+		z.object({ kind: z.literal("removeAutomation"), uuid: uuidSchema }),
+		z.object({
+			kind: z.literal("moveAutomation"),
+			uuid: uuidSchema,
+			after: uuidSchema.nullable(),
+		}),
+		z.object({
+			kind: z.literal("editAutomationItem"),
+			automationUuid: uuidSchema,
+			edit: automationItemEditSchema,
+		}),
+		z.object({
+			kind: z.literal("setAutomationSchedule"),
+			uuid: uuidSchema,
+			schedule: automationScheduleSchema,
+		}),
+		z.object({
+			kind: z.literal("updateAutomationSchedule"),
+			uuid: uuidSchema,
+			patch: z
+				.object({
+					repeatEvery: z.number().int().min(-120).max(3_650).optional(),
+					totalIterations: z.number().int().min(-1).max(100_000).optional(),
+					startOffsetDays: z.number().int().min(-36_500).max(36_500).optional(),
+					startDayOfWeek: z.number().int().min(-1).max(6).optional(),
+					start: automationScheduleSchema.options[1].shape.start.optional(),
+				})
+				.strict()
+				.refine((value) => Object.keys(value).length > 0, {
+					message: "Change at least one schedule field.",
+				}),
 		}),
 		// ─── Granular case-list collections ──────────────────────────────────
 		//

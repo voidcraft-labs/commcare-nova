@@ -329,6 +329,10 @@ export const archiveImpactSchema = z
 		blockingOwnerRuleFormPreview: z
 			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
 			.max(10),
+		blockingAutomationCount: z.number().int().nonnegative(),
+		blockingAutomationPreview: z
+			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+			.max(10),
 	})
 	.strict();
 

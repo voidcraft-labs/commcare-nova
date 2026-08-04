@@ -14,6 +14,13 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"persona",
 	"organizationLevel",
 	"locationProperty",
+	"automation",
+	"automationCriterion",
+	"automationSetupOnlyCriterion",
+	"automationUpdate",
+	"automationRecipient",
+	"automationEvent",
+	"automationUserDataFilter",
 ] as const;
 
 export type BlueprintAuthoredIdentityKind =
@@ -92,6 +99,54 @@ export function authoredBlueprintIdentities(
 	}
 	for (const property of Object.values(doc.locationProperties ?? {})) {
 		identities.push({ uuid: property.uuid, kind: "locationProperty" });
+	}
+	for (const automation of Object.values(doc.automations ?? {})) {
+		identities.push({ uuid: automation.uuid, kind: "automation" });
+		for (const criterion of automation.criteria) {
+			identities.push({
+				uuid: criterion.uuid,
+				kind: "automationCriterion",
+				ownerUuid: automation.uuid,
+			});
+		}
+		for (const criterion of automation.setupOnlyCriteria) {
+			identities.push({
+				uuid: criterion.uuid,
+				kind: "automationSetupOnlyCriterion",
+				ownerUuid: automation.uuid,
+			});
+		}
+		if (automation.kind === "case-update") {
+			for (const update of automation.updates) {
+				identities.push({
+					uuid: update.uuid,
+					kind: "automationUpdate",
+					ownerUuid: automation.uuid,
+				});
+			}
+		} else {
+			for (const recipient of automation.recipients) {
+				identities.push({
+					uuid: recipient.uuid,
+					kind: "automationRecipient",
+					ownerUuid: automation.uuid,
+				});
+			}
+			for (const event of automation.schedule.events) {
+				identities.push({
+					uuid: event.uuid,
+					kind: "automationEvent",
+					ownerUuid: automation.uuid,
+				});
+			}
+			for (const filter of automation.userDataFilters) {
+				identities.push({
+					uuid: filter.uuid,
+					kind: "automationUserDataFilter",
+					ownerUuid: automation.uuid,
+				});
+			}
+		}
 	}
 	return identities;
 }

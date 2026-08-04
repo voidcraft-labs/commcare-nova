@@ -28,6 +28,13 @@ export type AuthorableIdentityFamily =
 	| "location-property"
 	| "location"
 	| "case-operation"
+	| "automation"
+	| "automation-criterion"
+	| "automation-setup-criterion"
+	| "automation-update"
+	| "automation-recipient"
+	| "automation-event"
+	| "automation-user-data-filter"
 	| "media-asset"
 	| "lookup-table"
 	| "lookup-column"
@@ -124,6 +131,9 @@ function classifyIdentity(
 
 	if (property === "moduleUuid") return "module";
 	if (property === "formUuid") return "form";
+	if (property === "automationUuid" || property === "afterAutomationUuid") {
+		return "automation";
+	}
 	if (
 		(property === "parentUuid" ||
 			property === "parentId" ||
@@ -157,6 +167,7 @@ function classifyIdentity(
 	if (
 		property === "levelUuid" ||
 		property === "levelUuids" ||
+		property === "locationLevelUuids" ||
 		property === "parentLevelUuid" ||
 		property === "downToLevelUuid" ||
 		property === "alsoIncludeTopDownToLevelUuid" ||
@@ -194,6 +205,19 @@ function classifyIdentity(
 	}
 
 	if (property === "uuid") {
+		if (tool === "add_automations" || tool === "update_automation") {
+			if (pointer.includes("/criteria/")) return "automation-criterion";
+			if (pointer.includes("/setupOnlyCriteria/")) {
+				return "automation-setup-criterion";
+			}
+			if (pointer.includes("/updates/")) return "automation-update";
+			if (pointer.includes("/recipients/")) return "automation-recipient";
+			if (pointer.includes("/events/")) return "automation-event";
+			if (pointer.includes("/userDataFilters/")) {
+				return "automation-user-data-filter";
+			}
+			return "automation";
+		}
 		if (
 			discriminators.includes("field") ||
 			discriminators.includes("field-ref") ||
