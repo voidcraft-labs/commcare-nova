@@ -487,7 +487,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "At the end" }).click();
 		await expect(
 			places.getByLabel("Position").filter({ visible: true }),
-		).toContainText("At the end");
+		).toHaveText("At the end");
 
 		await places.getByLabel("Level").filter({ visible: true }).click();
 		await page.getByRole("option", { name: "Region" }).click();
@@ -641,8 +641,8 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByLabel("How to choose the owner")).toHaveText(
 			"A particular place",
 		);
-		await expect(page.getByLabel("Place that owns the case")).toContainText(
-			"Kilifi District",
+		await expect(page.getByLabel("Place that owns the case")).toHaveText(
+			"Kilifi District · kilifi_district",
 		);
 		await expect
 			.poll(async () => {
@@ -668,8 +668,8 @@ test.describe("authenticated builder", () => {
 			})
 			.toBe(true);
 		await page.reload();
-		await expect(page.getByLabel("Place that owns the case")).toContainText(
-			"Kilifi District",
+		await expect(page.getByLabel("Place that owns the case")).toHaveText(
+			"Kilifi District · kilifi_district",
 		);
 		await page.getByLabel("How to choose the owner").click();
 		await page

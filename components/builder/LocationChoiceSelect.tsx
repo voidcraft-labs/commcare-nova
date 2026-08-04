@@ -148,7 +148,6 @@ export function LocationChoiceSelect({
 								: locationChoiceLabel(selected)}
 						</SelectValue>
 					)}
-					{triggerContent !== undefined && <SelectValue className="sr-only" />}
 				</SelectTrigger>
 				<SelectContent>
 					{specialOptions.map((option) => (
