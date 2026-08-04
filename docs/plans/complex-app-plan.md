@@ -267,7 +267,10 @@ Monthly day already uses the UI's 1–28 or -3–-1 value. Weekly and Monthly da
 pickers exclude selected siblings, normalize event order, and stop adding when
 their closed choices are exhausted. Weekly days remain runtime offsets from the
 start weekday; the Builder labels their projected absolute weekdays and remaps
-offsets when the start changes so existing selections retain their meaning.
+offsets when the start changes so existing selections retain their meaning. A
+specific-date Custom Daily guide omits HQ's hidden start-offset control, and a
+specific-date Weekly guide explains that HQ derives the hidden start weekday
+from that date.
 Dates use Nova's calendar picker, times use
 locale clock entry with canonical storage, and repeated-row removal preserves
 keyboard focus across all rule families. Survey reminder totals
@@ -282,10 +285,11 @@ property comparisons, including automatic-update parent/host reads, plus its
 closed-parent relation and each location condition's direct/subtree location
 owners plus personas whose primary place is in that set; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
-Equality compares exact stored text rather than coercing the criterion through
-Nova's typed SQL compiler, and a missing parent/host relation does not satisfy
-either equality arm. Whitespace-only strings count as blank and regex
-evaluation applies only to stored strings, matching HQ instead of coercing JSON scalars.
+Equality matches only an exact stored string; numbers, booleans, objects,
+arrays, null, and missing values never equal the configured string and satisfy
+inequality. A missing parent/host relation does not satisfy either comparison.
+Whitespace-only strings count as blank and regex evaluation applies only to
+stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age
 have no honest local evaluator, so the first two are distinct setup-only kinds and every
 omission is named beside a partial count. Preview never updates a case, sends a

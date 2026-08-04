@@ -220,7 +220,7 @@ export type CountArgs =
 			bindings?: TermBindings;
 			predicate?: Predicate;
 			/** Local-only automation criterion group. Date leaves use the existing
-			 * typed Predicate AST. Exact-text comparisons, regexes, and HQ blankness
+			 * typed Predicate AST. String-only comparisons, regexes, and HQ blankness
 			 * stay separate because the general case-search compiler deliberately
 			 * coerces typed properties. The same Kysely query composes the group,
 			 * preserving ALL/ANY without inventing another persisted AST. */

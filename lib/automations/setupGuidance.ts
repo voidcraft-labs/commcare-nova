@@ -334,11 +334,12 @@ export function buildAutomationSetupGuide(
 			),
 		);
 	} else {
+		const usesSpecificDate = automation.schedule.start.kind === "specific-date";
 		const start =
 			automation.schedule.start.kind === "rule-trigger"
 				? "the day the rule first matches"
 				: automation.schedule.start.kind === "specific-date"
-					? automation.schedule.start.date
+					? `the specific date ${automation.schedule.start.date}`
 					: `the date in case property ${describeAutomationPropertyForHq(automation.schedule.start.property, "read")}`;
 		const iterations =
 			automation.schedule.totalIterations === 1
@@ -348,8 +349,11 @@ export function buildAutomationSetupGuide(
 					: `stop after ${automation.schedule.totalIterations} iteration(s)`;
 		const setupForm = automationTimedScheduleSetupForm(automation.schedule);
 		if (setupForm === "custom-daily") {
+			const startInstruction = usesSpecificDate
+				? `starting from ${start}; HQ uses that date directly and does not show a separate Begin/start-offset control`
+				: `starting from ${start}, with a ${automation.schedule.startOffsetDays}-day start offset`;
 			steps.push(
-				`Choose Custom Daily Schedule, starting from ${start}, with a ${automation.schedule.startOffsetDays}-day start offset; ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery} day(s) and ${iterations}`}. Set the schedule-wide timing mode to match the events below.`,
+				`Choose Custom Daily Schedule, ${startInstruction}; ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery} day(s) and ${iterations}`}. Set the schedule-wide timing mode to match the events below.`,
 				...automation.schedule.events.map(
 					(event, index) =>
 						`Custom event ${index + 1}, day ${event.day + 1} in the HQ editor, ${describeTiming(event.timing)}: send ${describeContent(event.content, doc)}.`,
@@ -367,8 +371,11 @@ export function buildAutomationSetupGuide(
 			] as const;
 			const startDayOfWeek = automation.schedule.startDayOfWeek;
 			const firstEvent = automation.schedule.events[0];
+			const startInstruction = usesSpecificDate
+				? `starting from ${start}; HQ derives the schedule week's first weekday from that date as ${weekdayNames[startDayOfWeek] ?? "the matching weekday"}`
+				: `starting from ${start}; begin the schedule week on ${weekdayNames[startDayOfWeek] ?? "the selected weekday"}`;
 			steps.push(
-				`Choose Weekly, starting from ${start}; begin the schedule week on ${weekdayNames[startDayOfWeek] ?? "the selected weekday"}, ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery / 7} week(s), and ${iterations}`}.`,
+				`Choose Weekly, ${startInstruction}; ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery / 7} week(s), and ${iterations}`}.`,
 				`Select these weekdays: ${automation.schedule.events
 					.map(
 						(event) =>

@@ -745,14 +745,23 @@ export class PostgresCaseStore implements CaseStore {
 							const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
 								criterion.property,
 							);
-							const storedText =
-								scalar === undefined
-									? sql<
-											string | null
-										>`${sql.ref(`${alias}.properties`)} ->> ${criterion.property}`
-									: sql<
-											string | null
-										>`${sql.ref(`${alias}.${scalar.column}`)}::text`;
+							if (scalar === undefined) {
+								// HQ compares each resolved Python value directly with the
+								// form's string criterion. `->>` alone would stringify JSON
+								// numbers and booleans and create matches HQ cannot make.
+								const storedJson = sql<unknown | null>`${sql.ref(
+									`${alias}.properties`,
+								)} -> ${criterion.property}`;
+								const storedText = sql<string | null>`${sql.ref(
+									`${alias}.properties`,
+								)} ->> ${criterion.property}`;
+								return criterion.equal
+									? sql<boolean>`jsonb_typeof(${storedJson}) = 'string' and ${storedText} = ${criterion.value}`
+									: sql<boolean>`(jsonb_typeof(${storedJson}) is distinct from 'string' or ${storedText} <> ${criterion.value})`;
+							}
+							const storedText = sql<
+								string | null
+							>`${sql.ref(`${alias}.${scalar.column}`)}::text`;
 							return criterion.equal
 								? sql<boolean>`${storedText} = ${criterion.value}`
 								: sql<boolean>`(${storedText} is null or ${storedText} <> ${criterion.value})`;

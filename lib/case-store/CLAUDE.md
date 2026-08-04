@@ -118,9 +118,10 @@ those omissions in the result. No case-store method updates a case, sends a
 message, or advances a schedule on an automation's behalf.
 
 Three property-comparison families bypass the generic Predicate compiler to retain HQ's
-runtime value rules. **Equals / does not equal** compares the exact stored text,
-so a typed integer `5` is not silently equal to criterion `05` and malformed
-numeric-looking criteria never become SQL casts. A parent/host comparison uses
+runtime value rules. **Equals / does not equal** compares the criterion only
+with a stored JSON string. A JSON number `5` does not equal criterion `5`, and
+numbers, booleans, objects, arrays, null, and missing values satisfy does-not-equal.
+A parent/host comparison uses
 an `EXISTS` relation walk: missing relations do not match either comparison,
 while a missing property on an existing related case matches does-not-equal as
 HQ does. **Has value / has no value** treats a string containing

@@ -377,7 +377,9 @@ after the first wait at least five minutes. Custom Daily events use one timing m
 share timing and content, with Monthly limited to days 1–28 and -3–-1. Weekly
 and Monthly days are unique closed choices in HQ's canonical order. A Weekly
 day is stored as an offset from `startDayOfWeek`; changing the start must remap
-and re-sort offsets to preserve the selected absolute weekdays. Random
+and re-sort offsets to preserve the selected absolute weekdays. For a fixed
+date, setup guidance omits HQ's hidden Custom Daily start-offset control and
+explains that HQ derives the hidden Weekly start weekday from the date. Random
 windows cannot overlap. Survey reminder intervals must total less than the
 expiration window, and case updates in partial submissions require partial
 submission itself. A timed restart property is valid only with a rule-trigger
@@ -401,7 +403,8 @@ first two as distinct setup-only kinds. The Builder names those omissions beside
 partial count; MCP automation results return the same omission list without
 pretending to return or execute a Preview count.
 For locally countable property criteria, whitespace-only strings are blank and
-equality compares exact stored text without typed coercion. A parent/host
+equality matches only an exact stored string. Stored non-string values never
+equal the configured string and therefore satisfy inequality. A parent/host
 equality or inequality requires that related case to exist. Alert regex
 matching applies only to stored strings; Nova does not coerce numeric or
 boolean case values to text.

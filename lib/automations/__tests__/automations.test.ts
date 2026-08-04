@@ -1347,6 +1347,71 @@ describe("automation domain and projections", () => {
 		);
 		expect(customText).toContain("day 1 in the HQ editor");
 		expect(customText).not.toContain("day 0");
+
+		const fixedCustomDaily = automationSchema.parse(
+			alertWithSchedule({
+				kind: "timed",
+				repeatEvery: 1,
+				totalIterations: 1,
+				startOffsetDays: 0,
+				startDayOfWeek: -1,
+				start: { kind: "specific-date", date: "2026-08-05" },
+				events: [
+					{
+						uuid: testUuid("guide-fixed-custom-event"),
+						day: 0,
+						timing: { kind: "specific-time", time: "09:00" },
+						content: {
+							kind: "sms",
+							message: automationMessageText("Hello"),
+						},
+					},
+				],
+			}),
+		);
+		const fixedCustomText = buildAutomationSetupGuide(
+			buildDoc({ appName: "Fixed custom guide" }),
+			fixedCustomDaily,
+			[],
+		).steps.join(" ");
+		expect(fixedCustomText).toContain(
+			"starting from the specific date 2026-08-05",
+		);
+		expect(fixedCustomText).toContain(
+			"does not show a separate Begin/start-offset control",
+		);
+		expect(fixedCustomText).not.toContain("0-day start offset");
+
+		const fixedWeekly = automationSchema.parse(
+			alertWithSchedule({
+				kind: "timed",
+				repeatEvery: 7,
+				totalIterations: 1,
+				startOffsetDays: 0,
+				startDayOfWeek: 2,
+				start: { kind: "specific-date", date: "2026-08-05" },
+				events: [
+					{
+						uuid: testUuid("guide-fixed-weekly-event"),
+						day: 0,
+						timing: { kind: "specific-time", time: "09:00" },
+						content: {
+							kind: "sms",
+							message: automationMessageText("Hello"),
+						},
+					},
+				],
+			}),
+		);
+		const fixedWeeklyText = buildAutomationSetupGuide(
+			buildDoc({ appName: "Fixed weekly guide" }),
+			fixedWeekly,
+			[],
+		).steps.join(" ");
+		expect(fixedWeeklyText).toContain(
+			"derives the schedule week's first weekday from that date as Wednesday",
+		);
+		expect(fixedWeeklyText).not.toContain("begin the schedule week");
 	});
 
 	it("admits complete historical IVR settings and rejects incomplete survey content", () => {

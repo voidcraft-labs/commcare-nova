@@ -43,6 +43,11 @@ const schemas = new Map<string, CaseType>([
 					data_type: "text",
 				},
 				{
+					name: "active_flag",
+					label: proseText("Active flag"),
+					data_type: "text",
+				},
+				{
 					name: "attempts",
 					label: proseText("Attempts"),
 					data_type: "int",
@@ -70,7 +75,7 @@ beforeEach(async () => {
 		  'closed', now(), '{"marker":"present"}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000102', $2, $3, 'facility-a',
 		  'visit', 'Matches everything', 'open', null,
-		  '{"code":"ABC-123","attempts":5}'::jsonb),
+		  '{"code":"ABC-123","attempts":5,"active_flag":true}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000103', $2, $3, 'facility-a',
 		  'visit', 'Regex is not anchored', 'open', null,
 		  '{"code":"XABC-123"}'::jsonb),
@@ -290,7 +295,7 @@ describe("automation criteria SQL", () => {
 		await expect(count("host", false)).resolves.toBe(3);
 	});
 
-	it("compares exact stored text without typed coercion and requires a related case", async () => {
+	it("compares only stored strings without coercion and requires a related case", async () => {
 		const caseStore = store();
 		const base = {
 			appId: APP_ID,
@@ -318,7 +323,37 @@ describe("automation criteria SQL", () => {
 
 		await expect(
 			count({ property: "attempts", value: "5", equal: true, scope: "case" }),
+		).resolves.toBe(0);
+		await expect(
+			count({ property: "code", value: "ABC-123", equal: true, scope: "case" }),
 		).resolves.toBe(1);
+		await expect(
+			count({ property: "code", value: "123", equal: true, scope: "case" }),
+		).resolves.toBe(0);
+		await expect(
+			count({
+				property: "active_flag",
+				value: "true",
+				equal: true,
+				scope: "case",
+			}),
+		).resolves.toBe(0);
+		await expect(
+			count({
+				property: "attempts",
+				value: "5",
+				equal: false,
+				scope: "case",
+			}),
+		).resolves.toBe(4);
+		await expect(
+			count({
+				property: "active_flag",
+				value: "true",
+				equal: false,
+				scope: "case",
+			}),
+		).resolves.toBe(4);
 		await expect(
 			count({ property: "attempts", value: "05", equal: true, scope: "case" }),
 		).resolves.toBe(0);
