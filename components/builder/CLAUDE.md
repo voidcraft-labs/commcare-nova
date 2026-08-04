@@ -262,6 +262,13 @@ away. Each worker-property filter can be added once. Closed-parent exposes no cu
 literal inputs start nonblank, and switching dependent schedule choices clears
 values the new form cannot save.
 
+Property inputs always show Nova names. Setup guidance projects supported
+standard names to the HQ model fields; status and dynamic-only standard values
+refuse visibly. Email exposes one schedule-wide target form: plain text with the
+Rich text emails prerequisite off, or rich HTML with it on. Switching the form
+changes every email event atomically, renders only that body's editor, and
+states that HQ sanitizes rich HTML and derives plaintext.
+
 The timed editor projects the canonical runtime encoding into one selectable HQ
 form (Custom Daily, Weekly, or Monthly). Content type and timing mode are schedule-wide; shared
 Weekly/Monthly timing and content edits fan out to every event. Human day fields

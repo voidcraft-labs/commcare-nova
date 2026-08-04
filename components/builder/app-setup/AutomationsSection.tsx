@@ -1154,7 +1154,10 @@ function ConditionsEditor({
 										/>
 									</Labeled>
 								)}
-								<Labeled label="Property">
+								<Labeled
+									label="Property"
+									hint="Use the Nova name; setup guidance translates standard names for HQ. Case status is not representable here."
+								>
 									<Input
 										value={criterion.property}
 										onChange={(event) =>
@@ -1402,7 +1405,10 @@ function CaseUpdateEditor({
 								]}
 							/>
 						</Labeled>
-						<Labeled label="Property">
+						<Labeled
+							label="Property"
+							hint="Use the Nova name; setup guidance translates supported standard targets for HQ."
+						>
 							<Input
 								value={update.target.property}
 								onChange={(event) =>
@@ -1475,7 +1481,10 @@ function CaseUpdateEditor({
 										]}
 									/>
 								</Labeled>
-								<Labeled label="Source property">
+								<Labeled
+									label="Source property"
+									hint="Use the Nova name; setup guidance translates standard names for HQ."
+								>
 									<Input
 										value={update.value.source.property}
 										onChange={(event) =>
@@ -1632,7 +1641,12 @@ function contentFor(
 	forms: readonly Form[],
 ): AutomationContent | undefined {
 	if (kind === "sms") return { kind, message: "Message" };
-	if (kind === "email") return { kind, subject: "Subject", message: "Message" };
+	if (kind === "email")
+		return {
+			kind,
+			subject: "Subject",
+			body: { kind: "plain-text", message: "Message" },
+		};
 	if (kind === "connect-message") return { kind, message: "Message" };
 	if (kind === "custom") return { kind, registeredId: "registered-id" };
 	if (kind === "sms-callback")
@@ -1751,7 +1765,10 @@ function AlertEditor({
 								/>
 							</Labeled>
 							{"property" in recipient && (
-								<Labeled label="Case property">
+								<Labeled
+									label="Case property"
+									hint="Use the Nova name; setup guidance translates standard names for HQ."
+								>
 									<Input
 										value={recipient.property}
 										onChange={(event) =>
@@ -2019,7 +2036,7 @@ function AlertEditor({
 					label="Restart when this case property changes"
 					hint={
 						resetAllowed
-							? undefined
+							? "HQ reads only custom case data here; standard properties are not available"
 							: "CommCare HQ enables this only when a timed schedule starts from the rule trigger"
 					}
 				>
@@ -2036,7 +2053,10 @@ function AlertEditor({
 						}
 					/>
 				</Labeled>
-				<Labeled label="Stop after the date in this case property">
+				<Labeled
+					label="Stop after the date in this case property"
+					hint="Use the Nova name; setup guidance translates standard date names for HQ"
+				>
 					<Input
 						value={automation.stopDateCaseProperty ?? ""}
 						onChange={(event) =>
@@ -2379,7 +2399,10 @@ function ScheduleEditor({
 						/>
 					</Labeled>
 					{schedule.start.kind === "case-property" && (
-						<Labeled label="Start date property">
+						<Labeled
+							label="Start date property"
+							hint="Use the Nova name; setup guidance translates standard date names for HQ"
+						>
 							<Input
 								value={schedule.start.property}
 								onChange={(event) =>
@@ -2655,6 +2678,20 @@ function EventEditor({
 			const item = draft.schedule.events[index];
 			if (item === undefined) return;
 			recipe(item.content);
+			if (item.content.kind === "email") {
+				for (const sibling of draft.schedule.events) {
+					if (
+						sibling !== item &&
+						sibling.content.kind === "email" &&
+						sibling.content.body.kind !== item.content.body.kind
+					) {
+						sibling.content.body =
+							item.content.body.kind === "plain-text"
+								? { kind: "plain-text", message: "Message" }
+								: { kind: "rich-text", html: "<p>Message</p>" };
+					}
+				}
+			}
 			if ("submitPartiallyCompletedForms" in item.content) {
 				for (const sibling of draft.schedule.events) {
 					if (
@@ -2755,7 +2792,10 @@ function EventEditor({
 							/>
 						</Labeled>
 						{timed.timing.kind === "case-property-time" ? (
-							<Labeled label="Time property">
+							<Labeled
+								label="Time property"
+								hint="HQ reads only a custom case property in this field"
+							>
 								<Input
 									value={timed.timing.property}
 									onChange={(change) =>
@@ -2843,18 +2883,67 @@ function EventEditor({
 								}
 							/>
 						</Labeled>
-						<Labeled label="HTML message" hint="Optional">
-							<Textarea
-								value={content.htmlMessage ?? ""}
-								onChange={(change) =>
+						<Labeled
+							label="Email body form"
+							hint={
+								content.body.kind === "plain-text"
+									? "Use only when Rich text emails is not enabled in the target HQ project"
+									: "Requires Rich text emails in the target HQ project; HQ sanitizes this HTML and derives the plain-text alternative"
+							}
+						>
+							<Choice
+								value={content.body.kind}
+								onChange={(kind) =>
 									updateContent((item) => {
 										if (item.kind !== "email") return;
-										if (change.target.value === "") delete item.htmlMessage;
-										else item.htmlMessage = change.target.value;
+										item.body =
+											kind === "plain-text"
+												? { kind, message: "Message" }
+												: { kind: "rich-text", html: "<p>Message</p>" };
 									})
 								}
+								options={[
+									["plain-text", "Plain text"],
+									["rich-text", "Rich text HTML"],
+								]}
 							/>
 						</Labeled>
+						{content.body.kind === "plain-text" ? (
+							<Labeled label="Plain-text message">
+								<Textarea
+									value={content.body.message}
+									onChange={(change) =>
+										updateContent((item) => {
+											if (
+												item.kind === "email" &&
+												item.body.kind === "plain-text"
+											) {
+												item.body.message = change.target.value;
+											}
+										})
+									}
+								/>
+							</Labeled>
+						) : (
+							<Labeled
+								label="Rich-text HTML source"
+								hint="HQ removes unsupported markup and CSS, rewraps the body, and derives plain text"
+							>
+								<Textarea
+									value={content.body.html}
+									onChange={(change) =>
+										updateContent((item) => {
+											if (
+												item.kind === "email" &&
+												item.body.kind === "rich-text"
+											) {
+												item.body.html = change.target.value;
+											}
+										})
+									}
+								/>
+							</Labeled>
+						)}
 					</>
 				)}
 				{"formUuid" in content && (

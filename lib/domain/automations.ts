@@ -424,14 +424,49 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("email"),
-			subject: z.string().min(1).max(1_000),
-			message: z.string().max(64_000),
-			htmlMessage: z.string().max(256_000).optional(),
+			subject: z
+				.string()
+				.min(1)
+				.max(1_000)
+				.refine((value) => value.trim().length > 0 && value === value.trim(), {
+					message:
+						"An email subject must be nonblank and have no surrounding whitespace.",
+				}),
+			body: z.discriminatedUnion("kind", [
+				z
+					.object({
+						kind: z.literal("plain-text"),
+						message: z.string().min(1).max(64_000),
+					})
+					.strict()
+					.refine(
+						(value) =>
+							value.message.trim().length > 0 &&
+							value.message === value.message.trim(),
+						{
+							path: ["message"],
+							message:
+								"A plain-text email message must be nonblank and have no surrounding whitespace.",
+						},
+					),
+				z
+					.object({
+						kind: z.literal("rich-text"),
+						html: z.string().min(1).max(256_000),
+					})
+					.strict()
+					.refine(
+						(value) =>
+							value.html.trim().length > 0 && value.html === value.html.trim(),
+						{
+							path: ["html"],
+							message:
+								"Rich-text email HTML must be nonblank and have no surrounding whitespace.",
+						},
+					),
+			]),
 		})
-		.strict()
-		.refine((content) => content.message.length > 0 || content.htmlMessage, {
-			message: "An email needs a plain-text or HTML message.",
-		}),
+		.strict(),
 	z
 		.object({ kind: z.literal("sms-survey"), ...surveyContentBase })
 		.strict()
@@ -554,6 +589,18 @@ function validateScheduleContentMode(
 				message: "Every event must use the schedule's one content type.",
 			});
 			continue;
+		}
+		if (
+			first.content.kind === "email" &&
+			event.content.kind === "email" &&
+			event.content.body.kind !== first.content.body.kind
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "content", "body", "kind"],
+				message:
+					"Every email event must target the same plain-text or rich-text HQ form.",
+			});
 		}
 		if (
 			"submitPartiallyCompletedForms" in first.content &&

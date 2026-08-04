@@ -1,0 +1,101 @@
+import { automationTemplateCasePropertyTokens } from "@/lib/domain";
+
+/**
+ * One Nova-to-HQ projection for every case-property slot in an automation.
+ *
+ * Most HQ automation readers call `CommCareCase.get_case_property()` or
+ * `resolve_case_property()`. Those functions accept SQL model-field names,
+ * not the alternate names used by CommCare detail columns and Nova. Update
+ * targets use the same resolver before deciding whether a write is needed, so
+ * projecting there also prevents a `case_name` update from firing forever.
+ *
+ * Two alert slots are deliberately different: reset-on-change and event time
+ * read `dynamic_case_properties()` directly, so no standard scalar property is
+ * representable in them. `status` is also closed: Nova stores `open`/`closed`,
+ * while HQ exposes a boolean `closed` model field and automation queries
+ * already exclude closed cases.
+ *
+ * Re-verified against commcare-hq 9c30a642ba3d718cfc30c479a6c32485df48a6b5:
+ * - corehq/form_processor/models/cases.py::get_case_property,
+ *   ::resolve_case_property, and CommCareCase model fields
+ * - corehq/apps/data_interfaces/models.py::MatchPropertyDefinition and
+ *   BaseUpdateCaseDefinition
+ * - corehq/messaging/scheduling/tasks.py::_get_reset_case_property_value
+ * - corehq/messaging/scheduling/models/timed_schedule.py::CasePropertyTimedEvent
+ * - corehq/messaging/templating.py::_get_case_template_info
+ */
+
+export type AutomationHqPropertySlot =
+	| "read"
+	| "update-target"
+	| "dynamic-only";
+
+const STANDARD_HQ_READ_NAMES = {
+	case_name: "name",
+	date_opened: "opened_on",
+	last_modified: "modified_on",
+	owner_id: "owner_id",
+	external_id: "external_id",
+} as const satisfies Readonly<Record<string, string>>;
+
+const STANDARD_NOVA_PROPERTIES = new Set([
+	...Object.keys(STANDARD_HQ_READ_NAMES),
+	"status",
+]);
+
+const NON_UPDATEABLE_STANDARD_PROPERTIES = new Set([
+	"date_opened",
+	"last_modified",
+	"status",
+]);
+
+export function projectAutomationPropertyForHq(
+	property: string,
+	slot: AutomationHqPropertySlot,
+): string | undefined {
+	if (slot === "dynamic-only") {
+		return STANDARD_NOVA_PROPERTIES.has(property) ? undefined : property;
+	}
+	if (
+		slot === "update-target" &&
+		NON_UPDATEABLE_STANDARD_PROPERTIES.has(property)
+	) {
+		return undefined;
+	}
+	if (property === "status") return undefined;
+	return Object.hasOwn(STANDARD_HQ_READ_NAMES, property)
+		? STANDARD_HQ_READ_NAMES[property as keyof typeof STANDARD_HQ_READ_NAMES]
+		: property;
+}
+
+export function describeAutomationPropertyForHq(
+	property: string,
+	slot: AutomationHqPropertySlot,
+): string {
+	const projected = projectAutomationPropertyForHq(property, slot);
+	if (projected === undefined) return property;
+	return projected === property
+		? property
+		: `${projected} (Nova property ${property})`;
+}
+
+/**
+ * Project only the exact case-property template tokens Nova understands.
+ * Other HQ template namespaces such as `{case.owner.name}` remain untouched.
+ * Validation guarantees that every parsed token is projectable before a guide
+ * can be saved.
+ */
+export function projectAutomationTemplateForHq(template: string): string {
+	let cursor = 0;
+	let result = "";
+	for (const token of automationTemplateCasePropertyTokens(template)) {
+		result += template.slice(cursor, token.start);
+		const projected = projectAutomationPropertyForHq(token.property, "read");
+		result +=
+			projected === undefined
+				? template.slice(token.start, token.end)
+				: `{case.${token.scope === "case" ? "" : `${token.scope}.`}${projected}}`;
+		cursor = token.end;
+	}
+	return result + template.slice(cursor);
+}

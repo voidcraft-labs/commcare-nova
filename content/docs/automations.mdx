@@ -30,6 +30,15 @@ Equality values and fixed update values are the exact nonblank text HQ stores:
 omit surrounding whitespace and matching outer quotes. Rule names must also be
 nonblank and already trimmed.
 
+Keep authoring standard metadata with Nova names. The generated HQ guide
+translates `case_name` to `name`, `date_opened` to `opened_on`, and
+`last_modified` to `modified_on`; `owner_id` and `external_id` are unchanged.
+This applies to criteria, copied values, update targets, recipients, schedule
+dates, and message-template tokens. Case `status` is not available in an
+automation property slot because Nova's `open`/`closed` text is not HQ's
+boolean field, and these rules already inspect open cases. The standard date
+fields support date and blankness conditions, not text equality or regex.
+
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
 **Data → Edit Data → Automatic Case Update Rules**.
@@ -71,8 +80,21 @@ only when the schedule starts from the rule trigger. In the HQ guide, a single
 zero-delay immediate event selects **Immediately**; delayed or repeated
 immediate events select **Custom Immediate Schedule**.
 Historical IVR definitions additionally preserve the maximum attempts per
-question. Email setup guidance prints both the exact plain-text body and the
-exact optional HTML body.
+question.
+
+An email event chooses one body form:
+
+- **Plain text** targets a project where the domain-level **Rich text emails**
+  toggle is not enabled. HQ ignores this field when that toggle is on.
+- **Rich text HTML** requires the toggle. HQ sanitizes the submitted markup and
+  CSS, wraps the result in its own HTML shell, and derives the plain-text
+  alternative. The guide therefore prints the HTML source to enter and tells
+  you to review the saved rendering; it does not promise byte-exact HTML or a
+  separately authored plaintext body.
+
+All email events in one schedule use the same form. Restart-on-property-change
+and case-property event times accept custom case properties only because those
+two HQ fields do not read standard case metadata.
 
 Alert conditions use the four direct-case value comparisons or a portable
 regular expression. The alert form does not accept date comparisons,

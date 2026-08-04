@@ -13,6 +13,10 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import {
+	describeAutomationPropertyForHq,
+	projectAutomationTemplateForHq,
+} from "./hqCaseProperties";
 
 export interface AutomationSetupGuide {
 	readonly title: string;
@@ -37,8 +41,8 @@ function describeCriterion(criterion: AutomationCriterion): string {
 	}
 	const property =
 		criterion.scope === "case"
-			? `Case property ${criterion.property}`
-			: `${criterion.scope === "parent" ? "Parent" : "Host"} case property ${criterion.property}`;
+			? `Case property ${describeAutomationPropertyForHq(criterion.property, "read")}`
+			: `${criterion.scope === "parent" ? "Parent" : "Host"} case property ${describeAutomationPropertyForHq(criterion.property, "read")}`;
 	if (
 		criterion.matchType === "date-days-before" ||
 		criterion.matchType === "date-days-lte" ||
@@ -85,11 +89,11 @@ function describeRecipient(
 		case "all-child-cases":
 			return "All child cases";
 		case "case-property-username":
-			return `Username in case property ${recipient.property}`;
+			return `Username in case property ${describeAutomationPropertyForHq(recipient.property, "read")}`;
 		case "case-property-user-id":
-			return `User id in case property ${recipient.property}`;
+			return `User id in case property ${describeAutomationPropertyForHq(recipient.property, "read")}`;
 		case "case-property-email":
-			return `Email address in case property ${recipient.property}`;
+			return `Email address in case property ${describeAutomationPropertyForHq(recipient.property, "read")}`;
 		case "location":
 			return `Location ${locationName(locations, recipient.locationUuid)}`;
 		case "mobile-worker":
@@ -107,11 +111,15 @@ function describeContent(
 	content: AutomationContent,
 	doc: BlueprintDoc,
 ): string {
+	const project = (template: string): string =>
+		projectAutomationTemplateForHq(template);
 	switch (content.kind) {
 		case "sms":
-			return `SMS message ${JSON.stringify(content.message)}`;
+			return `SMS message ${JSON.stringify(project(content.message))}`;
 		case "email":
-			return `Email subject ${JSON.stringify(content.subject)}; plain-text message ${JSON.stringify(content.message)}${content.htmlMessage === undefined ? "; leave HTML message blank" : `; HTML message ${JSON.stringify(content.htmlMessage)}`}`;
+			return content.body.kind === "plain-text"
+				? `Email subject ${JSON.stringify(project(content.subject))}; choose the plain-text Message form (the target project must not have Rich text emails enabled); message ${JSON.stringify(project(content.body.message))}`
+				: `Email subject ${JSON.stringify(project(content.subject))}; choose the Rich Text Message form (the target project must have Rich text emails enabled); HTML source ${JSON.stringify(project(content.body.html))}`;
 		case "sms-survey":
 		case "connect-survey": {
 			const form = ownRecordValue(doc.forms, content.formUuid);
@@ -122,9 +130,9 @@ function describeContent(
 			return `ivr: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid}); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}; maximum attempts per question ${content.maxQuestionAttempts}`;
 		}
 		case "sms-callback":
-			return `SMS/callback message ${JSON.stringify(content.message)}; retry after ${content.reminderIntervalsMinutes.join(", ")} minutes`;
+			return `SMS/callback message ${JSON.stringify(project(content.message))}; retry after ${content.reminderIntervalsMinutes.join(", ")} minutes`;
 		case "connect-message":
-			return `Connect message ${JSON.stringify(content.message)}`;
+			return `Connect message ${JSON.stringify(project(content.message))}`;
 		case "custom":
 			return `Registered custom content ${content.registeredId}`;
 	}
@@ -137,7 +145,7 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 		case "random-window":
 			return `at a random time in the ${timing.windowMinutes}-minute window starting at ${timing.time}`;
 		case "case-property-time":
-			return `at the time stored in case property ${timing.property}`;
+			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}`;
 	}
 }
 
@@ -199,12 +207,15 @@ export function buildAutomationSetupGuide(
 		for (const update of automation.updates) {
 			const target =
 				update.target.scope === "case"
-					? update.target.property
-					: `${update.target.scope}/${update.target.property}`;
+					? describeAutomationPropertyForHq(
+							update.target.property,
+							"update-target",
+						)
+					: `${update.target.scope}/${describeAutomationPropertyForHq(update.target.property, "update-target")}`;
 			const value =
 				update.value.kind === "literal"
 					? `the literal “${update.value.value}”`
-					: `the value of ${update.value.source.scope === "case" ? "" : `${update.value.source.scope}/`}${update.value.source.property}`;
+					: `the value of ${update.value.source.scope === "case" ? "" : `${update.value.source.scope}/`}${describeAutomationPropertyForHq(update.value.source.property, "read")}`;
 			steps.push(`Update ${target} to ${value}.`);
 		}
 		if (automation.closeCase) steps.push("Turn on Close case.");
@@ -261,7 +272,7 @@ export function buildAutomationSetupGuide(
 				? "the day the rule first matches"
 				: automation.schedule.start.kind === "specific-date"
 					? automation.schedule.start.date
-					: `the date in case property ${automation.schedule.start.property}`;
+					: `the date in case property ${describeAutomationPropertyForHq(automation.schedule.start.property, "read")}`;
 		const iterations =
 			automation.schedule.totalIterations === 1
 				? "turn Repeat off"
@@ -333,12 +344,25 @@ export function buildAutomationSetupGuide(
 	}
 	if (automation.resetCaseProperty !== undefined) {
 		steps.push(
-			`Restart the schedule when case property ${automation.resetCaseProperty} changes.`,
+			`Restart the schedule when custom case property ${describeAutomationPropertyForHq(automation.resetCaseProperty, "dynamic-only")} changes.`,
 		);
 	}
 	if (automation.stopDateCaseProperty !== undefined) {
 		steps.push(
-			`Stop the schedule after the date in case property ${automation.stopDateCaseProperty}.`,
+			`Stop the schedule after the date in case property ${describeAutomationPropertyForHq(automation.stopDateCaseProperty, "read")}.`,
+		);
+	}
+	const emailBodies = automation.schedule.events.flatMap((event) =>
+		event.content.kind === "email" ? [event.content.body.kind] : [],
+	);
+	if (emailBodies.includes("plain-text")) {
+		caveats.push(
+			"This email definition targets a project where the domain-level Rich text emails toggle is not enabled. If that toggle is enabled, HQ hides and ignores the plain-text email field and requires rich HTML instead.",
+		);
+	}
+	if (emailBodies.includes("rich-text")) {
+		caveats.push(
+			"This email definition requires the domain-level Rich text emails toggle. HQ sanitizes the submitted HTML, removes unsupported markup and CSS, wraps the result in its own html/body shell, and derives the plain-text alternative from that HTML. Review the saved rendering; the HTML source is not a byte-exact output and there is no separately authored plain-text body.",
 		);
 	}
 	caveats.push(

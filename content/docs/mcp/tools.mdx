@@ -329,6 +329,12 @@ trimmed. Equality and fixed-update literals must be exact, nonblank, unquoted
 stored values, and alert regex patterns must be nonempty. Web users are not a recipient arm.
 Date conditions compare the current date directly with the property date plus
 a signed day offset.
+Automation inputs always use Nova's standard property names. Returned setup
+guidance projects `case_name` to HQ `name`, `date_opened` to `opened_on`, and
+`last_modified` to `modified_on`; `owner_id` and `external_id` remain unchanged.
+`status` is refused because Nova text and HQ's boolean field differ. Standard
+datetime properties allow date or blankness conditions, not equality or regex,
+and restart/event-time slots accept custom case properties only.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients. Checkbox-style,
 case-property, and custom recipient kinds are singletons; list recipients cannot
@@ -349,6 +355,13 @@ submission itself. A timed restart property is valid only with a rule-trigger
 start. A single zero-delay immediate event maps to **Immediately**; any delayed
 or repeated immediate schedule maps to **Custom Immediate Schedule**. These are
 input-schema constraints shared by SA and MCP, not post-save warnings.
+
+Email content has one discriminated `body`: `plain-text` carries `message` and
+targets a project without the domain-level Rich text emails toggle;
+`rich-text` carries only `html` and requires that toggle. HQ sanitizes and
+rewraps rich HTML and derives its plaintext, so do not send parallel bodies or
+promise byte-exact rich output. Every email event in a schedule uses the same
+body kind.
 
 Builder Preview may count current real case rows against each kind's ordinary
 property criteria, including automatic-update parent/host reads, and the

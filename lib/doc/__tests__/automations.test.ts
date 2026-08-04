@@ -194,7 +194,11 @@ describe("automation mutation replay", () => {
 						uuid: testUuid("doc-alert-timed-event"),
 						day: 1,
 						timing: { kind: "specific-time", time: "09:30" },
-						content: { kind: "email", subject: "Due", message: "Visit due" },
+						content: {
+							kind: "email",
+							subject: "Due",
+							body: { kind: "plain-text", message: "Visit due" },
+						},
 					},
 				],
 			};

@@ -516,10 +516,9 @@ function extractAutomationEdges(
 			event.content.kind === "email"
 				? [
 						event.content.subject,
-						event.content.message,
-						...(event.content.htmlMessage === undefined
-							? []
-							: [event.content.htmlMessage]),
+						event.content.body.kind === "plain-text"
+							? event.content.body.message
+							: event.content.body.html,
 					]
 				: event.content.kind === "sms" ||
 						event.content.kind === "sms-callback" ||

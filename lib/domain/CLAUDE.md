@@ -41,6 +41,15 @@ state. HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` flag is deliberately not
 modeled: it is one domain-wide switch that evaluates every active update rule
 for the saved case type, not a property of an individual rule.
 
+Standard case metadata remains Nova vocabulary in storage. The derived HQ
+automation projection maps `case_name`/`date_opened`/`last_modified` to
+`name`/`opened_on`/`modified_on` for model-field readers and templates, while
+`owner_id` and `external_id` already match. `status` is never admitted because
+Nova text and HQ's boolean field differ. Standard datetime values admit date or
+blankness matches, not text equality/regex. Reset-on-change and case-property
+event-time slots accept custom properties only because HQ reads those two from
+`dynamic_case_properties()` rather than model fields.
+
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
 the standard parent-closed criterion, at most once, with no authored index or
 relationship. Equality and fixed-update literals are exact nonblank HQ values
@@ -68,6 +77,12 @@ start changes to preserve the chosen weekdays. Weekly and Monthly days are uniqu
 already the UI's 1–28 / -3–-1 values in positive-then-month-end order. Survey reminder
 totals stay strictly below expiration, and partial case updates imply partial
 submission.
+
+Email content is a discriminated body, never parallel plaintext/HTML fields.
+`plain-text { message }` targets a domain without Rich text emails;
+`rich-text { html }` requires it. All email events share that target form. HQ
+sanitizes and rewraps rich HTML and derives plaintext, so rich content stores
+the source only and makes no byte-exact-output promise.
 
 The derived local matcher keeps HQ's value distinctions that the ordinary
 Predicate AST cannot express: equality compares exact stored text without

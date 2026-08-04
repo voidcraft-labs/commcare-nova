@@ -276,9 +276,10 @@ describe("explicit app-wide case-property rename", () => {
 							content: {
 								kind: "email",
 								subject: "For {case.a}",
-								message:
-									"{case.a} / {case.parent.parent_a} / {case.owner.name}",
-								htmlMessage: "<p>{case.a}</p>",
+								body: {
+									kind: "rich-text",
+									html: "<p>{case.a} / {case.parent.parent_a} / {case.owner.name}</p>",
+								},
 							},
 						},
 					],
@@ -330,8 +331,10 @@ describe("explicit app-wide case-property rename", () => {
 		if (content?.kind !== "email") throw new Error("wrong content");
 		expect(content).toMatchObject({
 			subject: "For {case.fresh}",
-			message: "{case.fresh} / {case.parent.parent_fresh} / {case.owner.name}",
-			htmlMessage: "<p>{case.fresh}</p>",
+			body: {
+				kind: "rich-text",
+				html: "<p>{case.fresh} / {case.parent.parent_fresh} / {case.owner.name}</p>",
+			},
 		});
 		expect(
 			referencingSlotsOf(next, casePropertyTargetKey("patient", "fresh")).get(

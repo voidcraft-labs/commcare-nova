@@ -63,6 +63,68 @@ describe("automation domain and projections", () => {
 		).toBe(false);
 	});
 
+	it("stores exactly one HQ email form and keeps that target consistent", () => {
+		const plain = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("plain-email-event"),
+					minutesToWait: 0,
+					content: {
+						kind: "email",
+						subject: "Visit due",
+						body: { kind: "plain-text", message: "Please attend" },
+					},
+				},
+			],
+		});
+		expect(automationSchema.safeParse(plain).success).toBe(true);
+		expect(
+			automationSchema.safeParse({
+				...plain,
+				schedule: {
+					...plain.schedule,
+					events: [
+						...plain.schedule.events,
+						{
+							uuid: testUuid("rich-email-event"),
+							minutesToWait: 5,
+							content: {
+								kind: "email" as const,
+								subject: "Visit due",
+								body: {
+									kind: "rich-text" as const,
+									html: "<p>Please attend</p>",
+								},
+							},
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...plain,
+				schedule: {
+					...plain.schedule,
+					events: [
+						{
+							...plain.schedule.events[0],
+							content: {
+								kind: "email" as const,
+								subject: " Padded ",
+								body: {
+									kind: "plain-text" as const,
+									message: " Body ",
+								},
+							},
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+	});
+
 	it("keeps HQ-only conditions out of the count and names every omission", () => {
 		const doc = buildDoc({ appName: "Claims" });
 		const rule: Automation = {
@@ -491,6 +553,27 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("RUN_AUTO_CASE_UPDATES_ON_SAVE");
 		expect(text).toContain("project-wide");
 		expect(text).not.toContain("50,000");
+
+		const projectedUpdate = buildAutomationSetupGuide(
+			buildDoc({ appName: "Claims" }),
+			{
+				...claimCleanup(),
+				updates: [
+					{
+						uuid: testUuid("guide-project-name-update"),
+						target: { scope: "case", property: "case_name" },
+						value: {
+							kind: "case-property",
+							source: { scope: "case", property: "last_modified" },
+						},
+					},
+				],
+			},
+			[],
+		).steps.join(" ");
+		expect(projectedUpdate).toContain(
+			"Update name (Nova property case_name) to the value of modified_on (Nova property last_modified)",
+		);
 	});
 
 	it("renders date comparisons in the exact HQ current-date algebra", () => {
@@ -574,7 +657,7 @@ describe("automation domain and projections", () => {
 					uuid: testUuid("alert-property-criterion"),
 					kind: "match-property",
 					scope: "case",
-					property: "status",
+					property: "case_name",
 					matchType: "has-value",
 				},
 			],
@@ -624,9 +707,11 @@ describe("automation domain and projections", () => {
 							minutesToWait: 0,
 							content: {
 								kind: "email",
-								subject: "Visit due",
-								message: "Plain body",
-								htmlMessage: "<p>HTML body</p>",
+								subject: "Visit due for {case.case_name}",
+								body: {
+									kind: "rich-text",
+									html: "<p>Opened {case.date_opened}</p>",
+								},
 							},
 						},
 					],
@@ -636,12 +721,18 @@ describe("automation domain and projections", () => {
 		);
 		const text = [...guide.steps, ...emailGuide.steps].join(" ");
 		expect(text).toContain("/a/<domain>/messaging/conditional/");
-		expect(text).toContain("Case property status has a value");
+		expect(text).toContain(
+			"Case property name (Nova property case_name) has a value",
+		);
 		expect(text).toContain("Choose Immediately");
 		expect(text).toContain("expire after 72 hour(s)");
 		expect(text).toContain("30, 60 minute(s)");
 		expect(text).toContain("submit partially completed forms on");
-		expect(text).toContain('HTML message "<p>HTML body</p>"');
+		expect(text).toContain("{case.name}");
+		expect(text).toContain('HTML source "<p>Opened {case.opened_on}</p>"');
+		expect(emailGuide.caveats.join(" ")).toContain(
+			"sanitizes the submitted HTML",
+		);
 		expect(text).toContain("Include descendant locations");
 		expect(text).toContain("District");
 		expect(text).toContain("default language code to fr");
@@ -675,7 +766,7 @@ describe("automation domain and projections", () => {
 			totalIterations: 1,
 			startOffsetDays: 0,
 			startDayOfWeek: -1,
-			start: { kind: "rule-trigger" },
+			start: { kind: "case-property", property: "date_opened" },
 			events: [
 				{
 					uuid: testUuid("guide-custom-event"),
@@ -691,6 +782,9 @@ describe("automation domain and projections", () => {
 			[],
 		).steps.join(" ");
 		expect(customText).toContain("Choose Custom Daily Schedule");
+		expect(customText).toContain(
+			"date in case property opened_on (Nova property date_opened)",
+		);
 		expect(customText).toContain("day 1 in the HQ editor");
 		expect(customText).not.toContain("day 0");
 	});
@@ -823,7 +917,7 @@ describe("automation domain and projections", () => {
 									content: {
 										kind: "email" as const,
 										subject: "Different mode",
-										message: "Second",
+										body: { kind: "plain-text" as const, message: "Second" },
 									},
 								}
 							: event,
@@ -858,7 +952,11 @@ describe("automation domain and projections", () => {
 						time: "09:30",
 						windowMinutes: 30,
 					},
-					content: { kind: "email", subject: "Next", message: "Second" },
+					content: {
+						kind: "email",
+						subject: "Next",
+						body: { kind: "plain-text", message: "Second" },
+					},
 				},
 			],
 		});

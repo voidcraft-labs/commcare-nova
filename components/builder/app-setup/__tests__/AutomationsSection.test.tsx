@@ -406,6 +406,55 @@ describe("AutomationsSection", () => {
 		expect(screen.queryByText(/last changed on the server/i)).toBeNull();
 	});
 
+	it("authors one explicit HQ email form and explains rich-text sanitization", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		await chooseChoice("Schedule content type", "Email");
+
+		expect(
+			screen.getByRole("combobox", { name: "Email body form" }).textContent,
+		).toContain("Plain text");
+		expect(screen.getByText(/Rich text emails is not enabled/)).toBeDefined();
+		expect(
+			screen.getByRole("textbox", { name: "Plain-text message" }),
+		).toBeDefined();
+
+		await chooseChoice("Email body form", "Rich text HTML");
+		expect(
+			screen.queryByRole("textbox", { name: "Plain-text message" }),
+		).toBeNull();
+		const html = screen.getByRole("textbox", {
+			name: "Rich-text HTML source",
+		});
+		expect(
+			screen.getByText(/HQ removes unsupported markup and CSS/),
+		).toBeDefined();
+		fireEvent.change(html, { target: { value: "<p>Visit due</p>" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				kind: "conditional-alert",
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							content: {
+								kind: "email",
+								subject: "Subject",
+								body: {
+									kind: "rich-text",
+									html: "<p>Visit due</p>",
+								},
+							},
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
 	it("keeps recipients, descendant settings, and worker filters in one HQ form shape", async () => {
 		const levelUuid = testUuid("ui-location-level");
 		mocks.levels = [{ uuid: levelUuid, name: "Facility level" }];

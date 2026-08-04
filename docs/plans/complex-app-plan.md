@@ -190,7 +190,17 @@ date, parent/host, closed-parent, location, or server-modified conditions.
 The standard parent-closed condition has no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
 date criteria compare the current date directly with the property date plus a
-signed day offset; regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
+signed day offset; regexes are nonempty and portable. Standard metadata stays
+in Nova vocabulary in the document, then the setup projection translates reads
+and message tokens exactly: `case_name` → `name`, `date_opened` → `opened_on`,
+and `last_modified` → `modified_on`; `owner_id` and `external_id` are already
+the HQ automation names. Update targets use that projection too, preserving
+HQ's pre-write equality check. `status` is refused because Nova's open/closed
+text is not HQ's boolean `closed` model field, and standard datetime equality
+or regex is refused because HQ compares its datetime object with authored text
+without coercion. Restart-on-change and case-property event-time fields accept
+custom properties only because their HQ runtime reads `dynamic_case_properties`
+rather than model fields. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
 project-wide switch that evaluates every active update rule for a saved case
@@ -209,6 +219,14 @@ the Builder and guide state rather than silently treating them as deployable.
 There is no push-notification arm and no untyped escape hatch
 (`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
 `corehq/messaging/scheduling/models.py::Schedule`).
+
+Email content targets exactly one current HQ form. A plain-text body requires
+the domain-level Rich text emails toggle to be off. A rich-text body requires
+it on and stores only the submitted HTML source: HQ sanitizes supported markup
+and CSS, rewraps the body, and derives the plain-text alternative, so Nova does
+not store an independently authored plaintext body or promise byte-exact HTML.
+All email events in one schedule use the same body form because the toggle is a
+domain-wide prerequisite.
 
 Every conditional-alert schedule also maps to one form the current HQ HTML
 editor can save and uses its single schedule-wide content type. Immediate events after the first observe its five-minute tick.

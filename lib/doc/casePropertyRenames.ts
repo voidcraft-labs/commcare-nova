@@ -289,9 +289,10 @@ function rewriteAutomationContent(
 			break;
 		case "email":
 			content.subject = rewrite(content.subject);
-			content.message = rewrite(content.message);
-			if (content.htmlMessage !== undefined) {
-				content.htmlMessage = rewrite(content.htmlMessage);
+			if (content.body.kind === "plain-text") {
+				content.body.message = rewrite(content.body.message);
+			} else {
+				content.body.html = rewrite(content.body.html);
 			}
 			break;
 		case "sms-survey":
@@ -452,10 +453,9 @@ export function casePropertyCarrierNames(
 				event.content.kind === "email"
 					? [
 							["subject", event.content.subject],
-							["message", event.content.message],
-							...(event.content.htmlMessage === undefined
-								? []
-								: ([["htmlMessage", event.content.htmlMessage]] as const)),
+							event.content.body.kind === "plain-text"
+								? ["body/message", event.content.body.message]
+								: ["body/html", event.content.body.html],
 						]
 					: event.content.kind === "sms" ||
 							event.content.kind === "sms-callback" ||

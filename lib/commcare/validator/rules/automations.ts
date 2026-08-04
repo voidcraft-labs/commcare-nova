@@ -1,10 +1,15 @@
 /** App-scoped validity rules for human-applied HQ automations. */
 
 import {
+	type AutomationHqPropertySlot,
+	projectAutomationPropertyForHq,
+} from "@/lib/automations/hqCaseProperties";
+import {
 	type Automation,
 	type AutomationContent,
 	type AutomationPropertyTarget,
 	automationsOf,
+	automationTemplateCasePropertyTokens,
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	organizationLevelsOf,
@@ -54,6 +59,7 @@ function validatePropertyTarget(
 	ctx: AutomationContext,
 	target: AutomationPropertyTarget,
 	path: string,
+	slot: AutomationHqPropertySlot = "read",
 ): void {
 	const caseType = scopedCaseType(ctx, target);
 	if (caseType === undefined) {
@@ -72,6 +78,61 @@ function validatePropertyTarget(
 			`Property “${target.property}” does not exist on ${caseType.name}.`,
 			path,
 		);
+		return;
+	}
+	if (projectAutomationPropertyForHq(target.property, slot) === undefined) {
+		const message =
+			slot === "dynamic-only"
+				? `CommCare HQ reads this field only from custom case data, so standard property “${target.property}” cannot be used here.`
+				: target.property === "status"
+					? "Case status cannot be represented by an HQ automation property: Nova stores open/closed text, HQ exposes a boolean, and automation matching already excludes closed cases."
+					: `Standard property “${target.property}” cannot be changed by this representable automation action.`;
+		flag(ctx, message, path);
+	}
+}
+
+function automationTemplateCaseType(
+	ctx: AutomationContext,
+	scope: "case" | "parent" | "host",
+): ReturnType<typeof effectiveCaseTypes>[number] | undefined {
+	return scopedCaseType(ctx, { scope, property: "unused" });
+}
+
+function validateTemplate(
+	ctx: AutomationContext,
+	template: string,
+	path: string,
+): void {
+	for (const [index, token] of automationTemplateCasePropertyTokens(
+		template,
+	).entries()) {
+		const tokenPath = `${path}.caseProperty.${index}`;
+		const caseType = automationTemplateCaseType(ctx, token.scope);
+		if (caseType === undefined) {
+			flag(
+				ctx,
+				`Template token scope “${token.scope}” has no matching case relationship.`,
+				tokenPath,
+			);
+			continue;
+		}
+		if (
+			!caseType.properties.some((property) => property.name === token.property)
+		) {
+			flag(
+				ctx,
+				`Template property “${token.property}” does not exist on ${caseType.name}.`,
+				tokenPath,
+			);
+			continue;
+		}
+		if (projectAutomationPropertyForHq(token.property, "read") === undefined) {
+			flag(
+				ctx,
+				"Case status cannot be represented in an HQ message template because Nova's open/closed text differs from HQ's boolean field.",
+				tokenPath,
+			);
+		}
 	}
 }
 
@@ -87,6 +148,22 @@ function validateContent(
 		ctx.doc.forms[content.formUuid] === undefined
 	) {
 		flag(ctx, "The scheduled form no longer exists.", `${path}.formUuid`);
+	}
+	const templates =
+		content.kind === "email"
+			? ([
+					["subject", content.subject],
+					content.body.kind === "plain-text"
+						? ["body.message", content.body.message]
+						: ["body.html", content.body.html],
+				] as const)
+			: content.kind === "sms" ||
+					content.kind === "sms-callback" ||
+					content.kind === "connect-message"
+				? ([["message", content.message]] as const)
+				: [];
+	for (const [field, template] of templates) {
+		validateTemplate(ctx, template, `${path}.${field}`);
 	}
 }
 
@@ -121,12 +198,33 @@ function validateAutomation(ctx: AutomationContext): void {
 				);
 			} else if (
 				criterion.matchType.startsWith("date-") &&
-				property.data_type !== "date"
+				property.data_type !== "date" &&
+				property.data_type !== "datetime"
 			) {
 				flag(
 					ctx,
-					`Date criteria require a date property, but “${criterion.property}” is ${property.data_type ?? "untyped"}.`,
+					`Date criteria require a date or datetime property, but “${criterion.property}” is ${property.data_type ?? "untyped"}.`,
 					`${path}.matchType`,
+				);
+			} else if (
+				(criterion.property === "date_opened" ||
+					criterion.property === "last_modified") &&
+				(criterion.matchType === "equal" ||
+					criterion.matchType === "not-equal" ||
+					criterion.matchType === "regex")
+			) {
+				flag(
+					ctx,
+					`Standard datetime property “${criterion.property}” can use date or blankness comparisons, but HQ cannot compare its datetime object with an authored text value or regex.`,
+					`${path}.matchType`,
+				);
+			} else if (
+				projectAutomationPropertyForHq(criterion.property, "read") === undefined
+			) {
+				flag(
+					ctx,
+					"Case status cannot be represented by an HQ automation criterion because Nova's open/closed text differs from HQ's boolean field.",
+					`${path}.property`,
 				);
 			}
 		}
@@ -136,7 +234,12 @@ function validateAutomation(ctx: AutomationContext): void {
 
 	if (automation.kind === "case-update") {
 		for (const [index, update] of automation.updates.entries()) {
-			validatePropertyTarget(ctx, update.target, `updates.${index}.target`);
+			validatePropertyTarget(
+				ctx,
+				update.target,
+				`updates.${index}.target`,
+				"update-target",
+			);
 			if (update.value.kind === "case-property") {
 				validatePropertyTarget(
 					ctx,
@@ -165,6 +268,14 @@ function validateAutomation(ctx: AutomationContext): void {
 				flag(
 					ctx,
 					`Recipient property “${recipient.property}” does not exist on ${caseType.name}.`,
+					`${path}.property`,
+				);
+			} else if (
+				projectAutomationPropertyForHq(recipient.property, "read") === undefined
+			) {
+				flag(
+					ctx,
+					"Case status cannot provide an HQ automation recipient identity.",
 					`${path}.property`,
 				);
 			}
@@ -219,16 +330,28 @@ function validateAutomation(ctx: AutomationContext): void {
 			ctx,
 			{ scope: "case", property: automation.resetCaseProperty },
 			"resetCaseProperty",
+			"dynamic-only",
 		);
 	}
 	if (automation.stopDateCaseProperty !== undefined) {
 		const property = caseType.properties.find(
 			(candidate) => candidate.name === automation.stopDateCaseProperty,
 		);
-		if (property?.data_type !== "date") {
+		if (property?.data_type !== "date" && property?.data_type !== "datetime") {
 			flag(
 				ctx,
-				"The stop-date property must be an existing date property on this case type.",
+				"The stop-date property must be an existing date or datetime property on this case type.",
+				"stopDateCaseProperty",
+			);
+		} else if (
+			projectAutomationPropertyForHq(
+				automation.stopDateCaseProperty,
+				"read",
+			) === undefined
+		) {
+			flag(
+				ctx,
+				"The stop-date property has no compatible HQ automation name.",
 				"stopDateCaseProperty",
 			);
 		}
@@ -241,10 +364,21 @@ function validateAutomation(ctx: AutomationContext): void {
 			const property = caseType.properties.find(
 				(candidate) => candidate.name === start.property,
 			);
-			if (property?.data_type !== "date") {
+			if (
+				property?.data_type !== "date" &&
+				property?.data_type !== "datetime"
+			) {
 				flag(
 					ctx,
 					"A schedule start property must be an existing date property on this case type.",
+					"schedule.start.property",
+				);
+			} else if (
+				projectAutomationPropertyForHq(start.property, "read") === undefined
+			) {
+				flag(
+					ctx,
+					"The schedule start property has no compatible HQ automation name.",
 					"schedule.start.property",
 				);
 			}
@@ -259,6 +393,15 @@ function validateAutomation(ctx: AutomationContext): void {
 					flag(
 						ctx,
 						"An event-time property must be an existing time property on this case type.",
+						`schedule.events.${index}.timing.property`,
+					);
+				} else if (
+					projectAutomationPropertyForHq(timing.property, "dynamic-only") ===
+					undefined
+				) {
+					flag(
+						ctx,
+						"HQ event-time fields can read only a custom case property.",
 						`schedule.events.${index}.timing.property`,
 					);
 				}
