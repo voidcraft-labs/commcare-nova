@@ -69,7 +69,7 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Nineteen authorable kinds share ONE global identity namespace — modules, forms,
+Twenty authorable kinds share ONE global identity namespace — modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
 worker properties, user types, personas, organization levels, location
 properties, automations, and their criteria, setup-only criteria, updates,

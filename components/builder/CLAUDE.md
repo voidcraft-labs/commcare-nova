@@ -221,9 +221,9 @@ union. A new rule is born as one complete valid object with caller-minted UUIDs;
 editing works on a local complete copy and saves through
 `replaceAutomation`, which derives the shared item-granular mutation grammar.
 An open editor fingerprints the authoritative automation: if a peer changes or
-removes it, Save refuses with a visible conflict and keeps the person's local
-work for comparison. Gate findings stay in the editor, and removal uses an
-explicit confirmation. Viewers receive the same expanded readable rule,
+removes it, Save and Remove both refuse with a visible conflict and keep the
+person's local work for comparison. Gate findings stay in the editor, and
+removal uses an explicit confirmation. Viewers receive the same expanded readable rule,
 current-match information, and generated setup guide with every mutating
 control absent or disabled.
 

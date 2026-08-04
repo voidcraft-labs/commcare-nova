@@ -120,17 +120,6 @@ function validateAutomation(ctx: AutomationContext): void {
 					`${path}.matchType`,
 				);
 			}
-			continue;
-		}
-		if (criterion.kind === "closed-parent") {
-			const parent = ctx.caseTypes.get(criterion.parentCaseType);
-			if (parent === undefined) {
-				flag(
-					ctx,
-					`Closed-parent case type “${criterion.parentCaseType}” does not exist.`,
-					`${path}.parentCaseType`,
-				);
-			}
 		}
 		// Location rows are external to the Blueprint. Their live existence is
 		// checked transactionally when reference edges are replaced.

@@ -110,7 +110,6 @@ describe("automation criteria SQL", () => {
 					closedParents: [
 						{
 							identifier: "parent",
-							parentCaseType: "household",
 							relationship: "child",
 						},
 					],
@@ -130,7 +129,6 @@ describe("automation criteria SQL", () => {
 					closedParents: [
 						{
 							identifier: "parent",
-							parentCaseType: "household",
 							relationship: "child",
 						},
 					],

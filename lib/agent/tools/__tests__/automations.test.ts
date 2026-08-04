@@ -1,9 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import type { Automation, BlueprintDoc } from "@/lib/domain";
+
+const mocks = vi.hoisted(() => ({
+	readOrganization: vi.fn(),
+	readAuthoring: vi.fn(),
+}));
+
+vi.mock("@/lib/organization/service", () => ({
+	readOrganization: mocks.readOrganization,
+	readOrganizationAuthoringSnapshot: mocks.readAuthoring,
+}));
+
 import {
 	addAutomationsTool,
 	getAutomationsTool,
@@ -70,8 +81,13 @@ function rule(): Automation {
 	};
 }
 
+beforeEach(() => {
+	vi.clearAllMocks();
+});
+
 describe("automation shared tools", () => {
 	it("adds, reads, granularly updates, and removes the same canonical object", async () => {
+		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
 		const ctx = makeCtx();
 		const added = await addAutomationsTool.execute(
 			{ automations: [rule()] },
@@ -83,6 +99,20 @@ describe("automation shared tools", () => {
 		}
 		expect(added.mutations).toHaveLength(1);
 		expect(added.newDoc.automations?.[RULE_UUID]).toEqual(rule());
+		expect(added.result).toMatchObject({
+			setupGuides: [
+				{
+					automationUuid: RULE_UUID,
+					executesInPreview: false,
+					omittedCriteria: [],
+				},
+			],
+		});
+		mocks.readAuthoring.mockResolvedValue({
+			blueprint: added.newDoc,
+			blueprintSeq: 2,
+			organization: { revision: "1", locations: [] },
+		});
 		const read = await getAutomationsTool.execute({}, ctx, added.newDoc);
 		expect(read.data).toEqual([
 			expect.objectContaining({
@@ -122,11 +152,63 @@ describe("automation shared tools", () => {
 		expect(removed.newDoc.automationOrder).toBeUndefined();
 	});
 
+	it("derives read guidance from the authorized organization snapshot", async () => {
+		const current = doc();
+		const locationUuid = testUuid("tool-automation-location");
+		const locatedRule: Automation = {
+			...rule(),
+			criteria: [
+				{
+					uuid: testUuid("tool-location-criterion"),
+					kind: "location",
+					locationUuid,
+					includeDescendants: true,
+				},
+			],
+		};
+		current.automations = { [RULE_UUID]: locatedRule };
+		current.automationOrder = [RULE_UUID];
+		mocks.readAuthoring.mockResolvedValue({
+			blueprint: current,
+			blueprintSeq: 3,
+			organization: {
+				revision: "2",
+				locations: [
+					{
+						id: locationUuid,
+						levelUuid: testUuid("tool-location-level"),
+						parentId: null,
+						siteCode: "north",
+						name: "North district",
+						externalId: null,
+						latitude: null,
+						longitude: null,
+						values: {},
+						archivedAt: null,
+						orderKey: "a0",
+					},
+				],
+			},
+		});
+
+		const read = await getAutomationsTool.execute({}, makeCtx(), current);
+		expect(read.data).toEqual([
+			expect.objectContaining({
+				setupGuide: expect.objectContaining({
+					steps: expect.arrayContaining([
+						expect.stringContaining("North district"),
+					]),
+				}),
+			}),
+		]);
+	});
+
 	it("refuses duplicate nested identities and kind changes without saving", async () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
 		existing.automationOrder = [RULE_UUID];
 		const ctx = makeCtx();
+		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
 		const duplicate = await addAutomationsTool.execute(
 			{
 				automations: [

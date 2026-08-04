@@ -204,7 +204,12 @@ describe("AutomationsSection", () => {
 		expect(
 			screen.getByRole("button", { name: "Save automation" }),
 		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByRole("button", { name: "Remove automation" }),
+		).toHaveProperty("disabled", true);
+		fireEvent.click(screen.getByRole("button", { name: "Remove automation" }));
 		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
+		expect(mocks.removeAutomation).not.toHaveBeenCalled();
 	});
 
 	it("returns focus to Add automation after removal", async () => {

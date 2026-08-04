@@ -58,6 +58,7 @@ import {
 	type Automation,
 	assignedLocationUuids,
 	automationsOf,
+	automationTemplateCasePropertyTokens,
 	type BlueprintDoc,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
@@ -415,12 +416,7 @@ function extractAutomationEdges(
 				casePropertyTargetKey(automation.caseType, criterion.property),
 				"automation_criterion_property",
 			);
-		} else if (criterion.kind === "closed-parent") {
-			sink.edge(
-				caseTypeTargetKey(criterion.parentCaseType),
-				"automation_closed_parent_type",
-			);
-		} else {
+		} else if (criterion.kind === "location") {
 			sink.edge(
 				locationTargetKey(criterion.locationUuid),
 				"automation_criterion_location",
@@ -513,6 +509,31 @@ function extractAutomationEdges(
 				entityTargetKey(event.content.formUuid),
 				"automation_content_form",
 			);
+		}
+		const templates =
+			event.content.kind === "email"
+				? [
+						event.content.subject,
+						event.content.message,
+						...(event.content.htmlMessage === undefined
+							? []
+							: [event.content.htmlMessage]),
+					]
+				: event.content.kind === "sms" ||
+						event.content.kind === "sms-callback" ||
+						event.content.kind === "connect-message"
+					? [event.content.message]
+					: [];
+		for (const template of templates) {
+			for (const token of automationTemplateCasePropertyTokens(template)) {
+				const caseType = automationScopeCaseType(doc, automation, token.scope);
+				if (caseType !== undefined) {
+					sink.edge(
+						casePropertyTargetKey(caseType, token.property),
+						"automation_template_property",
+					);
+				}
+			}
 		}
 	}
 }
@@ -1248,6 +1269,7 @@ export function planReferenceIndexMaintenance(
 			for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
 			for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
 			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
+			for (const uuid of Object.keys(automationsOf(doc))) carriers.add(uuid);
 			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);

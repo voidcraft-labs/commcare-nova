@@ -766,7 +766,6 @@ export class PostgresCaseStore implements CaseStore {
 								and automation_parent_index.identifier = ${criterion.identifier}
 								and automation_parent_index.relationship = ${criterion.relationship}
 								and automation_parent_index.depth = 1
-								and automation_parent.case_type = ${criterion.parentCaseType}
 								and automation_parent.closed_on is not null
 						)`,
 					),

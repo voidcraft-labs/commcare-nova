@@ -31,6 +31,10 @@ export const persistableJsonNumberSchema = withPersistableJsonNumber(
 	z.number(),
 );
 
+export const persistableJsonIntegerSchema = withPersistableJsonNumber(
+	z.number().int(),
+);
+
 export const persistableJsonPositiveNumberSchema = withPersistableJsonNumber(
 	z.number().positive(),
 );

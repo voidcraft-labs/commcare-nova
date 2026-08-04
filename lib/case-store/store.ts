@@ -229,7 +229,6 @@ export type CountArgs =
 				regexes: readonly { property: string; pattern: string }[];
 				closedParents: readonly {
 					identifier: string;
-					parentCaseType: string;
 					relationship: "child" | "extension";
 				}[];
 			};

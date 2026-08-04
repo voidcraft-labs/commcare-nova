@@ -533,6 +533,24 @@ function AutomationEditor({
 		}
 		onClose();
 	};
+	const remove = () => {
+		if (!session.getState().canEdit) {
+			setError(
+				"You no longer have edit access. Close this editor to keep the saved version unchanged.",
+			);
+			return;
+		}
+		if (peerConflict) {
+			setError(
+				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
+			);
+			return;
+		}
+		const result = mutations.removeAutomation(state.automation.uuid);
+		if (result.ok) onRemoved();
+		else
+			setError(result.messages[0] ?? "Nova couldn't remove this automation.");
+	};
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -667,7 +685,11 @@ function AutomationEditor({
 						</p>
 					)}
 					{state.kind === "existing" && (
-						<div className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3">
+						<fieldset
+							disabled={peerConflict}
+							className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
+						>
+							<legend className="sr-only">Remove automation</legend>
 							{confirmRemove ? (
 								<div
 									role="alert"
@@ -688,17 +710,8 @@ function AutomationEditor({
 										<Button
 											type="button"
 											variant="destructive"
-											onClick={() => {
-												const result = mutations.removeAutomation(
-													state.automation.uuid,
-												);
-												if (result.ok) onRemoved();
-												else
-													setError(
-														result.messages[0] ??
-															"Nova couldn't remove this automation.",
-													);
-											}}
+											disabled={peerConflict}
+											onClick={remove}
 										>
 											Remove automation
 										</Button>
@@ -708,13 +721,14 @@ function AutomationEditor({
 								<Button
 									type="button"
 									variant="ghost-destructive"
+									disabled={peerConflict}
 									onClick={() => setConfirmRemove(true)}
 								>
 									<Icon icon={tablerTrash} aria-hidden="true" /> Remove
 									automation
 								</Button>
 							)}
-						</div>
+						</fieldset>
 					)}
 				</DialogBody>
 				<DialogFooter>
@@ -926,7 +940,6 @@ function ConditionsEditor({
 								uuid: uuid(),
 								kind,
 								identifier: "parent",
-								parentCaseType: draft.caseType,
 								relationship: "child",
 							}
 						: {
@@ -969,7 +982,6 @@ function ConditionsEditor({
 															uuid: current.uuid,
 															kind,
 															identifier: "parent",
-															parentCaseType: draft.caseType,
 															relationship: "child",
 														}
 													: {
@@ -1082,18 +1094,6 @@ function ConditionsEditor({
 												const item = draft.criteria[index];
 												if (item?.kind === "closed-parent")
 													item.identifier = event.target.value;
-											})
-										}
-									/>
-								</Labeled>
-								<Labeled label="Parent case type">
-									<Input
-										value={criterion.parentCaseType}
-										onChange={(event) =>
-											onEdit((draft) => {
-												const item = draft.criteria[index];
-												if (item?.kind === "closed-parent")
-													item.parentCaseType = event.target.value;
 											})
 										}
 									/>
@@ -1469,8 +1469,23 @@ function contentFor(
 		return { kind, message: "Message", reminderIntervalsMinutes: [5] };
 	const formUuid = forms[0]?.uuid;
 	if (formUuid === undefined) return undefined;
-	if (kind === "ivr") return { kind, formUuid, reminderIntervalsMinutes: [5] };
-	return { kind, formUuid } as AutomationContent;
+	if (kind === "ivr")
+		return {
+			kind,
+			formUuid,
+			reminderIntervalsMinutes: [5],
+			submitPartiallyCompletedForms: false,
+			includeCaseUpdatesInPartialSubmissions: false,
+			maxQuestionAttempts: 3,
+		};
+	return {
+		kind,
+		formUuid,
+		expirationHours: 24,
+		reminderIntervalsMinutes: [],
+		submitPartiallyCompletedForms: false,
+		includeCaseUpdatesInPartialSubmissions: false,
+	} as AutomationContent;
 }
 
 function AlertEditor({
@@ -2269,8 +2284,28 @@ function EventEditor({
 						/>
 					</Labeled>
 				)}
+				{"expirationHours" in content && (
+					<Labeled label="Survey expiration in hours" hint="1–168 hours">
+						<Input
+							type="number"
+							min={1}
+							max={168}
+							value={content.expirationHours}
+							onChange={(change) =>
+								updateContent((item) => {
+									if ("expirationHours" in item) {
+										item.expirationHours = Number(change.target.value);
+									}
+								})
+							}
+						/>
+					</Labeled>
+				)}
 				{"reminderIntervalsMinutes" in content && (
-					<Labeled label="Retry intervals in minutes" hint="Comma separated">
+					<Labeled
+						label="Reminder intervals in minutes"
+						hint="Comma separated; leave blank for none"
+					>
 						<Input
 							value={content.reminderIntervalsMinutes.join(", ")}
 							onChange={(change) =>
@@ -2280,6 +2315,49 @@ function EventEditor({
 										.split(",")
 										.map(Number)
 										.filter((value) => Number.isInteger(value) && value > 0);
+								})
+							}
+						/>
+					</Labeled>
+				)}
+				{"submitPartiallyCompletedForms" in content && (
+					<>
+						<Toggle
+							checked={content.submitPartiallyCompletedForms}
+							onChange={(checked) =>
+								updateContent((item) => {
+									if ("submitPartiallyCompletedForms" in item) {
+										item.submitPartiallyCompletedForms = checked;
+									}
+								})
+							}
+							label="Submit partially completed forms"
+						/>
+						<Toggle
+							checked={content.includeCaseUpdatesInPartialSubmissions}
+							onChange={(checked) =>
+								updateContent((item) => {
+									if ("includeCaseUpdatesInPartialSubmissions" in item) {
+										item.includeCaseUpdatesInPartialSubmissions = checked;
+									}
+								})
+							}
+							label="Include case updates in partial submissions"
+						/>
+					</>
+				)}
+				{"maxQuestionAttempts" in content && (
+					<Labeled label="Maximum attempts per question" hint="1–5 attempts">
+						<Input
+							type="number"
+							min={1}
+							max={5}
+							value={content.maxQuestionAttempts}
+							onChange={(change) =>
+								updateContent((item) => {
+									if ("maxQuestionAttempts" in item) {
+										item.maxQuestionAttempts = Number(change.target.value);
+									}
 								})
 							}
 						/>

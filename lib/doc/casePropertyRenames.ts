@@ -1,6 +1,9 @@
 import type { Draft } from "immer";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	type Automation,
+	type AutomationContent,
+	automationTemplateCasePropertyTokens,
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
@@ -14,6 +17,8 @@ import {
 	rewriteModuleCaseRefs,
 } from "./mutations/referenceRewrites";
 import type { Mutation } from "./types";
+
+const COMPARISON_SENTINEL = "\0case-property\0";
 
 export type CasePropertyRenamePlanIssueReason =
 	| "self-rename"
@@ -200,6 +205,9 @@ export function rewriteCasePropertyCarriers(
 	for (const module of Object.values(doc.modules)) {
 		rewriteModuleCaseRefs(module, resolve);
 	}
+	for (const automation of Object.values(doc.automations ?? {})) {
+		rewriteAutomationCaseProperties(doc, automation, resolve);
+	}
 	for (const caseType of doc.caseTypes ?? []) {
 		for (const property of caseType.properties) {
 			mapCasePropertiesInProse(property.label, resolve);
@@ -224,7 +232,143 @@ export function rewriteCasePropertyCarriers(
 	}
 }
 
-const COMPARISON_SENTINEL = "\0case-property\0";
+function automationScopeCaseType(
+	doc: BlueprintDoc,
+	automation: Automation,
+	scope: "case" | "parent" | "host",
+): string | undefined {
+	if (scope === "case") return automation.caseType;
+	const source = doc.caseTypes?.find(
+		(caseType) => caseType.name === automation.caseType,
+	);
+	if (source?.parent_type === undefined) return undefined;
+	if (
+		(scope === "parent" && source.relationship === "extension") ||
+		(scope === "host" && source.relationship !== "extension")
+	) {
+		return undefined;
+	}
+	return source.parent_type;
+}
+
+function rewriteAutomationTemplate(
+	template: string,
+	doc: BlueprintDoc,
+	automation: Automation,
+	resolve: (caseType: string, property: string) => string | undefined,
+): string {
+	let cursor = 0;
+	let rewritten = "";
+	for (const token of automationTemplateCasePropertyTokens(template)) {
+		rewritten += template.slice(cursor, token.start);
+		const caseType = automationScopeCaseType(doc, automation, token.scope);
+		const destination =
+			caseType === undefined ? undefined : resolve(caseType, token.property);
+		rewritten +=
+			destination === undefined || destination === COMPARISON_SENTINEL
+				? template.slice(token.start, token.end)
+				: `{case.${token.scope === "case" ? "" : `${token.scope}.`}${destination}}`;
+		cursor = token.end;
+	}
+	return rewritten + template.slice(cursor);
+}
+
+function rewriteAutomationContent(
+	content: AutomationContent,
+	doc: BlueprintDoc,
+	automation: Automation,
+	resolve: (caseType: string, property: string) => string | undefined,
+): void {
+	const rewrite = (value: string): string =>
+		rewriteAutomationTemplate(value, doc, automation, resolve);
+	switch (content.kind) {
+		case "sms":
+		case "connect-message":
+		case "sms-callback":
+			content.message = rewrite(content.message);
+			break;
+		case "email":
+			content.subject = rewrite(content.subject);
+			content.message = rewrite(content.message);
+			if (content.htmlMessage !== undefined) {
+				content.htmlMessage = rewrite(content.htmlMessage);
+			}
+			break;
+		case "sms-survey":
+		case "ivr":
+		case "connect-survey":
+		case "custom":
+			break;
+	}
+}
+
+function rewriteAutomationCaseProperties(
+	doc: BlueprintDoc,
+	automation: Automation,
+	resolve: (caseType: string, property: string) => string | undefined,
+): void {
+	const rewriteScoped = (target: {
+		scope: "case" | "parent" | "host";
+		property: string;
+	}): void => {
+		const caseType = automationScopeCaseType(doc, automation, target.scope);
+		if (caseType === undefined) return;
+		const destination = resolve(caseType, target.property);
+		if (destination !== undefined) target.property = destination;
+	};
+	for (const criterion of automation.criteria) {
+		if (criterion.kind !== "match-property") continue;
+		const destination = resolve(automation.caseType, criterion.property);
+		if (destination !== undefined) criterion.property = destination;
+	}
+	if (automation.kind === "case-update") {
+		for (const update of automation.updates) {
+			rewriteScoped(update.target);
+			if (update.value.kind === "case-property") {
+				rewriteScoped(update.value.source);
+			}
+		}
+		return;
+	}
+	for (const recipient of automation.recipients) {
+		if (
+			recipient.kind === "case-property-username" ||
+			recipient.kind === "case-property-user-id" ||
+			recipient.kind === "case-property-email"
+		) {
+			const destination = resolve(automation.caseType, recipient.property);
+			if (destination !== undefined) recipient.property = destination;
+		}
+	}
+	for (const key of ["resetCaseProperty", "stopDateCaseProperty"] as const) {
+		const property = automation[key];
+		if (property === undefined) continue;
+		const destination = resolve(automation.caseType, property);
+		if (destination !== undefined) automation[key] = destination;
+	}
+	if (
+		automation.schedule.kind === "timed" &&
+		automation.schedule.start.kind === "case-property"
+	) {
+		const destination = resolve(
+			automation.caseType,
+			automation.schedule.start.property,
+		);
+		if (destination !== undefined) {
+			automation.schedule.start.property = destination;
+		}
+	}
+	if (automation.schedule.kind === "timed") {
+		for (const event of automation.schedule.events) {
+			if (event.timing.kind !== "case-property-time") continue;
+			const destination = resolve(automation.caseType, event.timing.property);
+			if (destination !== undefined) event.timing.property = destination;
+		}
+	}
+	for (const event of automation.schedule.events) {
+		rewriteAutomationContent(event.content, doc, automation, resolve);
+	}
+}
 
 export interface CasePropertyCarrierName {
 	readonly path: string;
@@ -300,6 +444,42 @@ export function casePropertyCarrierNames(
 		}
 	};
 	walk(original, normalized, "");
+	for (const [automationUuid, automation] of Object.entries(
+		original.automations ?? {},
+	)) {
+		if (automation.kind !== "conditional-alert") continue;
+		for (const [eventIndex, event] of automation.schedule.events.entries()) {
+			const templates: ReadonlyArray<readonly [string, string]> =
+				event.content.kind === "email"
+					? [
+							["subject", event.content.subject],
+							["message", event.content.message],
+							...(event.content.htmlMessage === undefined
+								? []
+								: ([["htmlMessage", event.content.htmlMessage]] as const)),
+						]
+					: event.content.kind === "sms" ||
+							event.content.kind === "sms-callback" ||
+							event.content.kind === "connect-message"
+						? [["message", event.content.message]]
+						: [];
+			for (const [field, template] of templates) {
+				for (const [tokenIndex, token] of automationTemplateCasePropertyTokens(
+					template,
+				).entries()) {
+					if (
+						automationScopeCaseType(original, automation, token.scope) !==
+						undefined
+					) {
+						names.push({
+							path: `/automations/${automationUuid}/schedule/events/${eventIndex}/content/${field}/@case-property/${tokenIndex}`,
+							value: token.property,
+						});
+					}
+				}
+			}
+		}
+	}
 	return names;
 }
 

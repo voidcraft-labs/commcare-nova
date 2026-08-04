@@ -1238,6 +1238,10 @@ const GUARD_COVERAGE = {
 								content: {
 									kind: "sms-survey",
 									formUuid: testUuid("missing-form"),
+									expirationHours: 24,
+									reminderIntervalsMinutes: [],
+									submitPartiallyCompletedForms: false,
+									includeCaseUpdatesInPartialSubmissions: false,
 								},
 							},
 						],

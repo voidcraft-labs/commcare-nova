@@ -3,9 +3,14 @@ import type {
 	AutomationContent,
 	AutomationCriterion,
 	AutomationRecipient,
+	AutomationTimedEvent,
 	BlueprintDoc,
 } from "@/lib/domain";
-import { ownRecordValue, userPropertiesOf } from "@/lib/domain";
+import {
+	organizationLevelsOf,
+	ownRecordValue,
+	userPropertiesOf,
+} from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
 export interface AutomationSetupGuide {
@@ -30,7 +35,7 @@ function describeCriterion(
 	locations: readonly StoredLocation[],
 ): string {
 	if (criterion.kind === "closed-parent") {
-		return `The ${criterion.identifier} ${criterion.relationship} index points to a closed ${criterion.parentCaseType} case.`;
+		return `The ${criterion.identifier} ${criterion.relationship} index points to a closed related case.`;
 	}
 	if (criterion.kind === "location") {
 		return `The case owner belongs to ${locationName(locations, criterion.locationUuid)}${criterion.includeDescendants ? " or one of its descendants" : ""}.`;
@@ -91,21 +96,35 @@ function describeContent(
 ): string {
 	switch (content.kind) {
 		case "sms":
-			return `SMS: ${content.message}`;
+			return `SMS message ${JSON.stringify(content.message)}`;
 		case "email":
-			return `Email subject “${content.subject}”; plain message “${content.message}”${content.htmlMessage === undefined ? "" : "; HTML message supplied"}`;
+			return `Email subject ${JSON.stringify(content.subject)}; plain-text message ${JSON.stringify(content.message)}${content.htmlMessage === undefined ? "; leave HTML message blank" : `; HTML message ${JSON.stringify(content.htmlMessage)}`}`;
 		case "sms-survey":
-		case "ivr":
 		case "connect-survey": {
 			const form = ownRecordValue(doc.forms, content.formUuid);
-			return `${content.kind}: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid})`;
+			return `${content.kind}: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid}); expire after ${content.expirationHours} hour(s); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}`;
+		}
+		case "ivr": {
+			const form = ownRecordValue(doc.forms, content.formUuid);
+			return `ivr: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid}); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}; maximum attempts per question ${content.maxQuestionAttempts}`;
 		}
 		case "sms-callback":
-			return `SMS/callback: ${content.message}; retry after ${content.reminderIntervalsMinutes.join(", ")} minutes`;
+			return `SMS/callback message ${JSON.stringify(content.message)}; retry after ${content.reminderIntervalsMinutes.join(", ")} minutes`;
 		case "connect-message":
-			return `Connect message: ${content.message}`;
+			return `Connect message ${JSON.stringify(content.message)}`;
 		case "custom":
 			return `Registered custom content ${content.registeredId}`;
+	}
+}
+
+function describeTiming(timing: AutomationTimedEvent["timing"]): string {
+	switch (timing.kind) {
+		case "specific-time":
+			return `at ${timing.time}`;
+		case "random-window":
+			return `at a random time in the ${timing.windowMinutes}-minute window starting at ${timing.time}`;
+		case "case-property-time":
+			return `at the time stored in case property ${timing.property}`;
 	}
 }
 
@@ -195,6 +214,23 @@ export function buildAutomationSetupGuide(
 	);
 	steps.push(
 		`Recipients: ${automation.recipients.map((recipient) => describeRecipient(recipient, locations)).join("; ")}.`,
+		`${automation.includeDescendantLocations ? "Include" : "Do not include"} descendant locations when expanding location recipients.`,
+	);
+	const levels = organizationLevelsOf(doc);
+	steps.push(
+		automation.locationLevelUuids.length === 0
+			? "Apply no location-level restriction to broadcast recipients."
+			: `Restrict broadcast recipients to these location levels: ${automation.locationLevelUuids
+					.map((uuid) => {
+						const level = ownRecordValue(levels, uuid);
+						return level === undefined
+							? `Nova level ${uuid}`
+							: `“${level.name}” (${level.code}; Nova id ${uuid})`;
+					})
+					.join("; ")}.`,
+		automation.defaultLanguageCode === undefined
+			? "Leave the default language blank to use the target CommCare HQ project's default language."
+			: `Set the default language code to ${automation.defaultLanguageCode}.`,
 	);
 	if (automation.schedule.kind === "immediate") {
 		steps.push(
@@ -214,7 +250,7 @@ export function buildAutomationSetupGuide(
 			`Use a timed schedule starting from ${start}: repeat every ${Math.abs(automation.schedule.repeatEvery)} ${automation.schedule.repeatEvery < 0 ? "month(s)" : "day(s)"}, ${automation.schedule.totalIterations === -1 ? "indefinitely" : `${automation.schedule.totalIterations} iteration(s)`}, with start offset ${automation.schedule.startOffsetDays} days and start weekday ${automation.schedule.startDayOfWeek}.`,
 			...automation.schedule.events.map(
 				(event, index) =>
-					`Timed event ${index + 1}, day ${event.day}, ${JSON.stringify(event.timing)}: send ${describeContent(event.content, doc)}.`,
+					`Timed event ${index + 1}, day ${event.day}, ${describeTiming(event.timing)}: send ${describeContent(event.content, doc)}.`,
 			),
 		);
 	}
@@ -227,6 +263,10 @@ export function buildAutomationSetupGuide(
 					return `${property?.slug ?? filter.userPropertyUuid} in [${filter.allowedValues.join(", ")}]`;
 				})
 				.join("; ")}.`,
+		);
+	} else {
+		steps.push(
+			`Add no ${automation.useUserCaseForFilter ? "user-case" : "custom-user-data"} recipient filters.`,
 		);
 	}
 	if (automation.resetCaseProperty !== undefined) {

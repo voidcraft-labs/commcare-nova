@@ -88,7 +88,10 @@ function impactGroup(path: string): CasePropertyRenameImpactGroupKey {
 function carrierKey(path: string, doc: BlueprintDoc): string {
 	const parts = pointerParts(path);
 	if (
-		(parts[0] === "fields" || parts[0] === "forms" || parts[0] === "modules") &&
+		(parts[0] === "fields" ||
+			parts[0] === "forms" ||
+			parts[0] === "modules" ||
+			parts[0] === "automations") &&
 		parts[1] !== undefined
 	) {
 		return `${parts[0]}:${parts[1]}`;

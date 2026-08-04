@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	isPersistableJsonNumber,
+	persistableJsonIntegerSchema,
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonNumberSchema,
 	persistableJsonPositiveIntegerSchema,
@@ -31,6 +32,8 @@ describe("persistable JSON numbers", () => {
 	});
 
 	it("preserves each slot's independent range and integer constraints", () => {
+		expect(persistableJsonIntegerSchema.safeParse(-1).success).toBe(true);
+		expect(persistableJsonIntegerSchema.safeParse(-0).success).toBe(false);
 		expect(persistableJsonNonnegativeIntegerSchema.safeParse(0).success).toBe(
 			true,
 		);
@@ -59,6 +62,10 @@ describe("persistable JSON numbers", () => {
 			path.join(root, "lib/domain/predicate/types.ts"),
 			"utf8",
 		);
+		const automations = readFileSync(
+			path.join(root, "lib/domain/automations.ts"),
+			"utf8",
+		);
 		for (const obsolete of [
 			"priority: z.number().int().min(0)",
 			"x: z.number().int().min(0)",
@@ -79,5 +86,7 @@ describe("persistable JSON numbers", () => {
 		expect(forms).toContain("persistableJsonPositiveIntegerSchema");
 		expect(predicates).toContain("persistableJsonNumberSchema");
 		expect(predicates).toContain("persistableJsonPositiveNumberSchema");
+		expect(automations).not.toContain("z.number()");
+		expect(automations).toContain("persistableJsonIntegerSchema");
 	});
 });

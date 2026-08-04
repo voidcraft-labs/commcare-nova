@@ -10,6 +10,7 @@ import {
 	type Automation,
 	automationSchema,
 	type BlueprintDoc,
+	isPortableAutomationRegex,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
@@ -142,6 +143,37 @@ describe("automation domain and projections", () => {
 		).toEqual([district, facility, persona].sort());
 	});
 
+	it("does not treat a Preview persona's additional assignment as HQ's primary location", () => {
+		const district = testUuid("secondary-district");
+		const facility = testUuid("secondary-facility");
+		const elsewhere = testUuid("primary-elsewhere");
+		const persona = testUuid("secondary-persona");
+		const doc = buildDoc({ appName: "Locations" }) as BlueprintDoc;
+		doc.personas = {
+			[persona]: {
+				uuid: persona,
+				name: "Asha",
+				locations: {
+					primaryUuid: elsewhere,
+					additionalUuids: [facility],
+				},
+				values: {},
+			},
+		};
+		expect(
+			localOwnerIdsForLocation(
+				doc,
+				[
+					location(district, null, "District"),
+					location(facility, district, "Facility"),
+					location(elsewhere, null, "Elsewhere"),
+				],
+				district,
+				true,
+			),
+		).toEqual([district, facility].sort());
+	});
+
 	it("regenerates exact plan, route, cadence, cap, and non-execution guidance", () => {
 		const guide = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),
@@ -155,6 +187,172 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("once daily");
 		expect(text).toContain("does not run this automation in Preview");
 		expect(text).not.toContain("50,000");
+	});
+
+	it("renders every survey, message, location, language, and filter setting", () => {
+		const doc = buildDoc({ appName: "Alerts" }) as BlueprintDoc;
+		const formUuid = testUuid("alert-form");
+		const levelUuid = testUuid("alert-level");
+		doc.organizationLevels = {
+			[levelUuid]: {
+				uuid: levelUuid,
+				code: "district",
+				name: "District",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		const alert: Automation = {
+			uuid: testUuid("complete-alert"),
+			kind: "conditional-alert",
+			name: "Visit reminder",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [
+				{
+					uuid: testUuid("closed-parent-criterion"),
+					kind: "closed-parent",
+					identifier: "parent",
+					relationship: "child",
+				},
+			],
+			setupOnlyCriteria: [],
+			recipients: [{ uuid: testUuid("alert-owner"), kind: "owner" }],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("survey-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms-survey",
+							formUuid,
+							expirationHours: 72,
+							reminderIntervalsMinutes: [30, 60],
+							submitPartiallyCompletedForms: true,
+							includeCaseUpdatesInPartialSubmissions: true,
+						},
+					},
+					{
+						uuid: testUuid("email-event"),
+						minutesToWait: 5,
+						content: {
+							kind: "email",
+							subject: "Visit due",
+							message: "Plain body",
+							htmlMessage: "<p>HTML body</p>",
+						},
+					},
+				],
+			},
+			includeDescendantLocations: true,
+			locationLevelUuids: [levelUuid],
+			defaultLanguageCode: "fr",
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		};
+		const guide = buildAutomationSetupGuide(doc, alert, []);
+		const text = guide.steps.join(" ");
+		expect(text).toContain("closed related case");
+		expect(text).toContain("expire after 72 hour(s)");
+		expect(text).toContain("30, 60 minute(s)");
+		expect(text).toContain("submit partially completed forms on");
+		expect(text).toContain('HTML message "<p>HTML body</p>"');
+		expect(text).toContain("Include descendant locations");
+		expect(text).toContain("District");
+		expect(text).toContain("default language code to fr");
+		expect(text).toContain("Add no custom-user-data recipient filters");
+	});
+
+	it("admits complete historical IVR settings and rejects incomplete survey content", () => {
+		const ivr = automationSchema.safeParse({
+			uuid: testUuid("historical-ivr-alert"),
+			kind: "conditional-alert",
+			name: "Historical IVR",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [
+				{ uuid: testUuid("historical-ivr-recipient"), kind: "self" },
+			],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("historical-ivr-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "ivr",
+							formUuid: testUuid("historical-ivr-form"),
+							reminderIntervalsMinutes: [15],
+							submitPartiallyCompletedForms: true,
+							includeCaseUpdatesInPartialSubmissions: false,
+							maxQuestionAttempts: 5,
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		});
+		expect(ivr.success).toBe(true);
+		expect(
+			automationSchema.safeParse({
+				...(ivr.success && ivr.data),
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("incomplete-survey-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "sms-survey",
+								formUuid: testUuid("incomplete-survey-form"),
+							},
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+	});
+
+	it("admits only the regex subset shared by Python and PostgreSQL", () => {
+		expect(isPortableAutomationRegex("^A[0-9]+(?:-B)?$")).toBe(false);
+		expect(isPortableAutomationRegex("^A[0-9]+(-B)?$")).toBe(true);
+		expect(isPortableAutomationRegex("(?<code>A+)")).toBe(false);
+		expect(isPortableAutomationRegex("\\d+")).toBe(false);
+	});
+
+	it("enforces upstream string bounds and persistable JSON integers", () => {
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				name: "x".repeat(127),
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				criteria: [
+					{
+						uuid: CRITERION_UUID,
+						kind: "match-property",
+						property: "code",
+						matchType: "equal",
+						value: "x".repeat(127),
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				serverModifiedBoundaryDays: -0,
+			}).success,
+		).toBe(false);
 	});
 
 	it("rejects malformed criteria and update-free case-update rules", () => {

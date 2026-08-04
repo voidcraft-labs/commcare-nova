@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { z } from "zod";
+import { automationMatchProjection } from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -13,6 +14,14 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	readOrganization,
+	readOrganizationAuthoringSnapshot,
+} from "@/lib/organization/service";
+import type {
+	OrganizationScope,
+	StoredLocation,
+} from "@/lib/organization/types";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -54,9 +63,49 @@ export const removeAutomationInputSchema = z
 	.object({ automationUuid: uuidSchema })
 	.strict();
 
+interface SetupGuideResult {
+	readonly automationUuid: Uuid;
+	readonly setupGuide: ReturnType<typeof buildAutomationSetupGuide>;
+	readonly omittedCriteria: readonly string[];
+	readonly executesInPreview: false;
+}
+
 type AutomationMutationResult =
-	| (MutationSuccess & { automationUuids: readonly Uuid[] })
+	| (MutationSuccess & {
+			automationUuids: readonly Uuid[];
+			setupGuides?: readonly SetupGuideResult[];
+	  })
 	| { error: string };
+
+function scope(ctx: ToolExecutionContext): OrganizationScope {
+	return {
+		appId: ctx.appId,
+		projectId: ctx.projectId,
+		actorUserId: ctx.userId,
+		role: "tool",
+		changeSource: {
+			kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
+			runId: ctx.runId,
+		},
+		...(ctx.chatRunHolder === undefined
+			? {}
+			: { chatRunHolder: ctx.chatRunHolder }),
+	};
+}
+
+function setupGuideResult(
+	doc: BlueprintDoc,
+	automation: z.infer<typeof automationSchema>,
+	locations: readonly StoredLocation[],
+): SetupGuideResult {
+	return {
+		automationUuid: automation.uuid,
+		setupGuide: buildAutomationSetupGuide(doc, automation, locations),
+		omittedCriteria: automationMatchProjection(doc, automation, locations)
+			.omittedCriteria,
+		executesInPreview: false,
+	};
+}
 
 function mutationError(
 	doc: BlueprintDoc,
@@ -82,17 +131,28 @@ export const getAutomationsTool = {
 	inputSchema: getAutomationsInputSchema,
 	async execute(
 		_input: z.infer<typeof getAutomationsInputSchema>,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolExecutionContext,
+		_doc: BlueprintDoc,
 	): Promise<ReadToolResult<unknown>> {
-		return {
-			kind: "read",
-			data: orderedAutomations(doc).map((automation) => ({
-				automation,
-				setupGuide: buildAutomationSetupGuide(doc, automation, []),
-				executesInPreview: false as const,
-			})),
-		};
+		try {
+			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
+			return {
+				kind: "read",
+				data: orderedAutomations(authoring.blueprint).map((automation) => ({
+					automation,
+					...setupGuideResult(
+						authoring.blueprint,
+						automation,
+						authoring.organization.locations,
+					),
+				})),
+			};
+		} catch (error) {
+			return {
+				kind: "read",
+				data: { error: error instanceof Error ? error.message : String(error) },
+			};
+		}
 	},
 };
 
@@ -106,6 +166,7 @@ export const addAutomationsTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
 		try {
+			const locations = (await readOrganization(scope(ctx))).locations;
 			const existing = new Set<string>();
 			for (const automation of input.automations) {
 				for (const uuid of allIdentities(automation)) {
@@ -150,6 +211,9 @@ export const addAutomationsTool = {
 					automationUuids: input.automations.map(
 						(automation) => automation.uuid,
 					),
+					setupGuides: input.automations.map((automation) =>
+						setupGuideResult(commit.newDoc, automation, locations),
+					),
 					summary: { count: names.length },
 				},
 			};
@@ -169,6 +233,7 @@ export const updateAutomationTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
 		try {
+			const locations = (await readOrganization(scope(ctx))).locations;
 			const before = ownRecordValue(doc.automations, input.automation.uuid);
 			if (before === undefined) {
 				return mutationError(
@@ -195,6 +260,7 @@ export const updateAutomationTool = {
 					result: {
 						message: `Automation "${before.name}" already has the requested settings.`,
 						automationUuids: [before.uuid],
+						setupGuides: [setupGuideResult(doc, before, locations)],
 						summary: { subject: before.name },
 					},
 				};
@@ -208,6 +274,9 @@ export const updateAutomationTool = {
 				result: {
 					message: `Updated automation "${input.automation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
 					automationUuids: [input.automation.uuid],
+					setupGuides: [
+						setupGuideResult(commit.newDoc, input.automation, locations),
+					],
 					summary: { subject: input.automation.name },
 				},
 			};

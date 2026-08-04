@@ -7,10 +7,15 @@
 // an audited HQ driver exists.
 
 import { z } from "zod";
+import {
+	persistableJsonIntegerSchema,
+	persistableJsonNonnegativeIntegerSchema,
+	persistableJsonPositiveIntegerSchema,
+} from "./jsonNumber";
 import { ownRecordValue, recordFromEntries } from "./records";
 import { type Uuid, uuidSchema } from "./uuid";
 
-export const AUTOMATION_NAME_MAX_LENGTH = 255;
+export const AUTOMATION_NAME_MAX_LENGTH = 126;
 export const AUTOMATION_SETUP_NOTE_MAX_LENGTH = 2_000;
 
 export const AUTOMATION_CRITERIA_OPERATORS = ["all", "any"] as const;
@@ -31,6 +36,86 @@ export const AUTOMATION_PROPERTY_MATCH_TYPES = [
 export type AutomationPropertyMatchType =
 	(typeof AUTOMATION_PROPERTY_MATCH_TYPES)[number];
 
+export interface AutomationTemplateCasePropertyToken {
+	readonly start: number;
+	readonly end: number;
+	readonly scope: "case" | "parent" | "host";
+	readonly property: string;
+}
+
+/** Parse only HQ's exact `{case...}` template property spellings. */
+export function automationTemplateCasePropertyTokens(
+	template: string,
+): AutomationTemplateCasePropertyToken[] {
+	const tokens: AutomationTemplateCasePropertyToken[] = [];
+	const prefix = "{case.";
+	let cursor = 0;
+	while (cursor < template.length) {
+		const start = template.indexOf(prefix, cursor);
+		if (start < 0) break;
+		const close = template.indexOf("}", start + prefix.length);
+		if (close < 0) break;
+		const parts = template.slice(start + prefix.length, close).split(".");
+		if (parts.length === 1 && parts[0]) {
+			tokens.push({
+				start,
+				end: close + 1,
+				scope: "case",
+				property: parts[0],
+			});
+		} else if (
+			parts.length === 2 &&
+			(parts[0] === "parent" || parts[0] === "host") &&
+			parts[1]
+		) {
+			tokens.push({
+				start,
+				end: close + 1,
+				scope: parts[0],
+				property: parts[1],
+			});
+		}
+		cursor = close + 1;
+	}
+	return tokens;
+}
+
+/**
+ * Conditional-alert regexes execute as Python `re.match` in HQ and PostgreSQL
+ * ARE in Preview. Keep authored patterns inside their deliberately small,
+ * shared syntax instead of accepting an engine-specific extension that would
+ * silently mean something else on one surface.
+ */
+export function isPortableAutomationRegex(pattern: string): boolean {
+	if (/\r|\n|\[\[:/.test(pattern)) return false;
+	let escaped = false;
+	let inClass = false;
+	for (let index = 0; index < pattern.length; index += 1) {
+		const character = pattern[index];
+		if (escaped) {
+			if (!".^$*+?{}[]\\|()-/".includes(character ?? "")) return false;
+			escaped = false;
+			continue;
+		}
+		if (character === "\\") {
+			escaped = true;
+			continue;
+		}
+		if (character === "[") inClass = true;
+		if (character === "]") inClass = false;
+		if (!inClass && character === "(" && pattern[index + 1] === "?") {
+			return false;
+		}
+	}
+	if (escaped) return false;
+	try {
+		new RegExp(pattern);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export const propertyMatchCriterionSchema = z
 	.object({
 		uuid: uuidSchema,
@@ -38,9 +123,9 @@ export const propertyMatchCriterionSchema = z
 		property: z.string().min(1).max(126),
 		matchType: z.enum(AUTOMATION_PROPERTY_MATCH_TYPES),
 		/** Used by equality and regex matches; absent on blank/date matches. */
-		value: z.string().max(4_096).optional(),
+		value: z.string().max(126).optional(),
 		/** The N in HQ's comparisons against `case_date + N`. */
-		days: z.number().int().min(-36_500).max(36_500).optional(),
+		days: persistableJsonIntegerSchema.min(-36_500).max(36_500).optional(),
 	})
 	.strict()
 	.superRefine((criterion, ctx) => {
@@ -66,16 +151,17 @@ export const propertyMatchCriterionSchema = z
 					: "This match does not accept a day offset.",
 			});
 		}
-		if (criterion.matchType === "regex" && criterion.value !== undefined) {
-			try {
-				new RegExp(criterion.value);
-			} catch {
-				ctx.addIssue({
-					code: "custom",
-					path: ["value"],
-					message: "Enter a valid regular expression.",
-				});
-			}
+		if (
+			criterion.matchType === "regex" &&
+			criterion.value !== undefined &&
+			!isPortableAutomationRegex(criterion.value)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["value"],
+				message:
+					"Use a portable regular expression without lookarounds, named groups, shorthand classes, backreferences, or engine-specific escapes.",
+			});
 		}
 	});
 
@@ -85,7 +171,6 @@ export const closedParentCriterionSchema = z
 		kind: z.literal("closed-parent"),
 		/** HQ's case-index identifier, normally `parent` or `host`. */
 		identifier: z.string().min(1).max(126),
-		parentCaseType: z.string().min(1).max(126),
 		relationship: z.enum(["child", "extension"]),
 	})
 	.strict();
@@ -183,6 +268,15 @@ export const automationRecipientSchema = z.discriminatedUnion("kind", [
 export type AutomationRecipient = z.infer<typeof automationRecipientSchema>;
 
 const formContentBase = { formUuid: uuidSchema } as const;
+const surveyContentBase = {
+	...formContentBase,
+	expirationHours: persistableJsonPositiveIntegerSchema.max(168),
+	reminderIntervalsMinutes: z
+		.array(persistableJsonPositiveIntegerSchema)
+		.max(100),
+	submitPartiallyCompletedForms: z.boolean(),
+	includeCaseUpdatesInPartialSubmissions: z.boolean(),
+} as const;
 export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("sms"), message: z.string().min(1).max(16_000) })
@@ -198,12 +292,17 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 		.refine((content) => content.message.length > 0 || content.htmlMessage, {
 			message: "An email needs a plain-text or HTML message.",
 		}),
-	z.object({ kind: z.literal("sms-survey"), ...formContentBase }).strict(),
+	z.object({ kind: z.literal("sms-survey"), ...surveyContentBase }).strict(),
 	z
 		.object({
 			kind: z.literal("ivr"),
 			...formContentBase,
-			reminderIntervalsMinutes: z.array(z.number().int().positive()).max(100),
+			reminderIntervalsMinutes: z
+				.array(persistableJsonPositiveIntegerSchema)
+				.max(100),
+			submitPartiallyCompletedForms: z.boolean(),
+			includeCaseUpdatesInPartialSubmissions: z.boolean(),
+			maxQuestionAttempts: persistableJsonPositiveIntegerSchema.max(5),
 		})
 		.strict(),
 	z
@@ -211,7 +310,7 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 			kind: z.literal("sms-callback"),
 			message: z.string().min(1).max(16_000),
 			reminderIntervalsMinutes: z
-				.array(z.number().int().positive())
+				.array(persistableJsonPositiveIntegerSchema)
 				.min(1)
 				.max(100),
 		})
@@ -222,7 +321,9 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 			message: z.string().min(1).max(16_000),
 		})
 		.strict(),
-	z.object({ kind: z.literal("connect-survey"), ...formContentBase }).strict(),
+	z
+		.object({ kind: z.literal("connect-survey"), ...surveyContentBase })
+		.strict(),
 	z
 		.object({
 			kind: z.literal("custom"),
@@ -243,7 +344,7 @@ export const timedEventTimingSchema = z.discriminatedUnion("kind", [
 		.object({
 			kind: z.literal("random-window"),
 			time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-			windowMinutes: z.number().int().positive().max(1_440),
+			windowMinutes: persistableJsonPositiveIntegerSchema.max(1_440),
 		})
 		.strict(),
 	z
@@ -257,7 +358,7 @@ export const timedEventTimingSchema = z.discriminatedUnion("kind", [
 export const automationImmediateEventSchema = z
 	.object({
 		uuid: uuidSchema,
-		minutesToWait: z.number().int().nonnegative().max(5_256_000),
+		minutesToWait: persistableJsonNonnegativeIntegerSchema.max(5_256_000),
 		content: automationContentSchema,
 	})
 	.strict();
@@ -268,7 +369,7 @@ export type AutomationImmediateEvent = z.infer<
 export const automationTimedEventSchema = z
 	.object({
 		uuid: uuidSchema,
-		day: z.number().int().min(-28).max(3_649),
+		day: persistableJsonIntegerSchema.min(-28).max(3_649),
 		timing: timedEventTimingSchema,
 		content: automationContentSchema,
 	})
@@ -286,20 +387,16 @@ export const automationScheduleSchema = z.discriminatedUnion("kind", [
 		.object({
 			kind: z.literal("timed"),
 			/** Positive means days; negative means months. Zero is not legal. */
-			repeatEvery: z
-				.number()
-				.int()
+			repeatEvery: persistableJsonIntegerSchema
 				.min(-120)
 				.max(3_650)
 				.refine((v) => v !== 0),
-			totalIterations: z
-				.number()
-				.int()
+			totalIterations: persistableJsonIntegerSchema
 				.min(-1)
 				.max(100_000)
 				.refine((v) => v !== 0),
-			startOffsetDays: z.number().int().min(-36_500).max(36_500),
-			startDayOfWeek: z.number().int().min(-1).max(6),
+			startOffsetDays: persistableJsonIntegerSchema.min(-36_500).max(36_500),
+			startDayOfWeek: persistableJsonIntegerSchema.min(-1).max(6),
 			start: z.discriminatedUnion("kind", [
 				z.object({ kind: z.literal("rule-trigger") }).strict(),
 				z
@@ -376,10 +473,7 @@ const automationCommon = {
 	 */
 	setupOnlyCriteria: z.array(automationSetupOnlyCriterionSchema).max(100),
 	/** HQ-only server-modified age, deliberately outside `criteria`. */
-	serverModifiedBoundaryDays: z
-		.number()
-		.int()
-		.nonnegative()
+	serverModifiedBoundaryDays: persistableJsonNonnegativeIntegerSchema
 		.max(36_500)
 		.optional(),
 } as const;

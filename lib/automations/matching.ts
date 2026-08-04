@@ -5,7 +5,7 @@ import type {
 	BlueprintDoc,
 	Uuid,
 } from "@/lib/domain";
-import { assignedLocationUuids, personasOf } from "@/lib/domain";
+import { personasOf } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
 	and,
@@ -109,9 +109,8 @@ export function localOwnerIdsForLocation(
 	const ownerIds = new Set(locationIds);
 	for (const persona of Object.values(personasOf(doc))) {
 		if (
-			assignedLocationUuids(persona.locations).some((uuid) =>
-				locationIds.has(uuid),
-			)
+			persona.locations?.primaryUuid !== undefined &&
+			locationIds.has(persona.locations.primaryUuid)
 		) {
 			ownerIds.add(persona.uuid);
 		}
@@ -133,7 +132,6 @@ export function automationMatchProjection(
 	const regexes: { property: string; pattern: string }[] = [];
 	const closedParents: {
 		identifier: string;
-		parentCaseType: string;
 		relationship: "child" | "extension";
 	}[] = [];
 
@@ -153,7 +151,6 @@ export function automationMatchProjection(
 		if (criterion.kind === "closed-parent") {
 			closedParents.push({
 				identifier: criterion.identifier,
-				parentCaseType: criterion.parentCaseType,
 				relationship: criterion.relationship,
 			});
 			continue;

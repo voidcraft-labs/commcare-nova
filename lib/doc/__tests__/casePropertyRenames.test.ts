@@ -16,7 +16,12 @@ import {
 } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
+import {
+	buildReferenceIndex,
+	referencingSlotsOf,
+} from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { casePropertyTargetKey } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -190,6 +195,147 @@ describe("explicit app-wide case-property rename", () => {
 		expect(
 			cycle.caseTypes?.[0]?.properties.map((property) => property.name),
 		).toEqual(["b", "c", "a"]);
+	});
+
+	it("rewrites every structured automation carrier and exact message token", () => {
+		const start = fixture();
+		const parentType = {
+			name: "household",
+			properties: [
+				{
+					name: "parent_a",
+					label: proseText("Parent A"),
+					data_type: "text" as const,
+				},
+			],
+		};
+		const patient = start.caseTypes?.[0];
+		if (patient === undefined) throw new Error("missing patient type");
+		patient.parent_type = "household";
+		patient.relationship = "child";
+		start.caseTypes = [...(start.caseTypes ?? []), parentType];
+		const updateUuid = testUuid("rename-automation-update");
+		const updateItemUuid = testUuid("rename-automation-update-item");
+		const alertUuid = testUuid("rename-automation-alert");
+		start.automations = {
+			[updateUuid]: {
+				uuid: updateUuid,
+				kind: "case-update",
+				name: "Copy parent",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [
+					{
+						uuid: testUuid("rename-automation-criterion"),
+						kind: "match-property",
+						property: "a",
+						matchType: "has-value",
+					},
+				],
+				setupOnlyCriteria: [],
+				runOnSave: false,
+				updates: [
+					{
+						uuid: updateItemUuid,
+						target: { scope: "parent", property: "parent_a" },
+						value: {
+							kind: "case-property",
+							source: { scope: "case", property: "a" },
+						},
+					},
+				],
+				closeCase: false,
+			},
+			[alertUuid]: {
+				uuid: alertUuid,
+				kind: "conditional-alert",
+				name: "Patient alert",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				recipients: [
+					{
+						uuid: testUuid("rename-automation-recipient"),
+						kind: "case-property-email",
+						property: "a",
+					},
+				],
+				schedule: {
+					kind: "timed",
+					repeatEvery: 7,
+					totalIterations: 2,
+					startOffsetDays: 0,
+					startDayOfWeek: -1,
+					start: { kind: "case-property", property: "a" },
+					events: [
+						{
+							uuid: testUuid("rename-automation-event"),
+							day: 0,
+							timing: { kind: "case-property-time", property: "a" },
+							content: {
+								kind: "email",
+								subject: "For {case.a}",
+								message:
+									"{case.a} / {case.parent.parent_a} / {case.owner.name}",
+								htmlMessage: "<p>{case.a}</p>",
+							},
+						},
+					],
+				},
+				includeDescendantLocations: false,
+				locationLevelUuids: [],
+				userDataFilters: [],
+				useUserCaseForFilter: false,
+				resetCaseProperty: "a",
+				stopDateCaseProperty: "a",
+			},
+		};
+		start.automationOrder = [updateUuid, alertUuid];
+		start.refIndex = buildReferenceIndex(start);
+
+		const next = apply(
+			start,
+			admittedRename(
+				{ caseType: "patient", from: "a", to: "fresh" },
+				{ caseType: "household", from: "parent_a", to: "parent_fresh" },
+			),
+		);
+		const update = next.automations?.[updateUuid];
+		const alert = next.automations?.[alertUuid];
+		if (update?.kind !== "case-update" || alert?.kind !== "conditional-alert") {
+			throw new Error("missing renamed automations");
+		}
+		expect(update.criteria[0]).toMatchObject({ property: "fresh" });
+		expect(update.updates[0]).toMatchObject({
+			target: { scope: "parent", property: "parent_fresh" },
+			value: { source: { scope: "case", property: "fresh" } },
+		});
+		expect(alert.recipients[0]).toMatchObject({ property: "fresh" });
+		expect(alert.resetCaseProperty).toBe("fresh");
+		expect(alert.stopDateCaseProperty).toBe("fresh");
+		if (alert.schedule.kind !== "timed") throw new Error("wrong schedule");
+		expect(alert.schedule.start).toEqual({
+			kind: "case-property",
+			property: "fresh",
+		});
+		expect(alert.schedule.events[0]?.timing).toEqual({
+			kind: "case-property-time",
+			property: "fresh",
+		});
+		const content = alert.schedule.events[0]?.content;
+		if (content?.kind !== "email") throw new Error("wrong content");
+		expect(content).toMatchObject({
+			subject: "For {case.fresh}",
+			message: "{case.fresh} / {case.parent.parent_fresh} / {case.owner.name}",
+			htmlMessage: "<p>{case.fresh}</p>",
+		});
+		expect(
+			referencingSlotsOf(next, casePropertyTargetKey("patient", "fresh")).get(
+				alertUuid,
+			),
+		).toContain("automation_template_property");
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 
 	it.each([

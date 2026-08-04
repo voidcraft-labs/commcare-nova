@@ -153,9 +153,11 @@ kind. A full update is only a boundary convenience: it diffs through
 uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
 schema.
 
-Read and successful write messages are explicit that Nova does not execute or
-install the automation. `getAutomations` derives its CommCare HQ setup guide
-from the current document on every call; no guide or match count is persisted.
+Read and successful add/update results are explicit that Nova does not execute
+or install the automation. They derive the CommCare HQ setup guide and local
+matching omissions from one authorized organization/document snapshot;
+removal returns only its deletion receipt. No guide or match count is
+persisted, and MCP does not pretend to return the Builder-only Preview count.
 The prompt sends the SA to this family and forbids promising Preview execution,
 message delivery, schedule progress, or HQ installation. MCP registers the
 same four tool objects through `sharedToolRegistry`, with identity pointers for

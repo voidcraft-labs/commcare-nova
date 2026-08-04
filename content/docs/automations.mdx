@@ -37,6 +37,11 @@ explicit recipients. Supported content includes SMS, email, SMS survey,
 Connect messages and surveys, and instance-registered custom content. A timed
 schedule can start when the rule matches, on a fixed date, or from a case date
 property; negative repeat values mean months and positive values mean days.
+Survey definitions include their 1–168 hour expiration, reminder intervals,
+partial-submission choice, and whether partial submissions carry case updates.
+Historical IVR definitions additionally preserve the maximum attempts per
+question. Email setup guidance prints both the exact plain-text body and the
+exact optional HTML body.
 
 The setup guide points to **Messaging → Conditional Alerts**. Conditional
 alerts require **Reminders Framework** (Standard or higher). SMS delivery also

@@ -1111,10 +1111,14 @@ function createMutationSchema({
 			uuid: uuidSchema,
 			patch: z
 				.object({
-					repeatEvery: z.number().int().min(-120).max(3_650).optional(),
-					totalIterations: z.number().int().min(-1).max(100_000).optional(),
-					startOffsetDays: z.number().int().min(-36_500).max(36_500).optional(),
-					startDayOfWeek: z.number().int().min(-1).max(6).optional(),
+					repeatEvery:
+						automationScheduleSchema.options[1].shape.repeatEvery.optional(),
+					totalIterations:
+						automationScheduleSchema.options[1].shape.totalIterations.optional(),
+					startOffsetDays:
+						automationScheduleSchema.options[1].shape.startOffsetDays.optional(),
+					startDayOfWeek:
+						automationScheduleSchema.options[1].shape.startDayOfWeek.optional(),
 					start: automationScheduleSchema.options[1].shape.start.optional(),
 				})
 				.strict()
