@@ -49,7 +49,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { FieldKind } from "@/lib/domain";
+import type { Automation, FieldKind } from "@/lib/domain";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -1647,5 +1647,96 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(s);
 		expect(s.modules[s.moduleOrder[0]]?.name).toBe("Renamed Module");
 		expect(toastStore.toasts).toHaveLength(0);
+	});
+
+	it("atomically refuses stale full automation replacement and removal", () => {
+		const automationUuid = testUuid("hook-automation");
+		const updateUuid = testUuid("hook-automation-update");
+		const automation: Automation = {
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Original rule",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			runOnSave: false,
+			updates: [
+				{
+					uuid: updateUuid,
+					target: { scope: "case", property: "state" },
+					value: { kind: "literal", value: "resolved" },
+				},
+			],
+			closeCase: false,
+		};
+		const automationDoc: BlueprintDoc = {
+			...bp,
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{
+							name: "state",
+							label: proseText("State"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			automations: { [automationUuid]: automation },
+			automationOrder: [automationUuid],
+		};
+		function automationWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: automationWrapper },
+		);
+		const openedFingerprint = JSON.stringify(automation);
+
+		act(() => {
+			result.current.mutations.updateAutomation({
+				uuid: automationUuid,
+				targetKind: "case-update",
+				patch: { name: "Peer rename" },
+			});
+		});
+		let replaceOutcome!: ReturnType<
+			typeof result.current.mutations.replaceAutomation
+		>;
+		let removeOutcome!: ReturnType<
+			typeof result.current.mutations.removeAutomation
+		>;
+		act(() => {
+			replaceOutcome = result.current.mutations.replaceAutomation(
+				{ ...automation, name: "My rename" },
+				openedFingerprint,
+			);
+			removeOutcome = result.current.mutations.removeAutomation(
+				automationUuid,
+				openedFingerprint,
+			);
+		});
+
+		expect(replaceOutcome).toMatchObject({
+			ok: false,
+			messages: [expect.stringContaining("changed while you were editing")],
+		});
+		expect(removeOutcome).toMatchObject({
+			ok: false,
+			messages: [expect.stringContaining("changed while you were editing")],
+		});
+		expect(
+			result.current.store?.getState().automations?.[automationUuid]?.name,
+		).toBe("Peer rename");
 	});
 });

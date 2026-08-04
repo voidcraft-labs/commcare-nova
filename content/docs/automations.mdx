@@ -19,6 +19,13 @@ property from the case, its parent, or its host. It can also close the case.
 Criteria can match case properties, require a closed parent, or limit the rule
 to cases owned by one place or its descendants.
 
+The CommCare HQ form accepts one standard closed-parent condition and one
+owner-location condition per rule. It does not expose another case-index name
+or an extension relationship. Equality values and fixed update values are the
+exact nonblank text HQ stores: omit surrounding whitespace and matching outer
+quotes. Regular expressions must be nonempty and stay inside Nova's portable
+HQ/Postgres subset.
+
 The setup guide points to **Data → Edit Data → Automatic Case Update Rules**.
 These rules require CommCare HQ's **Data Cleanup** privilege (Pro or higher).
 CommCare HQ's hourly task visits each project space once each day, at midnight
@@ -46,6 +53,10 @@ Survey definitions include their 1–168 hour expiration, reminder intervals,
 partial-submission choice, and whether partial submissions carry case updates.
 Reminder intervals must total less than the expiration window; the case-update
 option is available only when partial submission is on.
+For a timed schedule, **Restart when this case property changes** is available
+only when the schedule starts from the rule trigger. In the HQ guide, a single
+zero-delay immediate event selects **Immediately**; delayed or repeated
+immediate events select **Custom Immediate Schedule**.
 Historical IVR definitions additionally preserve the maximum attempts per
 question. Email setup guidance prints both the exact plain-text body and the
 exact optional HTML body.
@@ -58,9 +69,12 @@ configurations but refuses new activation, so Nova makes that refusal visible
 instead of presenting those types as deployable choices.
 
 Recipient filters can use the app's custom worker information or the user case.
-Message templates may use case, owner, parent, host, and recipient values. A
-custom recipient or content handler must already be registered on the target HQ
-instance; Nova cannot create one.
+Message templates may use case, owner, parent, host, and recipient values. HQ's
+current alert form has no representable web-user recipient. Connect messages
+and surveys also cannot target the matched case, parent case, all child cases,
+an email stored on the case, or a case group; Nova refuses those combinations
+before save. A custom recipient or content handler must already be registered
+on the target HQ instance; Nova cannot create one.
 
 ## Current matches
 
@@ -74,6 +88,10 @@ equivalent: a UCR filter, an instance-registered custom criterion, and HQ's
 server-modified age. Store those as setup-only instructions. When a rule mixes
 countable and setup-only criteria, the screen names every omitted part beside
 the count instead of presenting a partial count as complete.
+
+Preview follows HQ's value typing at this boundary: surrounding whitespace is
+blank for **has value / has no value**, and regular expressions test strings
+only rather than coercing numbers or booleans to text.
 
 Closed cases are always excluded. A rule with no ordinary criteria is valid;
 for example, a claim-cleanup rule can use only HQ's server-modified boundary and

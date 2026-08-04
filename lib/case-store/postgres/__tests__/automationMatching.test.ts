@@ -64,6 +64,12 @@ beforeEach(async () => {
 		 ('01890f45-0000-7000-8000-000000000104', $2, $3, 'facility-a',
 		  'visit', 'Closed child', 'closed', now(),
 		  '{"code":"ABC-999"}'::jsonb),
+		 ('01890f45-0000-7000-8000-000000000106', $2, $3, 'facility-a',
+		  'visit', 'Whitespace code', 'open', null,
+		  '{"code":" \\t\\n"}'::jsonb),
+		 ('01890f45-0000-7000-8000-000000000107', $2, $3, 'facility-a',
+		  'visit', 'Numeric code', 'open', null,
+		  '{"code":123}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000105', 'automation-foreign', $4,
 		  'facility-a', 'visit', 'Other tenant', 'open', null,
 		  '{"code":"ABC-777"}'::jsonb)`,
@@ -105,8 +111,9 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: openAtFacility,
 				automationCriteria: {
-					operator: "all",
+					operator: "all" as const,
 					regexes: [{ property: "code", pattern: "ABC-[0-9]+" }],
+					blankness: [],
 					closedParents: [
 						{
 							identifier: "parent",
@@ -126,6 +133,7 @@ describe("automation criteria SQL", () => {
 				automationCriteria: {
 					operator: "any",
 					regexes: [{ property: "code", pattern: "never" }],
+					blankness: [],
 					closedParents: [
 						{
 							identifier: "parent",
@@ -135,5 +143,49 @@ describe("automation criteria SQL", () => {
 				},
 			}),
 		).resolves.toBe(2);
+	});
+
+	it("matches HQ whitespace blankness and runs regex only on strings", async () => {
+		const caseStore = store();
+		const base = {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas,
+			predicate: eq(prop("visit", "status"), literal("open")),
+		} as const;
+
+		await expect(
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					regexes: [],
+					blankness: [{ property: "code", hasValue: false }],
+					closedParents: [],
+				},
+			}),
+		).resolves.toBe(1);
+		await expect(
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					regexes: [],
+					blankness: [{ property: "code", hasValue: true }],
+					closedParents: [],
+				},
+			}),
+		).resolves.toBe(3);
+		await expect(
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					regexes: [{ property: "code", pattern: "[0-9]+" }],
+					blankness: [],
+					closedParents: [],
+				},
+			}),
+		).resolves.toBe(0);
 	});
 });

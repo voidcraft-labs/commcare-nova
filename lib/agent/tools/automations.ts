@@ -166,7 +166,6 @@ export const addAutomationsTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
 		try {
-			const locations = (await readOrganization(scope(ctx))).locations;
 			const existing = new Set<string>();
 			for (const automation of input.automations) {
 				for (const uuid of allIdentities(automation)) {
@@ -201,6 +200,7 @@ export const addAutomationsTool = {
 			}
 			const commit = await guardedMutate(ctx, doc, mutations, "automations");
 			if (!commit.ok) return mutationError(doc, commit.error);
+			const locations = (await readOrganization(scope(ctx))).locations;
 			const names = input.automations.map((automation) => automation.name);
 			return {
 				kind: "mutate",
@@ -233,7 +233,6 @@ export const updateAutomationTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
 		try {
-			const locations = (await readOrganization(scope(ctx))).locations;
 			const before = ownRecordValue(doc.automations, input.automation.uuid);
 			if (before === undefined) {
 				return mutationError(
@@ -253,6 +252,7 @@ export const updateAutomationTool = {
 			});
 			const mutations = diffDocsToMutations(doc, next);
 			if (mutations.length === 0) {
+				const locations = (await readOrganization(scope(ctx))).locations;
 				return {
 					kind: "mutate",
 					mutations: [],
@@ -267,17 +267,28 @@ export const updateAutomationTool = {
 			}
 			const commit = await guardedMutate(ctx, doc, mutations, "automations");
 			if (!commit.ok) return mutationError(doc, commit.error);
+			const committedAutomation = ownRecordValue(
+				commit.newDoc.automations,
+				input.automation.uuid,
+			);
+			if (committedAutomation === undefined) {
+				return mutationError(
+					commit.newDoc,
+					"The automation changed concurrently and is no longer available.",
+				);
+			}
+			const locations = (await readOrganization(scope(ctx))).locations;
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Updated automation "${input.automation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
+					message: `Updated automation "${committedAutomation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
 					automationUuids: [input.automation.uuid],
 					setupGuides: [
-						setupGuideResult(commit.newDoc, input.automation, locations),
+						setupGuideResult(commit.newDoc, committedAutomation, locations),
 					],
-					summary: { subject: input.automation.name },
+					summary: { subject: committedAutomation.name },
 				},
 			};
 		} catch (error) {

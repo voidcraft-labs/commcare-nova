@@ -36,6 +36,18 @@ export const AUTOMATION_PROPERTY_MATCH_TYPES = [
 export type AutomationPropertyMatchType =
 	(typeof AUTOMATION_PROPERTY_MATCH_TYPES)[number];
 
+function isCanonicalHqCasePropertyValue(value: string): boolean {
+	const trimmed = value.trim();
+	const first = trimmed[0];
+	const unquoted =
+		trimmed.length >= 2 &&
+		(first === "'" || first === '"') &&
+		trimmed.at(-1) === first
+			? trimmed.slice(1, -1).trim()
+			: trimmed;
+	return unquoted.length > 0 && value === unquoted;
+}
+
 export interface AutomationTemplateCasePropertyToken {
 	readonly start: number;
 	readonly end: number;
@@ -164,9 +176,23 @@ export const propertyMatchCriterionSchema = z
 			});
 		}
 		if (
+			(criterion.matchType === "equal" ||
+				criterion.matchType === "not-equal") &&
+			criterion.value !== undefined &&
+			!isCanonicalHqCasePropertyValue(criterion.value)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["value"],
+				message:
+					"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
+			});
+		}
+		if (
 			criterion.matchType === "regex" &&
 			criterion.value !== undefined &&
-			!isPortableAutomationRegex(criterion.value)
+			(criterion.value.length === 0 ||
+				!isPortableAutomationRegex(criterion.value))
 		) {
 			ctx.addIssue({
 				code: "custom",
@@ -181,9 +207,6 @@ export const closedParentCriterionSchema = z
 	.object({
 		uuid: uuidSchema,
 		kind: z.literal("closed-parent"),
-		/** HQ's case-index identifier, normally `parent` or `host`. */
-		identifier: z.string().min(1).max(126),
-		relationship: z.enum(["child", "extension"]),
 	})
 	.strict();
 
@@ -217,7 +240,12 @@ export type AutomationPropertyTarget = z.infer<
 export const automationUpdateValueSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("literal"), value: z.string().max(4_096) })
-		.strict(),
+		.strict()
+		.refine((value) => isCanonicalHqCasePropertyValue(value.value), {
+			path: ["value"],
+			message:
+				"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
+		}),
 	z
 		.object({
 			kind: z.literal("case-property"),
@@ -265,7 +293,7 @@ export const automationRecipientSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			uuid: uuidSchema,
-			kind: z.enum(["mobile-worker", "web-user", "user-group", "case-group"]),
+			kind: z.enum(["mobile-worker", "user-group", "case-group"]),
 			hqId: z.string().min(1).max(255),
 		})
 		.strict(),
@@ -813,6 +841,90 @@ const automationCommon = {
 		.optional(),
 } as const;
 
+function validateHtmlCriteriaShape(
+	automation: { readonly criteria: readonly AutomationCriterion[] },
+	ctx: z.RefinementCtx,
+): void {
+	const closedParents = automation.criteria.filter(
+		(criterion) => criterion.kind === "closed-parent",
+	);
+	if (closedParents.length > 1) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["criteria"],
+			message:
+				"CommCare HQ's setup form accepts only one closed-parent condition.",
+		});
+	}
+	const locations = automation.criteria.filter(
+		(criterion) => criterion.kind === "location",
+	);
+	if (locations.length > 1) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["criteria"],
+			message:
+				"CommCare HQ's setup form accepts only one owner-location condition.",
+		});
+	}
+}
+
+const CONNECT_INCOMPATIBLE_RECIPIENT_KINDS = new Set<
+	AutomationRecipient["kind"]
+>([
+	"self",
+	"parent-case",
+	"all-child-cases",
+	"case-property-email",
+	"case-group",
+]);
+
+export function automationRecipientSupportsConnect(
+	kind: AutomationRecipient["kind"],
+): boolean {
+	return !CONNECT_INCOMPATIBLE_RECIPIENT_KINDS.has(kind);
+}
+
+function validateConditionalAlert(
+	automation: {
+		readonly criteria: readonly AutomationCriterion[];
+		readonly recipients: readonly AutomationRecipient[];
+		readonly schedule: AutomationSchedule;
+		readonly resetCaseProperty?: string;
+	},
+	ctx: z.RefinementCtx,
+): void {
+	validateHtmlCriteriaShape(automation, ctx);
+	const usesConnect = automation.schedule.events.some(
+		(event) =>
+			event.content.kind === "connect-message" ||
+			event.content.kind === "connect-survey",
+	);
+	if (usesConnect) {
+		for (const [index, recipient] of automation.recipients.entries()) {
+			if (!automationRecipientSupportsConnect(recipient.kind)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["recipients", index, "kind"],
+					message: `${recipient.kind} recipients cannot receive Connect messages or surveys in CommCare HQ.`,
+				});
+			}
+		}
+	}
+	if (
+		automation.resetCaseProperty !== undefined &&
+		automation.schedule.kind === "timed" &&
+		automation.schedule.start.kind !== "rule-trigger"
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["resetCaseProperty"],
+			message:
+				"CommCare HQ can restart a timed schedule only when it starts from the rule trigger.",
+		});
+	}
+}
+
 export const automationSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
@@ -823,6 +935,7 @@ export const automationSchema = z.discriminatedUnion("kind", [
 			closeCase: z.boolean(),
 		})
 		.strict()
+		.superRefine(validateHtmlCriteriaShape)
 		.refine((rule) => rule.closeCase || rule.updates.length > 0, {
 			message:
 				"A case-update rule must close the case or write at least one property.",
@@ -841,7 +954,8 @@ export const automationSchema = z.discriminatedUnion("kind", [
 			resetCaseProperty: z.string().min(1).max(126).optional(),
 			stopDateCaseProperty: z.string().min(1).max(126).optional(),
 		})
-		.strict(),
+		.strict()
+		.superRefine(validateConditionalAlert),
 ]);
 export type Automation = z.infer<typeof automationSchema>;
 

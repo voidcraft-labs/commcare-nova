@@ -63,6 +63,7 @@ import {
 	type AutomationSchedule,
 	type AutomationTimedEvent,
 	asUuid,
+	automationRecipientSupportsConnect,
 	automationSchema,
 	automationTimedScheduleSetupForm,
 	type CaseType,
@@ -92,7 +93,6 @@ const RECIPIENT_KINDS: readonly [AutomationRecipient["kind"], string][] = [
 	["case-property-email", "Email in a case property"],
 	["location", "Location"],
 	["mobile-worker", "Mobile worker in CommCare HQ"],
-	["web-user", "Web user in CommCare HQ"],
 	["user-group", "User group in CommCare HQ"],
 	["case-group", "Case group in CommCare HQ"],
 	["custom", "Registered custom recipient"],
@@ -533,8 +533,8 @@ function AutomationEditor({
 		}
 		const result =
 			state.kind === "new"
-				? mutations.addAutomation(parsed.data)
-				: mutations.replaceAutomation(parsed.data);
+				? mutations.inline.addAutomation(parsed.data)
+				: mutations.inline.replaceAutomation(parsed.data, state.opened);
 		if (!result.ok) {
 			setError(
 				result.messages[0] ??
@@ -557,7 +557,10 @@ function AutomationEditor({
 			);
 			return;
 		}
-		const result = mutations.removeAutomation(state.automation.uuid);
+		const result = mutations.inline.removeAutomation(
+			state.automation.uuid,
+			state.opened,
+		);
 		if (result.ok) onRemoved();
 		else
 			setError(result.messages[0] ?? "Nova couldn't remove this automation.");
@@ -938,8 +941,18 @@ function ConditionsEditor({
 	locations: readonly StoredLocation[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const hasClosedParent = automation.criteria.some(
+		(criterion) => criterion.kind === "closed-parent",
+	);
+	const hasLocation = automation.criteria.some(
+		(criterion) => criterion.kind === "location",
+	);
 	const add = (kind: AutomationCriterion["kind"]) => {
-		if (kind === "location" && locations[0] === undefined) return;
+		if (
+			(kind === "closed-parent" && hasClosedParent) ||
+			(kind === "location" && (hasLocation || locations[0] === undefined))
+		)
+			return;
 		onEdit((draft) => {
 			draft.criteria.push(
 				kind === "match-property"
@@ -953,8 +966,6 @@ function ConditionsEditor({
 						? {
 								uuid: uuid(),
 								kind,
-								identifier: "parent",
-								relationship: "child",
 							}
 						: {
 								uuid: uuid(),
@@ -995,8 +1006,6 @@ function ConditionsEditor({
 													? {
 															uuid: current.uuid,
 															kind,
-															identifier: "parent",
-															relationship: "child",
 														}
 													: {
 															uuid: current.uuid,
@@ -1008,13 +1017,18 @@ function ConditionsEditor({
 								}
 								options={[
 									["match-property", "Case property"],
-									["closed-parent", "Closed parent or host"],
+									[
+										"closed-parent",
+										"Closed parent",
+										hasClosedParent && criterion.kind !== "closed-parent",
+									],
 									[
 										"location",
 										locations.length === 0
 											? "Owner location (add a place first)"
 											: "Owner location",
-										locations.length === 0,
+										locations.length === 0 ||
+											(hasLocation && criterion.kind !== "location"),
 									],
 								]}
 							/>
@@ -1042,7 +1056,7 @@ function ConditionsEditor({
 												if (item?.kind !== "match-property") return;
 												item.matchType = matchType as typeof item.matchType;
 												if (["equal", "not-equal", "regex"].includes(matchType))
-													item.value = "";
+													item.value = matchType === "regex" ? ".*" : "value";
 												else delete item.value;
 												if (matchType.startsWith("date-")) item.days = 0;
 												else delete item.days;
@@ -1099,36 +1113,10 @@ function ConditionsEditor({
 							</>
 						)}
 						{criterion.kind === "closed-parent" && (
-							<>
-								<Labeled label="Index name">
-									<Input
-										value={criterion.identifier}
-										onChange={(event) =>
-											onEdit((draft) => {
-												const item = draft.criteria[index];
-												if (item?.kind === "closed-parent")
-													item.identifier = event.target.value;
-											})
-										}
-									/>
-								</Labeled>
-								<Labeled label="Relationship">
-									<Choice
-										value={criterion.relationship}
-										onChange={(value) =>
-											onEdit((draft) => {
-												const item = draft.criteria[index];
-												if (item?.kind === "closed-parent")
-													item.relationship = value as "child" | "extension";
-											})
-										}
-										options={[
-											["child", "Child"],
-											["extension", "Extension"],
-										]}
-									/>
-								</Labeled>
-							</>
+							<p className="self-center text-[12px] leading-relaxed text-nova-text-secondary">
+								CommCare HQ checks its standard parent link. Its setup form does
+								not expose custom index names or extension relationships.
+							</p>
 						)}
 						{criterion.kind === "location" && (
 							<>
@@ -1186,6 +1174,7 @@ function ConditionsEditor({
 				<Button
 					type="button"
 					variant="outline"
+					disabled={hasClosedParent}
 					onClick={() => add("closed-parent")}
 				>
 					<Icon icon={tablerPlus} />
@@ -1194,7 +1183,7 @@ function ConditionsEditor({
 				<Button
 					type="button"
 					variant="outline"
-					disabled={locations.length === 0}
+					disabled={locations.length === 0 || hasLocation}
 					onClick={() => add("location")}
 				>
 					<Icon icon={tablerPlus} />
@@ -1334,7 +1323,7 @@ function CaseUpdateEditor({
 										if (!item) return;
 										item.value =
 											kind === "literal"
-												? { kind, value: "" }
+												? { kind, value: "value" }
 												: {
 														kind: "case-property",
 														source: { scope: "case", property: "case_name" },
@@ -1423,7 +1412,7 @@ function CaseUpdateEditor({
 							draft.updates.push({
 								uuid: uuid(),
 								target: { scope: "case", property: "case_name" },
-								value: { kind: "literal", value: "" },
+								value: { kind: "literal", value: "value" },
 							});
 					})
 				}
@@ -1462,7 +1451,7 @@ function recipientFor(
 		return locations[0]
 			? { uuid: id, kind, locationUuid: asUuid(locations[0].id) }
 			: undefined;
-	if (["mobile-worker", "web-user", "user-group", "case-group"].includes(kind))
+	if (["mobile-worker", "user-group", "case-group"].includes(kind))
 		return {
 			uuid: id,
 			kind,
@@ -1517,6 +1506,14 @@ function AlertEditor({
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const usesConnect = automation.schedule.events.some(
+		(event) =>
+			event.content.kind === "connect-message" ||
+			event.content.kind === "connect-survey",
+	);
+	const resetAllowed =
+		automation.schedule.kind === "immediate" ||
+		automation.schedule.start.kind === "rule-trigger";
 	return (
 		<div className="flex flex-col gap-6">
 			<Section title="Recipients">
@@ -1543,13 +1540,20 @@ function AlertEditor({
 												}
 											});
 									}}
-									options={RECIPIENT_KINDS.map(([kind, label]) => [
-										kind,
-										kind === "location" && locations.length === 0
-											? "Location (add a place first)"
-											: label,
-										kind === "location" && locations.length === 0,
-									])}
+									options={RECIPIENT_KINDS.map(([kind, label]) => {
+										const connectBlocked =
+											usesConnect && !automationRecipientSupportsConnect(kind);
+										return [
+											kind,
+											kind === "location" && locations.length === 0
+												? "Location (add a place first)"
+												: connectBlocked
+													? `${label} (not available for Connect)`
+													: label,
+											(kind === "location" && locations.length === 0) ||
+												connectBlocked,
+										] as const;
+									})}
 								/>
 							</Labeled>
 							{"property" in recipient && (
@@ -1638,7 +1642,10 @@ function AlertEditor({
 					onClick={() =>
 						onEdit((draft) => {
 							if (draft.kind === "conditional-alert")
-								draft.recipients.push({ uuid: uuid(), kind: "self" });
+								draft.recipients.push({
+									uuid: uuid(),
+									kind: usesConnect ? "owner" : "self",
+								});
 						})
 					}
 				>
@@ -1780,8 +1787,16 @@ function AlertEditor({
 					<Icon icon={tablerPlus} />
 					Recipient filter
 				</Button>
-				<Labeled label="Restart when this case property changes">
+				<Labeled
+					label="Restart when this case property changes"
+					hint={
+						resetAllowed
+							? undefined
+							: "CommCare HQ enables this only when a timed schedule starts from the rule trigger"
+					}
+				>
 					<Input
+						disabled={!resetAllowed}
 						value={automation.resetCaseProperty ?? ""}
 						onChange={(event) =>
 							onEdit((draft) => {
@@ -1826,6 +1841,9 @@ function ScheduleEditor({
 		schedule.kind === "timed"
 			? automationTimedScheduleSetupForm(schedule)
 			: undefined;
+	const connectRecipientBlocked = automation.recipients.some(
+		(recipient) => !automationRecipientSupportsConnect(recipient.kind),
+	);
 	const setSchedule = (kind: AutomationSchedule["kind"]) =>
 		onEdit((draft) => {
 			if (draft.kind !== "conditional-alert") return;
@@ -1929,12 +1947,17 @@ function ScheduleEditor({
 						const needsForm = ["sms-survey", "ivr", "connect-survey"].includes(
 							kind,
 						);
+						const connectBlocked =
+							(kind === "connect-message" || kind === "connect-survey") &&
+							connectRecipientBlocked;
 						return [
 							kind,
 							needsForm && forms.length === 0
 								? `${label} (add a form first)`
-								: label,
-							needsForm && forms.length === 0,
+								: connectBlocked
+									? `${label} (choose Connect-compatible recipients first)`
+									: label,
+							(needsForm && forms.length === 0) || connectBlocked,
 						] as const;
 					})}
 				/>
@@ -2082,6 +2105,9 @@ function ScheduleEditor({
 														kind: "specific-date",
 														date,
 													};
+									if (kind !== "rule-trigger") {
+										delete draft.resetCaseProperty;
+									}
 									if (kind === "specific-date") {
 										draft.schedule.startOffsetDays = 0;
 										if (timedSetupForm === "weekly") {

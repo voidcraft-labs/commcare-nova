@@ -36,7 +36,7 @@ function describeCriterion(
 	locations: readonly StoredLocation[],
 ): string {
 	if (criterion.kind === "closed-parent") {
-		return `The ${criterion.identifier} ${criterion.relationship} index points to a closed related case.`;
+		return "The case's parent case is closed.";
 	}
 	if (criterion.kind === "location") {
 		return `The case owner belongs to ${locationName(locations, criterion.locationUuid)}${criterion.includeDescendants ? " or one of its descendants" : ""}.`;
@@ -80,8 +80,6 @@ function describeRecipient(
 			return `Location ${locationName(locations, recipient.locationUuid)}`;
 		case "mobile-worker":
 			return `Mobile worker ${recipient.hqId}`;
-		case "web-user":
-			return `Web user ${recipient.hqId}`;
 		case "user-group":
 			return `User group ${recipient.hqId}`;
 		case "case-group":
@@ -235,6 +233,10 @@ export function buildAutomationSetupGuide(
 	);
 	if (automation.schedule.kind === "immediate") {
 		steps.push(
+			automation.schedule.events.length === 1 &&
+				automation.schedule.events[0]?.minutesToWait === 0
+				? "Choose Immediately."
+				: "Choose Custom Immediate Schedule so CommCare HQ exposes the delayed event rows.",
 			...automation.schedule.events.map(
 				(event, index) =>
 					`Immediate event ${index + 1}: wait ${event.minutesToWait} minutes after the previous event, then send ${describeContent(event.content, doc)}.`,

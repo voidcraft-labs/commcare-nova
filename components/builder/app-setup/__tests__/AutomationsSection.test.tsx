@@ -94,6 +94,11 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 		addAutomation: mocks.addAutomation,
 		replaceAutomation: mocks.replaceAutomation,
 		removeAutomation: mocks.removeAutomation,
+		inline: {
+			addAutomation: mocks.addAutomation,
+			replaceAutomation: mocks.replaceAutomation,
+			removeAutomation: mocks.removeAutomation,
+		},
 	}),
 }));
 vi.mock("@/lib/organization/useOrganization", () => ({
@@ -188,6 +193,23 @@ describe("AutomationsSection", () => {
 			"Enter an automation name.",
 		);
 		expect(mocks.addAutomation).not.toHaveBeenCalled();
+	});
+
+	it("allows more property conditions but only one closed-parent condition", () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		const propertyButton = screen.getByRole("button", {
+			name: "Property condition",
+		});
+		const closedParentButton = screen.getByRole("button", {
+			name: "Closed parent",
+		});
+
+		fireEvent.click(closedParentButton);
+
+		expect(propertyButton.hasAttribute("disabled")).toBe(false);
+		expect(closedParentButton.hasAttribute("disabled")).toBe(true);
+		expect(screen.getByText(/standard parent link/i)).toBeDefined();
 	});
 
 	it("keeps survey partial-submission controls valid and explains reminder refusal", async () => {
@@ -328,6 +350,25 @@ describe("AutomationsSection", () => {
 		expect(mocks.removeAutomation).not.toHaveBeenCalled();
 	});
 
+	it("passes the opened fingerprint to the atomic replacement", async () => {
+		mocks.automations = [rule];
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "My rename" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "My rename" }),
+			JSON.stringify(rule),
+		);
+	});
+
 	it("returns focus to Add automation after removal", async () => {
 		mocks.automations = [rule];
 		render(<AutomationsSection />);
@@ -344,6 +385,9 @@ describe("AutomationsSection", () => {
 				screen.getByRole("button", { name: "Add automation" }),
 			),
 		);
-		expect(mocks.removeAutomation).toHaveBeenCalledWith(RULE_UUID);
+		expect(mocks.removeAutomation).toHaveBeenCalledWith(
+			RULE_UUID,
+			JSON.stringify(rule),
+		);
 	});
 });

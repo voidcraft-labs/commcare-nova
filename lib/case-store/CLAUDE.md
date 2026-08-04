@@ -115,6 +115,13 @@ and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
 those omissions in the result. No case-store method updates a case, sends a
 message, or advances a schedule on an automation's behalf.
 
+Two property comparisons bypass the generic Predicate compiler to retain HQ's
+runtime value rules. **Has value / has no value** treats a string containing
+only whitespace as blank while non-string JSON scalars have a value. Regex uses
+HQ's beginning-anchored behavior and evaluates stored strings only; it never
+casts a number or boolean to text. Closed-parent is fixed to the standard
+depth-one `parent` child index accepted by HQ's setup form.
+
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
 Case data is shared at **Project** scope. Every tenant-bound

@@ -35,6 +35,15 @@ schedule starts, and user filters are similarly closed to shapes current HQ can
 represent. There is no generic payload arm and no draft or disabled-invalid
 state.
 
+The HTML form owns several less-obvious boundaries. A rule has at most one
+standard parent-closed criterion and one owner-location criterion; the parent
+criterion has no authored index or relationship. Equality and fixed-update
+literals are exact nonblank HQ values without whitespace normalization or outer
+quote syntax, and regex patterns are nonempty. The recipient union has no web
+user, and Connect content refuses self, parent-case, all-child-cases,
+case-property-email, and case-group recipients. A timed reset property requires
+a rule-trigger start.
+
 Every schedule uses the HQ form's one content type. Timed schedules use the
 runtime's day/repeat encoding but must project into one actual HQ setup form.
 Positive schedules without a start weekday are Custom
@@ -45,6 +54,11 @@ Custom Daily days are stored zero-based and projected as one-based HQ event-row
 values; Monthly days are already the UI's 1–28 / -3–-1 values. Survey reminder
 totals stay strictly below expiration, and partial case updates imply partial
 submission.
+
+The derived local matcher keeps HQ's value distinctions that the ordinary
+Predicate AST cannot express: whitespace-only strings are blank, and regexes
+run only against actual string values. It fixes closed-parent matching to HQ's
+standard `parent` child index.
 
 The domain records intent only. `lib/automations` derives the current-match
 projection and manual HQ setup guide; neither belongs in the document.

@@ -451,11 +451,14 @@ export interface BlueprintMutations {
 	/** Human-applied HQ automation authoring. Nested values already carry their
 	 * stable UUIDs; every subsequent item edit is a distinct merge unit. */
 	addAutomation: (automation: Automation) => AddCommitOutcome;
-	replaceAutomation: (automation: Automation) => CommitOutcome;
+	replaceAutomation: (
+		automation: Automation,
+		expectedFingerprint?: string,
+	) => CommitOutcome;
 	updateAutomation: (
 		mutation: Omit<Extract<Mutation, { kind: "updateAutomation" }>, "kind">,
 	) => CommitOutcome;
-	removeAutomation: (uuid: Uuid) => CommitOutcome;
+	removeAutomation: (uuid: Uuid, expectedFingerprint?: string) => CommitOutcome;
 	editAutomationItem: (
 		automationUuid: Uuid,
 		edit: Extract<Mutation, { kind: "editAutomationItem" }>["edit"],
@@ -734,6 +737,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			} => {
 				const messages = [
 					"Connect participation must be changed through the app-wide Connect configuration.",
+				];
+				if (announce) notifyRejectedCommit(messages);
+				return { ok: false, messages };
+			};
+			const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
+				const messages = [
+					"This automation changed while you were editing it. Close and reopen it to review the latest version.",
 				];
 				if (announce) notifyRejectedCommit(messages);
 				return { ok: false, messages };
@@ -1368,11 +1378,17 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					return { ok: true, uuid };
 				},
 
-				replaceAutomation(automation) {
+				replaceAutomation(automation, expectedFingerprint) {
 					const before = ownRecordValue(get().automations, automation.uuid);
 					if (before === undefined) {
 						warnUnresolved("replaceAutomation", { uuid: automation.uuid });
 						return NOOP_REJECTION;
+					}
+					if (
+						expectedFingerprint !== undefined &&
+						JSON.stringify(before) !== expectedFingerprint
+					) {
+						return rejectAutomationConflict();
 					}
 					return toOutcome(
 						guardedApply(automationChangesForUpdate(before, automation)),
@@ -1389,10 +1405,17 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					);
 				},
 
-				removeAutomation(uuid) {
-					if (ownRecordValue(get().automations, uuid) === undefined) {
+				removeAutomation(uuid, expectedFingerprint) {
+					const before = ownRecordValue(get().automations, uuid);
+					if (before === undefined) {
 						warnUnresolved("removeAutomation", { uuid });
 						return NOOP_REJECTION;
+					}
+					if (
+						expectedFingerprint !== undefined &&
+						JSON.stringify(before) !== expectedFingerprint
+					) {
+						return rejectAutomationConflict();
 					}
 					return toOutcome(guardedApply([{ kind: "removeAutomation", uuid }]));
 				},

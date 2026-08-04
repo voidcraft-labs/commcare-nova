@@ -227,6 +227,7 @@ export type CountArgs =
 				operator: "all" | "any";
 				predicate?: Predicate;
 				regexes: readonly { property: string; pattern: string }[];
+				blankness: readonly { property: string; hasValue: boolean }[];
 				closedParents: readonly {
 					identifier: string;
 					relationship: "child" | "extension";

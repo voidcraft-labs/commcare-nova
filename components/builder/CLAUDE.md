@@ -239,12 +239,25 @@ installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. Copy acts on the derived text only.
 
+The editor makes the HQ form's cardinality and compatibility rules impossible
+to author: at most one standard closed-parent and one owner-location condition,
+no web-user recipient, no incompatible case-relative/email/case-group recipient
+with Connect content, and no timed reset property unless the start is the rule
+trigger. Closed-parent exposes no custom index or relationship. Exact HQ
+literal inputs start nonblank, and switching dependent schedule choices clears
+values the new form cannot save.
+
 The timed editor projects the canonical runtime encoding into one selectable HQ
 form (Custom Daily, Weekly, or Monthly). Content type and timing mode are schedule-wide; shared
 Weekly/Monthly timing and content edits fan out to every event. Human day fields
 use HQ's one-based Custom Daily values and exact Monthly day set. Dependent
 survey controls clear and disable the same way HQ's form does, while the domain
 gate remains the final cross-field authority.
+
+Save and Remove pass the editor's opening fingerprint to the hook. The hook
+compares it with the authoritative record in the same synchronous call that
+derives and applies the granular mutations; a peer edit between render and
+click is therefore refused instead of being overwritten or deleted.
 
 Responsive behavior is owned by the App setup container. The list and editor
 must remain usable at the 320px dock layout, and all repeated rows keep explicit

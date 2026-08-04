@@ -183,11 +183,16 @@ rest of the document.
 The vocabulary is closed to current `AutomaticUpdateRule` shapes. Ordinary
 criteria are HQ's nine `MatchPropertyDefinition` comparisons, closed-parent,
 and place-owner filters with `ALL` or `ANY`; server-modified age is a separate
-HQ switch. A case update may set case, parent, or host properties from a literal
+HQ switch. The HTML form permits one standard parent-closed condition and one
+owner-location condition, with no custom index or extension relationship.
+Equality and update literals are exact nonblank, unquoted stored values;
+regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. A conditional alert carries the
 closed case-relative/generic/custom recipient union, SMS/email/survey/Connect/
 registered-custom content, immediate or timed schedules, and optional
-user-data or usercase filters. IVR and SMS/callback survive only so a historical
+user-data or usercase filters. Web users are not representable recipients, and
+Connect content excludes the case-relative, case-property-email, and case-group
+recipients that HQ refuses. IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which
 the Builder and guide state rather than silently treating them as deployable.
 There is no push-notification arm and no untyped escape hatch
@@ -202,12 +207,16 @@ content form, with their exact repetition, offset, and day sets. The canonical
 zero-based Custom Daily day is projected to HQ's one-based event row, while a
 Monthly day already uses the UI's 1–28 or -3–-1 value. Survey reminder totals
 remain below expiration and partial case updates cannot be selected without
-partial submission.
+partial submission. Timed reset-on-property-change requires a rule-trigger
+start. Setup guidance selects **Immediately** only for one zero-delay event and
+**Custom Immediate Schedule** for delayed or repeated immediate events.
 
 Preview presents a read-only count over the same real open case rows used by the
 running app. Nova's AST-to-Kysely boundary can exactly lower the nine property
 comparisons, closed-parent relations, and place-owner sets; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
+Whitespace-only strings count as blank and regex evaluation applies only to
+stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age
 have no honest local evaluator, so they are explicit setup-only text and every
 omission is named beside a partial count. Preview never updates a case, sends a

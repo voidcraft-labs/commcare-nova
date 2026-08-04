@@ -19,7 +19,6 @@ import {
 	lt,
 	lte,
 	neq,
-	not,
 	or,
 	prop,
 	term,
@@ -51,9 +50,7 @@ function propertyCriterion(
 				neq(property, literal(criterion.value ?? "")),
 			);
 		case "has-value":
-			return not(isBlank(property));
 		case "has-no-value":
-			return isBlank(property);
 		case "regex":
 			return undefined;
 		case "date-days-before":
@@ -130,6 +127,7 @@ export function automationMatchProjection(
 ): AutomationMatchProjection {
 	const predicates: Predicate[] = [];
 	const regexes: { property: string; pattern: string }[] = [];
+	const blankness: { property: string; hasValue: boolean }[] = [];
 	const closedParents: {
 		identifier: string;
 		relationship: "child" | "extension";
@@ -142,6 +140,14 @@ export function automationMatchProjection(
 					property: criterion.property,
 					pattern: criterion.value ?? "",
 				});
+			} else if (
+				criterion.matchType === "has-value" ||
+				criterion.matchType === "has-no-value"
+			) {
+				blankness.push({
+					property: criterion.property,
+					hasValue: criterion.matchType === "has-value",
+				});
 			} else {
 				const lowered = propertyCriterion(automation.caseType, criterion);
 				if (lowered !== undefined) predicates.push(lowered);
@@ -150,8 +156,8 @@ export function automationMatchProjection(
 		}
 		if (criterion.kind === "closed-parent") {
 			closedParents.push({
-				identifier: criterion.identifier,
-				relationship: criterion.relationship,
+				identifier: "parent",
+				relationship: "child",
 			});
 			continue;
 		}
@@ -184,6 +190,7 @@ export function automationMatchProjection(
 	const hasCriteria =
 		groupedPredicate !== undefined ||
 		regexes.length > 0 ||
+		blankness.length > 0 ||
 		closedParents.length > 0;
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map((criterion) => criterion.text),
@@ -205,6 +212,7 @@ export function automationMatchProjection(
 						? {}
 						: { predicate: groupedPredicate }),
 					regexes,
+					blankness,
 					closedParents,
 				},
 			}),

@@ -744,15 +744,32 @@ export class PostgresCaseStore implements CaseStore {
 						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
 							criterion.property,
 						);
-						const value =
+						if (scalar !== undefined && !scalar.blankable) {
+							return sql<boolean>`false`;
+						}
+						const matches =
 							scalar === undefined
-								? sql`c.properties ->> ${criterion.property}`
-								: sql`${sql.ref(`c.${scalar.column}`)}::text`;
+								? sql<boolean>`jsonb_typeof(c.properties -> ${criterion.property}) = 'string'
+									and (c.properties ->> ${criterion.property}) ~ ${`^(?:${criterion.pattern})`}`
+								: sql<boolean>`coalesce(${sql.ref(`c.${scalar.column}`)}, '') ~ ${`^(?:${criterion.pattern})`}`;
 						return (
 							// HQ's REGEX uses Python `re.match`, anchored at the
-							// beginning. PostgreSQL `~` searches, so add the anchor.
-							sql<boolean>`coalesce(${value}, '') ~ ${`^(?:${criterion.pattern})`}`
+							// beginning, and only tests actual strings. PostgreSQL `~`
+							// searches, so add the anchor and keep JSON typing explicit.
+							matches
 						);
+					}),
+					...group.blankness.map((criterion) => {
+						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+							criterion.property,
+						);
+						const blank =
+							scalar === undefined
+								? sql<boolean>`coalesce(c.properties ->> ${criterion.property}, '') !~ ${"[^[:space:]]"}`
+								: scalar.blankable
+									? sql<boolean>`coalesce(${sql.ref(`c.${scalar.column}`)}, '') !~ ${"[^[:space:]]"}`
+									: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is null`;
+						return criterion.hasValue ? sql<boolean>`not (${blank})` : blank;
 					}),
 					...group.closedParents.map(
 						(criterion) => sql<boolean>`exists (

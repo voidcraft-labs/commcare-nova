@@ -310,14 +310,24 @@ freshly derived manual setup guidance plus the criteria omitted from local
 matching. Remove returns its deletion receipt only and leaves a rule already
 configured in HQ unchanged.
 
+The loaded schema mirrors the current HTML forms. Each rule accepts at most one
+standard closed-parent condition and one owner-location condition; the closed
+parent is HQ's normal parent link, not a caller-selected index or extension.
+Equality and fixed-update literals must be exact, nonblank, unquoted stored
+values, and regex patterns must be nonempty. Web users are not a recipient arm.
+Connect content also refuses matched-case, parent-case, all-child-cases,
+case-property-email, and case-group recipients.
+
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
 after the first wait at least five minutes. Custom Daily events use one timing mode and remain ordered; Weekly and Monthly schedules also
 share timing and content, with Monthly limited to days 1–28 and -3–-1. Random
 windows cannot overlap. Survey reminder intervals must total less than the
 expiration window, and case updates in partial submissions require partial
-submission itself. These are input-schema constraints shared by SA and MCP, not
-post-save warnings.
+submission itself. A timed restart property is valid only with a rule-trigger
+start. A single zero-delay immediate event maps to **Immediately**; any delayed
+or repeated immediate schedule maps to **Custom Immediate Schedule**. These are
+input-schema constraints shared by SA and MCP, not post-save warnings.
 
 Builder Preview may count current real case rows against ordinary property,
 closed-parent, and place-owner criteria. It never updates a case, sends a
@@ -326,6 +336,9 @@ criteria, and HQ server-modified age have no honest local evaluator; carry them
 as setup-only instructions. The Builder names those omissions beside its
 partial count; MCP automation results return the same omission list without
 pretending to return or execute a Preview count.
+For locally countable property criteria, whitespace-only strings are blank and
+regex matching applies only to stored strings; Nova does not coerce numeric or
+boolean case values to text.
 
 | Tool | What it does |
 |---|---|

@@ -242,6 +242,50 @@ describe("automation shared tools", () => {
 		]);
 	});
 
+	it("returns guidance from the merged committed rule after a concurrent edit", async () => {
+		const existing = doc();
+		existing.automations = { [RULE_UUID]: rule() };
+		existing.automationOrder = [RULE_UUID];
+		const ctx = makeCtx();
+		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
+			const committedDoc = structuredClone(prepared.nextDoc);
+			const committed = committedDoc.automations?.[RULE_UUID];
+			if (committed === undefined) throw new Error("missing automation");
+			committed.criteria = [
+				{
+					uuid: testUuid("peer-criterion"),
+					kind: "match-property",
+					property: "state",
+					matchType: "equal",
+					value: "peer-value",
+				},
+			];
+			return { events: [], committedDoc };
+		});
+		mocks.readOrganization.mockResolvedValue({ revision: "2", locations: [] });
+
+		const updated = await updateAutomationTool.execute(
+			{ automation: { ...rule(), name: "My rename" } },
+			ctx,
+			existing,
+		);
+
+		expect(updated.newDoc.automations?.[RULE_UUID]?.criteria).toEqual([
+			expect.objectContaining({ value: "peer-value" }),
+		]);
+		expect(updated.result).toMatchObject({
+			setupGuides: [
+				{
+					setupGuide: {
+						steps: expect.arrayContaining([
+							expect.stringContaining("peer-value"),
+						]),
+					},
+				},
+			],
+		});
+	});
+
 	it("refuses duplicate nested identities and kind changes without saving", async () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };

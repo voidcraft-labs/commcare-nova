@@ -159,11 +159,21 @@ event ordering/separation/windows, day/offset laws, and survey expiration plus
 partial-submission dependencies. These are domain refinements used by both SA
 and MCP; tools must not post-process or weaken them.
 
+The same schema admits only the HQ form's one standard closed-parent and one
+owner-location condition, canonical nonblank/unquoted equality and update
+literals, nonempty portable regexes, and its actual recipient compatibility.
+There is no web-user recipient; Connect content refuses the case-relative,
+case-property-email, and case-group arms HQ cannot save. A timed reset property
+requires a rule-trigger start.
+
 Read and successful add/update results are explicit that Nova does not execute
 or install the automation. They derive the CommCare HQ setup guide and local
 matching omissions from one authorized organization/document snapshot;
 removal returns only its deletion receipt. No guide or match count is
 persisted, and MCP does not pretend to return the Builder-only Preview count.
+Post-commit results derive the rule and guide from `commit.newDoc`, then read
+current locations, so a guarded concurrent merge cannot return stale setup
+guidance or stale names.
 The prompt sends the SA to this family and forbids promising Preview execution,
 message delivery, schedule progress, or HQ installation. MCP registers the
 same four tool objects through `sharedToolRegistry`, with identity pointers for

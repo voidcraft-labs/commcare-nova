@@ -134,7 +134,135 @@ describe("automation domain and projections", () => {
 		expect(projection.countArgs.automationCriteria?.regexes).toEqual([
 			{ property: "status_code", pattern: "A[0-9]+" },
 		]);
+		expect(projection.countArgs.automationCriteria?.blankness).toEqual([
+			{ property: "status_code", hasValue: true },
+			{ property: "status_code", hasValue: false },
+		]);
 		expect(projection.countArgs.automationCriteria?.predicate).toBeDefined();
+	});
+
+	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
+		const invalidValues = ["", "   ", " 'active' ", '"active"'];
+		for (const value of invalidValues) {
+			expect(
+				automationSchema.safeParse({
+					...claimCleanup(),
+					criteria: [
+						{
+							uuid: CRITERION_UUID,
+							kind: "match-property",
+							property: "status",
+							matchType: "equal",
+							value,
+						},
+					],
+				}).success,
+			).toBe(false);
+			expect(
+				automationSchema.safeParse({
+					...claimCleanup(),
+					updates: [
+						{
+							uuid: testUuid(`invalid-literal-${value}`),
+							target: { scope: "case", property: "status" },
+							value: { kind: "literal", value },
+						},
+					],
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				criteria: [
+					{
+						uuid: CRITERION_UUID,
+						kind: "match-property",
+						property: "status",
+						matchType: "regex",
+						value: "",
+					},
+				],
+			}).success,
+		).toBe(false);
+
+		const closedParent = (suffix: string) => ({
+			uuid: testUuid(`closed-parent-${suffix}`),
+			kind: "closed-parent" as const,
+		});
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				criteria: [closedParent("one"), closedParent("two")],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...claimCleanup(),
+				criteria: [
+					{
+						...closedParent("legacy"),
+						identifier: "host",
+						relationship: "extension",
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses unsupported Connect recipients and timed reset modes", () => {
+		const connect = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("connect-event"),
+					minutesToWait: 0,
+					content: { kind: "connect-message", message: "Hello" },
+				},
+			],
+		});
+		expect(automationSchema.safeParse(connect).success).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...connect,
+				recipients: [{ uuid: testUuid("connect-owner"), kind: "owner" }],
+			}).success,
+		).toBe(true);
+		expect(
+			automationSchema.safeParse({
+				...connect,
+				recipients: [
+					{
+						uuid: testUuid("removed-web-user"),
+						kind: "web-user",
+						hqId: "web-user-id",
+					},
+				],
+			}).success,
+		).toBe(false);
+
+		const timed = alertWithSchedule({
+			kind: "timed",
+			repeatEvery: 1,
+			totalIterations: 1,
+			startOffsetDays: 0,
+			startDayOfWeek: -1,
+			start: { kind: "case-property", property: "date_opened" },
+			events: [
+				{
+					uuid: testUuid("reset-timed-event"),
+					day: 0,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: { kind: "sms", message: "Hello" },
+				},
+			],
+		});
+		expect(
+			automationSchema.safeParse({
+				...timed,
+				resetCaseProperty: "state",
+			}).success,
+		).toBe(false);
 	});
 
 	it("expands a location to descendants and Preview personas", () => {
@@ -233,8 +361,6 @@ describe("automation domain and projections", () => {
 				{
 					uuid: testUuid("closed-parent-criterion"),
 					kind: "closed-parent",
-					identifier: "parent",
-					relationship: "child",
 				},
 			],
 			setupOnlyCriteria: [],
@@ -287,7 +413,8 @@ describe("automation domain and projections", () => {
 			[],
 		);
 		const text = [...guide.steps, ...emailGuide.steps].join(" ");
-		expect(text).toContain("closed related case");
+		expect(text).toContain("parent case is closed");
+		expect(text).toContain("Choose Immediately");
 		expect(text).toContain("expire after 72 hour(s)");
 		expect(text).toContain("30, 60 minute(s)");
 		expect(text).toContain("submit partially completed forms on");
@@ -296,6 +423,26 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("District");
 		expect(text).toContain("default language code to fr");
 		expect(text).toContain("Add no custom-user-data recipient filters");
+
+		const delayed = buildAutomationSetupGuide(
+			doc,
+			{
+				...alert,
+				uuid: testUuid("delayed-immediate-alert"),
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("delayed-immediate-event"),
+							minutesToWait: 5,
+							content: { kind: "sms", message: "Later" },
+						},
+					],
+				},
+			},
+			[],
+		).steps.join(" ");
+		expect(delayed).toContain("Choose Custom Immediate Schedule");
 	});
 
 	it("projects stored timed days into the exact HQ setup form values", () => {
