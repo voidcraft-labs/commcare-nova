@@ -58,7 +58,6 @@ import {
 	type Automation,
 	assignedLocationUuids,
 	automationsOf,
-	automationTemplateCasePropertyTokens,
 	type BlueprintDoc,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
@@ -526,14 +525,12 @@ function extractAutomationEdges(
 					? [event.content.message]
 					: [];
 		for (const template of templates) {
-			for (const token of automationTemplateCasePropertyTokens(template)) {
-				const caseType = automationScopeCaseType(doc, automation, token.scope);
-				if (caseType !== undefined) {
-					sink.edge(
-						casePropertyTargetKey(caseType, token.property),
-						"automation_template_property",
-					);
-				}
+			for (const part of template.parts) {
+				if (part.kind !== "case-property") continue;
+				sink.edge(
+					casePropertyTargetKey(part.caseType, part.property),
+					"automation_template_property",
+				);
 			}
 		}
 	}

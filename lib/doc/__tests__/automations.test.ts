@@ -6,7 +6,11 @@ import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
-import type { Automation, BlueprintDoc } from "@/lib/domain";
+import {
+	type Automation,
+	automationMessageText,
+	type BlueprintDoc,
+} from "@/lib/domain";
 
 const AUTOMATION_UUID = testUuid("doc-automation");
 const CONDITION_ONE = testUuid("doc-automation-condition-one");
@@ -168,7 +172,10 @@ describe("automation mutation replay", () => {
 					{
 						uuid: eventUuid,
 						minutesToWait: 5,
-						content: { kind: "sms", message: "Visit due" },
+						content: {
+							kind: "sms",
+							message: automationMessageText("Visit due"),
+						},
 					},
 				],
 			},
@@ -196,8 +203,11 @@ describe("automation mutation replay", () => {
 						timing: { kind: "specific-time", time: "09:30" },
 						content: {
 							kind: "email",
-							subject: "Due",
-							body: { kind: "plain-text", message: "Visit due" },
+							subject: automationMessageText("Due"),
+							body: {
+								kind: "plain-text",
+								message: automationMessageText("Visit due"),
+							},
 						},
 					},
 				],

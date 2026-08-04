@@ -257,6 +257,14 @@ that exclude siblings and disable Add when exhausted. Removing any repeated
 criterion, setup instruction, update, recipient, recipient filter, or event
 hands focus to the next or previous row action, then its Add action.
 
+Message subjects/bodies use the structural template editor. Literal controls
+never parse token-looking text; **Case property reference** inserts an explicit
+scope plus `(caseType, property)` identity part, removal canonicalizes adjacent literal runs, and Save
+refuses blank parts or unresolved properties. Registered custom IDs and HQ-only
+instructions start empty with descriptive placeholders. Every authored select
+passes `wrapValue`/`wrap`, so long place names and published
+`app > module > form` paths remain distinguishable in the narrow dialog.
+
 The editor makes the HQ form's cardinality and compatibility rules impossible
 to author: case updates expose value/date conditions on case, parent, or host
 properties plus at most one standard closed-parent condition; alerts expose

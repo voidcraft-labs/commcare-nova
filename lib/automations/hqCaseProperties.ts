@@ -1,5 +1,5 @@
 import {
-	automationTemplateCasePropertyTokens,
+	type AutomationMessageTemplate,
 	CASE_SCALAR_PROPERTY_NAMES,
 } from "@/lib/domain";
 
@@ -83,22 +83,20 @@ export function describeAutomationPropertyForHq(
 }
 
 /**
- * Project only the exact case-property template tokens Nova understands.
- * Other HQ template namespaces such as `{case.owner.name}` remain untouched.
- * Validation guarantees that every parsed token is projectable before a guide
- * can be saved.
+ * Project structural case-property atoms into HQ's template spelling.
+ * Literal text that happens to contain `{case.foo}` remains literal text.
+ * Validation guarantees every structural property is projectable before save.
  */
-export function projectAutomationTemplateForHq(template: string): string {
-	let cursor = 0;
-	let result = "";
-	for (const token of automationTemplateCasePropertyTokens(template)) {
-		result += template.slice(cursor, token.start);
-		const projected = projectAutomationPropertyForHq(token.property, "read");
-		result +=
-			projected === undefined
-				? template.slice(token.start, token.end)
-				: `{case.${token.scope === "case" ? "" : `${token.scope}.`}${projected}}`;
-		cursor = token.end;
-	}
-	return result + template.slice(cursor);
+export function projectAutomationTemplateForHq(
+	template: AutomationMessageTemplate,
+): string {
+	return template.parts
+		.map((part) => {
+			if (part.kind === "text") return part.text;
+			const projected = projectAutomationPropertyForHq(part.property, "read");
+			return projected === undefined
+				? "{case.[reference needs repair]}"
+				: `{case.${part.scope === "case" ? "" : `${part.scope}.`}${projected}}`;
+		})
+		.join("");
 }

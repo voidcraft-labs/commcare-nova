@@ -43,11 +43,40 @@ describe("HQ automation case-property projection", () => {
 		);
 	});
 
-	it("projects exact case-property template tokens without rewriting other HQ namespaces", () => {
+	it("projects structural property atoms while leaving token-looking text literal", () => {
 		expect(
-			projectAutomationTemplateForHq(
-				"{case.case_type} {case.case_name} {case.parent.date_opened} {case.host.last_modified} {case.owner.name}",
-			),
+			projectAutomationTemplateForHq({
+				parts: [
+					{
+						kind: "case-property",
+						scope: "case",
+						caseType: "visit",
+						property: "case_type",
+					},
+					{ kind: "text", text: " " },
+					{
+						kind: "case-property",
+						scope: "case",
+						caseType: "visit",
+						property: "case_name",
+					},
+					{ kind: "text", text: " " },
+					{
+						kind: "case-property",
+						scope: "parent",
+						caseType: "household",
+						property: "date_opened",
+					},
+					{ kind: "text", text: " " },
+					{
+						kind: "case-property",
+						scope: "host",
+						caseType: "host",
+						property: "last_modified",
+					},
+					{ kind: "text", text: " {case.owner.name}" },
+				],
+			}),
 		).toBe(
 			"{case.type} {case.name} {case.parent.opened_on} {case.host.modified_on} {case.owner.name}",
 		);

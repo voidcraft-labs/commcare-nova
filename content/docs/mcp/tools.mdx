@@ -344,6 +344,15 @@ repeat a concrete target. Descendant controls require a location recipient,
 location-level filters require descendants, and each worker-property filter key
 appears once.
 
+Every message field is an `AutomationMessageTemplate`, not a magic-token
+string. Its `parts` are literal `{ kind: "text", text }` values or explicit
+`{ kind: "case-property", scope, caseType, property }` references. Token-looking text
+such as `{case.case_name}` stays literal; use a structural part when HQ should
+substitute a case value. Reads return the same canonical parts, while the
+generated guide alone projects them to HQ `{case...}` syntax. Registered custom
+recipient/content IDs and setup-only condition text must be concrete, trimmed,
+and nonblank.
+
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
 after the first wait at least five minutes. Custom Daily events use one timing mode and remain ordered; Weekly and Monthly schedules also

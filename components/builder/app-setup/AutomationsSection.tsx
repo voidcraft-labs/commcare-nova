@@ -70,15 +70,18 @@ import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import {
 	type Automation,
 	type AutomationContent,
+	type AutomationMessageTemplate,
 	type AutomationRecipient,
 	type AutomationSchedule,
 	type AutomationTimedEvent,
 	asUuid,
+	automationMessageText,
 	automationRecipientKindIsSingleton,
 	automationRecipientSupportsConnect,
 	automationSchema,
 	automationTimedScheduleSetupForm,
 	type CaseType,
+	canonicalAutomationMessageTemplate,
 	type Uuid,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
@@ -234,7 +237,7 @@ function newAlert(caseType: string): Automation {
 				{
 					uuid: uuid(),
 					minutesToWait: 0,
-					content: { kind: "sms", message: "Message" },
+					content: { kind: "sms", message: automationMessageText("Message") },
 				},
 			],
 		},
@@ -707,6 +710,11 @@ function AutomationEditor({
 								onChange={(caseType) =>
 									edit((draft) => {
 										draft.caseType = caseType;
+										updateAutomationMessageReferenceCaseTypes(
+											draft,
+											caseTypes,
+											caseType,
+										);
 									})
 								}
 								options={caseTypes.map((caseType) => [
@@ -771,6 +779,7 @@ function AutomationEditor({
 					) : (
 						<AlertEditor
 							automation={state.automation}
+							caseTypes={caseTypes}
 							forms={forms}
 							locations={locations}
 							levels={levels}
@@ -928,7 +937,12 @@ function Choice({
 			onValueChange={(next) => next !== null && onChange(next)}
 			disabled={disabled}
 		>
-			<SelectTrigger id={id} aria-label={ariaLabel} className="w-full">
+			<SelectTrigger
+				id={id}
+				aria-label={ariaLabel}
+				className="w-full"
+				wrapValue
+			>
 				<SelectValue>
 					{(selected) =>
 						options.find(([optionValue]) => optionValue === selected)?.[1] ??
@@ -938,12 +952,255 @@ function Choice({
 			</SelectTrigger>
 			<SelectContent>
 				{options.map(([id, label, optionDisabled]) => (
-					<SelectItem key={id} value={id} disabled={optionDisabled}>
+					<SelectItem key={id} value={id} disabled={optionDisabled} wrap>
 						{label}
 					</SelectItem>
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+function automationMessageReferenceCaseType(
+	caseTypes: readonly CaseType[],
+	automationCaseType: string,
+	scope: "case" | "parent" | "host",
+): string {
+	if (scope === "case") return automationCaseType;
+	const source = caseTypes.find(
+		(caseType) => caseType.name === automationCaseType,
+	);
+	if (source?.parent_type === undefined) return "";
+	if (
+		(scope === "host" && source.relationship === "extension") ||
+		(scope === "parent" && source.relationship !== "extension")
+	) {
+		return source.parent_type;
+	}
+	return "";
+}
+
+function updateAutomationMessageReferenceCaseTypes(
+	automation: WritableDraft<Automation>,
+	caseTypes: readonly CaseType[],
+	automationCaseType: string,
+): void {
+	if (automation.kind !== "conditional-alert") return;
+	for (const event of automation.schedule.events) {
+		const templates =
+			event.content.kind === "email"
+				? [
+						event.content.subject,
+						event.content.body.kind === "plain-text"
+							? event.content.body.message
+							: event.content.body.html,
+					]
+				: event.content.kind === "sms" ||
+						event.content.kind === "sms-callback" ||
+						event.content.kind === "connect-message"
+					? [event.content.message]
+					: [];
+		for (const template of templates) {
+			for (const part of template.parts) {
+				if (part.kind !== "case-property") continue;
+				part.caseType = automationMessageReferenceCaseType(
+					caseTypes,
+					automationCaseType,
+					part.scope,
+				);
+			}
+		}
+	}
+}
+
+function AutomationMessageTemplateEditor({
+	label,
+	template,
+	automationCaseType,
+	caseTypes,
+	hint,
+	singleLine = false,
+	onChange,
+}: {
+	label: string;
+	template: AutomationMessageTemplate;
+	automationCaseType: string;
+	caseTypes: readonly CaseType[];
+	hint?: string;
+	singleLine?: boolean;
+	onChange: (template: AutomationMessageTemplate) => void;
+}) {
+	const labelId = useId();
+	const descriptionId = `${labelId}-description`;
+	const addReferenceRef = useRef<HTMLButtonElement>(null);
+	const removeRefs = useRef(new Map<number, HTMLButtonElement>());
+	const [pendingRemovalFocus, setPendingRemovalFocus] = useState<number>();
+
+	useLayoutEffect(() => {
+		if (pendingRemovalFocus === undefined) return;
+		const nextIndex = Math.min(pendingRemovalFocus, template.parts.length - 1);
+		if (nextIndex >= 0) removeRefs.current.get(nextIndex)?.focus();
+		else addReferenceRef.current?.focus();
+		setPendingRemovalFocus(undefined);
+	}, [pendingRemovalFocus, template.parts.length]);
+
+	const replacePart = (
+		index: number,
+		part: AutomationMessageTemplate["parts"][number],
+	) => {
+		onChange({
+			parts: template.parts.map((current, partIndex) =>
+				partIndex === index ? part : current,
+			),
+		});
+	};
+	const removePart = (index: number) => {
+		setPendingRemovalFocus(index);
+		onChange(
+			canonicalAutomationMessageTemplate(
+				template.parts.filter((_, partIndex) => partIndex !== index),
+			),
+		);
+	};
+
+	return (
+		<Field>
+			<FieldLabel id={labelId}>{label}</FieldLabel>
+			<FieldDescription id={descriptionId}>
+				{hint === undefined ? "" : `${hint} `}Typed and pasted text is literal,
+				including text like {"{case.foo}"}. Insert a case-property reference
+				explicitly when HQ should substitute a value.
+			</FieldDescription>
+			<fieldset
+				aria-labelledby={labelId}
+				aria-describedby={descriptionId}
+				className="flex flex-col gap-2"
+			>
+				{template.parts.map((part, index) => {
+					return (
+						<div
+							// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered template parts have no independent identity
+							key={index}
+							className="grid min-w-0 gap-2 rounded-lg border border-nova-border bg-black/10 p-2 @md:grid-cols-[minmax(0,1fr)_auto]"
+						>
+							{part.kind === "text" ? (
+								singleLine ? (
+									<Input
+										aria-label={
+											template.parts.length === 1
+												? label
+												: `${label} literal text ${index + 1}`
+										}
+										value={part.text}
+										placeholder="Enter literal text"
+										onChange={(event) =>
+											replacePart(index, {
+												kind: "text",
+												text: event.target.value,
+											})
+										}
+									/>
+								) : (
+									<Textarea
+										aria-label={
+											template.parts.length === 1
+												? label
+												: `${label} literal text ${index + 1}`
+										}
+										value={part.text}
+										placeholder="Enter literal text"
+										onChange={(event) =>
+											replacePart(index, {
+												kind: "text",
+												text: event.target.value,
+											})
+										}
+									/>
+								)
+							) : (
+								<div className="grid min-w-0 gap-2 @md:grid-cols-2">
+									<Choice
+										value={part.scope}
+										aria-label={`${label} reference source ${index + 1}`}
+										onChange={(scope) =>
+											replacePart(index, {
+												...part,
+												scope: scope as typeof part.scope,
+												caseType: automationMessageReferenceCaseType(
+													caseTypes,
+													automationCaseType,
+													scope as typeof part.scope,
+												),
+											})
+										}
+										options={[
+											["case", "Matching case"],
+											["parent", "Parent case"],
+											["host", "Host case"],
+										]}
+									/>
+									<Input
+										aria-label={`${label} reference property ${index + 1}`}
+										value={part.property}
+										placeholder="Enter the Nova property name"
+										onChange={(event) =>
+											replacePart(index, {
+												...part,
+												property: event.target.value,
+											})
+										}
+									/>
+								</div>
+							)}
+							<RemoveButton
+								label={`Remove ${label.toLowerCase()} part ${index + 1}`}
+								buttonRef={(node) => {
+									if (node === null) removeRefs.current.delete(index);
+									else removeRefs.current.set(index, node);
+								}}
+								onClick={() => removePart(index)}
+							/>
+						</div>
+					);
+				})}
+				<div className="flex flex-wrap gap-2">
+					<Button
+						type="button"
+						variant="outline"
+						disabled={template.parts.at(-1)?.kind === "text"}
+						onClick={() =>
+							onChange({
+								parts: [...template.parts, { kind: "text", text: "" }],
+							})
+						}
+					>
+						<Icon icon={tablerPlus} aria-hidden="true" />
+						Literal text
+					</Button>
+					<Button
+						ref={addReferenceRef}
+						type="button"
+						variant="outline"
+						onClick={() =>
+							onChange({
+								parts: [
+									...template.parts,
+									{
+										kind: "case-property",
+										scope: "case",
+										caseType: automationCaseType,
+										property: "",
+									},
+								],
+							})
+						}
+					>
+						<Icon icon={tablerPlus} aria-hidden="true" />
+						Case property reference
+					</Button>
+				</div>
+			</fieldset>
+		</Field>
 	);
 }
 
@@ -1341,6 +1598,7 @@ function SetupOnlyEditor({
 					<Textarea
 						aria-label={`HQ-only condition ${index + 1}`}
 						value={criterion.text}
+						placeholder="Describe the exact CommCare HQ condition"
 						onChange={(event) =>
 							onEdit((draft) => {
 								const item = draft.setupOnlyCriteria[index];
@@ -1369,7 +1627,7 @@ function SetupOnlyEditor({
 					onEdit((draft) => {
 						draft.setupOnlyCriteria.push({
 							uuid: uuid(),
-							text: "Describe the exact CommCare HQ condition",
+							text: "",
 						});
 					})
 				}
@@ -1604,7 +1862,7 @@ function recipientFor(
 			hqId: "",
 		} as AutomationRecipient;
 	}
-	return { uuid: id, kind: "custom", registeredId: "registered-id" };
+	return { uuid: id, kind: "custom", registeredId: "" };
 }
 
 function recipientKindAvailable(
@@ -1653,17 +1911,26 @@ function contentFor(
 	kind: AutomationContent["kind"],
 	forms: readonly AutomationFormChoice[],
 ): AutomationContent | undefined {
-	if (kind === "sms") return { kind, message: "Message" };
+	if (kind === "sms")
+		return { kind, message: automationMessageText("Message") };
 	if (kind === "email")
 		return {
 			kind,
-			subject: "Subject",
-			body: { kind: "plain-text", message: "Message" },
+			subject: automationMessageText("Subject"),
+			body: {
+				kind: "plain-text",
+				message: automationMessageText("Message"),
+			},
 		};
-	if (kind === "connect-message") return { kind, message: "Message" };
-	if (kind === "custom") return { kind, registeredId: "registered-id" };
+	if (kind === "connect-message")
+		return { kind, message: automationMessageText("Message") };
+	if (kind === "custom") return { kind, registeredId: "" };
 	if (kind === "sms-callback")
-		return { kind, message: "Message", reminderIntervalsMinutes: [5] };
+		return {
+			kind,
+			message: automationMessageText("Message"),
+			reminderIntervalsMinutes: [5],
+		};
 	const formUuid = forms[0]?.uuid;
 	if (formUuid === undefined) return undefined;
 	if (kind === "ivr")
@@ -1687,6 +1954,7 @@ function contentFor(
 
 function AlertEditor({
 	automation,
+	caseTypes,
 	forms,
 	locations,
 	levels,
@@ -1694,6 +1962,7 @@ function AlertEditor({
 	onEdit,
 }: {
 	automation: Extract<Automation, { kind: "conditional-alert" }>;
+	caseTypes: readonly CaseType[];
 	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
 	levels: readonly { uuid: Uuid; name: string }[];
@@ -1814,9 +2083,13 @@ function AlertEditor({
 								</Labeled>
 							)}
 							{"registeredId" in recipient && (
-								<Labeled label="Registered ID">
+								<Labeled
+									label="Registered ID"
+									hint="Choose the exact handler registered in the target CommCare HQ project"
+								>
 									<Input
 										value={recipient.registeredId}
+										placeholder="Enter the registered recipient ID"
 										onChange={(event) =>
 											onEdit((draft) => {
 												if (draft.kind === "conditional-alert") {
@@ -1897,7 +2170,12 @@ function AlertEditor({
 					Recipient
 				</Button>
 			</Section>
-			<ScheduleEditor automation={automation} forms={forms} onEdit={onEdit} />
+			<ScheduleEditor
+				automation={automation}
+				caseTypes={caseTypes}
+				forms={forms}
+				onEdit={onEdit}
+			/>
 			<Section title="Recipient filters and schedule controls">
 				{hasLocationRecipient && (
 					<Toggle
@@ -2091,10 +2369,12 @@ function AlertEditor({
 
 function ScheduleEditor({
 	automation,
+	caseTypes,
 	forms,
 	onEdit,
 }: {
 	automation: Extract<Automation, { kind: "conditional-alert" }>;
+	caseTypes: readonly CaseType[];
 	forms: readonly AutomationFormChoice[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
@@ -2137,7 +2417,7 @@ function ScheduleEditor({
 			const content = cloneEditableValue(
 				draft.schedule.events[0]?.content ?? {
 					kind: "sms",
-					message: "Message",
+					message: automationMessageText("Message"),
 				},
 			);
 			draft.schedule =
@@ -2181,7 +2461,10 @@ function ScheduleEditor({
 					first?.timing ?? { kind: "specific-time", time: "09:00" },
 				),
 				content: cloneEditableValue(
-					first?.content ?? { kind: "sms", message: "Message" },
+					first?.content ?? {
+						kind: "sms",
+						message: automationMessageText("Message"),
+					},
 				),
 			};
 			draft.schedule.events = [event];
@@ -2497,6 +2780,8 @@ function ScheduleEditor({
 				<EventEditor
 					key={event.uuid}
 					event={event}
+					automationCaseType={automation.caseType}
+					caseTypes={caseTypes}
 					index={index}
 					eventDays={schedule.events.map((item) => ({
 						uuid: item.uuid,
@@ -2534,7 +2819,7 @@ function ScheduleEditor({
 								content: cloneEditableValue(
 									draft.schedule.events[0]?.content ?? {
 										kind: "sms",
-										message: "Message",
+										message: automationMessageText("Message"),
 									},
 								),
 							});
@@ -2601,7 +2886,10 @@ function ScheduleEditor({
 								day,
 								timing,
 								content: cloneEditableValue(
-									first?.content ?? { kind: "sms", message: "Message" },
+									first?.content ?? {
+										kind: "sms",
+										message: automationMessageText("Message"),
+									},
 								),
 							});
 							draft.schedule.events.sort((left, right) =>
@@ -2620,6 +2908,8 @@ function ScheduleEditor({
 
 function EventEditor({
 	event,
+	automationCaseType,
+	caseTypes,
 	index,
 	eventDays,
 	scheduleKind,
@@ -2636,6 +2926,8 @@ function EventEditor({
 		uuid: Uuid;
 		content: AutomationContent;
 	} & ({ minutesToWait: number } | AutomationTimedEvent);
+	automationCaseType: string;
+	caseTypes: readonly CaseType[];
 	index: number;
 	eventDays: readonly { uuid: Uuid; day: number }[];
 	scheduleKind: AutomationSchedule["kind"];
@@ -2701,8 +2993,14 @@ function EventEditor({
 					) {
 						sibling.content.body =
 							item.content.body.kind === "plain-text"
-								? { kind: "plain-text", message: "Message" }
-								: { kind: "rich-text", html: "<p>Message</p>" };
+								? {
+										kind: "plain-text",
+										message: automationMessageText("Message"),
+									}
+								: {
+										kind: "rich-text",
+										html: automationMessageText("<p>Message</p>"),
+									};
 					}
 				}
 			}
@@ -2873,30 +3171,32 @@ function EventEditor({
 					</>
 				)}
 				{"message" in content && (
-					<Labeled label="Message">
-						<Textarea
-							value={content.message}
-							onChange={(change) =>
-								updateContent((item) => {
-									if ("message" in item) item.message = change.target.value;
-								})
-							}
-						/>
-					</Labeled>
+					<AutomationMessageTemplateEditor
+						label="Message"
+						template={content.message}
+						automationCaseType={automationCaseType}
+						caseTypes={caseTypes}
+						onChange={(template) =>
+							updateContent((item) => {
+								if ("message" in item) item.message = template;
+							})
+						}
+					/>
 				)}
 				{content.kind === "email" && (
 					<>
-						<Labeled label="Subject">
-							<Input
-								value={content.subject}
-								onChange={(change) =>
-									updateContent((item) => {
-										if (item.kind === "email")
-											item.subject = change.target.value;
-									})
-								}
-							/>
-						</Labeled>
+						<AutomationMessageTemplateEditor
+							label="Subject"
+							template={content.subject}
+							automationCaseType={automationCaseType}
+							caseTypes={caseTypes}
+							singleLine
+							onChange={(template) =>
+								updateContent((item) => {
+									if (item.kind === "email") item.subject = template;
+								})
+							}
+						/>
 						<Labeled
 							label="Email body form"
 							hint={
@@ -2912,8 +3212,14 @@ function EventEditor({
 										if (item.kind !== "email") return;
 										item.body =
 											kind === "plain-text"
-												? { kind, message: "Message" }
-												: { kind: "rich-text", html: "<p>Message</p>" };
+												? {
+														kind,
+														message: automationMessageText("Message"),
+													}
+												: {
+														kind: "rich-text",
+														html: automationMessageText("<p>Message</p>"),
+													};
 									})
 								}
 								options={[
@@ -2923,40 +3229,40 @@ function EventEditor({
 							/>
 						</Labeled>
 						{content.body.kind === "plain-text" ? (
-							<Labeled label="Plain-text message">
-								<Textarea
-									value={content.body.message}
-									onChange={(change) =>
-										updateContent((item) => {
-											if (
-												item.kind === "email" &&
-												item.body.kind === "plain-text"
-											) {
-												item.body.message = change.target.value;
-											}
-										})
-									}
-								/>
-							</Labeled>
+							<AutomationMessageTemplateEditor
+								label="Plain-text message"
+								template={content.body.message}
+								automationCaseType={automationCaseType}
+								caseTypes={caseTypes}
+								onChange={(template) =>
+									updateContent((item) => {
+										if (
+											item.kind === "email" &&
+											item.body.kind === "plain-text"
+										) {
+											item.body.message = template;
+										}
+									})
+								}
+							/>
 						) : (
-							<Labeled
+							<AutomationMessageTemplateEditor
 								label="Rich-text HTML source"
 								hint="HQ removes unsupported markup and CSS, rewraps the body, and derives plain text"
-							>
-								<Textarea
-									value={content.body.html}
-									onChange={(change) =>
-										updateContent((item) => {
-											if (
-												item.kind === "email" &&
-												item.body.kind === "rich-text"
-											) {
-												item.body.html = change.target.value;
-											}
-										})
-									}
-								/>
-							</Labeled>
+								template={content.body.html}
+								automationCaseType={automationCaseType}
+								caseTypes={caseTypes}
+								onChange={(template) =>
+									updateContent((item) => {
+										if (
+											item.kind === "email" &&
+											item.body.kind === "rich-text"
+										) {
+											item.body.html = template;
+										}
+									})
+								}
+							/>
 						)}
 					</>
 				)}
@@ -3062,9 +3368,13 @@ function EventEditor({
 					</Labeled>
 				)}
 				{"registeredId" in content && (
-					<Labeled label="Registered ID">
+					<Labeled
+						label="Registered ID"
+						hint="Choose the exact content handler registered in the target CommCare HQ project"
+					>
 						<Input
 							value={content.registeredId}
+							placeholder="Enter the registered content ID"
 							onChange={(change) =>
 								updateContent((item) => {
 									if ("registeredId" in item) {

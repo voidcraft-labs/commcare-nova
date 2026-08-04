@@ -30,6 +30,7 @@ import {
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	asUuid,
+	automationMessageText,
 	type BlueprintDoc,
 	type OrganizationLevel,
 	type Persona,
@@ -263,7 +264,10 @@ async function commitLocationAutomation(locationUuid: Uuid): Promise<void> {
 							{
 								uuid: asUuid("77777777-7777-4777-8777-777777777773"),
 								minutesToWait: 0,
-								content: { kind: "sms", message: "Hello" },
+								content: {
+									kind: "sms",
+									message: automationMessageText("Hello"),
+								},
 							},
 						],
 					},

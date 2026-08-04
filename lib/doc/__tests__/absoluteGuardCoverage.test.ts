@@ -18,7 +18,11 @@ import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	automationMessageText,
+	type BlueprintDoc,
+	type Field,
+} from "@/lib/domain";
 
 /** Field lookup by semantic id (unique across these fixtures). */
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -288,7 +292,10 @@ function automationDoc(): BlueprintDoc {
 					{
 						uuid: testUuid("automation-event"),
 						minutesToWait: 0,
-						content: { kind: "sms", message: "Follow up" },
+						content: {
+							kind: "sms",
+							message: automationMessageText("Follow up"),
+						},
 					},
 				],
 			},
@@ -1269,7 +1276,10 @@ const GUARD_COVERAGE = {
 								uuid: testUuid("automation-event"),
 								day: 0,
 								timing: { kind: "specific-time", time: "09:00" },
-								content: { kind: "sms", message: "Follow up" },
+								content: {
+									kind: "sms",
+									message: automationMessageText("Follow up"),
+								},
 							},
 						],
 					};

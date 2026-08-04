@@ -7,6 +7,7 @@ import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
 	type Automation,
 	type AutomationSchedule,
+	automationMessageText,
 	automationSchema,
 	type BlueprintDoc,
 	isPortableAutomationRegex,
@@ -93,8 +94,11 @@ describe("automation domain and projections", () => {
 					minutesToWait: 0,
 					content: {
 						kind: "email",
-						subject: "Visit due",
-						body: { kind: "plain-text", message: "Please attend" },
+						subject: automationMessageText("Visit due"),
+						body: {
+							kind: "plain-text",
+							message: automationMessageText("Please attend"),
+						},
 					},
 				},
 			],
@@ -112,10 +116,10 @@ describe("automation domain and projections", () => {
 							minutesToWait: 5,
 							content: {
 								kind: "email" as const,
-								subject: "Visit due",
+								subject: automationMessageText("Visit due"),
 								body: {
 									kind: "rich-text" as const,
-									html: "<p>Please attend</p>",
+									html: automationMessageText("<p>Please attend</p>"),
 								},
 							},
 						},
@@ -133,10 +137,10 @@ describe("automation domain and projections", () => {
 							...plain.schedule.events[0],
 							content: {
 								kind: "email" as const,
-								subject: " Padded ",
+								subject: automationMessageText(" Padded "),
 								body: {
 									kind: "plain-text" as const,
-									message: " Body ",
+									message: automationMessageText(" Body "),
 								},
 							},
 						},
@@ -217,7 +221,7 @@ describe("automation domain and projections", () => {
 				{
 					uuid: testUuid("criteria-matrix-event"),
 					minutesToWait: 0,
-					content: { kind: "sms", message: "Hello" },
+					content: { kind: "sms", message: automationMessageText("Hello") },
 				},
 			],
 		});
@@ -337,7 +341,7 @@ describe("automation domain and projections", () => {
 				{
 					uuid: testUuid("recipient-shape-event"),
 					minutesToWait: 0,
-					content: { kind: "sms", message: "Hello" },
+					content: { kind: "sms", message: automationMessageText("Hello") },
 				},
 			],
 		});
@@ -446,6 +450,103 @@ describe("automation domain and projections", () => {
 		).toBe(true);
 	});
 
+	it("requires concrete external IDs and setup-only instructions", () => {
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("external-values-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: automationMessageText("Hello") },
+				},
+			],
+		});
+		for (const registeredId of ["", "   ", " handler "]) {
+			expect(
+				automationSchema.safeParse({
+					...alert,
+					recipients: [
+						{
+							uuid: testUuid(`external-recipient-${registeredId}`),
+							kind: "custom",
+							registeredId,
+						},
+					],
+				}).success,
+			).toBe(false);
+			expect(
+				automationSchema.safeParse({
+					...alert,
+					schedule: {
+						kind: "immediate",
+						events: [
+							{
+								uuid: testUuid(`external-content-${registeredId}`),
+								minutesToWait: 0,
+								content: { kind: "custom", registeredId },
+							},
+						],
+					},
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				setupOnlyCriteria: [{ uuid: SETUP_UUID, text: "   " }],
+			}).success,
+		).toBe(false);
+	});
+
+	it("keeps token-looking message text literal until a reference is explicit", () => {
+		const literal = automationMessageText("Literal {case.case_name}");
+		const structural = {
+			parts: [
+				{ kind: "text" as const, text: "Projected " },
+				{
+					kind: "case-property" as const,
+					scope: "case" as const,
+					caseType: "visit",
+					property: "case_name",
+				},
+			],
+		};
+		const literalGuide = buildAutomationSetupGuide(
+			buildDoc({ appName: "Messages" }),
+			alertWithSchedule({
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("literal-template-event"),
+						minutesToWait: 0,
+						content: { kind: "sms", message: literal },
+					},
+				],
+			}),
+			[],
+		);
+		const structuralGuide = buildAutomationSetupGuide(
+			buildDoc({ appName: "Messages" }),
+			alertWithSchedule({
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("structural-template-event"),
+						minutesToWait: 0,
+						content: { kind: "sms", message: structural },
+					},
+				],
+			}),
+			[],
+		);
+		expect(literalGuide.steps.join(" ")).toContain(
+			'"Literal {case.case_name}"',
+		);
+		expect(structuralGuide.steps.join(" ")).toContain(
+			'"Projected {case.name}"',
+		);
+	});
+
 	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
 		const invalidValues = ["", "   ", " 'active' ", '"active"'];
 		for (const value of invalidValues) {
@@ -524,7 +625,10 @@ describe("automation domain and projections", () => {
 				{
 					uuid: testUuid("connect-event"),
 					minutesToWait: 0,
-					content: { kind: "connect-message", message: "Hello" },
+					content: {
+						kind: "connect-message",
+						message: automationMessageText("Hello"),
+					},
 				},
 			],
 		});
@@ -560,7 +664,7 @@ describe("automation domain and projections", () => {
 					uuid: testUuid("reset-timed-event"),
 					day: 0,
 					timing: { kind: "specific-time", time: "09:00" },
-					content: { kind: "sms", message: "Hello" },
+					content: { kind: "sms", message: automationMessageText("Hello") },
 				},
 			],
 		});
@@ -751,10 +855,31 @@ describe("automation domain and projections", () => {
 							minutesToWait: 0,
 							content: {
 								kind: "email",
-								subject: "Visit due for {case.case_name}",
+								subject: {
+									parts: [
+										{ kind: "text", text: "Visit due for " },
+										{
+											kind: "case-property",
+											scope: "case",
+											caseType: "visit",
+											property: "case_name",
+										},
+									],
+								},
 								body: {
 									kind: "rich-text",
-									html: "<p>Opened {case.date_opened}</p>",
+									html: {
+										parts: [
+											{ kind: "text", text: "<p>Opened " },
+											{
+												kind: "case-property",
+												scope: "case",
+												caseType: "visit",
+												property: "date_opened",
+											},
+											{ kind: "text", text: "</p>" },
+										],
+									},
 								},
 							},
 						},
@@ -812,7 +937,10 @@ describe("automation domain and projections", () => {
 						{
 							uuid: testUuid("delayed-immediate-event"),
 							minutesToWait: 5,
-							content: { kind: "sms", message: "Later" },
+							content: {
+								kind: "sms",
+								message: automationMessageText("Later"),
+							},
 						},
 					],
 				},
@@ -835,7 +963,7 @@ describe("automation domain and projections", () => {
 					uuid: testUuid("guide-custom-event"),
 					day: 0,
 					timing: { kind: "specific-time", time: "09:00" },
-					content: { kind: "sms", message: "Hello" },
+					content: { kind: "sms", message: automationMessageText("Hello") },
 				},
 			],
 		});
@@ -957,12 +1085,12 @@ describe("automation domain and projections", () => {
 				{
 					uuid: testUuid("immediate-first"),
 					minutesToWait: 0,
-					content: { kind: "sms", message: "First" },
+					content: { kind: "sms", message: automationMessageText("First") },
 				},
 				{
 					uuid: testUuid("immediate-second"),
 					minutesToWait: 4,
-					content: { kind: "sms", message: "Second" },
+					content: { kind: "sms", message: automationMessageText("Second") },
 				},
 			],
 		});
@@ -979,8 +1107,11 @@ describe("automation domain and projections", () => {
 									minutesToWait: 5,
 									content: {
 										kind: "email" as const,
-										subject: "Different mode",
-										body: { kind: "plain-text" as const, message: "Second" },
+										subject: automationMessageText("Different mode"),
+										body: {
+											kind: "plain-text" as const,
+											message: automationMessageText("Second"),
+										},
 									},
 								}
 							: event,
@@ -1005,7 +1136,7 @@ describe("automation domain and projections", () => {
 						time: "09:00",
 						windowMinutes: 60,
 					},
-					content: { kind: "sms", message: "First" },
+					content: { kind: "sms", message: automationMessageText("First") },
 				},
 				{
 					uuid: testUuid("timed-second"),
@@ -1017,8 +1148,11 @@ describe("automation domain and projections", () => {
 					},
 					content: {
 						kind: "email",
-						subject: "Next",
-						body: { kind: "plain-text", message: "Second" },
+						subject: automationMessageText("Next"),
+						body: {
+							kind: "plain-text",
+							message: automationMessageText("Second"),
+						},
 					},
 				},
 			],
@@ -1033,7 +1167,10 @@ describe("automation domain and projections", () => {
 						index === 1
 							? {
 									...event,
-									content: { kind: "sms" as const, message: "Second" },
+									content: {
+										kind: "sms" as const,
+										message: automationMessageText("Second"),
+									},
 									timing: {
 										kind: "random-window" as const,
 										time: "10:00",
@@ -1048,7 +1185,10 @@ describe("automation domain and projections", () => {
 	});
 
 	it("accepts only timed schedules that map to one HQ setup form", () => {
-		const sharedContent = { kind: "sms" as const, message: "Monthly" };
+		const sharedContent = {
+			kind: "sms" as const,
+			message: automationMessageText("Monthly"),
+		};
 		const monthly = alertWithSchedule({
 			kind: "timed",
 			repeatEvery: -1,

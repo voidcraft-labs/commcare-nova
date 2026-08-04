@@ -7,9 +7,9 @@ import {
 import {
 	type Automation,
 	type AutomationContent,
+	type AutomationMessageTemplate,
 	type AutomationPropertyTarget,
 	automationsOf,
-	automationTemplateCasePropertyTokens,
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	organizationLevelsOf,
@@ -91,48 +91,24 @@ function validatePropertyTarget(
 	}
 }
 
-function automationTemplateCaseType(
-	ctx: AutomationContext,
-	scope: "case" | "parent" | "host",
-): ReturnType<typeof effectiveCaseTypes>[number] | undefined {
-	return scopedCaseType(ctx, { scope, property: "unused" });
-}
-
 function validateTemplate(
 	ctx: AutomationContext,
-	template: string,
+	template: AutomationMessageTemplate,
 	path: string,
 ): void {
-	for (const [index, token] of automationTemplateCasePropertyTokens(
-		template,
-	).entries()) {
-		const tokenPath = `${path}.caseProperty.${index}`;
-		const caseType = automationTemplateCaseType(ctx, token.scope);
-		if (caseType === undefined) {
+	for (const [index, part] of template.parts.entries()) {
+		if (part.kind !== "case-property") continue;
+		const partPath = `${path}.parts.${index}`;
+		const scoped = scopedCaseType(ctx, part);
+		if (scoped !== undefined && scoped.name !== part.caseType) {
 			flag(
 				ctx,
-				`Template token scope “${token.scope}” has no matching case relationship.`,
-				tokenPath,
+				`The ${part.scope} message reference resolves to ${scoped.name}, not stored identity ${part.caseType}.`,
+				`${partPath}.caseType`,
 			);
 			continue;
 		}
-		if (
-			!caseType.properties.some((property) => property.name === token.property)
-		) {
-			flag(
-				ctx,
-				`Template property “${token.property}” does not exist on ${caseType.name}.`,
-				tokenPath,
-			);
-			continue;
-		}
-		if (projectAutomationPropertyForHq(token.property, "read") === undefined) {
-			flag(
-				ctx,
-				"Case status cannot be represented in an HQ message template because Nova's open/closed text differs from HQ's boolean field.",
-				tokenPath,
-			);
-		}
+		validatePropertyTarget(ctx, part, partPath, "read");
 	}
 }
 
@@ -149,7 +125,7 @@ function validateContent(
 	) {
 		flag(ctx, "The scheduled form no longer exists.", `${path}.formUuid`);
 	}
-	const templates =
+	const templates: ReadonlyArray<readonly [string, AutomationMessageTemplate]> =
 		content.kind === "email"
 			? ([
 					["subject", content.subject],

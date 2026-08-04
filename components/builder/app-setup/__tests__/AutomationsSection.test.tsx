@@ -8,7 +8,11 @@ import {
 } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { AutomationFormChoice } from "@/lib/automations/formChoices";
-import type { Automation, Uuid } from "@/lib/domain";
+import {
+	type Automation,
+	automationMessageText,
+	type Uuid,
+} from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("ui-automation");
@@ -96,7 +100,10 @@ function repeatedRowsAlert(): Extract<
 			events: [0, 1].map((index) => ({
 				uuid: testUuid(`ui-repeated-event-${index}`),
 				minutesToWait: index === 0 ? 0 : 5,
-				content: { kind: "sms" as const, message: `Message ${index}` },
+				content: {
+					kind: "sms" as const,
+					message: automationMessageText(`Message ${index}`),
+				},
 			})),
 		},
 		includeDescendantLocations: false,
@@ -131,7 +138,10 @@ function monthlyAlert(): Extract<Automation, { kind: "conditional-alert" }> {
 				uuid: testUuid(`ui-monthly-event-${day}`),
 				day,
 				timing: { kind: "specific-time" as const, time: "09:00" },
-				content: { kind: "sms" as const, message: "Monthly message" },
+				content: {
+					kind: "sms" as const,
+					message: automationMessageText("Monthly message"),
+				},
 			})),
 		},
 	};
@@ -153,7 +163,10 @@ function fullWeeklyAlert(): Extract<Automation, { kind: "conditional-alert" }> {
 				uuid: testUuid(`ui-weekly-event-${day}`),
 				day,
 				timing: { kind: "specific-time" as const, time: "09:00" },
-				content: { kind: "sms" as const, message: "Weekly message" },
+				content: {
+					kind: "sms" as const,
+					message: automationMessageText("Weekly message"),
+				},
 			})),
 		},
 	};
@@ -179,13 +192,19 @@ function weekdayRemapAlert(): Extract<
 					uuid: testUuid("ui-weekday-wednesday"),
 					day: 0,
 					timing: { kind: "specific-time", time: "09:00" },
-					content: { kind: "sms", message: "Weekly message" },
+					content: {
+						kind: "sms",
+						message: automationMessageText("Weekly message"),
+					},
 				},
 				{
 					uuid: testUuid("ui-weekday-friday"),
 					day: 2,
 					timing: { kind: "specific-time", time: "09:00" },
-					content: { kind: "sms", message: "Weekly message" },
+					content: {
+						kind: "sms",
+						message: automationMessageText("Weekly message"),
+					},
 				},
 			],
 		},
@@ -326,6 +345,11 @@ describe("AutomationsSection", () => {
 			expect(input.getAttribute("autocomplete")).toBe("off");
 			expect(input.hasAttribute("data-1p-ignore")).toBe(true);
 		}
+		for (const trigger of document.querySelectorAll(
+			'[data-slot="select-trigger"]',
+		)) {
+			expect(trigger.className).toContain("whitespace-normal");
+		}
 		fireEvent.change(name, { target: { value: "Resolve old visits" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 		expect(mocks.addAutomation).toHaveBeenCalledWith(
@@ -451,11 +475,102 @@ describe("AutomationsSection", () => {
 						expect.objectContaining({
 							content: {
 								kind: "email",
-								subject: "Subject",
+								subject: automationMessageText("Subject"),
 								body: {
 									kind: "rich-text",
-									html: "<p>Visit due</p>",
+									html: automationMessageText("<p>Visit due</p>"),
 								},
+							},
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
+	it("keeps token-looking text literal and inserts property references structurally", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+
+		fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+			target: { value: "Literal {case.case_name}" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Case property reference" }),
+		);
+		fireEvent.change(
+			screen.getByRole("textbox", {
+				name: "Message reference property 2",
+			}),
+			{ target: { value: "case_name" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Literal text" }));
+		fireEvent.change(
+			screen.getByRole("textbox", { name: "Message literal text 3" }),
+			{ target: { value: " done" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							content: {
+								kind: "sms",
+								message: {
+									parts: [
+										{
+											kind: "text",
+											text: "Literal {case.case_name}",
+										},
+										{
+											kind: "case-property",
+											scope: "case",
+											caseType: "visit",
+											property: "case_name",
+										},
+										{ kind: "text", text: " done" },
+									],
+								},
+							},
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
+	it("keeps registered handlers blank until the author supplies a real ID", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		await chooseChoice("Schedule content type", "Registered custom content");
+
+		const registeredId = screen.getByRole("textbox", { name: "Registered ID" });
+		expect(registeredId.getAttribute("value")).toBe("");
+		expect(registeredId.getAttribute("placeholder")).toBe(
+			"Enter the registered content ID",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(screen.getByRole("alert").textContent).toContain(
+			"registered ID must be nonblank",
+		);
+		expect(mocks.addAutomation).not.toHaveBeenCalled();
+
+		fireEvent.change(registeredId, { target: { value: "custom-handler" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							content: {
+								kind: "custom",
+								registeredId: "custom-handler",
 							},
 						}),
 					],

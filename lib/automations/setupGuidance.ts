@@ -2,6 +2,7 @@ import type {
 	Automation,
 	AutomationContent,
 	AutomationCriterion,
+	AutomationMessageTemplate,
 	AutomationRecipient,
 	AutomationTimedEvent,
 	BlueprintDoc,
@@ -113,7 +114,7 @@ function describeContent(
 	content: AutomationContent,
 	doc: BlueprintDoc,
 ): string {
-	const project = (template: string): string =>
+	const project = (template: AutomationMessageTemplate): string =>
 		projectAutomationTemplateForHq(template);
 	switch (content.kind) {
 		case "sms":

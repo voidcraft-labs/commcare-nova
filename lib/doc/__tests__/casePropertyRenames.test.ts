@@ -275,10 +275,42 @@ describe("explicit app-wide case-property rename", () => {
 							timing: { kind: "case-property-time", property: "a" },
 							content: {
 								kind: "email",
-								subject: "For {case.a}",
+								subject: {
+									parts: [
+										{ kind: "text", text: "For " },
+										{
+											kind: "case-property",
+											scope: "case",
+											caseType: "patient",
+											property: "a",
+										},
+										{ kind: "text", text: " literal {case.a}" },
+									],
+								},
 								body: {
 									kind: "rich-text",
-									html: "<p>{case.a} / {case.parent.parent_a} / {case.owner.name}</p>",
+									html: {
+										parts: [
+											{ kind: "text", text: "<p>" },
+											{
+												kind: "case-property",
+												scope: "case",
+												caseType: "patient",
+												property: "a",
+											},
+											{ kind: "text", text: " / " },
+											{
+												kind: "case-property",
+												scope: "parent",
+												caseType: "household",
+												property: "parent_a",
+											},
+											{
+												kind: "text",
+												text: " / {case.owner.name}</p>",
+											},
+										],
+									},
 								},
 							},
 						},
@@ -330,10 +362,39 @@ describe("explicit app-wide case-property rename", () => {
 		const content = alert.schedule.events[0]?.content;
 		if (content?.kind !== "email") throw new Error("wrong content");
 		expect(content).toMatchObject({
-			subject: "For {case.fresh}",
+			subject: {
+				parts: [
+					{ kind: "text", text: "For " },
+					{
+						kind: "case-property",
+						scope: "case",
+						caseType: "patient",
+						property: "fresh",
+					},
+					{ kind: "text", text: " literal {case.a}" },
+				],
+			},
 			body: {
 				kind: "rich-text",
-				html: "<p>{case.fresh} / {case.parent.parent_fresh} / {case.owner.name}</p>",
+				html: {
+					parts: [
+						{ kind: "text", text: "<p>" },
+						{
+							kind: "case-property",
+							scope: "case",
+							caseType: "patient",
+							property: "fresh",
+						},
+						{ kind: "text", text: " / " },
+						{
+							kind: "case-property",
+							scope: "parent",
+							caseType: "household",
+							property: "parent_fresh",
+						},
+						{ kind: "text", text: " / {case.owner.name}</p>" },
+					],
+				},
 			},
 		});
 		expect(

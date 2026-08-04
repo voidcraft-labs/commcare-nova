@@ -40,7 +40,7 @@ export const addAutomationsInputSchema = z
 			.min(1)
 			.max(50)
 			.describe(
-				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names. Email content carries exactly one plain-text or rich-text body, never parallel bodies.",
+				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names. Message fields are structural templates: text parts stay literal and case-property parts are explicit references. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs and setup-only instructions are exact trimmed nonblank target-HQ values.",
 			),
 		afterAutomationUuid: uuidSchema
 			.nullable()
@@ -54,7 +54,7 @@ export const addAutomationsInputSchema = z
 export const updateAutomationInputSchema = z
 	.object({
 		automation: automationSchema.describe(
-			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names and one email body form.",
+			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names, structural message-template parts, exact registered/setup-only values, and one email body form.",
 		),
 	})
 	.strict();

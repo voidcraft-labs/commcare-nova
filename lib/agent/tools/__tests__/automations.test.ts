@@ -3,7 +3,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
-import type { Automation, BlueprintDoc } from "@/lib/domain";
+import {
+	type Automation,
+	automationMessageText,
+	type BlueprintDoc,
+} from "@/lib/domain";
 
 const mocks = vi.hoisted(() => ({
 	readOrganization: vi.fn(),
@@ -214,7 +218,10 @@ describe("automation shared tools", () => {
 					{
 						uuid: testUuid("tool-location-event"),
 						minutesToWait: 0,
-						content: { kind: "sms", message: "Hello" },
+						content: {
+							kind: "sms",
+							message: automationMessageText("Hello"),
+						},
 					},
 				],
 			},
@@ -343,7 +350,10 @@ describe("automation shared tools", () => {
 							{
 								uuid: testUuid("tool-event"),
 								minutesToWait: 0,
-								content: { kind: "sms", message: "Hi" },
+								content: {
+									kind: "sms",
+									message: automationMessageText("Hi"),
+								},
 							},
 						],
 					},

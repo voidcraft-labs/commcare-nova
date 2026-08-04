@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import type { Automation, BlueprintDoc } from "@/lib/domain";
+import {
+	type Automation,
+	automationMessageText,
+	type BlueprintDoc,
+} from "@/lib/domain";
 import { validateAutomations } from "../rules/automations";
 
 function docWithCriterion(
@@ -133,10 +137,11 @@ function validateOne(
 }
 
 function alertWithContent(
-	message: string,
+	text: string,
+	property?: string,
 ): Extract<Automation, { kind: "conditional-alert" }> {
 	return {
-		uuid: testUuid(`validator-alert-${message}`),
+		uuid: testUuid(`validator-alert-${text}-${property ?? "literal"}`),
 		kind: "conditional-alert",
 		name: "Alert",
 		caseType: "visit",
@@ -150,7 +155,23 @@ function alertWithContent(
 				{
 					uuid: testUuid("validator-alert-event"),
 					minutesToWait: 0,
-					content: { kind: "sms", message },
+					content: {
+						kind: "sms",
+						message:
+							property === undefined
+								? automationMessageText(text)
+								: {
+										parts: [
+											...(text === "" ? [] : [{ kind: "text" as const, text }]),
+											{
+												kind: "case-property",
+												scope: "case",
+												caseType: "visit",
+												property,
+											},
+										],
+									},
+					},
 				},
 			],
 		},
@@ -162,6 +183,29 @@ function alertWithContent(
 }
 
 describe("automation HQ property-slot compatibility", () => {
+	it("refuses a scope whose stored case-property identity would be retargeted", () => {
+		const alert = alertWithContent("Reminder");
+		const content = alert.schedule.events[0]?.content;
+		if (content?.kind !== "sms") throw new Error("missing SMS content");
+		content.message = {
+			parts: [
+				{
+					kind: "case-property",
+					scope: "case",
+					caseType: "household",
+					property: "case_name",
+				},
+			],
+		};
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "schedule.events.0.content.message.parts.0.caseType",
+				}),
+			}),
+		]);
+	});
+
 	it("accepts projected update and template properties", () => {
 		const update: Automation = {
 			uuid: testUuid("validator-update-case-name"),
@@ -184,8 +228,8 @@ describe("automation HQ property-slot compatibility", () => {
 			closeCase: false,
 		};
 		expect(validateOne(update)).toEqual([]);
-		expect(validateOne(alertWithContent("Hello {case.case_name}"))).toEqual([]);
-		expect(validateOne(alertWithContent("Type {case.case_type}"))).toEqual([]);
+		expect(validateOne(alertWithContent("Hello ", "case_name"))).toEqual([]);
+		expect(validateOne(alertWithContent("Type ", "case_type"))).toEqual([]);
 	});
 
 	it("refuses unrepresentable update and template standard properties", () => {
@@ -227,10 +271,10 @@ describe("automation HQ property-slot compatibility", () => {
 				details: expect.objectContaining({ path: "updates.0.target" }),
 			}),
 		]);
-		expect(validateOne(alertWithContent("Hello {case.status}"))).toEqual([
+		expect(validateOne(alertWithContent("Hello ", "status"))).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({
-					path: "schedule.events.0.content.message.caseProperty.0",
+					path: "schedule.events.0.content.message.parts.1",
 				}),
 			}),
 		]);
@@ -250,7 +294,10 @@ describe("automation HQ property-slot compatibility", () => {
 					uuid: testUuid("validator-timed-event"),
 					day: 0,
 					timing: { kind: "case-property-time", property: "alarm_time" },
-					content: { kind: "sms", message: "Reminder" },
+					content: {
+						kind: "sms",
+						message: automationMessageText("Reminder"),
+					},
 				},
 			],
 		};

@@ -159,6 +159,15 @@ event ordering/separation/windows, day/offset laws, and survey expiration plus
 partial-submission dependencies. These are domain refinements used by both SA
 and MCP; tools must not post-process or weaken them.
 
+Message fields use the canonical `AutomationMessageTemplate` part union rather
+than strings with magic token syntax. A `text` part is always literal, even if
+it contains `{case.foo}`; case substitutions are explicit `case-property`
+parts carrying scope plus the Nova `(caseType, property)` identity. SA and MCP
+write that shape directly, and only the derived HQ guide prints `{case...}`
+tokens.
+Registered handler IDs and setup-only instructions must be concrete, trimmed,
+and nonblank; no tool may send instructional placeholder copy as data.
+
 The same schema preserves HQ's kind-specific criteria matrix instead of
 admitting a shared superset. Case updates accept value/date comparisons against
 case, parent, or host properties plus at most one standard closed-parent

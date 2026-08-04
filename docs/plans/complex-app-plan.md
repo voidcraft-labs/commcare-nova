@@ -69,7 +69,7 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Twenty authorable kinds share ONE global identity namespace — modules, forms,
+Nineteen authorable kinds share ONE global identity namespace — modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
 worker properties, user types, personas, organization levels, location
 properties, automations, and their criteria, setup-only criteria, updates,
@@ -221,6 +221,16 @@ the Builder and guide state rather than silently treating them as deployable.
 There is no push-notification arm and no untyped escape hatch
 (`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
 `corehq/messaging/scheduling/models.py::Schedule`).
+
+Message subjects, bodies, and rich HTML source store an ordered structural
+template: literal text parts plus explicit case-property scope and
+`(caseType, property)` identity parts.
+Typed or pasted `{case.foo}` text remains literal and is never reparsed. The
+Builder inserts references explicitly, SA/MCP read and write the same canonical
+part union, property renames rewrite only those identity-bearing leaves, and
+the generated guide projects them one-way to HQ's current `{case...}` token
+spelling. Registered custom handlers and setup-only conditions must carry exact
+trimmed nonblank values; UI instructions remain placeholders, not saved data.
 
 Email content targets exactly one current HQ form. A plain-text body requires
 the domain-level Rich text emails toggle to be off. A rich-text body requires

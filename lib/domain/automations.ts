@@ -58,50 +58,6 @@ function isCanonicalHqCasePropertyValue(value: string): boolean {
 	return unquoted.length > 0 && value === unquoted;
 }
 
-export interface AutomationTemplateCasePropertyToken {
-	readonly start: number;
-	readonly end: number;
-	readonly scope: "case" | "parent" | "host";
-	readonly property: string;
-}
-
-/** Parse only HQ's exact `{case...}` template property spellings. */
-export function automationTemplateCasePropertyTokens(
-	template: string,
-): AutomationTemplateCasePropertyToken[] {
-	const tokens: AutomationTemplateCasePropertyToken[] = [];
-	const prefix = "{case.";
-	let cursor = 0;
-	while (cursor < template.length) {
-		const start = template.indexOf(prefix, cursor);
-		if (start < 0) break;
-		const close = template.indexOf("}", start + prefix.length);
-		if (close < 0) break;
-		const parts = template.slice(start + prefix.length, close).split(".");
-		if (parts.length === 1 && parts[0]) {
-			tokens.push({
-				start,
-				end: close + 1,
-				scope: "case",
-				property: parts[0],
-			});
-		} else if (
-			parts.length === 2 &&
-			(parts[0] === "parent" || parts[0] === "host") &&
-			parts[1]
-		) {
-			tokens.push({
-				start,
-				end: close + 1,
-				scope: parts[0],
-				property: parts[1],
-			});
-		}
-		cursor = close + 1;
-	}
-	return tokens;
-}
-
 /**
  * Conditional-alert regexes execute as Python `re.match` in HQ and PostgreSQL
  * ARE in Preview. Keep authored patterns inside their deliberately small,
@@ -262,6 +218,121 @@ export type AutomationPropertyTarget = z.infer<
 	typeof automationPropertyTargetSchema
 >;
 
+export const automationMessagePartSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("text"),
+			text: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("case-property"),
+			scope: automationPropertyTargetSchema.shape.scope,
+			caseType: z.string().min(1).max(126),
+			property: automationPropertyTargetSchema.shape.property,
+		})
+		.strict(),
+]);
+export type AutomationMessagePart = z.infer<typeof automationMessagePartSchema>;
+
+/**
+ * Canonical reference-bearing content for HQ message fields.
+ *
+ * Text is always literal, including text that looks like `{case.foo}`. A case
+ * property becomes identity-bearing only when an editor inserts the structural
+ * `case-property` part. The HQ token spelling is a one-way setup projection.
+ */
+export const automationMessageTemplateSchema = z
+	.object({
+		parts: z.array(automationMessagePartSchema).min(1).max(1_000),
+	})
+	.strict()
+	.superRefine((template, ctx) => {
+		for (let index = 1; index < template.parts.length; index += 1) {
+			if (
+				template.parts[index - 1]?.kind === "text" &&
+				template.parts[index]?.kind === "text"
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["parts", index],
+					message:
+						"Adjacent message text parts are not canonical; merge them into one part.",
+				});
+			}
+		}
+		const first = template.parts[0];
+		const last = template.parts.at(-1);
+		if (
+			(first?.kind === "text" && first.text !== first.text.trimStart()) ||
+			(last?.kind === "text" && last.text !== last.text.trimEnd())
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["parts"],
+				message: "A message template must have no surrounding whitespace.",
+			});
+		}
+		if (
+			!template.parts.some(
+				(part) => part.kind === "case-property" || part.text.trim().length > 0,
+			)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["parts"],
+				message: "A message template must be nonblank.",
+			});
+		}
+	});
+export type AutomationMessageTemplate = z.infer<
+	typeof automationMessageTemplateSchema
+>;
+
+export function automationMessageText(text: string): AutomationMessageTemplate {
+	return { parts: [{ kind: "text", text }] };
+}
+
+/** Drop empty text and merge adjacent literal runs after an editor operation. */
+export function canonicalAutomationMessageTemplate(
+	parts: readonly AutomationMessagePart[],
+): AutomationMessageTemplate {
+	const normalized: AutomationMessagePart[] = [];
+	for (const part of parts) {
+		if (part.kind === "text") {
+			if (part.text.length === 0) continue;
+			const previous = normalized.at(-1);
+			if (previous?.kind === "text") previous.text += part.text;
+			else normalized.push({ ...part });
+		} else {
+			normalized.push({ ...part });
+		}
+	}
+	return { parts: normalized };
+}
+
+function automationMessageTemplateWithLimit(maxLength: number, label: string) {
+	return automationMessageTemplateSchema.superRefine((template, ctx) => {
+		const projectedLength = template.parts.reduce(
+			(length, part) =>
+				length +
+				(part.kind === "text"
+					? part.text.length
+					: `{case.${part.scope === "case" ? "" : `${part.scope}.`}${part.property}}`
+							.length),
+			0,
+		);
+		if (projectedLength > maxLength) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["parts"],
+				message: `${label} must be at most ${maxLength} characters after projection.`,
+			});
+		}
+	});
+}
+
 export const automationUpdateValueSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("literal"), value: z.string().max(4_096) })
@@ -295,6 +366,14 @@ const automationHqRecipientIdSchema = z
 	.refine((value) => value.trim().length > 0 && value === value.trim(), {
 		message:
 			"A CommCare HQ recipient ID must be nonblank and have no surrounding whitespace.",
+	});
+
+const automationRegisteredIdSchema = z
+	.string()
+	.max(126)
+	.refine((value) => value.trim().length > 0 && value === value.trim(), {
+		message:
+			"A CommCare HQ registered ID must be nonblank and have no surrounding whitespace.",
 	});
 
 export const automationRecipientSchema = z.discriminatedUnion("kind", [
@@ -334,7 +413,7 @@ export const automationRecipientSchema = z.discriminatedUnion("kind", [
 		.object({
 			uuid: uuidSchema,
 			kind: z.literal("custom"),
-			registeredId: z.string().min(1).max(126),
+			registeredId: automationRegisteredIdSchema,
 		})
 		.strict(),
 ]);
@@ -427,51 +506,34 @@ function validateSurveyContent(
 
 export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
-		.object({ kind: z.literal("sms"), message: z.string().min(1).max(16_000) })
+		.object({
+			kind: z.literal("sms"),
+			message: automationMessageTemplateWithLimit(16_000, "An SMS message"),
+		})
 		.strict(),
 	z
 		.object({
 			kind: z.literal("email"),
-			subject: z
-				.string()
-				.min(1)
-				.max(1_000)
-				.refine((value) => value.trim().length > 0 && value === value.trim(), {
-					message:
-						"An email subject must be nonblank and have no surrounding whitespace.",
-				}),
+			subject: automationMessageTemplateWithLimit(1_000, "An email subject"),
 			body: z.discriminatedUnion("kind", [
 				z
 					.object({
 						kind: z.literal("plain-text"),
-						message: z.string().min(1).max(64_000),
+						message: automationMessageTemplateWithLimit(
+							64_000,
+							"A plain-text email message",
+						),
 					})
-					.strict()
-					.refine(
-						(value) =>
-							value.message.trim().length > 0 &&
-							value.message === value.message.trim(),
-						{
-							path: ["message"],
-							message:
-								"A plain-text email message must be nonblank and have no surrounding whitespace.",
-						},
-					),
+					.strict(),
 				z
 					.object({
 						kind: z.literal("rich-text"),
-						html: z.string().min(1).max(256_000),
+						html: automationMessageTemplateWithLimit(
+							256_000,
+							"Rich-text email HTML",
+						),
 					})
-					.strict()
-					.refine(
-						(value) =>
-							value.html.trim().length > 0 && value.html === value.html.trim(),
-						{
-							path: ["html"],
-							message:
-								"Rich-text email HTML must be nonblank and have no surrounding whitespace.",
-						},
-					),
+					.strict(),
 			]),
 		})
 		.strict(),
@@ -495,7 +557,10 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("sms-callback"),
-			message: z.string().min(1).max(16_000),
+			message: automationMessageTemplateWithLimit(
+				16_000,
+				"An SMS callback message",
+			),
 			reminderIntervalsMinutes: z
 				.array(persistableJsonPositiveIntegerSchema)
 				.min(1)
@@ -505,7 +570,7 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("connect-message"),
-			message: z.string().min(1).max(16_000),
+			message: automationMessageTemplateWithLimit(16_000, "A Connect message"),
 		})
 		.strict(),
 	z
@@ -515,7 +580,7 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("custom"),
-			registeredId: z.string().min(1).max(126),
+			registeredId: automationRegisteredIdSchema,
 		})
 		.strict(),
 ]);
@@ -923,7 +988,13 @@ export type AutomationUserDataFilter = z.infer<
 export const automationSetupOnlyCriterionSchema = z
 	.object({
 		uuid: uuidSchema,
-		text: z.string().min(1).max(AUTOMATION_SETUP_NOTE_MAX_LENGTH),
+		text: z
+			.string()
+			.max(AUTOMATION_SETUP_NOTE_MAX_LENGTH)
+			.refine((value) => value.trim().length > 0 && value === value.trim(), {
+				message:
+					"An HQ-only condition must be nonblank and have no surrounding whitespace.",
+			}),
 	})
 	.strict();
 

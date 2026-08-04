@@ -51,6 +51,15 @@ blankness matches, not text equality/regex. Reset-on-change and case-property
 event-time slots accept custom properties only because HQ reads those two from
 `dynamic_case_properties()` rather than any standard scalar field.
 
+Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
+values: ordered literal-text parts plus explicit structural case-property
+parts carrying scope and the full `(caseType, property)` identity. Text that
+merely looks like `{case.foo}` remains literal forever. The
+Builder inserts a property part explicitly, machine editors send the canonical
+part shape directly, case-property renames rewrite only structural parts, and
+the setup guide alone projects those identities to HQ's `{case...}` spelling.
+No reader reparses rendered message text to recover a reference.
+
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
 the standard parent-closed criterion, at most once, with no authored index or
 relationship. Equality and fixed-update literals are exact nonblank HQ values
@@ -59,7 +68,9 @@ already trimmed and nonblank, and alert regex patterns are nonempty. The recipie
 user, and Connect content refuses self, parent-case, all-child-cases,
 case-property-email, and case-group recipients. A timed reset property requires
 a rule-trigger start. Concrete HQ worker/group recipient IDs are already trimmed
-and nonblank. Each checkbox-style or case-property/custom recipient
+and nonblank. Registered custom recipient/content IDs and setup-only
+instructions are likewise concrete, trimmed, and nonblank; instructional copy
+is editor placeholder text and never canonical data. Each checkbox-style or case-property/custom recipient
 kind appears at most once; multi-target HQ lists may carry distinct workers,
 groups, or locations but never the same concrete target twice. Descendant
 settings require a location recipient, location-level filtering additionally
