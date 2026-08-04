@@ -627,6 +627,28 @@ export const tableColumnTermSchema = z
 	.strict();
 export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
 
+/** A specific place, stored by immutable row identity rather than its name. */
+export const fixedLocationTermSchema = z
+	.object({ kind: z.literal("fixed-location"), locationUuid: uuidSchema })
+	.strict();
+export type FixedLocationTerm = z.infer<typeof fixedLocationTermSchema>;
+
+/**
+ * The place at a named level beneath this case's current owner. The owner is
+ * read from the named case scope; the emitted lineage attribute is derived
+ * from the nearest case-owning ancestor of `levelUuid`.
+ */
+export const ownerLocationAtLevelTermSchema = z
+	.object({
+		kind: z.literal("owner-location-at-level"),
+		levelUuid: uuidSchema,
+		ownerCaseType: caseTypeField("Owner case type"),
+	})
+	.strict();
+export type OwnerLocationAtLevelTerm = z.infer<
+	typeof ownerLocationAtLevelTermSchema
+>;
+
 /**
  * A primitive constant. Numbers, booleans, and `null` are first-class
  * (rather than serialized to strings) so the type checker can validate
@@ -669,6 +691,8 @@ export const termSchema = z.discriminatedUnion("kind", [
 	sessionContextSchema,
 	formFieldRefSchema,
 	tableColumnTermSchema,
+	fixedLocationTermSchema,
+	ownerLocationAtLevelTermSchema,
 	literalSchema,
 ]);
 export type Term = z.infer<typeof termSchema>;
@@ -2318,6 +2342,10 @@ z.globalRegistry.add(sessionUserPropertySchema, {
 z.globalRegistry.add(sessionContextSchema, { id: "SessionContext" });
 z.globalRegistry.add(formFieldRefSchema, { id: "FormFieldRef" });
 z.globalRegistry.add(tableColumnTermSchema, { id: "TableColumnTerm" });
+z.globalRegistry.add(fixedLocationTermSchema, { id: "FixedLocationTerm" });
+z.globalRegistry.add(ownerLocationAtLevelTermSchema, {
+	id: "OwnerLocationAtLevelTerm",
+});
 z.globalRegistry.add(literalSchema, { id: "Literal" });
 z.globalRegistry.add(termSchema, { id: "Term" });
 z.globalRegistry.add(idOfSchema, { id: "IdOf" });

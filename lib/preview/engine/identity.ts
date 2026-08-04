@@ -31,6 +31,7 @@
 // collapsing them would make one of the two lie.
 
 import {
+	assignedLocationUuids,
 	asUuid,
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
@@ -325,20 +326,41 @@ export function previewAsPersona(
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
 
+	const projected = projections(
+		{
+			id: persona.uuid,
+			username: persona.name,
+			personName: persona.name,
+			email: "",
+		},
+		personaUserData(persona, doc),
+		doc,
+	);
+	const locationIds = assignedLocationUuids(persona.locations);
+	const primary = locationIds[0];
+	const locationSession: Record<string, string> =
+		primary === undefined
+			? {}
+			: {
+					commcare_location_id: primary,
+					commcare_location_ids: locationIds.join(" "),
+					commcare_primary_case_sharing_id: primary,
+				};
+	const locationUsercase = {
+		commcare_location_id: primary ?? "",
+		commcare_location_ids: locationIds.join(" "),
+		commcare_primary_case_sharing_id: primary ?? "",
+	};
+
 	return {
 		actorUserId: user.id,
 		ownerId: persona.uuid,
 		personaUuid: persona.uuid,
-		...projections(
-			{
-				id: persona.uuid,
-				username: persona.name,
-				personName: persona.name,
-				email: "",
-			},
-			personaUserData(persona, doc),
-			doc,
-		),
+		session: {
+			...projected.session,
+			user: mergeOwnRecords(projected.session.user, locationSession),
+		},
+		usercase: mergeOwnRecords(projected.usercase, locationUsercase),
 	};
 }
 

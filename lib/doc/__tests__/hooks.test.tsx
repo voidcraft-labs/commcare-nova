@@ -11,9 +11,11 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import type { OrganizationLevel } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
@@ -21,6 +23,28 @@ import { proseText } from "@/lib/domain/prose";
 const MOD_UUID = testUuid("module-1-uuid");
 const FORM_UUID = testUuid("form-1-uuid");
 const Q_UUID = testUuid("q-111-0000-0000-0000-000000000000");
+const ROOT_A_UUID = testUuid("organization-root-a");
+const CHILD_UUID = testUuid("organization-child");
+const ROOT_B_UUID = testUuid("organization-root-b");
+
+function organizationLevel(
+	uuid: OrganizationLevel["uuid"],
+	name: string,
+	parentLevelUuid?: OrganizationLevel["uuid"],
+): OrganizationLevel {
+	return {
+		uuid,
+		code: name.toLocaleLowerCase().replaceAll(" ", "_"),
+		name,
+		...(parentLevelUuid === undefined ? {} : { parentLevelUuid }),
+		caseFlow: {
+			workers: "assigned",
+			ownsCases: true,
+			descendantCases: { kind: "none" },
+		},
+		addressBook: { reach: "own-branch" },
+	};
+}
 
 /**
  * Seed the store with a normalized `BlueprintDoc` containing one module,
@@ -59,6 +83,12 @@ function setup() {
 		formOrder: { [MOD_UUID]: [FORM_UUID] },
 		fieldOrder: { [FORM_UUID]: [Q_UUID] },
 		fieldParent: {},
+		organizationLevels: {
+			[ROOT_A_UUID]: organizationLevel(ROOT_A_UUID, "Root A"),
+			[CHILD_UUID]: organizationLevel(CHILD_UUID, "Child", ROOT_A_UUID),
+			[ROOT_B_UUID]: organizationLevel(ROOT_B_UUID, "Root B"),
+		},
+		organizationLevelOrder: [CHILD_UUID, ROOT_B_UUID, ROOT_A_UUID],
 	};
 	store.getState().load(doc);
 	const moduleUuid = store.getState().moduleOrder[0];
@@ -131,6 +161,18 @@ describe("useModuleIds / useOrderedModules", () => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Different" }]);
 		});
 		expect(result.current).toBe(first);
+	});
+});
+
+describe("useOrganizationLevels", () => {
+	it("preserves the canonical membership-array sequence", () => {
+		const { wrapper } = setup();
+		const { result } = renderHook(() => useOrganizationLevels(), { wrapper });
+		expect(result.current.map((level) => level.uuid)).toEqual([
+			CHILD_UUID,
+			ROOT_B_UUID,
+			ROOT_A_UUID,
+		]);
 	});
 });
 

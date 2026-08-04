@@ -217,6 +217,40 @@ function usersDoc(): BlueprintDoc {
 	return withUserSequences(doc);
 }
 
+function organizationDoc(): BlueprintDoc {
+	const doc = richDoc();
+	const region = testUuid("org-region");
+	const facility = testUuid("org-facility");
+	const beds = testUuid("locprop-beds");
+	doc.organizationLevels = {
+		[region]: {
+			uuid: region,
+			code: "region",
+			name: "Region",
+			caseFlow: { workers: "none", ownsCases: false },
+			addressBook: { reach: "own-branch" },
+		},
+		[facility]: {
+			uuid: facility,
+			code: "facility",
+			name: "Facility",
+			parentLevelUuid: region,
+			caseFlow: {
+				workers: "assigned",
+				ownsCases: true,
+				descendantCases: { kind: "none" },
+			},
+			addressBook: { reach: "own-branch" },
+		},
+	};
+	doc.organizationLevelOrder = [region, facility];
+	doc.locationProperties = {
+		[beds]: { uuid: beds, slug: "beds", label: "Beds" },
+	};
+	doc.locationPropertyOrder = [beds];
+	return doc;
+}
+
 interface RejectionProbe {
 	/** Build the doc + the batch the gate must refuse. */
 	build: () => { doc: BlueprintDoc; batch: Mutation[] };
@@ -964,6 +998,93 @@ const GUARD_COVERAGE = {
 		build: () => ({
 			doc: usersDoc(),
 			batch: [{ kind: "removePersona", uuid: testUuid("pers-bimal") }],
+		}),
+	},
+
+	// ── Organization levels and place information ──────────────────
+	addOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "addOrganizationLevel",
+					level: {
+						uuid: testUuid("org-region-copy"),
+						code: "region",
+						name: "Another region",
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+				},
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_CODE_DUPLICATE"],
+	},
+	updateOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "updateOrganizationLevel",
+					uuid: testUuid("org-region"),
+					patch: { parentLevelUuid: testUuid("org-facility") },
+				},
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_CYCLE"],
+	},
+	removeOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "removeOrganizationLevel",
+					uuid: testUuid("org-region"),
+				},
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_PARENT_UNKNOWN"],
+	},
+	addLocationProperty: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "addLocationProperty",
+					property: {
+						uuid: testUuid("locprop-beds-copy"),
+						slug: "beds",
+						label: "More beds",
+					},
+				},
+			],
+		}),
+		expectCodes: ["LOCATION_PROPERTY_SLUG_DUPLICATE"],
+	},
+	updateLocationProperty: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "updateLocationProperty",
+					uuid: testUuid("locprop-beds"),
+					patch: { levelUuids: [testUuid("org-missing")] },
+				},
+			],
+		}),
+		expectCodes: ["LOCATION_PROPERTY_LEVEL_UNKNOWN"],
+	},
+	removeLocationProperty: {
+		neverGates:
+			"removing an unused declaration is document-valid; its row values are shed by the transactional organization integrity hook",
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "removeLocationProperty",
+					uuid: testUuid("locprop-beds"),
+				},
+			],
 		}),
 	},
 } satisfies Record<Mutation["kind"], Coverage>;

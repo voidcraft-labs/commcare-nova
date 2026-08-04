@@ -49,9 +49,9 @@ export function Subsection({
 				<Button
 					ref={addButtonRef}
 					type="button"
-					variant="ghost-action"
+					variant="ghost"
 					onClick={onAdd}
-					className="mt-3"
+					className="nova-add-slot mt-3 w-full"
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
 					{addLabel}
@@ -81,6 +81,8 @@ export function EntryRow({
 	children,
 	open,
 	onOpenChange,
+	triggerRef,
+	keepMounted = true,
 }: {
 	/** The entry's name: the disclosure's accessible label. */
 	summary: ReactNode;
@@ -89,6 +91,9 @@ export function EntryRow({
 	children: ReactNode;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	triggerRef?: Ref<HTMLButtonElement>;
+	/** Keep draft-bearing editors alive when collapsed. Large read-mostly lists opt out. */
+	keepMounted?: boolean;
 }) {
 	return (
 		<Collapsible
@@ -97,6 +102,7 @@ export function EntryRow({
 			className="rounded-lg border border-nova-border bg-nova-deep"
 		>
 			<CollapsibleTrigger
+				ref={triggerRef}
 				className="nova-focusable-inset group flex min-h-12 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-white/[0.03]"
 				render={<button type="button" />}
 			>
@@ -111,13 +117,13 @@ export function EntryRow({
 					{summary}
 				</span>
 				{detail !== undefined && (
-					<span className="shrink-0 text-[12px] text-nova-text-muted">
+					<span className="min-w-0 max-w-[45%] whitespace-normal text-right text-[12px] text-nova-text-muted [overflow-wrap:anywhere]">
 						{detail}
 					</span>
 				)}
 			</CollapsibleTrigger>
 			<CollapsibleContent
-				keepMounted
+				keepMounted={keepMounted}
 				className="border-t border-nova-border px-3 py-3"
 			>
 				{children}

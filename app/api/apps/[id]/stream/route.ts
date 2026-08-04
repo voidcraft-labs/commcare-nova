@@ -23,6 +23,8 @@
  *
  * Frames:
  *   event: mutation  id:<seq> , one browser-replayable committed batch.
+ *   event: organization-revision a payload-free poke to re-read this app's
+ *                                organization snapshot.
  *   event: lookup-revision       the Project's complete authoritative lookup
  *                                manifest. Seq-less; the mutation cursor stays
  *                                exclusively on `mutation` frames.
@@ -64,6 +66,7 @@ import {
 	projectPresenceRoster,
 } from "@/lib/db/presenceRoster";
 import {
+	subscribeAppOrganization,
 	subscribeAppStream,
 	subscribeLookupProject,
 } from "@/lib/db/streamListener";
@@ -232,7 +235,11 @@ function openStream(args: {
 					null;
 				let lookupPump: ReturnType<typeof createCoalescedStreamPump> | null =
 					null;
+				let organizationPump: ReturnType<
+					typeof createCoalescedStreamPump
+				> | null = null;
 				let unsubscribeApp: (() => void) | null = null;
+				let unsubscribeOrganization: (() => void) | null = null;
 				let unsubscribeLookup: (() => void) | null = null;
 				let cadence: ReturnType<typeof setInterval> | null = null;
 				let rosterInterval: ReturnType<typeof setInterval> | null = null;
@@ -262,7 +269,9 @@ function openStream(args: {
 					closed = true;
 					mutationPump?.close();
 					lookupPump?.close();
+					organizationPump?.close();
 					unsubscribeApp?.();
+					unsubscribeOrganization?.();
 					unsubscribeLookup?.();
 					if (cadence) clearInterval(cadence);
 					if (rosterInterval) clearInterval(rosterInterval);
@@ -510,6 +519,18 @@ function openStream(args: {
 							});
 						},
 					});
+					organizationPump = createCoalescedStreamPump({
+						async run() {
+							if (closed) return;
+							send("organization-revision", {});
+						},
+						onError(err) {
+							log.warn("[stream] organization pump error (will retry)", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
 
 					/* If the cursor fell below the retention window, the client is too far
 					 * behind to replay economically. The log is PERMANENT so the entries DO
@@ -534,6 +555,9 @@ function openStream(args: {
 						},
 					);
 					runAfterAppStreamSubscribeTestHook();
+					unsubscribeOrganization = subscribeAppOrganization(appId, () => {
+						organizationPump?.poke();
+					});
 					unsubscribeLookup = subscribeLookupProject(
 						lookupScope.projectId,
 						() => {
@@ -542,6 +566,7 @@ function openStream(args: {
 					);
 					mutationPump.poke();
 					lookupPump.poke();
+					organizationPump.poke();
 					void emitRoster();
 
 					/* Continuous revocation: re-run the session + scope check on a cadence and

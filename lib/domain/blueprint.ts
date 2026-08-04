@@ -18,6 +18,10 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
+import {
+	locationPropertySchema,
+	organizationLevelSchema,
+} from "./organization";
 import { proseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
@@ -127,6 +131,19 @@ const blueprintDocObjectSchema = z
 		personas: ownRecordSchema(uuidSchema, personaSchema).optional(),
 		personaOrder: z.array(uuidSchema).optional(),
 
+		/** The app-authored shape of its organization. Location rows live in
+		 * the app-scoped organization store, not in BlueprintDoc. */
+		organizationLevels: ownRecordSchema(
+			uuidSchema,
+			organizationLevelSchema,
+		).optional(),
+		organizationLevelOrder: z.array(uuidSchema).optional(),
+		locationProperties: ownRecordSchema(
+			uuidSchema,
+			locationPropertySchema,
+		).optional(),
+		locationPropertyOrder: z.array(uuidSchema).optional(),
+
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})
 	.strict();
@@ -197,6 +214,8 @@ export function blueprintTopologyIssues(
 	registerRecord("userProperties", doc.userProperties ?? {});
 	registerRecord("userTypes", doc.userTypes ?? {});
 	registerRecord("personas", doc.personas ?? {});
+	registerRecord("organizationLevels", doc.organizationLevels ?? {});
+	registerRecord("locationProperties", doc.locationProperties ?? {});
 
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
 		if (
@@ -531,6 +550,18 @@ export function blueprintTopologyIssues(
 		doc.personas ?? {},
 		"personaOrder",
 		doc.personaOrder ?? [],
+	);
+	exactSequence(
+		"organizationLevels",
+		doc.organizationLevels ?? {},
+		"organizationLevelOrder",
+		doc.organizationLevelOrder ?? [],
+	);
+	exactSequence(
+		"locationProperties",
+		doc.locationProperties ?? {},
+		"locationPropertyOrder",
+		doc.locationPropertyOrder ?? [],
 	);
 
 	return issues;

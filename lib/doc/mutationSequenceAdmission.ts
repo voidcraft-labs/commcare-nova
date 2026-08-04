@@ -24,6 +24,8 @@ export const MUTATION_SEQUENCE_INVENTORY = [
 	{ path: "addUserProperty.after", mode: "optional-neighbor" },
 	{ path: "addUserType.after", mode: "optional-neighbor" },
 	{ path: "addPersona.after", mode: "optional-neighbor" },
+	{ path: "addOrganizationLevel.after", mode: "optional-neighbor" },
+	{ path: "addLocationProperty.after", mode: "optional-neighbor" },
 	{ path: "addColumn.afterInList", mode: "required-neighbor" },
 	{ path: "addColumn.afterInDetail", mode: "required-neighbor" },
 	{ path: "moveColumn.after", mode: "required-neighbor" },
@@ -76,6 +78,8 @@ interface SequenceState {
 	userPropertyOrder: string[];
 	userTypeOrder: string[];
 	personaOrder: string[];
+	organizationLevelOrder: string[];
+	locationPropertyOrder: string[];
 	casePropertyOrder: Map<string, string[]>;
 	columnListOrder: Map<string, string[]>;
 	columnDetailOrder: Map<string, string[]>;
@@ -175,6 +179,8 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		userPropertyOrder: [...(doc.userPropertyOrder ?? [])],
 		userTypeOrder: [...(doc.userTypeOrder ?? [])],
 		personaOrder: [...(doc.personaOrder ?? [])],
+		organizationLevelOrder: [...(doc.organizationLevelOrder ?? [])],
+		locationPropertyOrder: [...(doc.locationPropertyOrder ?? [])],
 		casePropertyOrder,
 		columnListOrder,
 		columnDetailOrder,
@@ -774,6 +780,48 @@ export function mutationSequenceAdmissionIssue(
 				removeMember(state.personaOrder, mutation.uuid);
 				break;
 			case "updatePersona":
+				break;
+			case "addOrganizationLevel":
+				if (
+					!place(
+						state.organizationLevelOrder,
+						mutation.level.uuid,
+						mutation.after,
+					)
+				) {
+					return issue(
+						mutation,
+						mutationIndex,
+						"organization levels",
+						mutation.after,
+					);
+				}
+				break;
+			case "removeOrganizationLevel":
+				removeMember(state.organizationLevelOrder, mutation.uuid);
+				break;
+			case "updateOrganizationLevel":
+				break;
+			case "addLocationProperty":
+				if (
+					!place(
+						state.locationPropertyOrder,
+						mutation.property.uuid,
+						mutation.after,
+					)
+				) {
+					return issue(
+						mutation,
+						mutationIndex,
+						"place information",
+						mutation.after,
+					);
+				}
+				break;
+			case "removeLocationProperty":
+				removeMember(state.locationPropertyOrder, mutation.uuid);
+				break;
+			case "updateLocationProperty":
 				break;
 			case "setAppName":
 			case "setConnectType":

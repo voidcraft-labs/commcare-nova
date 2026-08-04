@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
 	eq,
+	fixedLocation,
 	literal,
 	matchAll,
+	ownerLocationAtLevel,
 	tableColumn,
 	tableLookup,
 	term,
@@ -61,6 +64,20 @@ describe("collectExpressionInstances", () => {
 				"xform",
 			),
 		).toEqual(new Set(["statuses"]));
+	});
+
+	it("adds no fixture for a fixed place and both rows needed by an owner reverse hop", () => {
+		expect(
+			collectExpressionInstances(
+				term(fixedLocation(testUuid("fixed-location"))),
+			),
+		).toEqual(new Set());
+		expect(
+			collectExpressionInstances(
+				term(ownerLocationAtLevel(testUuid("bucket-level"), "patient")),
+			),
+		).toEqual(new Set(["locations", "casedb"]));
+		expect(instanceSourceFor("locations")).toBe("jr://fixture/locations");
 	});
 });
 

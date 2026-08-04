@@ -41,6 +41,7 @@ import {
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import {
 	nextPersistedSequence,
 	safePersistedSequence,
@@ -1370,6 +1371,11 @@ export async function commitGuardedBatch(
 			projectId: fresh.project_id,
 			candidateDoc: verdict.nextDoc,
 		});
+		await applyOrganizationCommitIntegrity(tx, {
+			appId,
+			previousDoc: freshDoc,
+			candidateDoc: verdict.nextDoc,
+		});
 		await internalOptions.beforeWrite?.({
 			tx,
 			freshDoc,
@@ -1636,6 +1642,11 @@ export async function appendSyntheticBatch(
 		await admitExactMediaReferences(tx, {
 			appId: args.appId,
 			projectId: fresh.project_id,
+			candidateDoc: verdict.nextDoc,
+		});
+		await applyOrganizationCommitIntegrity(tx, {
+			appId: args.appId,
+			previousDoc,
 			candidateDoc: verdict.nextDoc,
 		});
 		await replaceLookupReferenceEdges(tx, {

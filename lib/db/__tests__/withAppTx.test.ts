@@ -31,6 +31,7 @@ afterEach(() => {
  * once the scripted errors run out, runs the body for real and returns its value.
  */
 function fakeDb(errors: unknown[]) {
+	const setIsolationLevel = vi.fn(() => ({ execute }));
 	const execute = vi.fn(
 		async (body: (tx: unknown) => Promise<unknown>): Promise<unknown> => {
 			const attempt = execute.mock.calls.length - 1;
@@ -39,9 +40,9 @@ function fakeDb(errors: unknown[]) {
 		},
 	);
 	const db = {
-		transaction: () => ({ execute }),
+		transaction: () => ({ execute, setIsolationLevel }),
 	} as unknown as Kysely<AppDatabase>;
-	return { db, execute };
+	return { db, execute, setIsolationLevel };
 }
 
 describe("withAppTx retry", () => {
@@ -59,6 +60,21 @@ describe("withAppTx retry", () => {
 		__setAppDbForTests(db);
 
 		await expect(withAppTx(async () => 42)).resolves.toBe(42);
+		expect(execute).toHaveBeenCalledTimes(2);
+	});
+
+	it("reapplies a requested isolation level on every retry", async () => {
+		const { db, execute, setIsolationLevel } = fakeDb([{ code: "40001" }]);
+		__setAppDbForTests(db);
+
+		await expect(
+			withAppTx(async () => "snapshot", {
+				isolationLevel: "repeatable read",
+			}),
+		).resolves.toBe("snapshot");
+		expect(setIsolationLevel).toHaveBeenCalledTimes(2);
+		expect(setIsolationLevel).toHaveBeenNthCalledWith(1, "repeatable read");
+		expect(setIsolationLevel).toHaveBeenNthCalledWith(2, "repeatable read");
 		expect(execute).toHaveBeenCalledTimes(2);
 	});
 

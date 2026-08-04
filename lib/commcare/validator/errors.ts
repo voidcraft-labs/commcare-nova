@@ -33,6 +33,21 @@ export type ValidationErrorCode =
 	| "USER_DATA_UNKNOWN_PROPERTY"
 	| "USER_DATA_INVALID_CHOICE"
 	| "USER_PROPERTY_REFERENCE_UNKNOWN"
+	// Organization levels, place information, persona assignment
+	| "ORGANIZATION_LEVEL_CODE_DUPLICATE"
+	| "ORGANIZATION_LEVEL_NAME_DUPLICATE"
+	| "ORGANIZATION_LEVEL_PARENT_UNKNOWN"
+	| "ORGANIZATION_LEVEL_CYCLE"
+	| "ORGANIZATION_LEVEL_REFERENCE_UNKNOWN"
+	| "ORGANIZATION_LEVEL_CAP_NOT_BELOW"
+	| "ORGANIZATION_LEVEL_SCOPE_GAP"
+	| "ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR"
+	| "ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT"
+	| "LOCATION_PROPERTY_SLUG_INVALID"
+	| "LOCATION_PROPERTY_SLUG_DUPLICATE"
+	| "LOCATION_PROPERTY_LEVEL_UNKNOWN"
+	| "LOCATION_PROPERTY_REQUIRED_CAPACITY"
+	| "PERSONA_LOCATION_PRIMARY_REPEATED"
 	// Module-level
 	| "NO_CASE_TYPE"
 	| "CASE_LIST_ONLY_HAS_FORMS"
@@ -320,6 +335,7 @@ export type ValidationErrorCode =
 	// mode-aware Nova export boundary rejects every carrier for `hq-json` and
 	// `hq-upload`. `ccz` embeds its fixtures locally and never takes this.
 	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
+	| "LOCATION_OWNER_EXPORT_NOT_ACTIVE"
 	// Row-dependent lookup findings, produced only by the ccz export
 	// boundary: rows live outside the document, so these are functions of
 	// current Project data, not of any commit.

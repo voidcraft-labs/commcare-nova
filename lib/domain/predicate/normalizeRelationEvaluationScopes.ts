@@ -15,6 +15,7 @@
 // authoring repair before a compiler reaches this defense.
 
 import type { CaseType } from "../blueprint";
+import type { OrganizationLevel } from "../organization";
 import type { Uuid } from "../uuid";
 import { relationPropertyDestinationCaseType } from "./normalizeRelationReads";
 import type { SearchInputDecl } from "./typeChecker";
@@ -49,6 +50,8 @@ export interface RelationEvaluationScopeContext {
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Current runtime names for identity-backed search inputs. */
 	readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
+	/** Organization topology for identity-backed location terms. */
+	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 }
 
 /** Normalize every predicate leaf reachable through structural boolean slots. */

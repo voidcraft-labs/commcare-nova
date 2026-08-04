@@ -35,16 +35,20 @@ import {
 	caseTypeTargetKey,
 	entityTargetKey,
 	expressionSource,
+	locationTargetKey,
 	printProseTemplate,
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
 import {
 	eq,
+	fixedLocation,
 	literal,
+	ownerLocationAtLevel,
 	prop,
 	sessionUserProperty,
 	subcasePath,
+	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -160,6 +164,95 @@ function richDoc(): BlueprintDoc {
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
+	it("indexes every Blueprint carrier that names an organization identity", () => {
+		const region = testUuid("11111111-1111-4111-8111-111111111111");
+		const facility = testUuid("22222222-2222-4222-8222-222222222222");
+		const property = testUuid("33333333-3333-4333-8333-333333333333");
+		const persona = testUuid("44444444-4444-4444-8444-444444444444");
+		const place = testUuid("55555555-5555-4555-8555-555555555555");
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [{ name: "Visit", type: "followup" }],
+				},
+			],
+		});
+		doc.organizationLevels = {
+			[region]: {
+				uuid: region,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "own-branch" },
+			},
+			[facility]: {
+				uuid: facility,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: region,
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: false,
+					descendantCases: { kind: "none" },
+				},
+				addressBook: { reach: "shared-branch", fromLevelUuid: region },
+			},
+		};
+		doc.organizationLevelOrder = [region, facility];
+		doc.locationProperties = {
+			[property]: {
+				uuid: property,
+				slug: "phone",
+				label: "Phone",
+				levelUuids: [region],
+			},
+		};
+		doc.locationPropertyOrder = [property];
+		doc.personas = {
+			[persona]: {
+				uuid: persona,
+				name: "Asha",
+				locations: { primaryUuid: place },
+			},
+		};
+		doc.personaOrder = [persona];
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		doc.forms[formUuid].caseOperations = [
+			{
+				uuid: testUuid("66666666-6666-4666-8666-666666666666"),
+				id: "fixed_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(fixedLocation(place)),
+			},
+			{
+				uuid: testUuid("77777777-7777-4777-8777-777777777777"),
+				id: "reverse_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(ownerLocationAtLevel(facility, "patient")),
+			},
+		];
+
+		const levelSlots = slotsFor(doc, entityTargetKey(region));
+		expect(levelSlots[facility]).toEqual({ organization_level_setting: true });
+		expect(levelSlots[property]).toEqual({ location_property_level: true });
+		expect(slotsFor(doc, entityTargetKey(facility))[formUuid]).toEqual({
+			case_operation_owner: true,
+		});
+		expect(slotsFor(doc, caseTypeTargetKey("patient"))[formUuid]).toEqual(
+			expect.objectContaining({ case_operation_owner: true }),
+		);
+		const placeSlots = slotsFor(doc, locationTargetKey(place));
+		expect(placeSlots[persona]).toEqual({ persona_location: true });
+		expect(placeSlots[formUuid]).toEqual({ case_operation_owner: true });
+	});
+
 	it("indexes custom worker references by user-property identity across both AST families", () => {
 		const propertyUuid = testUuid("worker-property-region");
 		const doc = buildDoc({

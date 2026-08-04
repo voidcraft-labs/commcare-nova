@@ -22,6 +22,7 @@ import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplate
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
+import { ORGANIZATION_RULES } from "./organization";
 import { USER_RULES } from "./users";
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
@@ -515,4 +516,5 @@ export const APP_RULES = [
 	// it, and the personas that act as those roles. App-scoped because none
 	// of the three belongs to a module or a form.
 	...USER_RULES,
+	...ORGANIZATION_RULES,
 ];

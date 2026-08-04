@@ -42,6 +42,7 @@ export function DraftCommitInput({
 	normalize = (draft) => draft.trim(),
 	inputRef,
 	className,
+	ariaDescribedBy,
 	validateAsYouType = false,
 }: {
 	readonly id: string;
@@ -52,6 +53,7 @@ export function DraftCommitInput({
 	readonly normalize?: (value: string) => string;
 	readonly inputRef?: Ref<HTMLInputElement>;
 	readonly className?: string;
+	readonly ariaDescribedBy?: string;
 	readonly validateAsYouType?: boolean;
 }) {
 	const [draft, setDraft] = useState(value);
@@ -118,7 +120,11 @@ export function DraftCommitInput({
 				autoComplete="off"
 				data-1p-ignore
 				aria-invalid={liveProblem === undefined ? undefined : true}
-				aria-describedby={liveProblem === undefined ? undefined : problemId}
+				aria-describedby={
+					[ariaDescribedBy, liveProblem === undefined ? undefined : problemId]
+						.filter(Boolean)
+						.join(" ") || undefined
+				}
 				onChange={(event) => {
 					setDraft(event.target.value);
 					setRefusal(undefined);
@@ -156,11 +162,13 @@ export function DraftLinesField({
 	value,
 	disabled,
 	onCommit,
+	ariaDescribedBy,
 }: {
 	readonly id: string;
 	readonly value: readonly string[];
 	readonly disabled: boolean;
 	readonly onCommit: (value: readonly string[] | null) => CommitOutcome;
+	readonly ariaDescribedBy?: string;
 }) {
 	const committedText = value.join("\n");
 	const [draft, setDraft] = useState(committedText);
@@ -168,6 +176,7 @@ export function DraftLinesField({
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const applyRef = useRef<HTMLButtonElement>(null);
 	const problemId = useId();
+	const hintId = `${problemId}-hint`;
 	const dirty = draft !== baseValue;
 	const peerChanged = committedText !== baseValue;
 
@@ -219,7 +228,15 @@ export function DraftLinesField({
 				rows={3}
 				placeholder="One per line. Leave empty to accept any text."
 				aria-invalid={refusal === undefined ? undefined : true}
-				aria-describedby={refusal === undefined ? undefined : problemId}
+				aria-describedby={
+					[
+						hintId,
+						ariaDescribedBy,
+						refusal === undefined ? undefined : problemId,
+					]
+						.filter(Boolean)
+						.join(" ") || undefined
+				}
 				onChange={(event) => {
 					setDraft(event.target.value);
 					setRefusal(undefined);
@@ -245,7 +262,7 @@ export function DraftLinesField({
 				className="text-[13px]"
 			/>
 			<div className="flex items-center justify-between gap-3">
-				<span className="text-[12px] text-nova-text-muted">
+				<span id={hintId} className="text-[12px] text-nova-text-muted">
 					One value per line.
 				</span>
 				<Button

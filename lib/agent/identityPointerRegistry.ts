@@ -24,6 +24,9 @@ export type AuthorableIdentityFamily =
 	| "worker-property"
 	| "user-type"
 	| "persona"
+	| "organization-level"
+	| "location-property"
+	| "location"
 	| "case-operation"
 	| "media-asset"
 	| "lookup-table"
@@ -112,9 +115,26 @@ function classifyIdentity(
 		return "lookup-column";
 	}
 	if (property === "rowId") return "lookup-row";
+	if (
+		(property === "values" || property === "valuePatch") &&
+		(tool === "create_location" || tool === "update_location")
+	) {
+		return "location-property";
+	}
 
 	if (property === "moduleUuid") return "module";
 	if (property === "formUuid") return "form";
+	if (
+		(property === "parentUuid" ||
+			property === "parentId" ||
+			property === "afterSiblingUuid" ||
+			property === "afterSiblingId") &&
+		(tool === "create_location" ||
+			tool === "update_location" ||
+			tool === "move_location")
+	) {
+		return "location";
+	}
 	if (
 		property === "fieldUuid" ||
 		property === "parentUuid" ||
@@ -134,6 +154,25 @@ function classifyIdentity(
 	}
 	if (property === "userPropertyUuid") return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
+	if (
+		property === "levelUuid" ||
+		property === "levelUuids" ||
+		property === "parentLevelUuid" ||
+		property === "downToLevelUuid" ||
+		property === "alsoIncludeTopDownToLevelUuid" ||
+		property === "fromLevelUuid"
+	) {
+		return "organization-level";
+	}
+	if (
+		property === "locationUuid" ||
+		property === "locationUuids" ||
+		property === "locationIds" ||
+		property === "parentUuid" ||
+		property === "afterSiblingUuid"
+	) {
+		return "location";
+	}
 	if (
 		property === "operationUuid" ||
 		property === "afterOperationUuid" ||
@@ -171,6 +210,20 @@ function classifyIdentity(
 		}
 		if (tool === "update_persona" || tool === "remove_persona") {
 			return "persona";
+		}
+		if (
+			tool === "add_organization_levels" ||
+			tool === "update_organization_level" ||
+			tool === "remove_organization_level"
+		) {
+			return "organization-level";
+		}
+		if (
+			tool === "add_location_properties" ||
+			tool === "update_location_property" ||
+			tool === "remove_location_property"
+		) {
+			return "location-property";
 		}
 	}
 	return null;

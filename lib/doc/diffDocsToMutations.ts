@@ -493,6 +493,7 @@ export function diffDocsToMutations(
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
 	collections.push(...diffUserCollections(prev, next));
+	collections.push(...diffOrganizationCollections(prev, next));
 
 	// ── Module / form / field set deltas ──────────────────────────────
 	const moduleDelta = setDelta(
@@ -1867,6 +1868,136 @@ function diffUserCollections(
 		}
 	}
 	return out;
+}
+
+/** The Blueprint-owned organization shape, using its exact membership arrays. */
+function diffOrganizationCollections(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevLevels = prev.organizationLevels ?? {};
+	const nextLevels = next.organizationLevels ?? {};
+	assertExistingRelativeOrderPreserved(
+		prev.organizationLevelOrder ?? [],
+		next.organizationLevelOrder ?? [],
+		"organization levels",
+	);
+	const nextLevelOrder = next.organizationLevelOrder ?? [];
+	const availableLevels = new Set(prev.organizationLevelOrder ?? []);
+	const pendingLevelAdds = nextLevelOrder.filter(
+		(uuid) => ownRecordValue(prevLevels, uuid) === undefined,
+	);
+	while (pendingLevelAdds.length > 0) {
+		const readyIndex = pendingLevelAdds.findIndex((uuid) => {
+			const parent = ownRecordValue(nextLevels, uuid)?.parentLevelUuid;
+			return parent === undefined || availableLevels.has(parent);
+		});
+		if (readyIndex === -1) {
+			throw new Error(
+				"New organization levels cannot be ordered after their parent dependencies.",
+			);
+		}
+		const [uuid] = pendingLevelAdds.splice(readyIndex, 1);
+		if (uuid === undefined) continue;
+		const level = ownRecordValue(nextLevels, uuid);
+		if (level === undefined) continue;
+		const displayIndex = nextLevelOrder.indexOf(uuid);
+		let after: Uuid | null = null;
+		for (let index = displayIndex - 1; index >= 0; index--) {
+			const predecessor = nextLevelOrder[index];
+			if (predecessor !== undefined && availableLevels.has(predecessor)) {
+				after = predecessor;
+				break;
+			}
+		}
+		out.push({
+			kind: "addOrganizationLevel",
+			level: cloneEntity(level),
+			after,
+		});
+		availableLevels.add(uuid);
+	}
+	// Existing rows may now safely reparent to any level added above. Emitting
+	// updates in display order before additions made a valid whole-document
+	// target impossible whenever its new parent appeared later in the sequence.
+	for (const uuid of nextLevelOrder) {
+		const level = ownRecordValue(nextLevels, uuid);
+		const before = ownRecordValue(prevLevels, uuid);
+		if (level === undefined || before === undefined) continue;
+		if (!deepEqual(before, level)) {
+			if (before.code !== level.code) {
+				throw new Error("An organization level's code is create-once.");
+			}
+			const { code: _code, ...patch } = userPatch(before, level);
+			out.push({
+				kind: "updateOrganizationLevel",
+				uuid: asUuid(uuid),
+				patch,
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevLevels)) {
+		if (!hasOwnRecordKey(nextLevels, uuid)) {
+			out.push({ kind: "removeOrganizationLevel", uuid: asUuid(uuid) });
+		}
+	}
+
+	const prevProperties = prev.locationProperties ?? {};
+	const nextProperties = next.locationProperties ?? {};
+	assertExistingRelativeOrderPreserved(
+		prev.locationPropertyOrder ?? [],
+		next.locationPropertyOrder ?? [],
+		"place-information fields",
+	);
+	for (const [index, uuid] of (next.locationPropertyOrder ?? []).entries()) {
+		const property = ownRecordValue(nextProperties, uuid);
+		if (property === undefined) continue;
+		const before = ownRecordValue(prevProperties, uuid);
+		if (before === undefined) {
+			out.push({
+				kind: "addLocationProperty",
+				property: cloneEntity(property),
+				after:
+					index === 0
+						? null
+						: asUuid(next.locationPropertyOrder?.[index - 1] ?? ""),
+			});
+		} else if (!deepEqual(before, property)) {
+			out.push({
+				kind: "updateLocationProperty",
+				uuid: asUuid(uuid),
+				patch: userPatch(before, property),
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevProperties)) {
+		if (!hasOwnRecordKey(nextProperties, uuid)) {
+			out.push({ kind: "removeLocationProperty", uuid: asUuid(uuid) });
+		}
+	}
+	return out;
+}
+
+/**
+ * Organization collections currently have add-position but no standalone move
+ * mutation. Refuse a reorder endpoint explicitly instead of returning a batch
+ * that silently replays to a different document.
+ */
+function assertExistingRelativeOrderPreserved(
+	previous: readonly Uuid[],
+	next: readonly Uuid[],
+	label: string,
+): void {
+	const previousSet = new Set(previous);
+	const nextSet = new Set(next);
+	const oldShared = previous.filter((uuid) => nextSet.has(uuid));
+	const nextShared = next.filter((uuid) => previousSet.has(uuid));
+	if (!deepEqual(oldShared, nextShared)) {
+		throw new Error(
+			`Reordering existing ${label} is not representable by the current mutation dialect.`,
+		);
+	}
 }
 
 /**

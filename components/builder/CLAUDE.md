@@ -192,6 +192,28 @@ deletion or reassignment. Preview identity and expression-source menus expose
 ordinary mutually exclusive choices as checked radio-menu items; color is only
 a secondary cue, not the selected-state contract.
 
+## App setup — Organization
+
+`app-setup/OrganizationSection.tsx` presents one authoring concept over two
+stores: levels and place-information fields are flat Blueprint collections;
+places are an app-scoped, revisioned Postgres tree read through
+`useOrganization`. The store snapshot is the only source for place rows. Level
+and property edits use the ordinary mutation gate; every place write flushes
+pending blueprint changes first and then carries the latest organization
+revision. Persona assignment offers only live places whose level holds workers,
+stores main place first, and never invents a reassignment for cases. Archive
+confirmation is server-described: subtree, displaced personas, owned cases,
+and any fixed-place or next-level owner rules the tentative archive would
+break. Such an owner-rule blocker disables the gesture until its form rule
+changes. Place rows own edits to their external ID, parent, and custom values;
+creating a place collects the same level-applicable values, and required values
+keep its Add action disabled. Each custom-value save sends one `valuePatch`
+entry, then rebases the complete local value bag from the authoritative returned
+row, so keeping a draft cannot overwrite a peer's edit to an unrelated
+property. Property controls author the required and accepted-values contracts
+and preflight every existing place so a catalog change cannot create a
+cross-store state the server would refuse.
+
 ## Preview mode
 
 One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle. **The mode flip is one layout commit choreographed by transforms** — centered (max-width) content can't track a sliding sidebar edge through layout (it stays pinned until the column narrows past the frame, then rushes), so the flip commits the final layout in a single render and everything that travels does so on the shared `SIDEBAR_TRANSITION`: **both flanks are the same shape — an in-flow SPACER that owns the layout width plus an absolute dock that slides via `x`**. Neither the app-tree panel nor the never-unmounted chat panel unmounts on a preview flip (unmounting the tree reset its scroll + expand + search; unmounting chat would sever the live run), so the preview flip is a transform + a spacer-width snap, never a remount. `AnimatePresence` still carries each flank's COARSE enter/exit slide (app open/close, the handset dock swap) — not the preview flip. The collapsed chat rail is a separate `AnimatePresence` element. Every centered surface is a `ContentFrame` gliding a delta computed from the column geometry (`ModeFlipGlideProvider`) — computed, not FLIP-measured, because Activity-swapped frames have no "before" box yet must stay edge-locked with the breadcrumbs. **New centered canvas surfaces must use ContentFrame** or they'll snap while everything else glides. Manual sidebar toggles keep the plain width tween. There is no per-surface preview affordance and no cursor-mode pill. Entering stashes open-state and closes both sidebars atomically (`setPreviewing`), so leaving restores the layout; keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`. That close only selects the panel's CONTENT, it never unmounts it: the app-tree panel renders against the EFFECTIVE open-state (`structureStashed ?? structureOpen`), so an open tree stays the mounted `StructureSidebar` (scroll intact) as it slides off rather than swapping to the rail. The layout widths collapse off the `previewing` flag alone, so hiding the flanks never depends on that close.
@@ -608,6 +630,36 @@ delete that would bounce. That list is `view.removalBlockers` — the REMOVE
 planner's own answer, not a reference walk, so a blocker that depends on the
 case TYPE is listed with no slot instead of vanishing and leaving the heading
 over an empty list. Inline confirmations use `useInlineConfirmFocus`.
+
+The owner slot additionally owns the app-scoped organization picker. A fixed
+place is stored by row UUID; a reverse hop stores the destination level UUID
+and the readable case type, then derives the nearest case-owning ancestor's
+lineage key at emission. These two terms must be the complete owner expression,
+so the generic expression card never renders them. Its location control offers
+only live case-owning places and reverse destinations with a case-owning level
+above them; the transaction remains authoritative for persona-specific
+address-book reachability and races.
+Organization location choices share `LocationChoiceSelect`: at the 10,000-row
+store bound it searches by name or unique site code, pages 50 rows at a time,
+mounts only that page's options, and runs cross-store candidate verdicts only
+for that bounded page. Never replace it with a full `SelectItem` map or a
+whole-snapshot verdict inside an unbounded `.filter(...)`; either one makes a
+single open picker quadratic. A rejected candidate remains in that bounded
+page as a disabled option with its exact refusal reason; filtering it out hides
+the recovery path. Level authoring menus follow the same visible-reason rule.
+A persona's assigned-place list follows the same 50-row paging bound, and its
+order-preserving mutation planner deduplicates with a set rather than rescanning
+the growing result. The Places hierarchy itself is an ordinary
+paginated list of disclosures, not an ARIA treeview: its buttons own keyboard
+interaction, while every row carries a visible, non-shrinking numeric depth cue
+so compact-width indentation caps never make distinct depths look identical.
+Collapsed level rows do not mount their editors or compute cross-store choice
+verdicts; only the open row may scan locations. A custom place-value save sends
+one UUID-addressed patch, uses `null` for Clear, and rebases the authoritative
+response under every draft typed while that response was in flight. When an
+active reverse-hop owner rule requires descendants below a newly created source
+place, the add form collects the complete required branch and sends it through
+the store's one atomic create rather than attempting invalid sequential rows.
 Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead

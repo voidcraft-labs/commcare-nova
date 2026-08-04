@@ -20,6 +20,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import { Switch } from "@/components/shadcn/switch";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -58,7 +59,7 @@ export function WorkerInformationSubsection() {
 		<Subsection
 			id="app-setup-worker-information"
 			title="Worker information"
-			description="What each worker carries with them, a role, a region, anything your app's conditions need to read. You give it a name to save under, and CommCare stores a value per worker."
+			description="Add information that each worker carries, such as a role or region. Conditions in your app can use these values."
 			addLabel="Add worker information"
 			onAdd={add}
 			canEdit={canEdit}
@@ -122,8 +123,10 @@ function PropertyRow({
 	const mutations = useBlueprintMutations();
 	const labelId = useId();
 	const slugId = useId();
+	const slugDescriptionId = useId();
 	const requiredId = useId();
 	const choicesId = useId();
+	const choicesDescriptionId = useId();
 	const labelRef = useRef<HTMLInputElement>(null);
 	const [removalPlan, setRemovalPlan] = useState<RemoveUserPropertyPlan | null>(
 		null,
@@ -191,31 +194,26 @@ function PropertyRow({
 							value === "" ? "Enter a name people can see." : undefined
 						}
 						onCommit={(label) => write({ label })}
-						className="min-h-11"
 					/>
 				</div>
 
-				<div className="flex flex-col gap-1.5">
-					<label
-						htmlFor={slugId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Name it saves under
-					</label>
+				<Field>
+					<FieldLabel htmlFor={slugId}>Name it saves under</FieldLabel>
 					<DraftCommitInput
 						id={slugId}
+						ariaDescribedBy={slugDescriptionId}
 						value={property.slug}
 						disabled={!canEdit}
 						validate={validateSlug}
 						validateAsYouType
 						onCommit={(slug) => write({ slug })}
-						className="min-h-11 font-mono text-[13px]"
+						className="font-mono text-[13px]"
 					/>
-					<span className="text-[12px] text-nova-text-muted">
+					<FieldDescription id={slugDescriptionId}>
 						Conditions read this as{" "}
 						<span className="font-mono">{property.slug}</span>.
-					</span>
-				</div>
+					</FieldDescription>
+				</Field>
 
 				<label
 					htmlFor={requiredId}
@@ -224,7 +222,7 @@ function PropertyRow({
 					<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 						<span className="text-[13px] text-nova-text">Required</span>
 						<span className="text-[12px] leading-relaxed text-nova-text-secondary">
-							CommCare asks for a value whenever a worker account is created.
+							A value is required when a worker account is created.
 						</span>
 					</span>
 					<Switch
@@ -238,25 +236,21 @@ function PropertyRow({
 					/>
 				</label>
 
-				<div className="flex flex-col gap-1.5">
-					<label
-						htmlFor={choicesId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Accepted values
-					</label>
+				<Field>
+					<FieldLabel htmlFor={choicesId}>Accepted values</FieldLabel>
 					<DraftLinesField
 						id={choicesId}
+						ariaDescribedBy={choicesDescriptionId}
 						value={property.choices ?? []}
 						disabled={!canEdit}
 						onCommit={(choices) =>
 							write({ choices: choices === null ? null : [...choices] })
 						}
 					/>
-					<span className="text-[12px] text-nova-text-muted">
-						CommCare rejects a worker whose value is not on this list.
-					</span>
-				</div>
+					<FieldDescription id={choicesDescriptionId}>
+						A worker can use only one of these values.
+					</FieldDescription>
+				</Field>
 
 				{canEdit &&
 					(removalPlan !== null ? (
@@ -302,7 +296,6 @@ function PropertyRow({
 									<Button
 										type="button"
 										variant="destructive"
-										className=""
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
 											const outcome = mutations.inline.removeUserProperty(
@@ -324,7 +317,6 @@ function PropertyRow({
 								<Button
 									type="button"
 									variant="ghost"
-									className=""
 									onClick={() => {
 										setRemovalPlan(null);
 										setRemovalError(undefined);
@@ -338,14 +330,14 @@ function PropertyRow({
 						<Button
 							ref={triggerRef}
 							type="button"
-							variant="ghost"
+							variant="ghost-destructive"
 							onClick={() => {
 								setRemovalError(undefined);
 								setRemovalPlan(
 									mutations.inspectUserPropertyRemoval(property.uuid),
 								);
 							}}
-							className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+							className="self-start"
 						>
 							Remove worker information
 						</Button>
@@ -373,14 +365,15 @@ function BuiltInReference() {
 				className="nova-focusable-inset flex min-h-11 w-full items-center px-3 py-2 text-left text-[13px] text-nova-text-secondary hover:text-nova-text"
 				render={<button type="button" />}
 			>
-				{open ? "Hide" : "Show"} what CommCare provides on its own
+				{open ? "Hide" : "Show"} built-in worker information
 			</CollapsibleTrigger>
 			<CollapsibleContent className="border-t border-nova-border/60 px-3 py-3">
 				<ul className="flex flex-col gap-3">
 					{BUILT_IN_USER_PROPERTIES.map((property) => {
 						const availableInPreview =
 							property.availability === "derived" ||
-							property.availability === "constant";
+							property.availability === "constant" ||
+							property.availability === "needs-organization";
 						return (
 							<li key={property.slug} className="flex flex-col gap-1">
 								<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -391,7 +384,7 @@ function BuiltInReference() {
 										{property.slug}
 									</span>
 									{property.readByRuntime && (
-										<SimpleTooltip content="CommCare itself reads this one, its value changes how the app behaves, not just what conditions see.">
+										<SimpleTooltip content="The app reads this value directly, so it can change behavior as well as conditions.">
 											<span className="inline-flex items-center gap-1 rounded-full bg-nova-violet/[0.15] px-2 py-0.5 text-[11px] text-nova-violet-bright">
 												<Icon
 													icon={tablerBolt}

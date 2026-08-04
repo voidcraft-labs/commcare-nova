@@ -42,12 +42,14 @@ import {
 	double,
 	eq,
 	exists,
+	fixedLocation,
 	formatDate,
 	gt,
 	ifExpr,
 	input,
 	literal,
 	now,
+	ownerLocationAtLevel,
 	prop,
 	relationStep,
 	selfPath,
@@ -595,6 +597,46 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	it("emits a session-context ref via the term arm", () => {
 		expect(emitOnDeviceExpression(term(sessionContext("userid")))).toBe(
 			`instance('commcaresession')/session/context/userid`,
+		);
+	});
+
+	it("emits a fixed place as its immutable row identity", () => {
+		const locationUuid = testUuid("fixed-owner-place");
+		expect(emitOnDeviceExpression(term(fixedLocation(locationUuid)))).toBe(
+			`'${locationUuid}'`,
+		);
+	});
+
+	it("emits an owner reverse hop through the nearest case-owning ancestor lineage", () => {
+		const facility = testUuid("facility-level");
+		const bucket = testUuid("facility-data-level");
+		const levels = {
+			[facility]: {
+				uuid: facility,
+				code: "facility",
+				name: "Facility",
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+			[bucket]: {
+				uuid: bucket,
+				code: "facility_data",
+				name: "Facility data",
+				parentLevelUuid: facility,
+				caseFlow: { workers: "none" as const, ownsCases: true },
+				addressBook: { reach: "own-branch" as const },
+			},
+		};
+		expect(
+			emitOnDeviceExpression(
+				term(ownerLocationAtLevel(bucket, "patient")),
+				"casedb",
+				{},
+				undefined,
+				{ organizationLevels: levels },
+			),
+		).toBe(
+			"instance('locations')/locations/location[@type='facility_data'][@facility_id = @owner_id]/@id",
 		);
 	});
 });

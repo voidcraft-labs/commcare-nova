@@ -120,6 +120,12 @@ interface HumanBatchWatchState {
 	settled: boolean;
 }
 
+interface HumanSaveBarrierState {
+	readonly batchIds: Set<string>;
+	readonly resolve: (outcome: HumanSaveBarrierOutcome) => void;
+	settled: boolean;
+}
+
 /** The result of a PUT: `{ seq }` on 200, or a tagged failure. Capability and
  *  scope failures preserve the batch and trigger an authoritative GET; a PUT
  *  response alone never proves view revocation. */
@@ -192,6 +198,12 @@ export interface HumanBatchWatch {
 	readonly promise: Promise<HumanBatchWatchOutcome>;
 	cancel(): void;
 }
+
+/** Authoritative persistence result for every human batch pending when a
+ * barrier is created. A later edit belongs to a later barrier. */
+export type HumanSaveBarrierOutcome =
+	| { readonly kind: "saved" }
+	| Exclude<HumanBatchWatchOutcome, { readonly kind: "saved" }>;
 
 /** Observe the lifecycle of one dispatched human batch (save indicator). */
 export type SaveObserver = (signal: SaveSignal) => void;
@@ -319,6 +331,11 @@ export interface Reconciler {
 	 *  retry re-sends. Returns the first minted batchId (or undefined when
 	 *  nothing was sent). */
 	dispatchHumanBatch(observe?: SaveObserver): string | undefined;
+	/** Dispatch queued human edits and wait until every human batch currently in
+	 * the pipeline has an authoritative PUT result. This is the cross-store
+	 * seam: a row writer that validates against the committed blueprint must not
+	 * race an already-dispatched autosave. */
+	waitForHumanSaveBarrier(): Promise<HumanSaveBarrierOutcome>;
 	/** Register a chat-SA batch the server just committed (from the
 	 *  `data-mutations` handler) so its own stream echo is recognized and
 	 *  dropped, and its committed seq lets a reload drop it. Returns
@@ -445,6 +462,7 @@ export function createReconciler(
 		string,
 		Set<HumanBatchWatchState>
 	>();
+	const humanSaveBarriers = new Set<HumanSaveBarrierState>();
 	let reloadPending = false;
 	/** True while a `runReload` is between its GET request and its completion —
 	 *  so a gap/409 arriving mid-reload coalesces (re-arms `reloadPending`) into
@@ -639,6 +657,21 @@ export function createReconciler(
 		for (const watch of [...(humanBatchWatchesByBatchId.get(batchId) ?? [])]) {
 			settleWatch(watch, outcome);
 		}
+		for (const barrier of [...humanSaveBarriers]) {
+			if (barrier.settled || !barrier.batchIds.has(batchId)) continue;
+			if (outcome.kind !== "saved") {
+				barrier.settled = true;
+				humanSaveBarriers.delete(barrier);
+				barrier.resolve(outcome);
+				continue;
+			}
+			barrier.batchIds.delete(batchId);
+			if (barrier.batchIds.size === 0) {
+				barrier.settled = true;
+				humanSaveBarriers.delete(barrier);
+				barrier.resolve({ kind: "saved" });
+			}
+		}
 	}
 
 	function settleAllHumanBatchWatches(outcome: HumanBatchWatchOutcome): void {
@@ -647,6 +680,11 @@ export function createReconciler(
 			for (const watch of bound) watches.add(watch);
 		}
 		for (const watch of watches) settleWatch(watch, outcome);
+		for (const barrier of [...humanSaveBarriers]) {
+			barrier.settled = true;
+			humanSaveBarriers.delete(barrier);
+			barrier.resolve(outcome.kind === "saved" ? { kind: "saved" } : outcome);
+		}
 	}
 
 	function watchNextHumanBatch(expected: unknown): HumanBatchWatch {
@@ -763,6 +801,39 @@ export function createReconciler(
 		}
 		pumpSend();
 		return firstBatchId;
+	}
+
+	function waitForHumanSaveBarrier(): Promise<HumanSaveBarrierOutcome> {
+		dispatchHumanBatch();
+		if (disposed || dormant) return Promise.resolve({ kind: "cancelled" });
+		if (revoked) {
+			return Promise.resolve(
+				frozenPermanently
+					? { kind: "permanent", message: frozenPermanentMessage }
+					: { kind: "accessChanged" },
+			);
+		}
+		// A rejected/access-stale batch may already have emitted its terminal
+		// signal before this barrier was requested. Its authoritative reload will
+		// drop or rebase that batch, but it must not strand a later cross-store
+		// writer waiting for a second signal that cannot occur.
+		if (reloadPending || reloadInFlight) {
+			return Promise.resolve({ kind: "accessChanged" });
+		}
+		const pending = sentPending.filter(
+			(batch) => batch.source === "human" && batch.ackedSeq === undefined,
+		);
+		if (pending.some((batch) => batch.tooLarge)) {
+			return Promise.resolve({ kind: "tooLarge" });
+		}
+		if (pending.length === 0) return Promise.resolve({ kind: "saved" });
+		return new Promise<HumanSaveBarrierOutcome>((resolve) => {
+			humanSaveBarriers.add({
+				batchIds: new Set(pending.map((batch) => batch.batchId)),
+				resolve,
+				settled: false,
+			});
+		});
 	}
 
 	/**
@@ -1482,6 +1553,7 @@ export function createReconciler(
 		registerSaveObserver,
 		watchNextHumanBatch,
 		dispatchHumanBatch,
+		waitForHumanSaveBarrier,
 		registerChatBatch,
 		onFrame,
 		onReloadEvent,

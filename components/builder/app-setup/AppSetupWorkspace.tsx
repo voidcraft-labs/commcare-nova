@@ -30,6 +30,7 @@ import {
 	type AppSetupSection,
 } from "@/lib/routing/types";
 import { selectableSegmentCls } from "@/lib/styles";
+import { OrganizationSection } from "./OrganizationSection";
 import { UsersSection } from "./UsersSection";
 
 const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
@@ -46,10 +47,8 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
  * a control that does nothing.
  */
 const SECTION_PENDING_COPY: Readonly<
-	Record<Exclude<AppSetupSection, "users">, string>
+	Record<Exclude<AppSetupSection, "users" | "organization">, string>
 > = {
-	organization:
-		"The places people work, districts, facilities, and the rest of your organization structure, and which of them own cases.",
 	automations:
 		"Rules that run on a schedule against your cases, and the messages they send.",
 	publishing:
@@ -100,6 +99,8 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 				<ContentFrame width="3xl" className="px-3 py-6 @sm:px-6">
 					{section === "users" ? (
 						<UsersSection />
+					) : section === "organization" ? (
+						<OrganizationSection />
 					) : (
 						<PendingSection section={section} />
 					)}
@@ -116,7 +117,7 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 function PendingSection({
 	section,
 }: {
-	section: Exclude<AppSetupSection, "users">;
+	section: Exclude<AppSetupSection, "users" | "organization">;
 }) {
 	return (
 		<section aria-labelledby={`app-setup-${section}-heading`}>

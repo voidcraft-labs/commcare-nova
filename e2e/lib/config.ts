@@ -16,3 +16,7 @@ export const MOVE_APP_COUNT = SMOKE_RETRIES + 1;
 /** The case-changes journey mutates both its blueprint and saved case rows, so
  *  every attempt needs its own app + case-data fixture. */
 export const CASE_CHANGES_FIXTURE_COUNT = SMOKE_RETRIES + 1;
+
+/** The organization journey authors levels and persisted places, so a retry
+ *  starts from a fresh app instead of inheriting a half-completed hierarchy. */
+export const ORGANIZATION_FIXTURE_COUNT = SMOKE_RETRIES + 1;

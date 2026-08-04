@@ -74,6 +74,7 @@ import {
 	isCaptureFieldKind,
 	orderedCaseOperations,
 	orderedColumns,
+	organizationLevelsOf,
 	ownRecordValue,
 	type PersistableDoc,
 	personasOf,
@@ -1380,6 +1381,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 				? { sessionCaseId: mutation.caseId }
 				: {}),
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			organizationLevels: organizationLevelsOf(doc),
 			sessionUser: new Map(Object.entries(args.identity.session.user)),
 			userPropertySlugs: new Map(
 				Object.entries(args.identity.session.userPropertySlugs),

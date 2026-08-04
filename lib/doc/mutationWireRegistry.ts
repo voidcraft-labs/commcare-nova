@@ -69,6 +69,12 @@ const MUTATION_KIND_OWNERSHIP = {
 	addPersona: "whole-value",
 	updatePersona: "patch",
 	removePersona: "whole-value",
+	addOrganizationLevel: "whole-value",
+	updateOrganizationLevel: "patch",
+	removeOrganizationLevel: "whole-value",
+	addLocationProperty: "whole-value",
+	updateLocationProperty: "patch",
+	removeLocationProperty: "whole-value",
 	addColumn: "whole-value",
 	updateColumn: "update-column",
 	removeColumn: "whole-value",
@@ -627,6 +633,9 @@ function nullMeaning(
 			kind === "updatePersona") &&
 			(jsonPointer.startsWith("/patch/") ||
 				jsonPointer === "/valuePatch/value")) ||
+		((kind === "updateOrganizationLevel" ||
+			kind === "updateLocationProperty") &&
+			jsonPointer.startsWith("/patch/")) ||
 		(kind === "updateColumn" &&
 			(jsonPointer === "/sortPatch" || jsonPointer === "/tilePatch")) ||
 		(kind === "setCaseListMeta" && jsonPointer.startsWith("/patch/")) ||

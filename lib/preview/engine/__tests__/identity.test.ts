@@ -27,6 +27,8 @@ const REGION = testUuid("11111111-1111-4111-8111-111111111111");
 const CADRE = testUuid("22222222-2222-4222-8222-222222222222");
 const CHW = testUuid("33333333-3333-4333-8333-333333333333");
 const ASHA = testUuid("44444444-4444-4444-8444-444444444444");
+const NORTH = testUuid("55555555-5555-4555-8555-555555555551");
+const CLINIC = testUuid("55555555-5555-4555-8555-555555555552");
 
 const DOC: UserCollections = {
 	userProperties: {
@@ -203,6 +205,22 @@ describe("session values are honest", () => {
 			"commcare_primary_case_sharing_id",
 		]) {
 			expect(identity?.usercase[key]).toBe("");
+		}
+	});
+
+	it("projects assigned places primary-first into both location vocabularies", () => {
+		const assigned = {
+			...ASHA_PERSONA,
+			locations: {
+				primaryUuid: CLINIC,
+				additionalUuids: [NORTH],
+			},
+		};
+		const identity = previewAsPersona(FULL_USER, assigned, DOC);
+		for (const projection of [identity?.session.user, identity?.usercase]) {
+			expect(projection?.commcare_location_id).toBe(CLINIC);
+			expect(projection?.commcare_location_ids).toBe(`${CLINIC} ${NORTH}`);
+			expect(projection?.commcare_primary_case_sharing_id).toBe(CLINIC);
 		}
 	});
 

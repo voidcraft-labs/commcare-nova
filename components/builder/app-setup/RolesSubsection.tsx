@@ -50,7 +50,7 @@ export function RolesSubsection() {
 		<Subsection
 			id="app-setup-roles"
 			title="Roles"
-			description="A role bundles the worker information a kind of worker carries. Every community health worker starts with the same defaults. A persona holds a role; a role on its own is a template, not a person."
+			description="A role holds the default information for one kind of worker. Personas can use a role and still override individual values."
 			addLabel="Add role"
 			onAdd={add}
 			canEdit={canEdit}
@@ -177,7 +177,6 @@ function RoleRow({
 								name,
 							});
 						}}
-						className="min-h-11"
 					/>
 				</div>
 
@@ -253,7 +252,6 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="destructive"
-									className=""
 									onClick={() => {
 										if (!sessionApi.getState().canEdit) return;
 										const outcome = mutations.inline.removeUserType(role.uuid);
@@ -266,7 +264,6 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="ghost"
-									className=""
 									onClick={() => {
 										setConfirmingRemove(false);
 										setRefusal(undefined);
@@ -280,9 +277,9 @@ function RoleRow({
 						<Button
 							ref={triggerRef}
 							type="button"
-							variant="ghost"
+							variant="ghost-destructive"
 							onClick={() => setConfirmingRemove(true)}
-							className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+							className="self-start"
 						>
 							Remove role
 						</Button>

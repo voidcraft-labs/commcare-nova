@@ -70,6 +70,8 @@ export function instanceSourceFor(
 			return "jr://instance/remote/results:inline";
 		case "search-input:results":
 			return "jr://instance/search-input/results";
+		case "locations":
+			return "jr://fixture/locations";
 		default: {
 			const table = lookup?.tables.find(
 				(candidate) =>
@@ -174,6 +176,11 @@ function addTermInstance(
 			return;
 		case "literal":
 		case "field":
+		case "fixed-location":
+			return;
+		case "owner-location-at-level":
+			instances.add("locations");
+			instances.add("casedb");
 			return;
 		case "table-column":
 			instances.add(lookupInstanceId(term.tableId, lookup, instanceScope));

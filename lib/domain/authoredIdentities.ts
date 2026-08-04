@@ -12,6 +12,8 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"userProperty",
 	"userType",
 	"persona",
+	"organizationLevel",
+	"locationProperty",
 ] as const;
 
 export type BlueprintAuthoredIdentityKind =
@@ -84,6 +86,12 @@ export function authoredBlueprintIdentities(
 	}
 	for (const persona of Object.values(doc.personas ?? {})) {
 		identities.push({ uuid: persona.uuid, kind: "persona" });
+	}
+	for (const level of Object.values(doc.organizationLevels ?? {})) {
+		identities.push({ uuid: level.uuid, kind: "organizationLevel" });
+	}
+	for (const property of Object.values(doc.locationProperties ?? {})) {
+		identities.push({ uuid: property.uuid, kind: "locationProperty" });
 	}
 	return identities;
 }

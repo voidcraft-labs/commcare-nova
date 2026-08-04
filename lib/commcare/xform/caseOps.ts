@@ -43,6 +43,7 @@ import {
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	orderedCaseOperations,
+	organizationLevelsOf,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -191,6 +192,7 @@ export function buildCaseOperations(
 		operations,
 	);
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
+	const organizationLevels = organizationLevelsOf(doc);
 
 	for (const location of locations) {
 		const { operation, wrapperPath, casePath, repeat } = location;
@@ -204,6 +206,7 @@ export function buildCaseOperations(
 			rootCaseId: SESSION_CASE_ID,
 			caseProperty: formCasePropertyResolver(moduleCaseType),
 			userPropertySlugs,
+			organizationLevels,
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming, instanceScope: "xform" },
 			}),

@@ -186,6 +186,30 @@ describe("blueprint entity-row round trip", () => {
 			/absent from every formOrder membership array/,
 		);
 	});
+
+	it("refuses a parent on a flat organization row instead of dropping it", () => {
+		const levelUuid = testUuid("11111111-1111-4111-8111-111111111111");
+		const parentUuid = testUuid("22222222-2222-4222-8222-222222222222");
+		const doc = emptyDoc("rt-flat-parent");
+		doc.organizationLevels = {
+			[levelUuid]: {
+				uuid: levelUuid,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		doc.organizationLevelOrder = [levelUuid];
+		const persistable = toPersistableDoc(doc);
+		const rows = decomposeBlueprint(persistable).map((row) =>
+			row.uuid === levelUuid ? { ...row, parent_uuid: parentUuid } : row,
+		);
+
+		expect(() =>
+			assembleBlueprint(doc.appId, blueprintScalars(persistable), rows),
+		).toThrow(/flat entity.*unexpected parent/);
+	});
 });
 
 /**
