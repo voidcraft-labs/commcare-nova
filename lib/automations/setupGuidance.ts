@@ -302,6 +302,7 @@ export function buildAutomationSetupGuide(
 		"In CommCare HQ, open /a/<domain>/messaging/conditional/ (Messaging → Conditional Alerts), then add an alert.",
 	);
 	steps.push(
+		"Set Status to Active.",
 		`Recipients: ${automation.recipients.map((recipient) => describeRecipient(recipient, locations)).join("; ")}.`,
 		`${automation.includeDescendantLocations ? "Include" : "Do not include"} descendant locations when expanding location recipients.`,
 	);

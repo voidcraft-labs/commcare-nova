@@ -1103,6 +1103,7 @@ describe("automation domain and projections", () => {
 		expect(text).toContain(
 			"Case property name (Nova property case_name) has a value",
 		);
+		expect(guide.steps).toContain("Set Status to Active.");
 		expect(text).toContain("Choose Immediately");
 		expect(text).toContain(
 			"published form path “Alerts > Visits > Follow up” in HQ’s form picker",
