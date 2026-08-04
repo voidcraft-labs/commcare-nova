@@ -5,12 +5,12 @@ import { type KeyboardEvent, useCallback } from "react";
 /**
  * Arrow-key navigation for a POPOVER that acts as a menu.
  *
- * Base UI's `Menu` gives this for free, but the account, Project and Help
- * menus are popovers whose rows are plain buttons and links (they hold
- * sections, headings and mixed content a menu's row model does not fit). That
- * left them answering the pointer and not the keyboard: arrowing through them
- * moved nothing, and two of the three record a real choice (switch Project,
- * sign out), which is not a thing to do blind.
+ * Base UI's `Menu` gives this for free, but the account and Project menus are
+ * popovers whose rows are plain buttons and links (they hold sections, headings
+ * and mixed content a menu's row model does not fit). That left them answering
+ * the pointer and not the keyboard: arrowing through them moved nothing, and
+ * both record a real choice (switch Project, sign out), which is not a thing to
+ * do blind.
  *
  * Attach to the popup element. Down/Up move through the rows and wrap, Home
  * and End jump to the ends, and everything else is left alone so Tab, Escape,

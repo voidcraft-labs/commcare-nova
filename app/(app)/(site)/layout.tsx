@@ -5,7 +5,7 @@
  * It renders no header. There is one band for the whole signed-in app and it
  * is mounted above both route groups (`(app)/layout.tsx` → `AppChrome`),
  * because a header owned by a route group is rebuilt on every crossing between
- * groups. The site's own menus — the nav, the Project switcher, Help — are the
+ * groups. The site's own menus — the nav and the Project switcher — are the
  * band's UNCLAIMED state, so they need no wiring here: the builder claims the
  * band while it is on screen and they step aside for exactly that long.
  *

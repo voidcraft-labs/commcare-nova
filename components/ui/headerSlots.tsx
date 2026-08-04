@@ -23,7 +23,7 @@
 import { createContext, useContext } from "react";
 
 /** What a surface tells the band about itself. Absent means the ordinary site
- *  band: the mark, the nav, the Project switcher, Help, and the account. */
+ *  band: the mark, the nav, the Project switcher, and the account. */
 export interface HeaderClaim {
 	/** The mark's accessible name and hover text on this surface. */
 	readonly homeLabel: string;

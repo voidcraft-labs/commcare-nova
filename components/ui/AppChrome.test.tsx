@@ -27,7 +27,6 @@ vi.mock("@/components/ui/AccountMenu", () => ({
 vi.mock("@/components/ui/HeaderNav", () => ({
 	HeaderNavLinks: () => null,
 }));
-vi.mock("@/components/ui/HelpMenu", () => ({ HelpMenu: () => null }));
 vi.mock("@/components/ui/ImpersonationBanner", () => ({
 	ImpersonationBanner: () => null,
 }));

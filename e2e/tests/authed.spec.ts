@@ -2863,6 +2863,41 @@ test.describe("authenticated builder", () => {
 		}
 	});
 
+	test("help is reachable from inside a build, through the account menu", async ({
+		page,
+	}) => {
+		/* Docs and Give feedback used to be a "Help" dropdown among the band's own
+		 * menus, which are the UNCLAIMED state — so they were gone for the whole
+		 * of a build, which is exactly when someone reaches for the docs. They are
+		 * rows in the account menu now, and the account control is on every
+		 * signed-in surface. Drive the builder, because the site is the surface
+		 * that already worked. */
+		await page.goto(`/build/${seed.openAppId}`);
+
+		const account = page.getByRole("button", { name: "Account menu" });
+		await expect(account).toBeVisible({ timeout: 20_000 });
+		await account.click();
+
+		for (const name of ["Docs", "Give feedback"]) {
+			const link = page.getByRole("link", { name, exact: true });
+			await expect(link).toBeVisible();
+			/* A new tab, and no handle back onto this one. */
+			await expect(link).toHaveAttribute("target", "_blank");
+			await expect(link).toHaveAttribute("rel", /noopener/);
+		}
+
+		/* And the band no longer carries a Help control of its own, on either
+		 * surface. */
+		await expect(
+			page.locator("[data-app-header]").getByRole("button", { name: "Help" }),
+		).toHaveCount(0);
+		await page.goto("/");
+		await expect(account).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.locator("[data-app-header]").getByRole("button", { name: "Help" }),
+		).toHaveCount(0);
+	});
+
 	test("the from-scratch escape hatch mints the canonical starter and opens it (no LLM)", async ({
 		page,
 	}) => {

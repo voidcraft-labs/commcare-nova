@@ -118,7 +118,6 @@ export function HeaderLab() {
 									<Button type="button" variant="ghost">
 										Personal
 									</Button>
-									<ToolStandIn label="Help" />
 								</HeaderCluster>
 							)}
 						</AnimatePresence>

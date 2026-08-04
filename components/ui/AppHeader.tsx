@@ -67,8 +67,8 @@ export interface AppHeaderProps {
 	/** Dead centre, whatever the row's flanks weigh: the builder's Preview
 	 *  control sits directly above the canvas it flips. */
 	center?: ReactNode;
-	/** Right, before the account control: the Project switcher and Help on the
-	 *  site, the document tools in the builder. */
+	/** Right, before the account control: the Project switcher on the site, the
+	 *  document tools in the builder. */
 	actions?: ReactNode;
 	/** Far right, and the second of the two constants. It is still a slot
 	 *  because the builder unmounts it while app access is unresolved: a
