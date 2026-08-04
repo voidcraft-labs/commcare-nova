@@ -92,7 +92,11 @@ describe("PersonaRemoveConfirm", () => {
 		await waitFor(() =>
 			expect(screen.getByText(/Asha owns 2 cases/i)).toBeDefined(),
 		);
-		expect(screen.getByText(/will not delete or move them/i)).toBeDefined();
+		expect(
+			screen.getByText(/including any in retired case types/i),
+		).toBeDefined();
+		expect(screen.getByText(/will not delete or reassign them/i)).toBeDefined();
+		expect(screen.getByText(/unfiltered data views/i)).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Remove" }).hasAttribute("disabled"),
 		).toBe(false);
@@ -122,7 +126,9 @@ describe("PersonaRemoveConfirm", () => {
 		});
 		renderConfirm();
 		fireEvent.click(screen.getByRole("button", { name: "Remove persona" }));
-		await screen.findByText("Asha does not own any cases.");
+		await screen.findByText(
+			"Nova found no cases owned by Asha, including in retired case types.",
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 

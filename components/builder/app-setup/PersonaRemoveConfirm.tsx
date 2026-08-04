@@ -133,9 +133,9 @@ function ConfirmPanel({
 				) : owned.state === "failed" ? (
 					"Nova couldn't verify every case this persona owns. Try again before removing them."
 				) : owned.count === 0 ? (
-					`${persona.name} does not own any cases.`
+					`Nova found no cases owned by ${persona.name}, including in retired case types.`
 				) : (
-					`${persona.name} owns ${owned.count} ${owned.count === 1 ? "case" : "cases"}. Removing this persona will not delete or move them. They will keep this persona as their owner.`
+					`${persona.name} owns ${owned.count} ${owned.count === 1 ? "case" : "cases"}, including any in retired case types. Removing this persona will not delete or reassign them. They stay stored under this persona and may still appear in unfiltered data views.`
 				)}
 			</p>
 			{owned.state === "failed" && (
