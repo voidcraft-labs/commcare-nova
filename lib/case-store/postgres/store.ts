@@ -763,6 +763,30 @@ export class PostgresCaseStore implements CaseStore {
 						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
 							criterion.property,
 						);
+						if (criterion.scope !== "case") {
+							const nonblank =
+								scalar === undefined
+									? sql<boolean>`coalesce(automation_related.properties ->> ${criterion.property}, '') ~ ${"[^[:space:]]"}`
+									: scalar.blankable
+										? sql<boolean>`coalesce(${sql.ref(`automation_related.${scalar.column}`)}, '') ~ ${"[^[:space:]]"}`
+										: sql<boolean>`${sql.ref(`automation_related.${scalar.column}`)} is not null`;
+							const relatedHasValue = sql<boolean>`exists (
+								select 1
+								from case_indices as automation_related_index
+								join cases as automation_related
+									on automation_related.case_id = automation_related_index.ancestor_id
+									and automation_related.app_id = c.app_id
+									and automation_related.project_id = c.project_id
+								where automation_related_index.case_id = c.case_id
+									and automation_related_index.identifier = ${criterion.scope}
+									and automation_related_index.relationship = ${criterion.scope === "parent" ? "child" : "extension"}
+									and automation_related_index.depth = 1
+									and ${nonblank}
+							)`;
+							return criterion.hasValue
+								? relatedHasValue
+								: sql<boolean>`not (${relatedHasValue})`;
+						}
 						const blank =
 							scalar === undefined
 								? sql<boolean>`coalesce(c.properties ->> ${criterion.property}, '') !~ ${"[^[:space:]]"}`

@@ -101,8 +101,7 @@ function setupGuideResult(
 	return {
 		automationUuid: automation.uuid,
 		setupGuide: buildAutomationSetupGuide(doc, automation, locations),
-		omittedCriteria: automationMatchProjection(doc, automation, locations)
-			.omittedCriteria,
+		omittedCriteria: automationMatchProjection(doc, automation).omittedCriteria,
 		executesInPreview: false,
 	};
 }

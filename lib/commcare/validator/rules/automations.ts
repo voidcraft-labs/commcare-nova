@@ -101,13 +101,22 @@ function validateAutomation(ctx: AutomationContext): void {
 	for (const [index, criterion] of automation.criteria.entries()) {
 		const path = `criteria.${index}`;
 		if (criterion.kind === "match-property") {
-			const property = caseType.properties.find(
+			const criterionCaseType = scopedCaseType(ctx, criterion);
+			if (criterionCaseType === undefined) {
+				flag(
+					ctx,
+					`The ${criterion.scope} property condition has no matching case relationship.`,
+					`${path}.scope`,
+				);
+				continue;
+			}
+			const property = criterionCaseType.properties.find(
 				(candidate) => candidate.name === criterion.property,
 			);
 			if (property === undefined) {
 				flag(
 					ctx,
-					`Criterion property “${criterion.property}” does not exist on ${caseType.name}.`,
+					`Criterion property “${criterion.property}” does not exist on ${criterionCaseType.name}.`,
 					`${path}.property`,
 				);
 			} else if (

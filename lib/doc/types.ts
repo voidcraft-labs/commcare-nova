@@ -14,8 +14,9 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	authoredCasePropertyNameSchema,
+	automationAlertCriterionSchema,
+	automationCaseUpdateCriterionSchema,
 	automationCaseUpdateSchema,
-	automationCriterionSchema,
 	automationImmediateEventSchema,
 	automationRecipientSchema,
 	automationScheduleSchema,
@@ -375,8 +376,6 @@ const automationAlertUpdatePatchSchema = z
 		name: alertShape.name.optional(),
 		caseType: alertShape.caseType.optional(),
 		criteriaOperator: alertShape.criteriaOperator.optional(),
-		serverModifiedBoundaryDays:
-			alertShape.serverModifiedBoundaryDays.nullable(),
 		includeDescendantLocations:
 			alertShape.includeDescendantLocations.optional(),
 		locationLevelUuids: alertShape.locationLevelUuids.optional(),
@@ -429,13 +428,24 @@ function automationItemEditSchemas<
 	] as const;
 }
 
-const automationItemEditSchema = z.union([
-	...automationItemEditSchemas("criterion", automationCriterionSchema),
+const caseUpdateAutomationItemEditSchema = z.union([
+	...automationItemEditSchemas(
+		"criterion",
+		automationCaseUpdateCriterionSchema,
+	),
 	...automationItemEditSchemas(
 		"setup-only-criterion",
 		automationSetupOnlyCriterionSchema,
 	),
 	...automationItemEditSchemas("update", automationCaseUpdateSchema),
+]);
+
+const alertAutomationItemEditSchema = z.union([
+	...automationItemEditSchemas("criterion", automationAlertCriterionSchema),
+	...automationItemEditSchemas(
+		"setup-only-criterion",
+		automationSetupOnlyCriterionSchema,
+	),
 	...automationItemEditSchemas("recipient", automationRecipientSchema),
 	...automationItemEditSchemas(
 		"immediate-event",
@@ -1095,11 +1105,24 @@ function createMutationSchema({
 			uuid: uuidSchema,
 			after: uuidSchema.nullable(),
 		}),
-		z.object({
-			kind: z.literal("editAutomationItem"),
-			automationUuid: uuidSchema,
-			edit: automationItemEditSchema,
-		}),
+		z.discriminatedUnion("targetKind", [
+			z
+				.object({
+					kind: z.literal("editAutomationItem"),
+					automationUuid: uuidSchema,
+					targetKind: z.literal("case-update"),
+					edit: caseUpdateAutomationItemEditSchema,
+				})
+				.strict(),
+			z
+				.object({
+					kind: z.literal("editAutomationItem"),
+					automationUuid: uuidSchema,
+					targetKind: z.literal("conditional-alert"),
+					edit: alertAutomationItemEditSchema,
+				})
+				.strict(),
+		]),
 		z.object({
 			kind: z.literal("setAutomationSchedule"),
 			uuid: uuidSchema,

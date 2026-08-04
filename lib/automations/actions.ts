@@ -110,7 +110,6 @@ export async function previewAutomationAction(
 		const projection = automationMatchProjection(
 			snapshot.blueprint,
 			automation,
-			snapshot.organization.locations,
 		);
 		const store = await withProjectContext(
 			access.projectId,

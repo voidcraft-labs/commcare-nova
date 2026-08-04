@@ -227,7 +227,11 @@ export type CountArgs =
 				operator: "all" | "any";
 				predicate?: Predicate;
 				regexes: readonly { property: string; pattern: string }[];
-				blankness: readonly { property: string; hasValue: boolean }[];
+				blankness: readonly {
+					property: string;
+					hasValue: boolean;
+					scope: "case" | "parent" | "host";
+				}[];
 				closedParents: readonly {
 					identifier: string;
 					relationship: "child" | "extension";

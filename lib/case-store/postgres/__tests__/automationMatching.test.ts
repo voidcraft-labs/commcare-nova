@@ -21,13 +21,21 @@ const schemas = new Map<string, CaseType>([
 		"household",
 		{
 			name: "household",
-			properties: [],
+			properties: [
+				{
+					name: "marker",
+					label: proseText("Marker"),
+					data_type: "text",
+				},
+			],
 		},
 	],
 	[
 		"visit",
 		{
 			name: "visit",
+			parent_type: "household",
+			relationship: "child",
 			properties: [
 				{
 					name: "code",
@@ -54,7 +62,7 @@ beforeEach(async () => {
 		  status, closed_on, properties)
 		 VALUES
 		 ($1, $2, $3, 'facility-a', 'household', 'Closed parent',
-		  'closed', now(), '{}'::jsonb),
+		  'closed', now(), '{"marker":"present"}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000102', $2, $3, 'facility-a',
 		  'visit', 'Matches everything', 'open', null,
 		  '{"code":"ABC-123"}'::jsonb),
@@ -81,7 +89,8 @@ beforeEach(async () => {
 		 VALUES
 		 ('01890f45-0000-7000-8000-000000000102', 'parent', 'child', $1, 1),
 		 ('01890f45-0000-7000-8000-000000000103', 'parent', 'child', $1, 1),
-		 ('01890f45-0000-7000-8000-000000000104', 'parent', 'child', $1, 1)`,
+		 ('01890f45-0000-7000-8000-000000000104', 'parent', 'child', $1, 1),
+		 ('01890f45-0000-7000-8000-000000000107', 'host', 'extension', $1, 1)`,
 		[PARENT_ID],
 	);
 });
@@ -160,7 +169,9 @@ describe("automation criteria SQL", () => {
 				automationCriteria: {
 					operator: "all" as const,
 					regexes: [],
-					blankness: [{ property: "code", hasValue: false }],
+					blankness: [
+						{ property: "code", hasValue: false, scope: "case" as const },
+					],
 					closedParents: [],
 				},
 			}),
@@ -171,7 +182,9 @@ describe("automation criteria SQL", () => {
 				automationCriteria: {
 					operator: "all" as const,
 					regexes: [],
-					blankness: [{ property: "code", hasValue: true }],
+					blankness: [
+						{ property: "code", hasValue: true, scope: "case" as const },
+					],
 					closedParents: [],
 				},
 			}),
@@ -187,5 +200,30 @@ describe("automation criteria SQL", () => {
 				},
 			}),
 		).resolves.toBe(0);
+	});
+
+	it("matches parent and host blankness with HQ missing-relation semantics", async () => {
+		const caseStore = store();
+		const base = {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas,
+			predicate: eq(prop("visit", "status"), literal("open")),
+		} as const;
+		const count = (scope: "parent" | "host", hasValue: boolean) =>
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					regexes: [],
+					blankness: [{ property: "marker", hasValue, scope }],
+					closedParents: [],
+				},
+			});
+
+		await expect(count("parent", true)).resolves.toBe(2);
+		await expect(count("parent", false)).resolves.toBe(2);
+		await expect(count("host", true)).resolves.toBe(1);
+		await expect(count("host", false)).resolves.toBe(3);
 	});
 });

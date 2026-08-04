@@ -529,7 +529,9 @@ export function buildMutationWireRegistry(): MutationWireRegistryEntry[] {
 			throw new Error(`Unclassified mutation kind: ${kind}.`);
 		}
 		const targetKind =
-			kind === "updateField" || kind === "updateAutomation"
+			kind === "updateField" ||
+			kind === "updateAutomation" ||
+			kind === "editAutomationItem"
 				? literalValue(object.shape.targetKind as z.ZodType | undefined)
 				: undefined;
 		const root =
@@ -843,7 +845,9 @@ export function buildMutationClearSlotManifest(): MutationClearSlotManifestEntry
 	for (const object of outerMutationArms()) {
 		const kind = mutationKind(object);
 		const targetKind =
-			kind === "updateField" || kind === "updateAutomation"
+			kind === "updateField" ||
+			kind === "updateAutomation" ||
+			kind === "editAutomationItem"
 				? literalValue(object.shape.targetKind as z.ZodType | undefined)
 				: undefined;
 		const root =

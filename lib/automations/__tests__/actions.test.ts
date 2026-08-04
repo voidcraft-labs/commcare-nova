@@ -57,6 +57,7 @@ function fixture() {
 			{
 				uuid: testUuid("preview-criterion"),
 				kind: "match-property",
+				scope: "case",
 				property: "state",
 				matchType: "equal",
 				value: "abandoned",

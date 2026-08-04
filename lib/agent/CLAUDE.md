@@ -159,9 +159,13 @@ event ordering/separation/windows, day/offset laws, and survey expiration plus
 partial-submission dependencies. These are domain refinements used by both SA
 and MCP; tools must not post-process or weaken them.
 
-The same schema admits only the HQ form's one standard closed-parent and one
-owner-location condition, canonical nonblank/unquoted equality and update
-literals, nonempty portable regexes, and its actual recipient compatibility.
+The same schema preserves HQ's kind-specific criteria matrix instead of
+admitting a shared superset. Case updates accept value/date comparisons against
+case, parent, or host properties plus at most one standard closed-parent
+condition; alerts accept direct-case value comparisons plus portable regex and
+do not accept date, closed-parent, location, or server-modified criteria.
+Names are already trimmed and nonblank; equality and update literals are
+canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
 There is no web-user recipient; Connect content refuses the case-relative,
 case-property-email, and case-group arms HQ cannot save. A timed reset property
 requires a rule-trigger start. The deprecated domain-wide

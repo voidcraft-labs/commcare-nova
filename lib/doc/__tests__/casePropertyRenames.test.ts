@@ -228,7 +228,8 @@ describe("explicit app-wide case-property rename", () => {
 					{
 						uuid: testUuid("rename-automation-criterion"),
 						kind: "match-property",
-						property: "a",
+						scope: "parent",
+						property: "parent_a",
 						matchType: "has-value",
 					},
 				],
@@ -305,7 +306,10 @@ describe("explicit app-wide case-property rename", () => {
 		if (update?.kind !== "case-update" || alert?.kind !== "conditional-alert") {
 			throw new Error("missing renamed automations");
 		}
-		expect(update.criteria[0]).toMatchObject({ property: "fresh" });
+		expect(update.criteria[0]).toMatchObject({
+			scope: "parent",
+			property: "parent_fresh",
+		});
 		expect(update.updates[0]).toMatchObject({
 			target: { scope: "parent", property: "parent_fresh" },
 			value: { source: { scope: "case", property: "fresh" } },

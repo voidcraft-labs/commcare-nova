@@ -76,6 +76,7 @@ function repeatedRowsAlert(): Extract<
 		criteria: [0, 1].map((index) => ({
 			uuid: testUuid(`ui-repeated-condition-${index}`),
 			kind: "match-property" as const,
+			scope: "case",
 			property: `status_${index}`,
 			matchType: "has-value" as const,
 		})),
@@ -154,6 +155,39 @@ function fullWeeklyAlert(): Extract<Automation, { kind: "conditional-alert" }> {
 	};
 }
 
+function weekdayRemapAlert(): Extract<
+	Automation,
+	{ kind: "conditional-alert" }
+> {
+	return {
+		...monthlyAlert(),
+		uuid: testUuid("ui-weekday-remap-alert"),
+		name: "Weekday remap alert",
+		schedule: {
+			kind: "timed",
+			repeatEvery: 7,
+			totalIterations: 1,
+			startOffsetDays: 0,
+			startDayOfWeek: 2,
+			start: { kind: "rule-trigger" },
+			events: [
+				{
+					uuid: testUuid("ui-weekday-wednesday"),
+					day: 0,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: { kind: "sms", message: "Weekly message" },
+				},
+				{
+					uuid: testUuid("ui-weekday-friday"),
+					day: 2,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: { kind: "sms", message: "Weekly message" },
+				},
+			],
+		},
+	};
+}
+
 const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
 	forms: [] as Form[],
@@ -219,7 +253,7 @@ vi.mock("@/lib/session/provider", () => ({
 	}),
 }));
 
-import { AutomationsSection } from "../AutomationsSection";
+import { AutomationsSection, localIsoDate } from "../AutomationsSection";
 
 async function chooseChoice(label: string, option: string): Promise<void> {
 	await chooseFromChoice(screen.getByRole("combobox", { name: label }), option);
@@ -298,6 +332,13 @@ describe("AutomationsSection", () => {
 		expect(screen.getByRole("alert").textContent).toBe(
 			"Enter an automation name.",
 		);
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "  Padded name  " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Enter a nonblank automation name without surrounding whitespace.",
+		);
 		expect(mocks.addAutomation).not.toHaveBeenCalled();
 	});
 
@@ -316,6 +357,42 @@ describe("AutomationsSection", () => {
 		expect(propertyButton.hasAttribute("disabled")).toBe(false);
 		expect(closedParentButton.hasAttribute("disabled")).toBe(true);
 		expect(screen.getByText(/standard parent link/i)).toBeDefined();
+	});
+
+	it("offers only the current HQ criteria for each automation kind", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		await chooseChoice("Case source", "Parent case");
+		expect(
+			screen.getByRole("combobox", { name: "Case source" }).textContent,
+		).toContain("Parent case");
+		fireEvent.click(screen.getByRole("combobox", { name: "Comparison" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen.getByRole("option", { name: "Date comparison: before" }),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("option", { name: "Matches regular expression" }),
+		).toBeNull();
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
+		await settleBaseUiTransitions();
+
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Comparison" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen.getByRole("option", { name: "Matches regular expression" }),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("option", { name: "Date comparison: before" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Closed parent" })).toBeNull();
+		expect(screen.queryByText(/last changed on the server/i)).toBeNull();
 	});
 
 	it("keeps survey partial-submission controls valid and explains reminder refusal", async () => {
@@ -451,6 +528,80 @@ describe("AutomationsSection", () => {
 		).toHaveProperty("disabled", true);
 	});
 
+	it("labels weekly offsets as weekdays and preserves them when the start changes", async () => {
+		const alert = weekdayRemapAlert();
+		mocks.automations = [alert];
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Weekday remap alert/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen
+				.getAllByRole("combobox", { name: "Day in CommCare HQ schedule" })
+				.map((choice) => choice.textContent),
+		).toEqual(expect.arrayContaining(["Wednesday", "Friday"]));
+
+		await chooseChoice("Start weekday", "Friday");
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					startDayOfWeek: 4,
+					events: [
+						expect.objectContaining({
+							uuid: testUuid("ui-weekday-friday"),
+							day: 0,
+						}),
+						expect.objectContaining({
+							uuid: testUuid("ui-weekday-wednesday"),
+							day: 5,
+						}),
+					],
+				}),
+			}),
+			JSON.stringify(alert),
+		);
+	});
+
+	it("sorts a newly added monthly day into canonical order", async () => {
+		const monthly = monthlyAlert();
+		if (monthly.schedule.kind !== "timed") throw new Error("expected timed");
+		const first = monthly.schedule.events[0];
+		const second = monthly.schedule.events[1];
+		if (first === undefined || second === undefined) throw new Error("events");
+		monthly.schedule.events = [
+			second,
+			{
+				...first,
+				uuid: testUuid("ui-monthly-last"),
+				day: -1,
+			},
+		];
+		mocks.automations = [monthly];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Monthly alert/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Schedule event" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({ day: 1 }),
+						expect.objectContaining({ day: 2 }),
+						expect.objectContaining({ day: -1 }),
+					],
+				}),
+			}),
+			JSON.stringify(monthly),
+		);
+	});
+
 	it("uses themed date and locale-time fields while storing canonical values", async () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
@@ -482,6 +633,10 @@ describe("AutomationsSection", () => {
 				}),
 			}),
 		);
+	});
+
+	it("initializes a specific date from the viewer's local calendar day", () => {
+		expect(localIsoDate(new Date(2026, 7, 4, 23, 30))).toBe("2026-08-04");
 	});
 
 	it("moves focus through every repeated automation row family", async () => {

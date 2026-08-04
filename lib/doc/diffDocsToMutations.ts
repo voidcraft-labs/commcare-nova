@@ -1887,11 +1887,12 @@ function automationItemMutation(value: unknown): Mutation {
 	return mutationSchema.parse(value);
 }
 
-function diffAutomationItems<T extends AutomationItem>(
+function diffAutomationItems(
 	automationUuid: Uuid,
+	targetKind: Automation["kind"],
 	collection: AutomationItemCollection,
-	before: readonly T[],
-	after: readonly T[],
+	before: readonly AutomationItem[],
+	after: readonly AutomationItem[],
 ): Mutation[] {
 	const out: Mutation[] = [];
 	const beforeByUuid = new Map(before.map((item) => [item.uuid, item]));
@@ -1903,6 +1904,7 @@ function diffAutomationItems<T extends AutomationItem>(
 				automationItemMutation({
 					kind: "editAutomationItem",
 					automationUuid,
+					targetKind,
 					edit: {
 						collection,
 						operation: "add",
@@ -1916,6 +1918,7 @@ function diffAutomationItems<T extends AutomationItem>(
 				automationItemMutation({
 					kind: "editAutomationItem",
 					automationUuid,
+					targetKind,
 					edit: {
 						collection,
 						operation: "update",
@@ -1931,6 +1934,7 @@ function diffAutomationItems<T extends AutomationItem>(
 			automationItemMutation({
 				kind: "editAutomationItem",
 				automationUuid,
+				targetKind,
 				edit: { collection, operation: "remove", uuid: item.uuid },
 			}),
 		);
@@ -1943,6 +1947,7 @@ function diffAutomationItems<T extends AutomationItem>(
 			automationItemMutation({
 				kind: "editAutomationItem",
 				automationUuid,
+				targetKind,
 				edit: {
 					collection,
 					operation: "move",
@@ -1988,12 +1993,14 @@ export function automationChangesForUpdate(
 	out.push(
 		...diffAutomationItems(
 			after.uuid,
+			after.kind,
 			"criterion",
 			before.criteria,
 			after.criteria,
 		),
 		...diffAutomationItems(
 			after.uuid,
+			after.kind,
 			"setup-only-criterion",
 			before.setupOnlyCriteria,
 			after.setupOnlyCriteria,
@@ -2003,6 +2010,7 @@ export function automationChangesForUpdate(
 		out.push(
 			...diffAutomationItems(
 				after.uuid,
+				after.kind,
 				"update",
 				before.updates,
 				after.updates,
@@ -2019,12 +2027,14 @@ export function automationChangesForUpdate(
 	out.push(
 		...diffAutomationItems(
 			after.uuid,
+			after.kind,
 			"recipient",
 			before.recipients,
 			after.recipients,
 		),
 		...diffAutomationItems(
 			after.uuid,
+			after.kind,
 			"user-data-filter",
 			before.userDataFilters,
 			after.userDataFilters,
@@ -2045,6 +2055,7 @@ export function automationChangesForUpdate(
 		out.push(
 			...diffAutomationItems(
 				after.uuid,
+				after.kind,
 				"immediate-event",
 				before.schedule.events,
 				after.schedule.events,
@@ -2077,6 +2088,7 @@ export function automationChangesForUpdate(
 		out.push(
 			...diffAutomationItems(
 				after.uuid,
+				after.kind,
 				"timed-event",
 				before.schedule.events,
 				after.schedule.events,

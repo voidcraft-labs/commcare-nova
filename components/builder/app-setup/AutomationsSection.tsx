@@ -62,7 +62,6 @@ import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import {
 	type Automation,
 	type AutomationContent,
-	type AutomationCriterion,
 	type AutomationRecipient,
 	type AutomationSchedule,
 	type AutomationTimedEvent,
@@ -153,6 +152,31 @@ function timedEventComparator(
 		return hours * 60 + minutes;
 	};
 	return minute(left) - minute(right);
+}
+
+export function localIsoDate(date = new Date()): string {
+	return `${String(date.getFullYear()).padStart(4, "0")}-${String(
+		date.getMonth() + 1,
+	).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function weekdayIndexForIsoDate(date: string): number {
+	return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+function remapWeeklyEventOffsets(
+	schedule: WritableDraft<Extract<AutomationSchedule, { kind: "timed" }>>,
+	startDayOfWeek: number,
+): void {
+	const previousStart = schedule.startDayOfWeek;
+	for (const event of schedule.events) {
+		const absoluteWeekday = (previousStart + event.day) % 7;
+		event.day = (absoluteWeekday - startDayOfWeek + 7) % 7;
+	}
+	schedule.startDayOfWeek = startDayOfWeek;
+	schedule.events.sort((left, right) =>
+		timedEventComparator("weekly", left, right),
+	);
 }
 
 function automationTimeText(value: string): string {
@@ -709,23 +733,22 @@ function AutomationEditor({
 						</Labeled>
 					</fieldset>
 
-					<ConditionsEditor
-						automation={state.automation}
-						locations={locations}
-						onEdit={edit}
-					/>
+					<ConditionsEditor automation={state.automation} onEdit={edit} />
 					<SetupOnlyEditor automation={state.automation} onEdit={edit} />
-					<OptionalNumber
-						label="Only cases last changed on the server at least this many days ago"
-						value={state.automation.serverModifiedBoundaryDays}
-						onChange={(value) =>
-							edit((draft) => {
-								if (value === undefined)
-									delete draft.serverModifiedBoundaryDays;
-								else draft.serverModifiedBoundaryDays = value;
-							})
-						}
-					/>
+					{state.automation.kind === "case-update" && (
+						<OptionalNumber
+							label="Only cases last changed on the server at least this many days ago"
+							value={state.automation.serverModifiedBoundaryDays}
+							onChange={(value) =>
+								edit((draft) => {
+									if (draft.kind !== "case-update") return;
+									if (value === undefined)
+										delete draft.serverModifiedBoundaryDays;
+									else draft.serverModifiedBoundaryDays = value;
+								})
+							}
+						/>
+					)}
 
 					{state.automation.kind === "case-update" ? (
 						<CaseUpdateEditor automation={state.automation} onEdit={edit} />
@@ -1018,53 +1041,49 @@ function useRepeatedRowRemovalFocus(items: readonly { readonly uuid: Uuid }[]) {
 
 function ConditionsEditor({
 	automation,
-	locations,
 	onEdit,
 }: {
 	automation: Automation;
-	locations: readonly StoredLocation[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const rowFocus = useRepeatedRowRemovalFocus(automation.criteria);
 	const hasClosedParent = automation.criteria.some(
 		(criterion) => criterion.kind === "closed-parent",
 	);
-	const hasLocation = automation.criteria.some(
-		(criterion) => criterion.kind === "location",
-	);
-	const add = (kind: AutomationCriterion["kind"]) => {
-		if (
-			(kind === "closed-parent" && hasClosedParent) ||
-			(kind === "location" && (hasLocation || locations[0] === undefined))
-		)
-			return;
+	const add = (kind: "match-property" | "closed-parent") => {
+		if (kind === "closed-parent" && hasClosedParent) return;
 		onEdit((draft) => {
-			draft.criteria.push(
-				kind === "match-property"
-					? {
-							uuid: uuid(),
-							kind,
-							property: "case_name",
-							matchType: "has-value",
-						}
-					: kind === "closed-parent"
-						? {
-								uuid: uuid(),
-								kind,
-							}
+			if (draft.kind === "case-update") {
+				draft.criteria.push(
+					kind === "closed-parent"
+						? { uuid: uuid(), kind }
 						: {
 								uuid: uuid(),
 								kind,
-								locationUuid: asUuid(locations[0]?.id ?? ""),
-								includeDescendants: false,
+								scope: "case",
+								property: "case_name",
+								matchType: "has-value",
 							},
-			);
+				);
+			} else if (kind === "match-property") {
+				draft.criteria.push({
+					uuid: uuid(),
+					kind,
+					scope: "case",
+					property: "case_name",
+					matchType: "has-value",
+				});
+			}
 		});
 	};
 	return (
 		<Section
 			title="Conditions"
-			description="The current-match count always excludes closed cases. Server-modified, UCR, and registered custom conditions are named separately because Nova can't count them locally."
+			description={
+				automation.kind === "case-update"
+					? "The current-match count always excludes closed cases. Server-modified, UCR, and registered custom conditions are named separately because Nova can't count them locally."
+					: "The current-match count always excludes closed cases. UCR and registered custom conditions are named separately because Nova can't count them locally."
+			}
 		>
 			{automation.criteria.map((criterion, index) => (
 				<div
@@ -1073,53 +1092,67 @@ function ConditionsEditor({
 				>
 					<div className="grid gap-3 @md:grid-cols-2">
 						<Labeled label={`Condition ${index + 1}`}>
-							<Choice
-								value={criterion.kind}
-								onChange={(kind) =>
-									onEdit((draft) => {
-										const current = draft.criteria[index];
-										if (current === undefined) return;
-										draft.criteria[index] =
-											kind === "match-property"
-												? {
-														uuid: current.uuid,
-														kind,
-														property: "case_name",
-														matchType: "has-value",
-													}
-												: kind === "closed-parent"
+							{automation.kind === "case-update" ? (
+								<Choice
+									value={criterion.kind}
+									onChange={(kind) =>
+										onEdit((draft) => {
+											if (draft.kind !== "case-update") return;
+											const current = draft.criteria[index];
+											if (current === undefined) return;
+											draft.criteria[index] =
+												kind === "match-property"
 													? {
 															uuid: current.uuid,
 															kind,
+															scope: "case",
+															property: "case_name",
+															matchType: "has-value",
 														}
 													: {
 															uuid: current.uuid,
-															kind: "location",
-															locationUuid: asUuid(locations[0]?.id ?? ""),
-															includeDescendants: false,
+															kind: "closed-parent",
 														};
-									})
-								}
-								options={[
-									["match-property", "Case property"],
-									[
-										"closed-parent",
-										"Closed parent",
-										hasClosedParent && criterion.kind !== "closed-parent",
-									],
-									[
-										"location",
-										locations.length === 0
-											? "Owner location (add a place first)"
-											: "Owner location",
-										locations.length === 0 ||
-											(hasLocation && criterion.kind !== "location"),
-									],
-								]}
-							/>
+										})
+									}
+									options={[
+										["match-property", "Case property"],
+										[
+											"closed-parent",
+											"Closed parent",
+											hasClosedParent && criterion.kind !== "closed-parent",
+										],
+									]}
+								/>
+							) : (
+								<p className="flex h-9 items-center text-[13px] text-nova-text">
+									Case property
+								</p>
+							)}
 						</Labeled>
 						{criterion.kind === "match-property" && (
 							<>
+								{automation.kind === "case-update" && (
+									<Labeled label="Case source">
+										<Choice
+											value={criterion.scope}
+											onChange={(scope) =>
+												onEdit((draft) => {
+													if (draft.kind !== "case-update") return;
+													const item = draft.criteria[index];
+													if (item?.kind === "match-property") {
+														item.scope = scope as typeof item.scope;
+													}
+												})
+											}
+											options={[
+												["case", "Matching case"],
+												["parent", "Parent case"],
+												["host", "Host case"],
+											]}
+										/>
+									</Labeled>
+								)}
 								<Labeled label="Property">
 									<Input
 										value={criterion.property}
@@ -1152,11 +1185,14 @@ function ConditionsEditor({
 											["not-equal", "Doesn't equal"],
 											["has-value", "Has a value"],
 											["has-no-value", "Has no value"],
-											["regex", "Matches regular expression"],
-											["date-days-before", "Date comparison: before"],
-											["date-days-lte", "Date comparison: at least"],
-											["date-days-gt", "Date comparison: fewer than"],
-											["date-days", "Date comparison: due or passed"],
+											...(automation.kind === "conditional-alert"
+												? ([["regex", "Matches regular expression"]] as const)
+												: ([
+														["date-days-before", "Date comparison: before"],
+														["date-days-lte", "Date comparison: at least"],
+														["date-days-gt", "Date comparison: fewer than"],
+														["date-days", "Date comparison: due or passed"],
+													] as const)),
 										]}
 									/>
 								</Labeled>
@@ -1203,37 +1239,6 @@ function ConditionsEditor({
 								not expose custom index names or extension relationships.
 							</p>
 						)}
-						{criterion.kind === "location" && (
-							<>
-								<Labeled label="Location">
-									<Choice
-										value={criterion.locationUuid}
-										onChange={(value) =>
-											onEdit((draft) => {
-												const item = draft.criteria[index];
-												if (item?.kind === "location")
-													item.locationUuid = asUuid(value);
-											})
-										}
-										options={locations.map((location) => [
-											location.id,
-											location.name,
-										])}
-									/>
-								</Labeled>
-								<Toggle
-									checked={criterion.includeDescendants}
-									onChange={(checked) =>
-										onEdit((draft) => {
-											const item = draft.criteria[index];
-											if (item?.kind === "location")
-												item.includeDescendants = checked;
-										})
-									}
-									label="Include descendant locations"
-								/>
-							</>
-						)}
 					</div>
 					<div className="mt-2">
 						<RemoveButton
@@ -1260,24 +1265,17 @@ function ConditionsEditor({
 					<Icon icon={tablerPlus} />
 					Property condition
 				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={hasClosedParent}
-					onClick={() => add("closed-parent")}
-				>
-					<Icon icon={tablerPlus} />
-					Closed parent
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={locations.length === 0 || hasLocation}
-					onClick={() => add("location")}
-				>
-					<Icon icon={tablerPlus} />
-					Location
-				</Button>
+				{automation.kind === "case-update" && (
+					<Button
+						type="button"
+						variant="outline"
+						disabled={hasClosedParent}
+						onClick={() => add("closed-parent")}
+					>
+						<Icon icon={tablerPlus} />
+						Closed parent
+					</Button>
+				)}
 			</div>
 		</Section>
 	);
@@ -2031,9 +2029,7 @@ function ScheduleEditor({
 				draft.schedule.repeatEvery = 7;
 				draft.schedule.startDayOfWeek =
 					draft.schedule.start.kind === "specific-date"
-						? (new Date(`${draft.schedule.start.date}T00:00:00Z`).getUTCDay() +
-								6) %
-							7
+						? weekdayIndexForIsoDate(draft.schedule.start.date)
 						: 0;
 			} else {
 				draft.schedule.repeatEvery = 1;
@@ -2194,8 +2190,9 @@ function ScheduleEditor({
 											if (
 												draft.kind === "conditional-alert" &&
 												draft.schedule.kind === "timed"
-											)
-												draft.schedule.startDayOfWeek = Number(value);
+											) {
+												remapWeeklyEventOffsets(draft.schedule, Number(value));
+											}
 										})
 									}
 									options={[
@@ -2220,7 +2217,7 @@ function ScheduleEditor({
 										draft.schedule.kind !== "timed"
 									)
 										return;
-									const date = new Date().toISOString().slice(0, 10);
+									const date = localIsoDate();
 									draft.schedule.start =
 										kind === "rule-trigger"
 											? { kind }
@@ -2236,8 +2233,10 @@ function ScheduleEditor({
 									if (kind === "specific-date") {
 										draft.schedule.startOffsetDays = 0;
 										if (timedSetupForm === "weekly") {
-											draft.schedule.startDayOfWeek =
-												(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+											remapWeeklyEventOffsets(
+												draft.schedule,
+												weekdayIndexForIsoDate(date),
+											);
 										}
 									}
 								})
@@ -2281,8 +2280,10 @@ function ScheduleEditor({
 										) {
 											draft.schedule.start.date = date;
 											if (timedSetupForm === "weekly") {
-												draft.schedule.startDayOfWeek =
-													(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+												remapWeeklyEventOffsets(
+													draft.schedule,
+													weekdayIndexForIsoDate(date),
+												);
 											}
 										}
 									});
@@ -2336,6 +2337,9 @@ function ScheduleEditor({
 					}))}
 					scheduleKind={schedule.kind}
 					timedSetupForm={timedSetupForm}
+					startDayOfWeek={
+						schedule.kind === "timed" ? schedule.startDayOfWeek : undefined
+					}
 					repeatEvery={
 						schedule.kind === "timed" ? schedule.repeatEvery : undefined
 					}
@@ -2433,6 +2437,9 @@ function ScheduleEditor({
 									first?.content ?? { kind: "sms", message: "Message" },
 								),
 							});
+							draft.schedule.events.sort((left, right) =>
+								timedEventComparator(setupForm, left, right),
+							);
 						}
 					})
 				}
@@ -2450,6 +2457,7 @@ function EventEditor({
 	eventDays,
 	scheduleKind,
 	timedSetupForm,
+	startDayOfWeek,
 	repeatEvery,
 	repeatIsDerived,
 	forms,
@@ -2465,6 +2473,7 @@ function EventEditor({
 	eventDays: readonly { uuid: Uuid; day: number }[];
 	scheduleKind: AutomationSchedule["kind"];
 	timedSetupForm?: "custom-daily" | "weekly" | "monthly";
+	startDayOfWeek?: number;
 	repeatEvery?: number;
 	repeatIsDerived: boolean;
 	forms: readonly Form[];
@@ -2490,9 +2499,10 @@ function EventEditor({
 					),
 				])
 			: timedSetupForm === "weekly"
-				? WEEKDAY_NAMES.map((name, day) => [
+				? WEEKDAY_NAMES.map((_, day) => [
 						String(day),
-						name,
+						WEEKDAY_NAMES[((startDayOfWeek ?? 0) + day) % 7] ??
+							"Unknown weekday",
 						eventDays.some(
 							(sibling) => sibling.uuid !== event.uuid && sibling.day === day,
 						),

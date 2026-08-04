@@ -1141,11 +1141,6 @@ function archiveBlockingAutomations(
 ): readonly { readonly uuid: string; readonly name: string }[] {
 	const blocked: Array<{ uuid: string; name: string }> = [];
 	for (const automation of Object.values(doc.automations ?? {})) {
-		const criterionReference = automation.criteria.some(
-			(criterion) =>
-				criterion.kind === "location" &&
-				locationIds.has(criterion.locationUuid),
-		);
 		const recipientReference =
 			automation.kind === "conditional-alert" &&
 			automation.recipients.some(
@@ -1153,7 +1148,7 @@ function archiveBlockingAutomations(
 					recipient.kind === "location" &&
 					locationIds.has(recipient.locationUuid),
 			);
-		if (criterionReference || recipientReference) {
+		if (recipientReference) {
 			blocked.push({ uuid: automation.uuid, name: automation.name });
 		}
 	}

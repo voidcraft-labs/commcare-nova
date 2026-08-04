@@ -194,15 +194,34 @@ describe("automation shared tools", () => {
 		const current = doc();
 		const locationUuid = testUuid("tool-automation-location");
 		const locatedRule: Automation = {
-			...rule(),
-			criteria: [
+			uuid: RULE_UUID,
+			kind: "conditional-alert",
+			name: "District reminder",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [
 				{
-					uuid: testUuid("tool-location-criterion"),
+					uuid: testUuid("tool-location-recipient"),
 					kind: "location",
 					locationUuid,
-					includeDescendants: true,
 				},
 			],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("tool-location-event"),
+						minutesToWait: 0,
+						content: { kind: "sms", message: "Hello" },
+					},
+				],
+			},
+			includeDescendantLocations: true,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
 		};
 		current.automations = { [RULE_UUID]: locatedRule };
 		current.automationOrder = [RULE_UUID];
@@ -254,6 +273,7 @@ describe("automation shared tools", () => {
 				{
 					uuid: testUuid("peer-criterion"),
 					kind: "match-property",
+					scope: "case",
 					property: "state",
 					matchType: "equal",
 					value: "peer-value",
@@ -309,8 +329,13 @@ describe("automation shared tools", () => {
 		const changedKind = await updateAutomationTool.execute(
 			{
 				automation: {
-					...rule(),
+					uuid: RULE_UUID,
 					kind: "conditional-alert",
+					name: "Resolve visits",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
 					recipients: [{ uuid: testUuid("tool-recipient"), kind: "self" }],
 					schedule: {
 						kind: "immediate",

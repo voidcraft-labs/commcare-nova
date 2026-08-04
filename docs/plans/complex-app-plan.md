@@ -180,11 +180,14 @@ or second tool schema. Entity-row decomposition persists an automation as a
 flat top-level entity, and replay admits the same UUID and ordering laws as the
 rest of the document.
 
-The vocabulary is closed to current `AutomaticUpdateRule` shapes. Ordinary
-criteria are HQ's nine `MatchPropertyDefinition` comparisons, closed-parent,
-and place-owner filters with `ALL` or `ANY`; server-modified age is a separate
-HQ switch. The HTML form permits one standard parent-closed condition and one
-owner-location condition, with no custom index or extension relationship.
+The vocabulary follows the two current HTML forms rather than a shared
+criteria superset. Automatic updates accept the four value comparisons plus
+four date comparisons against case, parent, or host properties, with `ALL` or
+`ANY`, at most one standard parent-closed condition, and a separate
+server-modified-age switch. Conditional alerts accept the four value
+comparisons plus regex against direct case properties only; they do not accept
+date, parent/host, closed-parent, location, or server-modified conditions.
+The standard parent-closed condition has no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
 regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
@@ -210,7 +213,10 @@ content form, with their exact repetition, offset, and day sets. The canonical
 zero-based Custom Daily day is projected to HQ's one-based event row, while a
 Monthly day already uses the UI's 1–28 or -3–-1 value. Weekly and Monthly day
 pickers exclude selected siblings, normalize event order, and stop adding when
-their closed choices are exhausted. Dates use Nova's calendar picker, times use
+their closed choices are exhausted. Weekly days remain runtime offsets from the
+start weekday; the Builder labels their projected absolute weekdays and remaps
+offsets when the start changes so existing selections retain their meaning.
+Dates use Nova's calendar picker, times use
 locale clock entry with canonical storage, and repeated-row removal preserves
 keyboard focus across all rule families. Survey reminder totals
 remain below expiration and partial case updates cannot be selected without
@@ -219,8 +225,9 @@ start. Setup guidance selects **Immediately** only for one zero-delay event and
 **Custom Immediate Schedule** for delayed or repeated immediate events.
 
 Preview presents a read-only count over the same real open case rows used by the
-running app. Nova's AST-to-Kysely boundary can exactly lower the nine property
-comparisons, closed-parent relations, and place-owner sets; the outer query
+running app. Nova's AST-to-Kysely boundary can exactly lower each kind's
+property comparisons, including automatic-update parent/host reads, plus its
+closed-parent relation; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
 Whitespace-only strings count as blank and regex evaluation applies only to
 stored strings, matching HQ instead of coercing JSON scalars.

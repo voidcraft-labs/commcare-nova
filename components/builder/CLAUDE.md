@@ -227,13 +227,14 @@ removal uses an explicit confirmation. Viewers receive the same expanded readabl
 current-match information, and generated setup guide with every mutating
 control absent or disabled.
 
-The section is structured vocabulary, never raw CommCare JSON: closed property
-criteria, closed-parent and place-owner filters, explicit setup-only
+The section is structured vocabulary, never raw CommCare JSON: kind-specific
+property criteria, the case-update-only closed-parent filter, explicit setup-only
 instructions, typed update targets/values, recipients, content, schedules, and
 worker-information filters. Forms, worker properties, organization levels, and
-places resolve through current UUID-backed catalogs. HQ-only UCR/custom and
-server-modified behavior are setup-only and visibly omitted from the current
-match count. A count is read-only over real open case rows; the persistent note
+places resolve through current UUID-backed catalogs. HQ-only UCR/custom
+conditions remain explicit setup instructions, while case-update
+server-modified age is a separate structured field; all are visibly omitted
+from the current match count. A count is read-only over real open case rows; the persistent note
 states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
@@ -249,8 +250,10 @@ criterion, setup instruction, update, recipient, recipient filter, or event
 hands focus to the next or previous row action, then its Add action.
 
 The editor makes the HQ form's cardinality and compatibility rules impossible
-to author: at most one standard closed-parent and one owner-location condition,
-no web-user recipient, no incompatible case-relative/email/case-group recipient
+to author: case updates expose value/date conditions on case, parent, or host
+properties plus at most one standard closed-parent condition; alerts expose
+direct-case value/regex conditions and no date, closed-parent, location, or
+server-modified condition. It also allows no web-user recipient or incompatible case-relative/email/case-group recipient
 with Connect content, and no timed reset property unless the start is the rule
 trigger. Closed-parent exposes no custom index or relationship. Exact HQ
 literal inputs start nonblank, and switching dependent schedule choices clears
@@ -259,7 +262,10 @@ values the new form cannot save.
 The timed editor projects the canonical runtime encoding into one selectable HQ
 form (Custom Daily, Weekly, or Monthly). Content type and timing mode are schedule-wide; shared
 Weekly/Monthly timing and content edits fan out to every event. Human day fields
-use HQ's one-based Custom Daily values and exact Monthly day set. Dependent
+use HQ's one-based Custom Daily values and exact Monthly day set. Weekly labels
+project the stored offset through the schedule start weekday; changing the
+start remaps and re-sorts offsets so the selected absolute weekdays stay fixed.
+Dependent
 survey controls clear and disable the same way HQ's form does, while the domain
 gate remains the final cross-field authority.
 

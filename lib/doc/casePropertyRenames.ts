@@ -318,8 +318,7 @@ function rewriteAutomationCaseProperties(
 	};
 	for (const criterion of automation.criteria) {
 		if (criterion.kind !== "match-property") continue;
-		const destination = resolve(automation.caseType, criterion.property);
-		if (destination !== undefined) criterion.property = destination;
+		rewriteScoped(criterion);
 	}
 	if (automation.kind === "case-update") {
 		for (const update of automation.updates) {

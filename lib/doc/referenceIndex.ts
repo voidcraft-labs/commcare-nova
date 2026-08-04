@@ -412,15 +412,17 @@ function extractAutomationEdges(
 	sink.edge(caseTypeTargetKey(automation.caseType), "automation_case_type");
 	for (const criterion of automation.criteria) {
 		if (criterion.kind === "match-property") {
-			sink.edge(
-				casePropertyTargetKey(automation.caseType, criterion.property),
-				"automation_criterion_property",
+			const caseType = automationScopeCaseType(
+				doc,
+				automation,
+				criterion.scope,
 			);
-		} else if (criterion.kind === "location") {
-			sink.edge(
-				locationTargetKey(criterion.locationUuid),
-				"automation_criterion_location",
-			);
+			if (caseType !== undefined) {
+				sink.edge(
+					casePropertyTargetKey(caseType, criterion.property),
+					"automation_criterion_property",
+				);
+			}
 		}
 	}
 	if (automation.kind === "case-update") {

@@ -31,15 +31,9 @@ function locationName(
 		: `“${location.name}” (site code ${location.siteCode}; Nova id ${uuid})`;
 }
 
-function describeCriterion(
-	criterion: AutomationCriterion,
-	locations: readonly StoredLocation[],
-): string {
+function describeCriterion(criterion: AutomationCriterion): string {
 	if (criterion.kind === "closed-parent") {
 		return "The case's parent case is closed.";
-	}
-	if (criterion.kind === "location") {
-		return `The case owner belongs to ${locationName(locations, criterion.locationUuid)}${criterion.includeDescendants ? " or one of its descendants" : ""}.`;
 	}
 	const values: Record<typeof criterion.matchType, string> = {
 		equal: `equals “${criterion.value ?? ""}”`,
@@ -52,7 +46,11 @@ function describeCriterion(
 		"date-days-gt": `is earlier than today plus ${criterion.days ?? 0} days`,
 		"date-days": `is today plus ${criterion.days ?? 0} days or earlier`,
 	};
-	return `Case property ${criterion.property} ${values[criterion.matchType]}.`;
+	const property =
+		criterion.scope === "case"
+			? `Case property ${criterion.property}`
+			: `${criterion.scope === "parent" ? "Parent" : "Host"} case property ${criterion.property}`;
+	return `${property} ${values[criterion.matchType]}.`;
 }
 
 function describeRecipient(
@@ -127,10 +125,7 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 	}
 }
 
-function commonSteps(
-	automation: Automation,
-	locations: readonly StoredLocation[],
-): string[] {
+function commonSteps(automation: Automation): string[] {
 	const steps = [
 		`Name the rule “${automation.name}” and choose case type ${automation.caseType}.`,
 		`Set criteria matching to ${automation.criteriaOperator === "all" ? "ALL" : "ANY"}.`,
@@ -141,7 +136,7 @@ function commonSteps(
 		steps.push(
 			...automation.criteria.map(
 				(criterion, index) =>
-					`Criterion ${index + 1}: ${describeCriterion(criterion, locations)}`,
+					`Criterion ${index + 1}: ${describeCriterion(criterion)}`,
 			),
 		);
 	}
@@ -151,7 +146,10 @@ function commonSteps(
 				`Setup-only criterion ${index + 1}: ${criterion.text}`,
 		),
 	);
-	if (automation.serverModifiedBoundaryDays !== undefined) {
+	if (
+		automation.kind === "case-update" &&
+		automation.serverModifiedBoundaryDays !== undefined
+	) {
 		steps.push(
 			`Turn on “filter on server modified” and set the boundary to ${automation.serverModifiedBoundaryDays} days.`,
 		);
@@ -164,12 +162,15 @@ export function buildAutomationSetupGuide(
 	automation: Automation,
 	locations: readonly StoredLocation[],
 ): AutomationSetupGuide {
-	const steps = commonSteps(automation, locations);
+	const steps = commonSteps(automation);
 	const caveats = [
 		"Nova does not run this automation in Preview and publishing the app does not install it. Save it manually in the target CommCare HQ project.",
 		"CommCare HQ has no REST resource for rules, alerts, or schedules. The available editors are HTML pages; conditional alerts also have an Excel content upload.",
 	];
-	if (automation.serverModifiedBoundaryDays !== undefined) {
+	if (
+		automation.kind === "case-update" &&
+		automation.serverModifiedBoundaryDays !== undefined
+	) {
 		caveats.push(
 			"Server-modified age is measured from the case’s latest server modification, not from a claimed-at or other business date.",
 		);

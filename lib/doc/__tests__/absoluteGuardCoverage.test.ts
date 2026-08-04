@@ -1205,12 +1205,14 @@ const GUARD_COVERAGE = {
 				{
 					kind: "editAutomationItem",
 					automationUuid: testUuid("automation-cleanup"),
+					targetKind: "case-update",
 					edit: {
 						collection: "criterion",
 						operation: "add",
 						value: {
 							uuid: testUuid("automation-invalid-criterion"),
 							kind: "match-property",
+							scope: "case",
 							property: "missing",
 							matchType: "has-value",
 						},

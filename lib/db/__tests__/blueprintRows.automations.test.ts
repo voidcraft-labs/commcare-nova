@@ -23,6 +23,7 @@ describe("automation entity-row persistence", () => {
 				{
 					uuid: conditionUuid,
 					kind: "match-property",
+					scope: "case",
 					property: "resolution",
 					matchType: "equal",
 					value: "complete",

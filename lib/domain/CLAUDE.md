@@ -27,21 +27,25 @@ Sequence is plain array position. Position belongs to the collection, so entitie
 alerts. An automation, and every criterion, setup-only instruction, update,
 recipient, event, and user-data filter inside it, has canonical UUID identity.
 Names, case properties, HQ ids, and registered custom ids are editable values,
-never addresses. Criteria are limited to the nine property comparisons,
-closed-parent and place-owner filters that Nova can evaluate, plus explicit
-setup-only text for UCR, HQ-registered custom criteria, and server-modified
-semantics Nova cannot honestly evaluate. Case updates, recipients, content,
+never addresses. Criteria follow the two different HQ forms rather than one
+shared superset. Case updates accept the four value comparisons plus four date
+comparisons against case, parent, or host properties, and the one standard
+closed-parent condition. Conditional alerts accept the four value comparisons
+plus portable regex against the matched case only. Neither form exposes a
+location criterion. Explicit setup-only text carries UCR and HQ-registered
+custom criteria; case-update server-modified age is a separate structured
+field that Nova names as omitted from local matching. Case updates, recipients, content,
 schedule starts, and user filters are similarly closed to shapes current HQ can
 represent. There is no generic payload arm and no draft or disabled-invalid
 state. HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` flag is deliberately not
 modeled: it is one domain-wide switch that evaluates every active update rule
 for the saved case type, not a property of an individual rule.
 
-The HTML form owns several less-obvious boundaries. A rule has at most one
-standard parent-closed criterion and one owner-location criterion; the parent
-criterion has no authored index or relationship. Equality and fixed-update
-literals are exact nonblank HQ values without whitespace normalization or outer
-quote syntax, and regex patterns are nonempty. The recipient union has no web
+The HTML form owns several less-obvious boundaries. Only a case-update rule has
+the standard parent-closed criterion, at most once, with no authored index or
+relationship. Equality and fixed-update literals are exact nonblank HQ values
+without whitespace normalization or outer quote syntax, automation names are
+already trimmed and nonblank, and alert regex patterns are nonempty. The recipient union has no web
 user, and Connect content refuses self, parent-case, all-child-cases,
 case-property-email, and case-group recipients. A timed reset property requires
 a rule-trigger start.
@@ -53,7 +57,9 @@ Daily; a start weekday selects Weekly; a negative repeat selects Monthly.
 Schedule refinements enforce each form's shared timing/content, ordering,
 five-minute separation, window, day, offset, and repetition laws before commit.
 Custom Daily days are stored zero-based and projected as one-based HQ event-row
-values; Weekly and Monthly days are unique closed choices, and Monthly days are
+values. A Weekly event day is an offset from the schedule's start weekday, so
+the editor labels the projected absolute weekday and remaps offsets when the
+start changes to preserve the chosen weekdays. Weekly and Monthly days are unique closed choices, and Monthly days are
 already the UI's 1–28 / -3–-1 values in positive-then-month-end order. Survey reminder
 totals stay strictly below expiration, and partial case updates imply partial
 submission.

@@ -76,9 +76,6 @@ export function extractLocationReferenceTargets(
 		}
 	}
 	for (const automation of Object.values(automationsOf(doc))) {
-		for (const criterion of automation.criteria) {
-			if (criterion.kind === "location") targets.add(criterion.locationUuid);
-		}
 		if (automation.kind === "conditional-alert") {
 			for (const recipient of automation.recipients) {
 				if (recipient.kind === "location") targets.add(recipient.locationUuid);

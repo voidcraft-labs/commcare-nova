@@ -22,16 +22,26 @@ export const AUTOMATION_CRITERIA_OPERATORS = ["all", "any"] as const;
 export type AutomationCriteriaOperator =
 	(typeof AUTOMATION_CRITERIA_OPERATORS)[number];
 
-export const AUTOMATION_PROPERTY_MATCH_TYPES = [
+export const AUTOMATION_CASE_UPDATE_PROPERTY_MATCH_TYPES = [
+	"equal",
+	"not-equal",
+	"has-value",
+	"has-no-value",
+	"date-days-before",
+	"date-days-lte",
+	"date-days-gt",
+	"date-days",
+] as const;
+export const AUTOMATION_ALERT_PROPERTY_MATCH_TYPES = [
 	"equal",
 	"not-equal",
 	"has-value",
 	"has-no-value",
 	"regex",
-	"date-days-before",
-	"date-days-lte",
-	"date-days-gt",
-	"date-days",
+] as const;
+export const AUTOMATION_PROPERTY_MATCH_TYPES = [
+	...AUTOMATION_CASE_UPDATE_PROPERTY_MATCH_TYPES,
+	"regex",
 ] as const;
 export type AutomationPropertyMatchType =
 	(typeof AUTOMATION_PROPERTY_MATCH_TYPES)[number];
@@ -140,68 +150,90 @@ export function isPortableAutomationRegex(pattern: string): boolean {
 	}
 }
 
-export const propertyMatchCriterionSchema = z
+function validatePropertyMatchCriterion(
+	criterion: {
+		readonly matchType: AutomationPropertyMatchType;
+		readonly value?: string;
+		readonly days?: number;
+	},
+	ctx: z.RefinementCtx,
+): void {
+	const needsValue = ["equal", "not-equal", "regex"].includes(
+		criterion.matchType,
+	);
+	const needsDays = criterion.matchType.startsWith("date-");
+	if (needsValue !== (criterion.value !== undefined)) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["value"],
+			message: needsValue
+				? "This match needs one comparison value."
+				: "This match does not accept a comparison value.",
+		});
+	}
+	if (needsDays !== (criterion.days !== undefined)) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["days"],
+			message: needsDays
+				? "This date match needs a day offset."
+				: "This match does not accept a day offset.",
+		});
+	}
+	if (
+		(criterion.matchType === "equal" || criterion.matchType === "not-equal") &&
+		criterion.value !== undefined &&
+		!isCanonicalHqCasePropertyValue(criterion.value)
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["value"],
+			message:
+				"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
+		});
+	}
+	if (
+		criterion.matchType === "regex" &&
+		criterion.value !== undefined &&
+		(criterion.value.length === 0 ||
+			!isPortableAutomationRegex(criterion.value))
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["value"],
+			message:
+				"Use a portable regular expression without lookarounds, named groups, shorthand classes, backreferences, or engine-specific escapes.",
+		});
+	}
+}
+
+const propertyMatchCriterionCommon = {
+	uuid: uuidSchema,
+	kind: z.literal("match-property"),
+	property: z.string().min(1).max(126),
+	/** Used by equality and regex matches; absent on blank/date matches. */
+	value: z.string().max(126).optional(),
+	/** The N in HQ's comparisons against `case_date + N`. */
+	days: persistableJsonIntegerSchema.min(-36_500).max(36_500).optional(),
+} as const;
+
+export const caseUpdatePropertyMatchCriterionSchema = z
 	.object({
-		uuid: uuidSchema,
-		kind: z.literal("match-property"),
-		property: z.string().min(1).max(126),
-		matchType: z.enum(AUTOMATION_PROPERTY_MATCH_TYPES),
-		/** Used by equality and regex matches; absent on blank/date matches. */
-		value: z.string().max(126).optional(),
-		/** The N in HQ's comparisons against `case_date + N`. */
-		days: persistableJsonIntegerSchema.min(-36_500).max(36_500).optional(),
+		...propertyMatchCriterionCommon,
+		scope: z.enum(["case", "parent", "host"]),
+		matchType: z.enum(AUTOMATION_CASE_UPDATE_PROPERTY_MATCH_TYPES),
 	})
 	.strict()
-	.superRefine((criterion, ctx) => {
-		const needsValue = ["equal", "not-equal", "regex"].includes(
-			criterion.matchType,
-		);
-		const needsDays = criterion.matchType.startsWith("date-");
-		if (needsValue !== (criterion.value !== undefined)) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["value"],
-				message: needsValue
-					? "This match needs one comparison value."
-					: "This match does not accept a comparison value.",
-			});
-		}
-		if (needsDays !== (criterion.days !== undefined)) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["days"],
-				message: needsDays
-					? "This date match needs a day offset."
-					: "This match does not accept a day offset.",
-			});
-		}
-		if (
-			(criterion.matchType === "equal" ||
-				criterion.matchType === "not-equal") &&
-			criterion.value !== undefined &&
-			!isCanonicalHqCasePropertyValue(criterion.value)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["value"],
-				message:
-					"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
-			});
-		}
-		if (
-			criterion.matchType === "regex" &&
-			criterion.value !== undefined &&
-			(criterion.value.length === 0 ||
-				!isPortableAutomationRegex(criterion.value))
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["value"],
-				message:
-					"Use a portable regular expression without lookarounds, named groups, shorthand classes, backreferences, or engine-specific escapes.",
-			});
-		}
-	});
+	.superRefine(validatePropertyMatchCriterion);
+
+export const alertPropertyMatchCriterionSchema = z
+	.object({
+		...propertyMatchCriterionCommon,
+		scope: z.literal("case"),
+		matchType: z.enum(AUTOMATION_ALERT_PROPERTY_MATCH_TYPES),
+	})
+	.strict()
+	.superRefine(validatePropertyMatchCriterion);
 
 export const closedParentCriterionSchema = z
 	.object({
@@ -210,22 +242,15 @@ export const closedParentCriterionSchema = z
 	})
 	.strict();
 
-export const locationCriterionSchema = z
-	.object({
-		uuid: uuidSchema,
-		kind: z.literal("location"),
-		locationUuid: uuidSchema,
-		includeDescendants: z.boolean(),
-	})
-	.strict();
+export const automationCaseUpdateCriterionSchema = z.discriminatedUnion(
+	"kind",
+	[caseUpdatePropertyMatchCriterionSchema, closedParentCriterionSchema],
+);
+export const automationAlertCriterionSchema = alertPropertyMatchCriterionSchema;
 
-/** Exactly the HQ criteria Nova can lower into its local Predicate compiler. */
-export const automationCriterionSchema = z.discriminatedUnion("kind", [
-	propertyMatchCriterionSchema,
-	closedParentCriterionSchema,
-	locationCriterionSchema,
-]);
-export type AutomationCriterion = z.infer<typeof automationCriterionSchema>;
+export type AutomationCriterion =
+	| z.infer<typeof automationCaseUpdateCriterionSchema>
+	| z.infer<typeof automationAlertCriterionSchema>;
 
 export const automationPropertyTargetSchema = z
 	.object({
@@ -825,20 +850,19 @@ const automationCommon = {
 		.max(
 			AUTOMATION_NAME_MAX_LENGTH,
 			`Keep the automation name under ${AUTOMATION_NAME_MAX_LENGTH + 1} characters.`,
-		),
+		)
+		.refine((name) => name === name.trim() && name.length > 0, {
+			message:
+				"Enter a nonblank automation name without surrounding whitespace.",
+		}),
 	caseType: z.string().min(1).max(126),
 	criteriaOperator: z.enum(AUTOMATION_CRITERIA_OPERATORS),
-	criteria: z.array(automationCriterionSchema).max(100),
 	/**
 	 * UCR and instance-registered custom criteria have no portable schema. They
 	 * remain explicit setup-artifact prose and are always named as omitted from
 	 * Nova's current-match count.
 	 */
 	setupOnlyCriteria: z.array(automationSetupOnlyCriterionSchema).max(100),
-	/** HQ-only server-modified age, deliberately outside `criteria`. */
-	serverModifiedBoundaryDays: persistableJsonNonnegativeIntegerSchema
-		.max(36_500)
-		.optional(),
 } as const;
 
 function validateHtmlCriteriaShape(
@@ -854,17 +878,6 @@ function validateHtmlCriteriaShape(
 			path: ["criteria"],
 			message:
 				"CommCare HQ's setup form accepts only one closed-parent condition.",
-		});
-	}
-	const locations = automation.criteria.filter(
-		(criterion) => criterion.kind === "location",
-	);
-	if (locations.length > 1) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["criteria"],
-			message:
-				"CommCare HQ's setup form accepts only one owner-location condition.",
 		});
 	}
 }
@@ -930,6 +943,11 @@ export const automationSchema = z.discriminatedUnion("kind", [
 		.object({
 			...automationCommon,
 			kind: z.literal("case-update"),
+			criteria: z.array(automationCaseUpdateCriterionSchema).max(100),
+			/** HQ-only server-modified age, deliberately outside `criteria`. */
+			serverModifiedBoundaryDays: persistableJsonNonnegativeIntegerSchema
+				.max(36_500)
+				.optional(),
 			updates: z.array(automationCaseUpdateSchema).max(250),
 			closeCase: z.boolean(),
 		})
@@ -943,6 +961,7 @@ export const automationSchema = z.discriminatedUnion("kind", [
 		.object({
 			...automationCommon,
 			kind: z.literal("conditional-alert"),
+			criteria: z.array(automationAlertCriterionSchema).max(100),
 			recipients: z.array(automationRecipientSchema).min(1).max(250),
 			schedule: automationScheduleSchema,
 			includeDescendantLocations: z.boolean(),

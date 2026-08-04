@@ -2009,7 +2009,7 @@ function ArchivePlace({
 							impact.blockingAutomationPreview.length
 								? ` and ${impact.blockingAutomationCount - impact.blockingAutomationPreview.length} more`
 								: ""}
-							. Change the location criterion or recipient before archiving.
+							. Change the location recipient before archiving.
 						</li>
 					)}
 					<li>Archiving is reversible. You can bring the place back.</li>

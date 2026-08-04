@@ -16,15 +16,17 @@ HTML setup pages for these rules, not a REST resource Nova could safely drive.
 
 An automatic case update can set a property to fixed text or copy another
 property from the case, its parent, or its host. It can also close the case.
-Criteria can match case properties, require a closed parent, or limit the rule
-to cases owned by one place or its descendants.
+Criteria can apply HQ's four value comparisons or four date comparisons to a
+property on the matching case, its parent, or its host. A rule may also require
+the standard parent case to be closed and may use HQ's separate
+server-modified-age boundary.
 
-The CommCare HQ form accepts one standard closed-parent condition and one
-owner-location condition per rule. It does not expose another case-index name
-or an extension relationship. Equality values and fixed update values are the
-exact nonblank text HQ stores: omit surrounding whitespace and matching outer
-quotes. Regular expressions must be nonempty and stay inside Nova's portable
-HQ/Postgres subset.
+The CommCare HQ form accepts one standard closed-parent condition per rule. It
+does not expose another case-index name or relationship for that condition, and
+it does not expose a location or regex condition for automatic updates.
+Equality values and fixed update values are the exact nonblank text HQ stores:
+omit surrounding whitespace and matching outer quotes. Rule names must also be
+nonblank and already trimmed.
 
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
@@ -52,7 +54,10 @@ inside one setup form CommCare HQ can actually save: Custom Daily events share
 one timing mode and stay ordered, Weekly events share timing and content, and Monthly events share timing and
 content while using days 1–28 or the final three days of the month. Weekly and
 Monthly day pickers exclude days already selected, keep HQ's canonical order,
-and stop offering another event when every available day is used. Fixed and
+and stop offering another event when every available day is used. HQ stores a
+Weekly event as an offset from the schedule's start weekday. Nova shows the
+resulting weekday name and remaps those offsets when the start changes, so a
+selected Wednesday remains Wednesday. Fixed and
 random event starts are at least five minutes apart, and random windows cannot
 overlap.
 Survey definitions include their 1–168 hour expiration, reminder intervals,
@@ -66,6 +71,12 @@ immediate events select **Custom Immediate Schedule**.
 Historical IVR definitions additionally preserve the maximum attempts per
 question. Email setup guidance prints both the exact plain-text body and the
 exact optional HTML body.
+
+Alert conditions use the four direct-case value comparisons or a portable
+regular expression. The alert form does not accept date comparisons,
+parent/host property references, a closed-parent condition, a location
+condition, or server-modified age. Regex patterns must be nonempty and remain
+inside Nova's shared HQ/Postgres subset.
 
 The setup guide gives both `/a/<domain>/messaging/conditional/` and
 **Messaging → Conditional Alerts**. Conditional
@@ -89,10 +100,12 @@ Preview can count the real, open Nova case rows that currently match the parts
 of a rule it can evaluate. The count is information only. It never changes a
 case, sends a message, advances a schedule, or predicts the next HQ sweep.
 
-Nova can count the nine ordinary property comparisons, closed-parent criteria,
-and place ownership criteria. Three HQ-only inputs have no honest local
-equivalent: a UCR filter, an instance-registered custom criterion, and HQ's
-server-modified age. Store those as setup-only instructions. When a rule mixes
+Nova can count each kind's ordinary property comparisons, including
+automatic-update parent and host reads, plus the automatic-update
+closed-parent condition. Three HQ-only inputs have no honest local equivalent:
+a UCR filter, an instance-registered custom criterion, and automatic-update
+server-modified age. Store UCR and custom criteria as setup-only instructions;
+Nova stores server-modified age as its own case-update field. When a rule mixes
 countable and setup-only criteria, the screen names every omitted part beside
 the count instead of presenting a partial count as complete.
 

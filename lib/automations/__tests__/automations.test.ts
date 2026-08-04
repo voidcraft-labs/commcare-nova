@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import {
-	automationMatchProjection,
-	localOwnerIdsForLocation,
-} from "@/lib/automations/matching";
+import { automationMatchProjection } from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
 	type Automation,
@@ -13,7 +10,6 @@ import {
 	type BlueprintDoc,
 	isPortableAutomationRegex,
 } from "@/lib/domain";
-import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("automation-rule");
 const CRITERION_UUID = testUuid("automation-criterion");
@@ -56,26 +52,6 @@ function alertWithSchedule(
 	};
 }
 
-function location(
-	id: ReturnType<typeof testUuid>,
-	parentId: ReturnType<typeof testUuid> | null,
-	name: string,
-): StoredLocation {
-	return {
-		id,
-		name,
-		siteCode: name.toLowerCase(),
-		externalId: null,
-		levelUuid: testUuid(`level-${name}`),
-		parentId,
-		latitude: null,
-		longitude: null,
-		archivedAt: null,
-		values: {},
-		orderKey: "a0",
-	};
-}
-
 describe("automation domain and projections", () => {
 	it("represents the canonical claim-cleanup rule with zero ordinary criteria", () => {
 		const rule = claimCleanup();
@@ -95,7 +71,7 @@ describe("automation domain and projections", () => {
 				{ uuid: SETUP_UUID, text: "UCR filter: stale_claims" },
 			],
 		};
-		const projection = automationMatchProjection(doc, rule, []);
+		const projection = automationMatchProjection(doc, rule);
 		expect(projection.countArgs.automationCriteria).toBeUndefined();
 		expect(projection.omittedCriteria).toEqual([
 			"UCR filter: stale_claims",
@@ -104,13 +80,12 @@ describe("automation domain and projections", () => {
 		expect(projection.countArgs.predicate).toMatchObject({ kind: "eq" });
 	});
 
-	it("lowers all nine property match types and preserves regex for Postgres", () => {
+	it("lowers the distinct case-update and conditional-alert criteria matrices", () => {
 		const matchTypes = [
 			["equal", { value: "active" }],
 			["not-equal", { value: "closed" }],
 			["has-value", {}],
 			["has-no-value", {}],
-			["regex", { value: "A[0-9]+" }],
 			["date-days-before", { days: 3 }],
 			["date-days-lte", { days: 3 }],
 			["date-days-gt", { days: 3 }],
@@ -119,6 +94,7 @@ describe("automation domain and projections", () => {
 		const criteria = matchTypes.map(([matchType, extra], index) => ({
 			uuid: testUuid(`automation-match-${index}`),
 			kind: "match-property" as const,
+			scope: "case",
 			property: matchType.startsWith("date-") ? "due_date" : "status_code",
 			matchType,
 			...extra,
@@ -131,16 +107,125 @@ describe("automation domain and projections", () => {
 		const projection = automationMatchProjection(
 			buildDoc({ appName: "Rules" }),
 			rule,
-			[],
 		);
-		expect(projection.countArgs.automationCriteria?.regexes).toEqual([
-			{ property: "status_code", pattern: "A[0-9]+" },
-		]);
 		expect(projection.countArgs.automationCriteria?.blankness).toEqual([
-			{ property: "status_code", hasValue: true },
-			{ property: "status_code", hasValue: false },
+			{ property: "status_code", hasValue: true, scope: "case" },
+			{ property: "status_code", hasValue: false, scope: "case" },
 		]);
 		expect(projection.countArgs.automationCriteria?.predicate).toBeDefined();
+
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("criteria-matrix-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: "Hello" },
+				},
+			],
+		});
+		alert.criteria = [
+			{
+				uuid: testUuid("criteria-matrix-regex"),
+				kind: "match-property",
+				scope: "case",
+				property: "status_code",
+				matchType: "regex",
+				value: "A[0-9]+",
+			},
+		];
+		expect(
+			automationMatchProjection(buildDoc({ appName: "Alerts" }), alert)
+				.countArgs.automationCriteria?.regexes,
+		).toEqual([{ property: "status_code", pattern: "A[0-9]+" }]);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				criteria: [{ ...alert.criteria[0], matchType: "date-days" }],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				serverModifiedBoundaryDays: 5,
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				criteria: [
+					{
+						uuid: testUuid("alert-parent-property"),
+						kind: "match-property",
+						scope: "parent",
+						property: "status_code",
+						matchType: "has-value",
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				criteria: [
+					{ uuid: testUuid("alert-closed-parent"), kind: "closed-parent" },
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...rule,
+				criteria: [
+					{
+						uuid: testUuid("case-update-regex"),
+						kind: "match-property",
+						scope: "case",
+						property: "status_code",
+						matchType: "regex",
+						value: "A+",
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("projects parent-property update criteria through the declared case relation", () => {
+		const doc = buildDoc({
+			appName: "Related criteria",
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "state", label: "State", data_type: "text" }],
+				},
+				{
+					name: "visit",
+					parent_type: "household",
+					relationship: "child",
+					properties: [],
+				},
+			],
+		});
+		const rule: Extract<Automation, { kind: "case-update" }> = {
+			...claimCleanup(),
+			caseType: "visit",
+			criteria: [
+				{
+					uuid: testUuid("parent-property-criterion"),
+					kind: "match-property",
+					scope: "parent",
+					property: "state",
+					matchType: "equal",
+					value: "active",
+				},
+			],
+		};
+		const projection = automationMatchProjection(doc, rule);
+		expect(
+			JSON.stringify(projection.countArgs.automationCriteria?.predicate),
+		).toContain('"identifier":"parent"');
+		expect(buildAutomationSetupGuide(doc, rule, []).steps.join(" ")).toContain(
+			"Parent case property state equals",
+		);
 	});
 
 	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
@@ -153,6 +238,7 @@ describe("automation domain and projections", () => {
 						{
 							uuid: CRITERION_UUID,
 							kind: "match-property",
+							scope: "case",
 							property: "status",
 							matchType: "equal",
 							value,
@@ -180,6 +266,7 @@ describe("automation domain and projections", () => {
 					{
 						uuid: CRITERION_UUID,
 						kind: "match-property",
+						scope: "case",
 						property: "status",
 						matchType: "regex",
 						value: "",
@@ -267,64 +354,6 @@ describe("automation domain and projections", () => {
 		).toBe(false);
 	});
 
-	it("expands a location to descendants and Preview personas", () => {
-		const district = testUuid("district");
-		const facility = testUuid("facility");
-		const persona = testUuid("persona");
-		const doc = buildDoc({ appName: "Locations" }) as BlueprintDoc;
-		doc.personas = {
-			[persona]: {
-				uuid: persona,
-				name: "Asha",
-				locations: { primaryUuid: facility, additionalUuids: [] },
-				values: {},
-			},
-		};
-		doc.personaOrder = [persona];
-		expect(
-			localOwnerIdsForLocation(
-				doc,
-				[
-					location(district, null, "District"),
-					location(facility, district, "Facility"),
-				],
-				district,
-				true,
-			),
-		).toEqual([district, facility, persona].sort());
-	});
-
-	it("does not treat a Preview persona's additional assignment as HQ's primary location", () => {
-		const district = testUuid("secondary-district");
-		const facility = testUuid("secondary-facility");
-		const elsewhere = testUuid("primary-elsewhere");
-		const persona = testUuid("secondary-persona");
-		const doc = buildDoc({ appName: "Locations" }) as BlueprintDoc;
-		doc.personas = {
-			[persona]: {
-				uuid: persona,
-				name: "Asha",
-				locations: {
-					primaryUuid: elsewhere,
-					additionalUuids: [facility],
-				},
-				values: {},
-			},
-		};
-		expect(
-			localOwnerIdsForLocation(
-				doc,
-				[
-					location(district, null, "District"),
-					location(facility, district, "Facility"),
-					location(elsewhere, null, "Elsewhere"),
-				],
-				district,
-				true,
-			),
-		).toEqual([district, facility].sort());
-	});
-
 	it("regenerates exact plan, route, cadence, cap, and non-execution guidance", () => {
 		const guide = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),
@@ -364,8 +393,11 @@ describe("automation domain and projections", () => {
 			criteriaOperator: "all",
 			criteria: [
 				{
-					uuid: testUuid("closed-parent-criterion"),
-					kind: "closed-parent",
+					uuid: testUuid("alert-property-criterion"),
+					kind: "match-property",
+					scope: "case",
+					property: "status",
+					matchType: "has-value",
 				},
 			],
 			setupOnlyCriteria: [],
@@ -419,7 +451,7 @@ describe("automation domain and projections", () => {
 		);
 		const text = [...guide.steps, ...emailGuide.steps].join(" ");
 		expect(text).toContain("/a/<domain>/messaging/conditional/");
-		expect(text).toContain("parent case is closed");
+		expect(text).toContain("Case property status has a value");
 		expect(text).toContain("Choose Immediately");
 		expect(text).toContain("expire after 72 hour(s)");
 		expect(text).toContain("30, 60 minute(s)");
@@ -726,6 +758,11 @@ describe("automation domain and projections", () => {
 	});
 
 	it("enforces upstream string bounds and persistable JSON integers", () => {
+		for (const name of ["   ", " Surrounding space", "Trailing space "]) {
+			expect(
+				automationSchema.safeParse({ ...claimCleanup(), name }).success,
+			).toBe(false);
+		}
 		expect(
 			automationSchema.safeParse({
 				...claimCleanup(),
@@ -739,6 +776,7 @@ describe("automation domain and projections", () => {
 					{
 						uuid: CRITERION_UUID,
 						kind: "match-property",
+						scope: "case",
 						property: "code",
 						matchType: "equal",
 						value: "x".repeat(127),
@@ -762,6 +800,7 @@ describe("automation domain and projections", () => {
 					{
 						uuid: CRITERION_UUID,
 						kind: "match-property",
+						scope: "case",
 						property: "code",
 						matchType: "regex",
 					},

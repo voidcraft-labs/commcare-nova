@@ -317,11 +317,16 @@ The returned guide identifies the exact current HTML route templates:
 active case-update rule for a saved case type, so it is a deployment caveat,
 not a field in Nova's per-rule schema.
 
-The loaded schema mirrors the current HTML forms. Each rule accepts at most one
-standard closed-parent condition and one owner-location condition; the closed
-parent is HQ's normal parent link, not a caller-selected index or extension.
-Equality and fixed-update literals must be exact, nonblank, unquoted stored
-values, and regex patterns must be nonempty. Web users are not a recipient arm.
+The loaded schema mirrors the two current HTML forms without a shared criteria
+superset. Automatic updates accept value/date comparisons against case,
+parent, or host properties, at most one standard closed-parent condition, and
+the separate server-modified-age field; they do not accept regex or location
+conditions. Alerts accept value comparisons plus portable regex against direct
+case properties, and do not accept date, parent/host, closed-parent, location,
+or server-modified conditions. The closed parent is HQ's normal parent link,
+not a caller-selected index or extension. Names must be nonblank and already
+trimmed. Equality and fixed-update literals must be exact, nonblank, unquoted
+stored values, and alert regex patterns must be nonempty. Web users are not a recipient arm.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients.
 
@@ -329,7 +334,9 @@ Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
 after the first wait at least five minutes. Custom Daily events use one timing mode and remain ordered; Weekly and Monthly schedules also
 share timing and content, with Monthly limited to days 1–28 and -3–-1. Weekly
-and Monthly days are unique closed choices in HQ's canonical order. Random
+and Monthly days are unique closed choices in HQ's canonical order. A Weekly
+day is stored as an offset from `startDayOfWeek`; changing the start must remap
+and re-sort offsets to preserve the selected absolute weekdays. Random
 windows cannot overlap. Survey reminder intervals must total less than the
 expiration window, and case updates in partial submissions require partial
 submission itself. A timed restart property is valid only with a rule-trigger
@@ -337,8 +344,9 @@ start. A single zero-delay immediate event maps to **Immediately**; any delayed
 or repeated immediate schedule maps to **Custom Immediate Schedule**. These are
 input-schema constraints shared by SA and MCP, not post-save warnings.
 
-Builder Preview may count current real case rows against ordinary property,
-closed-parent, and place-owner criteria. It never updates a case, sends a
+Builder Preview may count current real case rows against each kind's ordinary
+property criteria, including automatic-update parent/host reads, and the
+automatic-update closed-parent condition. It never updates a case, sends a
 message, or advances a schedule. UCR filters, instance-registered custom
 criteria, and HQ server-modified age have no honest local evaluator; carry them
 as setup-only instructions. The Builder names those omissions beside its

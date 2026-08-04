@@ -107,8 +107,8 @@ removes the corresponding `case_indices` edges); it never cascades deletion
 into another case type or invents random relationships to the new sample rows.
 
 Automation matching is another read over these same rows, not an execution
-runtime. `countCases({ automationCriteria })` composes ordinary property,
-closed-parent, and place-owner criteria into one tenant-bound SQL count and
+runtime. `countCases({ automationCriteria })` composes the automation kind's
+ordinary property criteria and case-update closed-parent criterion into one tenant-bound SQL count and
 always limits the outer case to `status = "open"`. Closed-parent relation walks
 bind both sides to the store's app and Project. Setup-only UCR/custom criteria
 and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
@@ -117,7 +117,9 @@ message, or advances a schedule on an automation's behalf.
 
 Two property comparisons bypass the generic Predicate compiler to retain HQ's
 runtime value rules. **Has value / has no value** treats a string containing
-only whitespace as blank while non-string JSON scalars have a value. Regex uses
+only whitespace as blank while non-string JSON scalars have a value, including
+through case-update parent/host relations; a missing relation has no value.
+Alert regex uses
 HQ's beginning-anchored behavior and evaluates stored strings only; it never
 casts a number or boolean to text. Closed-parent is fixed to the standard
 depth-one `parent` child index accepted by HQ's setup form.

@@ -460,8 +460,7 @@ export interface BlueprintMutations {
 	) => CommitOutcome;
 	removeAutomation: (uuid: Uuid, expectedFingerprint?: string) => CommitOutcome;
 	editAutomationItem: (
-		automationUuid: Uuid,
-		edit: Extract<Mutation, { kind: "editAutomationItem" }>["edit"],
+		mutation: Extract<Mutation, { kind: "editAutomationItem" }>,
 	) => CommitOutcome;
 	setAutomationSchedule: (
 		uuid: Uuid,
@@ -1420,16 +1419,21 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					return toOutcome(guardedApply([{ kind: "removeAutomation", uuid }]));
 				},
 
-				editAutomationItem(automationUuid, edit) {
-					if (ownRecordValue(get().automations, automationUuid) === undefined) {
-						warnUnresolved("editAutomationItem", { uuid: automationUuid });
+				editAutomationItem(mutation) {
+					const automation = ownRecordValue(
+						get().automations,
+						mutation.automationUuid,
+					);
+					if (
+						automation === undefined ||
+						automation.kind !== mutation.targetKind
+					) {
+						warnUnresolved("editAutomationItem", {
+							uuid: mutation.automationUuid,
+						});
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([
-							{ kind: "editAutomationItem", automationUuid, edit },
-						]),
-					);
+					return toOutcome(guardedApply([mutation]));
 				},
 
 				setAutomationSchedule(uuid, schedule) {

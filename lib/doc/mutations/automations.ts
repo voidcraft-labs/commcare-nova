@@ -26,13 +26,15 @@ interface Identified {
 	readonly uuid: string;
 }
 
+type IdentifiedEdit =
+	| { operation: "add"; value: Identified; after?: string | null }
+	| { operation: "update"; value: Identified }
+	| { operation: "remove"; uuid: string }
+	| { operation: "move"; uuid: string; after: string | null };
+
 function editIdentifiedArray<T extends Identified>(
 	items: readonly T[],
-	edit:
-		| { operation: "add"; value: T; after?: string | null }
-		| { operation: "update"; value: T }
-		| { operation: "remove"; uuid: string }
-		| { operation: "move"; uuid: string; after: string | null },
+	edit: IdentifiedEdit,
 ): T[] {
 	switch (edit.operation) {
 		case "add": {
@@ -45,7 +47,7 @@ function editIdentifiedArray<T extends Identified>(
 				edit.after,
 			);
 			const byUuid = new Map(
-				[...withoutExisting, structuredClone(edit.value)].map((item) => [
+				[...withoutExisting, structuredClone(edit.value) as T].map((item) => [
 					item.uuid,
 					item,
 				]),
@@ -57,7 +59,9 @@ function editIdentifiedArray<T extends Identified>(
 		}
 		case "update":
 			return items.map((item) =>
-				item.uuid === edit.value.uuid ? structuredClone(edit.value) : item,
+				item.uuid === edit.value.uuid
+					? (structuredClone(edit.value) as T)
+					: item,
 			);
 		case "remove":
 			return items.filter((item) => item.uuid !== edit.uuid);
@@ -162,11 +166,28 @@ export function applyAutomationMutation(
 		}
 		case "editAutomationItem": {
 			const automation = ownRecordValue(draft.automations, mut.automationUuid);
-			if (automation === undefined) return;
+			if (automation === undefined || automation.kind !== mut.targetKind)
+				return;
 			const edit = mut.edit;
 			switch (edit.collection) {
 				case "criterion":
-					automation.criteria = editIdentifiedArray(automation.criteria, edit);
+					if (
+						automation.kind === "case-update" &&
+						mut.targetKind === "case-update"
+					) {
+						automation.criteria = editIdentifiedArray(
+							automation.criteria,
+							edit,
+						);
+					} else if (
+						automation.kind === "conditional-alert" &&
+						mut.targetKind === "conditional-alert"
+					) {
+						automation.criteria = editIdentifiedArray(
+							automation.criteria,
+							edit,
+						);
+					}
 					return;
 				case "setup-only-criterion":
 					automation.setupOnlyCriteria = editIdentifiedArray(

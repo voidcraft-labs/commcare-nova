@@ -851,7 +851,7 @@ export function mutationTargetsInvalid(
 			case "editAutomationItem": {
 				const edit = m.edit;
 				const kind = automations.get(m.automationUuid);
-				if (kind === undefined) return true;
+				if (kind === undefined || kind !== m.targetKind) return true;
 				if (
 					(edit.collection === "update" && kind !== "case-update") ||
 					((edit.collection === "recipient" ||

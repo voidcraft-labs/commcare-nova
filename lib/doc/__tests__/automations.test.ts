@@ -24,6 +24,7 @@ function rule(): Automation {
 			{
 				uuid: CONDITION_ONE,
 				kind: "match-property",
+				scope: "case",
 				property: "state",
 				matchType: "equal",
 				value: "stale",
@@ -72,6 +73,52 @@ function replayWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
 }
 
 describe("automation mutation replay", () => {
+	it("keeps criterion edits discriminated by their immutable automation kind", () => {
+		const base = {
+			kind: "editAutomationItem",
+			automationUuid: AUTOMATION_UUID,
+			edit: {
+				collection: "criterion",
+				operation: "add",
+				after: null,
+			},
+		} as const;
+		expect(
+			mutationSchema.safeParse({
+				...base,
+				targetKind: "case-update",
+				edit: {
+					...base.edit,
+					value: {
+						uuid: testUuid("mutation-update-date"),
+						kind: "match-property",
+						scope: "parent",
+						property: "due",
+						matchType: "date-days",
+						days: 0,
+					},
+				},
+			}).success,
+		).toBe(true);
+		expect(
+			mutationSchema.safeParse({
+				...base,
+				targetKind: "conditional-alert",
+				edit: {
+					...base.edit,
+					value: {
+						uuid: testUuid("mutation-alert-date"),
+						kind: "match-property",
+						scope: "case",
+						property: "due",
+						matchType: "date-days",
+						days: 0,
+					},
+				},
+			}).success,
+		).toBe(false);
+	});
+
 	it("round-trips granular scalar, nested add, update, remove, and reorder edits", () => {
 		const prev = docWithRule();
 		const next = produce(prev, (draft) => {
@@ -81,6 +128,7 @@ describe("automation mutation replay", () => {
 			automation.criteria.push({
 				uuid: CONDITION_TWO,
 				kind: "match-property",
+				scope: "case",
 				property: "priority",
 				matchType: "has-value",
 			});
@@ -170,6 +218,7 @@ describe("automation mutation replay", () => {
 				{
 					kind: "editAutomationItem",
 					automationUuid: other,
+					targetKind: "case-update",
 					edit: {
 						collection: "criterion",
 						operation: "remove",

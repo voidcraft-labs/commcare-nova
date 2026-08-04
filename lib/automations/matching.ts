@@ -3,28 +3,27 @@ import type {
 	Automation,
 	AutomationCriterion,
 	BlueprintDoc,
-	Uuid,
 } from "@/lib/domain";
-import { personasOf } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
+	ancestorPath,
 	and,
 	dateAdd,
 	eq,
 	gt,
 	gte,
 	isBlank,
-	isIn,
 	literal,
 	lt,
 	lte,
 	neq,
 	or,
 	prop,
+	relationStep,
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
-import type { StoredLocation } from "@/lib/organization/types";
 
 export interface AutomationMatchProjection {
 	readonly countArgs: Pick<
@@ -35,10 +34,20 @@ export interface AutomationMatchProjection {
 }
 
 function propertyCriterion(
-	caseType: string,
+	doc: BlueprintDoc,
+	automation: Automation,
 	criterion: Extract<AutomationCriterion, { kind: "match-property" }>,
 ): Predicate | undefined {
-	const property = prop(caseType, criterion.property);
+	const source = effectiveCaseTypes(doc).find(
+		(caseType) => caseType.name === automation.caseType,
+	);
+	const property = prop(
+		automation.caseType,
+		criterion.property,
+		criterion.scope === "case"
+			? undefined
+			: ancestorPath(relationStep(criterion.scope, source?.parent_type)),
+	);
 	switch (criterion.matchType) {
 		case "equal":
 			return eq(property, literal(criterion.value ?? ""));
@@ -76,45 +85,6 @@ function propertyCriterion(
 	}
 }
 
-/** Location ids plus Preview-persona ids HQ's LocationFilter-equivalent sees. */
-export function localOwnerIdsForLocation(
-	doc: BlueprintDoc,
-	locations: readonly StoredLocation[],
-	locationUuid: Uuid,
-	includeDescendants: boolean,
-): string[] {
-	const byParent = new Map<string | null, StoredLocation[]>();
-	for (const location of locations) {
-		if (location.archivedAt !== null) continue;
-		const children = byParent.get(location.parentId) ?? [];
-		children.push(location);
-		byParent.set(location.parentId, children);
-	}
-	const locationIds = new Set<string>([locationUuid]);
-	if (includeDescendants) {
-		const pending = [locationUuid as string];
-		while (pending.length > 0) {
-			const parent = pending.pop();
-			if (parent === undefined) break;
-			for (const child of byParent.get(parent) ?? []) {
-				if (locationIds.has(child.id)) continue;
-				locationIds.add(child.id);
-				pending.push(child.id);
-			}
-		}
-	}
-	const ownerIds = new Set(locationIds);
-	for (const persona of Object.values(personasOf(doc))) {
-		if (
-			persona.locations?.primaryUuid !== undefined &&
-			locationIds.has(persona.locations.primaryUuid)
-		) {
-			ownerIds.add(persona.uuid);
-		}
-	}
-	return [...ownerIds].sort();
-}
-
 /**
  * Lower the locally evaluable part of one automation into the case store's
  * existing Predicate→Kysely path. Setup-only prose and HQ server-modified age
@@ -123,11 +93,14 @@ export function localOwnerIdsForLocation(
 export function automationMatchProjection(
 	doc: BlueprintDoc,
 	automation: Automation,
-	locations: readonly StoredLocation[],
 ): AutomationMatchProjection {
 	const predicates: Predicate[] = [];
 	const regexes: { property: string; pattern: string }[] = [];
-	const blankness: { property: string; hasValue: boolean }[] = [];
+	const blankness: {
+		property: string;
+		hasValue: boolean;
+		scope: "case" | "parent" | "host";
+	}[] = [];
 	const closedParents: {
 		identifier: string;
 		relationship: "child" | "extension";
@@ -147,9 +120,10 @@ export function automationMatchProjection(
 				blankness.push({
 					property: criterion.property,
 					hasValue: criterion.matchType === "has-value",
+					scope: criterion.scope,
 				});
 			} else {
-				const lowered = propertyCriterion(automation.caseType, criterion);
+				const lowered = propertyCriterion(doc, automation, criterion);
 				if (lowered !== undefined) predicates.push(lowered);
 			}
 			continue;
@@ -159,24 +133,7 @@ export function automationMatchProjection(
 				identifier: "parent",
 				relationship: "child",
 			});
-			continue;
 		}
-		const ownerIds = localOwnerIdsForLocation(
-			doc,
-			locations,
-			criterion.locationUuid,
-			criterion.includeDescendants,
-		);
-		const owner = prop(automation.caseType, "owner_id");
-		predicates.push(
-			ownerIds.length === 0
-				? { kind: "match-none" }
-				: isIn(
-						owner,
-						literal(ownerIds[0] ?? ""),
-						...ownerIds.slice(1).map((id) => literal(id)),
-					),
-		);
 	}
 
 	const groupedPredicate =
@@ -194,7 +151,8 @@ export function automationMatchProjection(
 		closedParents.length > 0;
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map((criterion) => criterion.text),
-		...(automation.serverModifiedBoundaryDays === undefined
+		...(automation.kind !== "case-update" ||
+		automation.serverModifiedBoundaryDays === undefined
 			? []
 			: [
 					`HQ server-modified age of at least ${automation.serverModifiedBoundaryDays} days`,
