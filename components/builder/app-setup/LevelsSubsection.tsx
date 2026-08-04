@@ -1088,7 +1088,7 @@ function AddressBookGroup({
 							<SelectTrigger id={topSliceId} wrapValue className="w-full">
 								<SelectValue>
 									{book.alsoIncludeTopDownToLevelUuid === undefined
-										? "Do not add a top slice"
+										? "Do not carry the top down"
 										: (peers.find(
 												(candidate) =>
 													candidate.uuid === book.alsoIncludeTopDownToLevelUuid,
@@ -1102,7 +1102,7 @@ function AddressBookGroup({
 										addressBook: bookWithoutTopSlice as LevelAddressBook,
 									})}
 								>
-									Do not add a top slice
+									Do not carry the top down
 								</IssueSelectItem>
 								{peers.map((candidate) => (
 									<IssueSelectItem
