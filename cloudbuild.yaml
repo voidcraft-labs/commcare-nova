@@ -17,7 +17,7 @@ steps:
   # The unique Cloud Build UUID is baked beside the declarations so `/warmup`
   # can reject a malformed or runtime-overridden image identity.
   - id: runtime-capabilities
-    name: node:24.18.0-alpine
+    name: node:24.18.1-alpine
     entrypoint: node
     args:
       - scripts/rollout/render-build-config.mjs
