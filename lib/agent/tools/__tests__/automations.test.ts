@@ -16,6 +16,7 @@ vi.mock("@/lib/organization/service", () => ({
 }));
 
 import {
+	addAutomationsInputSchema,
 	addAutomationsTool,
 	getAutomationsTool,
 	removeAutomationTool,
@@ -86,6 +87,44 @@ beforeEach(() => {
 });
 
 describe("automation shared tools", () => {
+	it("refuses HQ-invalid survey and schedule inputs on the shared SA/MCP schema", () => {
+		const invalidSurvey = {
+			uuid: testUuid("tool-invalid-survey"),
+			kind: "conditional-alert",
+			name: "Invalid survey",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [{ uuid: testUuid("tool-invalid-recipient"), kind: "self" }],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("tool-invalid-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms-survey",
+							formUuid: testUuid("tool-invalid-form"),
+							expirationHours: 1,
+							reminderIntervalsMinutes: [60],
+							submitPartiallyCompletedForms: false,
+							includeCaseUpdatesInPartialSubmissions: true,
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		};
+		expect(
+			addAutomationsInputSchema.safeParse({ automations: [invalidSurvey] })
+				.success,
+		).toBe(false);
+	});
+
 	it("adds, reads, granularly updates, and removes the same canonical object", async () => {
 		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
 		const ctx = makeCtx();

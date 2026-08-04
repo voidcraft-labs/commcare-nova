@@ -27,6 +27,38 @@ const rule: Automation = {
 	closeCase: true,
 };
 
+const surveyAlert: Automation = {
+	uuid: testUuid("ui-survey-alert"),
+	kind: "conditional-alert",
+	name: "Survey follow-up",
+	caseType: "visit",
+	criteriaOperator: "all",
+	criteria: [],
+	setupOnlyCriteria: [],
+	recipients: [{ uuid: testUuid("ui-survey-recipient"), kind: "self" }],
+	schedule: {
+		kind: "immediate",
+		events: [
+			{
+				uuid: testUuid("ui-survey-event"),
+				minutesToWait: 0,
+				content: {
+					kind: "sms-survey",
+					formUuid: testUuid("ui-survey-form"),
+					expirationHours: 1,
+					reminderIntervalsMinutes: [30],
+					submitPartiallyCompletedForms: false,
+					includeCaseUpdatesInPartialSubmissions: false,
+				},
+			},
+		],
+	},
+	includeDescendantLocations: false,
+	locationLevelUuids: [],
+	userDataFilters: [],
+	useUserCaseForFilter: false,
+};
+
 const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
 	canEdit: true,
@@ -86,6 +118,15 @@ vi.mock("@/lib/session/provider", () => ({
 }));
 
 import { AutomationsSection } from "../AutomationsSection";
+
+async function chooseChoice(label: string, option: string): Promise<void> {
+	fireEvent.click(screen.getByRole("combobox", { name: label }));
+	await settleBaseUiTransitions();
+	const item = screen.getByRole("option", { name: option });
+	fireEvent.pointerDown(item, { pointerType: "mouse" });
+	fireEvent.click(item);
+	await settleBaseUiTransitions();
+}
 
 beforeEach(() => {
 	mocks.automations = [];
@@ -147,6 +188,81 @@ describe("AutomationsSection", () => {
 			"Enter an automation name.",
 		);
 		expect(mocks.addAutomation).not.toHaveBeenCalled();
+	});
+
+	it("keeps survey partial-submission controls valid and explains reminder refusal", async () => {
+		mocks.automations = [surveyAlert];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Survey follow-up/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const submitPartial = screen.getByRole("checkbox", {
+			name: "Submit partially completed forms",
+		});
+		expect(submitPartial.getAttribute("aria-checked")).toBe("false");
+		let includeUpdates = screen.getByRole("checkbox", {
+			name: /Include case updates in partial submissions/,
+		});
+		expect(includeUpdates.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(screen.getByText("Submit partially completed forms"));
+		includeUpdates = screen.getByRole("checkbox", {
+			name: /Include case updates in partial submissions/,
+		});
+		expect(includeUpdates.getAttribute("aria-disabled")).toBeNull();
+		fireEvent.click(
+			screen.getByText("Include case updates in partial submissions"),
+		);
+		includeUpdates = screen.getByRole("checkbox", {
+			name: /Include case updates in partial submissions/,
+		});
+		expect(includeUpdates.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(screen.getByText("Submit partially completed forms"));
+		includeUpdates = screen.getByRole("checkbox", {
+			name: /Include case updates in partial submissions/,
+		});
+		expect(includeUpdates.getAttribute("aria-checked")).toBe("false");
+		expect(includeUpdates.getAttribute("aria-disabled")).toBe("true");
+
+		fireEvent.change(
+			screen.getByRole("textbox", {
+				name: "Reminder intervals in minutes",
+			}),
+			{ target: { value: "60" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Reminder intervals must add up to less than the survey expiration window.",
+		);
+		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
+	});
+
+	it("switches setup forms and clones schedule-wide event values", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+
+		await chooseChoice("Automation type", "Conditional alert");
+		await chooseChoice("Schedule type", "Timed repeating schedule");
+		await chooseChoice("CommCare HQ schedule form", "Weekly");
+		fireEvent.click(screen.getByRole("button", { name: "Schedule event" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				kind: "conditional-alert",
+				schedule: expect.objectContaining({
+					kind: "timed",
+					repeatEvery: 7,
+					startDayOfWeek: 0,
+					events: [
+						expect.objectContaining({ day: 0 }),
+						expect.objectContaining({ day: 1 }),
+					],
+				}),
+			}),
+		);
 	});
 
 	it("counts current matches, names omissions, and exposes regenerated guidance", async () => {

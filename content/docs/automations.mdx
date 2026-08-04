@@ -36,9 +36,16 @@ A conditional alert sends one or more scheduled events to case-relative or
 explicit recipients. Supported content includes SMS, email, SMS survey,
 Connect messages and surveys, and instance-registered custom content. A timed
 schedule can start when the rule matches, on a fixed date, or from a case date
-property; negative repeat values mean months and positive values mean days.
+property. Nova keeps each schedule to one content type and each timed schedule
+inside one setup form CommCare HQ can actually save: Custom Daily events share
+one timing mode and stay ordered, Weekly events share timing and content, and Monthly events share timing and
+content while using days 1–28 or the final three days of the month. Fixed and
+random event starts are at least five minutes apart, and random windows cannot
+overlap.
 Survey definitions include their 1–168 hour expiration, reminder intervals,
 partial-submission choice, and whether partial submissions carry case updates.
+Reminder intervals must total less than the expiration window; the case-update
+option is available only when partial submission is on.
 Historical IVR definitions additionally preserve the maximum attempts per
 question. Email setup guidance prints both the exact plain-text body and the
 exact optional HTML body.

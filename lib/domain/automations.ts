@@ -90,10 +90,12 @@ export function isPortableAutomationRegex(pattern: string): boolean {
 	if (/\r|\n|\[\[:/.test(pattern)) return false;
 	let escaped = false;
 	let inClass = false;
+	let classHasContent = false;
 	for (let index = 0; index < pattern.length; index += 1) {
 		const character = pattern[index];
 		if (escaped) {
 			if (!".^$*+?{}[]\\|()-/".includes(character ?? "")) return false;
+			if (inClass) classHasContent = true;
 			escaped = false;
 			continue;
 		}
@@ -101,13 +103,23 @@ export function isPortableAutomationRegex(pattern: string): boolean {
 			escaped = true;
 			continue;
 		}
-		if (character === "[") inClass = true;
-		if (character === "]") inClass = false;
+		if (character === "[" && !inClass) {
+			inClass = true;
+			classHasContent = false;
+			if (pattern[index + 1] === "^") index += 1;
+			continue;
+		}
+		if (character === "]" && inClass) {
+			if (!classHasContent) return false;
+			inClass = false;
+			continue;
+		}
+		if (inClass) classHasContent = true;
 		if (!inClass && character === "(" && pattern[index + 1] === "?") {
 			return false;
 		}
 	}
-	if (escaped) return false;
+	if (escaped || inClass) return false;
 	try {
 		new RegExp(pattern);
 		return true;
@@ -277,6 +289,51 @@ const surveyContentBase = {
 	submitPartiallyCompletedForms: z.boolean(),
 	includeCaseUpdatesInPartialSubmissions: z.boolean(),
 } as const;
+
+interface PartialSubmissionSettings {
+	readonly submitPartiallyCompletedForms: boolean;
+	readonly includeCaseUpdatesInPartialSubmissions: boolean;
+}
+
+function validatePartialSubmissionSettings(
+	content: PartialSubmissionSettings,
+	ctx: z.RefinementCtx,
+): void {
+	if (
+		content.includeCaseUpdatesInPartialSubmissions &&
+		!content.submitPartiallyCompletedForms
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["includeCaseUpdatesInPartialSubmissions"],
+			message:
+				"Case updates can be included only when partial form submission is on.",
+		});
+	}
+}
+
+function validateSurveyContent(
+	content: PartialSubmissionSettings & {
+		readonly expirationHours: number;
+		readonly reminderIntervalsMinutes: readonly number[];
+	},
+	ctx: z.RefinementCtx,
+): void {
+	validatePartialSubmissionSettings(content, ctx);
+	const reminderTotal = content.reminderIntervalsMinutes.reduce(
+		(sum, interval) => sum + interval,
+		0,
+	);
+	if (reminderTotal >= content.expirationHours * 60) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["reminderIntervalsMinutes"],
+			message:
+				"Reminder intervals must add up to less than the survey expiration window.",
+		});
+	}
+}
+
 export const automationContentSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("sms"), message: z.string().min(1).max(16_000) })
@@ -292,7 +349,10 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 		.refine((content) => content.message.length > 0 || content.htmlMessage, {
 			message: "An email needs a plain-text or HTML message.",
 		}),
-	z.object({ kind: z.literal("sms-survey"), ...surveyContentBase }).strict(),
+	z
+		.object({ kind: z.literal("sms-survey"), ...surveyContentBase })
+		.strict()
+		.superRefine(validateSurveyContent),
 	z
 		.object({
 			kind: z.literal("ivr"),
@@ -304,7 +364,8 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 			includeCaseUpdatesInPartialSubmissions: z.boolean(),
 			maxQuestionAttempts: persistableJsonPositiveIntegerSchema.max(5),
 		})
-		.strict(),
+		.strict()
+		.superRefine(validatePartialSubmissionSettings),
 	z
 		.object({
 			kind: z.literal("sms-callback"),
@@ -323,7 +384,8 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({ kind: z.literal("connect-survey"), ...surveyContentBase })
-		.strict(),
+		.strict()
+		.superRefine(validateSurveyContent),
 	z
 		.object({
 			kind: z.literal("custom"),
@@ -344,7 +406,7 @@ export const timedEventTimingSchema = z.discriminatedUnion("kind", [
 		.object({
 			kind: z.literal("random-window"),
 			time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-			windowMinutes: persistableJsonPositiveIntegerSchema.max(1_440),
+			windowMinutes: persistableJsonPositiveIntegerSchema.max(1_439),
 		})
 		.strict(),
 	z
@@ -376,13 +438,297 @@ export const automationTimedEventSchema = z
 	.strict();
 export type AutomationTimedEvent = z.infer<typeof automationTimedEventSchema>;
 
+export type TimedScheduleSetupForm = "custom-daily" | "weekly" | "monthly";
+
+function timedScheduleSetupForm(schedule: {
+	readonly repeatEvery: number;
+	readonly startDayOfWeek: number;
+}): TimedScheduleSetupForm {
+	if (schedule.repeatEvery < 0) return "monthly";
+	return schedule.startDayOfWeek >= 0 ? "weekly" : "custom-daily";
+}
+
+function timeInMinutes(time: string): number {
+	const [hours = "0", minutes = "0"] = time.split(":");
+	return Number(hours) * 60 + Number(minutes);
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function validateScheduleContentMode(
+	events: readonly { readonly content: AutomationContent }[],
+	ctx: z.RefinementCtx,
+): void {
+	const first = events[0];
+	if (first === undefined) return;
+	for (const [index, event] of events.entries()) {
+		if (event.content.kind !== first.content.kind) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "content", "kind"],
+				message: "Every event must use the schedule's one content type.",
+			});
+			continue;
+		}
+		if (
+			"submitPartiallyCompletedForms" in first.content &&
+			"submitPartiallyCompletedForms" in event.content &&
+			(event.content.submitPartiallyCompletedForms !==
+				first.content.submitPartiallyCompletedForms ||
+				event.content.includeCaseUpdatesInPartialSubmissions !==
+					first.content.includeCaseUpdatesInPartialSubmissions)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "content", "submitPartiallyCompletedForms"],
+				message:
+					"Every survey event must use the schedule's shared partial-submission settings.",
+			});
+		}
+	}
+}
+
+function validateTimedSchedule(
+	schedule: {
+		readonly repeatEvery: number;
+		readonly totalIterations: number;
+		readonly startOffsetDays: number;
+		readonly startDayOfWeek: number;
+		readonly start:
+			| { readonly kind: "rule-trigger" }
+			| { readonly kind: "case-property"; readonly property: string }
+			| { readonly kind: "specific-date"; readonly date: string };
+		readonly events: readonly AutomationTimedEvent[];
+	},
+	ctx: z.RefinementCtx,
+): void {
+	const setupForm = timedScheduleSetupForm(schedule);
+	const first = schedule.events[0];
+	if (first === undefined) return;
+	validateScheduleContentMode(schedule.events, ctx);
+	if (schedule.totalIterations === 1) {
+		const expectedRepeat =
+			setupForm === "monthly"
+				? -1
+				: setupForm === "weekly"
+					? 7
+					: (schedule.events.at(-1)?.day ?? 0) + 1;
+		if (schedule.repeatEvery !== expectedRepeat) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["repeatEvery"],
+				message:
+					"A one-iteration schedule must use the repeat value CommCare HQ derives when Repeat is off.",
+			});
+		}
+	}
+
+	for (const [index, event] of schedule.events.entries()) {
+		const dayIsValid =
+			setupForm === "monthly"
+				? (event.day >= 1 && event.day <= 28) ||
+					(event.day >= -3 && event.day <= -1)
+				: setupForm === "weekly"
+					? event.day >= 0 && event.day <= 6
+					: event.day >= 0 && event.day < schedule.repeatEvery;
+		if (!dayIsValid) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "day"],
+				message:
+					setupForm === "monthly"
+						? "A monthly event day must be 1–28 or -3–-1 from month end."
+						: setupForm === "weekly"
+							? "A weekly event day offset must be 0–6."
+							: "A custom-daily event day must fit inside the repeat interval.",
+			});
+		}
+		if (event.timing.kind !== first.timing.kind) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "timing", "kind"],
+				message: "Every timed event must use the schedule's one timing mode.",
+			});
+		}
+	}
+
+	if (setupForm === "monthly" || setupForm === "weekly") {
+		if (schedule.startOffsetDays !== 0) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["startOffsetDays"],
+				message: `${setupForm === "monthly" ? "Monthly" : "Weekly"} schedules do not accept a start offset in CommCare HQ.`,
+			});
+		}
+		for (const [index, event] of schedule.events.entries()) {
+			if (!sameJsonValue(event.timing, first.timing)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["events", index, "timing"],
+					message: `${setupForm === "monthly" ? "Monthly" : "Weekly"} schedules use one shared send timing.`,
+				});
+			}
+			if (!sameJsonValue(event.content, first.content)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["events", index, "content"],
+					message: `${setupForm === "monthly" ? "Monthly" : "Weekly"} schedules use one shared content definition.`,
+				});
+			}
+		}
+		if (
+			new Set(schedule.events.map((event) => event.day)).size !==
+			schedule.events.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events"],
+				message: `${setupForm === "monthly" ? "Monthly" : "Weekly"} schedules can select each day only once.`,
+			});
+		}
+	}
+
+	if (setupForm === "monthly") {
+		if (schedule.startDayOfWeek !== -1) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["startDayOfWeek"],
+				message: "Monthly schedules do not accept a start weekday.",
+			});
+		}
+		const expectedOrder = [...schedule.events]
+			.sort((left, right) => {
+				if (left.day > 0 && right.day < 0) return -1;
+				if (left.day < 0 && right.day > 0) return 1;
+				return left.day - right.day;
+			})
+			.map((event) => event.uuid);
+		if (
+			expectedOrder.some((uuid, index) => uuid !== schedule.events[index]?.uuid)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events"],
+				message:
+					"Monthly events must list positive days first, then month-end days, each in ascending order.",
+			});
+		}
+		return;
+	}
+
+	if (setupForm === "weekly") {
+		if (schedule.repeatEvery % 7 !== 0) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["repeatEvery"],
+				message:
+					"A weekly repeat interval must contain a whole number of weeks.",
+			});
+		}
+		if (
+			schedule.start.kind === "specific-date" &&
+			(new Date(`${schedule.start.date}T00:00:00Z`).getUTCDay() + 6) % 7 !==
+				schedule.startDayOfWeek
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["startDayOfWeek"],
+				message:
+					"For a specific start date, the weekly start weekday must be that date's weekday.",
+			});
+		}
+	}
+
+	if (
+		setupForm === "custom-daily" &&
+		((schedule.start.kind === "specific-date" &&
+			schedule.startOffsetDays !== 0) ||
+			(schedule.start.kind === "rule-trigger" && schedule.startOffsetDays < 0))
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["startOffsetDays"],
+			message:
+				schedule.start.kind === "specific-date"
+					? "A specific start date does not accept a separate start offset."
+					: "A rule-triggered schedule cannot start before the rule matches.",
+		});
+	}
+
+	for (let index = 1; index < schedule.events.length; index += 1) {
+		const previous = schedule.events[index - 1];
+		const current = schedule.events[index];
+		if (previous === undefined || current === undefined) continue;
+		if (first.timing.kind === "case-property-time") {
+			if (current.day < previous.day) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["events", index, "day"],
+					message: "Timed events must be in day order.",
+				});
+			}
+			continue;
+		}
+		if (
+			previous.timing.kind === "case-property-time" ||
+			current.timing.kind === "case-property-time"
+		) {
+			continue;
+		}
+		const previousStart =
+			previous.day * 1_440 + timeInMinutes(previous.timing.time);
+		const currentStart =
+			current.day * 1_440 + timeInMinutes(current.timing.time);
+		if (currentStart < previousStart) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "timing", "time"],
+				message: "Timed events must be in chronological order.",
+			});
+		} else if (currentStart - previousStart < 5) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index, "timing", "time"],
+				message:
+					"Fixed and random event starts must be at least 5 minutes apart.",
+			});
+		}
+		if (
+			previous.timing.kind === "random-window" &&
+			current.timing.kind === "random-window" &&
+			previousStart + previous.timing.windowMinutes > currentStart
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["events", index - 1, "timing", "windowMinutes"],
+				message: "A random window cannot overlap the next event's window.",
+			});
+		}
+	}
+}
+
 export const automationScheduleSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("immediate"),
 			events: z.array(automationImmediateEventSchema).min(1).max(100),
 		})
-		.strict(),
+		.strict()
+		.superRefine((schedule, ctx) => {
+			validateScheduleContentMode(schedule.events, ctx);
+			for (const [index, event] of schedule.events.entries()) {
+				if (index > 0 && event.minutesToWait < 5) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["events", index, "minutesToWait"],
+						message:
+							"Every immediate event after the first must wait at least 5 minutes.",
+					});
+				}
+			}
+		}),
 	z
 		.object({
 			kind: z.literal("timed"),
@@ -415,26 +761,15 @@ export const automationScheduleSchema = z.discriminatedUnion("kind", [
 			events: z.array(automationTimedEventSchema).min(1).max(366),
 		})
 		.strict()
-		.superRefine((schedule, ctx) => {
-			for (const [index, event] of schedule.events.entries()) {
-				const valid =
-					schedule.repeatEvery < 0
-						? event.day !== 0 && event.day <= 31
-						: event.day >= 0 && event.day < schedule.repeatEvery;
-				if (!valid) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["events", index, "day"],
-						message:
-							schedule.repeatEvery < 0
-								? "A monthly event day is 1–31 or -1–-28 from month end."
-								: "A daily event day must fit inside the repeat interval.",
-					});
-				}
-			}
-		}),
+		.superRefine(validateTimedSchedule),
 ]);
 export type AutomationSchedule = z.infer<typeof automationScheduleSchema>;
+
+export function automationTimedScheduleSetupForm(
+	schedule: Extract<AutomationSchedule, { kind: "timed" }>,
+): TimedScheduleSetupForm {
+	return timedScheduleSetupForm(schedule);
+}
 
 export const automationUserDataFilterSchema = z
 	.object({

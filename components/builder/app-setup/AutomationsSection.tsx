@@ -6,7 +6,13 @@ import tablerCopy from "@iconify-icons/tabler/copy";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { produce, type WritableDraft } from "immer";
+import {
+	current,
+	type Draft,
+	isDraft,
+	produce,
+	type WritableDraft,
+} from "immer";
 import {
 	cloneElement,
 	type ReactElement,
@@ -58,6 +64,7 @@ import {
 	type AutomationTimedEvent,
 	asUuid,
 	automationSchema,
+	automationTimedScheduleSetupForm,
 	type CaseType,
 	type Form,
 	type Uuid,
@@ -69,6 +76,10 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
+
+function cloneEditableValue<T>(value: T): T {
+	return structuredClone(isDraft(value) ? current(value as Draft<T>) : value);
+}
 
 const RECIPIENT_KINDS: readonly [AutomationRecipient["kind"], string][] = [
 	["self", "The case"],
@@ -168,7 +179,7 @@ export function AutomationsSection() {
 	const openExisting = (automation: Automation) => {
 		setEditor({
 			kind: "existing",
-			automation: structuredClone(automation),
+			automation: cloneEditableValue(automation),
 			opened: fingerprint(automation),
 		});
 	};
@@ -841,22 +852,25 @@ function Toggle({
 	onChange,
 	label,
 	description,
+	disabled = false,
 }: {
 	checked: boolean;
 	onChange: (checked: boolean) => void;
 	label: string;
 	description?: string;
+	disabled?: boolean;
 }) {
 	const id = useId();
 	return (
 		<label
 			htmlFor={id}
-			className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-white/[0.05] bg-black/10 px-3 py-2.5"
+			className={`flex min-h-11 items-start gap-3 rounded-lg border border-white/[0.05] bg-black/10 px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer"}`}
 		>
 			<Checkbox
 				id={id}
 				checked={checked}
 				onCheckedChange={onChange}
+				disabled={disabled}
 				className="mt-1"
 			/>
 			<span className="flex flex-col">
@@ -1808,9 +1822,19 @@ function ScheduleEditor({
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const schedule = automation.schedule;
+	const timedSetupForm =
+		schedule.kind === "timed"
+			? automationTimedScheduleSetupForm(schedule)
+			: undefined;
 	const setSchedule = (kind: AutomationSchedule["kind"]) =>
 		onEdit((draft) => {
 			if (draft.kind !== "conditional-alert") return;
+			const content = cloneEditableValue(
+				draft.schedule.events[0]?.content ?? {
+					kind: "sms",
+					message: "Message",
+				},
+			);
 			draft.schedule =
 				kind === "immediate"
 					? {
@@ -1819,7 +1843,7 @@ function ScheduleEditor({
 								{
 									uuid: uuid(),
 									minutesToWait: 0,
-									content: { kind: "sms", message: "Message" },
+									content,
 								},
 							],
 						}
@@ -1835,10 +1859,43 @@ function ScheduleEditor({
 									uuid: uuid(),
 									day: 0,
 									timing: { kind: "specific-time", time: "09:00" },
-									content: { kind: "sms", message: "Message" },
+									content,
 								},
 							],
 						};
+		});
+	const setTimedSetupForm = (form: "custom-daily" | "weekly" | "monthly") =>
+		onEdit((draft) => {
+			if (draft.kind !== "conditional-alert" || draft.schedule.kind !== "timed")
+				return;
+			const first = draft.schedule.events[0];
+			const event = {
+				uuid: first?.uuid ?? uuid(),
+				day: form === "monthly" ? 1 : 0,
+				timing: cloneEditableValue(
+					first?.timing ?? { kind: "specific-time", time: "09:00" },
+				),
+				content: cloneEditableValue(
+					first?.content ?? { kind: "sms", message: "Message" },
+				),
+			};
+			draft.schedule.events = [event];
+			draft.schedule.startOffsetDays = 0;
+			if (form === "monthly") {
+				draft.schedule.repeatEvery = -1;
+				draft.schedule.startDayOfWeek = -1;
+			} else if (form === "weekly") {
+				draft.schedule.repeatEvery = 7;
+				draft.schedule.startDayOfWeek =
+					draft.schedule.start.kind === "specific-date"
+						? (new Date(`${draft.schedule.start.date}T00:00:00Z`).getUTCDay() +
+								6) %
+							7
+						: 0;
+			} else {
+				draft.schedule.repeatEvery = 1;
+				draft.schedule.startDayOfWeek = -1;
+			}
 		});
 	return (
 		<Section title="Schedule">
@@ -1852,22 +1909,84 @@ function ScheduleEditor({
 					]}
 				/>
 			</Labeled>
+			<Labeled label="Schedule content type">
+				<Choice
+					value={schedule.events[0]?.content.kind ?? "sms"}
+					onChange={(kind) => {
+						const replacement = contentFor(
+							kind as AutomationContent["kind"],
+							forms,
+						);
+						if (replacement === undefined) return;
+						onEdit((draft) => {
+							if (draft.kind !== "conditional-alert") return;
+							for (const item of draft.schedule.events) {
+								item.content = cloneEditableValue(replacement);
+							}
+						});
+					}}
+					options={CONTENT_KINDS.map(([kind, label]) => {
+						const needsForm = ["sms-survey", "ivr", "connect-survey"].includes(
+							kind,
+						);
+						return [
+							kind,
+							needsForm && forms.length === 0
+								? `${label} (add a form first)`
+								: label,
+							needsForm && forms.length === 0,
+						] as const;
+					})}
+				/>
+			</Labeled>
 			{schedule.kind === "timed" && (
 				<div className="grid gap-3 @md:grid-cols-2">
+					<Labeled label="CommCare HQ schedule form">
+						<Choice
+							value={timedSetupForm ?? "custom-daily"}
+							onChange={(value) =>
+								setTimedSetupForm(
+									value as "custom-daily" | "weekly" | "monthly",
+								)
+							}
+							options={[
+								["custom-daily", "Custom daily"],
+								["weekly", "Weekly"],
+								["monthly", "Monthly"],
+							]}
+						/>
+					</Labeled>
 					<Labeled
-						label="Repeat every"
-						hint="Positive means days; negative means months"
+						label={`Repeat every ${timedSetupForm === "monthly" ? "months" : timedSetupForm === "weekly" ? "weeks" : "days"}`}
+						hint={
+							schedule.totalIterations === 1
+								? "CommCare HQ derives this value when Repeat is off"
+								: undefined
+						}
 					>
 						<Input
 							type="number"
-							value={schedule.repeatEvery}
+							min={1}
+							disabled={schedule.totalIterations === 1}
+							value={
+								timedSetupForm === "monthly"
+									? Math.abs(schedule.repeatEvery)
+									: timedSetupForm === "weekly"
+										? schedule.repeatEvery / 7
+										: schedule.repeatEvery
+							}
 							onChange={(event) =>
 								onEdit((draft) => {
 									if (
 										draft.kind === "conditional-alert" &&
 										draft.schedule.kind === "timed"
 									)
-										draft.schedule.repeatEvery = Number(event.target.value);
+										draft.schedule.repeatEvery =
+											timedSetupForm === "monthly"
+												? -Number(event.target.value)
+												: timedSetupForm === "weekly"
+													? Number(event.target.value) * 7
+													: Number(event.target.value);
 								})
 							}
 						/>
@@ -1881,51 +2000,68 @@ function ScheduleEditor({
 									if (
 										draft.kind === "conditional-alert" &&
 										draft.schedule.kind === "timed"
-									)
+									) {
 										draft.schedule.totalIterations = Number(event.target.value);
+										if (draft.schedule.totalIterations === 1) {
+											draft.schedule.repeatEvery =
+												timedSetupForm === "monthly"
+													? -1
+													: timedSetupForm === "weekly"
+														? 7
+														: (draft.schedule.events.at(-1)?.day ?? 0) + 1;
+										}
+									}
 								})
 							}
 						/>
 					</Labeled>
-					<Labeled label="Start offset in days">
-						<Input
-							type="number"
-							value={schedule.startOffsetDays}
-							onChange={(event) =>
-								onEdit((draft) => {
-									if (
-										draft.kind === "conditional-alert" &&
-										draft.schedule.kind === "timed"
-									)
-										draft.schedule.startOffsetDays = Number(event.target.value);
-								})
-							}
-						/>
-					</Labeled>
-					<Labeled label="Start weekday">
-						<Choice
-							value={String(schedule.startDayOfWeek)}
-							onChange={(value) =>
-								onEdit((draft) => {
-									if (
-										draft.kind === "conditional-alert" &&
-										draft.schedule.kind === "timed"
-									)
-										draft.schedule.startDayOfWeek = Number(value);
-								})
-							}
-							options={[
-								["-1", "Any day"],
-								["0", "Monday"],
-								["1", "Tuesday"],
-								["2", "Wednesday"],
-								["3", "Thursday"],
-								["4", "Friday"],
-								["5", "Saturday"],
-								["6", "Sunday"],
-							]}
-						/>
-					</Labeled>
+					{timedSetupForm === "custom-daily" &&
+						schedule.start.kind !== "specific-date" && (
+							<Labeled label="Start offset in days">
+								<Input
+									type="number"
+									min={schedule.start.kind === "rule-trigger" ? 0 : undefined}
+									value={schedule.startOffsetDays}
+									onChange={(event) =>
+										onEdit((draft) => {
+											if (
+												draft.kind === "conditional-alert" &&
+												draft.schedule.kind === "timed"
+											)
+												draft.schedule.startOffsetDays = Number(
+													event.target.value,
+												);
+										})
+									}
+								/>
+							</Labeled>
+						)}
+					{timedSetupForm === "weekly" &&
+						schedule.start.kind !== "specific-date" && (
+							<Labeled label="Start weekday">
+								<Choice
+									value={String(schedule.startDayOfWeek)}
+									onChange={(value) =>
+										onEdit((draft) => {
+											if (
+												draft.kind === "conditional-alert" &&
+												draft.schedule.kind === "timed"
+											)
+												draft.schedule.startDayOfWeek = Number(value);
+										})
+									}
+									options={[
+										["0", "Monday"],
+										["1", "Tuesday"],
+										["2", "Wednesday"],
+										["3", "Thursday"],
+										["4", "Friday"],
+										["5", "Saturday"],
+										["6", "Sunday"],
+									]}
+								/>
+							</Labeled>
+						)}
 					<Labeled label="Start from">
 						<Choice
 							value={schedule.start.kind}
@@ -1936,6 +2072,7 @@ function ScheduleEditor({
 										draft.schedule.kind !== "timed"
 									)
 										return;
+									const date = new Date().toISOString().slice(0, 10);
 									draft.schedule.start =
 										kind === "rule-trigger"
 											? { kind }
@@ -1943,8 +2080,15 @@ function ScheduleEditor({
 												? { kind, property: "date_opened" }
 												: {
 														kind: "specific-date",
-														date: new Date().toISOString().slice(0, 10),
+														date,
 													};
+									if (kind === "specific-date") {
+										draft.schedule.startOffsetDays = 0;
+										if (timedSetupForm === "weekly") {
+											draft.schedule.startDayOfWeek =
+												(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+										}
+									}
 								})
 							}
 							options={[
@@ -1982,13 +2126,55 @@ function ScheduleEditor({
 											draft.kind === "conditional-alert" &&
 											draft.schedule.kind === "timed" &&
 											draft.schedule.start.kind === "specific-date"
-										)
+										) {
 											draft.schedule.start.date = event.target.value;
+											if (timedSetupForm === "weekly") {
+												draft.schedule.startDayOfWeek =
+													(new Date(
+														`${event.target.value}T00:00:00Z`,
+													).getUTCDay() +
+														6) %
+													7;
+											}
+										}
 									})
 								}
 							/>
 						</Labeled>
 					)}
+					<Labeled
+						label="Schedule timing mode"
+						hint="CommCare HQ applies one timing mode to every event"
+					>
+						<Choice
+							value={schedule.events[0]?.timing.kind ?? "specific-time"}
+							onChange={(kind) =>
+								onEdit((draft) => {
+									if (
+										draft.kind !== "conditional-alert" ||
+										draft.schedule.kind !== "timed"
+									)
+										return;
+									for (const item of draft.schedule.events) {
+										item.timing =
+											kind === "specific-time"
+												? { kind, time: "09:00" }
+												: kind === "random-window"
+													? { kind, time: "09:00", windowMinutes: 60 }
+													: {
+															kind: "case-property-time",
+															property: "time",
+														};
+									}
+								})
+							}
+							options={[
+								["specific-time", "Specific time"],
+								["random-window", "Random time in a window"],
+								["case-property-time", "Time in a case property"],
+							]}
+						/>
+					</Labeled>
 				</div>
 			)}
 			{schedule.events.map((event, index) => (
@@ -1997,6 +2183,10 @@ function ScheduleEditor({
 					event={event}
 					index={index}
 					scheduleKind={schedule.kind}
+					timedSetupForm={timedSetupForm}
+					repeatEvery={
+						schedule.kind === "timed" ? schedule.repeatEvery : undefined
+					}
 					forms={forms}
 					onEdit={onEdit}
 				/>
@@ -2010,16 +2200,81 @@ function ScheduleEditor({
 						if (draft.schedule.kind === "immediate")
 							draft.schedule.events.push({
 								uuid: uuid(),
-								minutesToWait: 0,
-								content: { kind: "sms", message: "Message" },
+								minutesToWait: draft.schedule.events.length === 0 ? 0 : 5,
+								content: cloneEditableValue(
+									draft.schedule.events[0]?.content ?? {
+										kind: "sms",
+										message: "Message",
+									},
+								),
 							});
-						else
+						else {
+							const first = draft.schedule.events[0];
+							const previous = draft.schedule.events.at(-1);
+							const setupForm = automationTimedScheduleSetupForm(
+								draft.schedule,
+							);
+							let day = setupForm === "monthly" ? 1 : 0;
+							let timing: AutomationTimedEvent["timing"] = cloneEditableValue(
+								previous?.timing ?? { kind: "specific-time", time: "09:00" },
+							);
+							if (setupForm === "monthly") {
+								const allowed = [
+									...Array.from({ length: 28 }, (_, index) => index + 1),
+									-3,
+									-2,
+									-1,
+								];
+								const used = new Set(
+									draft.schedule.events.map((event) => event.day),
+								);
+								day = allowed.find((candidate) => !used.has(candidate)) ?? 1;
+							} else if (setupForm === "weekly") {
+								const used = new Set(
+									draft.schedule.events.map((event) => event.day),
+								);
+								day =
+									Array.from({ length: 7 }, (_, index) => index).find(
+										(candidate) => !used.has(candidate),
+									) ?? 0;
+							} else if (previous !== undefined) {
+								if (previous.timing.kind === "case-property-time") {
+									day = previous.day;
+								} else {
+									const [hours = 0, minutes = 0] = previous.timing.time
+										.split(":")
+										.map(Number);
+									const nextMinute =
+										previous.day * 1_440 +
+										hours * 60 +
+										minutes +
+										(previous.timing.kind === "random-window"
+											? Math.max(5, previous.timing.windowMinutes)
+											: 5);
+									day = Math.floor(nextMinute / 1_440);
+									const minuteOfDay = nextMinute % 1_440;
+									const time = `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`;
+									timing =
+										previous.timing.kind === "random-window"
+											? {
+													...cloneEditableValue(previous.timing),
+													time,
+												}
+											: { kind: "specific-time", time };
+									if (day >= draft.schedule.repeatEvery) {
+										draft.schedule.repeatEvery = day + 1;
+									}
+								}
+							}
 							draft.schedule.events.push({
 								uuid: uuid(),
-								day: 0,
-								timing: { kind: "specific-time", time: "09:00" },
-								content: { kind: "sms", message: "Message" },
+								day,
+								timing,
+								content: cloneEditableValue(
+									first?.content ?? { kind: "sms", message: "Message" },
+								),
 							});
+						}
 					})
 				}
 			>
@@ -2034,6 +2289,8 @@ function EventEditor({
 	event,
 	index,
 	scheduleKind,
+	timedSetupForm,
+	repeatEvery,
 	forms,
 	onEdit,
 }: {
@@ -2043,6 +2300,8 @@ function EventEditor({
 	} & ({ minutesToWait: number } | AutomationTimedEvent);
 	index: number;
 	scheduleKind: AutomationSchedule["kind"];
+	timedSetupForm?: "custom-daily" | "weekly" | "monthly";
+	repeatEvery?: number;
 	forms: readonly Form[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
@@ -2054,7 +2313,47 @@ function EventEditor({
 		onEdit((draft) => {
 			if (draft.kind !== "conditional-alert") return;
 			const item = draft.schedule.events[index];
-			if (item !== undefined) recipe(item.content);
+			if (item === undefined) return;
+			recipe(item.content);
+			if ("submitPartiallyCompletedForms" in item.content) {
+				for (const sibling of draft.schedule.events) {
+					if (
+						sibling.content.kind === item.content.kind &&
+						"submitPartiallyCompletedForms" in sibling.content
+					) {
+						sibling.content.submitPartiallyCompletedForms =
+							item.content.submitPartiallyCompletedForms;
+						sibling.content.includeCaseUpdatesInPartialSubmissions =
+							item.content.includeCaseUpdatesInPartialSubmissions;
+					}
+				}
+			}
+			if (
+				draft.schedule.kind === "timed" &&
+				timedSetupForm !== undefined &&
+				timedSetupForm !== "custom-daily"
+			) {
+				for (const sibling of draft.schedule.events) {
+					if (sibling !== item)
+						sibling.content = cloneEditableValue(item.content);
+				}
+			}
+		});
+	const updateTiming = (
+		recipe: (timing: WritableDraft<AutomationTimedEvent["timing"]>) => void,
+	) =>
+		onEdit((draft) => {
+			if (draft.kind !== "conditional-alert" || draft.schedule.kind !== "timed")
+				return;
+			const item = draft.schedule.events[index];
+			if (item === undefined) return;
+			recipe(item.timing);
+			if (timedSetupForm !== undefined && timedSetupForm !== "custom-daily") {
+				for (const sibling of draft.schedule.events) {
+					if (sibling !== item)
+						sibling.timing = cloneEditableValue(item.timing);
+				}
+			}
 		});
 
 	return (
@@ -2064,7 +2363,7 @@ function EventEditor({
 					<Labeled label="Minutes after previous event">
 						<Input
 							type="number"
-							min={0}
+							min={index === 0 ? 0 : 5}
 							value={(event as { minutesToWait: number }).minutesToWait}
 							onChange={(change) =>
 								onEdit((draft) => {
@@ -2083,10 +2382,25 @@ function EventEditor({
 					</Labeled>
 				) : (
 					<>
-						<Labeled label="Day in interval">
+						<Labeled
+							label="Day in CommCare HQ schedule"
+							hint={
+								timedSetupForm === "monthly"
+									? "Use 1–28, or -3–-1 from month end"
+									: "CommCare HQ numbers the first day as 1"
+							}
+						>
 							<Input
 								type="number"
-								value={timed.day}
+								min={timedSetupForm === "monthly" ? -3 : 1}
+								max={
+									timedSetupForm === "monthly"
+										? 28
+										: timedSetupForm === "weekly"
+											? 7
+											: repeatEvery
+								}
+								value={timedSetupForm === "monthly" ? timed.day : timed.day + 1}
 								onChange={(change) =>
 									onEdit((draft) => {
 										if (
@@ -2094,39 +2408,22 @@ function EventEditor({
 											draft.schedule.kind === "timed" &&
 											draft.schedule.events[index]
 										) {
-											draft.schedule.events[index].day = Number(
-												change.target.value,
-											);
+											draft.schedule.events[index].day =
+												timedSetupForm === "monthly"
+													? Number(change.target.value)
+													: Number(change.target.value) - 1;
+											if (
+												timedSetupForm === "custom-daily" &&
+												draft.schedule.totalIterations === 1
+											) {
+												draft.schedule.repeatEvery =
+													Math.max(
+														...draft.schedule.events.map((event) => event.day),
+													) + 1;
+											}
 										}
 									})
 								}
-							/>
-						</Labeled>
-						<Labeled label="Send timing">
-							<Choice
-								value={timed.timing.kind}
-								onChange={(kind) =>
-									onEdit((draft) => {
-										if (
-											draft.kind !== "conditional-alert" ||
-											draft.schedule.kind !== "timed"
-										)
-											return;
-										const item = draft.schedule.events[index];
-										if (item === undefined) return;
-										item.timing =
-											kind === "specific-time"
-												? { kind, time: "09:00" }
-												: kind === "random-window"
-													? { kind, time: "09:00", windowMinutes: 60 }
-													: { kind: "case-property-time", property: "time" };
-									})
-								}
-								options={[
-									["specific-time", "Specific time"],
-									["random-window", "Random time in a window"],
-									["case-property-time", "Time in a case property"],
-								]}
 							/>
 						</Labeled>
 						{timed.timing.kind === "case-property-time" ? (
@@ -2134,15 +2431,9 @@ function EventEditor({
 								<Input
 									value={timed.timing.property}
 									onChange={(change) =>
-										onEdit((draft) => {
-											if (
-												draft.kind === "conditional-alert" &&
-												draft.schedule.kind === "timed"
-											) {
-												const item = draft.schedule.events[index];
-												if (item?.timing.kind === "case-property-time") {
-													item.timing.property = change.target.value;
-												}
+										updateTiming((timing) => {
+											if (timing.kind === "case-property-time") {
+												timing.property = change.target.value;
 											}
 										})
 									}
@@ -2154,18 +2445,9 @@ function EventEditor({
 									type="time"
 									value={timed.timing.time}
 									onChange={(change) =>
-										onEdit((draft) => {
-											if (
-												draft.kind === "conditional-alert" &&
-												draft.schedule.kind === "timed"
-											) {
-												const item = draft.schedule.events[index];
-												if (
-													item !== undefined &&
-													item.timing.kind !== "case-property-time"
-												) {
-													item.timing.time = change.target.value;
-												}
+										updateTiming((timing) => {
+											if (timing.kind !== "case-property-time") {
+												timing.time = change.target.value;
 											}
 										})
 									}
@@ -2177,19 +2459,12 @@ function EventEditor({
 								<Input
 									type="number"
 									min={1}
+									max={1439}
 									value={timed.timing.windowMinutes}
 									onChange={(change) =>
-										onEdit((draft) => {
-											if (
-												draft.kind === "conditional-alert" &&
-												draft.schedule.kind === "timed"
-											) {
-												const item = draft.schedule.events[index];
-												if (item?.timing.kind === "random-window") {
-													item.timing.windowMinutes = Number(
-														change.target.value,
-													);
-												}
+										updateTiming((timing) => {
+											if (timing.kind === "random-window") {
+												timing.windowMinutes = Number(change.target.value);
 											}
 										})
 									}
@@ -2198,40 +2473,6 @@ function EventEditor({
 						)}
 					</>
 				)}
-				<Labeled label="Content">
-					<Choice
-						value={content.kind}
-						onChange={(kind) => {
-							const replacement = contentFor(
-								kind as AutomationContent["kind"],
-								forms,
-							);
-							if (replacement === undefined) return;
-							onEdit((draft) => {
-								if (draft.kind !== "conditional-alert") return;
-								const item = draft.schedule.events[index];
-								if (item !== undefined) {
-									item.content =
-										replacement as WritableDraft<AutomationContent>;
-								}
-							});
-						}}
-						options={CONTENT_KINDS.map(([kind, label]) => {
-							const needsForm = [
-								"sms-survey",
-								"ivr",
-								"connect-survey",
-							].includes(kind);
-							return [
-								kind,
-								needsForm && forms.length === 0
-									? `${label} (add a form first)`
-									: label,
-								needsForm && forms.length === 0,
-							] as const;
-						})}
-					/>
-				</Labeled>
 				{"message" in content && (
 					<Labeled label="Message">
 						<Textarea
@@ -2304,7 +2545,11 @@ function EventEditor({
 				{"reminderIntervalsMinutes" in content && (
 					<Labeled
 						label="Reminder intervals in minutes"
-						hint="Comma separated; leave blank for none"
+						hint={
+							"expirationHours" in content
+								? "Comma separated; their total must be shorter than the survey expiration"
+								: "Comma separated; leave blank for none"
+						}
 					>
 						<Input
 							value={content.reminderIntervalsMinutes.join(", ")}
@@ -2328,6 +2573,9 @@ function EventEditor({
 								updateContent((item) => {
 									if ("submitPartiallyCompletedForms" in item) {
 										item.submitPartiallyCompletedForms = checked;
+										if (!checked) {
+											item.includeCaseUpdatesInPartialSubmissions = false;
+										}
 									}
 								})
 							}
@@ -2343,6 +2591,8 @@ function EventEditor({
 								})
 							}
 							label="Include case updates in partial submissions"
+							description="Available only when partial form submission is on"
+							disabled={!content.submitPartiallyCompletedForms}
 						/>
 					</>
 				)}
@@ -2395,6 +2645,16 @@ function EventEditor({
 					onEdit((draft) => {
 						if (draft.kind === "conditional-alert") {
 							draft.schedule.events.splice(index, 1);
+							if (
+								draft.schedule.kind === "timed" &&
+								automationTimedScheduleSetupForm(draft.schedule) ===
+									"custom-daily" &&
+								draft.schedule.totalIterations === 1 &&
+								draft.schedule.events.length > 0
+							) {
+								draft.schedule.repeatEvery =
+									(draft.schedule.events.at(-1)?.day ?? 0) + 1;
+							}
 						}
 					})
 				}

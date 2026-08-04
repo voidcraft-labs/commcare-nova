@@ -27,14 +27,13 @@ cursor reads for this surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
-groups) plus one `blueprint_entities` row per entity. Eight kinds share that table
+groups) plus one `blueprint_entities` row per entity. Nine kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
-flat alongside `organization_level` / `location_property` — no parent, constant ordinal, sequence living entirely in each entity's
-position in its parent's sequence. **Every kind branches explicitly in the assembler**: its
-shape is `if module / else if form / else field`, so a new kind that falls
-through is read as a field, fails `blueprintDocSchema`, and stops the whole app
-from loading rather than losing one row. The five flat collections' doc slots
+flat alongside `organization_level` / `location_property` / `automation` — no
+parent, with the ordinal preserving that flat collection's sequence. **Every kind
+branches explicitly in the assembler**; an unsupported kind fails closed before
+assembly instead of being interpreted as another entity shape. The six flat collections' doc slots
 are optional and OMITTED when empty, so an app declaring none assembles to
 exactly the doc it did before they existed.
 `blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact

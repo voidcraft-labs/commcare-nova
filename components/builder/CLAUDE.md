@@ -239,6 +239,13 @@ installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. Copy acts on the derived text only.
 
+The timed editor projects the canonical runtime encoding into one selectable HQ
+form (Custom Daily, Weekly, or Monthly). Content type and timing mode are schedule-wide; shared
+Weekly/Monthly timing and content edits fan out to every event. Human day fields
+use HQ's one-based Custom Daily values and exact Monthly day set. Dependent
+survey controls clear and disable the same way HQ's form does, while the domain
+gate remains the final cross-field authority.
+
 Responsive behavior is owned by the App setup container. The list and editor
 must remain usable at the 320px dock layout, and all repeated rows keep explicit
 labels, remove names, keyboard focus, and visible refusal text. Add focuses the

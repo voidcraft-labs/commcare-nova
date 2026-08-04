@@ -153,6 +153,12 @@ kind. A full update is only a boundary convenience: it diffs through
 uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
 schema.
 
+The shared input schema admits only schedules that project into one current HQ
+HTML setup form, including schedule-wide content type and timing, Weekly/Monthly shared content,
+event ordering/separation/windows, day/offset laws, and survey expiration plus
+partial-submission dependencies. These are domain refinements used by both SA
+and MCP; tools must not post-process or weaken them.
+
 Read and successful add/update results are explicit that Nova does not execute
 or install the automation. They derive the CommCare HQ setup guide and local
 matching omissions from one authorized organization/document snapshot;

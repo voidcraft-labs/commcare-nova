@@ -35,6 +35,17 @@ schedule starts, and user filters are similarly closed to shapes current HQ can
 represent. There is no generic payload arm and no draft or disabled-invalid
 state.
 
+Every schedule uses the HQ form's one content type. Timed schedules use the
+runtime's day/repeat encoding but must project into one actual HQ setup form.
+Positive schedules without a start weekday are Custom
+Daily; a start weekday selects Weekly; a negative repeat selects Monthly.
+Schedule refinements enforce each form's shared timing/content, ordering,
+five-minute separation, window, day, offset, and repetition laws before commit.
+Custom Daily days are stored zero-based and projected as one-based HQ event-row
+values; Monthly days are already the UI's 1–28 / -3–-1 values. Survey reminder
+totals stay strictly below expiration, and partial case updates imply partial
+submission.
+
 The domain records intent only. `lib/automations` derives the current-match
 projection and manual HQ setup guide; neither belongs in the document.
 Publishing does not install a rule, Preview does not mutate cases or advance a

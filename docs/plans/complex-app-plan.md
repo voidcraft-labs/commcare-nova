@@ -194,6 +194,16 @@ There is no push-notification arm and no untyped escape hatch
 (`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
 `corehq/messaging/scheduling/models.py::Schedule`).
 
+Every conditional-alert schedule also maps to one form the current HQ HTML
+editor can save and uses its single schedule-wide content type. Immediate events after the first observe its five-minute tick.
+Custom Daily events share one timing mode and satisfy ordering, separation, and
+random-window rules; Weekly and Monthly schedules use the UI's shared timing and
+content form, with their exact repetition, offset, and day sets. The canonical
+zero-based Custom Daily day is projected to HQ's one-based event row, while a
+Monthly day already uses the UI's 1–28 or -3–-1 value. Survey reminder totals
+remain below expiration and partial case updates cannot be selected without
+partial submission.
+
 Preview presents a read-only count over the same real open case rows used by the
 running app. Nova's AST-to-Kysely boundary can exactly lower the nine property
 comparisons, closed-parent relations, and place-owner sets; the outer query

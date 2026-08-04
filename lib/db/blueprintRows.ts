@@ -2,7 +2,7 @@
 //
 // There is no blueprint blob: an app's current state is scalar columns on its
 // `apps` row (name, connectType, caseTypes, logo) plus one `blueprint_entities`
-// row per module/form/field. `assembleBlueprint` reconstructs the exact
+// row per hierarchical or flat authored entity. `assembleBlueprint` reconstructs the exact
 // `PersistableDoc` (records + membership arrays by stored `ordinal`);
 // `decomposeBlueprint` is its inverse; `diffBlueprints` computes the minimal
 // row-set a committed batch actually changed, so a one-field edit writes one
@@ -38,7 +38,7 @@ export interface EntityRow {
  *
  * The first three carry the runnable app and encode their hierarchy in
  * `(parent_uuid, ordinal)`. The final collections are flat app-level catalogs
- * (`lib/domain/users.ts`): they have no parent, so they persist with a null
+ * (users, organization, and automations): they have no parent, so they persist with a null
  * parent, but their `ordinal` is real — it IS their sequence, the same as
  * every other collection.
  */

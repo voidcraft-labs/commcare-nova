@@ -8,6 +8,7 @@ import {
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
 	type Automation,
+	type AutomationSchedule,
 	automationSchema,
 	type BlueprintDoc,
 	isPortableAutomationRegex,
@@ -34,6 +35,26 @@ function claimCleanup(): Extract<Automation, { kind: "case-update" }> {
 	});
 	if (parsed.kind !== "case-update") throw new Error("wrong automation kind");
 	return parsed;
+}
+
+function alertWithSchedule(
+	schedule: AutomationSchedule,
+): Extract<Automation, { kind: "conditional-alert" }> {
+	return {
+		uuid: testUuid("schedule-alert"),
+		kind: "conditional-alert",
+		name: "Schedule alert",
+		caseType: "visit",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		recipients: [{ uuid: testUuid("schedule-recipient"), kind: "self" }],
+		schedule,
+		includeDescendantLocations: false,
+		locationLevelUuids: [],
+		userDataFilters: [],
+		useUserCaseForFilter: false,
+	};
 }
 
 function location(
@@ -233,16 +254,6 @@ describe("automation domain and projections", () => {
 							includeCaseUpdatesInPartialSubmissions: true,
 						},
 					},
-					{
-						uuid: testUuid("email-event"),
-						minutesToWait: 5,
-						content: {
-							kind: "email",
-							subject: "Visit due",
-							message: "Plain body",
-							htmlMessage: "<p>HTML body</p>",
-						},
-					},
 				],
 			},
 			includeDescendantLocations: true,
@@ -252,7 +263,30 @@ describe("automation domain and projections", () => {
 			useUserCaseForFilter: false,
 		};
 		const guide = buildAutomationSetupGuide(doc, alert, []);
-		const text = guide.steps.join(" ");
+		const emailGuide = buildAutomationSetupGuide(
+			doc,
+			{
+				...alert,
+				uuid: testUuid("complete-email-alert"),
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("email-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "email",
+								subject: "Visit due",
+								message: "Plain body",
+								htmlMessage: "<p>HTML body</p>",
+							},
+						},
+					],
+				},
+			},
+			[],
+		);
+		const text = [...guide.steps, ...emailGuide.steps].join(" ");
 		expect(text).toContain("closed related case");
 		expect(text).toContain("expire after 72 hour(s)");
 		expect(text).toContain("30, 60 minute(s)");
@@ -262,6 +296,33 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("District");
 		expect(text).toContain("default language code to fr");
 		expect(text).toContain("Add no custom-user-data recipient filters");
+	});
+
+	it("projects stored timed days into the exact HQ setup form values", () => {
+		const customDaily = alertWithSchedule({
+			kind: "timed",
+			repeatEvery: 1,
+			totalIterations: 1,
+			startOffsetDays: 0,
+			startDayOfWeek: -1,
+			start: { kind: "rule-trigger" },
+			events: [
+				{
+					uuid: testUuid("guide-custom-event"),
+					day: 0,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: { kind: "sms", message: "Hello" },
+				},
+			],
+		});
+		const customText = buildAutomationSetupGuide(
+			buildDoc({ appName: "Guide" }),
+			customDaily,
+			[],
+		).steps.join(" ");
+		expect(customText).toContain("Choose Custom Daily Schedule");
+		expect(customText).toContain("day 1 in the HQ editor");
+		expect(customText).not.toContain("day 0");
 	});
 
 	it("admits complete historical IVR settings and rejects incomplete survey content", () => {
@@ -319,11 +380,196 @@ describe("automation domain and projections", () => {
 		).toBe(false);
 	});
 
+	it("enforces HQ survey reminder and partial-submission dependencies", () => {
+		const surveyContent = {
+			kind: "sms-survey" as const,
+			formUuid: testUuid("survey-validity-form"),
+			expirationHours: 1,
+			reminderIntervalsMinutes: [30, 30],
+			submitPartiallyCompletedForms: true,
+			includeCaseUpdatesInPartialSubmissions: true,
+		};
+		const withContent = (content: typeof surveyContent) =>
+			alertWithSchedule({
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("survey-validity-event"),
+						minutesToWait: 0,
+						content,
+					},
+				],
+			});
+		expect(automationSchema.safeParse(withContent(surveyContent)).success).toBe(
+			false,
+		);
+		expect(
+			automationSchema.safeParse(
+				withContent({
+					...surveyContent,
+					reminderIntervalsMinutes: [59],
+					submitPartiallyCompletedForms: false,
+					includeCaseUpdatesInPartialSubmissions: true,
+				}),
+			).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse(
+				withContent({
+					...surveyContent,
+					reminderIntervalsMinutes: [59],
+				}),
+			).success,
+		).toBe(true);
+	});
+
+	it("enforces HQ immediate and custom-daily event timing", () => {
+		const immediate = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("immediate-first"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: "First" },
+				},
+				{
+					uuid: testUuid("immediate-second"),
+					minutesToWait: 4,
+					content: { kind: "sms", message: "Second" },
+				},
+			],
+		});
+		expect(automationSchema.safeParse(immediate).success).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...immediate,
+				schedule: {
+					...immediate.schedule,
+					events: immediate.schedule.events.map((event, index) =>
+						index === 1
+							? {
+									...event,
+									minutesToWait: 5,
+									content: {
+										kind: "email" as const,
+										subject: "Different mode",
+										message: "Second",
+									},
+								}
+							: event,
+					),
+				},
+			}).success,
+		).toBe(false);
+
+		const timed = alertWithSchedule({
+			kind: "timed",
+			repeatEvery: 2,
+			totalIterations: -1,
+			startOffsetDays: 0,
+			startDayOfWeek: -1,
+			start: { kind: "rule-trigger" },
+			events: [
+				{
+					uuid: testUuid("timed-first"),
+					day: 0,
+					timing: {
+						kind: "random-window",
+						time: "09:00",
+						windowMinutes: 60,
+					},
+					content: { kind: "sms", message: "First" },
+				},
+				{
+					uuid: testUuid("timed-second"),
+					day: 0,
+					timing: {
+						kind: "random-window",
+						time: "09:30",
+						windowMinutes: 30,
+					},
+					content: { kind: "email", subject: "Next", message: "Second" },
+				},
+			],
+		});
+		expect(automationSchema.safeParse(timed).success).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...timed,
+				schedule: {
+					...timed.schedule,
+					events: timed.schedule.events.map((event, index) =>
+						index === 1
+							? {
+									...event,
+									content: { kind: "sms" as const, message: "Second" },
+									timing: {
+										kind: "random-window" as const,
+										time: "10:00",
+										windowMinutes: 30,
+									},
+								}
+							: event,
+					),
+				},
+			}).success,
+		).toBe(true);
+	});
+
+	it("accepts only timed schedules that map to one HQ setup form", () => {
+		const sharedContent = { kind: "sms" as const, message: "Monthly" };
+		const monthly = alertWithSchedule({
+			kind: "timed",
+			repeatEvery: -1,
+			totalIterations: -1,
+			startOffsetDays: 0,
+			startDayOfWeek: -1,
+			start: { kind: "rule-trigger" },
+			events: [
+				{
+					uuid: testUuid("monthly-first"),
+					day: 28,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: sharedContent,
+				},
+				{
+					uuid: testUuid("monthly-last"),
+					day: -1,
+					timing: { kind: "specific-time", time: "09:00" },
+					content: sharedContent,
+				},
+			],
+		});
+		expect(automationSchema.safeParse(monthly).success).toBe(true);
+		expect(
+			automationSchema.safeParse({
+				...monthly,
+				schedule: {
+					...monthly.schedule,
+					events: [
+						{
+							...monthly.schedule.events[0],
+							day: 29,
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...monthly,
+				schedule: { ...monthly.schedule, startOffsetDays: 1 },
+			}).success,
+		).toBe(false);
+	});
+
 	it("admits only the regex subset shared by Python and PostgreSQL", () => {
 		expect(isPortableAutomationRegex("^A[0-9]+(?:-B)?$")).toBe(false);
 		expect(isPortableAutomationRegex("^A[0-9]+(-B)?$")).toBe(true);
 		expect(isPortableAutomationRegex("(?<code>A+)")).toBe(false);
 		expect(isPortableAutomationRegex("\\d+")).toBe(false);
+		expect(isPortableAutomationRegex("[]")).toBe(false);
+		expect(isPortableAutomationRegex("[^]")).toBe(false);
 	});
 
 	it("enforces upstream string bounds and persistable JSON integers", () => {

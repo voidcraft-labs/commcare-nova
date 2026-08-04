@@ -7,6 +7,7 @@ import type {
 	BlueprintDoc,
 } from "@/lib/domain";
 import {
+	automationTimedScheduleSetupForm,
 	organizationLevelsOf,
 	ownRecordValue,
 	userPropertiesOf,
@@ -246,13 +247,59 @@ export function buildAutomationSetupGuide(
 				: automation.schedule.start.kind === "specific-date"
 					? automation.schedule.start.date
 					: `the date in case property ${automation.schedule.start.property}`;
-		steps.push(
-			`Use a timed schedule starting from ${start}: repeat every ${Math.abs(automation.schedule.repeatEvery)} ${automation.schedule.repeatEvery < 0 ? "month(s)" : "day(s)"}, ${automation.schedule.totalIterations === -1 ? "indefinitely" : `${automation.schedule.totalIterations} iteration(s)`}, with start offset ${automation.schedule.startOffsetDays} days and start weekday ${automation.schedule.startDayOfWeek}.`,
-			...automation.schedule.events.map(
-				(event, index) =>
-					`Timed event ${index + 1}, day ${event.day}, ${describeTiming(event.timing)}: send ${describeContent(event.content, doc)}.`,
-			),
-		);
+		const iterations =
+			automation.schedule.totalIterations === 1
+				? "turn Repeat off"
+				: automation.schedule.totalIterations === -1
+					? "continue indefinitely"
+					: `stop after ${automation.schedule.totalIterations} iteration(s)`;
+		const setupForm = automationTimedScheduleSetupForm(automation.schedule);
+		if (setupForm === "custom-daily") {
+			steps.push(
+				`Choose Custom Daily Schedule, starting from ${start}, with a ${automation.schedule.startOffsetDays}-day start offset; ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery} day(s) and ${iterations}`}. Set the schedule-wide timing mode to match the events below.`,
+				...automation.schedule.events.map(
+					(event, index) =>
+						`Custom event ${index + 1}, day ${event.day + 1} in the HQ editor, ${describeTiming(event.timing)}: send ${describeContent(event.content, doc)}.`,
+				),
+			);
+		} else if (setupForm === "weekly") {
+			const weekdayNames = [
+				"Monday",
+				"Tuesday",
+				"Wednesday",
+				"Thursday",
+				"Friday",
+				"Saturday",
+				"Sunday",
+			] as const;
+			const startDayOfWeek = automation.schedule.startDayOfWeek;
+			const firstEvent = automation.schedule.events[0];
+			steps.push(
+				`Choose Weekly, starting from ${start}; begin the schedule week on ${weekdayNames[startDayOfWeek] ?? "the selected weekday"}, ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${automation.schedule.repeatEvery / 7} week(s), and ${iterations}`}.`,
+				`Select these weekdays: ${automation.schedule.events
+					.map(
+						(event) =>
+							weekdayNames[(startDayOfWeek + event.day) % 7] ??
+							`offset ${event.day}`,
+					)
+					.join(", ")}.`,
+			);
+			if (firstEvent !== undefined) {
+				steps.push(
+					`Use the shared timing ${describeTiming(firstEvent.timing)} and shared content ${describeContent(firstEvent.content, doc)}.`,
+				);
+			}
+		} else {
+			const firstEvent = automation.schedule.events[0];
+			steps.push(
+				`Choose Monthly, starting from ${start}; ${automation.schedule.totalIterations === 1 ? iterations : `repeat every ${Math.abs(automation.schedule.repeatEvery)} month(s), and ${iterations}`}; select days ${automation.schedule.events.map((event) => event.day).join(", ")} (negative values count from month end).`,
+			);
+			if (firstEvent !== undefined) {
+				steps.push(
+					`Use the shared timing ${describeTiming(firstEvent.timing)} and shared content ${describeContent(firstEvent.content, doc)}.`,
+				);
+			}
+		}
 	}
 	if (automation.userDataFilters.length > 0) {
 		const properties = userPropertiesOf(doc);
