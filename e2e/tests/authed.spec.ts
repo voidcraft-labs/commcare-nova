@@ -516,6 +516,16 @@ test.describe("authenticated builder", () => {
 		const personas = page.getByRole("region", { name: "Personas" });
 		await personas.getByRole("button", { name: "Add persona" }).click();
 		await expect(personas.getByLabel("Name")).toBeFocused();
+		const role = personas.getByRole("combobox", { name: "Role" });
+		const roleHelp = personas.getByText(
+			"Add a role above to give this persona one.",
+		);
+		await expect(role).toHaveText("No role");
+		await expect(role).toBeDisabled();
+		await expect(roleHelp).toBeVisible();
+		const roleHelpId = await roleHelp.getAttribute("id");
+		expect(roleHelpId).toBeTruthy();
+		await expect(role).toHaveAttribute("aria-describedby", roleHelpId ?? "");
 		await personas.getByLabel("Name").fill("Asha");
 		await personas.getByLabel("Name").press("Enter");
 		await personas.getByLabel("Add a place").click();
