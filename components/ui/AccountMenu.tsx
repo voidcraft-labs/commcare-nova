@@ -1,6 +1,15 @@
 /**
  * Account menu: avatar-triggered dropdown with profile, credit balance,
- * settings link, and sign-out.
+ * settings link, the two ways out to help, and sign-out.
+ *
+ * Docs and Give feedback used to be their own "Help" dropdown beside this one
+ * in the band. Two adjacent dropdowns holding four rows between them is one
+ * control too many, and the header pays for it at every width — but the real
+ * argument is reach: the band's own menus are the UNCLAIMED state, so a Help
+ * control that lives there is gone the moment a build starts, which is exactly
+ * when someone wants the docs. The account control is on every signed-in
+ * surface, so putting them here is what makes help reachable from inside a
+ * build at all.
  *
  * The credit summary comes from the shared `useCreditBalance` hook, which
  * fetches eagerly on mount so the dropdown opens instantly with no loading
@@ -9,9 +18,12 @@
  */
 
 "use client";
-import { Icon } from "@iconify/react/offline";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerBook from "@iconify-icons/tabler/book";
+import externalLinkIcon from "@iconify-icons/tabler/external-link";
 import tablerFiles from "@iconify-icons/tabler/files";
 import tablerLogout from "@iconify-icons/tabler/logout";
+import tablerMessage from "@iconify-icons/tabler/message";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
@@ -31,6 +43,55 @@ import { ASSET_KINDS } from "@/lib/domain/multimedia";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { useMenuArrowKeys } from "@/lib/ui/hooks/useMenuArrowKeys";
 import { getInitials } from "@/lib/utils";
+
+const FEEDBACK_FORM_URL =
+	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
+
+/* Both help links open in a new tab. Only the Docs URL differs by env: dev
+ * serves the docs in-tree at `/docs` (so local edits preview), while prod points
+ * at the `docs.commcare.app` subdomain: the main host doesn't serve `/docs`
+ * under the multi-host routing. `process.env.NODE_ENV` is inlined by Next at
+ * build time. */
+const DOCS_HREF =
+	process.env.NODE_ENV === "development"
+		? "/docs"
+		: "https://docs.commcare.app/";
+
+/**
+ * A menu row that leaves the app. It wears the same box as Files and Settings
+ * beside it, and adds the trailing external-link glyph: opening a new tab is
+ * the one thing about these rows the label alone doesn't say.
+ */
+function ExternalRow({
+	href,
+	icon,
+	label,
+	onNavigate,
+}: {
+	href: string;
+	icon: IconifyIcon;
+	label: string;
+	onNavigate: () => void;
+}) {
+	return (
+		<Link
+			href={href}
+			target="_blank"
+			rel="noopener noreferrer"
+			onClick={onNavigate}
+			className={POPOVER_ROW_CLS}
+		>
+			<Icon icon={icon} width="16" height="16" className="shrink-0" />
+			<span className="flex-1">{label}</span>
+			<Icon
+				icon={externalLinkIcon}
+				width="14"
+				height="14"
+				className="shrink-0 text-nova-text-muted"
+			/>
+		</Link>
+	);
+}
 
 /**
  * Credit-gauge gradient. The argument is the fraction of the month's credits
@@ -251,6 +312,23 @@ export function AccountMenu({
 							<Icon icon={tablerSettings} width="16" height="16" />
 							Settings
 						</Link>
+
+						{/* ── Divider ────────────────────────────────────── */}
+						<div className="mx-2 my-1 border-t border-white/[0.06]" />
+
+						{/* ── Help: the two ways out of the app ──────────── */}
+						<ExternalRow
+							href={DOCS_HREF}
+							icon={tablerBook}
+							label="Docs"
+							onNavigate={() => setOpen(false)}
+						/>
+						<ExternalRow
+							href={FEEDBACK_FORM_URL}
+							icon={tablerMessage}
+							label="Give feedback"
+							onNavigate={() => setOpen(false)}
+						/>
 
 						{/* ── Divider ────────────────────────────────────── */}
 						<div className="mx-2 my-1 border-t border-white/[0.06]" />

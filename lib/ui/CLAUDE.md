@@ -15,10 +15,10 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 
 **`useMenuArrowKeys` is for a POPOVER that acts as a menu, and it is not
 `useMenuNavigation`.** Base UI's `Menu` gives arrow keys for free, but the
-account, Project and Help menus are popovers whose rows are plain buttons and
+account and Project menus are popovers whose rows are plain buttons and
 links, because they hold sections, headings and mixed content a menu's row
-model does not fit. So they answered the pointer and not the keyboard, and two
-of the three record a real choice (switch Project, sign out). The difference
+model does not fit. So they answered the pointer and not the keyboard, and
+both record a real choice (switch Project, sign out). The difference
 from `useMenuNavigation` is where the rows come from: that one takes a static
 `items` array and owns a selected index (the TipTap toolbar), while these
 panels add and remove rows WHILE OPEN (a Project list finishes loading, a

@@ -73,12 +73,12 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opa
 /**
  * A row inside a POPOVER that acts as a menu item.
  *
- * Base UI menus get their items from `MENU_ITEM_CLS` above, but the account,
- * Project and Help menus are popovers whose rows are plain buttons and links.
- * They are the same affordance and must read the same: the design system
- * publishes one menu-item treatment (14px, `--nova-text`, a white/0.06
- * highlight), and rendering one of the three through the Button primitive put
- * a 15px secondary-coloured label beside two 14px ones in the same header.
+ * Base UI menus get their items from `MENU_ITEM_CLS` above, but the account and
+ * Project menus are popovers whose rows are plain buttons and links. They are
+ * the same affordance and must read the same: the design system publishes one
+ * menu-item treatment (14px, `--nova-text`, a white/0.06 highlight), and
+ * rendering one of them through the Button primitive put a 15px
+ * secondary-coloured label beside 14px ones in the same header.
  *
  * A menu row is not a Button: it composes from the same base as the real menu
  * items, so its highlight is the same inset 12px row rather than a square
@@ -89,9 +89,8 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opa
  * A Base UI menu item gets that for free because the menu drives it through
  * `data-highlighted`, which fires for arrow keys and pointer alike; these rows
  * are plain buttons in a popover, so a `:hover`-only highlight leaves arrowing
- * through them completely silent. Two of the three menus this class serves
- * record a real choice (switch Project, sign out), which is not a thing to do
- * blind.
+ * through them completely silent. Both menus this class serves record a real
+ * choice (switch Project, sign out), which is not a thing to do blind.
  */
 export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} nova-focusable-inset cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] not-disabled:focus-visible:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
 

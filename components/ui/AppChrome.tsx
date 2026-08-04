@@ -37,7 +37,6 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
-import { HelpMenu } from "@/components/ui/HelpMenu";
 import {
 	HEADER_HANDOFF_DELAY,
 	HeaderCluster,
@@ -177,7 +176,6 @@ export function AppChrome({
 											projects={projects}
 											activeProjectId={activeProjectId}
 										/>
-										<HelpMenu />
 									</HeaderCluster>
 								) : null}
 							</AnimatePresence>
