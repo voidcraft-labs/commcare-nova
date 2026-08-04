@@ -29,9 +29,9 @@ export function UsersSection() {
 				Users and personas
 			</h2>
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
-				Describe the people who will run this app: what they carry with them,
-				the roles they fill, and named workers you can preview as. Nothing here
-				creates a real CommCare account: that happens when you deploy.
+				Describe the people who will use this app, the information they carry,
+				and the roles they fill. Add personas to try those choices in Preview.
+				Worker accounts are created when you deploy.
 			</p>
 
 			<div className="mt-8 flex flex-col gap-10">

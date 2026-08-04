@@ -31,6 +31,7 @@ export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./organization";
 export * from "./prose";
 export * from "./records";
 export * from "./referenceIndex";

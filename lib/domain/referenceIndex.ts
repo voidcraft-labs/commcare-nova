@@ -20,6 +20,9 @@
 //     form-link targets and close conditions store uuids outright;
 //     prose reference atoms carry the uuid directly. Renames never
 //     re-key these edges — the uuid is stable.
+//   - `l:<uuid>` — an app-scoped location-row reference. Location UUIDs are
+//     intentionally outside the Blueprint entity namespace even when the raw
+//     UUID text happens to match an authored entity.
 //   - `p:<uuid>` — a custom worker-information property reference by stable
 //     uuid. Renaming its saved slug never re-keys the edge.
 //   - `c:<caseType>/<property>` — a case-property reference. Typed XPath/prose
@@ -94,6 +97,11 @@ export interface ReferenceIndex {
 /** Target key for an entity reference by stable uuid. */
 export function entityTargetKey(uuid: Uuid | string): string {
 	return `u:${uuid}`;
+}
+
+/** Target key for an app-scoped organization location row. */
+export function locationTargetKey(uuid: Uuid | string): string {
+	return `l:${uuid}`;
 }
 
 export const USER_PROPERTY_TARGET_PREFIX = "p:";

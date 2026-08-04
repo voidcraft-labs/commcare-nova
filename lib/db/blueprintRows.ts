@@ -48,17 +48,33 @@ export type EntityRowKind =
 	| "field"
 	| "user_property"
 	| "user_type"
-	| "persona";
+	| "persona"
+	| "organization_level"
+	| "location_property";
 
 /** Which doc slot each flat user collection round-trips through. */
 const FLAT_COLLECTIONS = [
 	["user_property", "userProperties", "userPropertyOrder"],
 	["user_type", "userTypes", "userTypeOrder"],
 	["persona", "personas", "personaOrder"],
+	["organization_level", "organizationLevels", "organizationLevelOrder"],
+	["location_property", "locationProperties", "locationPropertyOrder"],
 ] as const satisfies readonly (readonly [
 	EntityRowKind,
-	"userProperties" | "userTypes" | "personas",
-	"userPropertyOrder" | "userTypeOrder" | "personaOrder",
+	(
+		| "userProperties"
+		| "userTypes"
+		| "personas"
+		| "organizationLevels"
+		| "locationProperties"
+	),
+	(
+		| "userPropertyOrder"
+		| "userTypeOrder"
+		| "personaOrder"
+		| "organizationLevelOrder"
+		| "locationPropertyOrder"
+	),
 ])[];
 
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
@@ -217,6 +233,11 @@ export function assembleBlueprint(
 		// loading rather than losing one row.
 		const flatSlot = flatSlotByKind.get(row.kind);
 		if (flatSlot !== undefined) {
+			if (row.parent_uuid !== null) {
+				throw new Error(
+					`Blueprint flat entity ${row.uuid} (${row.kind}) has unexpected parent ${row.parent_uuid}.`,
+				);
+			}
 			const collection = flat[flatSlot];
 			if (collection !== undefined) {
 				flat[flatSlot] = recordWithValue(

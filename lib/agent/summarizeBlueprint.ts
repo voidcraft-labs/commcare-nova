@@ -22,10 +22,13 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	assignedLocationUuids,
 	fieldCaseWrite,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	orderedColumns,
+	orderedLocationProperties,
+	orderedOrganizationLevels,
 	orderedPersonas,
 	orderedUserProperties,
 	orderedUserTypes,
@@ -327,6 +330,29 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		}
 	}
 
+	const organizationLevels = orderedOrganizationLevels(doc);
+	const locationProperties = orderedLocationProperties(doc);
+	if (organizationLevels.length > 0 || locationProperties.length > 0) {
+		lines.push("");
+		lines.push("**Organization:**");
+		if (organizationLevels.length > 0) {
+			lines.push("  levels:");
+			for (const level of organizationLevels) {
+				lines.push(
+					`    - "${level.name}" [uuid ${level.uuid}, code ${level.code}]${level.parentLevelUuid === undefined ? " root" : ` parent uuid ${level.parentLevelUuid}`}${level.caseFlow.workers === "assigned" ? " holds workers" : " no workers"}${level.caseFlow.ownsCases ? " owns cases" : " owns no cases"} case_flow=${JSON.stringify(level.caseFlow)} address_book=${JSON.stringify(level.addressBook)}`,
+				);
+			}
+		}
+		if (locationProperties.length > 0) {
+			lines.push("  place_information:");
+			for (const property of locationProperties) {
+				lines.push(
+					`    - ${property.slug}: ${JSON.stringify(property.label)} [uuid ${property.uuid}]${property.required === true ? " required" : ""}${property.choices === undefined ? "" : ` choices=${JSON.stringify(property.choices)}`}${property.levelUuids === undefined ? " all levels" : ` level_uuids=${JSON.stringify(property.levelUuids)}`}`,
+				);
+			}
+		}
+	}
+
 	const userProperties = orderedUserProperties(doc);
 	const userTypes = orderedUserTypes(doc);
 	const personas = orderedPersonas(doc);
@@ -379,8 +405,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 						? undefined
 						: ownRecordValue(userTypesOf(doc), persona.userTypeUuid);
 				const personaValues = values(persona.values);
+				const locationUuids = assignedLocationUuids(persona.locations);
 				lines.push(
-					`    - "${persona.name}" [uuid ${persona.uuid}]${persona.description === undefined ? "" : ` description=${JSON.stringify(persona.description)}`}${role === undefined ? "" : ` role="${role.name}" [uuid ${role.uuid}]`}${personaValues === "" ? "" : ` overrides={${personaValues}}`}`,
+					`    - "${persona.name}" [uuid ${persona.uuid}]${persona.description === undefined ? "" : ` description=${JSON.stringify(persona.description)}`}${role === undefined ? "" : ` role="${role.name}" [uuid ${role.uuid}]`}${personaValues === "" ? "" : ` overrides={${personaValues}}`}${locationUuids.length === 0 ? "" : ` locations=${JSON.stringify(locationUuids)} (first is main)`}`,
 				);
 			}
 		}

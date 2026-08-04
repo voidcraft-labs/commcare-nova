@@ -40,7 +40,14 @@
 
 import type { AliasableExpression, Kysely } from "kysely";
 import { expressionBuilder } from "kysely";
-import type { CasePropertyDataType, CaseType, Uuid } from "@/lib/domain";
+import {
+	ancestorLevels,
+	type CasePropertyDataType,
+	type CaseType,
+	levelOwnsCases,
+	type OrganizationLevel,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
@@ -184,6 +191,8 @@ export interface TermCompileContext {
 	 * term compiler throws rather than emit ambiguous SQL.
 	 */
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/** App organization hierarchy for owner-only location terms. */
+	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
 	 * Rows-free lookup-table definitions (table id → column id →
 	 * declared data type) for the lookup-table carriers. Optional —
@@ -262,6 +271,82 @@ export function compileTerm(
 			);
 		case "table-column":
 			return compileLookupColumnTerm(term, ctx);
+		case "fixed-location":
+			// Preview's location fixture and app row store share this UUID.
+			return eb.val(term.locationUuid);
+		case "owner-location-at-level": {
+			if (ctx.currentCaseType === undefined) {
+				throw new Error(
+					"compileTerm: an owner-to-place hop requires a selected case.",
+				);
+			}
+			const levels = ctx.organizationLevels;
+			const destination = levels?.[term.levelUuid];
+			const source =
+				destination === undefined || levels === undefined
+					? undefined
+					: ancestorLevels(destination, levels).find(levelOwnsCases);
+			if (destination === undefined || source === undefined) {
+				throw new Error(
+					`compileTerm: organization level '${term.levelUuid}' has no resolvable case-owning ancestor.`,
+				);
+			}
+			// Same flat-lineage lookup as the device fixture, expressed through
+			// Kysely's typed recursive-query builder. Seed every live destination
+			// together with its parent, then carry the destination id while walking
+			// upward. The recursive CTE cannot reference the destination alias from
+			// the later scalar SELECT; keeping both rows in the seed makes that SQL
+			// scope explicit while the current case remains a valid outer reference.
+			return ctx.db
+				.withRecursive(
+					"location_lineage(destination_id, id, parent_id, level_uuid)",
+					(db) =>
+						db
+							.selectFrom("app_locations as destination")
+							.innerJoin(
+								"app_locations as lineage_parent",
+								"lineage_parent.id",
+								"destination.parent_id",
+							)
+							.select([
+								"destination.id as destination_id",
+								"lineage_parent.id",
+								"lineage_parent.parent_id",
+								"lineage_parent.level_uuid",
+							])
+							.where("destination.app_id", "=", ctx.appId)
+							.where("destination.archived_at", "is", null)
+							.where("destination.level_uuid", "=", destination.uuid)
+							.where("lineage_parent.app_id", "=", ctx.appId)
+							.unionAll(
+								db
+									.selectFrom("app_locations as lineage_parent")
+									.innerJoin(
+										"location_lineage",
+										"lineage_parent.id",
+										"location_lineage.parent_id",
+									)
+									.select([
+										"location_lineage.destination_id",
+										"lineage_parent.id",
+										"lineage_parent.parent_id",
+										"lineage_parent.level_uuid",
+									])
+									.where("lineage_parent.app_id", "=", ctx.appId),
+							),
+				)
+				.selectFrom("location_lineage")
+				.select("location_lineage.destination_id")
+				.where("location_lineage.level_uuid", "=", source.uuid)
+				.where((db) =>
+					db(
+						db.cast("location_lineage.id", "text"),
+						"=",
+						db.ref(`${ctx.anchorAlias}.owner_id` as never),
+					),
+				)
+				.limit(1);
+		}
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

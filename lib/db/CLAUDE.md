@@ -27,14 +27,14 @@ cursor reads for this surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
-groups) plus one `blueprint_entities` row per entity. Six kinds share that table
+groups) plus one `blueprint_entities` row per entity. Eight kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
-flat — no parent, constant ordinal, sequence living entirely in each entity's
+flat alongside `organization_level` / `location_property` — no parent, constant ordinal, sequence living entirely in each entity's
 position in its parent's sequence. **Every kind branches explicitly in the assembler**: its
 shape is `if module / else if form / else field`, so a new kind that falls
 through is read as a field, fails `blueprintDocSchema`, and stops the whole app
-from loading rather than losing one row. The three flat collections' doc slots
+from loading rather than losing one row. The five flat collections' doc slots
 are optional and OMITTED when empty, so an app declaring none assembles to
 exactly the doc it did before they existed.
 `blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact
@@ -168,8 +168,9 @@ the dedup latch, take the shared membership gate,
 lock and authorize the actor's exact `auth_member` row in the SAME transaction,
 hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
-candidate lookup tables, evaluate against that snapshot, replace the complete
-edge set, then write rows + history. Missing or foreign tables become one
+candidate lookup tables, evaluate against that snapshot, run the organization
+cross-store integrity hook under the same app-first lock, replace the complete
+lookup and location edge sets, then write rows + history. Missing or foreign tables become one
 Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded

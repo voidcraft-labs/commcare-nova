@@ -355,6 +355,9 @@ async function evaluateBatch(
 				anchorAlias: "c",
 				...(session === undefined ? {} : { currentCaseType: session.caseType }),
 				caseTypeSchemas: program.caseTypeSchemas,
+				...(program.organizationLevels === undefined
+					? {}
+					: { organizationLevels: program.organizationLevels }),
 				...(program.lookupTableSchemas === undefined
 					? {}
 					: { lookupTableSchemas: program.lookupTableSchemas }),

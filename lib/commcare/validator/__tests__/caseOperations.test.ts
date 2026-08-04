@@ -21,12 +21,14 @@ import {
 	double,
 	eq,
 	exists,
+	fixedLocation,
 	formField,
 	idOf,
 	ifExpr,
 	isBlank,
 	literal,
 	match,
+	ownerLocationAtLevel,
 	prop,
 	subcasePath,
 	tableLookup,
@@ -831,6 +833,23 @@ describe("case-operation target and dependency safety", () => {
 		);
 	});
 
+	it("requires a loaded case for an owner-to-place reverse hop", () => {
+		expectCode(
+			"CASE_OPERATION_SESSION_UNAVAILABLE",
+			[
+				update({
+					owner: term(
+						ownerLocationAtLevel(
+							testUuid("owner-destination-level"),
+							"patient",
+						),
+					),
+				}),
+			],
+			"registration",
+		);
+	});
+
 	it("requires op/id-of references to name an earlier create of the expected type", () => {
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
 			update({ target: { kind: "op", opUuid: CREATE } }),
@@ -1498,6 +1517,18 @@ describe("case-operation links and on-device totality", () => {
 		]) {
 			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [operation]);
 		}
+	});
+
+	it("admits a fixed place only as the complete owner expression", () => {
+		const fixed = term(fixedLocation(testUuid("fixed-owner-location")));
+		const whole = errorsFor([update({ owner: fixed })]);
+		expect(whole.map((error) => error.code)).not.toContain(
+			"CASE_OPERATION_EXPRESSION_TYPE",
+		);
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({ owner: concat(fixed, term(literal("suffix"))) }),
+		]);
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [create({ name: fixed })]);
 	});
 
 	it("rejects schema-valid expressions that the on-device emitter cannot execute", () => {

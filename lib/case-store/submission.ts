@@ -26,6 +26,7 @@ import type {
 	CaptureFieldKind,
 	CaseOperation,
 	CaseType,
+	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
@@ -181,6 +182,8 @@ export interface CaseOperationProgram {
 	/** Schema map for expression compilation (`buildCaseTypeMap` at the
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/** Organization hierarchy used only by owner-location-at-level terms. */
+	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
 	 * Rows-free Project-scoped lookup definitions for every carrier in this
 	 * exact operation program. The server derives the target ids from the

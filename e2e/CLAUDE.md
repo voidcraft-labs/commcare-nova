@@ -63,6 +63,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   (`CASE_CHANGES_FIXTURE_COUNT`), and the spec selects
   `seed.caseChanges[testInfo.retry]`. Keep that attempt-indexed contract when
   extending the journey.
+- **The organization journey also gets one app per attempt.** It authors levels
+  through blueprint mutations and places through the app-scoped organization
+  store; assigns a persona; authors fixed and reverse case owners; exercises
+  archive, conflict recovery, viewer access, focus, and responsive layout; and
+  keeps the whole run free of browser errors. `ORGANIZATION_FIXTURE_COUNT`,
+  `seed.organizationAppIds[testInfo.retry]`, and the matching
+  `seed.organizationCaseChangeRoutes[testInfo.retry]` keep a retry away from a
+  partially authored hierarchy and route every owner edit back to that attempt's
+  exact app.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by

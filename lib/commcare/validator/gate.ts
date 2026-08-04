@@ -118,6 +118,20 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	USER_DATA_UNKNOWN_PROPERTY: "soundness",
 	USER_DATA_INVALID_CHOICE: "soundness",
 	USER_PROPERTY_REFERENCE_UNKNOWN: "soundness",
+	ORGANIZATION_LEVEL_CODE_DUPLICATE: "soundness",
+	ORGANIZATION_LEVEL_NAME_DUPLICATE: "soundness",
+	ORGANIZATION_LEVEL_PARENT_UNKNOWN: "soundness",
+	ORGANIZATION_LEVEL_CYCLE: "soundness",
+	ORGANIZATION_LEVEL_REFERENCE_UNKNOWN: "soundness",
+	ORGANIZATION_LEVEL_CAP_NOT_BELOW: "soundness",
+	ORGANIZATION_LEVEL_SCOPE_GAP: "soundness",
+	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: "soundness",
+	ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT: "soundness",
+	LOCATION_PROPERTY_SLUG_INVALID: "soundness",
+	LOCATION_PROPERTY_SLUG_DUPLICATE: "soundness",
+	LOCATION_PROPERTY_LEVEL_UNKNOWN: "soundness",
+	LOCATION_PROPERTY_REQUIRED_CAPACITY: "soundness",
+	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
@@ -364,6 +378,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
+	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",

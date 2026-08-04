@@ -45,6 +45,7 @@ import * as sequenceIsArrayPosition from "./20260727120000_sequence_is_array_pos
 import * as canonicalIdentityFoundation from "./20260728000000_canonical_identity_foundation";
 import * as caseSchemaIndexConvergence from "./20260728010000_case_schema_index_convergence";
 import * as caseTypeSchemaRetirement from "./20260802000000_case_type_schema_retirement";
+import * as organizationModel from "./20260802010000_organization_model";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -84,6 +85,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	[CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME]: canonicalIdentityFoundation,
 	"20260728010000_case_schema_index_convergence": caseSchemaIndexConvergence,
 	"20260802000000_case_type_schema_retirement": caseTypeSchemaRetirement,
+	"20260802010000_organization_model": organizationModel,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

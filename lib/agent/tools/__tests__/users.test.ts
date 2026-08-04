@@ -8,6 +8,7 @@ import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import { makeCanonicalGenesisDoc } from "../../__tests__/fixtures";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
+	addPersonasInputSchema,
 	addPersonasTool,
 	addUserPropertiesInputSchema,
 	addUserPropertiesTool,
@@ -48,6 +49,39 @@ function emptyDoc(): BlueprintDoc {
 }
 
 describe("user authoring tools", () => {
+	it("keeps persona place assignments unique and primary-first", async () => {
+		const first = testUuid("persona-place-first");
+		const second = testUuid("persona-place-second");
+		expect(
+			addPersonasInputSchema.safeParse({
+				personas: [{ name: "Asha", locationUuids: [first, first] }],
+			}).success,
+		).toBe(false);
+
+		const { ctx } = makeCtx();
+		const added = await addPersonasTool.execute(
+			{
+				personas: [{ name: "Asha", locationUuids: [first, second] }],
+			},
+			ctx,
+			emptyDoc(),
+		);
+		if (!("uuids" in added.result)) throw new Error("persona creation failed");
+		expect(added.newDoc.personas?.[added.result.uuids[0]]?.locations).toEqual({
+			primaryUuid: first,
+			additionalUuids: [second],
+		});
+		const read = await getUsersTool.execute({}, ctx, added.newDoc);
+		expect(read.data.personas[0]?.locationUuids).toEqual([first, second]);
+		expect(read.data.personas[0]).not.toHaveProperty("locations");
+		expect(
+			updatePersonaInputSchema.safeParse({
+				uuid: added.result.uuids[0],
+				locationUuids: read.data.personas[0]?.locationUuids,
+			}).success,
+		).toBe(true);
+	});
+
 	it("uses the same XML-safe worker-property grammar on the SA and MCP schema", () => {
 		for (const slug of ["2fa_region", "-area"]) {
 			expect(

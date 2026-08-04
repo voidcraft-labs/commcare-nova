@@ -19,12 +19,14 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { CaseOperation, CaseType } from "@/lib/domain";
+import type { CaseOperation, CaseType, OrganizationLevel } from "@/lib/domain";
 import {
 	actingUser,
 	eq,
+	fixedLocation,
 	formField,
 	literal,
+	ownerLocationAtLevel,
 	prop,
 	term,
 	unowned,
@@ -238,6 +240,7 @@ function rootProgram(
 	opts?: {
 		formFields?: ReadonlyArray<[string, string | readonly string[]]>;
 		sessionCaseId?: string | null;
+		organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	},
 ): CaseOperationProgram {
 	const sessionCaseId =
@@ -260,6 +263,9 @@ function rootProgram(
 		],
 		...(sessionCaseId === undefined ? {} : { sessionCaseId }),
 		caseTypeSchemas: SCHEMAS,
+		...(opts?.organizationLevels === undefined
+			? {}
+			: { organizationLevels: opts.organizationLevels }),
 	};
 }
 
@@ -1611,6 +1617,85 @@ describe("text facets", () => {
 // ---------------------------------------------------------------
 
 describe("owner stamping", () => {
+	it("evaluates fixed and owner-relative place destinations in Preview", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+		const regionUuid = testUuid("11111111-1111-4111-8111-111111111119");
+		const facilityLevelUuid = testUuid("22222222-2222-4222-8222-222222222229");
+		const regionLocationUuid = testUuid("33333333-3333-4333-8333-333333333339");
+		const facilityLocationUuid = testUuid(
+			"44444444-4444-4444-8444-444444444449",
+		);
+		const levels: Record<string, OrganizationLevel> = {
+			[regionUuid]: {
+				uuid: regionUuid,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "own-branch" },
+			},
+			[facilityLevelUuid]: {
+				uuid: facilityLevelUuid,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: regionUuid,
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		await sql`
+			INSERT INTO app_locations
+				(id, app_id, level_uuid, parent_id, site_code, name, order_key)
+			VALUES
+				(${regionLocationUuid}, ${APP_ID}, ${regionUuid}, NULL,
+					'region', 'Region', 'a'),
+				(${facilityLocationUuid}, ${APP_ID}, ${facilityLevelUuid},
+					${regionLocationUuid}, 'facility', 'Facility', 'a')
+		`.execute(dbHandle.db);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							owner: term(fixedLocation(facilityLocationUuid)),
+						}),
+					),
+				],
+				{ organizationLevels: levels },
+			),
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.owner_id).toBe(
+			facilityLocationUuid,
+		);
+
+		await sql`
+			UPDATE cases
+			SET owner_id = ${regionLocationUuid}
+			WHERE app_id = ${APP_ID} AND case_id = ${SESSION_CASE_ID}
+		`.execute(dbHandle.db);
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							owner: term(ownerLocationAtLevel(facilityLevelUuid, "patient")),
+						}),
+					),
+				],
+				{ organizationLevels: levels },
+			),
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.owner_id).toBe(
+			facilityLocationUuid,
+		);
+	});
+
 	it("defaults a create's owner to the acting user and honors unowned", async () => {
 		const store = makeStore();
 		await seedSchemas(store);

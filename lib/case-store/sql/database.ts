@@ -39,6 +39,7 @@
 
 import type { ColumnType, GeneratedAlways, JSONColumnType } from "kysely";
 import type {
+	AppLocationsTable,
 	AppsTable,
 	FormAttachmentsTable,
 	FormSubmissionIntentsTable,
@@ -345,6 +346,8 @@ export interface ParkedCaseValuesTable {
  */
 export interface Database {
 	apps: AppsTable;
+	/** Organization rows are read-only here, for owner-location Preview terms. */
+	app_locations: AppLocationsTable;
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_schema_index_deletions: CaseSchemaIndexDeletionsTable;

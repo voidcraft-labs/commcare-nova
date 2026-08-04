@@ -30,6 +30,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
@@ -38,9 +39,17 @@ import type { OperationValueScope } from "@/components/builder/shared/expression
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
 } from "@/lib/doc/caseOperationIntents";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useModuleCaseType,
 	useModuleSelectsCaseFirst,
@@ -48,25 +57,43 @@ import {
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
+import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
-import type {
-	CaseOperation,
-	CaseOperationWrite,
-	CasePropertyDataType,
+import {
+	ancestorLevels,
+	asUuid,
+	type CaseOperation,
+	type CaseOperationWrite,
+	type CasePropertyDataType,
+	levelOwnsCases,
 } from "@/lib/domain";
 import {
 	actingUser,
+	fixedLocation,
+	ownerLocationAtLevel,
 	type Predicate,
 	storageAssignmentConstraint,
+	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import {
+	fixedLocationOwnerIssue,
+	reverseLocationOwnerIssue,
+} from "@/lib/organization/ownerTargetVerdicts";
+import { useOrganization } from "@/lib/organization/useOrganization";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
+import {
+	caseOwnerCopy,
+	fixedOwnerModeIssue,
+	organizationOwnerModeIssue,
+	pendingFixedOwnerLabel,
+} from "./caseOwnerUi";
 import {
 	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
@@ -421,20 +448,12 @@ export function CaseOperationDetailCanvas({
 				)}
 
 				{operation.action !== "close" && (
-					<OptionalExpressionSection
-						title="Who owns the case"
-						description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
-						addLabel="Choose an owner"
-						clearLabel="Use the default owner"
-						clearTitle="Use the default owner?"
-						clearConsequence="The case will belong to whoever submits the form."
+					<CaseOwnerSection
+						action={operation.action}
 						value={operation.owner}
 						canEdit={operationCanEdit}
-						seed={() => actingUser()}
 						onChange={(owner) => commit({ ...operation, owner })}
-						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
-						ownerValues
 					/>
 				)}
 
@@ -550,6 +569,401 @@ export function CaseOperationDetailCanvas({
 				)}
 			</fieldset>
 		</ContentFrame>
+	);
+}
+
+type LocationOwnerExpression = Extract<ValueExpression, { kind: "term" }> & {
+	readonly term:
+		| { readonly kind: "fixed-location"; readonly locationUuid: Uuid }
+		| {
+				readonly kind: "owner-location-at-level";
+				readonly levelUuid: Uuid;
+				readonly ownerCaseType: string;
+		  };
+};
+
+function locationOwnerExpression(
+	value: ValueExpression | undefined,
+): LocationOwnerExpression | undefined {
+	if (
+		value?.kind !== "term" ||
+		(value.term.kind !== "fixed-location" &&
+			value.term.kind !== "owner-location-at-level")
+	) {
+		return undefined;
+	}
+	return value as LocationOwnerExpression;
+}
+
+/**
+ * A case owner is the one expression slot whose choices include organization
+ * rows. Those identities live outside the blueprint, so this small owner owns
+ * their picker instead of teaching the generic expression menu to fetch an
+ * app-scoped store it otherwise never needs.
+ */
+export function CaseOwnerSection({
+	action,
+	value,
+	canEdit,
+	onChange,
+	editorScope,
+}: {
+	readonly action: "create" | "update";
+	readonly value: ValueExpression | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly editorScope: EditorScope;
+}) {
+	const appId = useAppId();
+	const organization = useOrganization(appId ?? "");
+	const organizationIssue = organizationOwnerModeIssue(organization);
+	const organizationReady = organizationIssue === undefined;
+	const doc = useBlueprintDoc((state) => state);
+	const levels = useOrganizationLevels();
+	const levelRecord = useMemo(
+		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),
+		[levels],
+	);
+	const fixedLocationCandidates = useMemo(
+		() =>
+			organization.locations.filter((location) => {
+				if (location.archivedAt !== null) return false;
+				const level = levelRecord[location.levelUuid];
+				return level !== undefined && levelOwnsCases(level);
+			}),
+		[levelRecord, organization.locations],
+	);
+	const reverseLevels = useMemo(
+		() =>
+			levels.filter(
+				(level) =>
+					levelOwnsCases(level) &&
+					ancestorLevels(level, levelRecord).some(levelOwnsCases),
+			),
+		[levelRecord, levels],
+	);
+	const reverseAvailable = editorScope.caseDataScope !== "global";
+	const reverseLevelIssues = useMemo(
+		() =>
+			new Map(
+				reverseLevels.map((level) => [
+					level.uuid,
+					reverseLocationOwnerIssue(doc, organization.locations, level.uuid),
+				]),
+			),
+		[doc, organization.locations, reverseLevels],
+	);
+	const fixedModeIssue = fixedOwnerModeIssue(
+		organization,
+		fixedLocationCandidates.length,
+	);
+	const reverseModeIssue =
+		organizationIssue ??
+		(!reverseAvailable
+			? "This form does not open a case, so there is no current owner to start from."
+			: editorScope.currentCaseType === ""
+				? "This case change has no current case type to follow."
+				: reverseLevels.length === 0
+					? "Add a case-owning level beneath another case-owning level first."
+					: undefined);
+	const selected = locationOwnerExpression(value);
+	const selectedFixedLocationUuid =
+		selected?.term.kind === "fixed-location"
+			? selected.term.locationUuid
+			: undefined;
+	const fixedOwnerPendingLabel =
+		selectedFixedLocationUuid !== undefined &&
+		!fixedLocationCandidates.some(
+			(location) => location.id === selectedFixedLocationUuid,
+		)
+			? pendingFixedOwnerLabel(organization)
+			: undefined;
+	const selectedLevelUuid =
+		selected?.term.kind === "owner-location-at-level"
+			? selected.term.levelUuid
+			: undefined;
+	const selectedLevelName =
+		selectedLevelUuid !== undefined
+			? (levels.find((level) => level.uuid === selectedLevelUuid)?.name ??
+				"A level that no longer exists")
+			: undefined;
+	const mode =
+		selected?.term.kind === "fixed-location"
+			? "fixed"
+			: selected?.term.kind === "owner-location-at-level"
+				? "reverse"
+				: "expression";
+	const [draftMode, setDraftMode] = useState<
+		| {
+				readonly mode: "expression" | "fixed" | "reverse";
+				readonly baseValue: ValueExpression | undefined;
+		  }
+		| undefined
+	>();
+	const displayedMode =
+		draftMode !== undefined && draftMode.baseValue === value
+			? draftMode.mode
+			: mode;
+	const displayedModeLabel =
+		displayedMode === "fixed"
+			? "A particular place"
+			: displayedMode === "reverse"
+				? "A place beneath the current case owner"
+				: "A person, form answer, or case value";
+	const copy = caseOwnerCopy(action);
+	const { addRef, onCleared } = useClearedSlotFocus(value);
+
+	const changeMode = (next: unknown) => {
+		if (next === "expression") {
+			setDraftMode(undefined);
+			onChange(actingUser());
+			return;
+		}
+		if (next === "fixed") {
+			if (fixedModeIssue === undefined) {
+				setDraftMode({ mode: "fixed", baseValue: value });
+			}
+			return;
+		}
+		if (next === "reverse") {
+			if (reverseModeIssue === undefined) {
+				setDraftMode({ mode: "reverse", baseValue: value });
+			}
+		}
+	};
+
+	return (
+		<Section
+			title="Who owns the case"
+			description={copy.description}
+			action={
+				value !== undefined && canEdit ? (
+					<ClearConditionButton
+						label={copy.clearLabel}
+						title={copy.clearTitle}
+						consequence={copy.clearConsequence}
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							setDraftMode(undefined);
+							onCleared();
+							onChange(undefined);
+						}}
+					/>
+				) : undefined
+			}
+		>
+			{organization.loading && (
+				<p className="mb-3 text-[12px] text-nova-text-muted">Loading places…</p>
+			)}
+			{organization.error !== undefined && (
+				<p
+					role="alert"
+					className="mb-3 text-[12px] leading-relaxed text-nova-red"
+				>
+					Places could not be loaded: {organization.error}{" "}
+					<Button
+						type="button"
+						variant="ghost"
+						className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+						onClick={organization.reload}
+					>
+						Try again
+					</Button>
+				</p>
+			)}
+			{organization.warning !== undefined && (
+				<p
+					role="status"
+					className="mb-3 rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-2 text-[12px] leading-relaxed text-nova-text-secondary"
+				>
+					Saved places could not be refreshed, so place-based owner choices are
+					paused. {organization.warning}{" "}
+					<Button
+						type="button"
+						variant="ghost"
+						className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+						onClick={organization.reload}
+					>
+						Try again
+					</Button>
+				</p>
+			)}
+			{organization.refreshing && organization.warning === undefined && (
+				<p role="status" className="mb-3 text-[12px] text-nova-text-muted">
+					Refreshing places…
+				</p>
+			)}
+			{value === undefined ? (
+				<AddSlotButton
+					ref={addRef}
+					label="Choose an owner"
+					disabled={!canEdit}
+					onClick={() => {
+						setDraftMode(undefined);
+						onChange(actingUser());
+					}}
+				/>
+			) : (
+				<div className="space-y-3">
+					<div>
+						<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+							How to choose the owner
+						</p>
+						<Select
+							value={displayedMode}
+							onValueChange={changeMode}
+							disabled={!canEdit}
+						>
+							<SelectTrigger
+								wrapValue
+								className="w-full"
+								aria-label="How to choose the owner"
+							>
+								<SelectValue>{displayedModeLabel}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="expression">
+									A person, form answer, or case value
+								</SelectItem>
+								<OwnerIssueSelectItem value="fixed" issue={fixedModeIssue}>
+									A particular place
+								</OwnerIssueSelectItem>
+								<OwnerIssueSelectItem value="reverse" issue={reverseModeIssue}>
+									A place beneath the current case owner
+								</OwnerIssueSelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					{displayedMode === "fixed" ? (
+						<div>
+							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+								Place that owns the case
+							</p>
+							<LocationChoiceSelect
+								locations={fixedLocationCandidates}
+								value={
+									selected?.term.kind === "fixed-location"
+										? selected.term.locationUuid
+										: ""
+								}
+								onValueChange={(locationUuid) => {
+									setDraftMode(undefined);
+									onChange(term(fixedLocation(asUuid(locationUuid))));
+								}}
+								ariaLabel="Place that owns the case"
+								placeholder="Choose a place"
+								disabled={!canEdit || fixedModeIssue !== undefined}
+								triggerContent={
+									fixedOwnerPendingLabel === undefined ? undefined : (
+										<span>{fixedOwnerPendingLabel}</span>
+									)
+								}
+								issueFor={(location) =>
+									fixedLocationOwnerIssue(
+										doc,
+										organization.locations,
+										location.id,
+									)
+								}
+							/>
+							<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+								The place is stored by identity, so renaming it will not change
+								this rule.
+							</p>
+						</div>
+					) : displayedMode === "reverse" ? (
+						<div>
+							<p className="mb-1.5 text-[12px] font-medium text-nova-text-secondary">
+								Level to find beneath the current owner
+							</p>
+							<Select
+								value={
+									selected?.term.kind === "owner-location-at-level"
+										? selected.term.levelUuid
+										: ""
+								}
+								onValueChange={(levelUuid) => {
+									if (
+										typeof levelUuid !== "string" ||
+										!reverseLevels.some((level) => level.uuid === levelUuid) ||
+										reverseLevelIssues.get(asUuid(levelUuid)) !== undefined
+									) {
+										return;
+									}
+									setDraftMode(undefined);
+									onChange(
+										term(
+											ownerLocationAtLevel(
+												asUuid(levelUuid),
+												editorScope.currentCaseType,
+											),
+										),
+									);
+								}}
+								disabled={!canEdit || !organizationReady}
+							>
+								<SelectTrigger
+									wrapValue
+									className="w-full"
+									aria-label="Level to find beneath the current owner"
+								>
+									<SelectValue placeholder="Choose a level">
+										{selectedLevelName}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{reverseLevels.map((level) => (
+										<OwnerIssueSelectItem
+											key={level.uuid}
+											value={level.uuid}
+											issue={reverseLevelIssues.get(level.uuid)}
+										>
+											{level.name}
+										</OwnerIssueSelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+								Uses the current case owner to find the matching place at this
+								level.
+							</p>
+						</div>
+					) : (
+						<ExpressionCardEditor
+							value={value}
+							onChange={onChange}
+							constraint={caseOperationTextConstraint()}
+							{...editorScope}
+							ownerValues
+						/>
+					)}
+				</div>
+			)}
+		</Section>
+	);
+}
+
+function OwnerIssueSelectItem({
+	value,
+	issue,
+	children,
+}: {
+	readonly value: string;
+	readonly issue?: string;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<SelectItem wrap value={value} disabled={issue !== undefined}>
+			<span className="flex min-w-0 flex-col gap-0.5">
+				<span>{children}</span>
+				{issue !== undefined && (
+					<span className="whitespace-normal text-[11px] leading-snug text-nova-red">
+						{issue}
+					</span>
+				)}
+			</span>
+		</SelectItem>
 	);
 }
 

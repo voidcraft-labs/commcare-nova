@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { setPersonaLocationsMutations } from "@/lib/doc/organizationMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	addPersonaMutations,
@@ -23,6 +24,7 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
+	assignedLocationUuids,
 	asUuid,
 	type BlueprintDoc,
 	orderedPersonas,
@@ -157,12 +159,31 @@ const userTypeCreateSchema = z
 	})
 	.strict();
 
+const personaLocationUuidsSchema = z
+	.array(uuidSchema)
+	.min(1)
+	.superRefine((uuids, ctx) => {
+		if (new Set(uuids).size !== uuids.length) {
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"List each place once; the first place is already the primary.",
+			});
+		}
+	});
+
 const personaCreateSchema = z
 	.object({
 		name: z.string().min(1),
 		description: z.string().min(1).nullable().optional(),
 		userTypeUuid: uuidSchema.nullable().optional(),
 		values: valuesInputSchema.nullable().optional(),
+		locationUuids: personaLocationUuidsSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Places this persona works, primary first. Use stable location uuids returned by getOrganization.",
+			),
 	})
 	.strict();
 
@@ -214,6 +235,12 @@ export const updatePersonaInputSchema = z
 		description: z.string().min(1).nullable().optional(),
 		userTypeUuid: uuidSchema.nullable().optional(),
 		valuePatch: valuePatchInputSchema,
+		locationUuids: personaLocationUuidsSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Replace this persona's places, primary first; null clears the assignment.",
+			),
 	})
 	.strict();
 
@@ -575,6 +602,14 @@ export const addPersonasTool = {
 						values: valuesRecord(persona.values),
 					}),
 				});
+				if (persona.locationUuids !== undefined) {
+					next.push(
+						...setPersonaLocationsMutations(
+							uuids[index],
+							persona.locationUuids ?? [],
+						),
+					);
+				}
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
 			}
@@ -644,6 +679,14 @@ export const updatePersonaTool = {
 						input.uuid,
 						input.valuePatch.userPropertyUuid,
 						input.valuePatch.value ?? undefined,
+					),
+				);
+			}
+			if (input.locationUuids !== undefined) {
+				mutations.push(
+					...setPersonaLocationsMutations(
+						input.uuid,
+						input.locationUuids ?? [],
 					),
 				);
 			}
@@ -736,8 +779,9 @@ export const getUsersTool = {
 				}
 			>;
 			personas: Array<
-				Omit<Persona, "values"> & {
+				Omit<Persona, "locations" | "values"> & {
 					values: ReturnType<typeof valuesOutput>;
+					locationUuids?: readonly string[];
 				}
 			>;
 		}>
@@ -755,10 +799,15 @@ export const getUsersTool = {
 					...role,
 					values: valuesOutput(values, propertyOrder),
 				})),
-				personas: orderedPersonas(doc).map(({ values, ...persona }) => ({
-					...persona,
-					values: valuesOutput(values, propertyOrder),
-				})),
+				personas: orderedPersonas(doc).map(
+					({ locations, values, ...persona }) => ({
+						...persona,
+						values: valuesOutput(values, propertyOrder),
+						...(locations === undefined
+							? {}
+							: { locationUuids: assignedLocationUuids(locations) }),
+					}),
+				),
 			},
 		};
 	},

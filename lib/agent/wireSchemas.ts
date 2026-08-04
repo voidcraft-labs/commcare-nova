@@ -33,6 +33,8 @@ const IDENTITY_KEYS = new Set([
 	"userPropertyUuid",
 	"searchInputUuid",
 	"opUuid",
+	"locationUuid",
+	"levelUuid",
 	"tableId",
 	"columnId",
 	"resultColumnId",

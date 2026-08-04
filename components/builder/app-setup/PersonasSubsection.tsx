@@ -13,6 +13,7 @@
 "use client";
 
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import {
 	Select,
 	SelectContent,
@@ -29,9 +30,11 @@ import {
 import { asUuid } from "@/lib/doc/types";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useOrganization } from "@/lib/organization/useOrganization";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { DraftCommitInput } from "./DraftCommitField";
+import { PersonaLocations } from "./PersonaLocations";
 import { PersonaRemoveConfirm } from "./PersonaRemoveConfirm";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
@@ -42,6 +45,8 @@ export function PersonasSubsection() {
 	const properties = useUserProperties();
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
+	const appId = useAppId();
+	const organization = useOrganization(appId ?? "");
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
 	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
@@ -63,7 +68,7 @@ export function PersonasSubsection() {
 		<Subsection
 			id="app-setup-personas"
 			title="Personas"
-			description="Named workers you can run the app as. Preview signs in as the persona you pick, so conditions on worker information behave the way they will for a real person, and the cases it creates belong to that persona."
+			description="Named workers you can use in Preview. Choose one to test worker information, place assignments, and case ownership."
 			addLabel="Add persona"
 			onAdd={add}
 			canEdit={canEdit}
@@ -88,6 +93,12 @@ export function PersonasSubsection() {
 						focusOnMount={focusUuid === persona.uuid}
 						onFocused={() => setFocusUuid(undefined)}
 						returnFocusRef={addButtonRef}
+						locations={organization.locations}
+						locationsLoading={organization.loading}
+						locationsError={organization.error}
+						locationsWarning={organization.warning}
+						locationsRefreshing={organization.refreshing}
+						onReloadLocations={organization.reload}
 					/>
 				))
 			)}
@@ -113,6 +124,12 @@ function PersonaRow({
 	focusOnMount,
 	onFocused,
 	returnFocusRef,
+	locations,
+	locationsLoading,
+	locationsError,
+	locationsWarning,
+	locationsRefreshing,
+	onReloadLocations,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
@@ -122,11 +139,19 @@ function PersonaRow({
 	focusOnMount: boolean;
 	onFocused: () => void;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
+	locations: Parameters<typeof PersonaLocations>[0]["locations"];
+	locationsLoading: boolean;
+	locationsError: string | undefined;
+	locationsWarning: string | undefined;
+	locationsRefreshing: boolean;
+	onReloadLocations: () => void;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const nameId = useId();
+	const roleId = useId();
+	const roleDescriptionId = useId();
 	const nameRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -192,14 +217,11 @@ function PersonaRow({
 								name,
 							});
 						}}
-						className="min-h-11"
 					/>
 				</div>
 
-				<div className="flex flex-col gap-1.5">
-					<span className="text-[12px] font-medium text-nova-text-secondary">
-						Role
-					</span>
+				<Field>
+					<FieldLabel htmlFor={roleId}>Role</FieldLabel>
 					<Select
 						value={selectedRoleIndex + 1}
 						disabled={!canEdit || roles.length === 0}
@@ -212,8 +234,14 @@ function PersonaRow({
 							});
 						}}
 					>
-						<SelectTrigger aria-label="Role" className="min-h-11 w-full">
-							<SelectValue />
+						<SelectTrigger
+							id={roleId}
+							aria-describedby={
+								roles.length === 0 ? roleDescriptionId : undefined
+							}
+							className="w-full"
+						>
+							<SelectValue>{role?.name ?? "No role"}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value={0}>No role</SelectItem>
@@ -225,11 +253,11 @@ function PersonaRow({
 						</SelectContent>
 					</Select>
 					{roles.length === 0 && (
-						<span className="text-[12px] text-nova-text-muted">
+						<FieldDescription id={roleDescriptionId}>
 							Add a role above to give this persona one.
-						</span>
+						</FieldDescription>
 					)}
-				</div>
+				</Field>
 
 				<div className="flex flex-col gap-3">
 					<h4 className="text-[12px] font-medium text-nova-text-secondary">
@@ -252,6 +280,18 @@ function PersonaRow({
 						))
 					)}
 				</div>
+
+				{open && (
+					<PersonaLocations
+						persona={persona}
+						locations={locations}
+						loading={locationsLoading}
+						error={locationsError}
+						warning={locationsWarning}
+						refreshing={locationsRefreshing}
+						reload={onReloadLocations}
+					/>
+				)}
 
 				{canEdit && (
 					<PersonaRemoveConfirm

@@ -141,6 +141,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"lookup_rows",
 	"lookup_table_references",
 	"lookup_column_references",
+	"app_organization_state",
+	"app_locations",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
@@ -152,6 +154,7 @@ const RUNTIME_APPEND_ONLY_TABLES = ["app_changes"] as const;
 const RUNTIME_INSERT_DELETE_TABLES = [
 	"case_schema_index_deletions",
 	"media_asset_refs",
+	"app_location_references",
 ] as const;
 
 const RUNTIME_READ_ONLY_TABLES = ["app_change_fold_baselines"] as const;

@@ -28,7 +28,7 @@ import path from "node:path";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 import type { Pool } from "pg";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -49,6 +49,7 @@ import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
+import { buildUrl } from "@/lib/routing/location";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -65,6 +66,7 @@ import {
 	CASE_CHANGES_FIXTURE_COUNT,
 	DELETE_APP_COUNT,
 	MOVE_APP_COUNT,
+	ORGANIZATION_FIXTURE_COUNT,
 } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
@@ -78,6 +80,7 @@ export const SEED = {
 	viewerUserEmail: "smoke-viewer@dimagi.com",
 	viewerUserName: "Smoke Test Viewer",
 	openAppName: "Smoke — Open Me",
+	organizationAppName: "Smoke — Organization",
 	deleteAppName: "Smoke — Delete Me",
 	/** Cross-Project move journey: one app plus a second Project the seeded user
 	 *  also owns, so the spec drives a real move between two governed places. */
@@ -114,6 +117,39 @@ const VIEWER_STATE_FILE = path.join(AUTH_DIR, "state-viewer.json");
 const SEED_FILE = path.join(AUTH_DIR, "seed.json");
 /** The two-user multiplayer fixture manifest (`multiplayer.spec.ts` reads it). */
 const MULTIPLAYER_FILE = path.join(AUTH_DIR, "multiplayer.json");
+
+/** Case-aware starter for the organization journey. Its single follow-up form
+ * lets the browser author both fixed-place and reverse-hop case owners after it
+ * has built the location tree; no model call or test-only UI path is involved. */
+function buildOrganizationBlueprint(appId: string) {
+	const doc = buildDoc({
+		appName: SEED.organizationAppName,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: "Name" }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		],
+	});
+	doc.appId = appId;
+	return doc;
+}
 
 /** A tall, realistic transcript makes the smoke fixture exercise the initial
  * bottom position instead of accidentally passing because two messages fit in
@@ -409,6 +445,39 @@ async function main(): Promise<void> {
 			status: "complete",
 		},
 	);
+	const organizationAppIds: string[] = [];
+	const organizationCaseChangeRoutes: string[] = [];
+	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
+		const { appId, baseSeq } = await createApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{
+				name: SEED.organizationAppName,
+				status: "complete",
+			},
+		);
+		const organizationDoc = buildOrganizationBlueprint(appId);
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: toPersistableDoc(organizationDoc),
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		const moduleUuid = organizationDoc.moduleOrder[0];
+		const formUuid = organizationDoc.formOrder[moduleUuid]?.[0];
+		if (moduleUuid === undefined || formUuid === undefined) {
+			throw new Error("Organization smoke fixture has no follow-up form.");
+		}
+		organizationAppIds.push(appId);
+		organizationCaseChangeRoutes.push(
+			buildUrl(`/build/${appId}`, {
+				kind: "form-operations",
+				moduleUuid,
+				formUuid,
+			}),
+		);
+	}
 
 	/* Full Search / Results / Details visual-QA fixture. The authored ids and
 	 * patient values are stable; the app + case ids are minted by their real
@@ -882,6 +951,8 @@ async function main(): Promise<void> {
 			{
 				...SEED,
 				openAppId,
+				organizationAppIds,
+				organizationCaseChangeRoutes,
 				caseWorkspace,
 				caseChanges,
 				deleteAppIds,

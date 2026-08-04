@@ -4,7 +4,6 @@ import { Migrator } from "kysely/migration";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -98,6 +97,29 @@ async function createScratchDatabase(): Promise<ScratchDatabase> {
 	const { runMigrations } = await getMigrations(authMigrateOptions(pool));
 	await runMigrations();
 	return { name, db, pool };
+}
+
+/**
+ * This is a timestamp-frozen migration rehearsal. Later migrations may add
+ * deliberate dependencies to `apps` or widen Blueprint storage, and replaying
+ * those future objects before a direct idempotency audit changes the historical
+ * catalog the cutover is specifically meant to prove. Keep the harness on the
+ * exact prefix through this migration; current-schema replay has its own
+ * migration suites.
+ */
+async function runFrozenCaseStoreMigrations(
+	db: Kysely<unknown>,
+): Promise<void> {
+	const provider = {
+		getMigrations: async () =>
+			Object.fromEntries(
+				Object.entries(caseStoreMigrations).filter(
+					([migrationName]) => migrationName <= MIGRATION_NAME,
+				),
+			),
+	};
+	const result = await new Migrator({ db, provider }).migrateToLatest();
+	if (result.error !== undefined) throw result.error;
 }
 
 async function destroyScratchDatabase(
@@ -412,7 +434,7 @@ describe.sequential("canonical identity database migration", () => {
 				WHERE app_id = ${APP_ID} AND seq = 1
 			`.execute(scratch.db);
 
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 
 			const field = await sql<{ data: Record<string, unknown> }>`
 				SELECT data FROM blueprint_entities WHERE uuid = ${FIELD_UUID}::uuid
@@ -537,7 +559,7 @@ describe.sequential("canonical identity database migration", () => {
 
 			// The migration ledger is idempotent, and the frozen procedure itself
 			// verifies the exact already-applied baseline state when invoked again.
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			const direct = await scratch.db
 				.transaction()
 				.execute((tx) => runFrozenCanonicalIdentityMigration(tx));
@@ -559,7 +581,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 
 			const columns = await sql<{
 				schema_name: string;
@@ -883,7 +905,7 @@ describe.sequential("canonical identity database migration", () => {
 					) AS field_text
 			`.execute(scratch.db);
 
-			await expect(runCaseStoreMigrations(scratch.db)).rejects.toThrow(
+			await expect(runFrozenCaseStoreMigrations(scratch.db)).rejects.toThrow(
 				/blocking frozen-scan finding/,
 			);
 
@@ -961,7 +983,7 @@ describe.sequential("canonical identity database migration", () => {
 			).toBe(true);
 			expect(await captureDatabaseProof(scratch.db)).toBe(before);
 
-			await expect(runCaseStoreMigrations(scratch.db)).rejects.toThrow(
+			await expect(runFrozenCaseStoreMigrations(scratch.db)).rejects.toThrow(
 				/exact authored slot kind/,
 			);
 			expect(await captureDatabaseProof(scratch.db)).toBe(before);
@@ -1041,7 +1063,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			await sql`
 				ALTER TABLE apps
 				ALTER COLUMN logo TYPE text USING logo::text
@@ -1067,7 +1089,7 @@ describe.sequential("canonical identity database migration", () => {
 				ON apps (logo)
 			`.execute(scratch.db);
 
-			await expect(runCaseStoreMigrations(scratch.db)).rejects.toThrow(
+			await expect(runFrozenCaseStoreMigrations(scratch.db)).rejects.toThrow(
 				/text SQL identity dependency closure differs from the frozen exact catalog/,
 			);
 
@@ -1100,7 +1122,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			await sql`
 				CREATE INDEX canonical_identity_unexpected_entity_uuid_idx
 				ON blueprint_entities (uuid)
@@ -1123,7 +1145,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 
 			await expect(
 				scratch.db.transaction().execute(async (tx) => {
@@ -1330,7 +1352,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			const appId = "baseline-full-shape";
 			const moduleUuid = "11111111-1111-4111-8111-111111111111";
 			const emptyModuleUuid = "11111111-1111-4111-8111-111111111112";
@@ -1643,7 +1665,7 @@ describe.sequential("canonical identity database migration", () => {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
 			await seedLegacyApp(scratch.db, SECOND_FIXTURE);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			const secondBaseline = await sql<{
 				seq: string;
 				project_id: string;
@@ -1719,7 +1741,7 @@ describe.sequential("canonical identity database migration", () => {
 		try {
 			scratch = await createScratchDatabase();
 			await seedLegacyApp(scratch.db);
-			await runCaseStoreMigrations(scratch.db);
+			await runFrozenCaseStoreMigrations(scratch.db);
 			await sql`
 				INSERT INTO app_changes
 					(app_id, seq, batch_id, run_id, actor_id, kind, mutations)

@@ -635,6 +635,11 @@ function termMode(term: Term): TermMode {
 			return "session-user-property";
 		case "table-column":
 			return "table-column";
+		case "fixed-location":
+		case "owner-location-at-level":
+			throw new Error(
+				"Location owner terms are edited by the case-owner location control, not the general expression source menu.",
+			);
 	}
 }
 
@@ -664,6 +669,9 @@ export function termHasMeaningfulContent(value: Term): boolean {
 		case "session-user-property":
 			return true;
 		case "table-column":
+			return true;
+		case "fixed-location":
+		case "owner-location-at-level":
 			return true;
 	}
 }
@@ -751,6 +759,11 @@ function describeTermModeReplacement(
 				description:
 					"This replaces the selected data-table column. You can undo this change.",
 			};
+		case "fixed-location":
+		case "owner-location-at-level":
+			throw new Error(
+				"Location owner terms are replaced by the case-owner location control.",
+			);
 	}
 }
 

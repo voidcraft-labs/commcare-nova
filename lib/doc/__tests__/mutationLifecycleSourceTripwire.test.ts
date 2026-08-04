@@ -58,6 +58,7 @@ const SOURCE_CLASSIFICATION = {
 	"lib/generation/streamDispatcher.ts": "consumes-durable-admitted",
 	"lib/mcp/adapters/sharedToolAdapter.ts": "admits-proposal",
 	"lib/mcp/context.ts": "admits-proposal",
+	"lib/organization/service.ts": "admits-proposal",
 	"lib/preview/engine/casePropertyRenamePreflight.ts": "admits-proposal",
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 

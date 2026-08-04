@@ -161,6 +161,14 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 			return createClaims([{ uuid: mutation.userType.uuid, kind: "userType" }]);
 		case "addPersona":
 			return createClaims([{ uuid: mutation.persona.uuid, kind: "persona" }]);
+		case "addOrganizationLevel":
+			return createClaims([
+				{ uuid: mutation.level.uuid, kind: "organizationLevel" },
+			]);
+		case "addLocationProperty":
+			return createClaims([
+				{ uuid: mutation.property.uuid, kind: "locationProperty" },
+			]);
 		case "updateForm":
 			return mutation.caseOperationChange?.operation === "add"
 				? createClaims([
@@ -198,6 +206,10 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "updateUserType":
 		case "removePersona":
 		case "updatePersona":
+		case "removeOrganizationLevel":
+		case "updateOrganizationLevel":
+		case "removeLocationProperty":
+		case "updateLocationProperty":
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":

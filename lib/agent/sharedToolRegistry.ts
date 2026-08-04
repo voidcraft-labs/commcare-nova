@@ -41,6 +41,19 @@ import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "@/lib/agent/tools/moveField";
+import {
+	addLocationPropertiesTool,
+	addOrganizationLevelsTool,
+	createLocationTool,
+	getOrganizationTool,
+	moveLocationTool,
+	removeLocationPropertyTool,
+	removeOrganizationLevelTool,
+	setLocationArchivedTool,
+	updateLocationPropertyTool,
+	updateLocationTool,
+	updateOrganizationLevelTool,
+} from "@/lib/agent/tools/organization";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
@@ -318,6 +331,72 @@ export const SHARED_TOOL_REGISTRY = [
 		mcpName: "get_users",
 		tool: getUsersTool,
 		requires: "view",
+	},
+	{
+		saName: "getOrganization",
+		mcpName: "get_organization",
+		tool: getOrganizationTool,
+		requires: "view",
+	},
+	{
+		saName: "addOrganizationLevels",
+		mcpName: "add_organization_levels",
+		tool: addOrganizationLevelsTool,
+		requires: "edit",
+	},
+	{
+		saName: "updateOrganizationLevel",
+		mcpName: "update_organization_level",
+		tool: updateOrganizationLevelTool,
+		requires: "edit",
+	},
+	{
+		saName: "removeOrganizationLevel",
+		mcpName: "remove_organization_level",
+		tool: removeOrganizationLevelTool,
+		requires: "edit",
+	},
+	{
+		saName: "addLocationProperties",
+		mcpName: "add_location_properties",
+		tool: addLocationPropertiesTool,
+		requires: "edit",
+	},
+	{
+		saName: "updateLocationProperty",
+		mcpName: "update_location_property",
+		tool: updateLocationPropertyTool,
+		requires: "edit",
+	},
+	{
+		saName: "removeLocationProperty",
+		mcpName: "remove_location_property",
+		tool: removeLocationPropertyTool,
+		requires: "edit",
+	},
+	{
+		saName: "createLocation",
+		mcpName: "create_location",
+		tool: createLocationTool,
+		requires: "edit",
+	},
+	{
+		saName: "updateLocation",
+		mcpName: "update_location",
+		tool: updateLocationTool,
+		requires: "edit",
+	},
+	{
+		saName: "moveLocation",
+		mcpName: "move_location",
+		tool: moveLocationTool,
+		requires: "edit",
+	},
+	{
+		saName: "setLocationArchived",
+		mcpName: "set_location_archived",
+		tool: setLocationArchivedTool,
+		requires: "edit",
 	},
 	{
 		saName: "addUserProperties",

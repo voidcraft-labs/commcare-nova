@@ -165,7 +165,8 @@ export function emitOnDeviceExpression(
 ): string {
 	const resolvedTermContext =
 		termContext.userPropertySlugs === undefined ||
-		termContext.searchInputNames === undefined
+		termContext.searchInputNames === undefined ||
+		termContext.organizationLevels === undefined
 			? {
 					...termContext,
 					...(termContext.userPropertySlugs === undefined &&
@@ -180,6 +181,10 @@ export function emitOnDeviceExpression(
 									input.name,
 								]),
 							),
+						}),
+					...(termContext.organizationLevels === undefined &&
+						relationContext.organizationLevels !== undefined && {
+							organizationLevels: relationContext.organizationLevels,
 						}),
 				}
 			: termContext;

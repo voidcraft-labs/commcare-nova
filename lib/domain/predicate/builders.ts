@@ -76,10 +76,12 @@ import type {
 	ComparisonKind,
 	DateAddInterval,
 	DistanceUnit,
+	FixedLocationTerm,
 	FormatDatePreset,
 	FormFieldRef,
 	Literal,
 	MatchMode,
+	OwnerLocationAtLevelTerm,
 	Predicate,
 	PropertyRef,
 	RelationPath,
@@ -122,6 +124,8 @@ const TERM_KINDS: ReadonlySet<string> = new Set([
 	"session-context",
 	"field",
 	"table-column",
+	"fixed-location",
+	"owner-location-at-level",
 	"literal",
 ]);
 
@@ -281,6 +285,19 @@ export function tableColumn(
 	columnId: LookupColumnId,
 ): TableColumnTerm {
 	return { kind: "table-column", tableId, columnId };
+}
+
+/** Point at one exact place by its immutable app-location identity. */
+export function fixedLocation(locationUuid: Uuid): FixedLocationTerm {
+	return { kind: "fixed-location", locationUuid };
+}
+
+/** Resolve the named descendant level beneath the current case owner. */
+export function ownerLocationAtLevel(
+	levelUuid: Uuid,
+	ownerCaseType: string,
+): OwnerLocationAtLevelTerm {
+	return { kind: "owner-location-at-level", levelUuid, ownerCaseType };
 }
 
 /**

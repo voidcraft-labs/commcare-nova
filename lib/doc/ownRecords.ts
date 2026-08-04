@@ -65,6 +65,12 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 	if (doc.personas !== undefined) {
 		doc.personas = normalizeUserDataCollection(doc.personas);
 	}
+	if (doc.organizationLevels !== undefined) {
+		doc.organizationLevels = normalizeOwnRecord(doc.organizationLevels);
+	}
+	if (doc.locationProperties !== undefined) {
+		doc.locationProperties = normalizeOwnRecord(doc.locationProperties);
+	}
 }
 
 /**

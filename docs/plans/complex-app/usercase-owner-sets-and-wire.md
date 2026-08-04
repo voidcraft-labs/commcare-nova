@@ -2,8 +2,8 @@
 
 **PR:** `Usercase materialization, owner sets, restore closure, and the location fixture`
 
-**Depends on:** [the organization model](organization-model-and-locations-store.md).
-· **Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md).
+**Depends on:** nothing outstanding. · **Blocks:**
+[App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the restore-scope
 > contract there (authoritative Postgres revision, measured CTE before
