@@ -327,8 +327,14 @@ or server-modified conditions. The closed parent is HQ's normal parent link,
 not a caller-selected index or extension. Names must be nonblank and already
 trimmed. Equality and fixed-update literals must be exact, nonblank, unquoted
 stored values, and alert regex patterns must be nonempty. Web users are not a recipient arm.
+Date conditions compare the current date directly with the property date plus
+a signed day offset.
 Connect content also refuses matched-case, parent-case, all-child-cases,
-case-property-email, and case-group recipients.
+case-property-email, and case-group recipients. Checkbox-style,
+case-property, and custom recipient kinds are singletons; list recipients cannot
+repeat a concrete target. Descendant controls require a location recipient,
+location-level filters require descendants, and each worker-property filter key
+appears once.
 
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
@@ -353,7 +359,9 @@ as setup-only instructions. The Builder names those omissions beside its
 partial count; MCP automation results return the same omission list without
 pretending to return or execute a Preview count.
 For locally countable property criteria, whitespace-only strings are blank and
-regex matching applies only to stored strings; Nova does not coerce numeric or
+equality compares exact stored text without typed coercion. A parent/host
+equality or inequality requires that related case to exist. Alert regex
+matching applies only to stored strings; Nova does not coerce numeric or
 boolean case values to text.
 
 | Tool | What it does |

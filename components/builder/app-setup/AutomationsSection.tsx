@@ -66,6 +66,7 @@ import {
 	type AutomationSchedule,
 	type AutomationTimedEvent,
 	asUuid,
+	automationRecipientKindIsSingleton,
 	automationRecipientSupportsConnect,
 	automationSchema,
 	automationTimedScheduleSetupForm,
@@ -1188,10 +1189,22 @@ function ConditionsEditor({
 											...(automation.kind === "conditional-alert"
 												? ([["regex", "Matches regular expression"]] as const)
 												: ([
-														["date-days-before", "Date comparison: before"],
-														["date-days-lte", "Date comparison: at least"],
-														["date-days-gt", "Date comparison: fewer than"],
-														["date-days", "Date comparison: due or passed"],
+														[
+															"date-days-before",
+															"Current date < property date + offset",
+														],
+														[
+															"date-days-lte",
+															"Current date ≤ property date + offset",
+														],
+														[
+															"date-days-gt",
+															"Current date > property date + offset",
+														],
+														[
+															"date-days",
+															"Current date ≥ property date + offset",
+														],
 													] as const)),
 										]}
 									/>
@@ -1217,7 +1230,10 @@ function ConditionsEditor({
 									</Labeled>
 								)}
 								{criterion.days !== undefined && (
-									<Labeled label="Day offset">
+									<Labeled
+										label="Day offset"
+										hint="HQ compares the current date with the property date plus this many days; use a negative number for minus."
+									>
 										<Input
 											type="number"
 											value={criterion.days}
@@ -1515,6 +1531,7 @@ function CaseUpdateEditor({
 function recipientFor(
 	kind: AutomationRecipient["kind"],
 	locations: readonly StoredLocation[],
+	existingRecipients: readonly AutomationRecipient[],
 ): AutomationRecipient | undefined {
 	const id = uuid();
 	if (
@@ -1535,17 +1552,79 @@ function recipientFor(
 		].includes(kind)
 	)
 		return { uuid: id, kind, property: "case_name" } as AutomationRecipient;
-	if (kind === "location")
-		return locations[0]
-			? { uuid: id, kind, locationUuid: asUuid(locations[0].id) }
+	if (kind === "location") {
+		const availableLocation = locations.find(
+			(location) =>
+				!existingRecipients.some(
+					(recipient) =>
+						recipient.kind === "location" &&
+						recipient.locationUuid === location.id,
+				),
+		);
+		return availableLocation
+			? { uuid: id, kind, locationUuid: asUuid(availableLocation.id) }
 			: undefined;
-	if (["mobile-worker", "user-group", "case-group"].includes(kind))
+	}
+	if (["mobile-worker", "user-group", "case-group"].includes(kind)) {
+		const base = "Enter the CommCare HQ ID";
+		const usedIds = new Set(
+			existingRecipients.flatMap((recipient) =>
+				recipient.kind === kind && "hqId" in recipient ? [recipient.hqId] : [],
+			),
+		);
+		let hqId = base;
+		for (let suffix = 2; usedIds.has(hqId); suffix += 1) {
+			hqId = `${base} ${suffix}`;
+		}
 		return {
 			uuid: id,
 			kind,
-			hqId: "Enter the CommCare HQ ID",
+			hqId,
 		} as AutomationRecipient;
+	}
 	return { uuid: id, kind: "custom", registeredId: "registered-id" };
+}
+
+function recipientKindAvailable(
+	kind: AutomationRecipient["kind"],
+	recipients: readonly AutomationRecipient[],
+	locations: readonly StoredLocation[],
+	usesConnect: boolean,
+	excludeUuid?: Uuid,
+): boolean {
+	if (usesConnect && !automationRecipientSupportsConnect(kind)) return false;
+	const peers = recipients.filter(
+		(recipient) => recipient.uuid !== excludeUuid,
+	);
+	if (
+		automationRecipientKindIsSingleton(kind) &&
+		peers.some((recipient) => recipient.kind === kind)
+	) {
+		return false;
+	}
+	if (kind === "location") {
+		return locations.some(
+			(location) =>
+				!peers.some(
+					(recipient) =>
+						recipient.kind === "location" &&
+						recipient.locationUuid === location.id,
+				),
+		);
+	}
+	return true;
+}
+
+function clearLocationSettingsWithoutRecipient(
+	draft: WritableDraft<Automation>,
+): void {
+	if (
+		draft.kind === "conditional-alert" &&
+		!draft.recipients.some((recipient) => recipient.kind === "location")
+	) {
+		draft.includeDescendantLocations = false;
+		draft.locationLevelUuids = [];
+	}
 }
 
 function contentFor(
@@ -1604,6 +1683,18 @@ function AlertEditor({
 	const resetAllowed =
 		automation.schedule.kind === "immediate" ||
 		automation.schedule.start.kind === "rule-trigger";
+	const hasLocationRecipient = automation.recipients.some(
+		(recipient) => recipient.kind === "location",
+	);
+	const addRecipientKind = RECIPIENT_KINDS.find(([kind]) =>
+		recipientKindAvailable(kind, automation.recipients, locations, usesConnect),
+	)?.[0];
+	const nextFilterProperty = userProperties.find(
+		(property) =>
+			!automation.userDataFilters.some(
+				(filter) => filter.userPropertyUuid === property.uuid,
+			),
+	);
 	return (
 		<div className="flex flex-col gap-6">
 			<Section title="Recipients">
@@ -1617,9 +1708,13 @@ function AlertEditor({
 								<Choice
 									value={recipient.kind}
 									onChange={(kind) => {
+										const peers = automation.recipients.filter(
+											(candidate) => candidate.uuid !== recipient.uuid,
+										);
 										const replacement = recipientFor(
 											kind as AutomationRecipient["kind"],
 											locations,
+											peers,
 										);
 										if (replacement)
 											onEdit((draft) => {
@@ -1627,21 +1722,30 @@ function AlertEditor({
 													replacement.uuid = recipient.uuid;
 													draft.recipients[index] =
 														replacement as WritableDraft<AutomationRecipient>;
+													clearLocationSettingsWithoutRecipient(draft);
 												}
 											});
 									}}
 									options={RECIPIENT_KINDS.map(([kind, label]) => {
 										const connectBlocked =
 											usesConnect && !automationRecipientSupportsConnect(kind);
+										const unavailable = !recipientKindAvailable(
+											kind,
+											automation.recipients,
+											locations,
+											usesConnect,
+											recipient.uuid,
+										);
 										return [
 											kind,
 											kind === "location" && locations.length === 0
 												? "Location (add a place first)"
 												: connectBlocked
 													? `${label} (not available for Connect)`
-													: label,
-											(kind === "location" && locations.length === 0) ||
-												connectBlocked,
+													: unavailable
+														? `${label} (already selected)`
+														: label,
+											unavailable,
 										] as const;
 									})}
 								/>
@@ -1710,6 +1814,12 @@ function AlertEditor({
 										options={locations.map((location) => [
 											location.id,
 											location.name,
+											automation.recipients.some(
+												(candidate) =>
+													candidate.uuid !== recipient.uuid &&
+													candidate.kind === "location" &&
+													candidate.locationUuid === location.id,
+											),
 										])}
 									/>
 								</Labeled>
@@ -1721,8 +1831,10 @@ function AlertEditor({
 							onClick={() =>
 								recipientFocus.removeAt(index, () =>
 									onEdit((draft) => {
-										if (draft.kind === "conditional-alert")
+										if (draft.kind === "conditional-alert") {
 											draft.recipients.splice(index, 1);
+											clearLocationSettingsWithoutRecipient(draft);
+										}
 									}),
 								)
 							}
@@ -1733,13 +1845,20 @@ function AlertEditor({
 					ref={recipientFocus.addRef}
 					type="button"
 					variant="outline"
+					disabled={addRecipientKind === undefined}
 					onClick={() =>
 						onEdit((draft) => {
-							if (draft.kind === "conditional-alert")
-								draft.recipients.push({
-									uuid: uuid(),
-									kind: usesConnect ? "owner" : "self",
-								});
+							if (
+								draft.kind === "conditional-alert" &&
+								addRecipientKind !== undefined
+							) {
+								const recipient = recipientFor(
+									addRecipientKind,
+									locations,
+									draft.recipients,
+								);
+								if (recipient !== undefined) draft.recipients.push(recipient);
+							}
 						})
 					}
 				>
@@ -1749,16 +1868,20 @@ function AlertEditor({
 			</Section>
 			<ScheduleEditor automation={automation} forms={forms} onEdit={onEdit} />
 			<Section title="Recipient filters and schedule controls">
-				<Toggle
-					checked={automation.includeDescendantLocations}
-					onChange={(checked) =>
-						onEdit((draft) => {
-							if (draft.kind === "conditional-alert")
-								draft.includeDescendantLocations = checked;
-						})
-					}
-					label="Include descendant locations for location recipients"
-				/>
+				{hasLocationRecipient && (
+					<Toggle
+						checked={automation.includeDescendantLocations}
+						onChange={(checked) =>
+							onEdit((draft) => {
+								if (draft.kind === "conditional-alert") {
+									draft.includeDescendantLocations = checked;
+									if (!checked) draft.locationLevelUuids = [];
+								}
+							})
+						}
+						label="Include descendant locations for location recipients"
+					/>
+				)}
 				<Labeled
 					label="Default language code"
 					hint="Leave blank to use CommCare HQ's default"
@@ -1776,30 +1899,32 @@ function AlertEditor({
 						}
 					/>
 				</Labeled>
-				<div>
-					<p className="mb-2 text-[12px] font-medium text-nova-text-secondary">
-						Location levels for broadcast recipients
-					</p>
-					<div className="grid gap-2 @md:grid-cols-2">
-						{levels.map((level) => (
-							<Toggle
-								key={level.uuid}
-								checked={automation.locationLevelUuids.includes(level.uuid)}
-								onChange={(checked) =>
-									onEdit((draft) => {
-										if (draft.kind !== "conditional-alert") return;
-										draft.locationLevelUuids = checked
-											? [...draft.locationLevelUuids, level.uuid]
-											: draft.locationLevelUuids.filter(
-													(uuid) => uuid !== level.uuid,
-												);
-									})
-								}
-								label={level.name}
-							/>
-						))}
+				{hasLocationRecipient && automation.includeDescendantLocations && (
+					<div>
+						<p className="mb-2 text-[12px] font-medium text-nova-text-secondary">
+							Location levels for broadcast recipients
+						</p>
+						<div className="grid gap-2 @md:grid-cols-2">
+							{levels.map((level) => (
+								<Toggle
+									key={level.uuid}
+									checked={automation.locationLevelUuids.includes(level.uuid)}
+									onChange={(checked) =>
+										onEdit((draft) => {
+											if (draft.kind !== "conditional-alert") return;
+											draft.locationLevelUuids = checked
+												? [...draft.locationLevelUuids, level.uuid]
+												: draft.locationLevelUuids.filter(
+														(uuid) => uuid !== level.uuid,
+													);
+										})
+									}
+									label={level.name}
+								/>
+							))}
+						</div>
 					</div>
-				</div>
+				)}
 				<Toggle
 					checked={automation.useUserCaseForFilter}
 					onChange={(checked) =>
@@ -1831,6 +1956,11 @@ function AlertEditor({
 								options={userProperties.map((property) => [
 									property.uuid,
 									`${property.label} (${property.slug})`,
+									automation.userDataFilters.some(
+										(candidate) =>
+											candidate.uuid !== filter.uuid &&
+											candidate.userPropertyUuid === property.uuid,
+									),
 								])}
 							/>
 						</Labeled>
@@ -1870,13 +2000,13 @@ function AlertEditor({
 					ref={filterFocus.addRef}
 					type="button"
 					variant="outline"
-					disabled={userProperties.length === 0}
+					disabled={nextFilterProperty === undefined}
 					onClick={() =>
 						onEdit((draft) => {
-							if (draft.kind === "conditional-alert" && userProperties[0])
+							if (draft.kind === "conditional-alert" && nextFilterProperty)
 								draft.userDataFilters.push({
 									uuid: uuid(),
-									userPropertyUuid: userProperties[0].uuid,
+									userPropertyUuid: nextFilterProperty.uuid,
 									allowedValues: [""],
 								});
 						})

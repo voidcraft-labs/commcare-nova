@@ -219,13 +219,20 @@ export type CountArgs =
 			/** Runtime values for input/session terms used by the predicate. */
 			bindings?: TermBindings;
 			predicate?: Predicate;
-			/** Local-only automation criterion group. `predicate` carries every
-			 * ordinary criterion; regex leaves stay separate because they have no
-			 * CommCare case-search AST spelling. The same Kysely query composes the
-			 * group, preserving ALL/ANY without inventing a persisted second AST. */
+			/** Local-only automation criterion group. Date leaves use the existing
+			 * typed Predicate AST. Exact-text comparisons, regexes, and HQ blankness
+			 * stay separate because the general case-search compiler deliberately
+			 * coerces typed properties. The same Kysely query composes the group,
+			 * preserving ALL/ANY without inventing another persisted AST. */
 			automationCriteria?: {
 				operator: "all" | "any";
 				predicate?: Predicate;
+				comparisons: readonly {
+					property: string;
+					value: string;
+					equal: boolean;
+					scope: "case" | "parent" | "host";
+				}[];
 				regexes: readonly { property: string; pattern: string }[];
 				blankness: readonly {
 					property: string;

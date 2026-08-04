@@ -115,8 +115,13 @@ and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
 those omissions in the result. No case-store method updates a case, sends a
 message, or advances a schedule on an automation's behalf.
 
-Two property comparisons bypass the generic Predicate compiler to retain HQ's
-runtime value rules. **Has value / has no value** treats a string containing
+Three property-comparison families bypass the generic Predicate compiler to retain HQ's
+runtime value rules. **Equals / does not equal** compares the exact stored text,
+so a typed integer `5` is not silently equal to criterion `05` and malformed
+numeric-looking criteria never become SQL casts. A parent/host comparison uses
+an `EXISTS` relation walk: missing relations do not match either comparison,
+while a missing property on an existing related case matches does-not-equal as
+HQ does. **Has value / has no value** treats a string containing
 only whitespace as blank while non-string JSON scalars have a value, including
 through case-update parent/host relations; a missing relation has no value.
 Alert regex uses

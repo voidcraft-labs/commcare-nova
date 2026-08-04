@@ -19,7 +19,9 @@ property from the case, its parent, or its host. It can also close the case.
 Criteria can apply HQ's four value comparisons or four date comparisons to a
 property on the matching case, its parent, or its host. A rule may also require
 the standard parent case to be closed and may use HQ's separate
-server-modified-age boundary.
+server-modified-age boundary. Date conditions compare the current date directly
+with the property date plus a signed day offset; for example, an offset of `-2`
+means the property date minus two days.
 
 The CommCare HQ form accepts one standard closed-parent condition per rule. It
 does not expose another case-index name or relationship for that condition, and
@@ -91,7 +93,11 @@ Message templates may use case, owner, parent, host, and recipient values. HQ's
 current alert form has no representable web-user recipient. Connect messages
 and surveys also cannot target the matched case, parent case, all child cases,
 an email stored on the case, or a case group; Nova refuses those combinations
-before save. A custom recipient or content handler must already be registered
+before save. HQ's checkbox-style, case-property, and custom recipient choices
+can each appear once; worker, group, and location lists may contain distinct
+targets only. Descendant controls appear only for a location recipient, and
+location-level filtering appears only when descendants are included. Each
+worker-information filter has one value list. A custom recipient or content handler must already be registered
 on the target HQ instance; Nova cannot create one.
 
 ## Current matches
@@ -109,9 +115,11 @@ Nova stores server-modified age as its own case-update field. When a rule mixes
 countable and setup-only criteria, the screen names every omitted part beside
 the count instead of presenting a partial count as complete.
 
-Preview follows HQ's value typing at this boundary: surrounding whitespace is
-blank for **has value / has no value**, and regular expressions test strings
-only rather than coercing numbers or booleans to text.
+Preview follows HQ's value typing at this boundary: equality compares exact
+stored text rather than coercing the configured value through Nova's property
+type; a missing parent/host relation does not satisfy equality or inequality;
+surrounding whitespace is blank for **has value / has no value**; and regular
+expressions test strings only rather than coercing numbers or booleans to text.
 
 Closed cases are always excluded. A rule with no ordinary criteria is valid;
 for example, a claim-cleanup rule can use only HQ's server-modified boundary and

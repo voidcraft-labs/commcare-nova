@@ -13,11 +13,9 @@ import {
 	eq,
 	gt,
 	gte,
-	isBlank,
 	literal,
 	lt,
 	lte,
-	neq,
 	or,
 	prop,
 	relationStep,
@@ -50,14 +48,7 @@ function propertyCriterion(
 	);
 	switch (criterion.matchType) {
 		case "equal":
-			return eq(property, literal(criterion.value ?? ""));
 		case "not-equal":
-			// HQ compares `None`/blank to the configured string and therefore
-			// includes an absent property in NOT_EQUAL.
-			return or(
-				isBlank(property),
-				neq(property, literal(criterion.value ?? "")),
-			);
 		case "has-value":
 		case "has-no-value":
 		case "regex":
@@ -95,6 +86,12 @@ export function automationMatchProjection(
 	automation: Automation,
 ): AutomationMatchProjection {
 	const predicates: Predicate[] = [];
+	const comparisons: {
+		property: string;
+		value: string;
+		equal: boolean;
+		scope: "case" | "parent" | "host";
+	}[] = [];
 	const regexes: { property: string; pattern: string }[] = [];
 	const blankness: {
 		property: string;
@@ -108,7 +105,17 @@ export function automationMatchProjection(
 
 	for (const criterion of automation.criteria) {
 		if (criterion.kind === "match-property") {
-			if (criterion.matchType === "regex") {
+			if (
+				criterion.matchType === "equal" ||
+				criterion.matchType === "not-equal"
+			) {
+				comparisons.push({
+					property: criterion.property,
+					value: criterion.value ?? "",
+					equal: criterion.matchType === "equal",
+					scope: criterion.scope,
+				});
+			} else if (criterion.matchType === "regex") {
 				regexes.push({
 					property: criterion.property,
 					pattern: criterion.value ?? "",
@@ -146,6 +153,7 @@ export function automationMatchProjection(
 					: or(predicates[0], predicates[1], ...predicates.slice(2));
 	const hasCriteria =
 		groupedPredicate !== undefined ||
+		comparisons.length > 0 ||
 		regexes.length > 0 ||
 		blankness.length > 0 ||
 		closedParents.length > 0;
@@ -169,6 +177,7 @@ export function automationMatchProjection(
 					...(groupedPredicate === undefined
 						? {}
 						: { predicate: groupedPredicate }),
+					comparisons,
 					regexes,
 					blankness,
 					closedParents,

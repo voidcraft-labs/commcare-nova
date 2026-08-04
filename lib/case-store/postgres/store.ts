@@ -740,6 +740,43 @@ export class PostgresCaseStore implements CaseStore {
 					...(group.predicate === undefined
 						? []
 						: [compilePredicate(group.predicate, ctx)]),
+					...group.comparisons.map((criterion) => {
+						const comparisonForAlias = (alias: string) => {
+							const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+								criterion.property,
+							);
+							const storedText =
+								scalar === undefined
+									? sql<
+											string | null
+										>`${sql.ref(`${alias}.properties`)} ->> ${criterion.property}`
+									: sql<
+											string | null
+										>`${sql.ref(`${alias}.${scalar.column}`)}::text`;
+							return criterion.equal
+								? sql<boolean>`${storedText} = ${criterion.value}`
+								: sql<boolean>`(${storedText} is null or ${storedText} <> ${criterion.value})`;
+						};
+						if (criterion.scope === "case") {
+							return comparisonForAlias("c");
+						}
+						const relatedComparison = comparisonForAlias(
+							"automation_comparison_related",
+						);
+						return sql<boolean>`exists (
+							select 1
+							from case_indices as automation_comparison_index
+							join cases as automation_comparison_related
+								on automation_comparison_related.case_id = automation_comparison_index.ancestor_id
+								and automation_comparison_related.app_id = c.app_id
+								and automation_comparison_related.project_id = c.project_id
+							where automation_comparison_index.case_id = c.case_id
+								and automation_comparison_index.identifier = ${criterion.scope}
+								and automation_comparison_index.relationship = ${criterion.scope === "parent" ? "child" : "extension"}
+								and automation_comparison_index.depth = 1
+								and ${relatedComparison}
+						)`;
+					}),
 					...group.regexes.map((criterion) => {
 						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
 							criterion.property,

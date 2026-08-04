@@ -42,6 +42,11 @@ const schemas = new Map<string, CaseType>([
 					label: proseText("Code"),
 					data_type: "text",
 				},
+				{
+					name: "attempts",
+					label: proseText("Attempts"),
+					data_type: "int",
+				},
 			],
 		},
 	],
@@ -65,7 +70,7 @@ beforeEach(async () => {
 		  'closed', now(), '{"marker":"present"}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000102', $2, $3, 'facility-a',
 		  'visit', 'Matches everything', 'open', null,
-		  '{"code":"ABC-123"}'::jsonb),
+		  '{"code":"ABC-123","attempts":5}'::jsonb),
 		 ('01890f45-0000-7000-8000-000000000103', $2, $3, 'facility-a',
 		  'visit', 'Regex is not anchored', 'open', null,
 		  '{"code":"XABC-123"}'::jsonb),
@@ -121,6 +126,7 @@ describe("automation criteria SQL", () => {
 				predicate: openAtFacility,
 				automationCriteria: {
 					operator: "all" as const,
+					comparisons: [],
 					regexes: [{ property: "code", pattern: "ABC-[0-9]+" }],
 					blankness: [],
 					closedParents: [
@@ -141,6 +147,7 @@ describe("automation criteria SQL", () => {
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
 					operator: "any",
+					comparisons: [],
 					regexes: [{ property: "code", pattern: "never" }],
 					blankness: [],
 					closedParents: [
@@ -168,6 +175,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					comparisons: [],
 					regexes: [],
 					blankness: [
 						{ property: "code", hasValue: false, scope: "case" as const },
@@ -181,6 +189,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					comparisons: [],
 					regexes: [],
 					blankness: [
 						{ property: "code", hasValue: true, scope: "case" as const },
@@ -194,6 +203,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					comparisons: [],
 					regexes: [{ property: "code", pattern: "[0-9]+" }],
 					blankness: [],
 					closedParents: [],
@@ -215,6 +225,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					comparisons: [],
 					regexes: [],
 					blankness: [{ property: "marker", hasValue, scope }],
 					closedParents: [],
@@ -225,5 +236,70 @@ describe("automation criteria SQL", () => {
 		await expect(count("parent", false)).resolves.toBe(2);
 		await expect(count("host", true)).resolves.toBe(1);
 		await expect(count("host", false)).resolves.toBe(3);
+	});
+
+	it("compares exact stored text without typed coercion and requires a related case", async () => {
+		const caseStore = store();
+		const base = {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas,
+			predicate: eq(prop("visit", "status"), literal("open")),
+		} as const;
+		const count = (comparison: {
+			property: string;
+			value: string;
+			equal: boolean;
+			scope: "case" | "parent" | "host";
+		}) =>
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					comparisons: [comparison],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+				},
+			});
+
+		await expect(
+			count({ property: "attempts", value: "5", equal: true, scope: "case" }),
+		).resolves.toBe(1);
+		await expect(
+			count({ property: "attempts", value: "05", equal: true, scope: "case" }),
+		).resolves.toBe(0);
+		await expect(
+			count({
+				property: "attempts",
+				value: "not-an-integer",
+				equal: true,
+				scope: "case",
+			}),
+		).resolves.toBe(0);
+		await expect(
+			count({
+				property: "marker",
+				value: "other",
+				equal: false,
+				scope: "parent",
+			}),
+		).resolves.toBe(2);
+		await expect(
+			count({
+				property: "marker",
+				value: "present",
+				equal: false,
+				scope: "parent",
+			}),
+		).resolves.toBe(0);
+		await expect(
+			count({
+				property: "marker",
+				value: "other",
+				equal: false,
+				scope: "host",
+			}),
+		).resolves.toBe(1);
 	});
 });

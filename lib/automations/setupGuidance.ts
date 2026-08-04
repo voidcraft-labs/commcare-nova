@@ -35,21 +35,37 @@ function describeCriterion(criterion: AutomationCriterion): string {
 	if (criterion.kind === "closed-parent") {
 		return "The case's parent case is closed.";
 	}
-	const values: Record<typeof criterion.matchType, string> = {
+	const property =
+		criterion.scope === "case"
+			? `Case property ${criterion.property}`
+			: `${criterion.scope === "parent" ? "Parent" : "Host"} case property ${criterion.property}`;
+	if (
+		criterion.matchType === "date-days-before" ||
+		criterion.matchType === "date-days-lte" ||
+		criterion.matchType === "date-days-gt" ||
+		criterion.matchType === "date-days"
+	) {
+		const comparison = {
+			"date-days-before": "less than",
+			"date-days-lte": "less than or equal to",
+			"date-days-gt": "greater than",
+			"date-days": "greater than or equal to",
+		}[criterion.matchType];
+		const days = criterion.days ?? 0;
+		const offset =
+			days === 0
+				? ""
+				: ` ${days < 0 ? "minus" : "plus"} ${Math.abs(days)} days`;
+		const lowerProperty = `${property.slice(0, 1).toLowerCase()}${property.slice(1)}`;
+		return `Current date is ${comparison} the date in ${lowerProperty}${offset}.`;
+	}
+	const values = {
 		equal: `equals “${criterion.value ?? ""}”`,
 		"not-equal": `does not equal “${criterion.value ?? ""}”`,
 		"has-value": "has a value",
 		"has-no-value": "has no value",
 		regex: `matches the regular expression ${criterion.value ?? ""}`,
-		"date-days-before": `is later than today plus ${criterion.days ?? 0} days`,
-		"date-days-lte": `is today plus ${criterion.days ?? 0} days or later`,
-		"date-days-gt": `is earlier than today plus ${criterion.days ?? 0} days`,
-		"date-days": `is today plus ${criterion.days ?? 0} days or earlier`,
-	};
-	const property =
-		criterion.scope === "case"
-			? `Case property ${criterion.property}`
-			: `${criterion.scope === "parent" ? "Parent" : "Host"} case property ${criterion.property}`;
+	} as const;
 	return `${property} ${values[criterion.matchType]}.`;
 }
 

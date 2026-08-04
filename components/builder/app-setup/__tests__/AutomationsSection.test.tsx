@@ -8,6 +8,7 @@ import {
 } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Automation, Form, Uuid } from "@/lib/domain";
+import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("ui-automation");
 const UPDATE_UUID = testUuid("ui-automation-update");
@@ -62,6 +63,7 @@ const surveyAlert: Automation = {
 };
 
 const USER_PROPERTY_UUID = testUuid("ui-user-property");
+const SECOND_USER_PROPERTY_UUID = testUuid("ui-user-property-second");
 
 function repeatedRowsAlert(): Extract<
 	Automation,
@@ -100,7 +102,8 @@ function repeatedRowsAlert(): Extract<
 		locationLevelUuids: [],
 		userDataFilters: [0, 1].map((index) => ({
 			uuid: testUuid(`ui-repeated-filter-${index}`),
-			userPropertyUuid: USER_PROPERTY_UUID,
+			userPropertyUuid:
+				index === 0 ? USER_PROPERTY_UUID : SECOND_USER_PROPERTY_UUID,
 			allowedValues: [`value-${index}`],
 		})),
 		useUserCaseForFilter: false,
@@ -192,6 +195,8 @@ const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
 	forms: [] as Form[],
 	userProperties: [] as { uuid: Uuid; label: string; slug: string }[],
+	levels: [] as { uuid: Uuid; name: string }[],
+	locations: [] as StoredLocation[],
 	canEdit: true,
 	addAutomation: vi.fn(() => ({ ok: true, uuid: "new" })),
 	replaceAutomation: vi.fn(() => ({ ok: true })),
@@ -215,7 +220,7 @@ vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
 	],
 }));
 vi.mock("@/lib/doc/hooks/useOrganizationCollections", () => ({
-	useOrganizationLevels: () => [],
+	useOrganizationLevels: () => mocks.levels,
 }));
 vi.mock("@/lib/doc/hooks/useUserCollections", () => ({
 	useUserProperties: () => mocks.userProperties,
@@ -234,7 +239,7 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 }));
 vi.mock("@/lib/organization/useOrganization", () => ({
 	useOrganization: () => ({
-		locations: [],
+		locations: mocks.locations,
 		loading: false,
 		error: undefined,
 		warning: undefined,
@@ -275,6 +280,8 @@ beforeEach(() => {
 	mocks.automations = [];
 	mocks.forms = [];
 	mocks.userProperties = [];
+	mocks.levels = [];
+	mocks.locations = [];
 	mocks.canEdit = true;
 	mocks.addAutomation.mockClear();
 	mocks.replaceAutomation.mockClear();
@@ -371,7 +378,9 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("combobox", { name: "Comparison" }));
 		await settleBaseUiTransitions();
 		expect(
-			screen.getByRole("option", { name: "Date comparison: before" }),
+			screen.getByRole("option", {
+				name: "Current date < property date + offset",
+			}),
 		).toBeDefined();
 		expect(
 			screen.queryByRole("option", { name: "Matches regular expression" }),
@@ -389,10 +398,86 @@ describe("AutomationsSection", () => {
 			screen.getByRole("option", { name: "Matches regular expression" }),
 		).toBeDefined();
 		expect(
-			screen.queryByRole("option", { name: "Date comparison: before" }),
+			screen.queryByRole("option", {
+				name: "Current date < property date + offset",
+			}),
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Closed parent" })).toBeNull();
 		expect(screen.queryByText(/last changed on the server/i)).toBeNull();
+	});
+
+	it("keeps recipients, descendant settings, and worker filters in one HQ form shape", async () => {
+		const levelUuid = testUuid("ui-location-level");
+		mocks.levels = [{ uuid: levelUuid, name: "Facility level" }];
+		mocks.locations = [
+			{
+				id: testUuid("ui-location"),
+				levelUuid,
+				parentId: null,
+				siteCode: "facility-a",
+				name: "Facility A",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				archivedAt: null,
+				orderKey: "a0",
+			},
+		];
+		mocks.userProperties = [
+			{ uuid: USER_PROPERTY_UUID, label: "Region", slug: "region" },
+			{
+				uuid: SECOND_USER_PROPERTY_UUID,
+				label: "District",
+				slug: "district",
+			},
+		];
+
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		expect(
+			screen.queryByRole("checkbox", {
+				name: "Include descendant locations for location recipients",
+			}),
+		).toBeNull();
+
+		await chooseChoice("Recipient 1", "Location");
+		fireEvent.click(
+			screen.getByText("Include descendant locations for location recipients"),
+		);
+		fireEvent.click(screen.getByText("Facility level"));
+		await chooseChoice("Recipient 1", "Case owner");
+		expect(screen.queryByText("Facility level")).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Recipient" }));
+		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
+		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
+		expect(
+			screen.getByRole("button", { name: "Recipient filter" }),
+		).toHaveProperty("disabled", true);
+		fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+			target: { value: "Reminder" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				recipients: [
+					expect.objectContaining({ kind: "owner" }),
+					expect.objectContaining({ kind: "self" }),
+				],
+				includeDescendantLocations: false,
+				locationLevelUuids: [],
+				userDataFilters: [
+					expect.objectContaining({ userPropertyUuid: USER_PROPERTY_UUID }),
+					expect.objectContaining({
+						userPropertyUuid: SECOND_USER_PROPERTY_UUID,
+					}),
+				],
+			}),
+		);
 	});
 
 	it("keeps survey partial-submission controls valid and explains reminder refusal", async () => {
@@ -642,6 +727,11 @@ describe("AutomationsSection", () => {
 	it("moves focus through every repeated automation row family", async () => {
 		mocks.userProperties = [
 			{ uuid: USER_PROPERTY_UUID, label: "Region", slug: "region" },
+			{
+				uuid: SECOND_USER_PROPERTY_UUID,
+				label: "District",
+				slug: "district",
+			},
 		];
 		mocks.automations = [repeatedRowsAlert()];
 		render(<AutomationsSection />);

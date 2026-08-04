@@ -48,7 +48,12 @@ without whitespace normalization or outer quote syntax, automation names are
 already trimmed and nonblank, and alert regex patterns are nonempty. The recipient union has no web
 user, and Connect content refuses self, parent-case, all-child-cases,
 case-property-email, and case-group recipients. A timed reset property requires
-a rule-trigger start.
+a rule-trigger start. Each checkbox-style or case-property/custom recipient
+kind appears at most once; multi-target HQ lists may carry distinct workers,
+groups, or locations but never the same concrete target twice. Descendant
+settings require a location recipient, location-level filtering additionally
+requires descendants, and the user-data filter carries one value list per
+worker-property UUID.
 
 Every schedule uses the HQ form's one content type. Timed schedules use the
 runtime's day/repeat encoding but must project into one actual HQ setup form.
@@ -65,9 +70,10 @@ totals stay strictly below expiration, and partial case updates imply partial
 submission.
 
 The derived local matcher keeps HQ's value distinctions that the ordinary
-Predicate AST cannot express: whitespace-only strings are blank, and regexes
-run only against actual string values. It fixes closed-parent matching to HQ's
-standard `parent` child index.
+Predicate AST cannot express: equality compares exact stored text without
+typed SQL coercion; a related comparison requires the related case to exist;
+whitespace-only strings are blank; and regexes run only against actual string
+values. It fixes closed-parent matching to HQ's standard `parent` child index.
 
 The domain records intent only. `lib/automations` derives the current-match
 projection and manual HQ setup guide; neither belongs in the document.

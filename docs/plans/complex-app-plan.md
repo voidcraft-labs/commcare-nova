@@ -189,7 +189,8 @@ comparisons plus regex against direct case properties only; they do not accept
 date, parent/host, closed-parent, location, or server-modified conditions.
 The standard parent-closed condition has no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
-regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
+date criteria compare the current date directly with the property date plus a
+signed day offset; regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
 project-wide switch that evaluates every active update rule for a saved case
@@ -198,7 +199,11 @@ closed case-relative/generic/custom recipient union, SMS/email/survey/Connect/
 registered-custom content, immediate or timed schedules, and optional
 user-data or usercase filters. Web users are not representable recipients, and
 Connect content excludes the case-relative, case-property-email, and case-group
-recipients that HQ refuses. IVR and SMS/callback survive only so a historical
+recipients that HQ refuses. Checkbox-style, case-property, and custom
+recipient kinds are singletons; list-backed recipients keep unique concrete
+targets. Descendant controls require a location recipient, location-level
+filters require descendants, and user-data filters have one value list per
+worker property. IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which
 the Builder and guide state rather than silently treating them as deployable.
 There is no push-notification arm and no untyped escape hatch
@@ -229,8 +234,10 @@ running app. Nova's AST-to-Kysely boundary can exactly lower each kind's
 property comparisons, including automatic-update parent/host reads, plus its
 closed-parent relation; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
-Whitespace-only strings count as blank and regex evaluation applies only to
-stored strings, matching HQ instead of coercing JSON scalars.
+Equality compares exact stored text rather than coercing the criterion through
+Nova's typed SQL compiler, and a missing parent/host relation does not satisfy
+either equality arm. Whitespace-only strings count as blank and regex
+evaluation applies only to stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age
 have no honest local evaluator, so they are explicit setup-only text and every
 omission is named beside a partial count. Preview never updates a case, sends a

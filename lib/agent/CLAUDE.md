@@ -168,7 +168,10 @@ Names are already trimmed and nonblank; equality and update literals are
 canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
 There is no web-user recipient; Connect content refuses the case-relative,
 case-property-email, and case-group arms HQ cannot save. A timed reset property
-requires a rule-trigger start. The deprecated domain-wide
+requires a rule-trigger start. Checkbox-style, case-property, and custom
+recipient kinds are singletons; concrete list targets and worker-property
+filter keys are unique. Descendant controls require a location recipient and
+location-level filters require descendants. The deprecated domain-wide
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
 per-rule tool field.
 

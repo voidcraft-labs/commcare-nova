@@ -112,6 +112,20 @@ describe("automation domain and projections", () => {
 			{ property: "status_code", hasValue: true, scope: "case" },
 			{ property: "status_code", hasValue: false, scope: "case" },
 		]);
+		expect(projection.countArgs.automationCriteria?.comparisons).toEqual([
+			{
+				property: "status_code",
+				value: "active",
+				equal: true,
+				scope: "case",
+			},
+			{
+				property: "status_code",
+				value: "closed",
+				equal: false,
+				scope: "case",
+			},
+		]);
 		expect(projection.countArgs.automationCriteria?.predicate).toBeDefined();
 
 		const alert = alertWithSchedule({
@@ -220,12 +234,119 @@ describe("automation domain and projections", () => {
 			],
 		};
 		const projection = automationMatchProjection(doc, rule);
-		expect(
-			JSON.stringify(projection.countArgs.automationCriteria?.predicate),
-		).toContain('"identifier":"parent"');
+		expect(projection.countArgs.automationCriteria?.comparisons).toEqual([
+			{
+				property: "state",
+				value: "active",
+				equal: true,
+				scope: "parent",
+			},
+		]);
 		expect(buildAutomationSetupGuide(doc, rule, []).steps.join(" ")).toContain(
 			"Parent case property state equals",
 		);
+	});
+
+	it("keeps alert recipients and filters in one representable HQ form shape", () => {
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("recipient-shape-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: "Hello" },
+				},
+			],
+		});
+		const duplicateOwner = [
+			{ uuid: testUuid("recipient-owner-a"), kind: "owner" as const },
+			{ uuid: testUuid("recipient-owner-b"), kind: "owner" as const },
+		];
+		expect(
+			automationSchema.safeParse({ ...alert, recipients: duplicateOwner })
+				.success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				recipients: [
+					{
+						uuid: testUuid("recipient-property-a"),
+						kind: "case-property-user-id",
+						property: "worker_a",
+					},
+					{
+						uuid: testUuid("recipient-property-b"),
+						kind: "case-property-user-id",
+						property: "worker_b",
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				recipients: [
+					{
+						uuid: testUuid("recipient-worker-a"),
+						kind: "mobile-worker",
+						hqId: "worker-1",
+					},
+					{
+						uuid: testUuid("recipient-worker-b"),
+						kind: "mobile-worker",
+						hqId: "worker-1",
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				includeDescendantLocations: true,
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				locationLevelUuids: [testUuid("recipient-level")],
+			}).success,
+		).toBe(false);
+		const userPropertyUuid = testUuid("recipient-filter-property");
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				userDataFilters: [
+					{
+						uuid: testUuid("recipient-filter-a"),
+						userPropertyUuid,
+						allowedValues: ["a"],
+					},
+					{
+						uuid: testUuid("recipient-filter-b"),
+						userPropertyUuid,
+						allowedValues: ["b"],
+					},
+				],
+			}).success,
+		).toBe(false);
+
+		const locationUuid = testUuid("recipient-location");
+		const levelUuid = testUuid("recipient-level-valid");
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				recipients: [
+					{
+						uuid: testUuid("recipient-location-row"),
+						kind: "location",
+						locationUuid,
+					},
+				],
+				includeDescendantLocations: true,
+				locationLevelUuids: [levelUuid],
+			}).success,
+		).toBe(true);
 	});
 
 	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
@@ -372,6 +493,63 @@ describe("automation domain and projections", () => {
 		expect(text).not.toContain("50,000");
 	});
 
+	it("renders date comparisons in the exact HQ current-date algebra", () => {
+		const rule: Extract<Automation, { kind: "case-update" }> = {
+			...claimCleanup(),
+			criteria: [
+				{
+					uuid: testUuid("guide-date-lt"),
+					kind: "match-property",
+					scope: "case",
+					property: "due_lt",
+					matchType: "date-days-before",
+					days: 5,
+				},
+				{
+					uuid: testUuid("guide-date-lte"),
+					kind: "match-property",
+					scope: "case",
+					property: "due_lte",
+					matchType: "date-days-lte",
+					days: -2,
+				},
+				{
+					uuid: testUuid("guide-date-gt"),
+					kind: "match-property",
+					scope: "case",
+					property: "due_gt",
+					matchType: "date-days-gt",
+					days: 0,
+				},
+				{
+					uuid: testUuid("guide-date-gte"),
+					kind: "match-property",
+					scope: "case",
+					property: "due_gte",
+					matchType: "date-days",
+					days: 7,
+				},
+			],
+		};
+		const text = buildAutomationSetupGuide(
+			buildDoc({ appName: "Dates" }),
+			rule,
+			[],
+		).steps.join(" ");
+		expect(text).toContain(
+			"Current date is less than the date in case property due_lt plus 5 days.",
+		);
+		expect(text).toContain(
+			"Current date is less than or equal to the date in case property due_lte minus 2 days.",
+		);
+		expect(text).toContain(
+			"Current date is greater than the date in case property due_gt.",
+		);
+		expect(text).toContain(
+			"Current date is greater than or equal to the date in case property due_gte plus 7 days.",
+		);
+	});
+
 	it("renders every survey, message, location, language, and filter setting", () => {
 		const doc = buildDoc({ appName: "Alerts" }) as BlueprintDoc;
 		const formUuid = testUuid("alert-form");
@@ -401,7 +579,14 @@ describe("automation domain and projections", () => {
 				},
 			],
 			setupOnlyCriteria: [],
-			recipients: [{ uuid: testUuid("alert-owner"), kind: "owner" }],
+			recipients: [
+				{ uuid: testUuid("alert-owner"), kind: "owner" },
+				{
+					uuid: testUuid("alert-location"),
+					kind: "location",
+					locationUuid: testUuid("alert-location-target"),
+				},
+			],
 			schedule: {
 				kind: "immediate",
 				events: [

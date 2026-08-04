@@ -255,7 +255,10 @@ properties plus at most one standard closed-parent condition; alerts expose
 direct-case value/regex conditions and no date, closed-parent, location, or
 server-modified condition. It also allows no web-user recipient or incompatible case-relative/email/case-group recipient
 with Connect content, and no timed reset property unless the start is the rule
-trigger. Closed-parent exposes no custom index or relationship. Exact HQ
+trigger. Singleton recipient choices disable once used; list recipients exclude
+already-selected concrete targets. Descendant and location-level controls exist
+only under a location recipient and clear atomically when that dependency goes
+away. Each worker-property filter can be added once. Closed-parent exposes no custom index or relationship. Exact HQ
 literal inputs start nonblank, and switching dependent schedule choices clears
 values the new form cannot save.
 

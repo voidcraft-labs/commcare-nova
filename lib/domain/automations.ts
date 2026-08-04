@@ -332,6 +332,36 @@ export const automationRecipientSchema = z.discriminatedUnion("kind", [
 ]);
 export type AutomationRecipient = z.infer<typeof automationRecipientSchema>;
 
+const AUTOMATION_SINGLETON_RECIPIENT_KINDS = new Set<
+	AutomationRecipient["kind"]
+>([
+	"self",
+	"owner",
+	"last-submitting-user",
+	"parent-case",
+	"all-child-cases",
+	"case-property-username",
+	"case-property-user-id",
+	"case-property-email",
+	"custom",
+]);
+
+/** HQ renders these recipient kinds as one checkbox plus one value control. */
+export function automationRecipientKindIsSingleton(
+	kind: AutomationRecipient["kind"],
+): boolean {
+	return AUTOMATION_SINGLETON_RECIPIENT_KINDS.has(kind);
+}
+
+function automationRecipientSetupKey(recipient: AutomationRecipient): string {
+	if (automationRecipientKindIsSingleton(recipient.kind)) return recipient.kind;
+	if (recipient.kind === "location") {
+		return `${recipient.kind}:${recipient.locationUuid}`;
+	}
+	if ("hqId" in recipient) return `${recipient.kind}:${recipient.hqId}`;
+	return recipient.kind;
+}
+
 const formContentBase = { formUuid: uuidSchema } as const;
 const surveyContentBase = {
 	...formContentBase,
@@ -903,11 +933,79 @@ function validateConditionalAlert(
 		readonly criteria: readonly AutomationCriterion[];
 		readonly recipients: readonly AutomationRecipient[];
 		readonly schedule: AutomationSchedule;
+		readonly includeDescendantLocations: boolean;
+		readonly locationLevelUuids: readonly Uuid[];
+		readonly userDataFilters: readonly AutomationUserDataFilter[];
 		readonly resetCaseProperty?: string;
 	},
 	ctx: z.RefinementCtx,
 ): void {
 	validateHtmlCriteriaShape(automation, ctx);
+	const recipientKeys = new Set<string>();
+	for (const [index, recipient] of automation.recipients.entries()) {
+		const key = automationRecipientSetupKey(recipient);
+		if (recipientKeys.has(key)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["recipients", index],
+				message:
+					"CommCare HQ's setup form accepts each singleton recipient or concrete recipient target only once.",
+			});
+		} else {
+			recipientKeys.add(key);
+		}
+	}
+
+	const hasLocationRecipient = automation.recipients.some(
+		(recipient) => recipient.kind === "location",
+	);
+	if (automation.includeDescendantLocations && !hasLocationRecipient) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["includeDescendantLocations"],
+			message:
+				"CommCare HQ enables descendant locations only for a location recipient.",
+		});
+	}
+	if (
+		automation.locationLevelUuids.length > 0 &&
+		(!hasLocationRecipient || !automation.includeDescendantLocations)
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["locationLevelUuids"],
+			message:
+				"CommCare HQ enables location-level filters only when a location recipient includes descendants.",
+		});
+	}
+	const seenLocationLevels = new Set<Uuid>();
+	for (const [index, levelUuid] of automation.locationLevelUuids.entries()) {
+		if (seenLocationLevels.has(levelUuid)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["locationLevelUuids", index],
+				message:
+					"CommCare HQ's location-level picker accepts each level only once.",
+			});
+		} else {
+			seenLocationLevels.add(levelUuid);
+		}
+	}
+
+	const seenUserProperties = new Set<Uuid>();
+	for (const [index, filter] of automation.userDataFilters.entries()) {
+		if (seenUserProperties.has(filter.userPropertyUuid)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["userDataFilters", index, "userPropertyUuid"],
+				message:
+					"CommCare HQ's user-data filter accepts one value list per worker property.",
+			});
+		} else {
+			seenUserProperties.add(filter.userPropertyUuid);
+		}
+	}
+
 	const usesConnect = automation.schedule.events.some(
 		(event) =>
 			event.content.kind === "connect-message" ||
