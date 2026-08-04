@@ -46,8 +46,7 @@ export function OrganizationSection() {
 			{organization.error}{" "}
 			<Button
 				type="button"
-				variant="ghost"
-				className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
+				variant="ghost-action"
 				onClick={organization.reload}
 			>
 				Try again
@@ -56,47 +55,50 @@ export function OrganizationSection() {
 	) : undefined;
 
 	return (
-		<div className="flex flex-col gap-8">
-			<section aria-labelledby="app-setup-organization-heading">
-				<h2
-					id="app-setup-organization-heading"
-					className="text-base font-semibold text-nova-text"
-				>
-					Organization
-				</h2>
-				<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
-					The places people work — districts, facilities, and the rest of your
-					structure — and which of them own cases. Workers see and receive
-					different things depending on where they are assigned.
-				</p>
-			</section>
-			{status ?? (
-				<>
-					{organization.warning !== undefined && (
-						<p
-							role="status"
-							className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
-						>
-							The saved organization could not be refreshed. Your open edits are
-							still here. {organization.warning}{" "}
-							<Button
-								type="button"
-								variant="ghost"
-								className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
-								onClick={organization.reload}
+		<section aria-labelledby="app-setup-organization-heading" className="pb-10">
+			<h2 id="app-setup-organization-heading" className="sr-only">
+				Organization
+			</h2>
+			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
+				Set up the places where people work, which places own cases, and what
+				workers can see.
+			</p>
+			<aside
+				aria-label="Current support"
+				className="mt-4 max-w-prose rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+			>
+				Preview can use assigned places and place-based case ownership. These
+				settings do not filter Preview case lists yet, and places are not
+				included when you publish.
+			</aside>
+			<div className="mt-8 flex flex-col gap-10">
+				{status ?? (
+					<>
+						{organization.warning !== undefined && (
+							<p
+								role="status"
+								className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
 							>
-								Try again
-							</Button>
-						</p>
-					)}
-					<LevelsSubsection
-						occupiedLevelUuids={occupiedLevelUuids}
-						locations={organization.locations}
-					/>
-					<PlaceInformationSubsection locations={organization.locations} />
-					<PlacesSubsection organization={organization} />
-				</>
-			)}
-		</div>
+								The saved organization could not be refreshed. Your open edits
+								are still here. {organization.warning}{" "}
+								<Button
+									type="button"
+									variant="ghost-action"
+									onClick={organization.reload}
+								>
+									Try again
+								</Button>
+							</p>
+						)}
+						<LevelsSubsection
+							occupiedLevelUuids={occupiedLevelUuids}
+							locations={organization.locations}
+						/>
+						<PlaceInformationSubsection locations={organization.locations} />
+						<PlacesSubsection organization={organization} />
+					</>
+				)}
+			</div>
+		</section>
 	);
 }

@@ -134,12 +134,7 @@ export function PersonaLocations({
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-red">
 					Places could not be loaded: {error}{" "}
 					{reload !== undefined && (
-						<Button
-							type="button"
-							variant="ghost"
-							className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
-							onClick={reload}
-						>
+						<Button type="button" variant="ghost-action" onClick={reload}>
 							Try again
 						</Button>
 					)}
@@ -167,12 +162,7 @@ export function PersonaLocations({
 							Saved places could not be refreshed, so assignments are paused.{" "}
 							{warning}{" "}
 							{reload !== undefined && (
-								<Button
-									type="button"
-									variant="ghost"
-									className="min-h-11 px-2 text-[12px] text-nova-violet-bright"
-									onClick={reload}
-								>
+								<Button type="button" variant="ghost-action" onClick={reload}>
 									Try again
 								</Button>
 							)}
@@ -185,8 +175,8 @@ export function PersonaLocations({
 					)}
 					{assigned.length === 0 ? (
 						<p className="text-[13px] leading-relaxed text-nova-text-muted">
-							Not assigned anywhere. A worker with no place carries no location
-							information at all — the same as an unassigned CommCare worker.
+							Not assigned to a place. This persona has no location information
+							in Preview.
 						</p>
 					) : (
 						<div className="flex flex-col gap-2">
@@ -226,7 +216,7 @@ export function PersonaLocations({
 														<Button
 															type="button"
 															variant="ghost"
-															className="min-h-11 shrink-0 px-2 text-[12px]"
+															className="shrink-0"
 															onClick={() => {
 																set([
 																	id,
@@ -242,13 +232,14 @@ export function PersonaLocations({
 													<Button
 														type="button"
 														variant="ghost"
+														size="icon"
 														aria-label={`Remove ${location === undefined ? "this place" : locationChoiceLabel(location)}`}
 														aria-describedby={
 															removalIssue === undefined
 																? undefined
 																: removalIssueId
 														}
-														className="size-11 shrink-0 p-0 text-nova-text-muted hover:text-nova-text"
+														className="shrink-0"
 														disabled={removalIssue !== undefined}
 														onClick={() => {
 															rowFocus.onRemoved(index);
@@ -282,7 +273,6 @@ export function PersonaLocations({
 									<Button
 										type="button"
 										variant="ghost"
-										className="min-h-11 px-2 text-[12px]"
 										disabled={assignedPage.page === 0}
 										onClick={() =>
 											setRequestedPage((current) => Math.max(0, current - 1))
@@ -304,7 +294,6 @@ export function PersonaLocations({
 									<Button
 										type="button"
 										variant="ghost"
-										className="min-h-11 px-2 text-[12px]"
 										disabled={assignedPage.page === assignedPage.pageCount - 1}
 										onClick={() =>
 											setRequestedPage((current) =>
@@ -332,7 +321,7 @@ export function PersonaLocations({
 							ariaLabel="Add a place"
 							placeholder="Choose a place"
 							triggerRef={rowFocus.addRef}
-							className="min-h-11 w-full"
+							className="w-full"
 							issueFor={(location) =>
 								personaAssignmentIssue(doc, locations, persona.uuid, [
 									...assigned,
@@ -357,10 +346,8 @@ export function PersonaLocations({
 
 					{assigned.length > 1 && (
 						<p className="text-[12px] leading-relaxed text-nova-text-muted">
-							The main place is the one CommCare reports as this worker's
-							primary. These assignments establish intended case delivery and
-							already supply Preview's location identity; Preview case lists do
-							not yet filter by that delivery scope.
+							The first place is this persona's main place. All assigned places
+							are available in Preview.
 						</p>
 					)}
 				</>

@@ -15,6 +15,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
+import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import { Label } from "@/components/shadcn/label";
 import {
 	type UserEntityPatch,
@@ -66,7 +67,7 @@ export function PlaceInformationSubsection({
 		<Subsection
 			id="app-setup-place-information"
 			title="Place information"
-			description="Anything else a place carries — a phone number, a catchment population, an opening date. Nova stores these values with the place for future location deployment."
+			description="Add details that places can carry, such as a phone number, catchment population, or opening date."
 			addLabel="Add information"
 			onAdd={add}
 			canEdit={canEdit && levels.length > 0}
@@ -74,13 +75,12 @@ export function PlaceInformationSubsection({
 		>
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
-					Add a level first. Place information describes places, and there are
-					no places to describe yet.
+					Add a level before adding information to its places.
 				</SubsectionEmpty>
 			) : properties.length === 0 ? (
 				<SubsectionEmpty>
-					Nothing yet. A place already carries its name and its code — add
-					information here only when your workflow needs more.
+					Places already have a name and code. Add more information only when
+					your workflow needs it.
 				</SubsectionEmpty>
 			) : (
 				properties.map((property, index) => (
@@ -158,8 +158,10 @@ function PropertyRow({
 	const mutations = useBlueprintMutations();
 	const labelId = useId();
 	const slugId = useId();
+	const slugDescriptionId = useId();
 	const requiredId = useId();
 	const choicesId = useId();
+	const choicesDescriptionId = useId();
 	const [message, setMessage] = useState<string | undefined>(undefined);
 	const nameRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
@@ -232,15 +234,11 @@ function PropertyRow({
 					/>
 				</div>
 
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={slugId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Saves as
-					</Label>
+				<Field>
+					<FieldLabel htmlFor={slugId}>Saves as</FieldLabel>
 					<DraftCommitInput
 						id={slugId}
+						ariaDescribedBy={slugDescriptionId}
 						value={property.slug}
 						disabled={!canEdit}
 						validate={(slug) => {
@@ -250,11 +248,10 @@ function PropertyRow({
 						validateAsYouType
 						onCommit={(slug) => commit({ slug })}
 					/>
-					<p className="text-[12px] leading-relaxed text-nova-text-muted">
-						The stored key Nova will use when it can push this information with
-						the place.
-					</p>
-				</div>
+					<FieldDescription id={slugDescriptionId}>
+						Conditions use this code to read the information.
+					</FieldDescription>
+				</Field>
 
 				<div className="flex items-center gap-2.5">
 					<Checkbox
@@ -270,26 +267,22 @@ function PropertyRow({
 					</Label>
 				</div>
 
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={choicesId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Accepted values
-					</Label>
+				<Field>
+					<FieldLabel htmlFor={choicesId}>Accepted values</FieldLabel>
 					<DraftLinesField
 						id={choicesId}
+						ariaDescribedBy={choicesDescriptionId}
 						value={property.choices ?? []}
 						disabled={!canEdit}
 						onCommit={(choices) =>
 							commit({ choices: choices === null ? null : [...choices] })
 						}
 					/>
-					<p className="text-[12px] leading-relaxed text-nova-text-muted">
+					<FieldDescription id={choicesDescriptionId}>
 						Leave empty for free text. A closed list becomes a choice when you
 						edit a place.
-					</p>
-				</div>
+					</FieldDescription>
+				</Field>
 
 				<fieldset className="rounded-lg border border-nova-border p-3">
 					<legend className="px-1 text-[12px] font-medium text-nova-text-secondary">
@@ -392,8 +385,8 @@ function RemoveProperty({
 			<Button
 				ref={triggerRef}
 				type="button"
-				variant="ghost"
-				className="min-h-11 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+				variant="ghost-destructive"
+				className="self-start"
 				onClick={() => setConfirming(true)}
 			>
 				Remove information
@@ -409,13 +402,12 @@ function RemoveProperty({
 		>
 			<p className="text-[13px] leading-relaxed text-nova-text">
 				Remove “{property.label}”? Anything recorded against it on a place is
-				removed with it — that cannot be undone.
+				removed with it. You can't undo this action.
 			</p>
 			<div className="flex gap-2">
 				<Button
 					type="button"
-					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					variant="destructive"
 					onClick={() => {
 						setConfirming(false);
 						onRemove();
@@ -427,7 +419,6 @@ function RemoveProperty({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px]"
 					onClick={() => setConfirming(false)}
 				>
 					Keep it

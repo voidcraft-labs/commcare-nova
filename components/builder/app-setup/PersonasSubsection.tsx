@@ -13,6 +13,7 @@
 "use client";
 
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import {
 	Select,
 	SelectContent,
@@ -67,7 +68,7 @@ export function PersonasSubsection() {
 		<Subsection
 			id="app-setup-personas"
 			title="Personas"
-			description="Named workers you can run the app as. Preview signs in as the persona you pick, so conditions on worker information behave the way they will for a real person, and the cases it creates belong to that persona."
+			description="Named workers you can use in Preview. Choose one to test worker information, place assignments, and case ownership."
 			addLabel="Add persona"
 			onAdd={add}
 			canEdit={canEdit}
@@ -149,6 +150,8 @@ function PersonaRow({
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const nameId = useId();
+	const roleId = useId();
+	const roleDescriptionId = useId();
 	const nameRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -214,14 +217,11 @@ function PersonaRow({
 								name,
 							});
 						}}
-						className="min-h-11"
 					/>
 				</div>
 
-				<div className="flex flex-col gap-1.5">
-					<span className="text-[12px] font-medium text-nova-text-secondary">
-						Role
-					</span>
+				<Field>
+					<FieldLabel htmlFor={roleId}>Role</FieldLabel>
 					<Select
 						value={selectedRoleIndex + 1}
 						disabled={!canEdit || roles.length === 0}
@@ -234,8 +234,14 @@ function PersonaRow({
 							});
 						}}
 					>
-						<SelectTrigger aria-label="Role" className="min-h-11 w-full">
-							<SelectValue />
+						<SelectTrigger
+							id={roleId}
+							aria-describedby={
+								roles.length === 0 ? roleDescriptionId : undefined
+							}
+							className="w-full"
+						>
+							<SelectValue>{role?.name ?? "No role"}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value={0}>No role</SelectItem>
@@ -247,11 +253,11 @@ function PersonaRow({
 						</SelectContent>
 					</Select>
 					{roles.length === 0 && (
-						<span className="text-[12px] text-nova-text-muted">
+						<FieldDescription id={roleDescriptionId}>
 							Add a role above to give this persona one.
-						</span>
+						</FieldDescription>
 					)}
-				</div>
+				</Field>
 
 				<div className="flex flex-col gap-3">
 					<h4 className="text-[12px] font-medium text-nova-text-secondary">

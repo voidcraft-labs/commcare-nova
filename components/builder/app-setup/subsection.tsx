@@ -49,9 +49,9 @@ export function Subsection({
 				<Button
 					ref={addButtonRef}
 					type="button"
-					variant="ghost-action"
+					variant="ghost"
 					onClick={onAdd}
-					className="mt-3"
+					className="nova-add-slot mt-3 w-full"
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
 					{addLabel}

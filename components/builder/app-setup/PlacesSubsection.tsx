@@ -27,6 +27,7 @@ import {
 } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
@@ -193,14 +194,12 @@ export function PlacesSubsection({
 			<Subsection
 				id="app-setup-places"
 				title="Places"
-				description="The districts, facilities, and wards themselves — the organization's contents."
+				description="Add the regions, districts, facilities, and other places in this organization."
 				addLabel="Add place"
 				onAdd={() => undefined}
 				canEdit={false}
 			>
-				<SubsectionEmpty>
-					Add a level first. A place has to stand at one of them.
-				</SubsectionEmpty>
+				<SubsectionEmpty>Add a level before adding its places.</SubsectionEmpty>
 			</Subsection>
 		);
 	}
@@ -209,7 +208,7 @@ export function PlacesSubsection({
 		<Subsection
 			id="app-setup-places"
 			title="Places"
-			description="The districts, facilities, and wards themselves. Unlike levels, these are data — you can add thousands, and later push them to CommCare."
+			description="Add the regions, districts, facilities, and other places in this organization."
 			addLabel="Add place"
 			onAdd={() => {
 				if (conflictedId === undefined && protectedId === undefined)
@@ -237,8 +236,7 @@ export function PlacesSubsection({
 					{organization.error}{" "}
 					<Button
 						type="button"
-						variant="ghost"
-						className="min-h-11 px-2 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+						variant="ghost-action"
 						onClick={organization.reload}
 					>
 						Try again
@@ -246,8 +244,7 @@ export function PlacesSubsection({
 				</p>
 			) : tree.rows.length === 0 && !adding ? (
 				<SubsectionEmpty>
-					No places yet. Add the first one at your top level, then build
-					downward.
+					Start with a place at the top level. Then add the places below it.
 				</SubsectionEmpty>
 			) : (
 				<div className="flex flex-col gap-2">
@@ -291,7 +288,6 @@ export function PlacesSubsection({
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-11 px-2.5 text-[12px]"
 								disabled={shownPage === 0 || openId !== undefined}
 								onClick={() => setPage((current) => Math.max(0, current - 1))}
 							>
@@ -308,7 +304,6 @@ export function PlacesSubsection({
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-11 px-2.5 text-[12px]"
 								disabled={shownPage === pageCount - 1 || openId !== undefined}
 								onClick={() =>
 									setPage((current) => Math.min(pageCount - 1, current + 1))
@@ -446,6 +441,7 @@ function PlaceRow({
 	const canEdit = useCanEdit();
 	const sessionApi = useOptionalBuilderSessionApi();
 	const nameId = useId();
+	const nameDescriptionId = useId();
 	const externalId = useId();
 	const latitudeId = useId();
 	const longitudeId = useId();
@@ -1084,8 +1080,8 @@ function PlaceRow({
 						This place changed while you were editing. Your draft is still here.
 						<Button
 							type="button"
-							variant="ghost"
-							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							variant="ghost-action"
+							className="ml-2"
 							disabled={!canEdit || archived}
 							onClick={keepDraft}
 						>
@@ -1093,26 +1089,22 @@ function PlaceRow({
 						</Button>
 						<Button
 							type="button"
-							variant="ghost"
-							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							variant="ghost-action"
+							className="ml-2"
 							onClick={adoptLatest}
 						>
 							Use latest saved values
 						</Button>
 					</div>
 				)}
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={nameId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Name
-					</Label>
+				<Field>
+					<FieldLabel htmlFor={nameId}>Name</FieldLabel>
 					<Input
 						id={nameId}
 						value={draftName}
 						autoComplete="off"
 						data-1p-ignore
+						aria-describedby={nameDescriptionId}
 						disabled={!canEdit || archived}
 						onChange={(e) => {
 							draftNameRef.current = e.target.value;
@@ -1167,22 +1159,21 @@ function PlaceRow({
 							}
 						}}
 					/>
-					<p className="text-[12px] text-nova-text-muted">
+					<FieldDescription id={nameDescriptionId}>
 						Code{" "}
 						<code className="text-nova-text-secondary [overflow-wrap:anywhere]">
 							{location.siteCode}
-						</code>{" "}
-						— fixed when the place was created, because bulk uploads and
-						CommCare identify it by that code.
-					</p>
-				</div>
+						</code>
+						. The code stays the same when you rename this place.
+					</FieldDescription>
+				</Field>
 
 				<div className="flex flex-col gap-1.5">
 					<Label
 						htmlFor={externalId}
 						className="text-[12px] font-medium text-nova-text-secondary"
 					>
-						Id in another system
+						ID in another system
 					</Label>
 					<Input
 						id={externalId}
@@ -1311,8 +1302,8 @@ function PlaceRow({
 					{(dirtyPlacement || valuesNeedApply) && (
 						<Button
 							type="button"
-							variant="ghost"
-							className="min-h-11 self-start px-2.5 text-[12px] text-nova-violet-bright"
+							variant="ghost-action"
+							className="self-start"
 							disabled={
 								!canEdit ||
 								archived ||
@@ -1715,8 +1706,8 @@ function PlaceRow({
 						no longer available here.
 						<Button
 							type="button"
-							variant="ghost"
-							className="ml-2 min-h-11 px-2 text-[12px] text-nova-violet-bright"
+							variant="ghost-action"
+							className="ml-2"
 							onClick={discardHiddenValueDrafts}
 						>
 							Discard unavailable{" "}
@@ -1846,7 +1837,7 @@ function PlaceValueField({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11 shrink-0 px-2.5 text-[12px]"
+							className="shrink-0"
 							disabled={disabled}
 							onClick={() => {
 								onDraft("");
@@ -1903,8 +1894,8 @@ function ArchivePlace({
 		return (
 			<Button
 				type="button"
-				variant="ghost"
-				className="min-h-11 gap-2 self-start px-2.5 text-[12px]"
+				variant="ghost-action"
+				className="self-start"
 				onClick={async () => {
 					const result = await organization.setArchived(location.id, false);
 					if (!result.ok) onMessage(result.message);
@@ -1926,8 +1917,8 @@ function ArchivePlace({
 			<Button
 				ref={triggerRef}
 				type="button"
-				variant="ghost"
-				className="min-h-11 gap-2 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+				variant="ghost-destructive"
+				className="self-start"
 				onClick={async () => {
 					const generation = impactGenerationRef.current + 1;
 					impactGenerationRef.current = generation;
@@ -1970,8 +1961,8 @@ function ArchivePlace({
 				<ul className="flex list-disc flex-col gap-1 pl-4 text-[12px] leading-relaxed text-nova-text-secondary">
 					{impact.affectedLocationCount > 1 && (
 						<li>
-							{impact.affectedLocationCount} places are archived — this one and
-							everything under it.
+							{impact.affectedLocationCount} places are archived. This includes
+							this place and everything under it.
 						</li>
 					)}
 					{impact.unassignedPersonaCount > 0 && (
@@ -1989,9 +1980,7 @@ function ArchivePlace({
 						<li className="text-nova-amber">
 							{impact.ownedCases}{" "}
 							{impact.ownedCases === 1 ? "case is" : "cases are"} owned here and
-							will stay owned here. Nothing moves them. Preview case lists do
-							not yet change visibility from this archive; future device
-							delivery will use the restored path and worker assignments.
+							will stay owned here. Archiving does not move them.
 						</li>
 					)}
 					{impact.blockingOwnerRuleFormCount > 0 && (
@@ -2015,8 +2004,7 @@ function ArchivePlace({
 			<div className="flex gap-2">
 				<Button
 					type="button"
-					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					variant="destructive"
 					disabled={
 						impact === undefined || impact.blockingOwnerRuleFormCount > 0
 					}
@@ -2032,12 +2020,7 @@ function ArchivePlace({
 				>
 					Archive
 				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px]"
-					onClick={closeConfirmation}
-				>
+				<Button type="button" variant="ghost" onClick={closeConfirmation}>
 					Keep it
 				</Button>
 			</div>
@@ -2087,6 +2070,7 @@ function AddPlaceForm({
 }) {
 	const nameId = useId();
 	const siteCodeId = useId();
+	const siteCodeDescriptionId = useId();
 	const externalId = useId();
 	const latitudeId = useId();
 	const longitudeId = useId();
@@ -2203,28 +2187,28 @@ function AddPlaceForm({
 				/>
 			</div>
 			<div className="grid gap-3 @sm:grid-cols-2">
-				<div className="flex flex-col gap-1.5">
-					<Label
-						htmlFor={siteCodeId}
-						className="text-[12px] font-medium text-nova-text-secondary"
-					>
-						Code (optional)
-					</Label>
+				<Field>
+					<FieldLabel htmlFor={siteCodeId}>Code (optional)</FieldLabel>
 					<Input
 						id={siteCodeId}
 						value={siteCode}
 						autoComplete="off"
 						data-1p-ignore
+						aria-describedby={siteCodeDescriptionId}
 						placeholder="Derived from the name"
 						onChange={(event) => setSiteCode(event.target.value)}
 					/>
-				</div>
+					<FieldDescription id={siteCodeDescriptionId}>
+						Leave this blank to create a code from the name. You can't change
+						the code later.
+					</FieldDescription>
+				</Field>
 				<div className="flex flex-col gap-1.5">
 					<Label
 						htmlFor={externalId}
 						className="text-[12px] font-medium text-nova-text-secondary"
 					>
-						Id in another system
+						ID in another system
 					</Label>
 					<Input
 						id={externalId}
@@ -2498,8 +2482,6 @@ function AddPlaceForm({
 			<div className="flex gap-2">
 				<Button
 					type="button"
-					variant="ghost"
-					className="min-h-11 gap-2 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 					disabled={
 						submitting ||
 						name.trim() === "" ||
@@ -2523,12 +2505,7 @@ function AddPlaceForm({
 					<Icon icon={tablerPlus} width="15" height="15" aria-hidden="true" />
 					{submitting ? "Adding" : "Add place"}
 				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px]"
-					onClick={onCancel}
-				>
+				<Button type="button" variant="ghost" onClick={onCancel}>
 					Cancel
 				</Button>
 			</div>

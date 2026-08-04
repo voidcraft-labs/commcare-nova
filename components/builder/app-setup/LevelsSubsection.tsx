@@ -18,6 +18,13 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
+import {
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldGroup,
+	FieldLabel,
+} from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
@@ -121,7 +128,7 @@ export function LevelsSubsection({
 		<Subsection
 			id="app-setup-levels"
 			title="Levels"
-			description="The rungs of your organization — a district, a facility, a ward. Each one says whether people work there, whether it owns cases, and how much of the organization its workers can see."
+			description="Define the kinds of place in your organization, such as regions, districts, facilities, or wards. For each level, choose whether people work there, whether its places own cases, and what those workers can see."
 			addLabel="Add level"
 			onAdd={() => setAdding(true)}
 			canEdit={canEdit && !adding}
@@ -129,8 +136,8 @@ export function LevelsSubsection({
 		>
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
-					No levels yet. Add the top rung first — the widest one, like a region
-					or a state — then work downward.
+					Start with the widest level, such as a region or state. Then add the
+					levels below it.
 				</SubsectionEmpty>
 			) : (
 				levels.map((level, index) => (
@@ -175,9 +182,15 @@ function AddLevelForm({
 }) {
 	const [name, setName] = useState("");
 	const [code, setCode] = useState("");
-	const [error, setError] = useState<string | undefined>();
+	const [error, setError] = useState<
+		{ field: "name" | "code" | "form"; message: string } | undefined
+	>();
 	const nameId = useId();
 	const codeId = useId();
+	const nameErrorId = useId();
+	const codeDescriptionId = useId();
+	const codeErrorId = useId();
+	const formErrorId = useId();
 	const nameRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		if (!disabled) nameRef.current?.focus();
@@ -187,7 +200,7 @@ function AddLevelForm({
 		const cleanName = name.trim();
 		const cleanCode = code.trim();
 		if (cleanName === "") {
-			setError("Enter the level's real name before adding it.");
+			setError({ field: "name", message: "Add a name for this level." });
 			return;
 		}
 		if (
@@ -195,15 +208,18 @@ function AddLevelForm({
 			(cleanCode.length > LEVEL_CODE_MAX_LENGTH ||
 				!LEVEL_CODE_PATTERN.test(cleanCode))
 		) {
-			setError(
-				"The saved code must start with a letter or underscore and use only letters, numbers, underscores, or hyphens.",
-			);
+			setError({
+				field: "code",
+				message:
+					"Use a code that starts with a letter or underscore and contains only letters, numbers, underscores, or hyphens.",
+			});
 			return;
 		}
 		if (!onSubmit(cleanName, cleanCode)) {
-			setError(
-				"That level could not be added. Check that its name and code are unique.",
-			);
+			setError({
+				field: "form",
+				message: "Couldn't add this level. Use a different name or code.",
+			});
 		}
 	};
 
@@ -212,38 +228,62 @@ function AddLevelForm({
 			disabled={disabled}
 			className="flex flex-col gap-3 rounded-lg border border-nova-border bg-nova-deep/40 p-3"
 		>
-			<div className="flex flex-col gap-1.5">
-				<Label htmlFor={nameId}>Level name</Label>
-				<Input
-					ref={nameRef}
-					id={nameId}
-					value={name}
-					onChange={(event) => setName(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") submit();
-					}}
-					placeholder="Facility"
-				/>
-			</div>
-			<div className="flex flex-col gap-1.5">
-				<Label htmlFor={codeId}>Saved code (optional)</Label>
-				<Input
-					id={codeId}
-					value={code}
-					onChange={(event) => setCode(event.target.value)}
-					placeholder={
-						name.trim() === "" ? "facility" : uniqueLevelCode(name, levels)
-					}
-				/>
-				<p className="text-[12px] leading-relaxed text-nova-text-muted">
-					Nova derives this from the name if left blank. It becomes a fixed
-					CommCare identity, so choose it before adding the level.
-				</p>
-			</div>
-			{error !== undefined && (
-				<p role="alert" className="text-[12px] text-nova-red">
-					{error}
-				</p>
+			<FieldGroup className="gap-4">
+				<Field data-invalid={error?.field === "name" || undefined}>
+					<FieldLabel htmlFor={nameId}>Level name</FieldLabel>
+					<Input
+						ref={nameRef}
+						id={nameId}
+						value={name}
+						autoComplete="off"
+						data-1p-ignore
+						aria-invalid={error?.field === "name" || undefined}
+						aria-describedby={error?.field === "name" ? nameErrorId : undefined}
+						onChange={(event) => {
+							setName(event.target.value);
+							if (error?.field === "name") setError(undefined);
+						}}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") submit();
+						}}
+						placeholder="Facility"
+					/>
+					{error?.field === "name" && (
+						<FieldError id={nameErrorId}>{error.message}</FieldError>
+					)}
+				</Field>
+				<Field data-invalid={error?.field === "code" || undefined}>
+					<FieldLabel htmlFor={codeId}>Code (optional)</FieldLabel>
+					<Input
+						id={codeId}
+						value={code}
+						autoComplete="off"
+						data-1p-ignore
+						aria-invalid={error?.field === "code" || undefined}
+						aria-describedby={
+							error?.field === "code"
+								? `${codeDescriptionId} ${codeErrorId}`
+								: codeDescriptionId
+						}
+						onChange={(event) => {
+							setCode(event.target.value);
+							if (error?.field === "code") setError(undefined);
+						}}
+						placeholder={
+							name.trim() === "" ? "facility" : uniqueLevelCode(name, levels)
+						}
+					/>
+					<FieldDescription id={codeDescriptionId}>
+						Leave this blank to create a code from the name. You can't change
+						the code later.
+					</FieldDescription>
+					{error?.field === "code" && (
+						<FieldError id={codeErrorId}>{error.message}</FieldError>
+					)}
+				</Field>
+			</FieldGroup>
+			{error?.field === "form" && (
+				<FieldError id={formErrorId}>{error.message}</FieldError>
 			)}
 			<div className="flex gap-2">
 				<Button type="button" onClick={submit}>
@@ -294,6 +334,7 @@ function LevelRow({
 	const [levelIssue, setLevelIssue] = useState<string | undefined>();
 	const properties = useLocationProperties();
 	const nameId = useId();
+	const nameDescriptionId = useId();
 	const parentId = useId();
 	const descriptionId = useId();
 
@@ -347,15 +388,11 @@ function LevelRow({
 		>
 			{open ? (
 				<div className="flex flex-col gap-4">
-					<div className="flex flex-col gap-1.5">
-						<Label
-							htmlFor={nameId}
-							className="text-[12px] font-medium text-nova-text-secondary"
-						>
-							Name
-						</Label>
+					<Field>
+						<FieldLabel htmlFor={nameId}>Name</FieldLabel>
 						<DraftCommitInput
 							id={nameId}
+							ariaDescribedBy={nameDescriptionId}
 							value={level.name}
 							disabled={
 								!canEdit ||
@@ -372,15 +409,14 @@ function LevelRow({
 								})
 							}
 						/>
-						<p className="text-[12px] text-nova-text-muted">
+						<FieldDescription id={nameDescriptionId}>
 							Saves as{" "}
 							<code className="text-nova-text-secondary [overflow-wrap:anywhere]">
 								{level.code}
 							</code>
-							. That code goes to CommCare and to every expression that names
-							this level, so it stays fixed even when the name changes.
-						</p>
-					</div>
+							. The code stays the same when you rename this level.
+						</FieldDescription>
+					</Field>
 
 					<div className="flex flex-col gap-1.5">
 						<Label
@@ -402,7 +438,7 @@ function LevelRow({
 							<SelectTrigger id={parentId} wrapValue className="w-full">
 								<SelectValue>
 									{level.parentLevelUuid === undefined
-										? "Nothing — this is a top level"
+										? "No parent (top level)"
 										: (peers.find((p) => p.uuid === level.parentLevelUuid)
 												?.name ?? "A level that no longer exists")}
 								</SelectValue>
@@ -412,7 +448,7 @@ function LevelRow({
 									value={TOP_LEVEL}
 									issue={issueFor({ parentLevelUuid: null })}
 								>
-									Nothing — this is a top level
+									No parent (top level)
 								</IssueSelectItem>
 								{parentOptions.map((candidate) => (
 									<IssueSelectItem
@@ -572,8 +608,8 @@ function CaseFlowGroup({
 					}
 					hint={
 						flow.workers === "none"
-							? "Declares this level as a queue: cases can be owned here while no worker is assigned here. Preview case lists do not apply this delivery scope yet."
-							: "Declares that assigned workers receive the cases their place owns once location owner sets ship. Preview case lists do not apply this delivery scope yet."
+							? "Cases can be owned here even when no worker is assigned here."
+							: "Assigned workers receive the cases their place owns."
 					}
 				/>
 				{flow.workers === "assigned" && (
@@ -604,7 +640,7 @@ function CaseFlowGroup({
 										caseFlow: { ...flow, descendantCases: { kind: "none" } },
 									})}
 								>
-									No — only their own place
+									Only their own place
 								</IssueSelectItem>
 								<IssueSelectItem
 									value="all"
@@ -612,7 +648,7 @@ function CaseFlowGroup({
 										caseFlow: { ...flow, descendantCases: { kind: "all" } },
 									})}
 								>
-									Yes — everything below
+									Everything below
 								</IssueSelectItem>
 								{peers.map((ancestor) => (
 									<IssueSelectItem
@@ -635,9 +671,8 @@ function CaseFlowGroup({
 						</Select>
 						{flow.descendantCases.kind === "down-to" && (
 							<p className="text-[12px] leading-relaxed text-nova-amber">
-								Stopping at a level needs a setting enabled on the CommCare
-								project you deploy to. Without it, workers receive everything
-								below instead.
+								This choice needs matching support in the project you publish
+								to. Otherwise workers receive cases from every place below.
 							</p>
 						)}
 					</div>
@@ -660,8 +695,8 @@ function descendantLabel(
 	scope: DescendantCaseScope,
 	levels: readonly OrganizationLevel[],
 ): string {
-	if (scope.kind === "all") return "Yes — everything below";
-	if (scope.kind === "none") return "No — only their own place";
+	if (scope.kind === "all") return "Everything below";
+	if (scope.kind === "none") return "Only their own place";
 	const named = levels.find((level) => level.uuid === scope.levelUuid);
 	return named === undefined
 		? "Down to a level that no longer exists"
@@ -790,8 +825,8 @@ function AddressBookGroup({
 				</p>
 				<Button
 					type="button"
-					variant="ghost"
-					className="min-h-11 shrink-0 px-2.5 text-[12px] text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+					variant="ghost-action"
+					className="shrink-0"
 					onClick={() => setExpanded(true)}
 					disabled={!canEdit}
 				>
@@ -807,9 +842,8 @@ function AddressBookGroup({
 				What workers here can see
 			</legend>
 			<p className="mb-2.5 text-[12px] leading-relaxed text-nova-text-muted">
-				Seeing a place is separate from receiving its cases. Nova uses this
-				footprint now to validate place-owner expressions; Preview case lists do
-				not apply it yet.
+				Seeing a place is separate from receiving its cases. Use this setting to
+				control which places workers can name in case-owner rules.
 			</p>
 			<div className="flex flex-col gap-2.5">
 				<Label htmlFor={reachId} className="sr-only">
@@ -1186,8 +1220,8 @@ function RemoveLevel({
 				<Button
 					ref={triggerRef}
 					type="button"
-					variant="ghost"
-					className="min-h-11 self-start px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					variant="ghost-destructive"
+					className="self-start"
 					onClick={() => {
 						setRefusal(undefined);
 						if (!plan.ok) {
@@ -1224,8 +1258,7 @@ function RemoveLevel({
 			<div className="flex gap-2">
 				<Button
 					type="button"
-					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px] text-nova-red hover:bg-nova-red/[0.12] hover:text-nova-red"
+					variant="destructive"
 					onClick={() => {
 						onRemove();
 						const result = mutations.removeOrganizationLevel(
@@ -1241,7 +1274,6 @@ function RemoveLevel({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11 px-2.5 text-[12px]"
 					onClick={() => setConfirming(false)}
 				>
 					Keep it

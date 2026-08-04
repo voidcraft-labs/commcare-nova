@@ -90,14 +90,9 @@ describe("PersonaRemoveConfirm", () => {
 		fireEvent.click(retry);
 
 		await waitFor(() =>
-			expect(screen.getByText(/2 retained case rows/i)).toBeDefined(),
+			expect(screen.getByText(/Asha owns 2 cases/i)).toBeDefined(),
 		);
-		expect(
-			screen.getByText(/Nova does not delete or reassign them/i),
-		).toBeDefined();
-		expect(
-			screen.getByText(/unfiltered case lists may still show them/i),
-		).toBeDefined();
+		expect(screen.getByText(/will not delete or move them/i)).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Remove" }).hasAttribute("disabled"),
 		).toBe(false);
@@ -116,7 +111,7 @@ describe("PersonaRemoveConfirm", () => {
 		).toBe(true);
 		fireEvent.click(retry);
 
-		await screen.findByText(/1 retained case row/i);
+		await screen.findByText(/Asha owns 1 case/i);
 		expect(countCasesOwnedByAction).toHaveBeenCalledTimes(2);
 	});
 
@@ -127,7 +122,7 @@ describe("PersonaRemoveConfirm", () => {
 		});
 		renderConfirm();
 		fireEvent.click(screen.getByRole("button", { name: "Remove persona" }));
-		await screen.findByText("Asha owns no retained case rows.");
+		await screen.findByText("Asha does not own any cases.");
 
 		fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 

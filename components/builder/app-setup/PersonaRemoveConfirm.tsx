@@ -46,9 +46,9 @@ export function PersonaRemoveConfirm({
 			<Button
 				ref={triggerRef}
 				type="button"
-				variant="ghost"
+				variant="ghost-destructive"
 				onClick={() => setConfirming(true)}
-				className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+				className="self-start"
 			>
 				Remove persona
 			</Button>
@@ -131,11 +131,11 @@ function ConfirmPanel({
 						Checking which cases they own…
 					</span>
 				) : owned.state === "failed" ? (
-					"Nova couldn't verify every retained case row. Try again before removing this persona."
+					"Nova couldn't verify every case this persona owns. Try again before removing them."
 				) : owned.count === 0 ? (
-					`${persona.name} owns no retained case rows.`
+					`${persona.name} does not own any cases.`
 				) : (
-					`${persona.name} owns ${owned.count} retained ${owned.count === 1 ? "case row" : "case rows"}. Nova does not delete or reassign them. They remain in this Project; unfiltered case lists may still show them, while owner-filtered views continue to use their stored owner.`
+					`${persona.name} owns ${owned.count} ${owned.count === 1 ? "case" : "cases"}. Removing this persona will not delete or move them. They will keep this persona as their owner.`
 				)}
 			</p>
 			{owned.state === "failed" && (
@@ -152,7 +152,6 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="destructive"
-					className=""
 					disabled={owned.state !== "known"}
 					onClick={() => {
 						if (owned.state !== "known") return;
@@ -163,7 +162,7 @@ function ConfirmPanel({
 				>
 					Remove
 				</Button>
-				<Button type="button" variant="ghost" className="" onClick={onCancel}>
+				<Button type="button" variant="ghost" onClick={onCancel}>
 					Cancel
 				</Button>
 			</div>

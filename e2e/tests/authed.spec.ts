@@ -349,7 +349,9 @@ test.describe("authenticated builder", () => {
 		const levels = page.getByRole("region", { name: "Levels" });
 		const places = page.getByRole("region", { name: "Places" });
 		await expect(levels.getByRole("heading", { name: "Levels" })).toBeVisible();
-		await expect(places.getByText("Add a level first.")).toBeVisible();
+		await expect(
+			places.getByText("Add a level before adding its places."),
+		).toBeVisible();
 
 		await levels.getByRole("button", { name: "Add level" }).click();
 		await expect(levels.getByLabel("Level name")).toBeFocused();
@@ -428,7 +430,7 @@ test.describe("authenticated builder", () => {
 		await expect(places.getByLabel("Name")).toBeFocused();
 		await places.getByLabel("Name").fill("Coast Region");
 		await places.getByLabel("Code (optional)").fill("coast-region");
-		await places.getByLabel("Id in another system").fill("region-001");
+		await places.getByLabel("ID in another system").fill("region-001");
 		await places.getByLabel("Latitude").fill("-4.0435");
 		await places.getByLabel("Longitude").fill("39.6682");
 		await places.getByLabel("Facility kind").last().click();
@@ -701,10 +703,10 @@ test.describe("authenticated builder", () => {
 			const peerPlaces = peerPage.getByRole("region", { name: "Places" });
 			await peerPlaces.getByRole("button", { name: /Coast Region/ }).click();
 			await peerPlaces
-				.getByLabel("Id in another system")
+				.getByLabel("ID in another system")
 				.filter({ visible: true })
 				.fill("region-peer-update");
-			await peerPage.getByRole("heading", { name: "Organization" }).click();
+			await peerPlaces.getByRole("heading", { name: "Places" }).click();
 			await expect(
 				conflictPlaces.getByText(
 					"This place changed while you were editing. Your draft is still here.",
@@ -721,7 +723,7 @@ test.describe("authenticated builder", () => {
 				),
 			).toHaveCount(0);
 			await draftName.focus();
-			await page.getByRole("heading", { name: "Organization" }).click();
+			await conflictPlaces.getByRole("heading", { name: "Places" }).click();
 			await expect(
 				conflictPlaces.getByRole("button", {
 					name: /Coast draft kept locally/,
@@ -835,7 +837,7 @@ test.describe("authenticated builder", () => {
 		await context.addCookies(viewerState.cookies);
 		await page.goto(`/build/${appId}/setup/organization`);
 		await expect(
-			page.getByRole("heading", { name: "Organization" }),
+			page.getByRole("region", { name: "Organization" }),
 		).toBeVisible();
 		await expect(page.getByRole("button", { name: "Add level" })).toHaveCount(
 			0,
