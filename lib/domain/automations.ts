@@ -198,11 +198,33 @@ export const closedParentCriterionSchema = z
 	})
 	.strict();
 
+/**
+ * HQ evaluates a location criterion against either a location-owned case or
+ * the primary location of the mobile worker who owns the case. Nova stores
+ * the place identity, never the target HQ location id; setup guidance resolves
+ * the current human/site-code projection and deployment owns the remote map.
+ */
+export const locationAutomationCriterionSchema = z
+	.object({
+		uuid: uuidSchema,
+		kind: z.literal("location"),
+		locationUuid: uuidSchema,
+		includeDescendants: z.boolean(),
+	})
+	.strict();
+
 export const automationCaseUpdateCriterionSchema = z.discriminatedUnion(
 	"kind",
-	[caseUpdatePropertyMatchCriterionSchema, closedParentCriterionSchema],
+	[
+		caseUpdatePropertyMatchCriterionSchema,
+		closedParentCriterionSchema,
+		locationAutomationCriterionSchema,
+	],
 );
-export const automationAlertCriterionSchema = alertPropertyMatchCriterionSchema;
+export const automationAlertCriterionSchema = z.discriminatedUnion("kind", [
+	alertPropertyMatchCriterionSchema,
+	locationAutomationCriterionSchema,
+]);
 
 export type AutomationCriterion =
 	| z.infer<typeof automationCaseUpdateCriterionSchema>
@@ -218,6 +240,20 @@ export type AutomationPropertyTarget = z.infer<
 	typeof automationPropertyTargetSchema
 >;
 
+export const AUTOMATION_MESSAGE_CONTEXTS = ["case-owner", "recipient"] as const;
+export type AutomationMessageContext =
+	(typeof AUTOMATION_MESSAGE_CONTEXTS)[number];
+
+export const AUTOMATION_MESSAGE_CONTEXT_PROPERTIES = [
+	"name",
+	"first_name",
+	"last_name",
+	"phone_number",
+	"site_code",
+] as const;
+export type AutomationMessageContextProperty =
+	(typeof AUTOMATION_MESSAGE_CONTEXT_PROPERTIES)[number];
+
 export const automationMessagePartSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
@@ -231,6 +267,13 @@ export const automationMessagePartSchema = z.discriminatedUnion("kind", [
 			scope: automationPropertyTargetSchema.shape.scope,
 			caseType: z.string().min(1).max(126),
 			property: automationPropertyTargetSchema.shape.property,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("context-property"),
+			context: z.enum(AUTOMATION_MESSAGE_CONTEXTS),
+			property: z.enum(AUTOMATION_MESSAGE_CONTEXT_PROPERTIES),
 		})
 		.strict(),
 ]);
@@ -276,7 +319,7 @@ export const automationMessageTemplateSchema = z
 		}
 		if (
 			!template.parts.some(
-				(part) => part.kind === "case-property" || part.text.trim().length > 0,
+				(part) => part.kind !== "text" || part.text.trim().length > 0,
 			)
 		) {
 			ctx.addIssue({
@@ -314,15 +357,28 @@ export function canonicalAutomationMessageTemplate(
 
 function automationMessageTemplateWithLimit(maxLength: number, label: string) {
 	return automationMessageTemplateSchema.superRefine((template, ctx) => {
-		const projectedLength = template.parts.reduce(
-			(length, part) =>
+		const projectedLength = template.parts.reduce((length, part) => {
+			if (part.kind === "text") {
+				// Python string.Formatter uses doubled braces for literal braces.
+				return (
+					length + part.text.replaceAll("{", "{{").replaceAll("}", "}}").length
+				);
+			}
+			if (part.kind === "context-property") {
+				return (
+					length +
+					(part.context === "case-owner"
+						? `{case.owner.${part.property}}`
+						: `{recipient.${part.property}}`
+					).length
+				);
+			}
+			return (
 				length +
-				(part.kind === "text"
-					? part.text.length
-					: `{case.${part.scope === "case" ? "" : `${part.scope}.`}${part.property}}`
-							.length),
-			0,
-		);
+				`{case.${part.scope === "case" ? "" : `${part.scope}.`}${part.property}}`
+					.length
+			);
+		}, 0);
 		if (projectedLength > maxLength) {
 			ctx.addIssue({
 				code: "custom",
@@ -1036,6 +1092,17 @@ function validateHtmlCriteriaShape(
 				"CommCare HQ's setup form accepts only one closed-parent condition.",
 		});
 	}
+	const locations = automation.criteria.filter(
+		(criterion) => criterion.kind === "location",
+	);
+	if (locations.length > 1) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["criteria"],
+			message:
+				"CommCare HQ accepts only one location condition per automation.",
+		});
+	}
 }
 
 const CONNECT_INCOMPATIBLE_RECIPIENT_KINDS = new Set<
@@ -1190,7 +1257,14 @@ export const automationSchema = z.discriminatedUnion("kind", [
 			schedule: automationScheduleSchema,
 			includeDescendantLocations: z.boolean(),
 			locationLevelUuids: z.array(uuidSchema).max(100),
-			defaultLanguageCode: z.string().min(1).max(126).optional(),
+			defaultLanguageCode: z
+				.string()
+				.max(126)
+				.refine((value) => value.trim().length > 0 && value === value.trim(), {
+					message:
+						"A default language code must be nonblank and have no surrounding whitespace.",
+				})
+				.optional(),
 			userDataFilters: z.array(automationUserDataFilterSchema).max(100),
 			useUserCaseForFilter: z.boolean(),
 			resetCaseProperty: z.string().min(1).max(126).optional(),

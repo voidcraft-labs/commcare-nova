@@ -25,7 +25,10 @@ means the property date minus two days.
 
 The CommCare HQ form accepts one standard closed-parent condition per rule. It
 does not expose another case-index name or relationship for that condition, and
-it does not expose a location or regex condition for automatic updates.
+its visible editor does not expose regex. A rule may carry one location
+condition with an explicit descendant choice. HQ accepts and executes that
+form payload, but the current visible rule and alert editors hide the location
+picker, so the generated guide calls out the required HQ-administrator path.
 Equality values and fixed update values are the exact nonblank text HQ stores:
 omit surrounding whitespace and matching outer quotes. Rule names must also be
 nonblank and already trimmed.
@@ -86,11 +89,14 @@ Historical IVR definitions additionally preserve the maximum attempts per
 question.
 
 Message subjects and bodies are structural templates. Ordinary text is always
-literal—even text such as `{case.case_name}`. Use **Case property reference**
-in the Builder to insert a real substitution; the setup guide then prints the
-current HQ token, including Nova-to-HQ standard-property translation. Renaming
-a case property updates that structural reference without changing literal
-text. Registered custom recipient/content handlers require the exact nonblank
+literal—even text such as `{case.case_name}`. The setup guide doubles literal
+braces because HQ renders the complete message with Python's formatter; that
+escaping keeps the text literal after setup. Use **Case property reference**
+in the Builder to insert a real case/parent/host substitution, or **Owner or
+recipient reference** for supported case-owner and message-recipient fields.
+The setup guide then prints an executable HQ token, including Nova-to-HQ
+standard-property translation. Renaming a case property updates that
+structural reference without changing literal text. Registered custom recipient/content handlers require the exact nonblank
 ID already configured in the target HQ project; placeholder instructions are
 never saved as IDs.
 
@@ -110,8 +116,10 @@ two HQ fields do not read standard case metadata.
 
 Alert conditions use the four direct-case value comparisons or a portable
 regular expression. The alert form does not accept date comparisons,
-parent/host property references, a closed-parent condition, a location
-condition, or server-modified age. Regex patterns must be nonempty and remain
+parent/host property references, a closed-parent condition, or server-modified
+age. It accepts the same one location-condition payload that the runtime
+executes, with the same current visible-picker limitation described above.
+Regex patterns must be nonempty and remain
 inside Nova's shared HQ/Postgres subset.
 
 The setup guide gives both `/a/<domain>/messaging/conditional/` and
@@ -142,7 +150,9 @@ case, sends a message, advances a schedule, or predicts the next HQ sweep.
 
 Nova can count each kind's ordinary property comparisons, including
 automatic-update parent and host reads, plus the automatic-update
-closed-parent condition. Three HQ-only inputs have no honest local equivalent:
+closed-parent condition. A location condition matches cases owned by the
+selected place (and requested descendants) plus cases owned by a Nova persona
+whose primary place is in that set, matching HQ's mobile-worker lookup. Three HQ-only inputs have no honest local equivalent:
 a UCR filter, an instance-registered custom criterion, and automatic-update
 server-modified age. Store UCR and custom criteria as setup-only instructions;
 Nova stores server-modified age as its own case-update field. When a rule mixes

@@ -12,6 +12,7 @@ import {
 	type BlueprintDoc,
 	isPortableAutomationRegex,
 } from "@/lib/domain";
+import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("automation-rule");
 const CRITERION_UUID = testUuid("automation-criterion");
@@ -334,6 +335,102 @@ describe("automation domain and projections", () => {
 		);
 	});
 
+	it("matches a location condition against its subtree and worker primary locations", () => {
+		const locationUuid = testUuid("criterion-location");
+		const childUuid = testUuid("criterion-location-child");
+		const personaUuid = testUuid("criterion-location-persona");
+		const doc = buildDoc({ appName: "Location criteria" }) as BlueprintDoc;
+		doc.personas = {
+			[personaUuid]: {
+				uuid: personaUuid,
+				name: "Asha",
+				locations: { primaryUuid: childUuid },
+			},
+		};
+		doc.personaOrder = [personaUuid];
+		const locations: StoredLocation[] = [
+			{
+				id: locationUuid,
+				levelUuid: testUuid("criterion-location-level"),
+				parentId: null,
+				siteCode: "north",
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				archivedAt: null,
+				orderKey: "a",
+			},
+			{
+				id: childUuid,
+				levelUuid: testUuid("criterion-location-child-level"),
+				parentId: locationUuid,
+				siteCode: "north-clinic",
+				name: "North Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				archivedAt: null,
+				orderKey: "a",
+			},
+		];
+		const criterion = {
+			uuid: CRITERION_UUID,
+			kind: "location" as const,
+			locationUuid,
+			includeDescendants: true,
+		};
+		const rule = automationSchema.parse({
+			...claimCleanup(),
+			criteria: [criterion],
+		});
+		const projection = automationMatchProjection(doc, rule, locations);
+		expect(
+			projection.countArgs.automationCriteria?.locationOwnerSets[0],
+		).toEqual(expect.arrayContaining([locationUuid, childUuid, personaUuid]));
+		expect(
+			projection.countArgs.automationCriteria?.locationOwnerSets[0],
+		).toHaveLength(3);
+		const directOnly = automationMatchProjection(
+			doc,
+			{ ...rule, criteria: [{ ...criterion, includeDescendants: false }] },
+			locations,
+		);
+		expect(directOnly.countArgs.automationCriteria?.locationOwnerSets).toEqual([
+			[locationUuid],
+		]);
+		expect(
+			automationSchema.safeParse({
+				...rule,
+				criteria: [
+					criterion,
+					{ ...criterion, uuid: testUuid("duplicate-location-criterion") },
+				],
+			}).success,
+		).toBe(false);
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("location-alert-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: automationMessageText("Hello") },
+				},
+			],
+		});
+		expect(
+			automationSchema.safeParse({ ...alert, criteria: [criterion] }).success,
+		).toBe(true);
+		const guide = buildAutomationSetupGuide(doc, rule, locations);
+		expect(guide.steps.join(" ")).toContain("North");
+		expect(guide.steps.join(" ")).toContain("descendant locations");
+		expect(guide.caveats.join(" ")).toContain(
+			"current visible rule and alert editors do not expose that picker",
+		);
+	});
+
 	it("keeps alert recipients and filters in one representable HQ form shape", () => {
 		const alert = alertWithSchedule({
 			kind: "immediate",
@@ -490,6 +587,15 @@ describe("automation domain and projections", () => {
 				}).success,
 			).toBe(false);
 		}
+		for (const defaultLanguageCode of ["", "   ", " fr "]) {
+			expect(
+				automationSchema.safeParse({ ...alert, defaultLanguageCode }).success,
+			).toBe(false);
+		}
+		expect(
+			automationSchema.safeParse({ ...alert, defaultLanguageCode: "fr" })
+				.success,
+		).toBe(true);
 		expect(
 			automationSchema.safeParse({
 				...alert,
@@ -508,6 +614,12 @@ describe("automation domain and projections", () => {
 					scope: "case" as const,
 					caseType: "visit",
 					property: "case_name",
+				},
+				{ kind: "text" as const, text: " for " },
+				{
+					kind: "context-property" as const,
+					context: "recipient" as const,
+					property: "name" as const,
 				},
 			],
 		};
@@ -540,10 +652,10 @@ describe("automation domain and projections", () => {
 			[],
 		);
 		expect(literalGuide.steps.join(" ")).toContain(
-			'"Literal {case.case_name}"',
+			'"Literal {{case.case_name}}"',
 		);
 		expect(structuralGuide.steps.join(" ")).toContain(
-			'"Projected {case.name}"',
+			'"Projected {case.name} for {recipient.name}"',
 		);
 	});
 

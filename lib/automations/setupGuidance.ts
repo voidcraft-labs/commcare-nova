@@ -38,9 +38,15 @@ function locationName(
 		: `“${location.name}” (site code ${location.siteCode}; Nova id ${uuid})`;
 }
 
-function describeCriterion(criterion: AutomationCriterion): string {
+function describeCriterion(
+	criterion: AutomationCriterion,
+	locations: readonly StoredLocation[],
+): string {
 	if (criterion.kind === "closed-parent") {
 		return "The case's parent case is closed.";
+	}
+	if (criterion.kind === "location") {
+		return `Case ownership resolves to ${locationName(locations, criterion.locationUuid)}${criterion.includeDescendants ? " or one of its descendant locations" : " only"}.`;
 	}
 	const property =
 		criterion.scope === "case"
@@ -161,7 +167,10 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 	}
 }
 
-function commonSteps(automation: Automation): string[] {
+function commonSteps(
+	automation: Automation,
+	locations: readonly StoredLocation[],
+): string[] {
 	const steps = [
 		`Name the rule “${automation.name}” and choose case type ${automation.caseType}.`,
 		`Set criteria matching to ${automation.criteriaOperator === "all" ? "ALL" : "ANY"}.`,
@@ -172,7 +181,7 @@ function commonSteps(automation: Automation): string[] {
 		steps.push(
 			...automation.criteria.map(
 				(criterion, index) =>
-					`Criterion ${index + 1}: ${describeCriterion(criterion)}`,
+					`Criterion ${index + 1}: ${describeCriterion(criterion, locations)}`,
 			),
 		);
 	}
@@ -198,11 +207,16 @@ export function buildAutomationSetupGuide(
 	automation: Automation,
 	locations: readonly StoredLocation[],
 ): AutomationSetupGuide {
-	const steps = commonSteps(automation);
+	const steps = commonSteps(automation, locations);
 	const caveats = [
 		"Nova does not run this automation in Preview and publishing the app does not install it. Save it manually in the target CommCare HQ project.",
 		"CommCare HQ has no REST resource for rules, alerts, or schedules. The available editors are HTML pages; conditional alerts also have an Excel content upload.",
 	];
+	if (automation.criteria.some((criterion) => criterion.kind === "location")) {
+		caveats.push(
+			"HQ executes LocationFilterDefinition and its HTML form accepts the hidden location_filter_definition payload, but the current visible rule and alert editors do not expose that picker. Have an HQ administrator apply the named location and descendant flag through that exact form payload or another supported administrator path; do not save a rule with this step omitted.",
+		);
+	}
 	if (
 		automation.kind === "case-update" &&
 		automation.serverModifiedBoundaryDays !== undefined

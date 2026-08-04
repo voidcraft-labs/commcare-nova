@@ -847,6 +847,11 @@ export class PostgresCaseStore implements CaseStore {
 								and automation_parent.closed_on is not null
 						)`,
 					),
+					...group.locationOwnerSets.map((ownerIds) =>
+						ownerIds.length === 0
+							? sql<boolean>`false`
+							: sql<boolean>`c.owner_id = any(${sql.val(ownerIds)}::text[])`,
+					),
 				];
 				return group.operator === "all"
 					? whereEb.and(clauses)

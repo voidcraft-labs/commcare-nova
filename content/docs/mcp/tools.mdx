@@ -320,15 +320,20 @@ not a field in Nova's per-rule schema.
 The loaded schema mirrors the two current HTML forms without a shared criteria
 superset. Automatic updates accept value/date comparisons against case,
 parent, or host properties, at most one standard closed-parent condition, and
-the separate server-modified-age field; they do not accept regex or location
+the separate server-modified-age field; they do not accept regex
 conditions. Alerts accept value comparisons plus portable regex against direct
-case properties, and do not accept date, parent/host, closed-parent, location,
+case properties, and do not accept date, parent/host, closed-parent,
 or server-modified conditions. The closed parent is HQ's normal parent link,
 not a caller-selected index or extension. Names must be nonblank and already
 trimmed. Equality and fixed-update literals must be exact, nonblank, unquoted
 stored values, and alert regex patterns must be nonempty. Web users are not a recipient arm.
 Date conditions compare the current date directly with the property date plus
 a signed day offset.
+Both automation families accept at most one UUID-backed location condition
+with an explicit descendant flag. HQ's runtime and form POST accept it, though
+the current visible editors hide the picker; returned guidance states the
+HQ-administrator application requirement. The condition remains locally
+countable from the organization snapshot and is never reduced to setup prose.
 Automation inputs always use Nova's standard property names. Returned setup
 guidance projects `case_type` to HQ `type`, `case_name` to `name`, `date_opened`
 to `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
@@ -345,11 +350,14 @@ location-level filters require descendants, and each worker-property filter key
 appears once.
 
 Every message field is an `AutomationMessageTemplate`, not a magic-token
-string. Its `parts` are literal `{ kind: "text", text }` values or explicit
-`{ kind: "case-property", scope, caseType, property }` references. Token-looking text
-such as `{case.case_name}` stays literal; use a structural part when HQ should
-substitute a case value. Reads return the same canonical parts, while the
-generated guide alone projects them to HQ `{case...}` syntax. Registered custom
+string. Its `parts` are literal `{ kind: "text", text }` values, explicit
+`{ kind: "case-property", scope, caseType, property }` references, or closed
+`{ kind: "context-property", context, property }` case-owner/recipient
+references. Token-looking text such as `{case.case_name}` stays literal; the
+guide doubles its braces before HQ's Python Formatter evaluates the result.
+Use a structural part only when HQ should substitute a value. Reads return the
+same canonical parts, while the generated guide alone projects them to HQ
+`{case...}` / `{recipient...}` syntax. Registered custom
 recipient/content IDs and setup-only condition text must be concrete, trimmed,
 and nonblank.
 

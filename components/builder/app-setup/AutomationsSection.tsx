@@ -68,6 +68,7 @@ import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import {
+	AUTOMATION_MESSAGE_CONTEXT_PROPERTIES,
 	type Automation,
 	type AutomationContent,
 	type AutomationMessageTemplate,
@@ -757,7 +758,11 @@ function AutomationEditor({
 						</Labeled>
 					</fieldset>
 
-					<ConditionsEditor automation={state.automation} onEdit={edit} />
+					<ConditionsEditor
+						automation={state.automation}
+						locations={locations}
+						onEdit={edit}
+					/>
 					<SetupOnlyEditor automation={state.automation} onEdit={edit} />
 					{state.automation.kind === "case-update" && (
 						<OptionalNumber
@@ -923,6 +928,7 @@ function Choice({
 	disabled = false,
 	id,
 	"aria-label": ariaLabel,
+	"aria-describedby": ariaDescribedBy,
 }: {
 	value: string;
 	onChange: (value: string) => void;
@@ -930,6 +936,7 @@ function Choice({
 	disabled?: boolean;
 	id?: string;
 	"aria-label"?: string;
+	"aria-describedby"?: string;
 }) {
 	return (
 		<Select
@@ -940,6 +947,7 @@ function Choice({
 			<SelectTrigger
 				id={id}
 				aria-label={ariaLabel}
+				aria-describedby={ariaDescribedBy}
 				className="w-full"
 				wrapValue
 			>
@@ -1068,8 +1076,8 @@ function AutomationMessageTemplateEditor({
 			<FieldLabel id={labelId}>{label}</FieldLabel>
 			<FieldDescription id={descriptionId}>
 				{hint === undefined ? "" : `${hint} `}Typed and pasted text is literal,
-				including text like {"{case.foo}"}. Insert a case-property reference
-				explicitly when HQ should substitute a value.
+				including text like {"{case.foo}"}. Insert a case, case-owner, or
+				recipient reference explicitly when HQ should substitute a value.
 			</FieldDescription>
 			<fieldset
 				aria-labelledby={labelId}
@@ -1117,7 +1125,7 @@ function AutomationMessageTemplateEditor({
 										}
 									/>
 								)
-							) : (
+							) : part.kind === "case-property" ? (
 								<div className="grid min-w-0 gap-2 @md:grid-cols-2">
 									<Choice
 										value={part.scope}
@@ -1149,6 +1157,36 @@ function AutomationMessageTemplateEditor({
 												property: event.target.value,
 											})
 										}
+									/>
+								</div>
+							) : (
+								<div className="grid min-w-0 gap-2 @md:grid-cols-2">
+									<Choice
+										value={part.context}
+										aria-label={`${label} context source ${index + 1}`}
+										onChange={(context) =>
+											replacePart(index, {
+												...part,
+												context: context as typeof part.context,
+											})
+										}
+										options={[
+											["case-owner", "Case owner"],
+											["recipient", "Message recipient"],
+										]}
+									/>
+									<Choice
+										value={part.property}
+										aria-label={`${label} context property ${index + 1}`}
+										onChange={(property) =>
+											replacePart(index, {
+												...part,
+												property: property as typeof part.property,
+											})
+										}
+										options={AUTOMATION_MESSAGE_CONTEXT_PROPERTIES.map(
+											(property) => [property, property.replaceAll("_", " ")],
+										)}
 									/>
 								</div>
 							)}
@@ -1197,6 +1235,25 @@ function AutomationMessageTemplateEditor({
 					>
 						<Icon icon={tablerPlus} aria-hidden="true" />
 						Case property reference
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() =>
+							onChange({
+								parts: [
+									...template.parts,
+									{
+										kind: "context-property",
+										context: "case-owner",
+										property: "name",
+									},
+								],
+							})
+						}
+					>
+						<Icon icon={tablerPlus} aria-hidden="true" />
+						Owner or recipient reference
 					</Button>
 				</div>
 			</fieldset>
@@ -1322,22 +1379,60 @@ function useRepeatedRowRemovalFocus(items: readonly { readonly uuid: Uuid }[]) {
 
 function ConditionsEditor({
 	automation,
+	locations,
 	onEdit,
 }: {
 	automation: Automation;
+	locations: readonly StoredLocation[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const rowFocus = useRepeatedRowRemovalFocus(automation.criteria);
+	const liveLocations = locations.filter(
+		(location) => location.archivedAt === null,
+	);
+	const defaultLocationUuid = liveLocations[0]?.id;
 	const hasClosedParent = automation.criteria.some(
 		(criterion) => criterion.kind === "closed-parent",
 	);
-	const add = (kind: "match-property" | "closed-parent") => {
+	const hasLocation = automation.criteria.some(
+		(criterion) => criterion.kind === "location",
+	);
+	const add = (kind: "match-property" | "closed-parent" | "location") => {
 		if (kind === "closed-parent" && hasClosedParent) return;
+		if (
+			kind === "location" &&
+			(hasLocation || defaultLocationUuid === undefined)
+		)
+			return;
 		onEdit((draft) => {
 			if (draft.kind === "case-update") {
 				draft.criteria.push(
 					kind === "closed-parent"
 						? { uuid: uuid(), kind }
+						: kind === "location"
+							? {
+									uuid: uuid(),
+									kind,
+									locationUuid: defaultLocationUuid as Uuid,
+									includeDescendants: true,
+								}
+							: {
+									uuid: uuid(),
+									kind,
+									scope: "case",
+									property: "case_name",
+									matchType: "has-value",
+								},
+				);
+			} else if (kind !== "closed-parent") {
+				draft.criteria.push(
+					kind === "location"
+						? {
+								uuid: uuid(),
+								kind,
+								locationUuid: defaultLocationUuid as Uuid,
+								includeDescendants: true,
+							}
 						: {
 								uuid: uuid(),
 								kind,
@@ -1346,14 +1441,6 @@ function ConditionsEditor({
 								matchType: "has-value",
 							},
 				);
-			} else if (kind === "match-property") {
-				draft.criteria.push({
-					uuid: uuid(),
-					kind,
-					scope: "case",
-					property: "case_name",
-					matchType: "has-value",
-				});
 			}
 		});
 	};
@@ -1376,7 +1463,12 @@ function ConditionsEditor({
 							{automation.kind === "case-update" ? (
 								<Choice
 									value={criterion.kind}
-									onChange={(kind) =>
+									onChange={(kind) => {
+										if (
+											kind === "location" &&
+											defaultLocationUuid === undefined
+										)
+											return;
 										onEdit((draft) => {
 											if (draft.kind !== "case-update") return;
 											const current = draft.criteria[index];
@@ -1390,14 +1482,26 @@ function ConditionsEditor({
 															property: "case_name",
 															matchType: "has-value",
 														}
-													: {
-															uuid: current.uuid,
-															kind: "closed-parent",
-														};
-										})
-									}
+													: kind === "location"
+														? {
+																uuid: current.uuid,
+																kind,
+																locationUuid: defaultLocationUuid as Uuid,
+																includeDescendants: true,
+															}
+														: {
+																uuid: current.uuid,
+																kind: "closed-parent",
+															};
+										});
+									}}
 									options={[
 										["match-property", "Case property"],
+										[
+											"location",
+											"Case owner location",
+											hasLocation && criterion.kind !== "location",
+										],
 										[
 											"closed-parent",
 											"Closed parent",
@@ -1406,9 +1510,44 @@ function ConditionsEditor({
 									]}
 								/>
 							) : (
-								<p className="flex h-9 items-center text-[13px] text-nova-text">
-									Case property
-								</p>
+								<Choice
+									value={criterion.kind}
+									onChange={(kind) => {
+										if (
+											kind === "location" &&
+											defaultLocationUuid === undefined
+										)
+											return;
+										onEdit((draft) => {
+											if (draft.kind !== "conditional-alert") return;
+											const current = draft.criteria[index];
+											if (current === undefined) return;
+											draft.criteria[index] =
+												kind === "location"
+													? {
+															uuid: current.uuid,
+															kind,
+															locationUuid: defaultLocationUuid as Uuid,
+															includeDescendants: true,
+														}
+													: {
+															uuid: current.uuid,
+															kind: "match-property",
+															scope: "case",
+															property: "case_name",
+															matchType: "has-value",
+														};
+										});
+									}}
+									options={[
+										["match-property", "Case property"],
+										[
+											"location",
+											"Case owner location",
+											hasLocation && criterion.kind !== "location",
+										],
+									]}
+								/>
 							)}
 						</Labeled>
 						{criterion.kind === "match-property" && (
@@ -1538,6 +1677,40 @@ function ConditionsEditor({
 								not expose custom index names or extension relationships.
 							</p>
 						)}
+						{criterion.kind === "location" && (
+							<>
+								<Labeled label="Location">
+									<Choice
+										value={criterion.locationUuid}
+										onChange={(locationUuid) =>
+											onEdit((draft) => {
+												const item = draft.criteria[index];
+												if (item?.kind === "location") {
+													item.locationUuid = asUuid(locationUuid);
+												}
+											})
+										}
+										options={liveLocations.map((location) => [
+											location.id,
+											`${location.name} (${location.siteCode})`,
+										])}
+									/>
+								</Labeled>
+								<Toggle
+									checked={criterion.includeDescendants}
+									label="Include descendant locations"
+									description="Match cases owned by this place, its descendant places, or workers whose primary place is in that subtree."
+									onChange={(includeDescendants) =>
+										onEdit((draft) => {
+											const item = draft.criteria[index];
+											if (item?.kind === "location") {
+												item.includeDescendants = includeDescendants;
+											}
+										})
+									}
+								/>
+							</>
+						)}
 					</div>
 					<div className="mt-2">
 						<RemoveButton
@@ -1575,6 +1748,15 @@ function ConditionsEditor({
 						Closed parent
 					</Button>
 				)}
+				<Button
+					type="button"
+					variant="outline"
+					disabled={hasLocation || liveLocations.length === 0}
+					onClick={() => add("location")}
+				>
+					<Icon icon={tablerPlus} />
+					Location condition
+				</Button>
 			</div>
 		</Section>
 	);

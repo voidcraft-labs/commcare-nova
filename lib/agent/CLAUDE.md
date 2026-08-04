@@ -161,10 +161,12 @@ and MCP; tools must not post-process or weaken them.
 
 Message fields use the canonical `AutomationMessageTemplate` part union rather
 than strings with magic token syntax. A `text` part is always literal, even if
-it contains `{case.foo}`; case substitutions are explicit `case-property`
-parts carrying scope plus the Nova `(caseType, property)` identity. SA and MCP
-write that shape directly, and only the derived HQ guide prints `{case...}`
-tokens.
+it contains `{case.foo}`; the HQ projection doubles its braces before Python
+Formatter sees it. Case substitutions are explicit `case-property` parts
+carrying scope plus the Nova `(caseType, property)` identity. Case-owner and
+message-recipient substitutions are explicit closed `context-property` parts.
+SA and MCP write that shape directly, and only the derived HQ guide prints
+executable `{case...}` / `{recipient...}` tokens.
 Registered handler IDs and setup-only instructions must be concrete, trimmed,
 and nonblank; no tool may send instructional placeholder copy as data.
 
@@ -172,7 +174,10 @@ The same schema preserves HQ's kind-specific criteria matrix instead of
 admitting a shared superset. Case updates accept value/date comparisons against
 case, parent, or host properties plus at most one standard closed-parent
 condition; alerts accept direct-case value comparisons plus portable regex and
-do not accept date, closed-parent, location, or server-modified criteria.
+do not accept date, closed-parent, or server-modified criteria. Both accept at
+most one UUID-backed location condition and its descendant flag. The generated
+guide states that HQ accepts and executes the payload while its current visible
+editors hide the picker; the tool never demotes that condition to setup prose.
 Names are already trimmed and nonblank; equality and update literals are
 canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
 There is no web-user recipient; Connect content refuses the case-relative,

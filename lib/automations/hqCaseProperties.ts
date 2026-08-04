@@ -83,8 +83,10 @@ export function describeAutomationPropertyForHq(
 }
 
 /**
- * Project structural case-property atoms into HQ's template spelling.
- * Literal text that happens to contain `{case.foo}` remains literal text.
+ * Project structural template atoms into HQ's Python Formatter spelling.
+ * Literal braces MUST be doubled: HQ renders the complete string through
+ * `string.Formatter().vformat`, so emitting literal `{case.foo}` unchanged
+ * would turn prose into an executable substitution after it left Nova.
  * Validation guarantees every structural property is projectable before save.
  */
 export function projectAutomationTemplateForHq(
@@ -92,7 +94,14 @@ export function projectAutomationTemplateForHq(
 ): string {
 	return template.parts
 		.map((part) => {
-			if (part.kind === "text") return part.text;
+			if (part.kind === "text") {
+				return part.text.replaceAll("{", "{{").replaceAll("}", "}}");
+			}
+			if (part.kind === "context-property") {
+				return part.context === "case-owner"
+					? `{case.owner.${part.property}}`
+					: `{recipient.${part.property}}`;
+			}
 			const projected = projectAutomationPropertyForHq(part.property, "read");
 			return projected === undefined
 				? "{case.[reference needs repair]}"

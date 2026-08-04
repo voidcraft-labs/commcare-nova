@@ -31,8 +31,10 @@ never addresses. Criteria follow the two different HQ forms rather than one
 shared superset. Case updates accept the four value comparisons plus four date
 comparisons against case, parent, or host properties, and the one standard
 closed-parent condition. Conditional alerts accept the four value comparisons
-plus portable regex against the matched case only. Neither form exposes a
-location criterion. Explicit setup-only text carries UCR and HQ-registered
+plus portable regex against the matched case only. Both automation families
+also accept at most one UUID-backed location condition with an explicit
+descendant flag. HQ executes it and accepts it through the form payload even
+though its current visible rule and alert editors hide the picker. Explicit setup-only text carries UCR and HQ-registered
 custom criteria; case-update server-modified age is a separate structured
 field that Nova names as omitted from local matching. Case updates, recipients, content,
 schedule starts, and user filters are similarly closed to shapes current HQ can
@@ -53,11 +55,13 @@ event-time slots accept custom properties only because HQ reads those two from
 
 Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
 values: ordered literal-text parts plus explicit structural case-property
-parts carrying scope and the full `(caseType, property)` identity. Text that
-merely looks like `{case.foo}` remains literal forever. The
-Builder inserts a property part explicitly, machine editors send the canonical
-part shape directly, case-property renames rewrite only structural parts, and
-the setup guide alone projects those identities to HQ's `{case...}` spelling.
+parts carrying scope and the full `(caseType, property)` identity, plus closed
+case-owner and message-recipient context-property parts. Text that merely looks
+like `{case.foo}` remains literal forever: the setup projection doubles literal
+braces before HQ's Python Formatter sees them. The Builder inserts a reference
+part explicitly, machine editors send the canonical part shape directly,
+case-property renames rewrite only structural case parts, and the setup guide
+alone projects those identities to HQ's `{case...}` spelling.
 No reader reparses rendered message text to recover a reference.
 
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
@@ -102,6 +106,9 @@ Predicate AST cannot express: equality compares exact stored text without
 typed SQL coercion; a related comparison requires the related case to exist;
 whitespace-only strings are blank; and regexes run only against actual string
 values. It fixes closed-parent matching to HQ's standard `parent` child index.
+A location condition matches location-owned rows in the selected subtree plus
+rows owned by personas whose primary location is in that subtree, matching
+HQ's direct-location-or-mobile-worker-primary-location runtime.
 
 The domain records intent only. `lib/automations` derives the current-match
 projection and manual HQ setup guide; neither belongs in the document.

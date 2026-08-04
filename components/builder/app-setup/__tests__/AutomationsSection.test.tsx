@@ -511,6 +511,10 @@ describe("AutomationsSection", () => {
 			screen.getByRole("textbox", { name: "Message literal text 3" }),
 			{ target: { value: " done" } },
 		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Owner or recipient reference" }),
+		);
+		await chooseChoice("Message context source 4", "Message recipient");
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 
 		expect(mocks.addAutomation).toHaveBeenCalledWith(
@@ -533,6 +537,11 @@ describe("AutomationsSection", () => {
 											property: "case_name",
 										},
 										{ kind: "text", text: " done" },
+										{
+											kind: "context-property",
+											context: "recipient",
+											property: "name",
+										},
 									],
 								},
 							},
@@ -540,6 +549,74 @@ describe("AutomationsSection", () => {
 					],
 				}),
 			}),
+		);
+	});
+
+	it("authors one UUID-backed location condition from the live organization", async () => {
+		const locationUuid = testUuid("ui-condition-location");
+		mocks.locations = [
+			{
+				id: locationUuid,
+				levelUuid: testUuid("ui-condition-level"),
+				parentId: null,
+				siteCode: "north",
+				name: "North region",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				archivedAt: null,
+				orderKey: "a",
+			},
+		];
+
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Location condition" }));
+
+		expect(
+			screen.getByRole("combobox", { name: "Location" }).textContent,
+		).toContain("North region (north)");
+		expect(
+			screen
+				.getByRole("checkbox", {
+					name: /^Include descendant locations/,
+				})
+				.hasAttribute("data-checked"),
+		).toBe(true);
+		expect(
+			screen.getByRole("button", { name: "Location condition" }),
+		).toHaveProperty("disabled", true);
+
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				criteria: [
+					expect.objectContaining({
+						kind: "location",
+						locationUuid,
+						includeDescendants: true,
+					}),
+				],
+			}),
+		);
+	});
+
+	it("associates select hints with their trigger", async () => {
+		mocks.automations = [monthlyAlert()];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Monthly alert/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const trigger = screen.getByRole("combobox", {
+			name: "Schedule timing mode",
+		});
+		const descriptionId = trigger.getAttribute("aria-describedby");
+		expect(descriptionId).toBeTruthy();
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+			"CommCare HQ applies one timing mode",
 		);
 	});
 

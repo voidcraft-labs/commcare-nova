@@ -243,6 +243,10 @@ export type CountArgs =
 					identifier: string;
 					relationship: "child" | "extension";
 				}[];
+				/** One HQ LocationFilterDefinition per entry, lowered to the exact
+				 * local owner identities it can match: the selected location/subtree
+				 * plus personas whose primary location is inside it. */
+				locationOwnerSets: readonly (readonly string[])[];
 			};
 			/** Same hold contract as `QueryArgs.includeHeld` — a count must
 			 * agree with the row list its caller pairs it with. */

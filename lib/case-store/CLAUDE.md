@@ -108,7 +108,8 @@ into another case type or invents random relationships to the new sample rows.
 
 Automation matching is another read over these same rows, not an execution
 runtime. `countCases({ automationCriteria })` composes the automation kind's
-ordinary property criteria and case-update closed-parent criterion into one tenant-bound SQL count and
+ordinary property criteria, case-update closed-parent criterion, and each
+organization-backed location owner set into one tenant-bound SQL count and
 always limits the outer case to `status = "open"`. Closed-parent relation walks
 bind both sides to the store's app and Project. Setup-only UCR/custom criteria
 and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
@@ -127,7 +128,11 @@ through case-update parent/host relations; a missing relation has no value.
 Alert regex uses
 HQ's beginning-anchored behavior and evaluates stored strings only; it never
 casts a number or boolean to text. Closed-parent is fixed to the standard
-depth-one `parent` child index accepted by HQ's setup form.
+depth-one `parent` child index accepted by HQ's setup form. A location clause
+is one exact owner-id set derived before the query from the selected place,
+its requested descendants, and personas whose primary place is in that set;
+the SQL layer combines it under the same ALL/ANY operator and does not read the
+organization store independently.
 
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 

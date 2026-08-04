@@ -184,9 +184,13 @@ The vocabulary follows the two current HTML forms rather than a shared
 criteria superset. Automatic updates accept the four value comparisons plus
 four date comparisons against case, parent, or host properties, with `ALL` or
 `ANY`, at most one standard parent-closed condition, and a separate
-server-modified-age switch. Conditional alerts accept the four value
+server-modified-age switch. Both families accept at most one UUID-backed
+location condition plus its descendant flag. HQ's shared runtime and form POST
+execute that `LocationFilterDefinition`, although the current visible rule and
+alert editors hide its picker; generated guidance states the administrator-path
+requirement instead of erasing the condition from Nova. Conditional alerts accept the four value
 comparisons plus regex against direct case properties only; they do not accept
-date, parent/host, closed-parent, location, or server-modified conditions.
+date, parent/host, closed-parent, or server-modified conditions.
 The standard parent-closed condition has no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
 date criteria compare the current date directly with the property date plus a
@@ -223,13 +227,15 @@ There is no push-notification arm and no untyped escape hatch
 `corehq/messaging/scheduling/models.py::Schedule`).
 
 Message subjects, bodies, and rich HTML source store an ordered structural
-template: literal text parts plus explicit case-property scope and
-`(caseType, property)` identity parts.
-Typed or pasted `{case.foo}` text remains literal and is never reparsed. The
-Builder inserts references explicitly, SA/MCP read and write the same canonical
-part union, property renames rewrite only those identity-bearing leaves, and
-the generated guide projects them one-way to HQ's current `{case...}` token
-spelling. Registered custom handlers and setup-only conditions must carry exact
+template: literal text parts, explicit case-property scope and
+`(caseType, property)` identity parts, and closed case-owner/recipient context
+property parts. Typed or pasted `{case.foo}` text remains literal and is never
+reparsed; the setup projection doubles literal braces before HQ's Python
+Formatter evaluates the result. The Builder inserts references explicitly,
+SA/MCP read and write the same canonical part union, property renames rewrite
+only identity-bearing case leaves, and the generated guide projects them
+one-way to HQ's current `{case...}` / `{recipient...}` token spelling.
+Registered custom handlers and setup-only conditions must carry exact
 trimmed nonblank values; UI instructions remain placeholders, not saved data.
 
 Email content targets exactly one current HQ form. A plain-text body requires
@@ -262,7 +268,8 @@ start. Setup guidance selects **Immediately** only for one zero-delay event and
 Preview presents a read-only count over the same real open case rows used by the
 running app. Nova's AST-to-Kysely boundary can exactly lower each kind's
 property comparisons, including automatic-update parent/host reads, plus its
-closed-parent relation; the outer query
+closed-parent relation and each location condition's direct/subtree location
+owners plus personas whose primary place is in that set; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
 Equality compares exact stored text rather than coercing the criterion through
 Nova's typed SQL compiler, and a missing parent/host relation does not satisfy

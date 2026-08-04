@@ -284,6 +284,41 @@ async function commitLocationAutomation(locationUuid: Uuid): Promise<void> {
 	});
 }
 
+async function commitLocationCriterionAutomation(
+	locationUuid: Uuid,
+): Promise<void> {
+	await commitGuardedBatch({
+		appId: APP_ID,
+		batchId: `location-criterion-automation-${locationUuid}`,
+		mutations: admitMutationBatch([
+			{
+				kind: "addAutomation",
+				automation: {
+					uuid: asUuid("77777777-7777-4777-8777-777777777781"),
+					kind: "case-update",
+					name: "Clean up Mercy Clinic",
+					caseType: "patient",
+					criteriaOperator: "all",
+					criteria: [
+						{
+							uuid: asUuid("77777777-7777-4777-8777-777777777782"),
+							kind: "location",
+							locationUuid,
+							includeDescendants: true,
+						},
+					],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		]),
+		actorUserId: ACTOR_A,
+		kind: "autosave",
+		expectedProjectId: PROJECT_A,
+	});
+}
+
 /** Region → District → Facility, one place at each rung. */
 async function seedChain(): Promise<{
 	region: Uuid;
@@ -1841,6 +1876,19 @@ describe("locations store — removing a level", () => {
 });
 
 describe("locations store — the archive cascade", () => {
+	it("blocks archive while an automation condition references the subtree", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		await commitLocationCriterionAutomation(facility);
+
+		const impact = await describeArchiveImpact(scope(), facility);
+		expect(impact.blockingAutomationCount).toBe(1);
+		expect(impact.blockingAutomationPreview).toEqual(["Clean up Mercy Clinic"]);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
 	it("blocks archive while an automation recipient references the subtree", async () => {
 		await seedWorkflowOrgApp();
 		const { facility } = await seedChain();

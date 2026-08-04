@@ -691,4 +691,34 @@ describe("extractLocationReferenceTargets", () => {
 		} as unknown as BlueprintDoc;
 		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
 	});
+
+	it("includes automation location conditions in the same exact edge set", () => {
+		const locationUuid = asUuid("loc-automation-condition");
+		const automationUuid = asUuid("automation-location-condition");
+		const doc = {
+			...docWithPersonas([]),
+			automations: {
+				[automationUuid]: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Location cleanup",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [
+						{
+							uuid: asUuid("automation-location-criterion"),
+							kind: "location",
+							locationUuid,
+							includeDescendants: true,
+						},
+					],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+			automationOrder: [automationUuid],
+		} as unknown as BlueprintDoc;
+		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
+	});
 });

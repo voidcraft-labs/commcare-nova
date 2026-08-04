@@ -111,6 +111,30 @@ function store() {
 }
 
 describe("automation criteria SQL", () => {
+	it("matches each location criterion as one exact owner-identity set", async () => {
+		const caseStore = store();
+		const count = (locationOwnerSets: readonly (readonly string[])[]) =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					operator: "all",
+					comparisons: [],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets,
+				},
+			});
+
+		await expect(count([["facility-a"]])).resolves.toBe(4);
+		await expect(count([["facility-a", "another-owner"]])).resolves.toBe(4);
+		await expect(count([["another-owner"]])).resolves.toBe(0);
+		await expect(count([[]])).resolves.toBe(0);
+	});
+
 	it("composes ALL/ANY, Python-style anchored regex, closed parent, status, and tenancy in one count", async () => {
 		const caseStore = store();
 		const openAtFacility = and(
@@ -135,6 +159,7 @@ describe("automation criteria SQL", () => {
 							relationship: "child",
 						},
 					],
+					locationOwnerSets: [],
 				},
 			}),
 		).resolves.toBe(1);
@@ -156,6 +181,7 @@ describe("automation criteria SQL", () => {
 							relationship: "child",
 						},
 					],
+					locationOwnerSets: [],
 				},
 			}),
 		).resolves.toBe(2);
@@ -181,6 +207,7 @@ describe("automation criteria SQL", () => {
 						{ property: "code", hasValue: false, scope: "case" as const },
 					],
 					closedParents: [],
+					locationOwnerSets: [],
 				},
 			}),
 		).resolves.toBe(1);
@@ -195,6 +222,7 @@ describe("automation criteria SQL", () => {
 						{ property: "code", hasValue: true, scope: "case" as const },
 					],
 					closedParents: [],
+					locationOwnerSets: [],
 				},
 			}),
 		).resolves.toBe(3);
@@ -207,6 +235,7 @@ describe("automation criteria SQL", () => {
 					regexes: [{ property: "code", pattern: "[0-9]+" }],
 					blankness: [],
 					closedParents: [],
+					locationOwnerSets: [],
 				},
 			}),
 		).resolves.toBe(0);
@@ -229,6 +258,7 @@ describe("automation criteria SQL", () => {
 					regexes: [],
 					blankness: [{ property: "marker", hasValue, scope }],
 					closedParents: [],
+					locationOwnerSets: [],
 				},
 			});
 
@@ -260,6 +290,7 @@ describe("automation criteria SQL", () => {
 					regexes: [],
 					blankness: [],
 					closedParents: [],
+					locationOwnerSets: [],
 				},
 			});
 

@@ -43,7 +43,7 @@ describe("HQ automation case-property projection", () => {
 		);
 	});
 
-	it("projects structural property atoms while leaving token-looking text literal", () => {
+	it("escapes literal braces and projects every structural context atom", () => {
 		expect(
 			projectAutomationTemplateForHq({
 				parts: [
@@ -74,11 +74,22 @@ describe("HQ automation case-property projection", () => {
 						caseType: "host",
 						property: "last_modified",
 					},
-					{ kind: "text", text: " {case.owner.name}" },
+					{ kind: "text", text: " {case.owner.name} " },
+					{
+						kind: "context-property",
+						context: "case-owner",
+						property: "name",
+					},
+					{ kind: "text", text: " " },
+					{
+						kind: "context-property",
+						context: "recipient",
+						property: "phone_number",
+					},
 				],
 			}),
 		).toBe(
-			"{case.type} {case.name} {case.parent.opened_on} {case.host.modified_on} {case.owner.name}",
+			"{case.type} {case.name} {case.parent.opened_on} {case.host.modified_on} {{case.owner.name}} {case.owner.name} {recipient.phone_number}",
 		);
 	});
 });

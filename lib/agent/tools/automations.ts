@@ -40,7 +40,7 @@ export const addAutomationsInputSchema = z
 			.min(1)
 			.max(50)
 			.describe(
-				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names. Message fields are structural templates: text parts stay literal and case-property parts are explicit references. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs and setup-only instructions are exact trimmed nonblank target-HQ values.",
+				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names and UUID-backed location conditions. Message fields are structural templates: text parts stay literal, case-property parts are explicit identity references, and context-property parts explicitly select case-owner or recipient values. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs, language codes, and setup-only instructions are exact trimmed nonblank target-HQ values.",
 			),
 		afterAutomationUuid: uuidSchema
 			.nullable()
@@ -101,7 +101,8 @@ function setupGuideResult(
 	return {
 		automationUuid: automation.uuid,
 		setupGuide: buildAutomationSetupGuide(doc, automation, locations),
-		omittedCriteria: automationMatchProjection(doc, automation).omittedCriteria,
+		omittedCriteria: automationMatchProjection(doc, automation, locations)
+			.omittedCriteria,
 		executesInPreview: false,
 	};
 }

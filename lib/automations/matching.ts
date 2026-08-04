@@ -4,7 +4,7 @@ import type {
 	AutomationCriterion,
 	BlueprintDoc,
 } from "@/lib/domain";
-import { effectiveCaseTypes } from "@/lib/domain";
+import { effectiveCaseTypes, personasOf } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
 	ancestorPath,
@@ -22,6 +22,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
+import type { StoredLocation } from "@/lib/organization/types";
 
 export interface AutomationMatchProjection {
 	readonly countArgs: Pick<
@@ -84,6 +85,7 @@ function propertyCriterion(
 export function automationMatchProjection(
 	doc: BlueprintDoc,
 	automation: Automation,
+	locations: readonly StoredLocation[] = [],
 ): AutomationMatchProjection {
 	const predicates: Predicate[] = [];
 	const comparisons: {
@@ -102,6 +104,42 @@ export function automationMatchProjection(
 		identifier: string;
 		relationship: "child" | "extension";
 	}[] = [];
+	const locationOwnerSets: string[][] = [];
+	const children = new Map<string, string[]>();
+	for (const location of locations) {
+		if (location.parentId === null) continue;
+		const siblings = children.get(location.parentId) ?? [];
+		siblings.push(location.id);
+		children.set(location.parentId, siblings);
+	}
+	const locationOwnerIds = (
+		locationUuid: string,
+		includeDescendants: boolean,
+	): string[] => {
+		const matchedLocations = new Set<string>([locationUuid]);
+		if (includeDescendants) {
+			const pending = [locationUuid];
+			while (pending.length > 0) {
+				const parent = pending.pop();
+				if (parent === undefined) continue;
+				for (const child of children.get(parent) ?? []) {
+					if (matchedLocations.has(child)) continue;
+					matchedLocations.add(child);
+					pending.push(child);
+				}
+			}
+		}
+		const ownerIds = new Set(matchedLocations);
+		for (const persona of Object.values(personasOf(doc))) {
+			if (
+				persona.locations !== undefined &&
+				matchedLocations.has(persona.locations.primaryUuid)
+			) {
+				ownerIds.add(persona.uuid);
+			}
+		}
+		return [...ownerIds].sort();
+	};
 
 	for (const criterion of automation.criteria) {
 		if (criterion.kind === "match-property") {
@@ -140,6 +178,12 @@ export function automationMatchProjection(
 				identifier: "parent",
 				relationship: "child",
 			});
+			continue;
+		}
+		if (criterion.kind === "location") {
+			locationOwnerSets.push(
+				locationOwnerIds(criterion.locationUuid, criterion.includeDescendants),
+			);
 		}
 	}
 
@@ -156,7 +200,8 @@ export function automationMatchProjection(
 		comparisons.length > 0 ||
 		regexes.length > 0 ||
 		blankness.length > 0 ||
-		closedParents.length > 0;
+		closedParents.length > 0 ||
+		locationOwnerSets.length > 0;
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map((criterion) => criterion.text),
 		...(automation.kind !== "case-update" ||
@@ -181,6 +226,7 @@ export function automationMatchProjection(
 					regexes,
 					blankness,
 					closedParents,
+					locationOwnerSets,
 				},
 			}),
 		},

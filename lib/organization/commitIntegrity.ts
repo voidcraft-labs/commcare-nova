@@ -76,6 +76,9 @@ export function extractLocationReferenceTargets(
 		}
 	}
 	for (const automation of Object.values(automationsOf(doc))) {
+		for (const criterion of automation.criteria) {
+			if (criterion.kind === "location") targets.add(criterion.locationUuid);
+		}
 		if (automation.kind === "conditional-alert") {
 			for (const recipient of automation.recipients) {
 				if (recipient.kind === "location") targets.add(recipient.locationUuid);
@@ -126,7 +129,7 @@ export async function replaceLocationReferenceEdges(
 	const missing = targets.filter((target) => !found.has(target));
 	if (missing.length > 0) {
 		throw new BlueprintCommitRejectedError(
-			"The app references a place that no longer exists or is archived in this organization. Reload to get the latest places, then repair the assignment or owner rule.",
+			"The app references a place that no longer exists or is archived in this organization. Reload to get the latest places, then repair the assignment, owner rule, automation condition, or automation recipient.",
 		);
 	}
 

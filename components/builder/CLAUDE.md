@@ -228,7 +228,7 @@ current-match information, and generated setup guide with every mutating
 control absent or disabled.
 
 The section is structured vocabulary, never raw CommCare JSON: kind-specific
-property criteria, the case-update-only closed-parent filter, explicit setup-only
+property criteria, one UUID-backed location criterion, the case-update-only closed-parent filter, explicit setup-only
 instructions, typed update targets/values, recipients, content, schedules, and
 worker-information filters. Forms, worker properties, organization levels, and
 places resolve through current UUID-backed catalogs. HQ-only UCR/custom
@@ -258,8 +258,10 @@ criterion, setup instruction, update, recipient, recipient filter, or event
 hands focus to the next or previous row action, then its Add action.
 
 Message subjects/bodies use the structural template editor. Literal controls
-never parse token-looking text; **Case property reference** inserts an explicit
-scope plus `(caseType, property)` identity part, removal canonicalizes adjacent literal runs, and Save
+never parse token-looking text; projection doubles literal braces for HQ's
+Python Formatter. **Case property reference** inserts an explicit scope plus
+`(caseType, property)` identity part, while **Owner or recipient reference**
+inserts a closed context/property part. Removal canonicalizes adjacent literal runs, and Save
 refuses blank parts or unresolved properties. Registered custom IDs and HQ-only
 instructions start empty with descriptive placeholders. Every authored select
 passes `wrapValue`/`wrap`, so long place names and published
@@ -268,8 +270,11 @@ passes `wrapValue`/`wrap`, so long place names and published
 The editor makes the HQ form's cardinality and compatibility rules impossible
 to author: case updates expose value/date conditions on case, parent, or host
 properties plus at most one standard closed-parent condition; alerts expose
-direct-case value/regex conditions and no date, closed-parent, location, or
-server-modified condition. It also allows no web-user recipient or incompatible case-relative/email/case-group recipient
+direct-case value/regex conditions and no date, closed-parent, or
+server-modified condition. Both offer at most one live-place location
+condition and an explicit descendant flag. The guide states that HQ accepts
+and executes that form payload while its current visible editors hide the picker.
+It also allows no web-user recipient or incompatible case-relative/email/case-group recipient
 with Connect content, and no timed reset property unless the start is the rule
 trigger. Singleton recipient choices disable once used; list recipients exclude
 already-selected concrete targets. Descendant and location-level controls exist

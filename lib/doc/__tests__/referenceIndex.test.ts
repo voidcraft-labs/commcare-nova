@@ -220,6 +220,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		};
 		doc.personaOrder = [persona];
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const automationUuid = testUuid("reference-index-location-automation");
 		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: testUuid("66666666-6666-4666-8666-666666666666"),
@@ -238,6 +239,27 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				owner: term(ownerLocationAtLevel(facility, "patient")),
 			},
 		];
+		doc.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "case-update",
+				name: "Escalate place-owned cases",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [
+					{
+						uuid: testUuid("reference-index-location-criterion"),
+						kind: "location",
+						locationUuid: place,
+						includeDescendants: true,
+					},
+				],
+				setupOnlyCriteria: [],
+				updates: [],
+				closeCase: true,
+			},
+		};
+		doc.automationOrder = [automationUuid];
 
 		const levelSlots = slotsFor(doc, entityTargetKey(region));
 		expect(levelSlots[facility]).toEqual({ organization_level_setting: true });
@@ -251,6 +273,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const placeSlots = slotsFor(doc, locationTargetKey(place));
 		expect(placeSlots[persona]).toEqual({ persona_location: true });
 		expect(placeSlots[formUuid]).toEqual({ case_operation_owner: true });
+		expect(placeSlots[automationUuid]).toEqual({
+			automation_criterion_location: true,
+		});
 	});
 
 	it("indexes custom worker references by user-property identity across both AST families", () => {

@@ -125,16 +125,16 @@ describe("automation mutation replay", () => {
 
 	it("round-trips granular scalar, nested add, update, remove, and reorder edits", () => {
 		const prev = docWithRule();
+		const locationUuid = testUuid("doc-automation-location");
 		const next = produce(prev, (draft) => {
 			const automation = draft.automations?.[AUTOMATION_UUID];
 			if (automation?.kind !== "case-update") throw new Error("missing rule");
 			automation.name = "Resolve urgent stale visits";
 			automation.criteria.push({
 				uuid: CONDITION_TWO,
-				kind: "match-property",
-				scope: "case",
-				property: "priority",
-				matchType: "has-value",
+				kind: "location",
+				locationUuid,
+				includeDescendants: true,
 			});
 			automation.criteria = [automation.criteria[1], automation.criteria[0]];
 			automation.updates[0].value = { kind: "literal", value: "done" };

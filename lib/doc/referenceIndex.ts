@@ -422,6 +422,11 @@ function extractAutomationEdges(
 					"automation_criterion_property",
 				);
 			}
+		} else if (criterion.kind === "location") {
+			sink.edge(
+				locationTargetKey(criterion.locationUuid),
+				"automation_criterion_location",
+			);
 		}
 	}
 	if (automation.kind === "case-update") {
