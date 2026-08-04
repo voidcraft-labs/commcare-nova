@@ -287,7 +287,11 @@ owners plus personas whose primary place is in that set; the outer query
 always excludes closed cases and relation walks retain app/Project tenancy.
 Equality matches only an exact stored string; numbers, booleans, objects,
 arrays, null, and missing values never equal the configured string and satisfy
-inequality. A missing parent/host relation does not satisfy either comparison.
+inequality. Parent reads resolve the depth-one `parent` identifier regardless
+of relationship; host reads resolve the first extension regardless of
+identifier, deterministically preferring the canonical `parent` extension and
+then identifier/target order. A missing parent/host relation does not satisfy
+either comparison.
 Whitespace-only strings count as blank and regex evaluation applies only to
 stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age

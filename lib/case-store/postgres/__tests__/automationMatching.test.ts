@@ -13,6 +13,10 @@ const APP_ID = "automation-matching";
 const PROJECT_ID = "project-automation";
 const OTHER_PROJECT = "project-other";
 const PARENT_ID = "01890f45-0000-7000-8000-000000000101";
+const CUSTOM_HOST_ID = "01890f45-0000-7000-8000-000000000120";
+const CANONICAL_EXTENSION_ID = "01890f45-0000-7000-8000-000000000121";
+const CUSTOM_EXTENSION_ID = "01890f45-0000-7000-8000-000000000122";
+const MULTI_EXTENSION_ID = "01890f45-0000-7000-8000-000000000123";
 
 const h = setupPerTestDatabase({ databaseNamePrefix: "automation_match_" });
 
@@ -113,6 +117,48 @@ function store() {
 		db: h.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
+}
+
+async function insertExtensionFixtures(): Promise<void> {
+	await h.pool.query(
+		`INSERT INTO cases
+		 (case_id, app_id, project_id, owner_id, case_type, case_name,
+		  status, closed_on, parent_case_id, properties)
+		 VALUES
+		 ($1, $2, $3, 'facility-a', 'household', 'Custom host',
+		  'open', null, null, '{"marker":"custom"}'::jsonb),
+		 ($4, $2, $3, 'facility-a', 'visit', 'Canonical extension',
+		  'open', null, $5, '{"code":"canonical"}'::jsonb),
+		 ($6, $2, $3, 'facility-a', 'visit', 'Custom extension',
+		  'open', null, null, '{"code":"custom"}'::jsonb),
+		 ($7, $2, $3, 'facility-a', 'visit', 'Multiple extensions',
+		  'open', null, $5, '{"code":"multiple"}'::jsonb)`,
+		[
+			CUSTOM_HOST_ID,
+			APP_ID,
+			PROJECT_ID,
+			CANONICAL_EXTENSION_ID,
+			PARENT_ID,
+			CUSTOM_EXTENSION_ID,
+			MULTI_EXTENSION_ID,
+		],
+	);
+	await h.pool.query(
+		`INSERT INTO case_indices
+		 (case_id, identifier, relationship, ancestor_id, depth)
+		 VALUES
+		 ($1, 'parent', 'extension', $2, 1),
+		 ($3, 'facility_host', 'extension', $4, 1),
+		 ($5, 'parent', 'extension', $2, 1),
+		 ($5, 'aaa_custom_host', 'extension', $4, 1)`,
+		[
+			CANONICAL_EXTENSION_ID,
+			PARENT_ID,
+			CUSTOM_EXTENSION_ID,
+			CUSTOM_HOST_ID,
+			MULTI_EXTENSION_ID,
+		],
+	);
 }
 
 describe("automation criteria SQL", () => {
@@ -269,6 +315,7 @@ describe("automation criteria SQL", () => {
 	});
 
 	it("matches parent and host blankness with HQ missing-relation semantics", async () => {
+		await insertExtensionFixtures();
 		const caseStore = store();
 		const base = {
 			appId: APP_ID,
@@ -289,13 +336,14 @@ describe("automation criteria SQL", () => {
 				},
 			});
 
-		await expect(count("parent", true)).resolves.toBe(2);
-		await expect(count("parent", false)).resolves.toBe(2);
-		await expect(count("host", true)).resolves.toBe(1);
+		await expect(count("parent", true)).resolves.toBe(4);
+		await expect(count("parent", false)).resolves.toBe(3);
+		await expect(count("host", true)).resolves.toBe(4);
 		await expect(count("host", false)).resolves.toBe(3);
 	});
 
 	it("compares only stored strings without coercion and requires a related case", async () => {
+		await insertExtensionFixtures();
 		const caseStore = store();
 		const base = {
 			appId: APP_ID,
@@ -345,7 +393,7 @@ describe("automation criteria SQL", () => {
 				equal: false,
 				scope: "case",
 			}),
-		).resolves.toBe(4);
+		).resolves.toBe(7);
 		await expect(
 			count({
 				property: "active_flag",
@@ -353,7 +401,7 @@ describe("automation criteria SQL", () => {
 				equal: false,
 				scope: "case",
 			}),
-		).resolves.toBe(4);
+		).resolves.toBe(7);
 		await expect(
 			count({ property: "attempts", value: "05", equal: true, scope: "case" }),
 		).resolves.toBe(0);
@@ -372,7 +420,7 @@ describe("automation criteria SQL", () => {
 				equal: false,
 				scope: "parent",
 			}),
-		).resolves.toBe(2);
+		).resolves.toBe(4);
 		await expect(
 			count({
 				property: "marker",
@@ -386,6 +434,30 @@ describe("automation criteria SQL", () => {
 				property: "marker",
 				value: "other",
 				equal: false,
+				scope: "host",
+			}),
+		).resolves.toBe(4);
+		await expect(
+			count({
+				property: "marker",
+				value: "present",
+				equal: true,
+				scope: "parent",
+			}),
+		).resolves.toBe(4);
+		await expect(
+			count({
+				property: "marker",
+				value: "present",
+				equal: true,
+				scope: "host",
+			}),
+		).resolves.toBe(3);
+		await expect(
+			count({
+				property: "marker",
+				value: "custom",
+				equal: true,
 				scope: "host",
 			}),
 		).resolves.toBe(1);

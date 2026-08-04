@@ -30,6 +30,8 @@ const AUTHORED_ID =
 	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:external/1 %x:y+z";
 const AUTHORED_PARENT_ID =
 	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:household #7";
+const AUTHORED_SECOND_PARENT_ID =
+	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:household #8";
 
 const dbHandle = setupPerTestDatabase({
 	databaseNamePrefix: "opaque_ids_test_",
@@ -190,6 +192,17 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 		await store.insert({
 			appId: APP_ID,
 			row: {
+				case_id: AUTHORED_SECOND_PARENT_ID,
+				case_type: "patient",
+				case_name: "Second parent",
+				status: "open",
+				properties: { name: "Second parent" },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "extension",
+			row: {
 				case_id: AUTHORED_ID,
 				case_type: "patient",
 				case_name: "Child",
@@ -199,11 +212,38 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 			},
 		});
 
-		const edges = await sql<{ case_id: string; ancestor_id: string }>`
-			SELECT case_id, ancestor_id FROM public.case_indices
+		const edges = await sql<{
+			case_id: string;
+			ancestor_id: string;
+			relationship: string;
+		}>`
+			SELECT case_id, ancestor_id, relationship FROM public.case_indices
 		`.execute(dbHandle.db);
 		expect(edges.rows).toEqual([
-			{ case_id: AUTHORED_ID, ancestor_id: AUTHORED_PARENT_ID },
+			{
+				case_id: AUTHORED_ID,
+				ancestor_id: AUTHORED_PARENT_ID,
+				relationship: "extension",
+			},
+		]);
+
+		await store.update({
+			appId: APP_ID,
+			caseId: AUTHORED_ID,
+			patch: { parent_case_id: AUTHORED_SECOND_PARENT_ID },
+		});
+		const reparented = await sql<{
+			ancestor_id: string;
+			relationship: string;
+		}>`
+			SELECT ancestor_id, relationship FROM public.case_indices
+			WHERE case_id = ${AUTHORED_ID}
+		`.execute(dbHandle.db);
+		expect(reparented.rows).toEqual([
+			{
+				ancestor_id: AUTHORED_SECOND_PARENT_ID,
+				relationship: "extension",
+			},
 		]);
 
 		await store.update({

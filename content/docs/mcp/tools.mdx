@@ -405,7 +405,10 @@ pretending to return or execute a Preview count.
 For locally countable property criteria, whitespace-only strings are blank and
 equality matches only an exact stored string. Stored non-string values never
 equal the configured string and therefore satisfy inequality. A parent/host
-equality or inequality requires that related case to exist. Alert regex
+equality or inequality requires that related case to exist. Parent reads use
+the `parent` identifier regardless of relationship; host reads use the first
+extension regardless of identifier, with the canonical `parent` extension
+preferred when several exist. Alert regex
 matching applies only to stored strings; Nova does not coerce numeric or
 boolean case values to text.
 

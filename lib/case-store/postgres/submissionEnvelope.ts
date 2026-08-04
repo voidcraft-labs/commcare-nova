@@ -122,6 +122,7 @@ export interface SubmissionEnvelopeHost {
 				externalId?: string;
 				properties: JsonObject;
 				parentCaseId?: string;
+				parentRelationship?: "child" | "extension";
 			};
 			caseId?: string;
 			ownerId?: string;
@@ -1773,6 +1774,9 @@ async function applyOrdinaryAction(
 								: { externalId: child.externalId }),
 							properties: child.properties,
 							parentCaseId: primaryCaseId,
+							...(child.parentRelationship === undefined
+								? {}
+								: { parentRelationship: child.parentRelationship }),
 						},
 					}),
 				);
@@ -1813,6 +1817,9 @@ async function applyOrdinaryAction(
 								: { externalId: child.externalId }),
 							properties: child.properties,
 							parentCaseId: child.parentCaseId,
+							...(child.parentRelationship === undefined
+								? {}
+								: { parentRelationship: child.parentRelationship }),
 						},
 					}),
 				);

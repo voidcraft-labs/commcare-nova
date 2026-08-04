@@ -242,6 +242,38 @@ interface ValidatorCacheEntry {
 	declared: ReadonlySet<string>;
 }
 
+/** HQ resolves `parent/...` through every live `parent` identifier, regardless
+ * of child/extension relationship. `host/...` resolves only the first live
+ * extension. Nova gives that otherwise storage-order-dependent choice a stable
+ * order: the canonical `parent` extension first, then identifier and target. */
+function automationRelationIndexFilter(args: {
+	readonly scope: "parent" | "host";
+	readonly caseAlias: string;
+	readonly indexAlias: string;
+	readonly firstHostAlias: string;
+}) {
+	if (args.scope === "parent") {
+		return sql<boolean>`${sql.ref(`${args.indexAlias}.identifier`)} = 'parent'`;
+	}
+	return sql<boolean>`(
+		${sql.ref(`${args.indexAlias}.identifier`)},
+		${sql.ref(`${args.indexAlias}.ancestor_id`)}
+	) = (
+		select
+			${sql.ref(`${args.firstHostAlias}.identifier`)},
+			${sql.ref(`${args.firstHostAlias}.ancestor_id`)}
+		from case_indices as ${sql.ref(args.firstHostAlias)}
+		where ${sql.ref(`${args.firstHostAlias}.case_id`)} = ${sql.ref(`${args.caseAlias}.case_id`)}
+			and ${sql.ref(`${args.firstHostAlias}.relationship`)} = 'extension'
+			and ${sql.ref(`${args.firstHostAlias}.depth`)} = 1
+		order by
+			case when ${sql.ref(`${args.firstHostAlias}.identifier`)} = 'parent' then 0 else 1 end,
+			${sql.ref(`${args.firstHostAlias}.identifier`)} asc,
+			${sql.ref(`${args.firstHostAlias}.ancestor_id`)} asc
+		limit 1
+	)`;
+}
+
 /** The Postgres-backed implementation of `CaseStore`. */
 export class PostgresCaseStore implements CaseStore {
 	/**
@@ -780,8 +812,12 @@ export class PostgresCaseStore implements CaseStore {
 								and automation_comparison_related.app_id = c.app_id
 								and automation_comparison_related.project_id = c.project_id
 							where automation_comparison_index.case_id = c.case_id
-								and automation_comparison_index.identifier = ${criterion.scope}
-								and automation_comparison_index.relationship = ${criterion.scope === "parent" ? "child" : "extension"}
+								and ${automationRelationIndexFilter({
+									scope: criterion.scope,
+									caseAlias: "c",
+									indexAlias: "automation_comparison_index",
+									firstHostAlias: "automation_comparison_first_host",
+								})}
 								and automation_comparison_index.depth = 1
 								and ${relatedComparison}
 						)`;
@@ -824,8 +860,12 @@ export class PostgresCaseStore implements CaseStore {
 									and automation_related.app_id = c.app_id
 									and automation_related.project_id = c.project_id
 								where automation_related_index.case_id = c.case_id
-									and automation_related_index.identifier = ${criterion.scope}
-									and automation_related_index.relationship = ${criterion.scope === "parent" ? "child" : "extension"}
+									and ${automationRelationIndexFilter({
+										scope: criterion.scope,
+										caseAlias: "c",
+										indexAlias: "automation_related_index",
+										firstHostAlias: "automation_blankness_first_host",
+									})}
 									and automation_related_index.depth = 1
 									and ${nonblank}
 							)`;
@@ -888,6 +928,7 @@ export class PostgresCaseStore implements CaseStore {
 	async insert(args: {
 		appId: string;
 		row: CaseInsert;
+		parentRelationship?: CaseIndicesTable["relationship"];
 	}): Promise<{ caseId: string }> {
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
@@ -901,6 +942,9 @@ export class PostgresCaseStore implements CaseStore {
 			const caseId = await this.insertRowInTransaction(trx, {
 				appId: args.appId,
 				row: args.row,
+				...(args.parentRelationship === undefined
+					? {}
+					: { parentRelationship: args.parentRelationship }),
 			});
 			return { caseId };
 		});
@@ -923,6 +967,7 @@ export class PostgresCaseStore implements CaseStore {
 			row: CaseInsert;
 			caseId?: string;
 			ownerId?: string;
+			parentRelationship?: CaseIndicesTable["relationship"];
 		},
 	): Promise<string> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
@@ -981,9 +1026,9 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Direct-edge derivation: depth=1 edges only; recursive
 		// walks compose at read time via `compileRelationPath`.
-		// `relationship` defaults to `child` — the subcase vs
-		// extension distinction is a CCHQ concern resolved at
-		// the relation-path compile site, not at write.
+		// A direct insert defaults to an ordinary child. The running-app
+		// submission path supplies the committed case type's relationship so
+		// extension hosts survive the same way the emitted case block does.
 		if (
 			args.row.parent_case_id !== null &&
 			args.row.parent_case_id !== undefined
@@ -994,7 +1039,7 @@ export class PostgresCaseStore implements CaseStore {
 					case_id: caseId,
 					ancestor_id: args.row.parent_case_id,
 					identifier: "parent",
-					relationship: "child",
+					relationship: args.parentRelationship ?? "child",
 					depth: 1,
 				})
 				.execute();
@@ -1083,6 +1128,9 @@ export class PostgresCaseStore implements CaseStore {
 					},
 					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
 					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+					...(a.seed.parentRelationship === undefined
+						? {}
+						: { parentRelationship: a.seed.parentRelationship }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
@@ -1122,6 +1170,7 @@ export class PostgresCaseStore implements CaseStore {
 		args: {
 			appId: string;
 			rows: ReadonlyArray<CaseInsert>;
+			parentRelationship?: CaseIndicesTable["relationship"];
 		},
 	): Promise<{ caseIds: ReadonlyArray<string> }> {
 		if (args.rows.length === 0) {
@@ -1218,7 +1267,7 @@ export class PostgresCaseStore implements CaseStore {
 				case_id: caseId,
 				ancestor_id: row.parent_case_id,
 				identifier: "parent",
-				relationship: "child",
+				relationship: args.parentRelationship ?? "child",
 				depth: 1,
 			});
 		}
@@ -2614,6 +2663,7 @@ export class PostgresCaseStore implements CaseStore {
 		const { caseIds } = await this.insertManyInTransaction(trx, {
 			appId: args.appId,
 			rows,
+			parentRelationship: args.caseType.relationship ?? "child",
 		});
 		return { inserted: caseIds.length };
 	}
@@ -3856,13 +3906,22 @@ export class PostgresCaseStore implements CaseStore {
 	 *
 	 * The DELETE is broad — every `'parent'` edge for the case —
 	 * so leftover edges from any prior shape don't accumulate. The
-	 * INSERT skips when `newParent` is null (clearing the edge).
+	 * INSERT skips when `newParent` is null (clearing the edge). A surviving
+	 * link keeps the prior child/extension relationship; changing only the
+	 * referenced case must not silently turn an extension host into a child.
 	 */
 	private async rebuildParentEdge(
 		trx: Transaction<Database>,
 		caseId: string,
 		newParent: string | null,
 	): Promise<void> {
+		const prior = await trx
+			.selectFrom("case_indices")
+			.select("relationship")
+			.where("case_indices.case_id", "=", caseId)
+			.where("case_indices.identifier", "=", "parent")
+			.orderBy("case_indices.ancestor_id", "asc")
+			.executeTakeFirst();
 		await trx
 			.deleteFrom("case_indices")
 			.where("case_indices.case_id", "=", caseId)
@@ -3873,7 +3932,7 @@ export class PostgresCaseStore implements CaseStore {
 				case_id: caseId,
 				ancestor_id: newParent,
 				identifier: "parent",
-				relationship: "child",
+				relationship: prior?.relationship ?? "child",
 				depth: 1,
 			};
 			await trx.insertInto("case_indices").values(edge).execute();

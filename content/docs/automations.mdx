@@ -178,7 +178,10 @@ criterion requires a CommCare HQ system administrator to save the automation.
 Preview follows HQ's value typing at this boundary: equality matches only an
 exact stored string. A stored number, boolean, object, array, null, or missing
 value cannot equal the configured string and therefore satisfies **does not
-equal**; a missing parent/host relation does not satisfy either comparison;
+equal**. Parent reads follow the `parent` index even when it is an extension;
+host reads follow the first extension regardless of its identifier, preferring
+the canonical `parent` extension when several exist. A missing parent/host
+relation does not satisfy either comparison;
 surrounding whitespace is blank for **has value / has no value**; and regular
 expressions test strings only rather than coercing numbers or booleans to text.
 

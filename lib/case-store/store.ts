@@ -829,7 +829,12 @@ export interface CaseStore extends SchemaCaseStore {
 	 * the `case_indices` parent edge in the same transaction.
 	 * Returns the generated `case_id`.
 	 */
-	insert(args: { appId: string; row: CaseInsert }): Promise<{
+	insert(args: {
+		appId: string;
+		row: CaseInsert;
+		/** Relationship for a supplied `parent_case_id`; ordinary child when omitted. */
+		parentRelationship?: "child" | "extension";
+	}): Promise<{
 		caseId: string;
 	}>;
 
