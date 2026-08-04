@@ -5,6 +5,7 @@ import type {
 	AutomationRecipient,
 	AutomationTimedEvent,
 	BlueprintDoc,
+	Uuid,
 } from "@/lib/domain";
 import {
 	automationTimedScheduleSetupForm,
@@ -122,12 +123,10 @@ function describeContent(
 				: `Email subject ${JSON.stringify(project(content.subject))}; choose the Rich Text Message form (the target project must have Rich text emails enabled); HTML source ${JSON.stringify(project(content.body.html))}`;
 		case "sms-survey":
 		case "connect-survey": {
-			const form = ownRecordValue(doc.forms, content.formUuid);
-			return `${content.kind}: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid}); expire after ${content.expirationHours} hour(s); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}`;
+			return `${content.kind}: ${describePublishedFormChoice(doc, content.formUuid)}; expire after ${content.expirationHours} hour(s); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}`;
 		}
 		case "ivr": {
-			const form = ownRecordValue(doc.forms, content.formUuid);
-			return `ivr: choose Nova form “${form?.name ?? content.formUuid}” (${content.formUuid}); reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}; maximum attempts per question ${content.maxQuestionAttempts}`;
+			return `ivr: ${describePublishedFormChoice(doc, content.formUuid)}; reminder intervals ${content.reminderIntervalsMinutes.length === 0 ? "none" : `${content.reminderIntervalsMinutes.join(", ")} minute(s)`}; submit partially completed forms ${content.submitPartiallyCompletedForms ? "on" : "off"}; include case updates in partial submissions ${content.includeCaseUpdatesInPartialSubmissions ? "on" : "off"}; maximum attempts per question ${content.maxQuestionAttempts}`;
 		}
 		case "sms-callback":
 			return `SMS/callback message ${JSON.stringify(project(content.message))}; retry after ${content.reminderIntervalsMinutes.join(", ")} minutes`;
@@ -136,6 +135,24 @@ function describeContent(
 		case "custom":
 			return `Registered custom content ${content.registeredId}`;
 	}
+}
+
+function describePublishedFormChoice(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): string {
+	const form = ownRecordValue(doc.forms, formUuid);
+	const moduleUuid = doc.moduleOrder.find((candidate) =>
+		doc.formOrder[candidate]?.includes(formUuid),
+	);
+	const module =
+		moduleUuid === undefined
+			? undefined
+			: ownRecordValue(doc.modules, moduleUuid);
+	if (form === undefined || module === undefined) {
+		return "repair the missing Nova form reference before choosing a published form in HQ";
+	}
+	return `choose the published form path “${doc.appName} > ${module.name} > ${form.name}” in HQ’s form picker`;
 }
 
 function describeTiming(timing: AutomationTimedEvent["timing"]): string {
@@ -252,8 +269,8 @@ export function buildAutomationSetupGuide(
 					})
 					.join("; ")}.`,
 		automation.defaultLanguageCode === undefined
-			? "Leave the default language blank to use the target CommCare HQ project's default language."
-			: `Set the default language code to ${automation.defaultLanguageCode}.`,
+			? "Choose Project Default in the required Default language field."
+			: `Choose ${automation.defaultLanguageCode} in the required Default language field. Configure ${automation.defaultLanguageCode} as a language in the target CommCare HQ project first if it is not already available; HQ accepts only Project Default or a configured project language.`,
 	);
 	if (automation.schedule.kind === "immediate") {
 		steps.push(

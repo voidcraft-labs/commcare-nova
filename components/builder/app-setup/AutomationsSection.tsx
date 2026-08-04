@@ -1901,7 +1901,7 @@ function AlertEditor({
 				)}
 				<Labeled
 					label="Default language code"
-					hint="Leave blank to use CommCare HQ's default"
+					hint="Leave empty for Project Default. Any code must already be configured in the target HQ project"
 				>
 					<Input
 						value={automation.defaultLanguageCode ?? ""}

@@ -634,8 +634,17 @@ describe("automation domain and projections", () => {
 	});
 
 	it("renders every survey, message, location, language, and filter setting", () => {
-		const doc = buildDoc({ appName: "Alerts" }) as BlueprintDoc;
-		const formUuid = testUuid("alert-form");
+		const doc = buildDoc({
+			appName: "Alerts",
+			modules: [
+				{
+					name: "Visits",
+					forms: [{ name: "Follow up", type: "survey" }],
+				},
+			],
+		}) as BlueprintDoc;
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
 		const levelUuid = testUuid("alert-level");
 		doc.organizationLevels = {
 			[levelUuid]: {
@@ -725,6 +734,10 @@ describe("automation domain and projections", () => {
 			"Case property name (Nova property case_name) has a value",
 		);
 		expect(text).toContain("Choose Immediately");
+		expect(text).toContain(
+			"published form path “Alerts > Visits > Follow up” in HQ’s form picker",
+		);
+		expect(text).not.toContain(formUuid);
 		expect(text).toContain("expire after 72 hour(s)");
 		expect(text).toContain("30, 60 minute(s)");
 		expect(text).toContain("submit partially completed forms on");
@@ -735,8 +748,23 @@ describe("automation domain and projections", () => {
 		);
 		expect(text).toContain("Include descendant locations");
 		expect(text).toContain("District");
-		expect(text).toContain("default language code to fr");
+		expect(text).toContain("Choose fr in the required Default language field");
+		expect(text).toContain(
+			"Configure fr as a language in the target CommCare HQ project first",
+		);
 		expect(text).toContain("Add no custom-user-data recipient filters");
+
+		const projectDefaultGuide = buildAutomationSetupGuide(
+			doc,
+			{ ...alert, defaultLanguageCode: undefined },
+			[],
+		).steps.join(" ");
+		expect(projectDefaultGuide).toContain(
+			"Choose Project Default in the required Default language field",
+		);
+		expect(projectDefaultGuide).not.toContain(
+			"Leave the default language blank",
+		);
 
 		const delayed = buildAutomationSetupGuide(
 			doc,

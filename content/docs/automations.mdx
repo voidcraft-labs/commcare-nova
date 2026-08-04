@@ -154,6 +154,10 @@ Open the automation and choose **Copy setup guide**. The guide is regenerated
 from the current canonical rule, including current form, worker-information,
 and place names. Apply it to the intended CommCare HQ project space and review
 its privilege, cadence, cap, and instance-specific caveats before saving.
+Survey content names the same **app > module > form** path shown by HQ's form
+picker; a Nova UUID is never presented as an HQ form identifier. When no
+language is set, the guide selects HQ's required **Project Default** choice. An
+explicit language code must already be configured for the target HQ project.
 
 Schedule dates use Nova's calendar picker and times use locale-friendly clock
 entry while the saved rule remains canonical. Removing an item from any

@@ -269,6 +269,11 @@ therefore does not install an automation, and changing or removing one in Nova
 does not claim to alter a manually configured HQ rule. The guide carries the
 exact HTML route templates (`/a/<domain>/data/edit/automatic_updates/` and
 `/a/<domain>/messaging/conditional/`) plus the actual gates and runtime facts:
+survey content resolves its canonical Nova form UUID to the current published
+`app > module > form` picker path rather than presenting that UUID as an HQ
+identifier; the required default-language field chooses **Project Default**
+when Nova stores no code, and an explicit code names the target-project
+language prerequisite. The remaining setup facts are exact:
 case updates require Data Cleanup (Pro+), alerts
 require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
 the hourly task visits each project once daily at `auto_case_update_hour`

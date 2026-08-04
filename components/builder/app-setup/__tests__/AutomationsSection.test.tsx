@@ -536,6 +536,11 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
 		await settleBaseUiTransitions();
+		expect(
+			screen.getByText(
+				"Leave empty for Project Default. Any code must already be configured in the target HQ project",
+			),
+		).toBeTruthy();
 
 		const submitPartial = screen.getByRole("checkbox", {
 			name: "Submit partially completed forms",

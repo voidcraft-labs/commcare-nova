@@ -243,7 +243,11 @@ activation. Copy acts on the derived text only.
 The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
 or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated
 run-on-save flag is never offered on a rule because HQ owns it as a project-wide
-blast-radius switch. Dates use `DatePicker`, clock times use `TimeField` plus
+blast-radius switch. Survey content resolves its UUID to the current published
+app > module > form path that HQ's picker displays; Nova UUIDs never masquerade
+as HQ form identifiers. The required default-language control projects an empty
+Nova value to **Project Default**, while an explicit code carries the target
+project-language configuration prerequisite. Dates use `DatePicker`, clock times use `TimeField` plus
 the canonical clock parser, and Weekly/Monthly event days use closed choices
 that exclude siblings and disable Add when exhausted. Removing any repeated
 criterion, setup instruction, update, recipient, recipient filter, or event
