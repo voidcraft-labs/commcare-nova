@@ -69,7 +69,6 @@ function fixture() {
 			},
 		],
 		serverModifiedBoundaryDays: 30,
-		runOnSave: false,
 		updates: [],
 		closeCase: true,
 	});

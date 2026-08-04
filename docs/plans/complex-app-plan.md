@@ -187,7 +187,10 @@ HQ switch. The HTML form permits one standard parent-closed condition and one
 owner-location condition, with no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
 regexes are nonempty and portable. A case update may set case, parent, or host properties from a literal
-or property value and may close the case. A conditional alert carries the
+or property value and may close the case. HQ's deprecated
+`RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
+project-wide switch that evaluates every active update rule for a saved case
+type, not a per-rule setting. A conditional alert carries the
 closed case-relative/generic/custom recipient union, SMS/email/survey/Connect/
 registered-custom content, immediate or timed schedules, and optional
 user-data or usercase filters. Web users are not representable recipients, and
@@ -205,7 +208,11 @@ Custom Daily events share one timing mode and satisfy ordering, separation, and
 random-window rules; Weekly and Monthly schedules use the UI's shared timing and
 content form, with their exact repetition, offset, and day sets. The canonical
 zero-based Custom Daily day is projected to HQ's one-based event row, while a
-Monthly day already uses the UI's 1–28 or -3–-1 value. Survey reminder totals
+Monthly day already uses the UI's 1–28 or -3–-1 value. Weekly and Monthly day
+pickers exclude selected siblings, normalize event order, and stop adding when
+their closed choices are exhausted. Dates use Nova's calendar picker, times use
+locale clock entry with canonical storage, and repeated-row removal preserves
+keyboard focus across all rule families. Survey reminder totals
 remain below expiration and partial case updates cannot be selected without
 partial submission. Timed reset-on-property-change requires a rule-trigger
 start. Setup guidance selects **Immediately** only for one zero-delay event and
@@ -228,7 +235,9 @@ names. HQ provides HTML setup pages only (plus the conditional-alert content
 spreadsheet); no REST resource exists for rules, alerts, or schedules. Publishing
 therefore does not install an automation, and changing or removing one in Nova
 does not claim to alter a manually configured HQ rule. The guide carries the
-actual gates and runtime facts: case updates require Data Cleanup (Pro+), alerts
+exact HTML route templates (`/a/<domain>/data/edit/automatic_updates/` and
+`/a/<domain>/messaging/conditional/`) plus the actual gates and runtime facts:
+case updates require Data Cleanup (Pro+), alerts
 require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
 the hourly task visits each project once daily at `auto_case_update_hour`
 (midnight UTC by default), and the default cap is 10,000 updates per project,

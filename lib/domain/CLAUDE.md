@@ -33,7 +33,9 @@ setup-only text for UCR, HQ-registered custom criteria, and server-modified
 semantics Nova cannot honestly evaluate. Case updates, recipients, content,
 schedule starts, and user filters are similarly closed to shapes current HQ can
 represent. There is no generic payload arm and no draft or disabled-invalid
-state.
+state. HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` flag is deliberately not
+modeled: it is one domain-wide switch that evaluates every active update rule
+for the saved case type, not a property of an individual rule.
 
 The HTML form owns several less-obvious boundaries. A rule has at most one
 standard parent-closed criterion and one owner-location criterion; the parent
@@ -51,7 +53,8 @@ Daily; a start weekday selects Weekly; a negative repeat selects Monthly.
 Schedule refinements enforce each form's shared timing/content, ordering,
 five-minute separation, window, day, offset, and repetition laws before commit.
 Custom Daily days are stored zero-based and projected as one-based HQ event-row
-values; Monthly days are already the UI's 1–28 / -3–-1 values. Survey reminder
+values; Weekly and Monthly days are unique closed choices, and Monthly days are
+already the UI's 1–28 / -3–-1 values in positive-then-month-end order. Survey reminder
 totals stay strictly below expiration, and partial case updates imply partial
 submission.
 

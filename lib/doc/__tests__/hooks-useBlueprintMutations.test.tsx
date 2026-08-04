@@ -1660,7 +1660,6 @@ describe("useBlueprintMutations — commit gate", () => {
 			criteriaOperator: "all",
 			criteria: [],
 			setupOnlyCriteria: [],
-			runOnSave: false,
 			updates: [
 				{
 					uuid: updateUuid,

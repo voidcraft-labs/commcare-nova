@@ -930,7 +930,6 @@ export const automationSchema = z.discriminatedUnion("kind", [
 		.object({
 			...automationCommon,
 			kind: z.literal("case-update"),
-			runOnSave: z.boolean(),
 			updates: z.array(automationCaseUpdateSchema).max(250),
 			closeCase: z.boolean(),
 		})

@@ -30,7 +30,6 @@ function rule(): Automation {
 			},
 		],
 		setupOnlyCriteria: [],
-		runOnSave: false,
 		updates: [
 			{
 				uuid: UPDATE_UUID,

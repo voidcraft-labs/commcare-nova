@@ -29,7 +29,6 @@ function claimCleanup(): Extract<Automation, { kind: "case-update" }> {
 		criteria: [],
 		setupOnlyCriteria: [],
 		serverModifiedBoundaryDays: 30,
-		runOnSave: false,
 		updates: [],
 		closeCase: true,
 	});
@@ -83,6 +82,9 @@ describe("automation domain and projections", () => {
 		expect(rule.criteria).toEqual([]);
 		expect(rule.serverModifiedBoundaryDays).toBe(30);
 		expect(rule.closeCase).toBe(true);
+		expect(
+			automationSchema.safeParse({ ...rule, runOnSave: true }).success,
+		).toBe(false);
 	});
 
 	it("keeps HQ-only conditions out of the count and names every omission", () => {
@@ -331,10 +333,13 @@ describe("automation domain and projections", () => {
 		);
 		const text = [...guide.steps, ...guide.caveats].join(" ");
 		expect(guide.requiredPlan).toBe("Data Cleanup (Pro or higher)");
+		expect(text).toContain("/a/<domain>/data/edit/automatic_updates/");
 		expect(text).toContain("Data → Edit Data → Automatic Case Update Rules");
 		expect(text).toContain("10,000 updates");
 		expect(text).toContain("once daily");
 		expect(text).toContain("does not run this automation in Preview");
+		expect(text).toContain("RUN_AUTO_CASE_UPDATES_ON_SAVE");
+		expect(text).toContain("project-wide");
 		expect(text).not.toContain("50,000");
 	});
 
@@ -413,6 +418,7 @@ describe("automation domain and projections", () => {
 			[],
 		);
 		const text = [...guide.steps, ...emailGuide.steps].join(" ");
+		expect(text).toContain("/a/<domain>/messaging/conditional/");
 		expect(text).toContain("parent case is closed");
 		expect(text).toContain("Choose Immediately");
 		expect(text).toContain("expire after 72 hour(s)");

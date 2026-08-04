@@ -164,7 +164,9 @@ owner-location condition, canonical nonblank/unquoted equality and update
 literals, nonempty portable regexes, and its actual recipient compatibility.
 There is no web-user recipient; Connect content refuses the case-relative,
 case-property-email, and case-group arms HQ cannot save. A timed reset property
-requires a rule-trigger start.
+requires a rule-trigger start. The deprecated domain-wide
+`RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
+per-rule tool field.
 
 Read and successful add/update results are explicit that Nova does not execute
 or install the automation. They derive the CommCare HQ setup guide and local

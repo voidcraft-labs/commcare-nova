@@ -70,7 +70,6 @@ function rule(): Automation {
 		criteriaOperator: "all",
 		criteria: [],
 		setupOnlyCriteria: [],
-		runOnSave: false,
 		updates: [
 			{
 				uuid: UPDATE_UUID,
@@ -167,7 +166,7 @@ describe("automation shared tools", () => {
 		const updatedRule = {
 			...beforeUpdate,
 			name: "Resolve old visits",
-			runOnSave: true,
+			closeCase: false,
 		} satisfies Automation;
 		const updated = await updateAutomationTool.execute(
 			{ automation: updatedRule },

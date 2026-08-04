@@ -177,7 +177,7 @@ export function buildAutomationSetupGuide(
 
 	if (automation.kind === "case-update") {
 		steps.unshift(
-			"In CommCare HQ, open Data → Edit Data → Automatic Case Update Rules, then add a rule.",
+			"In CommCare HQ, open /a/<domain>/data/edit/automatic_updates/ (Data → Edit Data → Automatic Case Update Rules), then add a rule.",
 		);
 		for (const update of automation.updates) {
 			const target =
@@ -191,14 +191,10 @@ export function buildAutomationSetupGuide(
 			steps.push(`Update ${target} to ${value}.`);
 		}
 		if (automation.closeCase) steps.push("Turn on Close case.");
-		steps.push(
-			automation.runOnSave
-				? "Turn on the run-on-save option. Keep the daily sweep enabled as recovery for cases changed outside that path."
-				: "Leave the run-on-save option off unless the target project explicitly needs immediate processing.",
-		);
 		caveats.push(
 			"Case-update rules require the Data Cleanup privilege (Pro or higher). HQ’s hourly task runs each project once daily at auto_case_update_hour, midnight UTC by default.",
 			"HQ processes at most 10,000 updates per project, case type, and database partition in one run unless the project’s auto_case_update_limit overrides it. Hitting the cap halts that run and the next daily sweep tries again.",
+			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that global blast radius separately.",
 		);
 		return {
 			title: `${automation.name}: Automatic Case Update Rule`,
@@ -209,7 +205,7 @@ export function buildAutomationSetupGuide(
 	}
 
 	steps.unshift(
-		"In CommCare HQ, open Messaging → Conditional Alerts, then add an alert.",
+		"In CommCare HQ, open /a/<domain>/messaging/conditional/ (Messaging → Conditional Alerts), then add an alert.",
 	);
 	steps.push(
 		`Recipients: ${automation.recipients.map((recipient) => describeRecipient(recipient, locations)).join("; ")}.`,

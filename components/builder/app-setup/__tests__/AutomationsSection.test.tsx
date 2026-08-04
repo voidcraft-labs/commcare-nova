@@ -2,9 +2,12 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import {
+	focusElement,
+	settleBaseUiTransitions,
+} from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Automation } from "@/lib/domain";
+import type { Automation, Form, Uuid } from "@/lib/domain";
 
 const RULE_UUID = testUuid("ui-automation");
 const UPDATE_UUID = testUuid("ui-automation-update");
@@ -16,7 +19,6 @@ const rule: Automation = {
 	criteriaOperator: "all",
 	criteria: [],
 	setupOnlyCriteria: [],
-	runOnSave: false,
 	updates: [
 		{
 			uuid: UPDATE_UUID,
@@ -59,8 +61,103 @@ const surveyAlert: Automation = {
 	useUserCaseForFilter: false,
 };
 
+const USER_PROPERTY_UUID = testUuid("ui-user-property");
+
+function repeatedRowsAlert(): Extract<
+	Automation,
+	{ kind: "conditional-alert" }
+> {
+	return {
+		uuid: testUuid("ui-repeated-alert"),
+		kind: "conditional-alert",
+		name: "Repeated rows",
+		caseType: "visit",
+		criteriaOperator: "all",
+		criteria: [0, 1].map((index) => ({
+			uuid: testUuid(`ui-repeated-condition-${index}`),
+			kind: "match-property" as const,
+			property: `status_${index}`,
+			matchType: "has-value" as const,
+		})),
+		setupOnlyCriteria: [0, 1].map((index) => ({
+			uuid: testUuid(`ui-repeated-setup-${index}`),
+			text: `HQ condition ${index}`,
+		})),
+		recipients: [
+			{ uuid: testUuid("ui-repeated-recipient-0"), kind: "self" },
+			{ uuid: testUuid("ui-repeated-recipient-1"), kind: "owner" },
+		],
+		schedule: {
+			kind: "immediate",
+			events: [0, 1].map((index) => ({
+				uuid: testUuid(`ui-repeated-event-${index}`),
+				minutesToWait: index === 0 ? 0 : 5,
+				content: { kind: "sms" as const, message: `Message ${index}` },
+			})),
+		},
+		includeDescendantLocations: false,
+		locationLevelUuids: [],
+		userDataFilters: [0, 1].map((index) => ({
+			uuid: testUuid(`ui-repeated-filter-${index}`),
+			userPropertyUuid: USER_PROPERTY_UUID,
+			allowedValues: [`value-${index}`],
+		})),
+		useUserCaseForFilter: false,
+	};
+}
+
+function monthlyAlert(): Extract<Automation, { kind: "conditional-alert" }> {
+	return {
+		...repeatedRowsAlert(),
+		uuid: testUuid("ui-monthly-alert"),
+		name: "Monthly alert",
+		criteria: [],
+		setupOnlyCriteria: [],
+		recipients: [{ uuid: testUuid("ui-monthly-recipient"), kind: "owner" }],
+		userDataFilters: [],
+		schedule: {
+			kind: "timed",
+			repeatEvery: -1,
+			totalIterations: 1,
+			startOffsetDays: 0,
+			startDayOfWeek: -1,
+			start: { kind: "rule-trigger" },
+			events: [1, 2].map((day) => ({
+				uuid: testUuid(`ui-monthly-event-${day}`),
+				day,
+				timing: { kind: "specific-time" as const, time: "09:00" },
+				content: { kind: "sms" as const, message: "Monthly message" },
+			})),
+		},
+	};
+}
+
+function fullWeeklyAlert(): Extract<Automation, { kind: "conditional-alert" }> {
+	return {
+		...monthlyAlert(),
+		uuid: testUuid("ui-full-weekly-alert"),
+		name: "Full weekly alert",
+		schedule: {
+			kind: "timed",
+			repeatEvery: 7,
+			totalIterations: 1,
+			startOffsetDays: 0,
+			startDayOfWeek: 0,
+			start: { kind: "rule-trigger" },
+			events: Array.from({ length: 7 }, (_, day) => ({
+				uuid: testUuid(`ui-weekly-event-${day}`),
+				day,
+				timing: { kind: "specific-time" as const, time: "09:00" },
+				content: { kind: "sms" as const, message: "Weekly message" },
+			})),
+		},
+	};
+}
+
 const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
+	forms: [] as Form[],
+	userProperties: [] as { uuid: Uuid; label: string; slug: string }[],
 	canEdit: true,
 	addAutomation: vi.fn(() => ({ ok: true, uuid: "new" })),
 	replaceAutomation: vi.fn(() => ({ ok: true })),
@@ -73,7 +170,7 @@ vi.mock("@/lib/automations/actions", () => ({
 }));
 vi.mock("@/lib/doc/hooks/useAutomationCollections", () => ({
 	useAutomations: () => mocks.automations,
-	useAutomationForms: () => [],
+	useAutomationForms: () => mocks.forms,
 }));
 vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
 	useEffectiveCaseTypes: () => [
@@ -87,7 +184,7 @@ vi.mock("@/lib/doc/hooks/useOrganizationCollections", () => ({
 	useOrganizationLevels: () => [],
 }));
 vi.mock("@/lib/doc/hooks/useUserCollections", () => ({
-	useUserProperties: () => [],
+	useUserProperties: () => mocks.userProperties,
 }));
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	useBlueprintMutations: () => ({
@@ -125,7 +222,14 @@ vi.mock("@/lib/session/provider", () => ({
 import { AutomationsSection } from "../AutomationsSection";
 
 async function chooseChoice(label: string, option: string): Promise<void> {
-	fireEvent.click(screen.getByRole("combobox", { name: label }));
+	await chooseFromChoice(screen.getByRole("combobox", { name: label }), option);
+}
+
+async function chooseFromChoice(
+	choice: HTMLElement,
+	option: string,
+): Promise<void> {
+	fireEvent.click(choice);
 	await settleBaseUiTransitions();
 	const item = screen.getByRole("option", { name: option });
 	fireEvent.pointerDown(item, { pointerType: "mouse" });
@@ -135,6 +239,8 @@ async function chooseChoice(label: string, option: string): Promise<void> {
 
 beforeEach(() => {
 	mocks.automations = [];
+	mocks.forms = [];
+	mocks.userProperties = [];
 	mocks.canEdit = true;
 	mocks.addAutomation.mockClear();
 	mocks.replaceAutomation.mockClear();
@@ -284,6 +390,172 @@ describe("AutomationsSection", () => {
 					],
 				}),
 			}),
+		);
+	});
+
+	it("keeps monthly and weekly day choices unique, ordered, and bounded", async () => {
+		const monthly = monthlyAlert();
+		mocks.automations = [monthly];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Monthly alert/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const dayChoices = screen.getAllByRole("combobox", {
+			name: "Day in CommCare HQ schedule",
+		});
+		fireEvent.click(dayChoices[0]);
+		await settleBaseUiTransitions();
+		expect(
+			screen
+				.getByRole("option", { name: "Day 2" })
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+		const lastDay = screen.getByRole("option", {
+			name: "Last day of the month",
+		});
+		fireEvent.pointerDown(lastDay, { pointerType: "mouse" });
+		fireEvent.click(lastDay);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							uuid: testUuid("ui-monthly-event-2"),
+							day: 2,
+						}),
+						expect.objectContaining({
+							uuid: testUuid("ui-monthly-event-1"),
+							day: -1,
+						}),
+					],
+				}),
+			}),
+			JSON.stringify(monthly),
+		);
+	});
+
+	it("disables another weekly event when every HQ weekday is selected", async () => {
+		mocks.automations = [fullWeeklyAlert()];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Full weekly alert/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen.getByRole("button", { name: "Schedule event" }),
+		).toHaveProperty("disabled", true);
+	});
+
+	it("uses themed date and locale-time fields while storing canonical values", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		await chooseChoice("Schedule type", "Timed repeating schedule");
+		await chooseChoice("Start from", "Specific date");
+
+		expect(
+			screen
+				.getByRole("button", { name: "Start date" })
+				.getAttribute("data-slot"),
+		).toBe("date-picker");
+		const time = screen.getByRole("textbox", { name: "Time" });
+		expect(time.getAttribute("data-slot")).toBe("time-field");
+		expect(time.getAttribute("type")).not.toBe("time");
+		focusElement(time);
+		fireEvent.change(time, { target: { value: "2:30 PM" } });
+		fireEvent.blur(time);
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							timing: { kind: "specific-time", time: "14:30" },
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
+	it("moves focus through every repeated automation row family", async () => {
+		mocks.userProperties = [
+			{ uuid: USER_PROPERTY_UUID, label: "Region", slug: "region" },
+		];
+		mocks.automations = [repeatedRowsAlert()];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Repeated rows/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		for (const name of [
+			"Remove condition",
+			"Remove",
+			"Remove recipient",
+			"Remove filter",
+		] as const) {
+			const remove = screen.getAllByRole("button", { name });
+			focusElement(remove[0]);
+			fireEvent.click(remove[0]);
+			await waitFor(() =>
+				expect(document.activeElement).toBe(
+					screen.getAllByRole("button", { name })[0],
+				),
+			);
+		}
+
+		let removeEvents = screen.getAllByRole("button", { name: "Remove event" });
+		focusElement(removeEvents[0]);
+		fireEvent.click(removeEvents[0]);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("button", { name: "Remove event" }),
+			),
+		);
+		removeEvents = screen.getAllByRole("button", { name: "Remove event" });
+		fireEvent.click(removeEvents[0]);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("button", { name: "Schedule event" }),
+			),
+		);
+	});
+
+	it("moves focus to the next case change after removal", async () => {
+		mocks.automations = [
+			{
+				...rule,
+				updates: [
+					...rule.updates,
+					{
+						uuid: testUuid("ui-second-update"),
+						target: { scope: "case", property: "priority" },
+						value: { kind: "literal", value: "high" },
+					},
+				],
+			},
+		];
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		const remove = screen.getAllByRole("button", { name: "Remove change" });
+		focusElement(remove[0]);
+		fireEvent.click(remove[0]);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("button", { name: "Remove change" }),
+			),
 		);
 	});
 

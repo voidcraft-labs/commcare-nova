@@ -239,6 +239,15 @@ installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. Copy acts on the derived text only.
 
+The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
+or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated
+run-on-save flag is never offered on a rule because HQ owns it as a project-wide
+blast-radius switch. Dates use `DatePicker`, clock times use `TimeField` plus
+the canonical clock parser, and Weekly/Monthly event days use closed choices
+that exclude siblings and disable Add when exhausted. Removing any repeated
+criterion, setup instruction, update, recipient, recipient filter, or event
+hands focus to the next or previous row action, then its Add action.
+
 The editor makes the HQ form's cardinality and compatibility rules impossible
 to author: at most one standard closed-parent and one owner-location condition,
 no web-user recipient, no incompatible case-relative/email/case-group recipient

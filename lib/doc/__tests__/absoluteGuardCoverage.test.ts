@@ -264,7 +264,6 @@ function automationDoc(): BlueprintDoc {
 			criteriaOperator: "all",
 			criteria: [],
 			setupOnlyCriteria: [],
-			runOnSave: false,
 			updates: [
 				{
 					uuid: testUuid("automation-update"),
@@ -1155,7 +1154,6 @@ const GUARD_COVERAGE = {
 						criteriaOperator: "all",
 						criteria: [],
 						setupOnlyCriteria: [],
-						runOnSave: false,
 						updates: [],
 						closeCase: true,
 					},

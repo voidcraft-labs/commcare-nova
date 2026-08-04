@@ -26,16 +26,20 @@ exact nonblank text HQ stores: omit surrounding whitespace and matching outer
 quotes. Regular expressions must be nonempty and stay inside Nova's portable
 HQ/Postgres subset.
 
-The setup guide points to **Data → Edit Data → Automatic Case Update Rules**.
+The setup guide gives both the exact route template
+`/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
+**Data → Edit Data → Automatic Case Update Rules**.
 These rules require CommCare HQ's **Data Cleanup** privilege (Pro or higher).
 CommCare HQ's hourly task visits each project space once each day, at midnight
 UTC by default. One run processes at most 10,000 updates per project space,
 case type, and database partition unless that project has a different limit.
 Reaching the limit stops that run; the next daily sweep tries again.
 
-**Run when a case is saved** is an additional path, not a replacement for the
-daily sweep. Leave it off unless the target project explicitly needs immediate
-processing.
+HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide, not a
+property of one rule, so Nova does not store or offer it per automation. If a
+target project has that switch enabled, saving a case evaluates every active
+automatic-update rule for that case type. Treat that global blast radius as a
+separate deployment decision; the daily sweep remains the recovery path.
 
 ## Conditional alerts
 
@@ -46,7 +50,9 @@ schedule can start when the rule matches, on a fixed date, or from a case date
 property. Nova keeps each schedule to one content type and each timed schedule
 inside one setup form CommCare HQ can actually save: Custom Daily events share
 one timing mode and stay ordered, Weekly events share timing and content, and Monthly events share timing and
-content while using days 1–28 or the final three days of the month. Fixed and
+content while using days 1–28 or the final three days of the month. Weekly and
+Monthly day pickers exclude days already selected, keep HQ's canonical order,
+and stop offering another event when every available day is used. Fixed and
 random event starts are at least five minutes apart, and random windows cannot
 overlap.
 Survey definitions include their 1–168 hour expiration, reminder intervals,
@@ -61,7 +67,8 @@ Historical IVR definitions additionally preserve the maximum attempts per
 question. Email setup guidance prints both the exact plain-text body and the
 exact optional HTML body.
 
-The setup guide points to **Messaging → Conditional Alerts**. Conditional
+The setup guide gives both `/a/<domain>/messaging/conditional/` and
+**Messaging → Conditional Alerts**. Conditional
 alerts require **Reminders Framework** (Standard or higher). SMS delivery also
 requires **Outbound SMS** when the message is sent; an email-only alert does
 not. Current CommCare HQ retains IVR and SMS/callback to display historical
@@ -104,6 +111,11 @@ Open the automation and choose **Copy setup guide**. The guide is regenerated
 from the current canonical rule, including current form, worker-information,
 and place names. Apply it to the intended CommCare HQ project space and review
 its privilege, cadence, cap, and instance-specific caveats before saving.
+
+Schedule dates use Nova's calendar picker and times use locale-friendly clock
+entry while the saved rule remains canonical. Removing an item from any
+repeated rule section keeps keyboard focus on the next or previous item, then
+on that section's add action when the list becomes empty.
 
 Removing or changing an automation in Nova does not alter a rule previously
 configured by hand in CommCare HQ. Keep the two in sync until Nova's Deployment

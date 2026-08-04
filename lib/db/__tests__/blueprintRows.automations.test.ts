@@ -29,7 +29,6 @@ describe("automation entity-row persistence", () => {
 				},
 			],
 			setupOnlyCriteria: [],
-			runOnSave: true,
 			updates: [
 				{
 					uuid: updateUuid,

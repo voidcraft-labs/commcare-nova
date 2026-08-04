@@ -257,7 +257,6 @@ async function commitLocationAutomation(locationUuid: Uuid): Promise<void> {
 						},
 					],
 					setupOnlyCriteria: [],
-					runOnSave: false,
 					updates: [],
 					closeCase: true,
 				},

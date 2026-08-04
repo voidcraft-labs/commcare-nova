@@ -233,7 +233,6 @@ describe("explicit app-wide case-property rename", () => {
 					},
 				],
 				setupOnlyCriteria: [],
-				runOnSave: false,
 				updates: [
 					{
 						uuid: updateItemUuid,

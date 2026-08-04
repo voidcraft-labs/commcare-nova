@@ -17,15 +17,18 @@ import {
 	cloneElement,
 	type ReactElement,
 	type ReactNode,
+	type Ref,
 	startTransition,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
+import { DatePicker } from "@/components/shadcn/date-picker";
 import {
 	Dialog,
 	DialogBody,
@@ -45,6 +48,7 @@ import {
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { Textarea } from "@/components/shadcn/textarea";
+import { TimeField } from "@/components/shadcn/time-field";
 import type { AutomationPreviewResult } from "@/lib/automations/actions";
 import { previewAutomationAction } from "@/lib/automations/actions";
 import {
@@ -74,6 +78,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
@@ -109,6 +114,52 @@ const CONTENT_KINDS: readonly [AutomationContent["kind"], string][] = [
 	["custom", "Registered custom content"],
 ];
 
+const WEEKDAY_NAMES = [
+	"Monday",
+	"Tuesday",
+	"Wednesday",
+	"Thursday",
+	"Friday",
+	"Saturday",
+	"Sunday",
+] as const;
+
+const MONTHLY_EVENT_DAYS = [
+	...Array.from({ length: 28 }, (_, index) => index + 1),
+	-3,
+	-2,
+	-1,
+] as const;
+
+function monthlyDayLabel(day: number): string {
+	if (day > 0) return `Day ${day}`;
+	if (day === -1) return "Last day of the month";
+	return `${Math.abs(day)}${day === -2 ? "nd" : "rd"}-to-last day of the month`;
+}
+
+function timedEventComparator(
+	setupForm: "custom-daily" | "weekly" | "monthly",
+	left: AutomationTimedEvent,
+	right: AutomationTimedEvent,
+): number {
+	if (setupForm === "monthly") {
+		const rank = (day: number) => (day > 0 ? day : 32 + day);
+		return rank(left.day) - rank(right.day);
+	}
+	if (left.day !== right.day) return left.day - right.day;
+	const minute = (event: AutomationTimedEvent) => {
+		if (event.timing.kind === "case-property-time") return 0;
+		const [hours = 0, minutes = 0] = event.timing.time.split(":").map(Number);
+		return hours * 60 + minutes;
+	};
+	return minute(left) - minute(right);
+}
+
+function automationTimeText(value: string): string {
+	if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return value;
+	return formatClockTime(`${value}:00.000Z`) ?? value;
+}
+
 function uuid(): Uuid {
 	return asUuid(crypto.randomUUID());
 }
@@ -122,7 +173,6 @@ function newCaseUpdate(caseType: string): Automation {
 		criteriaOperator: "all",
 		criteria: [],
 		setupOnlyCriteria: [],
-		runOnSave: false,
 		updates: [],
 		closeCase: true,
 	};
@@ -920,16 +970,50 @@ function OptionalNumber({
 function RemoveButton({
 	label,
 	onClick,
+	buttonRef,
 }: {
 	label: string;
 	onClick: () => void;
+	buttonRef?: Ref<HTMLButtonElement>;
 }) {
 	return (
-		<Button type="button" variant="ghost-destructive" onClick={onClick}>
+		<Button
+			ref={buttonRef}
+			type="button"
+			variant="ghost-destructive"
+			onClick={onClick}
+		>
 			<Icon icon={tablerTrash} aria-hidden="true" />
 			{label}
 		</Button>
 	);
+}
+
+function useRepeatedRowRemovalFocus(items: readonly { readonly uuid: Uuid }[]) {
+	const addRef = useRef<HTMLButtonElement>(null);
+	const removeRefs = useRef(new Map<Uuid, HTMLButtonElement>());
+	const [pendingFocus, setPendingFocus] = useState<Uuid | "add">();
+
+	useLayoutEffect(() => {
+		if (pendingFocus === undefined) return;
+		if (pendingFocus === "add") addRef.current?.focus();
+		else removeRefs.current.get(pendingFocus)?.focus();
+		setPendingFocus(undefined);
+	}, [pendingFocus]);
+
+	return {
+		addRef,
+		removeButtonRef: (uuid: Uuid) => (node: HTMLButtonElement | null) => {
+			if (node === null) removeRefs.current.delete(uuid);
+			else removeRefs.current.set(uuid, node);
+		},
+		removeAt: (index: number, remove: () => void) => {
+			setPendingFocus(
+				items[index + 1]?.uuid ?? items[index - 1]?.uuid ?? "add",
+			);
+			remove();
+		},
+	};
 }
 
 function ConditionsEditor({
@@ -941,6 +1025,7 @@ function ConditionsEditor({
 	locations: readonly StoredLocation[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const rowFocus = useRepeatedRowRemovalFocus(automation.criteria);
 	const hasClosedParent = automation.criteria.some(
 		(criterion) => criterion.kind === "closed-parent",
 	);
@@ -1153,10 +1238,13 @@ function ConditionsEditor({
 					<div className="mt-2">
 						<RemoveButton
 							label="Remove condition"
+							buttonRef={rowFocus.removeButtonRef(criterion.uuid)}
 							onClick={() =>
-								onEdit((draft) => {
-									draft.criteria.splice(index, 1);
-								})
+								rowFocus.removeAt(index, () =>
+									onEdit((draft) => {
+										draft.criteria.splice(index, 1);
+									}),
+								)
 							}
 						/>
 					</div>
@@ -1164,6 +1252,7 @@ function ConditionsEditor({
 			))}
 			<div className="flex flex-wrap gap-2">
 				<Button
+					ref={rowFocus.addRef}
 					type="button"
 					variant="outline"
 					onClick={() => add("match-property")}
@@ -1201,6 +1290,7 @@ function SetupOnlyEditor({
 	automation: Automation;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const rowFocus = useRepeatedRowRemovalFocus(automation.setupOnlyCriteria);
 	return (
 		<Section
 			title="HQ-only conditions"
@@ -1220,15 +1310,19 @@ function SetupOnlyEditor({
 					/>
 					<RemoveButton
 						label="Remove"
+						buttonRef={rowFocus.removeButtonRef(criterion.uuid)}
 						onClick={() =>
-							onEdit((draft) => {
-								draft.setupOnlyCriteria.splice(index, 1);
-							})
+							rowFocus.removeAt(index, () =>
+								onEdit((draft) => {
+									draft.setupOnlyCriteria.splice(index, 1);
+								}),
+							)
 						}
 					/>
 				</div>
 			))}
 			<Button
+				ref={rowFocus.addRef}
 				type="button"
 				variant="outline"
 				onClick={() =>
@@ -1254,20 +1348,12 @@ function CaseUpdateEditor({
 	automation: Extract<Automation, { kind: "case-update" }>;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const rowFocus = useRepeatedRowRemovalFocus(automation.updates);
 	return (
 		<Section
 			title="Case changes"
 			description="A daily CommCare HQ sweep applies these changes. At least one property update or Close case is required."
 		>
-			<Toggle
-				checked={automation.runOnSave}
-				onChange={(checked) =>
-					onEdit((draft) => {
-						if (draft.kind === "case-update") draft.runOnSave = checked;
-					})
-				}
-				label="Also run when a matching case is saved"
-			/>
 			<Toggle
 				checked={automation.closeCase}
 				onChange={(checked) =>
@@ -1394,16 +1480,20 @@ function CaseUpdateEditor({
 					</div>
 					<RemoveButton
 						label="Remove change"
+						buttonRef={rowFocus.removeButtonRef(update.uuid)}
 						onClick={() =>
-							onEdit((draft) => {
-								if (draft.kind === "case-update")
-									draft.updates.splice(index, 1);
-							})
+							rowFocus.removeAt(index, () =>
+								onEdit((draft) => {
+									if (draft.kind === "case-update")
+										draft.updates.splice(index, 1);
+								}),
+							)
 						}
 					/>
 				</div>
 			))}
 			<Button
+				ref={rowFocus.addRef}
 				type="button"
 				variant="outline"
 				onClick={() =>
@@ -1506,6 +1596,8 @@ function AlertEditor({
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
+	const recipientFocus = useRepeatedRowRemovalFocus(automation.recipients);
+	const filterFocus = useRepeatedRowRemovalFocus(automation.userDataFilters);
 	const usesConnect = automation.schedule.events.some(
 		(event) =>
 			event.content.kind === "connect-message" ||
@@ -1627,16 +1719,20 @@ function AlertEditor({
 						</div>
 						<RemoveButton
 							label="Remove recipient"
+							buttonRef={recipientFocus.removeButtonRef(recipient.uuid)}
 							onClick={() =>
-								onEdit((draft) => {
-									if (draft.kind === "conditional-alert")
-										draft.recipients.splice(index, 1);
-								})
+								recipientFocus.removeAt(index, () =>
+									onEdit((draft) => {
+										if (draft.kind === "conditional-alert")
+											draft.recipients.splice(index, 1);
+									}),
+								)
 							}
 						/>
 					</div>
 				))}
 				<Button
+					ref={recipientFocus.addRef}
 					type="button"
 					variant="outline"
 					onClick={() =>
@@ -1760,16 +1856,20 @@ function AlertEditor({
 						</Labeled>
 						<RemoveButton
 							label="Remove filter"
+							buttonRef={filterFocus.removeButtonRef(filter.uuid)}
 							onClick={() =>
-								onEdit((draft) => {
-									if (draft.kind === "conditional-alert")
-										draft.userDataFilters.splice(index, 1);
-								})
+								filterFocus.removeAt(index, () =>
+									onEdit((draft) => {
+										if (draft.kind === "conditional-alert")
+											draft.userDataFilters.splice(index, 1);
+									}),
+								)
 							}
 						/>
 					</div>
 				))}
 				<Button
+					ref={filterFocus.addRef}
 					type="button"
 					variant="outline"
 					disabled={userProperties.length === 0}
@@ -1837,6 +1937,7 @@ function ScheduleEditor({
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const schedule = automation.schedule;
+	const eventFocus = useRepeatedRowRemovalFocus(schedule.events);
 	const timedSetupForm =
 		schedule.kind === "timed"
 			? automationTimedScheduleSetupForm(schedule)
@@ -1844,6 +1945,30 @@ function ScheduleEditor({
 	const connectRecipientBlocked = automation.recipients.some(
 		(recipient) => !automationRecipientSupportsConnect(recipient.kind),
 	);
+	const fixedDayChoicesExhausted =
+		schedule.kind === "timed" &&
+		((timedSetupForm === "monthly" &&
+			new Set(schedule.events.map((event) => event.day)).size ===
+				MONTHLY_EVENT_DAYS.length) ||
+			(timedSetupForm === "weekly" &&
+				new Set(schedule.events.map((event) => event.day)).size ===
+					WEEKDAY_NAMES.length));
+	const removeEvent = (index: number) =>
+		eventFocus.removeAt(index, () =>
+			onEdit((draft) => {
+				if (draft.kind !== "conditional-alert") return;
+				draft.schedule.events.splice(index, 1);
+				if (
+					draft.schedule.kind === "timed" &&
+					automationTimedScheduleSetupForm(draft.schedule) === "custom-daily" &&
+					draft.schedule.totalIterations === 1 &&
+					draft.schedule.events.length > 0
+				) {
+					draft.schedule.repeatEvery =
+						(draft.schedule.events.at(-1)?.day ?? 0) + 1;
+				}
+			}),
+		);
 	const setSchedule = (kind: AutomationSchedule["kind"]) =>
 		onEdit((draft) => {
 			if (draft.kind !== "conditional-alert") return;
@@ -2143,28 +2268,25 @@ function ScheduleEditor({
 					)}
 					{schedule.start.kind === "specific-date" && (
 						<Labeled label="Start date">
-							<Input
-								type="date"
+							<DatePicker
 								value={schedule.start.date}
-								onChange={(event) =>
+								clearable={false}
+								onValueChange={(date) => {
+									if (date === "") return;
 									onEdit((draft) => {
 										if (
 											draft.kind === "conditional-alert" &&
 											draft.schedule.kind === "timed" &&
 											draft.schedule.start.kind === "specific-date"
 										) {
-											draft.schedule.start.date = event.target.value;
+											draft.schedule.start.date = date;
 											if (timedSetupForm === "weekly") {
 												draft.schedule.startDayOfWeek =
-													(new Date(
-														`${event.target.value}T00:00:00Z`,
-													).getUTCDay() +
-														6) %
-													7;
+													(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
 											}
 										}
-									})
-								}
+									});
+								}}
 							/>
 						</Labeled>
 					)}
@@ -2208,18 +2330,29 @@ function ScheduleEditor({
 					key={event.uuid}
 					event={event}
 					index={index}
+					eventDays={schedule.events.map((item) => ({
+						uuid: item.uuid,
+						day: "day" in item ? item.day : 0,
+					}))}
 					scheduleKind={schedule.kind}
 					timedSetupForm={timedSetupForm}
 					repeatEvery={
 						schedule.kind === "timed" ? schedule.repeatEvery : undefined
 					}
+					repeatIsDerived={
+						schedule.kind === "timed" && schedule.totalIterations === 1
+					}
 					forms={forms}
+					removeButtonRef={eventFocus.removeButtonRef(event.uuid)}
+					onRemove={() => removeEvent(index)}
 					onEdit={onEdit}
 				/>
 			))}
 			<Button
+				ref={eventFocus.addRef}
 				type="button"
 				variant="outline"
+				disabled={fixedDayChoicesExhausted}
 				onClick={() =>
 					onEdit((draft) => {
 						if (draft.kind !== "conditional-alert") return;
@@ -2245,24 +2378,24 @@ function ScheduleEditor({
 								previous?.timing ?? { kind: "specific-time", time: "09:00" },
 							);
 							if (setupForm === "monthly") {
-								const allowed = [
-									...Array.from({ length: 28 }, (_, index) => index + 1),
-									-3,
-									-2,
-									-1,
-								];
 								const used = new Set(
 									draft.schedule.events.map((event) => event.day),
 								);
-								day = allowed.find((candidate) => !used.has(candidate)) ?? 1;
+								const available = MONTHLY_EVENT_DAYS.find(
+									(candidate) => !used.has(candidate),
+								);
+								if (available === undefined) return;
+								day = available;
 							} else if (setupForm === "weekly") {
 								const used = new Set(
 									draft.schedule.events.map((event) => event.day),
 								);
-								day =
-									Array.from({ length: 7 }, (_, index) => index).find(
-										(candidate) => !used.has(candidate),
-									) ?? 0;
+								const available = Array.from(
+									{ length: WEEKDAY_NAMES.length },
+									(_, index) => index,
+								).find((candidate) => !used.has(candidate));
+								if (available === undefined) return;
+								day = available;
 							} else if (previous !== undefined) {
 								if (previous.timing.kind === "case-property-time") {
 									day = previous.day;
@@ -2314,10 +2447,14 @@ function ScheduleEditor({
 function EventEditor({
 	event,
 	index,
+	eventDays,
 	scheduleKind,
 	timedSetupForm,
 	repeatEvery,
+	repeatIsDerived,
 	forms,
+	removeButtonRef,
+	onRemove,
 	onEdit,
 }: {
 	event: {
@@ -2325,14 +2462,51 @@ function EventEditor({
 		content: AutomationContent;
 	} & ({ minutesToWait: number } | AutomationTimedEvent);
 	index: number;
+	eventDays: readonly { uuid: Uuid; day: number }[];
 	scheduleKind: AutomationSchedule["kind"];
 	timedSetupForm?: "custom-daily" | "weekly" | "monthly";
 	repeatEvery?: number;
+	repeatIsDerived: boolean;
 	forms: readonly Form[];
+	removeButtonRef: Ref<HTMLButtonElement>;
+	onRemove: () => void;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const content = event.content;
 	const timed = event as AutomationTimedEvent;
+	const canonicalTime =
+		scheduleKind === "timed" && timed.timing.kind !== "case-property-time"
+			? timed.timing.time
+			: "";
+	const [timeText, setTimeText] = useState("");
+	const [editingTime, setEditingTime] = useState(false);
+	const dayOptions: readonly ChoiceOption[] =
+		timedSetupForm === "monthly"
+			? MONTHLY_EVENT_DAYS.map((day) => [
+					String(day),
+					monthlyDayLabel(day),
+					eventDays.some(
+						(sibling) => sibling.uuid !== event.uuid && sibling.day === day,
+					),
+				])
+			: timedSetupForm === "weekly"
+				? WEEKDAY_NAMES.map((name, day) => [
+						String(day),
+						name,
+						eventDays.some(
+							(sibling) => sibling.uuid !== event.uuid && sibling.day === day,
+						),
+					])
+				: Array.from(
+						{
+							length: Math.max(
+								(repeatEvery ?? 1) + (repeatIsDerived ? 1 : 0),
+								timed.day + 1,
+								1,
+							),
+						},
+						(_, day) => [String(day), `Day ${day + 1}`] as const,
+					);
 	const updateContent = (
 		recipe: (content: WritableDraft<AutomationContent>) => void,
 	) =>
@@ -2408,38 +2582,26 @@ function EventEditor({
 					</Labeled>
 				) : (
 					<>
-						<Labeled
-							label="Day in CommCare HQ schedule"
-							hint={
-								timedSetupForm === "monthly"
-									? "Use 1–28, or -3–-1 from month end"
-									: "CommCare HQ numbers the first day as 1"
-							}
-						>
-							<Input
-								type="number"
-								min={timedSetupForm === "monthly" ? -3 : 1}
-								max={
-									timedSetupForm === "monthly"
-										? 28
-										: timedSetupForm === "weekly"
-											? 7
-											: repeatEvery
-								}
-								value={timedSetupForm === "monthly" ? timed.day : timed.day + 1}
-								onChange={(change) =>
+						<Labeled label="Day in CommCare HQ schedule">
+							<Choice
+								value={String(timed.day)}
+								options={dayOptions}
+								onChange={(value) =>
 									onEdit((draft) => {
 										if (
 											draft.kind === "conditional-alert" &&
 											draft.schedule.kind === "timed" &&
 											draft.schedule.events[index]
 										) {
-											draft.schedule.events[index].day =
-												timedSetupForm === "monthly"
-													? Number(change.target.value)
-													: Number(change.target.value) - 1;
+											const setupForm = automationTimedScheduleSetupForm(
+												draft.schedule,
+											);
+											draft.schedule.events[index].day = Number(value);
+											draft.schedule.events.sort((left, right) =>
+												timedEventComparator(setupForm, left, right),
+											);
 											if (
-												timedSetupForm === "custom-daily" &&
+												setupForm === "custom-daily" &&
 												draft.schedule.totalIterations === 1
 											) {
 												draft.schedule.repeatEvery =
@@ -2467,16 +2629,33 @@ function EventEditor({
 							</Labeled>
 						) : (
 							<Labeled label="Time">
-								<Input
-									type="time"
-									value={timed.timing.time}
-									onChange={(change) =>
+								<TimeField
+									value={
+										editingTime ? timeText : automationTimeText(canonicalTime)
+									}
+									onFocus={() => {
+										setTimeText(automationTimeText(canonicalTime));
+										setEditingTime(true);
+									}}
+									onValueChange={(value) => {
+										setTimeText(value);
 										updateTiming((timing) => {
 											if (timing.kind !== "case-property-time") {
-												timing.time = change.target.value;
+												timing.time = value;
 											}
-										})
-									}
+										});
+									}}
+									onBlur={(value) => {
+										const parsed = parseClockTime(value);
+										if (parsed !== null) {
+											updateTiming((timing) => {
+												if (timing.kind !== "case-property-time") {
+													timing.time = parsed.slice(0, 5);
+												}
+											});
+										}
+										setEditingTime(false);
+									}}
 								/>
 							</Labeled>
 						)}
@@ -2667,23 +2846,8 @@ function EventEditor({
 			)}
 			<RemoveButton
 				label="Remove event"
-				onClick={() =>
-					onEdit((draft) => {
-						if (draft.kind === "conditional-alert") {
-							draft.schedule.events.splice(index, 1);
-							if (
-								draft.schedule.kind === "timed" &&
-								automationTimedScheduleSetupForm(draft.schedule) ===
-									"custom-daily" &&
-								draft.schedule.totalIterations === 1 &&
-								draft.schedule.events.length > 0
-							) {
-								draft.schedule.repeatEvery =
-									(draft.schedule.events.at(-1)?.day ?? 0) + 1;
-							}
-						}
-					})
-				}
+				buttonRef={removeButtonRef}
+				onClick={onRemove}
 			/>
 		</div>
 	);

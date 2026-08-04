@@ -361,7 +361,6 @@ const automationCaseUpdatePatchSchema = z
 			automationSchema.options[0].shape.criteriaOperator.optional(),
 		serverModifiedBoundaryDays:
 			automationSchema.options[0].shape.serverModifiedBoundaryDays.nullable(),
-		runOnSave: automationSchema.options[0].shape.runOnSave.optional(),
 		closeCase: automationSchema.options[0].shape.closeCase.optional(),
 	})
 	.partial()

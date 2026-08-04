@@ -452,7 +452,6 @@ exports[`generated mutation-wire registry > pins every schema-derived semantic l
   "updateAutomation[targetKind=case-update].patch.closeCase /patch/closeCase leaf optional non-null no-default boolean",
   "updateAutomation[targetKind=case-update].patch.criteriaOperator /patch/criteriaOperator leaf optional non-null no-default enum",
   "updateAutomation[targetKind=case-update].patch.name /patch/name leaf optional non-null no-default string",
-  "updateAutomation[targetKind=case-update].patch.runOnSave /patch/runOnSave leaf optional non-null no-default boolean",
   "updateAutomation[targetKind=case-update].patch.serverModifiedBoundaryDays /patch/serverModifiedBoundaryDays leaf optional nullable no-default number",
   "updateAutomation[targetKind=case-update].targetKind /targetKind leaf required non-null no-default literal",
   "updateAutomation[targetKind=case-update].uuid /uuid leaf required non-null no-default string",
