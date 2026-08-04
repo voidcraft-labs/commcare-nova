@@ -195,13 +195,6 @@ export function automationMatchProjection(
 				: automation.criteriaOperator === "all"
 					? and(predicates[0], predicates[1], ...predicates.slice(2))
 					: or(predicates[0], predicates[1], ...predicates.slice(2));
-	const hasCriteria =
-		groupedPredicate !== undefined ||
-		comparisons.length > 0 ||
-		regexes.length > 0 ||
-		blankness.length > 0 ||
-		closedParents.length > 0 ||
-		locationOwnerSets.length > 0;
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map((criterion) => criterion.text),
 		...(automation.kind !== "case-update" ||
@@ -216,19 +209,17 @@ export function automationMatchProjection(
 		countArgs: {
 			// AutomaticUpdateRule skips closed cases before criteria evaluation.
 			predicate: eq(prop(automation.caseType, "status"), literal("open")),
-			...(hasCriteria && {
-				automationCriteria: {
-					operator: automation.criteriaOperator,
-					...(groupedPredicate === undefined
-						? {}
-						: { predicate: groupedPredicate }),
-					comparisons,
-					regexes,
-					blankness,
-					closedParents,
-					locationOwnerSets,
-				},
-			}),
+			automationCriteria: {
+				operator: automation.criteriaOperator,
+				...(groupedPredicate === undefined
+					? {}
+					: { predicate: groupedPredicate }),
+				comparisons,
+				regexes,
+				blankness,
+				closedParents,
+				locationOwnerSets,
+			},
 		},
 		omittedCriteria,
 	};

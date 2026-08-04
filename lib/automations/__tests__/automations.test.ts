@@ -160,12 +160,52 @@ describe("automation domain and projections", () => {
 			],
 		};
 		const projection = automationMatchProjection(doc, rule);
-		expect(projection.countArgs.automationCriteria).toBeUndefined();
+		expect(projection.countArgs.automationCriteria).toEqual({
+			operator: "all",
+			comparisons: [],
+			regexes: [],
+			blankness: [],
+			closedParents: [],
+			locationOwnerSets: [],
+		});
 		expect(projection.omittedCriteria).toEqual([
 			"UCR filter: stale_claims",
 			"HQ server-modified age of at least 30 days",
 		]);
 		expect(projection.countArgs.predicate).toMatchObject({ kind: "eq" });
+	});
+
+	it("preserves HQ's empty ALL/ANY boolean identity in the count grammar", () => {
+		const doc = buildDoc({ appName: "Empty criteria" });
+		const rule = claimCleanup();
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("empty-any-alert-event"),
+					minutesToWait: 0,
+					content: {
+						kind: "sms",
+						message: automationMessageText("No ordinary criteria"),
+					},
+				},
+			],
+		});
+		for (const automation of [
+			{ ...rule, criteriaOperator: "any" as const },
+			{ ...alert, criteriaOperator: "any" as const },
+		]) {
+			expect(
+				automationMatchProjection(doc, automation).countArgs.automationCriteria,
+			).toEqual({
+				operator: "any",
+				comparisons: [],
+				regexes: [],
+				blankness: [],
+				closedParents: [],
+				locationOwnerSets: [],
+			});
+		}
 	});
 
 	it("lowers the distinct case-update and conditional-alert criteria matrices", () => {
@@ -1036,6 +1076,42 @@ describe("automation domain and projections", () => {
 		);
 		expect(projectDefaultGuide).not.toContain(
 			"Leave the default language blank",
+		);
+
+		const customHandlerGuide = buildAutomationSetupGuide(
+			doc,
+			{
+				...alert,
+				uuid: testUuid("custom-handler-alert"),
+				recipients: [
+					...alert.recipients,
+					{
+						uuid: testUuid("custom-handler-recipient"),
+						kind: "custom",
+						registeredId: "nova_custom_recipient",
+					},
+				],
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("custom-handler-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "custom",
+								registeredId: "nova_custom_content",
+							},
+						},
+					],
+				},
+			},
+			[],
+		).caveats.join(" ");
+		expect(customHandlerGuide).toContain(
+			"requires a system administrator to save an alert",
+		);
+		expect(customHandlerGuide).toContain(
+			"A project administrator cannot complete this setup alone",
 		);
 
 		const delayed = buildAutomationSetupGuide(

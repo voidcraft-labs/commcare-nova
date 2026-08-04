@@ -239,6 +239,9 @@ states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. Copy acts on the derived text only.
+An alert using a registered custom recipient or custom content handler also
+names HQ's system-administrator save requirement; registration alone is not
+presented as sufficient for a project administrator.
 
 The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
 or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated

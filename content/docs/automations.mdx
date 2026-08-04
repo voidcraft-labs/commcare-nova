@@ -98,7 +98,8 @@ The setup guide then prints an executable HQ token, including Nova-to-HQ
 standard-property translation. Renaming a case property updates that
 structural reference without changing literal text. Registered custom recipient/content handlers require the exact nonblank
 ID already configured in the target HQ project; placeholder instructions are
-never saved as IDs.
+never saved as IDs. CommCare HQ also requires a system administrator—not only
+a project administrator—to save an alert that uses either custom handler.
 
 An email event chooses one body form:
 
@@ -140,7 +141,9 @@ can each appear once; worker, group, and location lists may contain distinct
 targets only. Descendant controls appear only for a location recipient, and
 location-level filtering appears only when descendants are included. Each
 worker-information filter has one value list. A custom recipient or content handler must already be registered
-on the target HQ instance; Nova cannot create one.
+on the target HQ instance; Nova cannot create one. An HQ system administrator
+must save the resulting alert because a project administrator cannot save a
+custom recipient/content configuration alone.
 
 ## Current matches
 

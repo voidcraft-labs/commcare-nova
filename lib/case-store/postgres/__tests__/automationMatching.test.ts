@@ -111,6 +111,28 @@ function store() {
 }
 
 describe("automation criteria SQL", () => {
+	it("preserves HQ's all/any identity for an empty criteria group", async () => {
+		const caseStore = store();
+		const count = (operator: "all" | "any") =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					operator,
+					comparisons: [],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		await expect(count("all")).resolves.toBe(4);
+		await expect(count("any")).resolves.toBe(0);
+	});
+
 	it("matches each location criterion as one exact owner-identity set", async () => {
 		const caseStore = store();
 		const count = (locationOwnerSets: readonly (readonly string[])[]) =>

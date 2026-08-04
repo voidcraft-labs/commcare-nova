@@ -853,6 +853,14 @@ export class PostgresCaseStore implements CaseStore {
 							: sql<boolean>`c.owner_id = any(${sql.val(ownerIds)}::text[])`,
 					),
 				];
+				if (clauses.length === 0) {
+					// Python's all([]) is true and any([]) is false. Preserve that
+					// identity explicitly rather than relying on a query-builder
+					// empty-expression convention or dropping the group entirely.
+					return group.operator === "all"
+						? sql<boolean>`true`
+						: sql<boolean>`false`;
+				}
 				return group.operator === "all"
 					? whereEb.and(clauses)
 					: whereEb.or(clauses);

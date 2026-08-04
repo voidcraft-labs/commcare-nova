@@ -222,6 +222,9 @@ nonblank, and user-data filters have one value list per
 worker property. IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which
 the Builder and guide state rather than silently treating them as deployable.
+Registered custom recipient/content handlers must exist on the target instance,
+and the guide states HQ's additional system-administrator requirement to save
+an alert that uses either handler; project-admin access alone is not enough.
 There is no push-notification arm and no untyped escape hatch
 (`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
 `corehq/messaging/scheduling/models.py::Schedule`).

@@ -169,6 +169,9 @@ SA and MCP write that shape directly, and only the derived HQ guide prints
 executable `{case...}` / `{recipient...}` tokens.
 Registered handler IDs and setup-only instructions must be concrete, trimmed,
 and nonblank; no tool may send instructional placeholder copy as data.
+Returned setup guidance states that HQ requires a system administrator to save
+an alert using a registered custom recipient or custom content handler; a
+project administrator cannot complete that manual step alone.
 
 The same schema preserves HQ's kind-specific criteria matrix instead of
 admitting a shared superset. Case updates accept value/date comparisons against

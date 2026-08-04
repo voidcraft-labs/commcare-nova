@@ -359,7 +359,9 @@ Use a structural part only when HQ should substitute a value. Reads return the
 same canonical parts, while the generated guide alone projects them to HQ
 `{case...}` / `{recipient...}` syntax. Registered custom
 recipient/content IDs and setup-only condition text must be concrete, trimmed,
-and nonblank.
+and nonblank. The returned guide also names HQ's system-administrator save
+requirement whenever a custom recipient or custom content handler is present;
+registration plus project-administrator access is not sufficient.
 
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events

@@ -396,6 +396,14 @@ export function buildAutomationSetupGuide(
 		"Message templates may read {case.<property>}, case owner/parent/host fields, and {recipient.*}. Custom recipients and custom content must already be registered on the target HQ instance.",
 	);
 	if (
+		automation.recipients.some((recipient) => recipient.kind === "custom") ||
+		automation.schedule.events.some((event) => event.content.kind === "custom")
+	) {
+		caveats.push(
+			"CommCare HQ requires a system administrator to save an alert that uses a registered custom recipient or custom content handler. A project administrator cannot complete this setup alone.",
+		);
+	}
+	if (
 		automation.schedule.events.some(
 			(event) =>
 				event.content.kind === "ivr" || event.content.kind === "sms-callback",

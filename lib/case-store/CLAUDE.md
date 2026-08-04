@@ -133,6 +133,11 @@ is one exact owner-id set derived before the query from the selected place,
 its requested descendants, and personas whose primary place is in that set;
 the SQL layer combines it under the same ALL/ANY operator and does not read the
 organization store independently.
+An automation criteria group is never dropped merely because every locally
+evaluable collection is empty: the SQL lowering preserves Python/HQ's boolean
+identity exactly, so `ALL` of zero local criteria is true and `ANY` of zero is
+false. Setup-only omissions remain named separately and never turn empty `ANY`
+into an all-open count.
 
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
