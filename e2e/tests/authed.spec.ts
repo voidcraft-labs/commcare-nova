@@ -379,6 +379,14 @@ test.describe("authenticated builder", () => {
 				.filter({ visible: true }),
 		).toBeChecked();
 		await levels.getByRole("button", { name: "Change" }).click();
+		await expect(
+			levels.getByLabel("Stop descending at").filter({ visible: true }),
+		).toContainText("No limit");
+		await expect(
+			levels
+				.getByLabel("Also carry the top of the organization down to")
+				.filter({ visible: true }),
+		).toContainText("Do not add a top slice");
 		await levels
 			.getByLabel("How much of the organization workers here can see")
 			.filter({ visible: true })
@@ -627,6 +635,9 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("option", { name: "A particular place" }).click();
 		await page.getByLabel("Place that owns the case").click();
 		await page.getByRole("option", { name: "Kilifi District" }).click();
+		await expect(page.getByLabel("How to choose the owner")).toContainText(
+			"A particular place",
+		);
 		await expect(page.getByLabel("Place that owns the case")).toContainText(
 			"Kilifi District",
 		);
@@ -661,6 +672,9 @@ test.describe("authenticated builder", () => {
 		await page
 			.getByRole("option", { name: "A place beneath the current case owner" })
 			.click();
+		await expect(page.getByLabel("How to choose the owner")).toContainText(
+			"A place beneath the current case owner",
+		);
 		await page.getByLabel("Level to find beneath the current owner").click();
 		await page.getByRole("option", { name: "District" }).click();
 		await expect(

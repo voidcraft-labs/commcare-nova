@@ -1022,7 +1022,13 @@ function AddressBookGroup({
 							}}
 						>
 							<SelectTrigger id={downToId} wrapValue className="w-full">
-								<SelectValue />
+								<SelectValue>
+									{book.downToLevelUuid === undefined
+										? "No limit"
+										: (peers.find(
+												(candidate) => candidate.uuid === book.downToLevelUuid,
+											)?.name ?? "A level that no longer exists")}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<IssueSelectItem
@@ -1080,7 +1086,14 @@ function AddressBookGroup({
 							}}
 						>
 							<SelectTrigger id={topSliceId} wrapValue className="w-full">
-								<SelectValue />
+								<SelectValue>
+									{book.alsoIncludeTopDownToLevelUuid === undefined
+										? "Do not add a top slice"
+										: (peers.find(
+												(candidate) =>
+													candidate.uuid === book.alsoIncludeTopDownToLevelUuid,
+											)?.name ?? "A level that no longer exists")}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<IssueSelectItem

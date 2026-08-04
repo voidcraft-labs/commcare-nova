@@ -704,6 +704,12 @@ export function CaseOwnerSection({
 		draftMode !== undefined && draftMode.baseValue === value
 			? draftMode.mode
 			: mode;
+	const displayedModeLabel =
+		displayedMode === "fixed"
+			? "A particular place"
+			: displayedMode === "reverse"
+				? "A place beneath the current case owner"
+				: "A person, form answer, or case value";
 	const copy = caseOwnerCopy(action);
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 
@@ -813,7 +819,7 @@ export function CaseOwnerSection({
 								className="w-full"
 								aria-label="How to choose the owner"
 							>
-								<SelectValue />
+								<SelectValue>{displayedModeLabel}</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="expression">
