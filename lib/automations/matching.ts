@@ -196,7 +196,10 @@ export function automationMatchProjection(
 					? and(predicates[0], predicates[1], ...predicates.slice(2))
 					: or(predicates[0], predicates[1], ...predicates.slice(2));
 	const omittedCriteria = [
-		...automation.setupOnlyCriteria.map((criterion) => criterion.text),
+		...automation.setupOnlyCriteria.map(
+			(criterion) =>
+				`${criterion.kind === "ucr-filter" ? "UCR filter" : "Registered custom criterion"}: ${criterion.text}`,
+		),
 		...(automation.kind !== "case-update" ||
 		automation.serverModifiedBoundaryDays === undefined
 			? []

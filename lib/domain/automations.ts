@@ -1030,29 +1030,102 @@ export function automationTimedScheduleSetupForm(
 	return timedScheduleSetupForm(schedule);
 }
 
+function isHqUserFilterPropertyReference(value: string): boolean {
+	return value.startsWith("{") && value.endsWith("}");
+}
+
+/**
+ * One accepted value for HQ's worker-data recipient filter.
+ *
+ * HQ overloads a brace-wrapped string as a live lookup in the triggering
+ * case's dynamic data and treats the empty string as missing/unset worker
+ * data. Keep that distinction structural so literal prose cannot begin
+ * executing after projection and property renames retain identity.
+ */
+export const automationUserDataFilterValueSchema = z.discriminatedUnion(
+	"kind",
+	[
+		z
+			.object({
+				kind: z.literal("literal"),
+				value: z
+					.string()
+					.max(4_096)
+					.refine((candidate) => !isHqUserFilterPropertyReference(candidate), {
+						message:
+							"A brace-wrapped HQ filter value is a live case-property lookup. Insert a case-property value instead, or change the literal text.",
+					}),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("case-property"),
+				caseType: z.string().min(1).max(126),
+				property: z.string().min(1).max(126),
+			})
+			.strict(),
+	],
+);
+export type AutomationUserDataFilterValue = z.infer<
+	typeof automationUserDataFilterValueSchema
+>;
+
 export const automationUserDataFilterSchema = z
 	.object({
 		uuid: uuidSchema,
 		userPropertyUuid: uuidSchema,
-		allowedValues: z.array(z.string().max(4_096)).min(1).max(250),
+		values: z.array(automationUserDataFilterValueSchema).min(1).max(250),
 	})
-	.strict();
+	.strict()
+	.superRefine((filter, ctx) => {
+		const seen = new Set<string>();
+		for (const [index, value] of filter.values.entries()) {
+			const key = JSON.stringify(value);
+			if (seen.has(key)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["values", index],
+					message:
+						"Each accepted recipient-filter value must be unique within its worker property.",
+				});
+			}
+			seen.add(key);
+		}
+	});
 export type AutomationUserDataFilter = z.infer<
 	typeof automationUserDataFilterSchema
 >;
 
-export const automationSetupOnlyCriterionSchema = z
-	.object({
-		uuid: uuidSchema,
-		text: z
-			.string()
-			.max(AUTOMATION_SETUP_NOTE_MAX_LENGTH)
-			.refine((value) => value.trim().length > 0 && value === value.trim(), {
-				message:
-					"An HQ-only condition must be nonblank and have no surrounding whitespace.",
-			}),
-	})
-	.strict();
+export const AUTOMATION_SETUP_ONLY_CRITERION_KINDS = [
+	"ucr-filter",
+	"registered-custom",
+] as const;
+
+const automationSetupOnlyCriterionCommon = {
+	uuid: uuidSchema,
+	text: z
+		.string()
+		.max(AUTOMATION_SETUP_NOTE_MAX_LENGTH)
+		.refine((value) => value.trim().length > 0 && value === value.trim(), {
+			message:
+				"An HQ-only condition must be nonblank and have no surrounding whitespace.",
+		}),
+} as const;
+
+export const automationSetupOnlyCriterionSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			...automationSetupOnlyCriterionCommon,
+			kind: z.literal("ucr-filter"),
+		})
+		.strict(),
+	z
+		.object({
+			...automationSetupOnlyCriterionCommon,
+			kind: z.literal("registered-custom"),
+		})
+		.strict(),
+]);
 
 const automationCommon = {
 	uuid: uuidSchema,
@@ -1070,9 +1143,10 @@ const automationCommon = {
 	caseType: z.string().min(1).max(126),
 	criteriaOperator: z.enum(AUTOMATION_CRITERIA_OPERATORS),
 	/**
-	 * UCR and instance-registered custom criteria have no portable schema. They
-	 * remain explicit setup-artifact prose and are always named as omitted from
-	 * Nova's current-match count.
+	 * UCR and instance-registered custom criteria have no portable schema. Their
+	 * family is structural while their exact configuration remains explicit
+	 * setup-artifact prose, always named as omitted from Nova's current-match
+	 * count.
 	 */
 	setupOnlyCriteria: z.array(automationSetupOnlyCriterionSchema).max(100),
 } as const;

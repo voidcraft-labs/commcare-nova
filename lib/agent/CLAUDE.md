@@ -169,6 +169,12 @@ SA and MCP write that shape directly, and only the derived HQ guide prints
 executable `{case...}` / `{recipient...}` tokens.
 Registered handler IDs and setup-only instructions must be concrete, trimmed,
 and nonblank; no tool may send instructional placeholder copy as data.
+Setup-only instructions carry an explicit UCR or registered-custom family.
+Recipient-filter values are structural exact literals or custom case-property
+references; brace-wrapped literals are refused because HQ executes them as
+lookups. The generated guide uses exact JSON when multiple/blank/whitespace
+values require HQ's system-administrator-only mode on a new alert, and names
+the UCR toggle and registered-custom administrator prerequisite separately.
 Returned setup guidance states that HQ requires a system administrator to save
 an alert using a registered custom recipient or custom content handler; a
 project administrator cannot complete that manual step alone.

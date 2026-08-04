@@ -40,7 +40,7 @@ export const addAutomationsInputSchema = z
 			.min(1)
 			.max(50)
 			.describe(
-				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names and UUID-backed location conditions. Message fields are structural templates: text parts stay literal, case-property parts are explicit identity references, and context-property parts explicitly select case-owner or recipient values. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs, language codes, and setup-only instructions are exact trimmed nonblank target-HQ values.",
+				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names and UUID-backed location conditions. Message fields are structural templates: text parts stay literal, case-property parts are explicit identity references, and context-property parts explicitly select case-owner or recipient values. Recipient-filter values are structural exact literals or custom case-property references. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs, language codes, and setup-only instructions are exact trimmed nonblank target-HQ values; setup-only instructions distinguish UCR from registered-custom criteria.",
 			),
 		afterAutomationUuid: uuidSchema
 			.nullable()
@@ -54,7 +54,7 @@ export const addAutomationsInputSchema = z
 export const updateAutomationInputSchema = z
 	.object({
 		automation: automationSchema.describe(
-			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names, structural message-template parts, exact registered/setup-only values, and one email body form.",
+			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names, structural message-template and recipient-filter values, explicit UCR/registered-custom setup-only kinds, exact registered/setup-only text, and one email body form.",
 		),
 	})
 	.strict();

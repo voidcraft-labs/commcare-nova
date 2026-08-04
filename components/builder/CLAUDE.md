@@ -231,8 +231,9 @@ The section is structured vocabulary, never raw CommCare JSON: kind-specific
 property criteria, one UUID-backed location criterion, the case-update-only closed-parent filter, explicit setup-only
 instructions, typed update targets/values, recipients, content, schedules, and
 worker-information filters. Forms, worker properties, organization levels, and
-places resolve through current UUID-backed catalogs. HQ-only UCR/custom
-conditions remain explicit setup instructions, while case-update
+places resolve through current UUID-backed catalogs. HQ-only conditions choose
+the structural UCR or registered-custom family and retain an exact setup note,
+while case-update
 server-modified age is a separate structured field; all are visibly omitted
 from the current match count. A count is read-only over real open case rows; the persistent note
 states that Preview never updates cases, sends messages, advances schedules, or
@@ -282,7 +283,11 @@ with Connect content, and no timed reset property unless the start is the rule
 trigger. Singleton recipient choices disable once used; list recipients exclude
 already-selected concrete targets. Descendant and location-level controls exist
 only under a location recipient and clear atomically when that dependency goes
-away. Each worker-property filter can be added once. Closed-parent exposes no custom index or relationship. Exact HQ
+away. Each worker-property filter can be added once. Its accepted values are
+individual literal/case-property rows: literal inputs preserve empty and exact
+whitespace, case-property rows resolve custom properties by identity, and the
+guide announces when the resulting exact JSON needs an HQ system administrator.
+Closed-parent exposes no custom index or relationship. Exact HQ
 literal inputs start nonblank, and switching dependent schedule choices clears
 values the new form cannot save.
 

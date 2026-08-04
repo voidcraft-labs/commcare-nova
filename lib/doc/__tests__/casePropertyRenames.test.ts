@@ -318,7 +318,20 @@ describe("explicit app-wide case-property rename", () => {
 				},
 				includeDescendantLocations: false,
 				locationLevelUuids: [],
-				userDataFilters: [],
+				userDataFilters: [
+					{
+						uuid: testUuid("rename-automation-user-filter"),
+						userPropertyUuid: testUuid("rename-worker-property"),
+						values: [
+							{ kind: "literal", value: "literal {a}" },
+							{
+								kind: "case-property",
+								caseType: "patient",
+								property: "a",
+							},
+						],
+					},
+				],
 				useUserCaseForFilter: false,
 				resetCaseProperty: "a",
 				stopDateCaseProperty: "a",
@@ -350,6 +363,14 @@ describe("explicit app-wide case-property rename", () => {
 		expect(alert.recipients[0]).toMatchObject({ property: "fresh" });
 		expect(alert.resetCaseProperty).toBe("fresh");
 		expect(alert.stopDateCaseProperty).toBe("fresh");
+		expect(alert.userDataFilters[0]?.values).toEqual([
+			{ kind: "literal", value: "literal {a}" },
+			{
+				kind: "case-property",
+				caseType: "patient",
+				property: "fresh",
+			},
+		]);
 		if (alert.schedule.kind !== "timed") throw new Error("wrong schedule");
 		expect(alert.schedule.start).toEqual({
 			kind: "case-property",

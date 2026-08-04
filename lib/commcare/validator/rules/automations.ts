@@ -291,12 +291,35 @@ function validateAutomation(ctx: AutomationContext): void {
 		}
 		if (
 			property.choices !== undefined &&
-			filter.allowedValues.some((value) => !property.choices?.includes(value))
+			filter.values.some(
+				(value) =>
+					value.kind === "literal" &&
+					value.value !== "" &&
+					!property.choices?.includes(value.value),
+			)
 		) {
 			flag(
 				ctx,
 				`A user-data filter contains a value outside “${property.label}”.`,
-				`userDataFilters.${index}.allowedValues`,
+				`userDataFilters.${index}.values`,
+			);
+		}
+		for (const [valueIndex, value] of filter.values.entries()) {
+			if (value.kind !== "case-property") continue;
+			const path = `userDataFilters.${index}.values.${valueIndex}`;
+			if (value.caseType !== automation.caseType) {
+				flag(
+					ctx,
+					`The recipient-filter case-property value belongs to ${value.caseType}, not ${automation.caseType}.`,
+					`${path}.caseType`,
+				);
+				continue;
+			}
+			validatePropertyTarget(
+				ctx,
+				{ scope: "case", property: value.property },
+				path,
+				"dynamic-only",
 			);
 		}
 	}

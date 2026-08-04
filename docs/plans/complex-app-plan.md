@@ -218,8 +218,13 @@ recipients that HQ refuses. Checkbox-style, case-property, and custom
 recipient kinds are singletons; list-backed recipients keep unique concrete
 targets. Descendant controls require a location recipient, location-level
 filters require descendants, concrete HQ worker/group IDs are trimmed and
-nonblank, and user-data filters have one value list per
-worker property. IVR and SMS/callback survive only so a historical
+nonblank, and user-data filters have one structural value list per worker
+property. A value is either an exact literal—including empty or whitespace—or
+an explicit custom case-property reference carrying `(caseType, property)`
+identity. Brace-wrapped literals are refused because HQ would execute them as
+case lookups. The guide emits exact JSON when multiple keys/values or exact
+blank/whitespace values require HQ's system-admin-only JSON mode on a new alert.
+IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which
 the Builder and guide state rather than silently treating them as deployable.
 Registered custom recipient/content handlers must exist on the target instance,
@@ -240,6 +245,9 @@ only identity-bearing case leaves, and the generated guide projects them
 one-way to HQ's current `{case...}` / `{recipient...}` token spelling.
 Registered custom handlers and setup-only conditions must carry exact
 trimmed nonblank values; UI instructions remain placeholders, not saved data.
+Setup-only criteria distinguish UCR filters from registered custom criteria so
+guidance can require `CASE_UPDATES_UCR_FILTERS` for the former and an HQ system
+administrator for the latter.
 
 Email content targets exactly one current HQ form. A plain-text body requires
 the domain-level Rich text emails toggle to be off. A rich-text body requires
@@ -279,7 +287,7 @@ Nova's typed SQL compiler, and a missing parent/host relation does not satisfy
 either equality arm. Whitespace-only strings count as blank and regex
 evaluation applies only to stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age
-have no honest local evaluator, so they are explicit setup-only text and every
+have no honest local evaluator, so the first two are distinct setup-only kinds and every
 omission is named beside a partial count. Preview never updates a case, sends a
 message, advances a schedule, or implies that current matching predicts HQ's
 next sweep.

@@ -66,7 +66,8 @@ function fixture() {
 		setupOnlyCriteria: [
 			{
 				uuid: testUuid("preview-setup-only"),
-				text: "UCR filter: unclaimed cases",
+				kind: "ucr-filter",
+				text: "unclaimed cases",
 			},
 		],
 		serverModifiedBoundaryDays: 30,

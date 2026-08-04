@@ -75,12 +75,14 @@ import {
 	type AutomationRecipient,
 	type AutomationSchedule,
 	type AutomationTimedEvent,
+	type AutomationUserDataFilter,
 	asUuid,
 	automationMessageText,
 	automationRecipientKindIsSingleton,
 	automationRecipientSupportsConnect,
 	automationSchema,
 	automationTimedScheduleSetupForm,
+	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseType,
 	canonicalAutomationMessageTemplate,
 	type Uuid,
@@ -548,7 +550,9 @@ function SetupGuide({ guide }: { guide: SavedPreview["setupGuide"] }) {
 			)}
 			<ol className="mt-3 list-decimal space-y-2 pl-5 text-[12px] leading-relaxed text-nova-text-secondary">
 				{guide.steps.map((step) => (
-					<li key={step}>{step}</li>
+					<li key={step} className="break-words whitespace-pre-wrap">
+						{step}
+					</li>
 				))}
 			</ol>
 			<ul className="mt-3 list-disc space-y-1.5 pl-5 text-[12px] leading-relaxed text-nova-amber">
@@ -711,7 +715,7 @@ function AutomationEditor({
 								onChange={(caseType) =>
 									edit((draft) => {
 										draft.caseType = caseType;
-										updateAutomationMessageReferenceCaseTypes(
+										updateAutomationContextReferenceCaseTypes(
 											draft,
 											caseTypes,
 											caseType,
@@ -988,12 +992,17 @@ function automationMessageReferenceCaseType(
 	return "";
 }
 
-function updateAutomationMessageReferenceCaseTypes(
+function updateAutomationContextReferenceCaseTypes(
 	automation: WritableDraft<Automation>,
 	caseTypes: readonly CaseType[],
 	automationCaseType: string,
 ): void {
 	if (automation.kind !== "conditional-alert") return;
+	for (const filter of automation.userDataFilters) {
+		for (const value of filter.values) {
+			if (value.kind === "case-property") value.caseType = automationCaseType;
+		}
+	}
 	for (const event of automation.schedule.events) {
 		const templates =
 			event.content.kind === "email"
@@ -1332,16 +1341,19 @@ function RemoveButton({
 	label,
 	onClick,
 	buttonRef,
+	disabled = false,
 }: {
 	label: string;
 	onClick: () => void;
 	buttonRef?: Ref<HTMLButtonElement>;
+	disabled?: boolean;
 }) {
 	return (
 		<Button
 			ref={buttonRef}
 			type="button"
 			variant="ghost-destructive"
+			disabled={disabled}
 			onClick={onClick}
 		>
 			<Icon icon={tablerTrash} aria-hidden="true" />
@@ -1773,21 +1785,48 @@ function SetupOnlyEditor({
 	return (
 		<Section
 			title="HQ-only conditions"
-			description="Use this for a UCR filter or a registered custom condition. Nova preserves the exact setup note and names it as omitted from the current-match count."
+			description="Choose the exact HQ-only condition family and preserve its setup note. Nova names it as omitted from the current-match count and generates the required access guidance."
 		>
 			{automation.setupOnlyCriteria.map((criterion, index) => (
-				<div key={criterion.uuid} className="flex items-start gap-2">
-					<Textarea
-						aria-label={`HQ-only condition ${index + 1}`}
-						value={criterion.text}
-						placeholder="Describe the exact CommCare HQ condition"
-						onChange={(event) =>
-							onEdit((draft) => {
-								const item = draft.setupOnlyCriteria[index];
-								if (item) item.text = event.target.value;
-							})
+				<div
+					key={criterion.uuid}
+					className="grid gap-3 rounded-lg border border-nova-border bg-black/10 p-3 @md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
+				>
+					<Labeled label={`Condition ${index + 1} type`}>
+						<Choice
+							value={criterion.kind}
+							onChange={(value) =>
+								onEdit((draft) => {
+									const item = draft.setupOnlyCriteria[index];
+									if (item) item.kind = value as typeof item.kind;
+								})
+							}
+							options={[
+								["ucr-filter", "UCR filter"],
+								["registered-custom", "Registered custom criterion"],
+							]}
+						/>
+					</Labeled>
+					<Labeled
+						label={`Exact setup note ${index + 1}`}
+						hint={
+							criterion.kind === "ucr-filter"
+								? "The target project needs the CASE_UPDATES_UCR_FILTERS domain toggle"
+								: "A system administrator must save this registered criterion"
 						}
-					/>
+					>
+						<Textarea
+							aria-label={`HQ-only condition ${index + 1}`}
+							value={criterion.text}
+							placeholder="Describe the exact CommCare HQ condition"
+							onChange={(event) =>
+								onEdit((draft) => {
+									const item = draft.setupOnlyCriteria[index];
+									if (item) item.text = event.target.value;
+								})
+							}
+						/>
+					</Labeled>
 					<RemoveButton
 						label="Remove"
 						buttonRef={rowFocus.removeButtonRef(criterion.uuid)}
@@ -1809,6 +1848,7 @@ function SetupOnlyEditor({
 					onEdit((draft) => {
 						draft.setupOnlyCriteria.push({
 							uuid: uuid(),
+							kind: "ucr-filter",
 							text: "",
 						});
 					})
@@ -2134,6 +2174,171 @@ function contentFor(
 	} as AutomationContent;
 }
 
+function UserFilterValuesEditor({
+	filter,
+	filterIndex,
+	caseType,
+	onEdit,
+}: {
+	filter: AutomationUserDataFilter;
+	filterIndex: number;
+	caseType: CaseType | undefined;
+	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
+}) {
+	const addRef = useRef<HTMLButtonElement>(null);
+	const valueKeys = useRef(
+		filter.values.map((_, index) => `${filter.uuid}-initial-${index}`),
+	);
+	const [focusAdd, setFocusAdd] = useState(false);
+	const customProperties =
+		caseType?.properties.filter(
+			(property) => !CASE_SCALAR_PROPERTY_NAMES.has(property.name),
+		) ?? [];
+
+	useLayoutEffect(() => {
+		if (!focusAdd) return;
+		addRef.current?.focus();
+		setFocusAdd(false);
+	}, [focusAdd]);
+
+	const rows = filter.values.map((value, valueIndex) => ({
+		key:
+			valueKeys.current[valueIndex] ?? `${filter.uuid}-fallback-${valueIndex}`,
+		value,
+		valueIndex,
+	}));
+
+	return (
+		<div className="flex flex-col gap-3 @md:col-span-2">
+			<p className="text-[12px] font-medium text-nova-text-secondary">
+				Accepted values
+			</p>
+			<p className="text-[12px] leading-relaxed text-nova-text-muted">
+				Literal values stay exact: an empty value matches missing or empty
+				worker data, and spaces are not trimmed. Insert a case property
+				explicitly when the accepted value should come from the matching case.
+			</p>
+			{rows.map(({ key, value, valueIndex }) => (
+				<div
+					key={key}
+					className="grid gap-3 rounded-md border border-nova-border/70 p-3 @md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto]"
+				>
+					<Labeled label={`Value ${valueIndex + 1} type`}>
+						<Choice
+							value={value.kind}
+							onChange={(kind) =>
+								onEdit((draft) => {
+									if (draft.kind !== "conditional-alert") return;
+									const row = draft.userDataFilters[filterIndex];
+									if (!row) return;
+									row.values[valueIndex] =
+										kind === "case-property"
+											? {
+													kind: "case-property",
+													caseType: draft.caseType,
+													property: customProperties[0]?.name ?? "",
+												}
+											: { kind: "literal", value: "" };
+								})
+							}
+							options={[
+								["literal", "Exact literal"],
+								[
+									"case-property",
+									"Value from this case",
+									customProperties.length === 0,
+								],
+							]}
+						/>
+					</Labeled>
+					{value.kind === "literal" ? (
+						<Labeled
+							label={`Exact literal value ${valueIndex + 1}`}
+							hint={
+								value.value.length === 0
+									? "Empty: matches missing or empty worker data"
+									: "Stored exactly, including leading or trailing spaces"
+							}
+						>
+							<Input
+								aria-label={`Accepted literal value ${valueIndex + 1}`}
+								value={value.value}
+								placeholder="Empty matches unset worker data"
+								onChange={(event) =>
+									onEdit((draft) => {
+										if (draft.kind !== "conditional-alert") return;
+										const item =
+											draft.userDataFilters[filterIndex]?.values[valueIndex];
+										if (item?.kind === "literal")
+											item.value = event.target.value;
+									})
+								}
+							/>
+						</Labeled>
+					) : (
+						<Labeled
+							label="Case property"
+							hint="HQ can read custom case data in this filter value"
+						>
+							<Choice
+								value={value.property}
+								onChange={(property) =>
+									onEdit((draft) => {
+										if (draft.kind !== "conditional-alert") return;
+										const item =
+											draft.userDataFilters[filterIndex]?.values[valueIndex];
+										if (item?.kind === "case-property") {
+											item.caseType = draft.caseType;
+											item.property = property;
+										}
+									})
+								}
+								options={customProperties.map((property) => [
+									property.name,
+									property.name,
+								])}
+							/>
+						</Labeled>
+					)}
+					<RemoveButton
+						label="Remove value"
+						disabled={filter.values.length === 1}
+						onClick={() => {
+							setFocusAdd(true);
+							valueKeys.current.splice(valueIndex, 1);
+							onEdit((draft) => {
+								if (draft.kind === "conditional-alert")
+									draft.userDataFilters[filterIndex]?.values.splice(
+										valueIndex,
+										1,
+									);
+							});
+						}}
+					/>
+				</div>
+			))}
+			<Button
+				ref={addRef}
+				type="button"
+				variant="outline"
+				onClick={() => {
+					valueKeys.current.push(crypto.randomUUID());
+					onEdit((draft) => {
+						if (draft.kind === "conditional-alert")
+							draft.userDataFilters[filterIndex]?.values.push({
+								kind: "literal",
+								value: "",
+							});
+					});
+				}}
+			>
+				<Icon icon={tablerPlus} aria-hidden="true" />
+				Accepted value
+			</Button>
+		</div>
+	);
+}
+
 function AlertEditor({
 	automation,
 	caseTypes,
@@ -2172,6 +2377,9 @@ function AlertEditor({
 			!automation.userDataFilters.some(
 				(filter) => filter.userPropertyUuid === property.uuid,
 			),
+	);
+	const filterCaseType = caseTypes.find(
+		(candidate) => candidate.name === automation.caseType,
 	);
 	return (
 		<div className="flex flex-col gap-6">
@@ -2455,24 +2663,12 @@ function AlertEditor({
 								])}
 							/>
 						</Labeled>
-						<Labeled label="Accepted values" hint="One per line">
-							<Textarea
-								value={filter.allowedValues.join("\n")}
-								onChange={(event) =>
-									onEdit((draft) => {
-										if (
-											draft.kind === "conditional-alert" &&
-											draft.userDataFilters[index]
-										)
-											draft.userDataFilters[index].allowedValues =
-												event.target.value
-													.split("\n")
-													.map((value) => value.trim())
-													.filter(Boolean);
-									})
-								}
-							/>
-						</Labeled>
+						<UserFilterValuesEditor
+							filter={filter}
+							filterIndex={index}
+							caseType={filterCaseType}
+							onEdit={onEdit}
+						/>
 						<RemoveButton
 							label="Remove filter"
 							buttonRef={filterFocus.removeButtonRef(filter.uuid)}
@@ -2498,7 +2694,7 @@ function AlertEditor({
 								draft.userDataFilters.push({
 									uuid: uuid(),
 									userPropertyUuid: nextFilterProperty.uuid,
-									allowedValues: [""],
+									values: [{ kind: "literal", value: "" }],
 								});
 						})
 					}

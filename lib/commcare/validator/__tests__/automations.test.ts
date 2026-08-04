@@ -8,6 +8,8 @@ import {
 } from "@/lib/domain";
 import { validateAutomations } from "../rules/automations";
 
+const FILTER_USER_PROPERTY_UUID = testUuid("validator-filter-user-property");
+
 function docWithCriterion(
 	scope: "case" | "parent" | "host",
 	property: string,
@@ -131,6 +133,14 @@ function validateOne(
 			},
 		],
 	});
+	doc.userProperties = {
+		[FILTER_USER_PROPERTY_UUID]: {
+			uuid: FILTER_USER_PROPERTY_UUID,
+			slug: "cadre",
+			label: "Cadre",
+		},
+	};
+	doc.userPropertyOrder = [FILTER_USER_PROPERTY_UUID];
 	doc.automations = { [automation.uuid]: automation };
 	doc.automationOrder = [automation.uuid];
 	return validateAutomations(doc);
@@ -183,6 +193,53 @@ function alertWithContent(
 }
 
 describe("automation HQ property-slot compatibility", () => {
+	it("validates structural case-property recipient-filter values against dynamic case data", () => {
+		const alert = alertWithContent("Reminder");
+		alert.userDataFilters = [
+			{
+				uuid: testUuid("validator-structural-user-filter"),
+				userPropertyUuid: FILTER_USER_PROPERTY_UUID,
+				values: [
+					{ kind: "literal", value: "" },
+					{
+						kind: "case-property",
+						caseType: "visit",
+						property: "due",
+					},
+				],
+			},
+		];
+		expect(validateOne(alert)).toEqual([]);
+		const filter = alert.userDataFilters[0];
+		if (filter === undefined) throw new Error("missing recipient filter");
+
+		filter.values[1] = {
+			kind: "case-property",
+			caseType: "household",
+			property: "due",
+		};
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "userDataFilters.0.values.1.caseType",
+				}),
+			}),
+		]);
+
+		filter.values[1] = {
+			kind: "case-property",
+			caseType: "visit",
+			property: "case_id",
+		};
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "userDataFilters.0.values.1",
+				}),
+			}),
+		]);
+	});
+
 	it("refuses a scope whose stored case-property identity would be retargeted", () => {
 		const alert = alertWithContent("Reminder");
 		const content = alert.schedule.events[0]?.content;

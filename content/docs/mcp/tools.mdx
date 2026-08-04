@@ -347,7 +347,12 @@ case-property-email, and case-group recipients. Checkbox-style,
 case-property, and custom recipient kinds are singletons; list recipients cannot
 repeat a concrete target. Descendant controls require a location recipient,
 location-level filters require descendants, and each worker-property filter key
-appears once.
+appears once. Each filter value is either an exact `literal` (empty and
+surrounding whitespace are meaningful) or a structural `case-property` value
+with `(caseType, property)` identity. Never encode a lookup as brace-wrapped
+literal text: HQ interprets that string dynamically. Multiple keys/values or
+exact empty/whitespace values require HQ's JSON filter mode and the returned
+guide names its system-administrator prerequisite.
 
 Every message field is an `AutomationMessageTemplate`, not a magic-token
 string. Its `parts` are literal `{ kind: "text", text }` values, explicit
@@ -359,7 +364,10 @@ Use a structural part only when HQ should substitute a value. Reads return the
 same canonical parts, while the generated guide alone projects them to HQ
 `{case...}` / `{recipient...}` syntax. Registered custom
 recipient/content IDs and setup-only condition text must be concrete, trimmed,
-and nonblank. The returned guide also names HQ's system-administrator save
+and nonblank. A setup-only condition has an explicit `ucr-filter` or
+`registered-custom` kind; the returned guide names the former's
+`CASE_UPDATES_UCR_FILTERS` toggle and the latter's system-administrator save
+requirement. The returned guide also names HQ's system-administrator save
 requirement whenever a custom recipient or custom content handler is present;
 registration plus project-administrator access is not sufficient.
 
@@ -388,8 +396,8 @@ Builder Preview may count current real case rows against each kind's ordinary
 property criteria, including automatic-update parent/host reads, and the
 automatic-update closed-parent condition. It never updates a case, sends a
 message, or advances a schedule. UCR filters, instance-registered custom
-criteria, and HQ server-modified age have no honest local evaluator; carry them
-as setup-only instructions. The Builder names those omissions beside its
+criteria, and HQ server-modified age have no honest local evaluator; carry the
+first two as distinct setup-only kinds. The Builder names those omissions beside its
 partial count; MCP automation results return the same omission list without
 pretending to return or execute a Preview count.
 For locally countable property criteria, whitespace-only strings are blank and

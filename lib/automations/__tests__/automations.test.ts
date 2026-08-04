@@ -156,7 +156,7 @@ describe("automation domain and projections", () => {
 		const rule: Automation = {
 			...claimCleanup(),
 			setupOnlyCriteria: [
-				{ uuid: SETUP_UUID, text: "UCR filter: stale_claims" },
+				{ uuid: SETUP_UUID, kind: "ucr-filter", text: "stale_claims" },
 			],
 		};
 		const projection = automationMatchProjection(doc, rule);
@@ -558,12 +558,12 @@ describe("automation domain and projections", () => {
 					{
 						uuid: testUuid("recipient-filter-a"),
 						userPropertyUuid,
-						allowedValues: ["a"],
+						values: [{ kind: "literal", value: "a" }],
 					},
 					{
 						uuid: testUuid("recipient-filter-b"),
 						userPropertyUuid,
-						allowedValues: ["b"],
+						values: [{ kind: "literal", value: "b" }],
 					},
 				],
 			}).success,
@@ -639,7 +639,9 @@ describe("automation domain and projections", () => {
 		expect(
 			automationSchema.safeParse({
 				...alert,
-				setupOnlyCriteria: [{ uuid: SETUP_UUID, text: "   " }],
+				setupOnlyCriteria: [
+					{ uuid: SETUP_UUID, kind: "ucr-filter", text: "   " },
+				],
 			}).success,
 		).toBe(false);
 	});
@@ -697,6 +699,62 @@ describe("automation domain and projections", () => {
 		expect(structuralGuide.steps.join(" ")).toContain(
 			'"Projected {case.name} for {recipient.name}"',
 		);
+	});
+
+	it("keeps recipient-filter literals and case-property lookups unambiguous", () => {
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("filter-value-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: automationMessageText("Hello") },
+				},
+			],
+		});
+		const userPropertyUuid = testUuid("filter-value-user-property");
+		const filter = {
+			uuid: testUuid("filter-value-row"),
+			userPropertyUuid,
+			values: [
+				{ kind: "literal" as const, value: "" },
+				{ kind: "literal" as const, value: "  exact  " },
+				{
+					kind: "case-property" as const,
+					caseType: "visit",
+					property: "case_color",
+				},
+			],
+		};
+		expect(
+			automationSchema.safeParse({ ...alert, userDataFilters: [filter] })
+				.success,
+		).toBe(true);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				userDataFilters: [
+					{
+						...filter,
+						values: [{ kind: "literal", value: "{case_color}" }],
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				userDataFilters: [
+					{
+						...filter,
+						values: [
+							{ kind: "literal", value: "yes" },
+							{ kind: "literal", value: "yes" },
+						],
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 
 	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
@@ -1136,6 +1194,128 @@ describe("automation domain and projections", () => {
 			[],
 		).steps.join(" ");
 		expect(delayed).toContain("Choose Custom Immediate Schedule");
+	});
+
+	it("renders exact recipient-filter JSON and every HQ-only prerequisite", () => {
+		const doc = buildDoc({
+			appName: "Filtered alerts",
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{ name: "case_color", label: "Case color", data_type: "text" },
+					],
+				},
+			],
+		}) as BlueprintDoc;
+		const roleUuid = testUuid("guide-filter-role");
+		const teamUuid = testUuid("guide-filter-team");
+		doc.userProperties = {
+			[roleUuid]: { uuid: roleUuid, slug: "role", label: "Role" },
+			[teamUuid]: { uuid: teamUuid, slug: "team", label: "Team" },
+		};
+		doc.userPropertyOrder = [roleUuid, teamUuid];
+		const base = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("guide-filter-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: automationMessageText("Hello") },
+				},
+			],
+		});
+		const complex: Extract<Automation, { kind: "conditional-alert" }> = {
+			...base,
+			setupOnlyCriteria: [
+				{
+					uuid: testUuid("guide-ucr-filter"),
+					kind: "ucr-filter",
+					text: "Cases in the overdue-visits report",
+				},
+				{
+					uuid: testUuid("guide-custom-filter"),
+					kind: "registered-custom",
+					text: "registered_eligibility_filter",
+				},
+			],
+			userDataFilters: [
+				{
+					uuid: testUuid("guide-role-filter"),
+					userPropertyUuid: roleUuid,
+					values: [
+						{ kind: "literal", value: "yes" },
+						{ kind: "literal", value: "" },
+					],
+				},
+				{
+					uuid: testUuid("guide-team-filter"),
+					userPropertyUuid: teamUuid,
+					values: [
+						{ kind: "literal", value: "  north  " },
+						{
+							kind: "case-property",
+							caseType: "visit",
+							property: "case_color",
+						},
+					],
+				},
+			],
+		};
+		const guide = buildAutomationSetupGuide(doc, complex, []);
+		const steps = guide.steps.join("\n");
+		const caveats = guide.caveats.join("\n");
+		expect(steps).toContain('"role": [\n    "yes",\n    ""\n  ]');
+		expect(steps).toContain(
+			'"team": [\n    "  north  ",\n    "{case_color}"\n  ]',
+		);
+		expect(steps).toContain("select “JSON”");
+		expect(steps).toContain("UCR filter 1");
+		expect(steps).toContain("Registered custom criterion 2");
+		expect(caveats).toContain("CASE_UPDATES_UCR_FILTERS");
+		expect(caveats).toContain("registered custom criterion");
+		expect(caveats).toContain(
+			"JSON recipient-filter mode only to system administrators",
+		);
+
+		const simple = buildAutomationSetupGuide(
+			doc,
+			{
+				...base,
+				userDataFilters: [
+					{
+						uuid: testUuid("guide-simple-filter"),
+						userPropertyUuid: roleUuid,
+						values: [{ kind: "literal", value: "yes" }],
+					},
+				],
+			},
+			[],
+		);
+		expect(simple.steps.join(" ")).toContain(
+			'property name to "role" and property value to "yes"',
+		);
+		expect(simple.steps.join(" ")).not.toContain("select “JSON”");
+		expect(simple.caveats.join(" ")).not.toContain(
+			"JSON recipient-filter mode",
+		);
+
+		const unset = buildAutomationSetupGuide(
+			doc,
+			{
+				...base,
+				userDataFilters: [
+					{
+						uuid: testUuid("guide-unset-filter"),
+						userPropertyUuid: roleUuid,
+						values: [{ kind: "literal", value: "" }],
+					},
+				],
+			},
+			[],
+		);
+		expect(unset.steps.join("\n")).toContain('"role": [\n    ""\n  ]');
+		expect(unset.steps.join(" ")).toContain("select “JSON”");
 	});
 
 	it("projects stored timed days into the exact HQ setup form values", () => {

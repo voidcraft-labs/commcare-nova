@@ -327,6 +327,13 @@ function rewriteAutomationCaseProperties(
 			if (destination !== undefined) recipient.property = destination;
 		}
 	}
+	for (const filter of automation.userDataFilters) {
+		for (const value of filter.values) {
+			if (value.kind !== "case-property") continue;
+			const destination = resolve(value.caseType, value.property);
+			if (destination !== undefined) value.property = destination;
+		}
+	}
 	for (const key of ["resetCaseProperty", "stopDateCaseProperty"] as const) {
 		const property = automation[key];
 		if (property === undefined) continue;

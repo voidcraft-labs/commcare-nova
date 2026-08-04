@@ -111,7 +111,8 @@ runtime. `countCases({ automationCriteria })` composes the automation kind's
 ordinary property criteria, case-update closed-parent criterion, and each
 organization-backed location owner set into one tenant-bound SQL count and
 always limits the outer case to `status = "open"`. Closed-parent relation walks
-bind both sides to the store's app and Project. Setup-only UCR/custom criteria
+bind both sides to the store's app and Project. Structurally distinct setup-only
+UCR/registered-custom criteria
 and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
 those omissions in the result. No case-store method updates a case, sends a
 message, or advances a schedule on an automation's behalf.

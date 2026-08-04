@@ -5,6 +5,7 @@ import type {
 	AutomationMessageTemplate,
 	AutomationRecipient,
 	AutomationTimedEvent,
+	AutomationUserDataFilterValue,
 	BlueprintDoc,
 	Uuid,
 } from "@/lib/domain";
@@ -18,6 +19,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import { automationFormChoice } from "./formChoices";
 import {
 	describeAutomationPropertyForHq,
+	projectAutomationPropertyForHq,
 	projectAutomationTemplateForHq,
 } from "./hqCaseProperties";
 
@@ -188,7 +190,7 @@ function commonSteps(
 	steps.push(
 		...automation.setupOnlyCriteria.map(
 			(criterion, index) =>
-				`Setup-only criterion ${index + 1}: ${criterion.text}`,
+				`${criterion.kind === "ucr-filter" ? "UCR filter" : "Registered custom criterion"} ${index + 1}: ${criterion.text}`,
 		),
 	);
 	if (
@@ -200,6 +202,26 @@ function commonSteps(
 		);
 	}
 	return steps;
+}
+
+function projectUserDataFilterValue(
+	value: AutomationUserDataFilterValue,
+): string {
+	if (value.kind === "literal") return value.value;
+	return `{${projectAutomationPropertyForHq(value.property, "dynamic-only") ?? "[reference needs repair]"}}`;
+}
+
+function requiresJsonUserDataFilter(
+	automation: Extract<Automation, { kind: "conditional-alert" }>,
+): boolean {
+	if (automation.userDataFilters.length !== 1) return true;
+	const values = automation.userDataFilters[0]?.values ?? [];
+	if (values.length !== 1) return true;
+	const only = values[0];
+	return (
+		only?.kind === "literal" &&
+		(only.value.length === 0 || only.value !== only.value.trim())
+	);
 }
 
 export function buildAutomationSetupGuide(
@@ -223,6 +245,24 @@ export function buildAutomationSetupGuide(
 	) {
 		caveats.push(
 			"Server-modified age is measured from the case’s latest server modification, not from a claimed-at or other business date.",
+		);
+	}
+	if (
+		automation.setupOnlyCriteria.some(
+			(criterion) => criterion.kind === "ucr-filter",
+		)
+	) {
+		caveats.push(
+			"The target HQ project must have the CASE_UPDATES_UCR_FILTERS domain toggle enabled before its automation editor exposes UCR filter criteria.",
+		);
+	}
+	if (
+		automation.setupOnlyCriteria.some(
+			(criterion) => criterion.kind === "registered-custom",
+		)
+	) {
+		caveats.push(
+			"CommCare HQ requires a system administrator to save an automation with a registered custom criterion. A project administrator cannot complete this setup alone.",
 		);
 	}
 
@@ -355,14 +395,28 @@ export function buildAutomationSetupGuide(
 	}
 	if (automation.userDataFilters.length > 0) {
 		const properties = userPropertiesOf(doc);
-		steps.push(
-			`Filter recipients using ${automation.useUserCaseForFilter ? "user-case properties" : "custom user data"}: ${automation.userDataFilters
-				.map((filter) => {
-					const property = ownRecordValue(properties, filter.userPropertyUuid);
-					return `${property?.slug ?? filter.userPropertyUuid} in [${filter.allowedValues.join(", ")}]`;
-				})
-				.join("; ")}.`,
+		const projected = Object.fromEntries(
+			automation.userDataFilters.map((filter) => {
+				const property = ownRecordValue(properties, filter.userPropertyUuid);
+				return [
+					property?.slug ?? filter.userPropertyUuid,
+					filter.values.map(projectUserDataFilterValue),
+				] as const;
+			}),
 		);
+		const source = automation.useUserCaseForFilter
+			? "User Case Properties"
+			: "User Properties";
+		if (requiresJsonUserDataFilter(automation)) {
+			steps.push(
+				`Under recipient filters, choose “${source}”, select “JSON”, and paste this exact object:\n${JSON.stringify(projected, null, 2)}`,
+			);
+		} else {
+			const [name, values] = Object.entries(projected)[0] ?? ["", []];
+			steps.push(
+				`Under recipient filters, choose “${source}” and “Yes”; set property name to ${JSON.stringify(name)} and property value to ${JSON.stringify(values[0] ?? "")}.`,
+			);
+		}
 	} else {
 		steps.push(
 			`Add no ${automation.useUserCaseForFilter ? "user-case" : "custom-user-data"} recipient filters.`,
@@ -401,6 +455,14 @@ export function buildAutomationSetupGuide(
 	) {
 		caveats.push(
 			"CommCare HQ requires a system administrator to save an alert that uses a registered custom recipient or custom content handler. A project administrator cannot complete this setup alone.",
+		);
+	}
+	if (
+		automation.userDataFilters.length > 0 &&
+		requiresJsonUserDataFilter(automation)
+	) {
+		caveats.push(
+			"A new CommCare HQ alert exposes the JSON recipient-filter mode only to system administrators. The JSON mode is required here to preserve multiple keys, multiple accepted values, empty values, or exact surrounding whitespace.",
 		);
 	}
 	if (

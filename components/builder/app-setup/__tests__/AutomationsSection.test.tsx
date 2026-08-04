@@ -11,8 +11,10 @@ import type { AutomationFormChoice } from "@/lib/automations/formChoices";
 import {
 	type Automation,
 	automationMessageText,
+	type CaseType,
 	type Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("ui-automation");
@@ -89,6 +91,7 @@ function repeatedRowsAlert(): Extract<
 		})),
 		setupOnlyCriteria: [0, 1].map((index) => ({
 			uuid: testUuid(`ui-repeated-setup-${index}`),
+			kind: "ucr-filter" as const,
 			text: `HQ condition ${index}`,
 		})),
 		recipients: [
@@ -112,7 +115,13 @@ function repeatedRowsAlert(): Extract<
 			uuid: testUuid(`ui-repeated-filter-${index}`),
 			userPropertyUuid:
 				index === 0 ? USER_PROPERTY_UUID : SECOND_USER_PROPERTY_UUID,
-			allowedValues: [`value-${index}`],
+			values:
+				index === 0
+					? [
+							{ kind: "literal" as const, value: "value-0" },
+							{ kind: "literal" as const, value: "value-0-extra" },
+						]
+					: [{ kind: "literal" as const, value: "value-1" }],
 		})),
 		useUserCaseForFilter: false,
 	};
@@ -213,6 +222,12 @@ function weekdayRemapAlert(): Extract<
 
 const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
+	caseTypes: [
+		{
+			name: "visit",
+			properties: [],
+		},
+	] as CaseType[],
 	forms: [] as AutomationFormChoice[],
 	userProperties: [] as { uuid: Uuid; label: string; slug: string }[],
 	levels: [] as { uuid: Uuid; name: string }[],
@@ -232,12 +247,7 @@ vi.mock("@/lib/doc/hooks/useAutomationCollections", () => ({
 	useAutomationForms: () => mocks.forms,
 }));
 vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
-	useEffectiveCaseTypes: () => [
-		{
-			name: "visit",
-			properties: [],
-		},
-	],
+	useEffectiveCaseTypes: () => mocks.caseTypes,
 }));
 vi.mock("@/lib/doc/hooks/useOrganizationCollections", () => ({
 	useOrganizationLevels: () => mocks.levels,
@@ -298,6 +308,7 @@ async function chooseFromChoice(
 
 beforeEach(() => {
 	mocks.automations = [];
+	mocks.caseTypes = [{ name: "visit", properties: [] }];
 	mocks.forms = [];
 	mocks.userProperties = [];
 	mocks.levels = [];
@@ -730,6 +741,79 @@ describe("AutomationsSection", () => {
 		);
 	});
 
+	it("authors exact and structural recipient-filter values without trimming", async () => {
+		mocks.userProperties = [
+			{ uuid: USER_PROPERTY_UUID, label: "Region", slug: "region" },
+		];
+		mocks.caseTypes = [
+			{
+				name: "visit",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "case_color", label: proseText("Color"), data_type: "text" },
+				],
+			},
+		];
+
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
+		const first = screen.getByRole("textbox", {
+			name: "Exact literal value 1",
+		});
+		fireEvent.change(first, { target: { value: "  north  " } });
+		fireEvent.click(screen.getByRole("button", { name: "Accepted value" }));
+		await chooseChoice("Value 2 type", "Value from this case");
+		await chooseChoice("Case property", "case_color");
+		fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+			target: { value: "Reminder" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userDataFilters: [
+					expect.objectContaining({
+						values: [
+							{ kind: "literal", value: "  north  " },
+							{
+								kind: "case-property",
+								caseType: "visit",
+								property: "case_color",
+							},
+						],
+					}),
+				],
+			}),
+		);
+	});
+
+	it("stores the selected HQ-only condition family", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "HQ-only condition" }));
+		await chooseChoice("Condition 1 type", "Registered custom criterion");
+		fireEvent.change(
+			screen.getByRole("textbox", { name: "Exact setup note 1" }),
+			{ target: { value: "registered_eligibility_filter" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				setupOnlyCriteria: [
+					expect.objectContaining({
+						kind: "registered-custom",
+						text: "registered_eligibility_filter",
+					}),
+				],
+			}),
+		);
+	});
+
 	it("requires an entered HQ recipient id instead of saving instruction copy", async () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
@@ -1066,6 +1150,17 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
 		await settleBaseUiTransitions();
+		const removeValue = screen.getAllByRole("button", {
+			name: "Remove value",
+		})[0];
+		if (removeValue === undefined) throw new Error("missing removable value");
+		focusElement(removeValue);
+		fireEvent.click(removeValue);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getAllByRole("button", { name: "Accepted value" })[0],
+			),
+		);
 
 		for (const name of [
 			"Remove condition",

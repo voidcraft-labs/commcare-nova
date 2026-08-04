@@ -471,6 +471,13 @@ function extractAutomationEdges(
 			userPropertyTargetKey(filter.userPropertyUuid),
 			"automation_user_data_filter",
 		);
+		for (const value of filter.values) {
+			if (value.kind !== "case-property") continue;
+			sink.edge(
+				casePropertyTargetKey(value.caseType, value.property),
+				"automation_user_data_filter_value",
+			);
+		}
 	}
 	for (const property of [
 		automation.resetCaseProperty,

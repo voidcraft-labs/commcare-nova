@@ -140,7 +140,8 @@ describe("automation mutation replay", () => {
 			automation.updates[0].value = { kind: "literal", value: "done" };
 			automation.setupOnlyCriteria.push({
 				uuid: testUuid("doc-automation-setup"),
-				text: "UCR filter: urgent_visits",
+				kind: "ucr-filter",
+				text: "urgent_visits",
 			});
 		});
 		const mutations = diffDocsToMutations(prev, next);

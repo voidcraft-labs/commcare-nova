@@ -34,8 +34,9 @@ closed-parent condition. Conditional alerts accept the four value comparisons
 plus portable regex against the matched case only. Both automation families
 also accept at most one UUID-backed location condition with an explicit
 descendant flag. HQ executes it and accepts it through the form payload even
-though its current visible rule and alert editors hide the picker. Explicit setup-only text carries UCR and HQ-registered
-custom criteria; case-update server-modified age is a separate structured
+though its current visible rule and alert editors hide the picker. A setup-only
+criterion structurally distinguishes `ucr-filter` from `registered-custom`
+while its exact configuration remains trimmed prose; case-update server-modified age is a separate structured
 field that Nova names as omitted from local matching. Case updates, recipients, content,
 schedule starts, and user filters are similarly closed to shapes current HQ can
 represent. There is no generic payload arm and no draft or disabled-invalid
@@ -78,8 +79,12 @@ is editor placeholder text and never canonical data. Each checkbox-style or case
 kind appears at most once; multi-target HQ lists may carry distinct workers,
 groups, or locations but never the same concrete target twice. Descendant
 settings require a location recipient, location-level filtering additionally
-requires descendants, and the user-data filter carries one value list per
-worker-property UUID.
+requires descendants, and the user-data filter carries one structural value
+list per worker-property UUID. Its values are exact literals—including empty
+and whitespace—or explicit `(caseType, property)` lookups into custom case data.
+A brace-wrapped literal is invalid because HQ would reinterpret it as a lookup;
+property renames rewrite only the structural lookup. Setup guidance emits exact
+JSON whenever HQ's single-value fields would trim or lose the model.
 
 Every schedule uses the HQ form's one content type. Timed schedules use the
 runtime's day/repeat encoding but must project into one actual HQ setup form.
