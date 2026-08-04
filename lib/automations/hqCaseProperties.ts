@@ -1,4 +1,7 @@
-import { automationTemplateCasePropertyTokens } from "@/lib/domain";
+import {
+	automationTemplateCasePropertyTokens,
+	CASE_SCALAR_PROPERTY_NAMES,
+} from "@/lib/domain";
 
 /**
  * One Nova-to-HQ projection for every case-property slot in an automation.
@@ -11,9 +14,10 @@ import { automationTemplateCasePropertyTokens } from "@/lib/domain";
  *
  * Two alert slots are deliberately different: reset-on-change and event time
  * read `dynamic_case_properties()` directly, so no standard scalar property is
- * representable in them. `status` is also closed: Nova stores `open`/`closed`,
- * while HQ exposes a boolean `closed` model field and automation queries
- * already exclude closed cases.
+ * representable in them. General reads project Nova's `case_type` to HQ's
+ * model field `type`; neither `case_id` nor `case_type` is updateable. `status`
+ * is also closed: Nova stores `open`/`closed`, while HQ exposes a boolean
+ * `closed` model field and automation queries already exclude closed cases.
  *
  * Re-verified against commcare-hq 9c30a642ba3d718cfc30c479a6c32485df48a6b5:
  * - corehq/form_processor/models/cases.py::get_case_property,
@@ -31,6 +35,8 @@ export type AutomationHqPropertySlot =
 	| "dynamic-only";
 
 const STANDARD_HQ_READ_NAMES = {
+	case_id: "case_id",
+	case_type: "type",
 	case_name: "name",
 	date_opened: "opened_on",
 	last_modified: "modified_on",
@@ -38,12 +44,9 @@ const STANDARD_HQ_READ_NAMES = {
 	external_id: "external_id",
 } as const satisfies Readonly<Record<string, string>>;
 
-const STANDARD_NOVA_PROPERTIES = new Set([
-	...Object.keys(STANDARD_HQ_READ_NAMES),
-	"status",
-]);
-
 const NON_UPDATEABLE_STANDARD_PROPERTIES = new Set([
+	"case_id",
+	"case_type",
 	"date_opened",
 	"last_modified",
 	"status",
@@ -54,7 +57,7 @@ export function projectAutomationPropertyForHq(
 	slot: AutomationHqPropertySlot,
 ): string | undefined {
 	if (slot === "dynamic-only") {
-		return STANDARD_NOVA_PROPERTIES.has(property) ? undefined : property;
+		return CASE_SCALAR_PROPERTY_NAMES.has(property) ? undefined : property;
 	}
 	if (
 		slot === "update-target" &&

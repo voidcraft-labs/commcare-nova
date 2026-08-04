@@ -245,9 +245,13 @@ or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated
 run-on-save flag is never offered on a rule because HQ owns it as a project-wide
 blast-radius switch. Survey content resolves its UUID to the current published
 app > module > form path that HQ's picker displays; Nova UUIDs never masquerade
-as HQ form identifiers. The required default-language control projects an empty
+as HQ form identifiers, and the Builder uses that full path to disambiguate
+same-named forms while persisting only the UUID. The required default-language control projects an empty
 Nova value to **Project Default**, while an explicit code carries the target
-project-language configuration prerequisite. Dates use `DatePicker`, clock times use `TimeField` plus
+project-language configuration prerequisite. Worker/group recipient IDs begin
+empty with instructional placeholder copy and cannot commit blank or padded.
+Every text control composes the shared `Field` stack and carries the repo's
+noncredential input attributes. Dates use `DatePicker`, clock times use `TimeField` plus
 the canonical clock parser, and Weekly/Monthly event days use closed choices
 that exclude siblings and disable Add when exhausted. Removing any repeated
 criterion, setup instruction, update, recipient, recipient filter, or event

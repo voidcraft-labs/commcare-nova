@@ -14,6 +14,7 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import { automationFormChoice } from "./formChoices";
 import {
 	describeAutomationPropertyForHq,
 	projectAutomationTemplateForHq,
@@ -141,18 +142,11 @@ function describePublishedFormChoice(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): string {
-	const form = ownRecordValue(doc.forms, formUuid);
-	const moduleUuid = doc.moduleOrder.find((candidate) =>
-		doc.formOrder[candidate]?.includes(formUuid),
-	);
-	const module =
-		moduleUuid === undefined
-			? undefined
-			: ownRecordValue(doc.modules, moduleUuid);
-	if (form === undefined || module === undefined) {
+	const choice = automationFormChoice(doc, formUuid);
+	if (choice === undefined) {
 		return "repair the missing Nova form reference before choosing a published form in HQ";
 	}
-	return `choose the published form path “${doc.appName} > ${module.name} > ${form.name}” in HQ’s form picker`;
+	return `choose the published form path “${choice.label}” in HQ’s form picker`;
 }
 
 function describeTiming(timing: AutomationTimedEvent["timing"]): string {

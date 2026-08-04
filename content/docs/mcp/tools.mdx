@@ -330,11 +330,13 @@ stored values, and alert regex patterns must be nonempty. Web users are not a re
 Date conditions compare the current date directly with the property date plus
 a signed day offset.
 Automation inputs always use Nova's standard property names. Returned setup
-guidance projects `case_name` to HQ `name`, `date_opened` to `opened_on`, and
-`last_modified` to `modified_on`; `owner_id` and `external_id` remain unchanged.
+guidance projects `case_type` to HQ `type`, `case_name` to `name`, `date_opened`
+to `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
+`external_id` remain unchanged. `case_id` and `case_type` are read-only.
 `status` is refused because Nova text and HQ's boolean field differ. Standard
 datetime properties allow date or blankness conditions, not equality or regex,
-and restart/event-time slots accept custom case properties only.
+and restart/event-time slots accept custom case properties only. Concrete HQ
+worker/group recipient IDs must be nonblank and have no surrounding whitespace.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients. Checkbox-style,
 case-property, and custom recipient kinds are singletons; list recipients cannot

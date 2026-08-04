@@ -176,9 +176,10 @@ location-level filters require descendants. The deprecated domain-wide
 per-rule tool field.
 
 Tool input keeps Nova's standard property names; the guide alone projects them
-to HQ model-field names. `status`, standard-datetime equality/regex, and
-standard properties in HQ's dynamic-only reset/event-time slots are refused by
-the shared gate. Email content has exactly one `body` arm: plain text targets a
+to HQ model-field names, including `case_type` to `type`; `case_id` and
+`case_type` are read-only. `status`, standard-datetime equality/regex, and every
+standard scalar in HQ's dynamic-only reset/event-time slots are refused by the
+shared gate. Concrete HQ recipient IDs are trimmed and nonblank. Email content has exactly one `body` arm: plain text targets a
 domain without Rich text emails, while rich text carries HTML source only and
 requires the toggle because HQ sanitizes/rewraps it and derives plaintext.
 

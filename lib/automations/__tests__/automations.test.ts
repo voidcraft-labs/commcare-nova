@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { automationFormChoices } from "@/lib/automations/formChoices";
 import { automationMatchProjection } from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
@@ -53,6 +54,26 @@ function alertWithSchedule(
 }
 
 describe("automation domain and projections", () => {
+	it("labels duplicate form names by their published app and module path", () => {
+		const doc = buildDoc({
+			appName: "Care",
+			modules: [
+				{
+					name: "Visits",
+					forms: [{ name: "Follow up", type: "survey" }],
+				},
+				{
+					name: "Referrals",
+					forms: [{ name: "Follow up", type: "survey" }],
+				},
+			],
+		});
+		expect(automationFormChoices(doc).map((choice) => choice.label)).toEqual([
+			"Care > Visits > Follow up",
+			"Care > Referrals > Follow up",
+		]);
+	});
+
 	it("represents the canonical claim-cleanup rule with zero ordinary criteria", () => {
 		const rule = claimCleanup();
 		expect(rule.criteria).toEqual([]);
@@ -324,6 +345,20 @@ describe("automation domain and projections", () => {
 			{ uuid: testUuid("recipient-owner-a"), kind: "owner" as const },
 			{ uuid: testUuid("recipient-owner-b"), kind: "owner" as const },
 		];
+		for (const hqId of ["", "   ", " worker-1 "]) {
+			expect(
+				automationSchema.safeParse({
+					...alert,
+					recipients: [
+						{
+							uuid: testUuid(`recipient-worker-${hqId}`),
+							kind: "mobile-worker",
+							hqId,
+						},
+					],
+				}).success,
+			).toBe(false);
+		}
 		expect(
 			automationSchema.safeParse({ ...alert, recipients: duplicateOwner })
 				.success,

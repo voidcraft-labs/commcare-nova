@@ -157,7 +157,7 @@ export const getAutomationsTool = {
 
 export const addAutomationsTool = {
 	description:
-		"Add one or more complete automatic case-update rules or conditional alerts to the app. Use Nova standard property names; the gate refuses status, standard-datetime equality/regex, and standard properties in dynamic-only restart/event-time slots. Email body is plain-text (Rich text emails off) or rich-text HTML source (toggle on; HQ sanitizes it and derives plaintext). This records canonical Nova definitions and setup guidance; it does not install or run them in CommCare HQ.",
+		"Add one or more complete automatic case-update rules or conditional alerts to the app. Use Nova standard property names; case_type projects to HQ type, while case_id and case_type are read-only. The gate refuses status, standard-datetime equality/regex, every standard scalar in dynamic-only restart/event-time slots, and blank or padded HQ recipient IDs. Email body is plain-text (Rich text emails off) or rich-text HTML source (toggle on; HQ sanitizes it and derives plaintext). This records canonical Nova definitions and setup guidance; it does not install or run them in CommCare HQ.",
 	inputSchema: addAutomationsInputSchema,
 	async execute(
 		input: z.infer<typeof addAutomationsInputSchema>,

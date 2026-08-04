@@ -192,15 +192,16 @@ Equality and update literals are exact nonblank, unquoted stored values;
 date criteria compare the current date directly with the property date plus a
 signed day offset; regexes are nonempty and portable. Standard metadata stays
 in Nova vocabulary in the document, then the setup projection translates reads
-and message tokens exactly: `case_name` → `name`, `date_opened` → `opened_on`,
-and `last_modified` → `modified_on`; `owner_id` and `external_id` are already
-the HQ automation names. Update targets use that projection too, preserving
+and message tokens exactly: `case_type` → `type`, `case_name` → `name`,
+`date_opened` → `opened_on`, and `last_modified` → `modified_on`; `case_id`,
+`owner_id`, and `external_id` are already the HQ automation names. `case_id`
+and `case_type` are read-only automation metadata. Update targets use that projection too, preserving
 HQ's pre-write equality check. `status` is refused because Nova's open/closed
 text is not HQ's boolean `closed` model field, and standard datetime equality
 or regex is refused because HQ compares its datetime object with authored text
 without coercion. Restart-on-change and case-property event-time fields accept
 custom properties only because their HQ runtime reads `dynamic_case_properties`
-rather than model fields. A case update may set case, parent, or host properties from a literal
+rather than any standard scalar field. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
 project-wide switch that evaluates every active update rule for a saved case
@@ -212,7 +213,8 @@ Connect content excludes the case-relative, case-property-email, and case-group
 recipients that HQ refuses. Checkbox-style, case-property, and custom
 recipient kinds are singletons; list-backed recipients keep unique concrete
 targets. Descendant controls require a location recipient, location-level
-filters require descendants, and user-data filters have one value list per
+filters require descendants, concrete HQ worker/group IDs are trimmed and
+nonblank, and user-data filters have one value list per
 worker property. IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which
 the Builder and guide state rather than silently treating them as deployable.

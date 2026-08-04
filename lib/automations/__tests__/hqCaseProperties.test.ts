@@ -6,6 +6,8 @@ import {
 
 describe("HQ automation case-property projection", () => {
 	it.each([
+		["case_id", "case_id"],
+		["case_type", "type"],
 		["case_name", "name"],
 		["date_opened", "opened_on"],
 		["last_modified", "modified_on"],
@@ -27,6 +29,15 @@ describe("HQ automation case-property projection", () => {
 		expect(
 			projectAutomationPropertyForHq("case_name", "dynamic-only"),
 		).toBeUndefined();
+		expect(
+			projectAutomationPropertyForHq("case_id", "dynamic-only"),
+		).toBeUndefined();
+		expect(
+			projectAutomationPropertyForHq("case_type", "dynamic-only"),
+		).toBeUndefined();
+		expect(
+			projectAutomationPropertyForHq("case_type", "update-target"),
+		).toBeUndefined();
 		expect(projectAutomationPropertyForHq("alarm_time", "dynamic-only")).toBe(
 			"alarm_time",
 		);
@@ -35,10 +46,10 @@ describe("HQ automation case-property projection", () => {
 	it("projects exact case-property template tokens without rewriting other HQ namespaces", () => {
 		expect(
 			projectAutomationTemplateForHq(
-				"{case.case_name} {case.parent.date_opened} {case.host.last_modified} {case.owner.name}",
+				"{case.case_type} {case.case_name} {case.parent.date_opened} {case.host.last_modified} {case.owner.name}",
 			),
 		).toBe(
-			"{case.name} {case.parent.opened_on} {case.host.modified_on} {case.owner.name}",
+			"{case.type} {case.name} {case.parent.opened_on} {case.host.modified_on} {case.owner.name}",
 		);
 	});
 });

@@ -119,6 +119,8 @@ function validateOne(
 			{
 				name: "visit",
 				properties: [
+					{ name: "case_id", label: "Case ID", data_type: "text" },
+					{ name: "case_type", label: "Case type", data_type: "text" },
 					{ name: "due", label: "Due", data_type: "date" },
 					{ name: "alarm_time", label: "Alarm time", data_type: "time" },
 				],
@@ -183,6 +185,7 @@ describe("automation HQ property-slot compatibility", () => {
 		};
 		expect(validateOne(update)).toEqual([]);
 		expect(validateOne(alertWithContent("Hello {case.case_name}"))).toEqual([]);
+		expect(validateOne(alertWithContent("Type {case.case_type}"))).toEqual([]);
 	});
 
 	it("refuses unrepresentable update and template standard properties", () => {
@@ -204,6 +207,22 @@ describe("automation HQ property-slot compatibility", () => {
 			closeCase: false,
 		};
 		expect(validateOne(update)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "updates.0.target" }),
+			}),
+		]);
+		const caseTypeUpdate: Automation = {
+			...update,
+			uuid: testUuid("validator-update-case-type"),
+			updates: [
+				{
+					uuid: testUuid("validator-update-case-type-row"),
+					target: { scope: "case", property: "case_type" },
+					value: { kind: "literal", value: "archived_visit" },
+				},
+			],
+		};
+		expect(validateOne(caseTypeUpdate)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({ path: "updates.0.target" }),
 			}),
@@ -239,6 +258,20 @@ describe("automation HQ property-slot compatibility", () => {
 		expect(validateOne(alert)).toEqual([]);
 
 		alert.resetCaseProperty = "case_name";
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "resetCaseProperty" }),
+			}),
+		]);
+
+		alert.resetCaseProperty = "case_id";
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "resetCaseProperty" }),
+			}),
+		]);
+
+		alert.resetCaseProperty = "case_type";
 		expect(validateOne(alert)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({ path: "resetCaseProperty" }),

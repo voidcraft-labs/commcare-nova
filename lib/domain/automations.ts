@@ -289,6 +289,14 @@ export const automationCaseUpdateSchema = z
 	.strict();
 export type AutomationCaseUpdate = z.infer<typeof automationCaseUpdateSchema>;
 
+const automationHqRecipientIdSchema = z
+	.string()
+	.max(255)
+	.refine((value) => value.trim().length > 0 && value === value.trim(), {
+		message:
+			"A CommCare HQ recipient ID must be nonblank and have no surrounding whitespace.",
+	});
+
 export const automationRecipientSchema = z.discriminatedUnion("kind", [
 	z.object({ uuid: uuidSchema, kind: z.literal("self") }).strict(),
 	z.object({ uuid: uuidSchema, kind: z.literal("owner") }).strict(),
@@ -319,7 +327,7 @@ export const automationRecipientSchema = z.discriminatedUnion("kind", [
 		.object({
 			uuid: uuidSchema,
 			kind: z.enum(["mobile-worker", "user-group", "case-group"]),
-			hqId: z.string().min(1).max(255),
+			hqId: automationHqRecipientIdSchema,
 		})
 		.strict(),
 	z

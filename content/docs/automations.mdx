@@ -31,13 +31,16 @@ omit surrounding whitespace and matching outer quotes. Rule names must also be
 nonblank and already trimmed.
 
 Keep authoring standard metadata with Nova names. The generated HQ guide
-translates `case_name` to `name`, `date_opened` to `opened_on`, and
-`last_modified` to `modified_on`; `owner_id` and `external_id` are unchanged.
+translates `case_type` to `type`, `case_name` to `name`, `date_opened` to
+`opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
+`external_id` are unchanged. `case_id` and `case_type` are read-only here.
 This applies to criteria, copied values, update targets, recipients, schedule
 dates, and message-template tokens. Case `status` is not available in an
 automation property slot because Nova's `open`/`closed` text is not HQ's
 boolean field, and these rules already inspect open cases. The standard date
 fields support date and blankness conditions, not text equality or regex.
+Restart-on-change and case-property event-time controls accept custom case data
+only; no standard scalar property is available in those HQ fields.
 
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,

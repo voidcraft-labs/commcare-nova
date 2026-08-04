@@ -7,7 +7,8 @@ import {
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Automation, Form, Uuid } from "@/lib/domain";
+import type { AutomationFormChoice } from "@/lib/automations/formChoices";
+import type { Automation, Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
 const RULE_UUID = testUuid("ui-automation");
@@ -30,7 +31,7 @@ const rule: Automation = {
 	closeCase: true,
 };
 
-const surveyAlert: Automation = {
+const surveyAlert = {
 	uuid: testUuid("ui-survey-alert"),
 	kind: "conditional-alert",
 	name: "Survey follow-up",
@@ -60,7 +61,7 @@ const surveyAlert: Automation = {
 	locationLevelUuids: [],
 	userDataFilters: [],
 	useUserCaseForFilter: false,
-};
+} satisfies Extract<Automation, { kind: "conditional-alert" }>;
 
 const USER_PROPERTY_UUID = testUuid("ui-user-property");
 const SECOND_USER_PROPERTY_UUID = testUuid("ui-user-property-second");
@@ -193,7 +194,7 @@ function weekdayRemapAlert(): Extract<
 
 const mocks = vi.hoisted(() => ({
 	automations: [] as Automation[],
-	forms: [] as Form[],
+	forms: [] as AutomationFormChoice[],
 	userProperties: [] as { uuid: Uuid; label: string; slug: string }[],
 	levels: [] as { uuid: Uuid; name: string }[],
 	locations: [] as StoredLocation[],
@@ -317,6 +318,14 @@ describe("AutomationsSection", () => {
 		expect(
 			screen.getByRole("combobox", { name: "Automation type" }),
 		).toBeDefined();
+		const authoredInputs = document.querySelectorAll(
+			'[data-slot="input"], [data-slot="textarea"]',
+		);
+		expect(authoredInputs.length).toBeGreaterThan(0);
+		for (const input of authoredInputs) {
+			expect(input.getAttribute("autocomplete")).toBe("off");
+			expect(input.hasAttribute("data-1p-ignore")).toBe(true);
+		}
 		fireEvent.change(name, { target: { value: "Resolve old visits" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 		expect(mocks.addAutomation).toHaveBeenCalledWith(
@@ -527,6 +536,78 @@ describe("AutomationsSection", () => {
 				],
 			}),
 		);
+	});
+
+	it("requires an entered HQ recipient id instead of saving instruction copy", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		await chooseChoice("Recipient 1", "Mobile worker in CommCare HQ");
+
+		const hqId = screen.getByRole("textbox", { name: "CommCare HQ ID" });
+		expect(hqId.getAttribute("value")).toBe("");
+		expect(hqId.getAttribute("placeholder")).toBe("Enter the CommCare HQ ID");
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(screen.getByRole("alert").textContent).toContain(
+			"recipient ID must be nonblank",
+		);
+		expect(mocks.addAutomation).not.toHaveBeenCalled();
+
+		fireEvent.change(hqId, { target: { value: "worker-1" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(mocks.addAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				recipients: [
+					expect.objectContaining({
+						kind: "mobile-worker",
+						hqId: "worker-1",
+					}),
+				],
+			}),
+		);
+	});
+
+	it("disambiguates duplicate survey names with their published paths", async () => {
+		const firstForm = testUuid("ui-duplicate-survey-first");
+		const secondForm = testUuid("ui-duplicate-survey-second");
+		mocks.forms = [
+			{ uuid: firstForm, label: "Care > Visits > Follow up" },
+			{ uuid: secondForm, label: "Care > Referrals > Follow up" },
+		];
+		mocks.automations = [
+			{
+				...surveyAlert,
+				schedule: {
+					...surveyAlert.schedule,
+					events: [
+						{
+							...surveyAlert.schedule.events[0],
+							content: {
+								...surveyAlert.schedule.events[0].content,
+								formUuid: firstForm,
+							},
+						},
+					],
+				},
+			},
+		];
+
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Survey follow-up/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		const formChoice = screen.getByRole("combobox", { name: "Form" });
+		expect(formChoice.textContent).toContain("Care > Visits > Follow up");
+		fireEvent.click(formChoice);
+		await settleBaseUiTransitions();
+		expect(
+			screen.getByRole("option", { name: "Care > Visits > Follow up" }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("option", { name: "Care > Referrals > Follow up" }),
+		).toBeDefined();
 	});
 
 	it("keeps survey partial-submission controls valid and explains reminder refusal", async () => {

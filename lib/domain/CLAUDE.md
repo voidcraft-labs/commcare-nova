@@ -42,13 +42,14 @@ modeled: it is one domain-wide switch that evaluates every active update rule
 for the saved case type, not a property of an individual rule.
 
 Standard case metadata remains Nova vocabulary in storage. The derived HQ
-automation projection maps `case_name`/`date_opened`/`last_modified` to
-`name`/`opened_on`/`modified_on` for model-field readers and templates, while
-`owner_id` and `external_id` already match. `status` is never admitted because
+automation projection maps `case_type`/`case_name`/`date_opened`/`last_modified`
+to `type`/`name`/`opened_on`/`modified_on` for model-field readers and templates,
+while `case_id`, `owner_id`, and `external_id` already match. `case_id` and
+`case_type` are read-only automation metadata; `status` is never admitted because
 Nova text and HQ's boolean field differ. Standard datetime values admit date or
 blankness matches, not text equality/regex. Reset-on-change and case-property
 event-time slots accept custom properties only because HQ reads those two from
-`dynamic_case_properties()` rather than model fields.
+`dynamic_case_properties()` rather than any standard scalar field.
 
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
 the standard parent-closed criterion, at most once, with no authored index or
@@ -57,7 +58,8 @@ without whitespace normalization or outer quote syntax, automation names are
 already trimmed and nonblank, and alert regex patterns are nonempty. The recipient union has no web
 user, and Connect content refuses self, parent-case, all-child-cases,
 case-property-email, and case-group recipients. A timed reset property requires
-a rule-trigger start. Each checkbox-style or case-property/custom recipient
+a rule-trigger start. Concrete HQ worker/group recipient IDs are already trimmed
+and nonblank. Each checkbox-style or case-property/custom recipient
 kind appears at most once; multi-target HQ lists may carry distinct workers,
 groups, or locations but never the same concrete target twice. Descendant
 settings require a location recipient, location-level filtering additionally

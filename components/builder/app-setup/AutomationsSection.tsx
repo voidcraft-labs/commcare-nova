@@ -14,6 +14,7 @@ import {
 	type WritableDraft,
 } from "immer";
 import {
+	type ComponentProps,
 	cloneElement,
 	type ReactElement,
 	type ReactNode,
@@ -38,7 +39,13 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
-import { Input } from "@/components/shadcn/input";
+import {
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldLabel,
+} from "@/components/shadcn/field";
+import { Input as ShadcnInput } from "@/components/shadcn/input";
 import {
 	Select,
 	SelectContent,
@@ -47,10 +54,11 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
-import { Textarea } from "@/components/shadcn/textarea";
+import { Textarea as ShadcnTextarea } from "@/components/shadcn/textarea";
 import { TimeField } from "@/components/shadcn/time-field";
 import type { AutomationPreviewResult } from "@/lib/automations/actions";
 import { previewAutomationAction } from "@/lib/automations/actions";
+import type { AutomationFormChoice } from "@/lib/automations/formChoices";
 import {
 	useAutomationForms,
 	useAutomations,
@@ -71,7 +79,6 @@ import {
 	automationSchema,
 	automationTimedScheduleSetupForm,
 	type CaseType,
-	type Form,
 	type Uuid,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
@@ -82,6 +89,14 @@ import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
+
+function Input(props: ComponentProps<typeof ShadcnInput>) {
+	return <ShadcnInput {...props} autoComplete="off" data-1p-ignore="" />;
+}
+
+function Textarea(props: ComponentProps<typeof ShadcnTextarea>) {
+	return <ShadcnTextarea {...props} autoComplete="off" data-1p-ignore="" />;
+}
 
 function cloneEditableValue<T>(value: T): T {
 	return structuredClone(isDraft(value) ? current(value as Draft<T>) : value);
@@ -562,7 +577,7 @@ function AutomationEditor({
 	state: EditorState;
 	current: Automation | undefined;
 	caseTypes: readonly CaseType[];
-	forms: readonly Form[];
+	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
@@ -857,28 +872,36 @@ function Section({
 function Labeled({
 	label,
 	hint,
+	error,
 	children,
 }: {
 	label: string;
 	hint?: string;
+	error?: string;
 	children: ReactNode;
 }) {
 	const id = useId();
+	const descriptionId = hint === undefined ? undefined : `${id}-description`;
+	const errorId = error === undefined ? undefined : `${id}-error`;
 	return (
-		<label htmlFor={id} className="flex min-w-0 flex-col gap-1.5">
-			<span className="text-[12px] font-medium text-nova-text-secondary">
-				{label}
-			</span>
+		<Field data-invalid={error === undefined ? undefined : true}>
+			<FieldLabel htmlFor={id}>{label}</FieldLabel>
 			{cloneElement(
-				children as ReactElement<{ id?: string; "aria-label"?: string }>,
-				{ id, "aria-label": label },
+				children as ReactElement<{
+					id?: string;
+					"aria-label"?: string;
+					"aria-describedby"?: string;
+				}>,
+				{
+					id,
+					"aria-label": label,
+					"aria-describedby":
+						[descriptionId, errorId].filter(Boolean).join(" ") || undefined,
+				},
 			)}
-			{hint && (
-				<span className="text-[11px] leading-relaxed text-nova-text-muted">
-					{hint}
-				</span>
-			)}
-		</label>
+			{hint && <FieldDescription id={descriptionId}>{hint}</FieldDescription>}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
 	);
 }
 
@@ -1575,20 +1598,10 @@ function recipientFor(
 			: undefined;
 	}
 	if (["mobile-worker", "user-group", "case-group"].includes(kind)) {
-		const base = "Enter the CommCare HQ ID";
-		const usedIds = new Set(
-			existingRecipients.flatMap((recipient) =>
-				recipient.kind === kind && "hqId" in recipient ? [recipient.hqId] : [],
-			),
-		);
-		let hqId = base;
-		for (let suffix = 2; usedIds.has(hqId); suffix += 1) {
-			hqId = `${base} ${suffix}`;
-		}
 		return {
 			uuid: id,
 			kind,
-			hqId,
+			hqId: "",
 		} as AutomationRecipient;
 	}
 	return { uuid: id, kind: "custom", registeredId: "registered-id" };
@@ -1638,7 +1651,7 @@ function clearLocationSettingsWithoutRecipient(
 
 function contentFor(
 	kind: AutomationContent["kind"],
-	forms: readonly Form[],
+	forms: readonly AutomationFormChoice[],
 ): AutomationContent | undefined {
 	if (kind === "sms") return { kind, message: "Message" };
 	if (kind === "email")
@@ -1681,7 +1694,7 @@ function AlertEditor({
 	onEdit,
 }: {
 	automation: Extract<Automation, { kind: "conditional-alert" }>;
-	forms: readonly Form[];
+	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
@@ -1787,6 +1800,7 @@ function AlertEditor({
 								<Labeled label="CommCare HQ ID">
 									<Input
 										value={recipient.hqId}
+										placeholder="Enter the CommCare HQ ID"
 										onChange={(event) =>
 											onEdit((draft) => {
 												if (draft.kind === "conditional-alert") {
@@ -2081,7 +2095,7 @@ function ScheduleEditor({
 	onEdit,
 }: {
 	automation: Extract<Automation, { kind: "conditional-alert" }>;
-	forms: readonly Form[];
+	forms: readonly AutomationFormChoice[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const schedule = automation.schedule;
@@ -2629,7 +2643,7 @@ function EventEditor({
 	startDayOfWeek?: number;
 	repeatEvery?: number;
 	repeatIsDerived: boolean;
-	forms: readonly Form[];
+	forms: readonly AutomationFormChoice[];
 	removeButtonRef: Ref<HTMLButtonElement>;
 	onRemove: () => void;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
@@ -2955,7 +2969,7 @@ function EventEditor({
 									if ("formUuid" in item) item.formUuid = asUuid(value);
 								})
 							}
-							options={forms.map((form) => [form.uuid, form.name])}
+							options={forms.map((form) => [form.uuid, form.label])}
 						/>
 					</Labeled>
 				)}
