@@ -16,10 +16,13 @@ import {
 import {
 	type ComponentProps,
 	cloneElement,
+	createContext,
 	type ReactElement,
 	type ReactNode,
 	type Ref,
 	startTransition,
+	useCallback,
+	useContext,
 	useEffect,
 	useId,
 	useLayoutEffect,
@@ -574,6 +577,28 @@ interface EditorState {
 	opened?: string;
 }
 
+interface AutomationValidationIssue {
+	readonly message: string;
+	readonly path: readonly PropertyKey[];
+}
+
+const AutomationValidationContext = createContext<
+	AutomationValidationIssue | undefined
+>(undefined);
+const AutomationDraftErrorContext = createContext<
+	(key: string, issue: AutomationValidationIssue | undefined) => void
+>(() => undefined);
+
+function pathStartsWith(
+	path: readonly PropertyKey[],
+	prefix: readonly PropertyKey[],
+): boolean {
+	return (
+		prefix.length <= path.length &&
+		prefix.every((segment, index) => path[index] === segment)
+	);
+}
+
 function AutomationEditor({
 	state,
 	current,
@@ -604,6 +629,9 @@ function AutomationEditor({
 	const nameRef = useRef<HTMLInputElement>(null);
 	const [error, setError] = useState<string>();
 	const [errorPath, setErrorPath] = useState<readonly PropertyKey[]>([]);
+	const [draftErrors, setDraftErrors] = useState<
+		Record<string, AutomationValidationIssue>
+	>({});
 	const refusalId = useId();
 	const [confirmRemove, setConfirmRemove] = useState(false);
 	const peerConflict =
@@ -611,6 +639,28 @@ function AutomationEditor({
 		(current === undefined || fingerprint(current) !== state.opened);
 
 	useEffect(() => nameRef.current?.focus(), []);
+	const reportDraftError = useCallback(
+		(key: string, issue: AutomationValidationIssue | undefined) => {
+			setDraftErrors((current) => {
+				if (issue === undefined) {
+					if (!(key in current)) return current;
+					const next = { ...current };
+					delete next[key];
+					return next;
+				}
+				if (
+					current[key]?.message === issue.message &&
+					current[key]?.path.every(
+						(part, index) => part === issue.path[index],
+					) &&
+					current[key]?.path.length === issue.path.length
+				)
+					return current;
+				return { ...current, [key]: issue };
+			});
+		},
+		[],
+	);
 
 	const edit = (recipe: (draft: WritableDraft<Automation>) => void) => {
 		onChange(produce(state.automation, recipe));
@@ -628,6 +678,12 @@ function AutomationEditor({
 			setError(
 				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
 			);
+			return;
+		}
+		const firstDraftError = Object.values(draftErrors)[0];
+		if (firstDraftError !== undefined) {
+			setError(firstDraftError.message);
+			setErrorPath(firstDraftError.path);
 			return;
 		}
 		const parsed = automationSchema.safeParse(state.automation);
@@ -677,218 +733,235 @@ function AutomationEditor({
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent className="@container sm:max-w-3xl">
-				<DialogHeader>
-					<DialogTitle>
-						{state.kind === "new"
-							? "Add automation"
-							: `${canEdit ? "Edit" : "View"} ${state.automation.name}`}
-					</DialogTitle>
-					<DialogDescription>
-						{canEdit
-							? "Nova saves a precise CommCare HQ setup definition. It won't run here or be installed when you publish."
-							: "Read the complete saved definition below. Nova won't run it here or install it when the app is published."}
-					</DialogDescription>
-				</DialogHeader>
-				<DialogBody className="space-y-6 pb-2">
-					<fieldset disabled={!canEdit || peerConflict} className="contents">
-						<legend className="sr-only">
-							{canEdit ? "Automation settings" : "Saved automation definition"}
-						</legend>
-						<fieldset
-							className="grid gap-4 @md:grid-cols-2"
-							disabled={peerConflict}
-						>
-							<legend className="sr-only">Automation identity</legend>
-							<Labeled
-								label="Name"
-								error={errorPath[0] === "name" ? error : undefined}
-							>
-								<Input
-									ref={nameRef}
-									value={state.automation.name}
-									onChange={(event) =>
-										edit((draft) => {
-											draft.name = event.target.value;
-										})
-									}
-								/>
-							</Labeled>
-							<Labeled label="Case type">
-								<Choice
-									value={state.automation.caseType}
-									onChange={(caseType) =>
-										edit((draft) => {
-											draft.caseType = caseType;
-											updateAutomationContextReferenceCaseTypes(
-												draft,
-												caseTypes,
-												caseType,
-											);
-										})
-									}
-									options={caseTypes.map((caseType) => [
-										caseType.name,
-										caseType.name,
-									])}
-								/>
-							</Labeled>
-							{state.kind === "new" && (
-								<Labeled label="Automation type">
-									<Choice
-										value={state.automation.kind}
-										onChange={(kind) =>
-											onChange(
-												kind === "case-update"
-													? newCaseUpdate(state.automation.caseType)
-													: newAlert(state.automation.caseType),
-											)
-										}
-										options={[
-											["case-update", "Automatic case update"],
-											["conditional-alert", "Conditional alert"],
-										]}
-									/>
-								</Labeled>
-							)}
-							<Labeled label="Match">
-								<Choice
-									value={state.automation.criteriaOperator}
-									onChange={(value) =>
-										edit((draft) => {
-											draft.criteriaOperator = value as "all" | "any";
-										})
-									}
-									options={[
-										["all", "All conditions"],
-										["any", "Any condition"],
-									]}
-								/>
-							</Labeled>
-						</fieldset>
-
-						<ConditionsEditor
-							automation={state.automation}
-							locations={locations}
-							onEdit={edit}
-						/>
-						<SetupOnlyEditor automation={state.automation} onEdit={edit} />
-						{state.automation.kind === "case-update" && (
-							<OptionalNumber
-								label="Only cases last changed on the server at least this many days ago"
-								value={state.automation.serverModifiedBoundaryDays}
-								onChange={(value) =>
-									edit((draft) => {
-										if (draft.kind !== "case-update") return;
-										if (value === undefined)
-											delete draft.serverModifiedBoundaryDays;
-										else draft.serverModifiedBoundaryDays = value;
-									})
-								}
-							/>
-						)}
-
-						{state.automation.kind === "case-update" ? (
-							<CaseUpdateEditor automation={state.automation} onEdit={edit} />
-						) : (
-							<AlertEditor
-								automation={state.automation}
-								caseTypes={caseTypes}
-								forms={forms}
-								locations={locations}
-								levels={levels}
-								userProperties={userProperties}
-								onEdit={edit}
-							/>
-						)}
-
-						{canEdit && state.kind === "existing" && (
+				<AutomationDraftErrorContext.Provider value={reportDraftError}>
+					<AutomationValidationContext.Provider
+						value={
+							error === undefined
+								? undefined
+								: { message: error, path: errorPath }
+						}
+					>
+						<DialogHeader>
+							<DialogTitle>
+								{state.kind === "new"
+									? "Add automation"
+									: `${canEdit ? "Edit" : "View"} ${state.automation.name}`}
+							</DialogTitle>
+							<DialogDescription>
+								{canEdit
+									? "Nova saves a precise CommCare HQ setup definition. It won't run here or be installed when you publish."
+									: "Read the complete saved definition below. Nova won't run it here or install it when the app is published."}
+							</DialogDescription>
+						</DialogHeader>
+						<DialogBody className="space-y-6 pb-2">
 							<fieldset
-								disabled={peerConflict}
-								className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
+								disabled={!canEdit || peerConflict}
+								className="contents"
 							>
-								<legend className="sr-only">Remove automation</legend>
-								{confirmRemove ? (
-									<div
-										role="alert"
-										className="flex flex-wrap items-center justify-between gap-3"
-									>
-										<p className="text-[13px] text-nova-text">
-											Remove this Nova definition? A rule already set up in
-											CommCare HQ won't be removed.
-										</p>
-										<div className="flex gap-2">
-											<Button
-												type="button"
-												variant="ghost"
-												onClick={() => setConfirmRemove(false)}
-											>
-												Cancel
-											</Button>
-											<Button
-												type="button"
-												variant="destructive"
-												disabled={peerConflict}
-												onClick={remove}
-											>
-												Remove automation
-											</Button>
-										</div>
-									</div>
+								<legend className="sr-only">
+									{canEdit
+										? "Automation settings"
+										: "Saved automation definition"}
+								</legend>
+								<fieldset
+									className="grid gap-4 @md:grid-cols-2"
+									disabled={peerConflict}
+								>
+									<legend className="sr-only">Automation identity</legend>
+									<Labeled label="Name" path={["name"]}>
+										<Input
+											ref={nameRef}
+											value={state.automation.name}
+											onChange={(event) =>
+												edit((draft) => {
+													draft.name = event.target.value;
+												})
+											}
+										/>
+									</Labeled>
+									<Labeled label="Case type" path={["caseType"]}>
+										<Choice
+											value={state.automation.caseType}
+											onChange={(caseType) =>
+												edit((draft) => {
+													draft.caseType = caseType;
+													updateAutomationContextReferenceCaseTypes(
+														draft,
+														caseTypes,
+														caseType,
+													);
+												})
+											}
+											options={caseTypes.map((caseType) => [
+												caseType.name,
+												caseType.name,
+											])}
+										/>
+									</Labeled>
+									{state.kind === "new" && (
+										<Labeled label="Automation type">
+											<Choice
+												value={state.automation.kind}
+												onChange={(kind) =>
+													onChange(
+														kind === "case-update"
+															? newCaseUpdate(state.automation.caseType)
+															: newAlert(state.automation.caseType),
+													)
+												}
+												options={[
+													["case-update", "Automatic case update"],
+													["conditional-alert", "Conditional alert"],
+												]}
+											/>
+										</Labeled>
+									)}
+									<Labeled label="Match" path={["criteriaOperator"]}>
+										<Choice
+											value={state.automation.criteriaOperator}
+											onChange={(value) =>
+												edit((draft) => {
+													draft.criteriaOperator = value as "all" | "any";
+												})
+											}
+											options={[
+												["all", "All conditions"],
+												["any", "Any condition"],
+											]}
+										/>
+									</Labeled>
+								</fieldset>
+
+								<ConditionsEditor
+									automation={state.automation}
+									locations={locations}
+									onEdit={edit}
+								/>
+								<SetupOnlyEditor automation={state.automation} onEdit={edit} />
+								{state.automation.kind === "case-update" && (
+									<OptionalNumber
+										label="Only cases last changed on the server at least this many days ago"
+										value={state.automation.serverModifiedBoundaryDays}
+										onChange={(value) =>
+											edit((draft) => {
+												if (draft.kind !== "case-update") return;
+												if (value === undefined)
+													delete draft.serverModifiedBoundaryDays;
+												else draft.serverModifiedBoundaryDays = value;
+											})
+										}
+									/>
+								)}
+
+								{state.automation.kind === "case-update" ? (
+									<CaseUpdateEditor
+										automation={state.automation}
+										onEdit={edit}
+									/>
 								) : (
-									<Button
-										type="button"
-										variant="ghost-destructive"
+									<AlertEditor
+										automation={state.automation}
+										caseTypes={caseTypes}
+										forms={forms}
+										locations={locations}
+										levels={levels}
+										userProperties={userProperties}
+										onEdit={edit}
+									/>
+								)}
+
+								{canEdit && state.kind === "existing" && (
+									<fieldset
 										disabled={peerConflict}
-										onClick={() => setConfirmRemove(true)}
+										className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
 									>
-										<Icon icon={tablerTrash} aria-hidden="true" /> Remove
-										automation
-									</Button>
+										<legend className="sr-only">Remove automation</legend>
+										{confirmRemove ? (
+											<div
+												role="alert"
+												className="flex flex-wrap items-center justify-between gap-3"
+											>
+												<p className="text-[13px] text-nova-text">
+													Remove this Nova definition? A rule already set up in
+													CommCare HQ won't be removed.
+												</p>
+												<div className="flex gap-2">
+													<Button
+														type="button"
+														variant="ghost"
+														onClick={() => setConfirmRemove(false)}
+													>
+														Cancel
+													</Button>
+													<Button
+														type="button"
+														variant="destructive"
+														disabled={peerConflict}
+														onClick={remove}
+													>
+														Remove automation
+													</Button>
+												</div>
+											</div>
+										) : (
+											<Button
+												type="button"
+												variant="ghost-destructive"
+												disabled={peerConflict}
+												onClick={() => setConfirmRemove(true)}
+											>
+												<Icon icon={tablerTrash} aria-hidden="true" /> Remove
+												automation
+											</Button>
+										)}
+									</fieldset>
 								)}
 							</fieldset>
-						)}
-					</fieldset>
-				</DialogBody>
-				<DialogFooter className="flex-col items-stretch gap-3">
-					{(peerConflict || error !== undefined) && (
-						<p
-							id={refusalId}
-							role="alert"
-							className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
-								peerConflict
-									? "border-nova-amber/40 bg-nova-amber/[0.06]"
-									: "border-nova-red/40 bg-nova-red/[0.06]"
-							}`}
-						>
-							{peerConflict && (
-								<Icon
-									icon={tablerAlertTriangle}
-									className="mt-0.5 shrink-0"
-									aria-hidden="true"
-								/>
+						</DialogBody>
+						<DialogFooter className="flex-col items-stretch gap-3">
+							{(peerConflict || error !== undefined) && (
+								<p
+									id={refusalId}
+									role="alert"
+									className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
+										peerConflict
+											? "border-nova-amber/40 bg-nova-amber/[0.06]"
+											: "border-nova-red/40 bg-nova-red/[0.06]"
+									}`}
+								>
+									{peerConflict && (
+										<Icon
+											icon={tablerAlertTriangle}
+											className="mt-0.5 shrink-0"
+											aria-hidden="true"
+										/>
+									)}
+									{peerConflict
+										? "A co-editor changed or removed this automation. Close and reopen it before saving."
+										: error}
+								</p>
 							)}
-							{peerConflict
-								? "A co-editor changed or removed this automation. Close and reopen it before saving."
-								: error}
-						</p>
-					)}
-					<div className="flex justify-end gap-2">
-						<Button type="button" variant="outline" onClick={onClose}>
-							{canEdit ? "Cancel" : "Close"}
-						</Button>
-						{canEdit && (
-							<Button
-								type="button"
-								onClick={save}
-								disabled={peerConflict}
-								aria-invalid={error !== undefined || undefined}
-								aria-describedby={error !== undefined ? refusalId : undefined}
-							>
-								Save automation
-							</Button>
-						)}
-					</div>
-				</DialogFooter>
+							<div className="flex justify-end gap-2">
+								<Button type="button" variant="outline" onClick={onClose}>
+									{canEdit ? "Cancel" : "Close"}
+								</Button>
+								{canEdit && (
+									<Button
+										type="button"
+										onClick={save}
+										disabled={peerConflict}
+										aria-invalid={error !== undefined || undefined}
+										aria-describedby={
+											error !== undefined ? refusalId : undefined
+										}
+									>
+										Save automation
+									</Button>
+								)}
+							</div>
+						</DialogFooter>
+					</AutomationValidationContext.Provider>
+				</AutomationDraftErrorContext.Provider>
 			</DialogContent>
 		</Dialog>
 	);
@@ -920,18 +993,28 @@ function Labeled({
 	label,
 	hint,
 	error,
+	path,
 	children,
 }: {
 	label: string;
 	hint?: string;
 	error?: string;
+	path?: readonly PropertyKey[];
 	children: ReactNode;
 }) {
+	const issue = useContext(AutomationValidationContext);
+	const contextualError =
+		path !== undefined &&
+		issue !== undefined &&
+		pathStartsWith(issue.path, path)
+			? issue.message
+			: undefined;
+	const resolvedError = error ?? contextualError;
 	const id = useId();
 	const descriptionId = hint === undefined ? undefined : `${id}-description`;
-	const errorId = error === undefined ? undefined : `${id}-error`;
+	const errorId = resolvedError === undefined ? undefined : `${id}-error`;
 	return (
-		<Field data-invalid={error === undefined ? undefined : true}>
+		<Field data-invalid={resolvedError === undefined ? undefined : true}>
 			<FieldLabel htmlFor={id}>{label}</FieldLabel>
 			{cloneElement(
 				children as ReactElement<{
@@ -945,14 +1028,144 @@ function Labeled({
 					"aria-label": label,
 					"aria-describedby":
 						[descriptionId, errorId].filter(Boolean).join(" ") || undefined,
-					"aria-invalid": error === undefined ? undefined : true,
+					"aria-invalid": resolvedError === undefined ? undefined : true,
 				},
 			)}
 			{hint && <FieldDescription id={descriptionId}>{hint}</FieldDescription>}
 			<FieldError id={errorId} role="none">
-				{error}
+				{resolvedError}
 			</FieldError>
 		</Field>
+	);
+}
+
+function ValidationFieldset({
+	path,
+	label,
+	className,
+	children,
+}: {
+	path: readonly PropertyKey[];
+	label: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	const issue = useContext(AutomationValidationContext);
+	const error =
+		issue !== undefined && pathStartsWith(issue.path, path)
+			? issue.message
+			: undefined;
+	const errorId = useId();
+	return (
+		<fieldset
+			className={className}
+			aria-invalid={error === undefined ? undefined : true}
+			aria-describedby={error === undefined ? undefined : errorId}
+		>
+			<legend className="sr-only">{label}</legend>
+			{children}
+			{error !== undefined && (
+				<p
+					id={errorId}
+					role="none"
+					className="mt-2 text-[12px] leading-relaxed text-nova-red"
+				>
+					{error}
+				</p>
+			)}
+		</fieldset>
+	);
+}
+
+function parseReminderIntervalDraft(
+	value: string,
+):
+	| { readonly ok: true; readonly intervals: readonly number[] }
+	| { readonly ok: false } {
+	if (value.trim() === "") return { ok: true, intervals: [] };
+	const parts = value.split(",");
+	const intervals: number[] = [];
+	for (const [index, part] of parts.entries()) {
+		const token = part.trim();
+		if (token === "" && index === parts.length - 1) continue;
+		if (!/^[1-9]\d*$/.test(token)) return { ok: false };
+		const interval = Number(token);
+		if (!Number.isSafeInteger(interval)) return { ok: false };
+		intervals.push(interval);
+	}
+	return intervals.length <= 100 ? { ok: true, intervals } : { ok: false };
+}
+
+function ReminderIntervalsEditor({
+	value,
+	path,
+	hint,
+	onChange,
+}: {
+	value: readonly number[];
+	path: readonly PropertyKey[];
+	hint: string;
+	onChange: (value: readonly number[]) => void;
+}) {
+	const reportDraftError = useContext(AutomationDraftErrorContext);
+	const key = `reminder-intervals-${path.join("-")}`;
+	const canonical = value.join(", ");
+	const [draft, setDraft] = useState(canonical);
+	const [editing, setEditing] = useState(false);
+	const [draftError, setDraftError] = useState<string>();
+	const report = (message: string | undefined) => {
+		setDraftError(message);
+		reportDraftError(
+			key,
+			message === undefined ? undefined : { message, path },
+		);
+	};
+
+	useEffect(() => {
+		if (!editing) setDraft(canonical);
+	}, [canonical, editing]);
+	useEffect(
+		() => () => {
+			reportDraftError(key, undefined);
+		},
+		[key, reportDraftError],
+	);
+
+	const updateDraft = (next: string) => {
+		setDraft(next);
+		const parsed = parseReminderIntervalDraft(next);
+		if (!parsed.ok) {
+			report("Use up to 100 positive whole minutes separated by commas.");
+			return;
+		}
+		report(undefined);
+		onChange(parsed.intervals);
+	};
+	const finishEditing = () => {
+		const parsed = parseReminderIntervalDraft(draft);
+		if (parsed.ok) setDraft(parsed.intervals.join(", "));
+		setEditing(false);
+	};
+
+	return (
+		<Labeled
+			label="Reminder intervals in minutes"
+			hint={hint}
+			error={draftError}
+		>
+			<Input
+				inputMode="decimal"
+				value={draft}
+				onFocus={() => setEditing(true)}
+				onChange={(event) => updateDraft(event.target.value)}
+				onBlur={finishEditing}
+				onKeyDown={(event) => {
+					if (event.key !== "Enter") return;
+					event.preventDefault();
+					event.currentTarget.blur();
+				}}
+			/>
+		</Labeled>
 	);
 }
 
@@ -1502,8 +1715,10 @@ function ConditionsEditor({
 			}
 		>
 			{automation.criteria.map((criterion, index) => (
-				<div
+				<ValidationFieldset
 					key={criterion.uuid}
+					path={["criteria", index]}
+					label={`Condition ${index + 1}`}
 					className="rounded-lg border border-nova-border bg-black/10 p-3"
 				>
 					<div className="grid gap-3 @md:grid-cols-2">
@@ -1773,7 +1988,7 @@ function ConditionsEditor({
 							}
 						/>
 					</div>
-				</div>
+				</ValidationFieldset>
 			))}
 			<div className="flex flex-wrap gap-2">
 				<Button
@@ -1824,8 +2039,10 @@ function SetupOnlyEditor({
 			description="Choose the exact HQ-only condition family and preserve its setup note. Nova names it as omitted from the current-match count and generates the required access guidance."
 		>
 			{automation.setupOnlyCriteria.map((criterion, index) => (
-				<div
+				<ValidationFieldset
 					key={criterion.uuid}
+					path={["setupOnlyCriteria", index]}
+					label={`HQ-only condition ${index + 1}`}
 					className="grid gap-3 rounded-lg border border-nova-border bg-black/10 p-3 @md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
 				>
 					<Labeled label={`Condition ${index + 1} type`}>
@@ -1874,7 +2091,7 @@ function SetupOnlyEditor({
 							)
 						}
 					/>
-				</div>
+				</ValidationFieldset>
 			))}
 			<Button
 				ref={rowFocus.addRef}
@@ -1920,8 +2137,10 @@ function CaseUpdateEditor({
 				label="Close the matching case"
 			/>
 			{automation.updates.map((update, index) => (
-				<div
+				<ValidationFieldset
 					key={update.uuid}
+					path={["updates", index]}
+					label={`Case change ${index + 1}`}
 					className="rounded-lg border border-nova-border bg-black/10 p-3"
 				>
 					<div className="grid gap-3 @md:grid-cols-2">
@@ -2052,7 +2271,7 @@ function CaseUpdateEditor({
 							)
 						}
 					/>
-				</div>
+				</ValidationFieldset>
 			))}
 			<Button
 				ref={rowFocus.addRef}
@@ -2421,8 +2640,10 @@ function AlertEditor({
 		<div className="flex flex-col gap-6">
 			<Section title="Recipients">
 				{automation.recipients.map((recipient, index) => (
-					<div
+					<ValidationFieldset
 						key={recipient.uuid}
+						path={["recipients", index]}
+						label={`Recipient ${index + 1}`}
 						className="rounded-lg border border-nova-border bg-black/10 p-3"
 					>
 						<div className="grid gap-3 @md:grid-cols-2">
@@ -2569,7 +2790,7 @@ function AlertEditor({
 								)
 							}
 						/>
-					</div>
+					</ValidationFieldset>
 				))}
 				<Button
 					ref={recipientFocus.addRef}
@@ -2671,8 +2892,10 @@ function AlertEditor({
 					label="Read filters from user cases"
 				/>
 				{automation.userDataFilters.map((filter, index) => (
-					<div
+					<ValidationFieldset
 						key={filter.uuid}
+						path={["userDataFilters", index]}
+						label={`Recipient filter ${index + 1}`}
 						className="grid gap-3 rounded-lg border border-nova-border bg-black/10 p-3 @md:grid-cols-2"
 					>
 						<Labeled label="Worker information">
@@ -2717,7 +2940,7 @@ function AlertEditor({
 								)
 							}
 						/>
-					</div>
+					</ValidationFieldset>
 				))}
 				<Button
 					ref={filterFocus.addRef}
@@ -2899,7 +3122,7 @@ function ScheduleEditor({
 		});
 	return (
 		<Section title="Schedule">
-			<Labeled label="Schedule type">
+			<Labeled label="Schedule type" path={["schedule", "kind"]}>
 				<Choice
 					value={schedule.kind}
 					onChange={(kind) => setSchedule(kind as AutomationSchedule["kind"])}
@@ -2963,6 +3186,7 @@ function ScheduleEditor({
 					</Labeled>
 					<Labeled
 						label={`Repeat every ${timedSetupForm === "monthly" ? "months" : timedSetupForm === "weekly" ? "weeks" : "days"}`}
+						path={["schedule", "repeatEvery"]}
 						hint={
 							schedule.totalIterations === 1
 								? "CommCare HQ derives this value when Repeat is off"
@@ -2996,7 +3220,11 @@ function ScheduleEditor({
 							}
 						/>
 					</Labeled>
-					<Labeled label="Total iterations" hint="Use -1 for indefinitely">
+					<Labeled
+						label="Total iterations"
+						path={["schedule", "totalIterations"]}
+						hint="Use -1 for indefinitely"
+					>
 						<Input
 							type="number"
 							value={schedule.totalIterations}
@@ -3022,7 +3250,10 @@ function ScheduleEditor({
 					</Labeled>
 					{timedSetupForm === "custom-daily" &&
 						schedule.start.kind !== "specific-date" && (
-							<Labeled label="Start offset in days">
+							<Labeled
+								label="Start offset in days"
+								path={["schedule", "startOffsetDays"]}
+							>
 								<Input
 									type="number"
 									min={schedule.start.kind === "rule-trigger" ? 0 : undefined}
@@ -3043,7 +3274,10 @@ function ScheduleEditor({
 						)}
 					{timedSetupForm === "weekly" &&
 						schedule.start.kind !== "specific-date" && (
-							<Labeled label="Start weekday">
+							<Labeled
+								label="Start weekday"
+								path={["schedule", "startDayOfWeek"]}
+							>
 								<Choice
 									value={String(schedule.startDayOfWeek)}
 									onChange={(value) =>
@@ -3068,7 +3302,7 @@ function ScheduleEditor({
 								/>
 							</Labeled>
 						)}
-					<Labeled label="Start from">
+					<Labeled label="Start from" path={["schedule", "start"]}>
 						<Choice
 							value={schedule.start.kind}
 							onChange={(kind) =>
@@ -3112,6 +3346,7 @@ function ScheduleEditor({
 					{schedule.start.kind === "case-property" && (
 						<Labeled
 							label="Start date property"
+							path={["schedule", "start", "property"]}
 							hint="Use the Nova name; setup guidance translates standard date names for HQ"
 						>
 							<Input
@@ -3130,7 +3365,7 @@ function ScheduleEditor({
 						</Labeled>
 					)}
 					{schedule.start.kind === "specific-date" && (
-						<Labeled label="Start date">
+						<Labeled label="Start date" path={["schedule", "start", "date"]}>
 							<DatePicker
 								value={schedule.start.date}
 								clearable={false}
@@ -3191,32 +3426,37 @@ function ScheduleEditor({
 				</div>
 			)}
 			{schedule.events.map((event, index) => (
-				<EventEditor
+				<ValidationFieldset
 					key={event.uuid}
-					event={event}
-					automationCaseType={automation.caseType}
-					caseTypes={caseTypes}
-					index={index}
-					eventDays={schedule.events.map((item) => ({
-						uuid: item.uuid,
-						day: "day" in item ? item.day : 0,
-					}))}
-					scheduleKind={schedule.kind}
-					timedSetupForm={timedSetupForm}
-					startDayOfWeek={
-						schedule.kind === "timed" ? schedule.startDayOfWeek : undefined
-					}
-					repeatEvery={
-						schedule.kind === "timed" ? schedule.repeatEvery : undefined
-					}
-					repeatIsDerived={
-						schedule.kind === "timed" && schedule.totalIterations === 1
-					}
-					forms={forms}
-					removeButtonRef={eventFocus.removeButtonRef(event.uuid)}
-					onRemove={() => removeEvent(index)}
-					onEdit={onEdit}
-				/>
+					path={["schedule", "events", index]}
+					label={`Schedule event ${index + 1}`}
+				>
+					<EventEditor
+						event={event}
+						automationCaseType={automation.caseType}
+						caseTypes={caseTypes}
+						index={index}
+						eventDays={schedule.events.map((item) => ({
+							uuid: item.uuid,
+							day: "day" in item ? item.day : 0,
+						}))}
+						scheduleKind={schedule.kind}
+						timedSetupForm={timedSetupForm}
+						startDayOfWeek={
+							schedule.kind === "timed" ? schedule.startDayOfWeek : undefined
+						}
+						repeatEvery={
+							schedule.kind === "timed" ? schedule.repeatEvery : undefined
+						}
+						repeatIsDerived={
+							schedule.kind === "timed" && schedule.totalIterations === 1
+						}
+						forms={forms}
+						removeButtonRef={eventFocus.removeButtonRef(event.uuid)}
+						onRemove={() => removeEvent(index)}
+						onEdit={onEdit}
+					/>
+				</ValidationFieldset>
 			))}
 			<Button
 				ref={eventFocus.addRef}
@@ -3711,27 +3951,28 @@ function EventEditor({
 					</Labeled>
 				)}
 				{"reminderIntervalsMinutes" in content && (
-					<Labeled
-						label="Reminder intervals in minutes"
+					<ReminderIntervalsEditor
+						value={content.reminderIntervalsMinutes}
+						path={[
+							"schedule",
+							"events",
+							index,
+							"content",
+							"reminderIntervalsMinutes",
+						]}
 						hint={
 							"expirationHours" in content
 								? "Comma separated; their total must be shorter than the survey expiration"
 								: "Comma separated; leave blank for none"
 						}
-					>
-						<Input
-							value={content.reminderIntervalsMinutes.join(", ")}
-							onChange={(change) =>
-								updateContent((item) => {
-									if (!("reminderIntervalsMinutes" in item)) return;
-									item.reminderIntervalsMinutes = change.target.value
-										.split(",")
-										.map(Number)
-										.filter((value) => Number.isInteger(value) && value > 0);
-								})
-							}
-						/>
-					</Labeled>
+						onChange={(intervals) =>
+							updateContent((item) => {
+								if ("reminderIntervalsMinutes" in item) {
+									item.reminderIntervalsMinutes = [...intervals];
+								}
+							})
+						}
+					/>
 				)}
 				{"submitPartiallyCompletedForms" in content && (
 					<>

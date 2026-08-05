@@ -1940,7 +1940,10 @@ function diffAutomationItems(
 		);
 	}
 	for (const move of sequenceMovesTo(
-		before.map((item) => item.uuid),
+		arrivalsProjected(
+			before.map((item) => item.uuid),
+			after.map((item) => item.uuid),
+		),
 		after.map((item) => item.uuid),
 	)) {
 		out.push(
@@ -2125,7 +2128,7 @@ function diffAutomationCollections(
 		}
 	}
 	for (const move of sequenceMovesTo(
-		prev.automationOrder ?? [],
+		arrivalsProjected(prev.automationOrder ?? [], next.automationOrder ?? []),
 		next.automationOrder ?? [],
 	)) {
 		out.push({ kind: "moveAutomation", uuid: move.uuid, after: move.after });

@@ -225,9 +225,13 @@ removes it, Save and Remove both refuse with a visible conflict and keep the
 person's local work for comparison. The portalized dialog establishes its own
 container for every `@md` layout; App setup's outer container does not cross the
 portal boundary. Gate findings stay in persistent footer chrome while the body
-scrolls, the responsible field carries `aria-invalid` plus its described error,
-and
-removal uses an explicit confirmation. Viewers receive the same expanded readable rule,
+scrolls, and the responsible control or repeated-row fieldset carries
+`aria-invalid` plus its described error; the footer remains the sole alert so a
+refusal is announced once. Comma-separated reminder intervals keep their
+in-progress text locally while focused, report invalid text into that same
+refusal path, and project only positive whole-minute lists into the canonical
+automation; blur or Enter canonicalizes a valid list. Removal uses an explicit
+confirmation. Viewers receive the same expanded readable rule,
 current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides

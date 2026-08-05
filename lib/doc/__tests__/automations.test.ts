@@ -17,6 +17,38 @@ const CONDITION_ONE = testUuid("doc-automation-condition-one");
 const CONDITION_TWO = testUuid("doc-automation-condition-two");
 const UPDATE_UUID = testUuid("doc-automation-update");
 
+function alert(uuid: ReturnType<typeof testUuid>, suffix: string): Automation {
+	return {
+		uuid,
+		kind: "conditional-alert",
+		name: `Visit reminder ${suffix}`,
+		caseType: "visit",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		recipients: [
+			{ uuid: testUuid(`doc-alert-recipient-${suffix}`), kind: "owner" },
+		],
+		schedule: {
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid(`doc-alert-event-${suffix}`),
+					minutesToWait: 5,
+					content: {
+						kind: "sms",
+						message: automationMessageText(`Visit due ${suffix}`),
+					},
+				},
+			],
+		},
+		includeDescendantLocations: false,
+		locationLevelUuids: [],
+		userDataFilters: [],
+		useUserCaseForFilter: false,
+	};
+}
+
 function rule(): Automation {
 	return {
 		uuid: AUTOMATION_UUID,
@@ -148,6 +180,134 @@ describe("automation mutation replay", () => {
 		expect(mutations.map((mutation) => mutation.kind)).toContain(
 			"editAutomationItem",
 		);
+		expect(toPersistableDoc(replayWire(prev, next))).toEqual(
+			toPersistableDoc(next),
+		);
+	});
+
+	it("replays mixed additions and reorders in criterion, recipient, and event sequences", () => {
+		const prev = docWithRule();
+		const alertUuid = testUuid("doc-mixed-alert");
+		const criterionA = testUuid("doc-mixed-criterion-a");
+		const criterionB = testUuid("doc-mixed-criterion-b");
+		const criterionC = testUuid("doc-mixed-criterion-c");
+		const recipientA = testUuid("doc-mixed-recipient-a");
+		const recipientB = testUuid("doc-mixed-recipient-b");
+		const recipientC = testUuid("doc-mixed-recipient-c");
+		const eventA = testUuid("doc-mixed-event-a");
+		const eventB = testUuid("doc-mixed-event-b");
+		const eventC = testUuid("doc-mixed-event-c");
+		const automation = alert(alertUuid, "mixed");
+		if (automation.kind !== "conditional-alert") throw new Error("alert");
+		automation.criteria = [criterionA, criterionB].map((uuid, index) => ({
+			uuid,
+			kind: "match-property" as const,
+			scope: "case" as const,
+			property: `status_${index}`,
+			matchType: "has-value" as const,
+		}));
+		automation.recipients = [
+			{ uuid: recipientA, kind: "owner" },
+			{ uuid: recipientB, kind: "last-submitting-user" },
+		];
+		automation.schedule.events = [eventA, eventB].map((uuid, index) => ({
+			uuid,
+			minutesToWait: 5,
+			content: {
+				kind: "sms" as const,
+				message: automationMessageText(`Message ${index}`),
+			},
+		}));
+		prev.automations = { [alertUuid]: automation };
+		prev.automationOrder = [alertUuid];
+
+		const next = produce(prev, (draft) => {
+			const saved = draft.automations?.[alertUuid];
+			if (saved?.kind !== "conditional-alert") throw new Error("missing alert");
+			if (saved.schedule.kind !== "immediate")
+				throw new Error("missing immediate schedule");
+			saved.criteria = [
+				saved.criteria[1],
+				{
+					uuid: criterionC,
+					kind: "match-property",
+					scope: "case",
+					property: "status_2",
+					matchType: "has-value",
+				},
+				saved.criteria[0],
+			];
+			saved.recipients = [
+				saved.recipients[1],
+				{ uuid: recipientC, kind: "mobile-worker", hqId: "worker-1" },
+				saved.recipients[0],
+			];
+			saved.schedule.events = [
+				saved.schedule.events[1],
+				{
+					uuid: eventC,
+					minutesToWait: 5,
+					content: {
+						kind: "sms",
+						message: automationMessageText("Message 2"),
+					},
+				},
+				saved.schedule.events[0],
+			];
+		});
+
+		expect(toPersistableDoc(replayWire(prev, next))).toEqual(
+			toPersistableDoc(next),
+		);
+	});
+
+	it("replays a mixed addition and reorder of case updates", () => {
+		const prev = docWithRule();
+		const updateB = testUuid("doc-mixed-update-b");
+		const updateC = testUuid("doc-mixed-update-c");
+		const currentRule = prev.automations?.[AUTOMATION_UUID];
+		if (currentRule?.kind !== "case-update") throw new Error("missing rule");
+		currentRule.updates.push({
+			uuid: updateB,
+			target: { scope: "case", property: "priority" },
+			value: { kind: "literal", value: "1" },
+		});
+		const next = produce(prev, (draft) => {
+			const automation = draft.automations?.[AUTOMATION_UUID];
+			if (automation?.kind !== "case-update") throw new Error("missing rule");
+			automation.updates = [
+				automation.updates[1],
+				{
+					uuid: updateC,
+					target: { scope: "case", property: "completed" },
+					value: { kind: "literal", value: "yes" },
+				},
+				automation.updates[0],
+			];
+		});
+
+		expect(toPersistableDoc(replayWire(prev, next))).toEqual(
+			toPersistableDoc(next),
+		);
+	});
+
+	it("replays a mixed addition and reorder of top-level automations", () => {
+		const prev = docWithRule();
+		const alertB = testUuid("doc-order-alert-b");
+		const alertC = testUuid("doc-order-alert-c");
+		prev.automations = {
+			...prev.automations,
+			[alertB]: alert(alertB, "B"),
+		};
+		prev.automationOrder = [AUTOMATION_UUID, alertB];
+		const next = produce(prev, (draft) => {
+			draft.automations = {
+				...draft.automations,
+				[alertC]: alert(alertC, "C"),
+			};
+			draft.automationOrder = [alertB, alertC, AUTOMATION_UUID];
+		});
+
 		expect(toPersistableDoc(replayWire(prev, next))).toEqual(
 			toPersistableDoc(next),
 		);

@@ -845,6 +845,11 @@ describe("AutomationsSection", () => {
 		expect(screen.getByRole("alert").textContent).toContain(
 			"recipient ID must be nonblank",
 		);
+		expect(
+			screen
+				.getByRole("group", { name: "Recipient 1" })
+				.getAttribute("aria-invalid"),
+		).toBe("true");
 		expect(mocks.addAutomation).not.toHaveBeenCalled();
 
 		fireEvent.change(hqId, { target: { value: "worker-1" } });
@@ -952,6 +957,79 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 		expect(screen.getByRole("alert").textContent).toContain(
 			"Reminder intervals must add up to less than the survey expiration window.",
+		);
+		const eventGroup = screen.getByRole("group", {
+			name: "Schedule event 1",
+		});
+		expect(eventGroup.getAttribute("aria-invalid")).toBe("true");
+		const eventErrorId = eventGroup.getAttribute("aria-describedby");
+		expect(eventErrorId).not.toBeNull();
+		expect(document.getElementById(eventErrorId ?? "")?.textContent).toContain(
+			"Reminder intervals must add up to less than the survey expiration window.",
+		);
+		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
+	});
+
+	it("preserves a comma while typing reminder intervals and commits the list", async () => {
+		mocks.automations = [surveyAlert];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Survey follow-up/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const input = screen.getByRole("textbox", {
+			name: "Reminder intervals in minutes",
+		});
+		focusElement(input);
+		let typed = "";
+		for (const character of "5, 10") {
+			fireEvent.keyDown(input, { key: character });
+			typed += character;
+			fireEvent.input(input, {
+				target: { value: typed },
+				inputType: "insertText",
+				data: character,
+			});
+			fireEvent.keyUp(input, { key: character });
+			expect(input.getAttribute("value")).toBe(typed);
+		}
+		fireEvent.blur(input);
+		expect(input.getAttribute("value")).toBe("5, 10");
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					events: [
+						expect.objectContaining({
+							content: expect.objectContaining({
+								reminderIntervalsMinutes: [5, 10],
+							}),
+						}),
+					],
+				}),
+			}),
+			JSON.stringify(surveyAlert),
+		);
+	});
+
+	it("refuses an invalid reminder text draft without mutating the definition", async () => {
+		mocks.automations = [surveyAlert];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Survey follow-up/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const input = screen.getByRole("textbox", {
+			name: "Reminder intervals in minutes",
+		});
+		fireEvent.input(input, { target: { value: "5, nope" } });
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Use up to 100 positive whole minutes separated by commas.",
 		);
 		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
 	});
@@ -1346,10 +1424,10 @@ describe("AutomationsSection", () => {
 			"Close resolved visits",
 		);
 		expect(
-			screen.getByDisplayValue("state").closest("fieldset"),
+			screen.getByDisplayValue("state").closest("fieldset[disabled]"),
 		).toHaveProperty("disabled", true);
 		expect(
-			screen.getByDisplayValue("resolved").closest("fieldset"),
+			screen.getByDisplayValue("resolved").closest("fieldset[disabled]"),
 		).toHaveProperty("disabled", true);
 		expect(
 			screen
