@@ -1135,6 +1135,31 @@ function archiveBlockingOwnerRuleForms(
 		.sort((left, right) => left.uuid.localeCompare(right.uuid));
 }
 
+function archiveBlockingAutomations(
+	doc: BlueprintDoc,
+	locationIds: ReadonlySet<string>,
+): readonly { readonly uuid: string; readonly name: string }[] {
+	const blocked: Array<{ uuid: string; name: string }> = [];
+	for (const automation of Object.values(doc.automations ?? {})) {
+		const criterionReference = automation.criteria.some(
+			(criterion) =>
+				criterion.kind === "location" &&
+				locationIds.has(criterion.locationUuid),
+		);
+		const recipientReference =
+			automation.kind === "conditional-alert" &&
+			automation.recipients.some(
+				(recipient) =>
+					recipient.kind === "location" &&
+					locationIds.has(recipient.locationUuid),
+			);
+		if (criterionReference || recipientReference) {
+			blocked.push({ uuid: automation.uuid, name: automation.name });
+		}
+	}
+	return blocked.sort((left, right) => left.uuid.localeCompare(right.uuid));
+}
+
 const ARCHIVE_IMPACT_PREVIEW_LIMIT = 10;
 
 function archiveImpactPreviewText(value: string): string {
@@ -1160,6 +1185,7 @@ async function buildArchivePlan(
 	readonly mutations: readonly Mutation[];
 	readonly personaNames: readonly string[];
 	readonly blockingFormNames: readonly string[];
+	readonly blockingAutomationNames: readonly string[];
 }> {
 	const locationIds = [...args.locationIds].sort();
 	const planned = planPersonaUnassignment(args.doc, new Set(locationIds));
@@ -1174,6 +1200,10 @@ async function buildArchivePlan(
 		args.rows,
 		new Set(locationIds),
 	);
+	const blockingAutomations = archiveBlockingAutomations(
+		candidateDoc,
+		new Set(locationIds),
+	);
 	const ownedCases = await countCasesOwnedBy(tx, args.appId, locationIds);
 	const confirmationToken = createHash("sha256")
 		.update(
@@ -1183,6 +1213,9 @@ async function buildArchivePlan(
 				personas: planned.fingerprintRows,
 				ownedCases,
 				blockingFormUuids: blockingForms.map((form) => form.uuid),
+				blockingAutomationUuids: blockingAutomations.map(
+					(automation) => automation.uuid,
+				),
 			}),
 		)
 		.digest("hex");
@@ -1191,6 +1224,9 @@ async function buildArchivePlan(
 	);
 	const blockingFormNames = blockingForms
 		.map((form) => form.name)
+		.sort((left, right) => left.localeCompare(right));
+	const blockingAutomationNames = blockingAutomations
+		.map((automation) => automation.name)
 		.sort((left, right) => left.localeCompare(right));
 	return {
 		impact: {
@@ -1206,10 +1242,15 @@ async function buildArchivePlan(
 			blockingOwnerRuleFormPreview: blockingFormNames
 				.slice(0, ARCHIVE_IMPACT_PREVIEW_LIMIT)
 				.map(archiveImpactPreviewText),
+			blockingAutomationCount: blockingAutomationNames.length,
+			blockingAutomationPreview: blockingAutomationNames
+				.slice(0, ARCHIVE_IMPACT_PREVIEW_LIMIT)
+				.map(archiveImpactPreviewText),
 		},
 		mutations: planned.mutations,
 		personaNames,
 		blockingFormNames,
+		blockingAutomationNames,
 	};
 }
 
@@ -1340,6 +1381,13 @@ export async function setLocationArchived(
 					throw new OrganizationError(
 						"rejected",
 						`Archiving this place would break a case-owner rule in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
+					);
+				}
+				if (archivePlan.blockingAutomationNames.length > 0) {
+					const blocked = archivePlan.blockingAutomationNames;
+					throw new OrganizationError(
+						"rejected",
+						`Archiving this place would break ${blocked.length === 1 ? `the automation “${blocked[0]}”` : `these automations: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that automation" : "those automations"} before archiving it.`,
 					);
 				}
 			}

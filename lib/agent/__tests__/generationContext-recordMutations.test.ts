@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
+import type { RecordMutationsOptions } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import {
@@ -127,10 +128,12 @@ function recordProposal(
 	mutations: unknown,
 	doc: ReturnType<typeof makeMinimalDoc>,
 	stage?: string,
+	options?: RecordMutationsOptions,
 ) {
 	return ctx.recordMutations(
 		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
 		stage,
+		options,
 	);
 }
 
@@ -188,6 +191,16 @@ describe("GenerationContext.recordMutations", () => {
 		});
 		// A fresh uuid batchId per commit.
 		expect(args?.batchId).toEqual(expect.any(String));
+	});
+
+	it("forwards an external organization read-set fence to the guarded writer", async () => {
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC, "automations", {
+			expectedOrganizationRevision: "17",
+		});
+
+		expect(vi.mocked(commitGuardedBatch).mock.calls[0]?.[0]).toMatchObject({
+			expectedOrganizationRevision: "17",
+		});
 	});
 
 	it("derives edit holder authority from editLease instead of the attribution id alone", async () => {

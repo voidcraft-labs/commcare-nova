@@ -21,6 +21,7 @@ import {
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
+import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { ORGANIZATION_RULES } from "./organization";
 import { USER_RULES } from "./users";
@@ -63,7 +64,7 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"BLUEPRINT_ENTITY_UUID_DUPLICATE",
 					"app",
-					`Two authored app objects share the stable identity "${uuid}" (${kinds}). Give every module, form, field, select option, case-list column, Search input, case operation, worker-information property, role, and persona its own identity.`,
+					`Two authored app objects share the stable identity "${uuid}" (${kinds}). Give every module, form, field, select option, case-list column, Search input, case operation, worker-information property, role, persona, automation, and automation child its own identity.`,
 					{},
 					{ entityUuid: uuid, entityKind: member.kind },
 				),
@@ -517,4 +518,5 @@ export const APP_RULES = [
 	// of the three belongs to a module or a form.
 	...USER_RULES,
 	...ORGANIZATION_RULES,
+	...AUTOMATION_RULES,
 ];

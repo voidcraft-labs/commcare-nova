@@ -24,11 +24,13 @@ scripts/*
 scripts/infra/*
 !scripts/infra/apply-media-bucket-policy.ts
 !scripts/migrate-case-type-schema-retirement.ts
+!scripts/migrate-case-parent-relationships.ts
 !scripts/migrate-schema-drift.ts
 !scripts/infra/databaseOwnerBootstrap.ts
 !scripts/lib/
 scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
+!scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts

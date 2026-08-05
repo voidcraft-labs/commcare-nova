@@ -91,7 +91,10 @@ the case-operation program from the COMMITTED doc
 (`buildSubmissionOperationProgram`: the shared `lib/doc/caseOperationOrder.ts`
 analyses + `buildCaseTypeMap` + the
 identity's session values, `ordinary.caseType` populated for the rolling
-proof). That same authorized boundary retains the `LookupScope`, projects the
+proof). Even when the form has no advanced operations, that build projects each
+ordinary child's committed case-type relationship; the client never asserts
+`child` versus `extension`, and the envelope persists the same `parent` index
+relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation
 UUIDs, and loads one rows-free definition snapshot only when those operations
 actually carry lookup references. The resulting `lookupTableSchemas` map is

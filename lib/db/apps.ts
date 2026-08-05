@@ -42,6 +42,8 @@ import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
+import { parseOrganizationRevision } from "@/lib/organization/schema";
+import type { OrganizationRevision } from "@/lib/organization/types";
 import {
 	nextPersistedSequence,
 	safePersistedSequence,
@@ -1162,6 +1164,12 @@ export interface CommitGuardedBatchArgs {
 	 * authorization below always runs transactionally.
 	 */
 	readonly expectedProjectId: string;
+	/**
+	 * Optional read-set fence for a tool result derived from organization rows.
+	 * Checked after the app lock and before a fresh write; dedup replays return
+	 * their prior success regardless of later organization changes.
+	 */
+	readonly expectedOrganizationRevision?: OrganizationRevision;
 }
 
 /** Outcome of {@link commitGuardedBatch}. */
@@ -1333,6 +1341,25 @@ export async function commitGuardedBatch(
 				committedDoc: dedupedDoc,
 				deduped: true,
 			};
+		}
+		if (args.expectedOrganizationRevision !== undefined) {
+			const organizationState = await tx
+				.selectFrom("app_organization_state")
+				.select("revision")
+				.where("app_id", "=", appId)
+				.executeTakeFirst();
+			const currentOrganizationRevision =
+				organizationState === undefined
+					? "0"
+					: parseOrganizationRevision(organizationState.revision);
+			const expectedOrganizationRevision = parseOrganizationRevision(
+				args.expectedOrganizationRevision,
+			);
+			if (currentOrganizationRevision !== expectedOrganizationRevision) {
+				throw new BlueprintCommitRejectedError(
+					"This app's places changed while the automation was being saved. Retry the automation change so its CommCare HQ setup guide uses the current organization.",
+				);
+			}
 		}
 		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 		const freshDoc = freshSnapshot.doc;

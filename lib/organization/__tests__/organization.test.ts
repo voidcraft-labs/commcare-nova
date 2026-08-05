@@ -15,6 +15,7 @@ import {
 	setPersonaLocationsMutations,
 } from "@/lib/doc/organizationMutations";
 import {
+	automationMessageText,
 	type BlueprintDoc,
 	levelMayNestUnder,
 	locationPropertySchema,
@@ -455,6 +456,53 @@ describe("removeOrganizationLevelPlan", () => {
 			userMessage: expect.stringMatching(/applies only to "Region"/),
 		});
 	});
+
+	it("refuses to remove a level used by an automation recipient filter", () => {
+		const region = asUuid("11111111-1111-4111-8111-111111111111");
+		const automationUuid = asUuid("33333333-3333-4333-8333-333333333333");
+		const recipientUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const eventUuid = asUuid("55555555-5555-4555-8555-555555555555");
+		const locationUuid = asUuid("66666666-6666-4666-8666-666666666666");
+		const doc = docWithPersonas([]);
+		doc.organizationLevels = { [region]: level(region, "Region") };
+		doc.organizationLevelOrder = [region];
+		doc.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "conditional-alert",
+				name: "Regional reminder",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				recipients: [{ uuid: recipientUuid, kind: "location", locationUuid }],
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: eventUuid,
+							minutesToWait: 0,
+							content: {
+								kind: "sms",
+								message: automationMessageText("Follow up"),
+							},
+						},
+					],
+				},
+				includeDescendantLocations: true,
+				locationLevelUuids: [region],
+				userDataFilters: [],
+				useUserCaseForFilter: false,
+			},
+		};
+		doc.automationOrder = [automationUuid];
+
+		expect(removeOrganizationLevelPlan(doc, region)).toEqual({
+			ok: false,
+			userMessage:
+				'Automation "Regional reminder" uses "Region" as a recipient location level. Change that automation first, then remove the level.',
+		});
+	});
 });
 
 describe("planPersonaUnassignment", () => {
@@ -688,6 +736,36 @@ describe("extractLocationReferenceTargets", () => {
 					caseOperations: [{ owner: term(fixedLocation(locationUuid)) }],
 				},
 			},
+		} as unknown as BlueprintDoc;
+		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
+	});
+
+	it("includes automation location conditions in the same exact edge set", () => {
+		const locationUuid = asUuid("loc-automation-condition");
+		const automationUuid = asUuid("automation-location-condition");
+		const doc = {
+			...docWithPersonas([]),
+			automations: {
+				[automationUuid]: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Location cleanup",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [
+						{
+							uuid: asUuid("automation-location-criterion"),
+							kind: "location",
+							locationUuid,
+							includeDescendants: true,
+						},
+					],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+			automationOrder: [automationUuid],
 		} as unknown as BlueprintDoc;
 		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
 	});

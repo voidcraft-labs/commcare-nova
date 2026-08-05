@@ -23,10 +23,11 @@ reconciles these permanent identities:
   only the build-time secrets used by `cloudbuild.yaml`.
 - `nova-migrate` connects as the migration database owner and runs the Kysely,
   Better Auth, and Nova auth migrations plus privilege convergence. It also
-  owns the separately configured one-off case-type-retirement Job: Cloud Build
-  pins that Job to the exact image only after the service deploy, but never
-  executes it. Its stored args are dry-run only. After old-revision requests
-  drain, an operator uses `deploy-cloud-run.py --execute-job
+  owns the separately configured one-off case-type-retirement and
+  case-parent-relationship-repair Jobs: Cloud Build pins both Jobs to the exact
+  image only after the service deploy, but never executes either. Their stored
+  args are dry-run only. After old-revision requests drain, an operator uses
+  `deploy-cloud-run.py --execute-job
   --service=commcare-nova` with explicit writer args; that path applies the
   same service-image, Job-generation, authority/template, etag, effective-args,
   Execution-image, and task-success proofs as deployment Jobs.

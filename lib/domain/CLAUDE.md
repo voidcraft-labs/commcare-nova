@@ -17,9 +17,140 @@ range, never a bare `z.number()`.
 
 An app is UUID-keyed records (`modules` / `forms` / `fields`) plus membership arrays (`moduleOrder` / `formOrder` / `fieldOrder`) — not a nested tree.
 
-Sequence is plain array position. Position belongs to the collection, so entities and nested members carry no parallel `order` key. Every stored ENTITY has a required UUID (modules, forms, fields, user properties, user types, personas, organization levels, and location properties, plus case-list columns, Search inputs, case operations, and inline select options); nested members that are not entities — case-operation writes and links, catalog properties and their options, ID/image mapping rows — are identified by position and their own keys instead. Hydration restores only derived indexes/prototypes and never invents identity or repairs sequence.
+Sequence is plain array position. Position belongs to the collection, so entities and nested members carry no parallel `order` key. Every stored ENTITY has a required UUID (modules, forms, fields, user properties, user types, personas, organization levels, location properties, and automations, plus case-list columns, Search inputs, case operations, inline select options, and every addressable automation child); nested members that are not entities, such as case-operation writes and links, catalog properties and their options, and ID/image mapping rows, are identified by position and their own keys instead. Hydration restores only derived indexes/prototypes and never invents identity or repairs sequence.
 
-**A membership array IS the sequence.** `formOrder` is keyed by module and `fieldOrder` by form-or-container, so a hierarchical collection's array also says which parent an entity belongs to. A FLAT top-level collection (`userProperties` / `userTypes` / `personas` / `organizationLevels` / `locationProperties`) has no parent to express, but it carries an array for the same reason every other collection does: position belongs to the collection, not to the member. A position stored ON the entity has to be computed from the sequence its author could see, so two people adding from one document compute the SAME position — and nothing sorts between two equal positions, which silently strands every later insertion between them. The record and its array cannot drift: `assembleBlueprint` throws when they disagree. All eight top-level entity kinds share one GLOBAL entity-UUID namespace because `blueprint_entities` persists them under one `(app_id, uuid)` primary key. The validator rejects a duplicate before commit and `decomposeBlueprint` repeats the check against each entity's own `uuid` before row assembly, so two identities can never collapse into one durable row. The case list is the one collection with TWO sequences over one set: `caseListConfig.listColumnOrder` and `detailColumnOrder`, both required, both naming every column from birth whatever its visibility. Read either through `orderedColumns(config, surface)`; the `columns` array is the set, and its position means nothing. Two slots are derived and NEVER persisted: `fieldParent` (the field→parent reverse index, rebuilt from `fieldOrder` on load) and `refIndex` (the reference index, built on demand — see `lib/doc`). The type system enforces the strip: `PersistableDoc` is the on-disk shape, `BlueprintDoc` adds the derived slots for in-memory use, and `PersistedBlueprint` (a `never`-typed wall) is what every writer takes so an unstripped doc can't serialize its derived state.
+**A membership array IS the sequence.** `formOrder` is keyed by module and `fieldOrder` by form-or-container, so a hierarchical collection's array also says which parent an entity belongs to. A FLAT top-level collection (`userProperties` / `userTypes` / `personas` / `organizationLevels` / `locationProperties` / `automations`) has no parent to express, but it carries an array for the same reason every other collection does: position belongs to the collection, not to the member. A position stored ON the entity has to be computed from the sequence its author could see, so two people adding from one document compute the SAME position, and nothing sorts between two equal positions, which silently strands every later insertion between them. The record and its array cannot drift: `assembleBlueprint` throws when they disagree. All nine top-level entity kinds share one GLOBAL entity-UUID namespace because `blueprint_entities` persists them under one `(app_id, uuid)` primary key. The validator rejects a duplicate before commit and `decomposeBlueprint` repeats the check against each entity's own `uuid` before row assembly, so two identities can never collapse into one durable row. The case list is the one collection with TWO sequences over one set: `caseListConfig.listColumnOrder` and `detailColumnOrder`, both required, both naming every column from birth whatever its visibility. Read either through `orderedColumns(config, surface)`; the `columns` array is the set, and its position means nothing. Two slots are derived and NEVER persisted: `fieldParent` (the field→parent reverse index, rebuilt from `fieldOrder` on load) and `refIndex` (the reference index, built on demand; see `lib/doc`). The type system enforces the strip: `PersistableDoc` is the on-disk shape, `BlueprintDoc` adds the derived slots for in-memory use, and `PersistedBlueprint` (a `never`-typed wall) is what every writer takes so an unstripped doc can't serialize its derived state.
+
+## Automations describe HQ behavior; they never execute here
+
+`automations.ts` owns one closed union: automatic case updates and conditional
+alerts. An automation, and every criterion, setup-only instruction, update,
+recipient, event, and user-data filter inside it, has canonical UUID identity.
+Names, case properties, HQ ids, and registered custom ids are editable values,
+never addresses. Criteria follow the two different HQ forms rather than one
+shared superset. Case updates accept the four value comparisons plus four date
+comparisons against case, parent, or host properties, and the one standard
+closed-parent condition. Conditional alerts accept the four value comparisons
+plus portable regex against the matched case only. Both automation families
+also accept at most one UUID-backed location condition with an explicit
+descendant flag. HQ executes it and accepts it through the form payload even
+though its current visible rule and alert editors hide the picker. A setup-only
+criterion structurally distinguishes `ucr-filter` from `registered-custom`
+while its exact configuration remains trimmed prose; case-update server-modified age is a separate structured
+field that Nova names as omitted from local matching. Case updates, recipients, content,
+schedule starts, and user filters are similarly closed to shapes current HQ can
+represent. There is no generic payload arm and no draft or disabled-invalid
+state. HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` flag is deliberately not
+modeled: it is one domain-wide switch that evaluates every active update rule
+for the saved case type, not a property of an individual rule.
+
+The portable regex subset rejects newline-bearing patterns, lookarounds and
+other `(?...)` extensions, shorthand escapes, PostgreSQL collating/equivalence
+classes, malformed or lower-less bounds, and repetition bounds above 255. This
+is the complete Python/PostgreSQL intersection Nova admits; the case-store
+lowering then preserves Python `re.match` newline behavior for `.` and `$`
+instead of relying on PostgreSQL's materially different newline modes.
+
+Standard case metadata remains Nova vocabulary in storage. The derived HQ
+automation projection maps `case_type`/`case_name`/`date_opened`/`last_modified`
+to `type`/`name`/`opened_on`/`modified_on` for model-field readers and templates,
+while `case_id`, `owner_id`, and `external_id` already match. `case_id` and
+`case_type` are implicit text reads only in automation criteria, message
+templates, update value sources, and property-backed recipients; they remain
+outside the general case-list catalog and are never update targets. `status` is
+never admitted because Nova text and HQ's boolean field differ. Standard
+datetime values admit date or blankness matches, not text equality/regex.
+Reset-on-change and case-property event-time slots accept custom properties only
+because HQ reads those two from `dynamic_case_properties()` rather than any
+standard scalar field. After trimming, an event-time value must begin with
+`H:MM` or `HH:MM`, and the whole value must parse as a time. Suffixes such as
+AM/PM or seconds are accepted. Blank, nonmatching, or unparseable values fall
+back to 12:00 PM in HQ.
+
+Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
+values: ordered literal-text parts plus explicit structural case-property
+parts carrying scope and the full `(caseType, property)` identity, plus closed
+case-owner and message-recipient context-property parts. Text that merely looks
+like `{case.foo}` remains literal forever: the setup projection doubles literal
+braces before HQ's Python Formatter sees them. The Builder inserts a reference
+part explicitly, machine editors send the canonical part shape directly,
+case-property renames rewrite only structural case parts, and the setup guide
+alone projects those identities to HQ's `{case...}` spelling.
+No reader reparses rendered message text to recover a reference. HQ's Formatter
+context shadows custom properties named `owner`, `host`, or `last_modified_by`
+in every case/parent/host template scope, so those structural parts are refused
+at the app gate. Host-scoped criteria, update targets, update sources, and
+message case-property parts are also refused when an advanced case
+operation can add a non-`parent` extension index to that automation case type:
+HQ leaves extension-host ordering undefined, while parent-scoped references
+and the extra link itself remain valid. At runtime, every host-scoped reference
+still requires exactly one live extension. Historical cases may retain extra
+extension indices; Nova cannot count current matches for those cases, and HQ
+does not define which extension it chooses as the host.
+
+The HTML form owns several less-obvious boundaries. Only a case-update rule has
+the standard parent-closed criterion, at most once, with no authored index or
+relationship. Equality and fixed-update literals are exact nonblank HQ values
+without whitespace normalization or outer quote syntax, automation names are
+already trimmed and nonblank, and alert regex patterns are nonempty. The recipient union has no web
+user, and Connect content refuses self, parent-case, all-child-cases,
+case-property-email, and case-group recipients. SMS Survey setup requires
+Inbound SMS access; Connect setup requires the `COMMCARE_CONNECT` toggle and
+runtime recipients that resolve to CommCare mobile workers with active
+PersonalID links. A timed reset property requires
+a rule-trigger start. Concrete HQ worker/group recipient IDs are already trimmed
+and nonblank. Registered custom recipient/content IDs and setup-only
+instructions are likewise concrete, trimmed, and nonblank; instructional copy
+is editor placeholder text and never canonical data. Each checkbox-style or case-property/custom recipient
+kind appears at most once; multi-target HQ lists may carry distinct workers,
+groups, or locations but never the same concrete target twice. Descendant
+settings require a location recipient, location-level filtering additionally
+requires descendants, and the user-data filter carries one structural value
+list per worker-property UUID. Its values are exact literals, including empty
+and whitespace, or explicit `(caseType, property)` lookups into custom case data.
+A brace-wrapped literal is invalid because HQ would reinterpret it as a lookup;
+property renames rewrite only the structural lookup. Every triggering case must
+contain a referenced property because HQ indexes `case_json[property]`
+directly and raises when it is missing. HQ applies these filters only to
+`CouchUser` contacts. The shared recipient-capability map therefore refuses a
+filter alongside case, parent/child-case, case-email, case-group, or registered
+custom recipients: the known non-user results bypass filtering, and Nova cannot
+prove a custom handler's runtime result. Setup guidance emits exact JSON
+whenever HQ's single-value fields would trim or lose the model.
+
+Every schedule uses the HQ form's one content type. Timed schedules use the
+runtime's day/repeat encoding but must project into one actual HQ setup form.
+Positive schedules without a start weekday are Custom
+Daily; a start weekday selects Weekly; a negative repeat selects Monthly.
+Schedule refinements enforce each form's shared timing/content, ordering,
+five-minute separation, window, day, offset, and repetition laws before commit.
+Custom Daily days are stored zero-based and projected as one-based HQ event-row
+values. A Weekly event day is an offset from the schedule's start weekday, so
+the editor labels the projected absolute weekday and remaps offsets when the
+start changes to preserve the chosen weekdays. Weekly and Monthly days are unique closed choices, and Monthly days are
+already the UI's 1–28 / -3–-1 values in positive-then-month-end order. Survey reminder
+totals stay strictly below expiration, and partial case updates imply partial
+submission.
+
+Email content is a discriminated body, never parallel plaintext/HTML fields.
+`plain-text { message }` targets a domain without Rich text emails;
+`rich-text { html }` requires it. All email events share that target form. HQ
+sanitizes and rewraps rich HTML and derives plaintext, so rich content stores
+the source only and makes no byte-exact-output promise.
+
+The derived local matcher keeps HQ's value distinctions that the ordinary
+Predicate AST cannot express: equality compares exact stored text without
+typed SQL coercion; a related comparison requires the related case to exist;
+whitespace-only strings are blank; and regexes run only against actual string
+values. It fixes closed-parent matching to HQ's standard `parent` child index.
+A location condition matches location-owned rows in the selected subtree plus
+rows owned by personas whose primary location is in that subtree, matching
+HQ's direct-location-or-mobile-worker-primary-location runtime.
+
+The domain records intent only. `lib/automations` derives the current-match
+projection and manual HQ setup guide; neither belongs in the document.
+Publishing does not install a rule, Preview does not mutate cases or advance a
+schedule, and a generated guide is never persisted beside its source object.
 
 Every saved case-list column is valid unconditionally, including one hidden
 from both layouts and absent from sort. `caseListColumnIsEmitted` is the sole

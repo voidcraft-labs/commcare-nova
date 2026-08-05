@@ -103,6 +103,7 @@ import {
 	type BlueprintDoc,
 	FIELD_MEDIA_SLOTS,
 	type Mutation,
+	mutationSchema,
 	type Uuid,
 } from "@/lib/doc/types";
 import {
@@ -110,6 +111,7 @@ import {
 	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import type {
+	Automation,
 	CaseListConfig,
 	CaseType,
 	Field,
@@ -494,6 +496,7 @@ export function diffDocsToMutations(
 	}
 	collections.push(...diffUserCollections(prev, next));
 	collections.push(...diffOrganizationCollections(prev, next));
+	collections.push(...diffAutomationCollections(prev, next));
 
 	// ── Module / form / field set deltas ──────────────────────────────
 	const moduleDelta = setDelta(
@@ -1865,6 +1868,284 @@ function diffUserCollections(
 	for (const uuid of Object.keys(prevPersonas)) {
 		if (!hasOwnRecordKey(nextPersonas, uuid)) {
 			out.push({ kind: "removePersona", uuid: asUuid(uuid) });
+		}
+	}
+	return out;
+}
+
+type AutomationItem = { readonly uuid: Uuid };
+type AutomationItemCollection =
+	| "criterion"
+	| "setup-only-criterion"
+	| "update"
+	| "recipient"
+	| "immediate-event"
+	| "timed-event"
+	| "user-data-filter";
+
+function automationItemMutation(value: unknown): Mutation {
+	return mutationSchema.parse(value);
+}
+
+function diffAutomationItems(
+	automationUuid: Uuid,
+	targetKind: Automation["kind"],
+	collection: AutomationItemCollection,
+	before: readonly AutomationItem[],
+	after: readonly AutomationItem[],
+): Mutation[] {
+	const out: Mutation[] = [];
+	const beforeByUuid = new Map(before.map((item) => [item.uuid, item]));
+	const afterByUuid = new Map(after.map((item) => [item.uuid, item]));
+	for (const [index, item] of after.entries()) {
+		const previous = beforeByUuid.get(item.uuid);
+		if (previous === undefined) {
+			out.push(
+				automationItemMutation({
+					kind: "editAutomationItem",
+					automationUuid,
+					targetKind,
+					edit: {
+						collection,
+						operation: "add",
+						value: cloneEntity(item),
+						after: index === 0 ? null : after[index - 1]?.uuid,
+					},
+				}),
+			);
+		} else if (!deepEqual(previous, item)) {
+			out.push(
+				automationItemMutation({
+					kind: "editAutomationItem",
+					automationUuid,
+					targetKind,
+					edit: {
+						collection,
+						operation: "update",
+						value: cloneEntity(item),
+					},
+				}),
+			);
+		}
+	}
+	for (const item of before) {
+		if (afterByUuid.has(item.uuid)) continue;
+		out.push(
+			automationItemMutation({
+				kind: "editAutomationItem",
+				automationUuid,
+				targetKind,
+				edit: { collection, operation: "remove", uuid: item.uuid },
+			}),
+		);
+	}
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(
+			before.map((item) => item.uuid),
+			after.map((item) => item.uuid),
+		),
+		after.map((item) => item.uuid),
+	)) {
+		out.push(
+			automationItemMutation({
+				kind: "editAutomationItem",
+				automationUuid,
+				targetKind,
+				edit: {
+					collection,
+					operation: "move",
+					uuid: move.uuid,
+					after: move.after,
+				},
+			}),
+		);
+	}
+	return out;
+}
+
+export function automationChangesForUpdate(
+	before: Automation,
+	after: Automation,
+): Mutation[] {
+	if (before.kind !== after.kind) {
+		throw new Error("An automation's kind is create-once.");
+	}
+	const out: Mutation[] = [];
+	const patch = userPatch(before, after) as Record<string, unknown>;
+	for (const key of [
+		"kind",
+		"criteria",
+		"setupOnlyCriteria",
+		"updates",
+		"recipients",
+		"schedule",
+		"userDataFilters",
+	]) {
+		delete patch[key];
+	}
+	if (Object.keys(patch).length > 0) {
+		out.push(
+			mutationSchema.parse({
+				kind: "updateAutomation",
+				uuid: after.uuid,
+				targetKind: after.kind,
+				patch,
+			}),
+		);
+	}
+	out.push(
+		...diffAutomationItems(
+			after.uuid,
+			after.kind,
+			"criterion",
+			before.criteria,
+			after.criteria,
+		),
+		...diffAutomationItems(
+			after.uuid,
+			after.kind,
+			"setup-only-criterion",
+			before.setupOnlyCriteria,
+			after.setupOnlyCriteria,
+		),
+	);
+	if (before.kind === "case-update" && after.kind === "case-update") {
+		out.push(
+			...diffAutomationItems(
+				after.uuid,
+				after.kind,
+				"update",
+				before.updates,
+				after.updates,
+			),
+		);
+		return out;
+	}
+	if (
+		before.kind !== "conditional-alert" ||
+		after.kind !== "conditional-alert"
+	) {
+		return out;
+	}
+	out.push(
+		...diffAutomationItems(
+			after.uuid,
+			after.kind,
+			"recipient",
+			before.recipients,
+			after.recipients,
+		),
+		...diffAutomationItems(
+			after.uuid,
+			after.kind,
+			"user-data-filter",
+			before.userDataFilters,
+			after.userDataFilters,
+		),
+	);
+	if (before.schedule.kind !== after.schedule.kind) {
+		out.push({
+			kind: "setAutomationSchedule",
+			uuid: after.uuid,
+			schedule: cloneEntity(after.schedule),
+		});
+		return out;
+	}
+	if (
+		before.schedule.kind === "immediate" &&
+		after.schedule.kind === "immediate"
+	) {
+		out.push(
+			...diffAutomationItems(
+				after.uuid,
+				after.kind,
+				"immediate-event",
+				before.schedule.events,
+				after.schedule.events,
+			),
+		);
+		return out;
+	}
+	if (before.schedule.kind === "timed" && after.schedule.kind === "timed") {
+		const schedulePatch: Record<string, unknown> = {};
+		for (const key of [
+			"repeatEvery",
+			"totalIterations",
+			"startOffsetDays",
+			"startDayOfWeek",
+			"start",
+		] as const) {
+			if (!deepEqual(before.schedule[key], after.schedule[key])) {
+				schedulePatch[key] = cloneEntity(after.schedule[key]);
+			}
+		}
+		if (Object.keys(schedulePatch).length > 0) {
+			out.push(
+				mutationSchema.parse({
+					kind: "updateAutomationSchedule",
+					uuid: after.uuid,
+					patch: schedulePatch,
+				}),
+			);
+		}
+		out.push(
+			...diffAutomationItems(
+				after.uuid,
+				after.kind,
+				"timed-event",
+				before.schedule.events,
+				after.schedule.events,
+			),
+		);
+	}
+	return out;
+}
+
+function diffAutomationCollections(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevRecord = prev.automations ?? {};
+	const nextRecord = next.automations ?? {};
+	for (const [index, uuid] of (next.automationOrder ?? []).entries()) {
+		const automation = ownRecordValue(nextRecord, uuid);
+		if (automation === undefined) continue;
+		const before = ownRecordValue(prevRecord, uuid);
+		if (before === undefined) {
+			out.push({
+				kind: "addAutomation",
+				automation: cloneEntity(automation),
+				after: index === 0 ? null : next.automationOrder?.[index - 1],
+			});
+		} else {
+			out.push(...automationChangesForUpdate(before, automation));
+		}
+	}
+	for (const uuid of Object.keys(prevRecord)) {
+		if (!hasOwnRecordKey(nextRecord, uuid)) {
+			const automation = ownRecordValue(prevRecord, uuid);
+			if (automation !== undefined) {
+				out.push({
+					kind: "removeAutomation",
+					uuid: asUuid(uuid),
+					targetKind: automation.kind,
+				});
+			}
+		}
+	}
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(prev.automationOrder ?? [], next.automationOrder ?? []),
+		next.automationOrder ?? [],
+	)) {
+		const automation = ownRecordValue(nextRecord, move.uuid);
+		if (automation !== undefined) {
+			out.push({
+				kind: "moveAutomation",
+				uuid: move.uuid,
+				targetKind: automation.kind,
+				after: move.after,
+			});
 		}
 	}
 	return out;

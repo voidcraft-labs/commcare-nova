@@ -26,6 +26,16 @@ export const MUTATION_SEQUENCE_INVENTORY = [
 	{ path: "addPersona.after", mode: "optional-neighbor" },
 	{ path: "addOrganizationLevel.after", mode: "optional-neighbor" },
 	{ path: "addLocationProperty.after", mode: "optional-neighbor" },
+	{ path: "addAutomation.after", mode: "optional-neighbor" },
+	{ path: "moveAutomation.after", mode: "required-neighbor" },
+	{
+		path: "editAutomationItem.edit.add.after",
+		mode: "optional-neighbor",
+	},
+	{
+		path: "editAutomationItem.edit.move.after",
+		mode: "required-neighbor",
+	},
 	{ path: "addColumn.afterInList", mode: "required-neighbor" },
 	{ path: "addColumn.afterInDetail", mode: "required-neighbor" },
 	{ path: "moveColumn.after", mode: "required-neighbor" },
@@ -80,6 +90,8 @@ interface SequenceState {
 	personaOrder: string[];
 	organizationLevelOrder: string[];
 	locationPropertyOrder: string[];
+	automationOrder: string[];
+	automationItemOrder: Map<string, string[]>;
 	casePropertyOrder: Map<string, string[]>;
 	columnListOrder: Map<string, string[]>;
 	columnDetailOrder: Map<string, string[]>;
@@ -94,6 +106,8 @@ interface SequenceState {
 
 const operationKey = (formUuid: string, operationUuid: string): string =>
 	`${formUuid}\0${operationUuid}`;
+const automationKey = (uuid: string, collection: string): string =>
+	`${uuid}\0${collection}`;
 
 function stateFromDoc(doc: BlueprintDoc): SequenceState {
 	const formOrder = new Map<string, string[]>();
@@ -169,6 +183,36 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 			);
 		}
 	}
+	const automationItemOrder = new Map<string, string[]>();
+	for (const automation of Object.values(doc.automations ?? {})) {
+		automationItemOrder.set(
+			automationKey(automation.uuid, "criterion"),
+			automation.criteria.map((criterion) => criterion.uuid),
+		);
+		automationItemOrder.set(
+			automationKey(automation.uuid, "setup-only-criterion"),
+			automation.setupOnlyCriteria.map((criterion) => criterion.uuid),
+		);
+		if (automation.kind === "case-update") {
+			automationItemOrder.set(
+				automationKey(automation.uuid, "update"),
+				automation.updates.map((update) => update.uuid),
+			);
+		} else {
+			automationItemOrder.set(
+				automationKey(automation.uuid, "recipient"),
+				automation.recipients.map((recipient) => recipient.uuid),
+			);
+			automationItemOrder.set(
+				automationKey(automation.uuid, `${automation.schedule.kind}-event`),
+				automation.schedule.events.map((event) => event.uuid),
+			);
+			automationItemOrder.set(
+				automationKey(automation.uuid, "user-data-filter"),
+				automation.userDataFilters.map((filter) => filter.uuid),
+			);
+		}
+	}
 
 	return {
 		moduleOrder: [...doc.moduleOrder],
@@ -181,6 +225,8 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		personaOrder: [...(doc.personaOrder ?? [])],
 		organizationLevelOrder: [...(doc.organizationLevelOrder ?? [])],
 		locationPropertyOrder: [...(doc.locationPropertyOrder ?? [])],
+		automationOrder: [...(doc.automationOrder ?? [])],
+		automationItemOrder,
 		casePropertyOrder,
 		columnListOrder,
 		columnDetailOrder,
@@ -822,6 +868,112 @@ export function mutationSequenceAdmissionIssue(
 				removeMember(state.locationPropertyOrder, mutation.uuid);
 				break;
 			case "updateLocationProperty":
+				break;
+			case "addAutomation": {
+				if (
+					!place(
+						state.automationOrder,
+						mutation.automation.uuid,
+						mutation.after,
+					)
+				) {
+					return issue(mutation, mutationIndex, "automations", mutation.after);
+				}
+				const automation = mutation.automation;
+				state.automationItemOrder.set(
+					automationKey(automation.uuid, "criterion"),
+					automation.criteria.map((criterion) => criterion.uuid),
+				);
+				state.automationItemOrder.set(
+					automationKey(automation.uuid, "setup-only-criterion"),
+					automation.setupOnlyCriteria.map((criterion) => criterion.uuid),
+				);
+				if (automation.kind === "case-update") {
+					state.automationItemOrder.set(
+						automationKey(automation.uuid, "update"),
+						automation.updates.map((update) => update.uuid),
+					);
+				} else {
+					state.automationItemOrder.set(
+						automationKey(automation.uuid, "recipient"),
+						automation.recipients.map((recipient) => recipient.uuid),
+					);
+					state.automationItemOrder.set(
+						automationKey(automation.uuid, `${automation.schedule.kind}-event`),
+						automation.schedule.events.map((event) => event.uuid),
+					);
+					state.automationItemOrder.set(
+						automationKey(automation.uuid, "user-data-filter"),
+						automation.userDataFilters.map((filter) => filter.uuid),
+					);
+				}
+				break;
+			}
+			case "removeAutomation":
+				removeMember(state.automationOrder, mutation.uuid);
+				for (const key of state.automationItemOrder.keys()) {
+					if (key.startsWith(`${mutation.uuid}\0`)) {
+						state.automationItemOrder.delete(key);
+					}
+				}
+				break;
+			case "moveAutomation":
+				if (
+					!place(state.automationOrder, mutation.uuid, mutation.after, true)
+				) {
+					return issue(mutation, mutationIndex, "automations", mutation.after);
+				}
+				break;
+			case "setAutomationSchedule":
+				state.automationItemOrder.delete(
+					automationKey(mutation.uuid, "immediate-event"),
+				);
+				state.automationItemOrder.delete(
+					automationKey(mutation.uuid, "timed-event"),
+				);
+				state.automationItemOrder.set(
+					automationKey(mutation.uuid, `${mutation.schedule.kind}-event`),
+					mutation.schedule.events.map((event) => event.uuid),
+				);
+				break;
+			case "editAutomationItem": {
+				const edit = mutation.edit;
+				const order = state.automationItemOrder.get(
+					automationKey(mutation.automationUuid, edit.collection),
+				);
+				if (order === undefined) {
+					return issue(
+						mutation,
+						mutationIndex,
+						`automation ${edit.collection}`,
+						null,
+					);
+				}
+				if (edit.operation === "add") {
+					if (!place(order, edit.value.uuid, edit.after)) {
+						return issue(
+							mutation,
+							mutationIndex,
+							`automation ${edit.collection}`,
+							edit.after,
+						);
+					}
+				} else if (edit.operation === "remove") {
+					removeMember(order, edit.uuid);
+				} else if (edit.operation === "move") {
+					if (!place(order, edit.uuid, edit.after, true)) {
+						return issue(
+							mutation,
+							mutationIndex,
+							`automation ${edit.collection}`,
+							edit.after,
+						);
+					}
+				}
+				break;
+			}
+			case "updateAutomation":
+			case "updateAutomationSchedule":
 				break;
 			case "setAppName":
 			case "setConnectType":

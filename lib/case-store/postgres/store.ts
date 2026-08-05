@@ -49,6 +49,7 @@ import {
 	type Insertable,
 	type InsertObject,
 	type Kysely,
+	type RawBuilder,
 	type Selectable,
 	sql,
 	type Transaction,
@@ -81,6 +82,7 @@ import {
 } from "@/lib/domain/temporalValues";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import {
+	AutomationHostAmbiguityError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -104,6 +106,7 @@ import type {
 	JsonValue,
 	ParkedCaseValuesTable,
 } from "../sql/database";
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "../sql/dataTypeTokens";
 import type {
 	ApplyCasePropertyRenameArgs,
 	ApplyCaseTypeSchemaRetirementArgs,
@@ -115,6 +118,7 @@ import type {
 	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
+	CaseUpdateArgs,
 	ConversionImpact,
 	CountArgs,
 	GenerateSampleDataArgs,
@@ -239,6 +243,200 @@ interface ValidatorCacheEntry {
 	validate: ValidateFunction<unknown>;
 	/** Property keys the schema declares — the merged-update strip's allowlist. */
 	declared: ReadonlySet<string>;
+}
+
+/** HQ resolves `parent/...` through every live `parent` identifier, regardless
+ * of child/extension relationship. `host/...` resolves only the first live
+ * extension. Nova gives that otherwise storage-order-dependent choice a stable
+ * order: the canonical `parent` extension first, then identifier and target. */
+function automationRelationIndexFilter(args: {
+	readonly scope: "parent" | "host";
+	readonly caseAlias: string;
+	readonly indexAlias: string;
+	readonly firstHostAlias: string;
+}) {
+	if (args.scope === "parent") {
+		return sql<boolean>`${sql.ref(`${args.indexAlias}.identifier`)} = 'parent'`;
+	}
+	return sql<boolean>`(
+		${sql.ref(`${args.indexAlias}.identifier`)},
+		${sql.ref(`${args.indexAlias}.ancestor_id`)}
+	) = (
+		select
+			${sql.ref(`${args.firstHostAlias}.identifier`)},
+			${sql.ref(`${args.firstHostAlias}.ancestor_id`)}
+		from case_indices as ${sql.ref(args.firstHostAlias)}
+		where ${sql.ref(`${args.firstHostAlias}.case_id`)} = ${sql.ref(`${args.caseAlias}.case_id`)}
+			and ${sql.ref(`${args.firstHostAlias}.relationship`)} = 'extension'
+			and ${sql.ref(`${args.firstHostAlias}.depth`)} = 1
+		order by
+			case when ${sql.ref(`${args.firstHostAlias}.identifier`)} = 'parent' then 0 else 1 end,
+			${sql.ref(`${args.firstHostAlias}.identifier`)} asc,
+			${sql.ref(`${args.firstHostAlias}.ancestor_id`)} asc
+		limit 1
+	)`;
+}
+
+/** Python's `str.strip()` whitespace repertoire, which HQ uses for
+ * HAS_VALUE / HAS_NO_VALUE. PostgreSQL's locale-dependent `[[:space:]]`
+ * disagrees for characters including NBSP, OGHAM SPACE MARK, FIGURE SPACE,
+ * NARROW NO-BREAK SPACE, and the U+001C..U+001F separators. An explicit trim
+ * set keeps Preview independent of the database locale and Python-equivalent. */
+const PYTHON_STRIP_WHITESPACE = String.fromCodePoint(
+	0x0009,
+	0x000a,
+	0x000b,
+	0x000c,
+	0x000d,
+	0x001c,
+	0x001d,
+	0x001e,
+	0x001f,
+	0x0020,
+	0x0085,
+	0x00a0,
+	0x1680,
+	0x2000,
+	0x2001,
+	0x2002,
+	0x2003,
+	0x2004,
+	0x2005,
+	0x2006,
+	0x2007,
+	0x2008,
+	0x2009,
+	0x200a,
+	0x2028,
+	0x2029,
+	0x202f,
+	0x205f,
+	0x3000,
+);
+
+function automationStringHasValue(
+	value: RawBuilder<string | null>,
+): RawBuilder<boolean> {
+	return sql<boolean>`btrim(coalesce(${value}, ''), ${PYTHON_STRIP_WHITESPACE}) <> ''`;
+}
+
+/**
+ * Lower the admitted shared regex subset to PostgreSQL ARE while preserving
+ * Python `re.match`'s default newline behavior. PostgreSQL's default `.` also
+ * consumes newlines, while its newline-sensitive modes change negated classes
+ * and anchor semantics that Python leaves alone. Rewrite only the two tokens
+ * whose defaults differ instead: `.` excludes LF, and `$` also succeeds just
+ * before one final LF. Escaped tokens and tokens inside character classes stay
+ * literal. The domain validator has already admitted the authored pattern.
+ */
+function postgresAutomationRegex(pattern: string): string {
+	let escaped = false;
+	let inClass = false;
+	let lowered = "";
+	for (const character of pattern) {
+		if (escaped) {
+			lowered += character;
+			escaped = false;
+			continue;
+		}
+		if (character === "\\") {
+			lowered += character;
+			escaped = true;
+			continue;
+		}
+		if (character === "[" && !inClass) {
+			inClass = true;
+			lowered += character;
+			continue;
+		}
+		if (character === "]" && inClass) {
+			inClass = false;
+			lowered += character;
+			continue;
+		}
+		if (!inClass && character === ".") {
+			lowered += "[^\\x0A]";
+			continue;
+		}
+		if (!inClass && character === "$") {
+			lowered += "(?=\\x0A?\\Z)";
+			continue;
+		}
+		lowered += character;
+	}
+	return `(?cs)\\A(?:${lowered})`;
+}
+
+/** HQ's day-offset criteria compare calendar dates, not instants. Dynamic
+ * date/datetime values are schema-canonical ISO strings, so taking the leading
+ * date component preserves an explicit offset's authored calendar day instead
+ * of routing it through the Postgres session timezone. Standard timestamps are
+ * stored in UTC and are truncated there, matching HQ's model datetime. */
+function automationCriterionDateForAlias(alias: string, property: string) {
+	const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	if (scalar !== undefined) {
+		return sql<Date | null>`timezone('UTC', ${sql.ref(`${alias}.${scalar.column}`)})::date`;
+	}
+	const storedJson = sql<unknown | null>`${sql.ref(
+		`${alias}.properties`,
+	)} -> ${property}`;
+	const storedText = sql<string | null>`${sql.ref(
+		`${alias}.properties`,
+	)} ->> ${property}`;
+	return sql<Date | null>`case
+		when jsonb_typeof(${storedJson}) = 'string'
+			then substring(${storedText} from 1 for 10)::date
+		else null
+	end`;
+}
+
+function automationDateCriterionClause(criterion: {
+	readonly property: string;
+	readonly days: number;
+	readonly matchType:
+		| "date-days-before"
+		| "date-days-lte"
+		| "date-days-gt"
+		| "date-days";
+	readonly scope: "case" | "parent" | "host";
+}) {
+	const comparisonForAlias = (alias: string) => {
+		const storedDate = automationCriterionDateForAlias(
+			alias,
+			criterion.property,
+		);
+		const today = sql<Date>`timezone('UTC', now())::date`;
+		const threshold = sql<Date>`${storedDate} + ${criterion.days}::integer`;
+		switch (criterion.matchType) {
+			case "date-days-before":
+				return sql<boolean>`${today} < ${threshold}`;
+			case "date-days-lte":
+				return sql<boolean>`${today} <= ${threshold}`;
+			case "date-days-gt":
+				return sql<boolean>`${today} > ${threshold}`;
+			case "date-days":
+				return sql<boolean>`${today} >= ${threshold}`;
+		}
+	};
+	if (criterion.scope === "case") return comparisonForAlias("c");
+	const relatedComparison = comparisonForAlias("automation_date_related");
+	return sql<boolean>`exists (
+		select 1
+		from case_indices as automation_date_index
+		join cases as automation_date_related
+			on automation_date_related.case_id = automation_date_index.ancestor_id
+			and automation_date_related.app_id = c.app_id
+			and automation_date_related.project_id = c.project_id
+		where automation_date_index.case_id = c.case_id
+			and ${automationRelationIndexFilter({
+				scope: criterion.scope,
+				caseAlias: "c",
+				indexAlias: "automation_date_index",
+				firstHostAlias: "automation_date_first_host",
+			})}
+			and automation_date_index.depth = 1
+			and ${relatedComparison}
+	)`;
 }
 
 /** The Postgres-backed implementation of `CaseStore`. */
@@ -708,12 +906,44 @@ export class PostgresCaseStore implements CaseStore {
 		// `compileRelationPath` handles JOIN-side cases independently
 		// — the structural tenant-scoping contract splits the two
 		// halves to make cross-tenant reads structurally impossible.
+		const projectId = this.requireProjectId();
+		const readsHost = args.automationCriteria?.requiresUnambiguousHost ?? false;
+		const ambiguityHoldClause =
+			args.includeHeld === true
+				? sql<boolean>`true`
+				: sql<boolean>`not exists (
+					select 1
+					from parked_case_values as automation_host_held
+					where automation_host_held.case_id = automation_host_candidate.case_id
+						and automation_host_held.dismissed_at is null
+				)`;
+		const ambiguousHostCaseCount = readsHost
+			? sql<string>`(
+				select count(*)
+				from cases as automation_host_candidate
+				where automation_host_candidate.app_id = ${args.appId}
+					and automation_host_candidate.project_id = ${projectId}
+					and automation_host_candidate.case_type = ${args.caseType}
+					and automation_host_candidate.status = 'open'
+					and ${ambiguityHoldClause}
+					and (
+						select count(distinct automation_host_index.ancestor_id)
+						from case_indices as automation_host_index
+						where automation_host_index.case_id = automation_host_candidate.case_id
+							and automation_host_index.relationship = 'extension'
+							and automation_host_index.depth = 1
+					) > 1
+			)`
+			: sql<string>`'0'`;
 		let qb = this.db
 			.selectFrom("cases as c")
-			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.select((eb) => [
+				eb.fn.countAll<string>().as("total"),
+				ambiguousHostCaseCount.as("ambiguous_host_case_count"),
+			])
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.project_id", "=", this.requireProjectId());
+			.where("c.project_id", "=", projectId);
 		// Same HOLD exclusion `query` applies — a count must agree with
 		// the row list its caller pairs it with.
 		if (args.includeHeld !== true) {
@@ -732,6 +962,169 @@ export class PostgresCaseStore implements CaseStore {
 		if (args.predicate !== undefined) {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
 		}
+		if (args.automationCriteria !== undefined) {
+			const group = args.automationCriteria;
+			qb = qb.where((whereEb) => {
+				const clauses = [
+					...group.dates.map(automationDateCriterionClause),
+					...group.comparisons.map((criterion) => {
+						const comparisonForAlias = (alias: string) => {
+							const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+								criterion.property,
+							);
+							if (scalar === undefined) {
+								// HQ compares each resolved Python value directly with the
+								// form's string criterion. `->>` alone would stringify JSON
+								// numbers and booleans and create matches HQ cannot make.
+								const storedJson = sql<unknown | null>`${sql.ref(
+									`${alias}.properties`,
+								)} -> ${criterion.property}`;
+								const storedText = sql<string | null>`${sql.ref(
+									`${alias}.properties`,
+								)} ->> ${criterion.property}`;
+								return criterion.equal
+									? sql<boolean>`jsonb_typeof(${storedJson}) = 'string' and ${storedText} = ${criterion.value}`
+									: sql<boolean>`(jsonb_typeof(${storedJson}) is distinct from 'string' or ${storedText} <> ${criterion.value})`;
+							}
+							const storedText = sql<
+								string | null
+							>`${sql.ref(`${alias}.${scalar.column}`)}::text`;
+							return criterion.equal
+								? sql<boolean>`${storedText} = ${criterion.value}`
+								: sql<boolean>`(${storedText} is null or ${storedText} <> ${criterion.value})`;
+						};
+						if (criterion.scope === "case") {
+							return comparisonForAlias("c");
+						}
+						const relatedComparison = comparisonForAlias(
+							"automation_comparison_related",
+						);
+						return sql<boolean>`exists (
+							select 1
+							from case_indices as automation_comparison_index
+							join cases as automation_comparison_related
+								on automation_comparison_related.case_id = automation_comparison_index.ancestor_id
+								and automation_comparison_related.app_id = c.app_id
+								and automation_comparison_related.project_id = c.project_id
+							where automation_comparison_index.case_id = c.case_id
+								and ${automationRelationIndexFilter({
+									scope: criterion.scope,
+									caseAlias: "c",
+									indexAlias: "automation_comparison_index",
+									firstHostAlias: "automation_comparison_first_host",
+								})}
+								and automation_comparison_index.depth = 1
+								and ${relatedComparison}
+						)`;
+					}),
+					...group.regexes.map((criterion) => {
+						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+							criterion.property,
+						);
+						if (scalar !== undefined && !scalar.blankable) {
+							return sql<boolean>`false`;
+						}
+						const matches =
+							scalar === undefined
+								? sql<boolean>`jsonb_typeof(c.properties -> ${criterion.property}) = 'string'
+									and ((c.properties ->> ${criterion.property}) collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`
+								: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is not null
+									and ((${sql.ref(`c.${scalar.column}`)}) collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`;
+						return (
+							// HQ's REGEX uses Python `re.match`, anchored at the
+							// beginning, and only tests actual strings. The lowering adds
+							// that anchor and preserves Python's newline semantics.
+							matches
+						);
+					}),
+					...group.blankness.map((criterion) => {
+						const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(
+							criterion.property,
+						);
+						if (criterion.scope !== "case") {
+							const relatedHasPropertyValue =
+								scalar === undefined
+									? automationStringHasValue(
+											sql<
+												string | null
+											>`automation_related.properties ->> ${criterion.property}`,
+										)
+									: scalar.blankable
+										? automationStringHasValue(
+												sql<
+													string | null
+												>`${sql.ref(`automation_related.${scalar.column}`)}`,
+											)
+										: sql<boolean>`${sql.ref(`automation_related.${scalar.column}`)} is not null`;
+							const relatedHasValue = sql<boolean>`exists (
+								select 1
+								from case_indices as automation_related_index
+								join cases as automation_related
+									on automation_related.case_id = automation_related_index.ancestor_id
+									and automation_related.app_id = c.app_id
+									and automation_related.project_id = c.project_id
+								where automation_related_index.case_id = c.case_id
+									and ${automationRelationIndexFilter({
+										scope: criterion.scope,
+										caseAlias: "c",
+										indexAlias: "automation_related_index",
+										firstHostAlias: "automation_blankness_first_host",
+									})}
+									and automation_related_index.depth = 1
+									and ${relatedHasPropertyValue}
+							)`;
+							return criterion.hasValue
+								? relatedHasValue
+								: sql<boolean>`not (${relatedHasValue})`;
+						}
+						const hasValue =
+							scalar === undefined
+								? automationStringHasValue(
+										sql<string | null>`c.properties ->> ${criterion.property}`,
+									)
+								: scalar.blankable
+									? automationStringHasValue(
+											sql<string | null>`${sql.ref(`c.${scalar.column}`)}`,
+										)
+									: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is not null`;
+						return criterion.hasValue
+							? hasValue
+							: sql<boolean>`not (${hasValue})`;
+					}),
+					...group.closedParents.map(
+						(criterion) => sql<boolean>`exists (
+							select 1
+							from case_indices as automation_parent_index
+							join cases as automation_parent
+								on automation_parent.case_id = automation_parent_index.ancestor_id
+								and automation_parent.app_id = c.app_id
+								and automation_parent.project_id = c.project_id
+							where automation_parent_index.case_id = c.case_id
+								and automation_parent_index.identifier = ${criterion.identifier}
+								and automation_parent_index.relationship = ${criterion.relationship}
+								and automation_parent_index.depth = 1
+								and automation_parent.closed_on is not null
+						)`,
+					),
+					...group.locationOwnerSets.map((ownerIds) =>
+						ownerIds.length === 0
+							? sql<boolean>`false`
+							: sql<boolean>`c.owner_id = any(${sql.val(ownerIds)}::text[])`,
+					),
+				];
+				if (clauses.length === 0) {
+					// Python's all([]) is true and any([]) is false. Preserve that
+					// identity explicitly rather than relying on a query-builder
+					// empty-expression convention or dropping the group entirely.
+					return group.operator === "all"
+						? sql<boolean>`true`
+						: sql<boolean>`false`;
+				}
+				return group.operator === "all"
+					? whereEb.and(clauses)
+					: whereEb.or(clauses);
+			});
+		}
 
 		// `executeTakeFirstOrThrow` is appropriate here — Postgres'
 		// `count` aggregate always returns exactly one row even on
@@ -739,12 +1132,17 @@ export class PostgresCaseStore implements CaseStore {
 		// a structural pg-driver violation rather than a runtime
 		// branch the caller can recover from.
 		const row = await qb.executeTakeFirstOrThrow();
+		const ambiguityCount = Number(row.ambiguous_host_case_count);
+		if (readsHost && ambiguityCount > 0) {
+			throw new AutomationHostAmbiguityError(ambiguityCount);
+		}
 		return Number(row.total);
 	}
 
 	async insert(args: {
 		appId: string;
 		row: CaseInsert;
+		parentRelationship?: CaseIndicesTable["relationship"];
 	}): Promise<{ caseId: string }> {
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
@@ -758,6 +1156,9 @@ export class PostgresCaseStore implements CaseStore {
 			const caseId = await this.insertRowInTransaction(trx, {
 				appId: args.appId,
 				row: args.row,
+				...(args.parentRelationship === undefined
+					? {}
+					: { parentRelationship: args.parentRelationship }),
 			});
 			return { caseId };
 		});
@@ -780,6 +1181,7 @@ export class PostgresCaseStore implements CaseStore {
 			row: CaseInsert;
 			caseId?: string;
 			ownerId?: string;
+			parentRelationship?: CaseIndicesTable["relationship"];
 		},
 	): Promise<string> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
@@ -838,9 +1240,9 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Direct-edge derivation: depth=1 edges only; recursive
 		// walks compose at read time via `compileRelationPath`.
-		// `relationship` defaults to `child` — the subcase vs
-		// extension distinction is a CCHQ concern resolved at
-		// the relation-path compile site, not at write.
+		// A direct insert defaults to an ordinary child. The running-app
+		// submission path supplies the committed case type's relationship so
+		// extension hosts survive the same way the emitted case block does.
 		if (
 			args.row.parent_case_id !== null &&
 			args.row.parent_case_id !== undefined
@@ -851,7 +1253,7 @@ export class PostgresCaseStore implements CaseStore {
 					case_id: caseId,
 					ancestor_id: args.row.parent_case_id,
 					identifier: "parent",
-					relationship: "child",
+					relationship: args.parentRelationship ?? "child",
 					depth: 1,
 				})
 				.execute();
@@ -940,6 +1342,9 @@ export class PostgresCaseStore implements CaseStore {
 					},
 					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
 					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+					...(a.seed.parentRelationship === undefined
+						? {}
+						: { parentRelationship: a.seed.parentRelationship }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
@@ -979,6 +1384,7 @@ export class PostgresCaseStore implements CaseStore {
 		args: {
 			appId: string;
 			rows: ReadonlyArray<CaseInsert>;
+			parentRelationship?: CaseIndicesTable["relationship"];
 		},
 	): Promise<{ caseIds: ReadonlyArray<string> }> {
 		if (args.rows.length === 0) {
@@ -1075,7 +1481,7 @@ export class PostgresCaseStore implements CaseStore {
 				case_id: caseId,
 				ancestor_id: row.parent_case_id,
 				identifier: "parent",
-				relationship: "child",
+				relationship: args.parentRelationship ?? "child",
 				depth: 1,
 			});
 		}
@@ -1086,11 +1492,16 @@ export class PostgresCaseStore implements CaseStore {
 		return { caseIds };
 	}
 
-	async update(args: {
-		appId: string;
-		caseId: string;
-		patch: CaseUpdate;
-	}): Promise<void> {
+	async update(args: CaseUpdateArgs): Promise<void> {
+		if (
+			args.patch.parent_case_id !== undefined &&
+			args.patch.parent_case_id !== null &&
+			args.parentRelationship === undefined
+		) {
+			throw new TypeError(
+				"A non-null parent_case_id update requires parentRelationship.",
+			);
+		}
 		await this.db.transaction().execute(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
@@ -1101,7 +1512,12 @@ export class PostgresCaseStore implements CaseStore {
 	/** Validated update core for `update` and atomic parked-value replace. */
 	private async updateInTransaction(
 		trx: Transaction<Database>,
-		args: { appId: string; caseId: string; patch: CaseUpdate },
+		args: {
+			appId: string;
+			caseId: string;
+			patch: CaseUpdate;
+			parentRelationship?: CaseIndicesTable["relationship"];
+		},
 	): Promise<void> {
 		// Discover the immutable type without a row lock, then acquire its schema
 		// lock before re-reading the case `FOR UPDATE`. This preserves the global
@@ -1195,11 +1611,22 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.project_id", "=", this.requireProjectId())
 			.execute();
 
-		if (
-			args.patch.parent_case_id !== undefined &&
-			args.patch.parent_case_id !== existing.parent_case_id
-		) {
-			await this.rebuildParentEdge(trx, args.caseId, args.patch.parent_case_id);
+		if (args.patch.parent_case_id === null) {
+			await this.rebuildParentEdge(trx, {
+				caseId: args.caseId,
+				newParent: null,
+			});
+		} else if (args.patch.parent_case_id !== undefined) {
+			if (args.parentRelationship === undefined) {
+				throw new TypeError(
+					"A non-null parent_case_id update requires parentRelationship.",
+				);
+			}
+			await this.rebuildParentEdge(trx, {
+				caseId: args.caseId,
+				newParent: args.patch.parent_case_id,
+				relationship: args.parentRelationship,
+			});
 		}
 	}
 
@@ -2471,6 +2898,7 @@ export class PostgresCaseStore implements CaseStore {
 		const { caseIds } = await this.insertManyInTransaction(trx, {
 			appId: args.appId,
 			rows,
+			parentRelationship: args.caseType.relationship ?? "child",
 		});
 		return { inserted: caseIds.length };
 	}
@@ -3713,24 +4141,35 @@ export class PostgresCaseStore implements CaseStore {
 	 *
 	 * The DELETE is broad — every `'parent'` edge for the case —
 	 * so leftover edges from any prior shape don't accumulate. The
-	 * INSERT skips when `newParent` is null (clearing the edge).
+	 * INSERT skips when `newParent` is null (clearing the edge). A non-null
+	 * assignment requires its authoritative relationship explicitly; preserving
+	 * the prior row would retain historical mistakes, while consulting the case
+	 * catalog would corrupt deliberately authored advanced-operation links.
 	 */
 	private async rebuildParentEdge(
 		trx: Transaction<Database>,
-		caseId: string,
-		newParent: string | null,
+		args:
+			| {
+					readonly caseId: string;
+					readonly newParent: string;
+					readonly relationship: CaseIndicesTable["relationship"];
+			  }
+			| {
+					readonly caseId: string;
+					readonly newParent: null;
+			  },
 	): Promise<void> {
 		await trx
 			.deleteFrom("case_indices")
-			.where("case_indices.case_id", "=", caseId)
+			.where("case_indices.case_id", "=", args.caseId)
 			.where("case_indices.identifier", "=", "parent")
 			.execute();
-		if (newParent !== null) {
+		if (args.newParent !== null) {
 			const edge: Insertable<CaseIndicesTable> = {
-				case_id: caseId,
-				ancestor_id: newParent,
+				case_id: args.caseId,
+				ancestor_id: args.newParent,
 				identifier: "parent",
-				relationship: "child",
+				relationship: args.relationship,
 				depth: 1,
 			};
 			await trx.insertInto("case_indices").values(edge).execute();

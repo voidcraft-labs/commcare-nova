@@ -214,6 +214,182 @@ property. Property controls author the required and accepted-values contracts
 and preflight every existing place so a catalog change cannot create a
 cross-store state the server would refuse.
 
+## App setup: Automations
+
+`app-setup/AutomationsSection.tsx` edits the Blueprint's canonical automation
+union. A new rule is born as one complete valid object with caller-minted UUIDs;
+editing works on a local complete copy and saves through
+`replaceAutomation`, which derives the shared item-granular mutation grammar.
+An open editor fingerprints the authoritative automation: if a peer changes or
+removes it, Save and Remove both refuse with a visible conflict and keep the
+person's local work for comparison. A changed rule tells the author to close
+and reopen it to review the newer version; a removed rule says to close the
+editor and never offers a nonexistent rule to reopen. The portalized dialog establishes its own
+container for every `@md` layout; App setup's outer container does not cross the
+portal boundary. Gate findings stay in persistent footer chrome while the body
+scrolls, and the responsible control or repeated-row fieldset carries
+`aria-invalid` plus its described error; the footer remains the sole alert so a
+refusal is announced once. Exact top-level paths include server-modified days,
+default language, restart property, and stop-date property. Empty recipient
+and schedule-event arrays retain named group fieldsets after their last row
+disappears, so those collection-level refusals also have a stable local anchor
+without duplicating descendant-row errors. Comma-separated reminder intervals keep their
+in-progress text locally while focused, report invalid text into that same
+refusal path, and project only positive whole-minute lists into the canonical
+automation; blur or Enter canonicalizes a valid list. Automation removal uses
+an explicit inline confirmation: opening moves focus into the alert, Cancel
+restores the newly rendered Remove trigger, and successful removal returns to
+the section's Add action. Invalid reminder text survives blur and Save with its
+refusal so the author can correct what is visibly wrong; it never snaps back to
+an older valid list while leaving a stale error. Viewers receive the same expanded readable rule,
+current-match information, and generated setup guide with every mutating
+control absent or disabled; **View full definition** opens the complete editor
+projection with its controls disabled, never a reduced summary that hides
+recipients, changes, schedules, filters, or content.
+The empty state is permission-aware: editors get the Add instruction and
+viewers are told that a Project editor can add the first rule. In a new-rule
+editor, changing the automation kind preserves the root UUID, custom name,
+case type, match operator, setup-only instructions, and criteria valid for the
+new kind; it resets kind-specific settings and says so beside the control.
+The setup guide and case count share one authoritative refresh, but the count
+is optional: a case-query failure stays local to the matching result and never
+withholds the regenerated manual HQ guide. A resolved Server Action refusal
+clears any prior count, guide, and copy receipt because the authoritative
+snapshot was not granted. A rejected Server Action transport stays in the
+section's retryable alert and retains the prior count and guide because it
+returned no authoritative verdict. Only the latest still-mounted refresh may
+replace that state or clear pending.
+Because a disabled native button loses focus in real browsers, completion
+restores the refresh trigger only when it started focused and focus did not move
+to another control while the request was pending.
+Place-backed conditions and recipients distinguish the first load, an initial
+failure, a failed refresh, an in-flight refresh, and a genuinely empty live
+place catalog. The editor names the state and offers the organization reload
+action where it can help; adding or changing a place reference stays paused
+until the catalog is authoritative. A retry's in-flight state takes precedence
+over its retained prior warning. A saved reference whose place cannot be
+resolved remains readable as **Saved place unavailable**, never as a raw UUID.
+A place loading or refreshing notice owns one `role="status"`; its spinner is
+decorative so the notice never nests a second live region. Nested automation
+rows use the warm `nova-deep` well, the default `nova-border` hairline, and the
+12px card radius rather than black overlays, white borders, or compact radii.
+
+The section is structured vocabulary, never raw CommCare JSON: kind-specific
+property criteria, one UUID-backed location criterion, the case-update-only closed-parent filter, explicit setup-only
+instructions, typed update targets/values, recipients, content, schedules, and
+worker-information filters. Forms, worker properties, organization levels, and
+places resolve through current UUID-backed catalogs. HQ-only conditions choose
+the structural UCR or registered-custom family and retain an exact setup note,
+while case-update
+server-modified age is a separate structured field; all are visibly omitted
+from the case count. A count is read-only over real open case rows; the persistent note
+states that Preview never updates cases, sends messages, advances schedules, or
+installs anything in HQ. The regenerated guide names the exact HTML route,
+privilege, cadence, cap, omissions, and unsupported historical IVR/callback
+activation. A rule with any host-scoped condition, update target, update
+source, or message reference has one guide caveat stating that every triggering
+case needs exactly one live extension at runtime. Retained extra extension
+indices make the case count unavailable, and HQ does not define which extension
+it chooses as the host. Copy acts on the derived text only.
+Regenerating a changed guide remounts its copy receipt so **Copied** can never
+describe bytes from the prior guide.
+An alert using a registered custom recipient or custom content handler also
+names HQ's system-administrator save requirement; registration alone is not
+presented as sufficient for a project administrator.
+Content-specific caveats are equally exact: SMS Survey names Inbound SMS access,
+and Connect names the `COMMCARE_CONNECT` toggle plus the requirement that every
+runtime recipient resolve to a CommCare mobile worker with an active PersonalID
+link.
+
+The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
+or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated
+run-on-save flag is never offered on a rule because HQ owns it as a project-wide
+switch. Survey content resolves its UUID to the current published
+app > module > form path that HQ's picker displays; Nova UUIDs never masquerade
+as HQ form identifiers, and the Builder uses that full path to disambiguate
+same-named forms while persisting only the UUID. The required default-language control projects an empty
+Nova value to **Project Default**, while an explicit code carries the target
+project-language configuration prerequisite. Worker/group recipient IDs begin
+empty with instructional placeholder copy and cannot commit blank or padded.
+Every text control composes the shared `Field` stack and carries the repo's
+noncredential input attributes. Dates use `DatePicker`, clock times use `TimeField` plus
+the canonical clock parser, and Weekly/Monthly event days use closed choices
+that exclude siblings and disable Add when exhausted. Removing any repeated
+criterion, setup instruction, update, recipient, recipient filter, or event
+hands focus to the next or previous enabled row action, then its Add action.
+Nested creation controls use verb-first **Add ...** labels, and an exhausted or
+unavailable control replaces that label with the exact reason it is disabled.
+The switch label and helper copy take the shared disabled opacity only once,
+including when an ancestor fieldset disables the editor.
+
+Message subjects/bodies use the structural template editor. Literal controls
+never parse token-looking text; projection doubles literal braces for HQ's
+Python Formatter. **Case property reference** inserts an explicit scope plus
+`(caseType, property)` identity part, while **Owner or recipient reference**
+inserts a closed context/property part. Removal canonicalizes adjacent literal runs, and Save
+refuses blank parts or unresolved properties. Registered custom IDs and HQ-only
+instructions start empty with descriptive placeholders. Every authored select
+passes `wrapValue`/`wrap`, so long place names and published
+`app > module > form` paths remain distinguishable in the narrow dialog.
+
+The editor makes the HQ form's cardinality and compatibility rules impossible
+to author: case updates expose value/date conditions on case, parent, or host
+properties plus at most one standard closed-parent condition; alerts expose
+direct-case value/regex conditions and no date, closed-parent, or
+server-modified condition. Both offer at most one live-place location
+condition and an explicit descendant flag. The guide states that HQ accepts
+and executes that form payload while its current visible editors hide the picker.
+It also allows no web-user recipient or incompatible case-relative/email/case-group recipient
+with Connect content, and no timed reset property unless the start is the rule
+trigger. Singleton recipient choices disable once used; list recipients exclude
+already-selected concrete targets. Descendant and location-level controls exist
+only under a location recipient and clear atomically when that dependency goes
+away. Each worker-property filter can be added once. Its accepted values are
+individual literal/case-property rows: literal inputs preserve empty and exact
+whitespace, case-property rows resolve custom properties by identity, and the
+guide announces when the resulting exact JSON needs an HQ system administrator.
+HQ filters only contacts that resolve to user accounts, so adding a filter
+disables the case, parent/child-case, case-email, case-group, and registered
+custom recipient choices; with any such recipient already selected, adding a
+filter is disabled and the visible note explains the runtime scope. A
+case-property filter value says that every triggering case must contain the
+property because HQ's direct lookup raises if it is missing.
+Closed-parent exposes no custom index or relationship. Exact HQ
+literal inputs start nonblank, and switching dependent schedule choices clears
+values the new form cannot save.
+
+Property inputs always show Nova names. Setup guidance projects supported
+standard names to the HQ model fields; status and dynamic-only standard values
+refuse visibly. Email exposes one schedule-wide target form: plain text with the
+Rich text emails prerequisite off, or rich HTML with it on. Switching the form
+changes every email event atomically, renders only that body's editor, and
+states that HQ sanitizes rich HTML and derives plaintext.
+
+The timed editor projects the canonical runtime encoding into one selectable HQ
+form (Custom Daily, Weekly, or Monthly). Content type and timing mode are schedule-wide; shared
+Weekly/Monthly timing and content edits fan out to every event. Human day fields
+use HQ's one-based Custom Daily values and exact Monthly day set. Weekly labels
+project the stored offset through the schedule start weekday; changing the
+start remaps and re-sorts offsets so the selected absolute weekdays stay fixed.
+Case-property timing explains that, after trimming, a runtime value must begin
+with `H:MM` or `HH:MM` and parse completely. It names accepted AM/PM and seconds
+suffixes plus HQ's 12:00 PM fallback for blank, nonmatching, or unparseable
+case data.
+Dependent
+survey controls clear and disable the same way HQ's form does, while the domain
+gate remains the final cross-field authority.
+
+Save and Remove pass the editor's opening fingerprint to the hook. The hook
+compares it with the authoritative record in the same synchronous call that
+derives and applies the granular mutations; a peer edit between render and
+click is therefore refused instead of being overwritten or deleted.
+
+Responsive behavior is owned by the App setup container. The list and editor
+must remain usable at the 320px dock layout, and all repeated rows keep explicit
+labels, remove names, keyboard focus, and visible refusal text. Add focuses the
+new rule, successful removal returns focus to Add, and no meaning relies on
+color alone.
+
 ## Preview mode
 
 One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle. **The mode flip is one layout commit choreographed by transforms** — centered (max-width) content can't track a sliding sidebar edge through layout (it stays pinned until the column narrows past the frame, then rushes), so the flip commits the final layout in a single render and everything that travels does so on the shared `SIDEBAR_TRANSITION`: **both flanks are the same shape — an in-flow SPACER that owns the layout width plus an absolute dock that slides via `x`**. Neither the app-tree panel nor the never-unmounted chat panel unmounts on a preview flip (unmounting the tree reset its scroll + expand + search; unmounting chat would sever the live run), so the preview flip is a transform + a spacer-width snap, never a remount. `AnimatePresence` still carries each flank's COARSE enter/exit slide (app open/close, the handset dock swap) — not the preview flip. The collapsed chat rail is a separate `AnimatePresence` element. Every centered surface is a `ContentFrame` gliding a delta computed from the column geometry (`ModeFlipGlideProvider`) — computed, not FLIP-measured, because Activity-swapped frames have no "before" box yet must stay edge-locked with the breadcrumbs. **New centered canvas surfaces must use ContentFrame** or they'll snap while everything else glides. Manual sidebar toggles keep the plain width tween. There is no per-surface preview affordance and no cursor-mode pill. Entering stashes open-state and closes both sidebars atomically (`setPreviewing`), so leaving restores the layout; keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`. That close only selects the panel's CONTENT, it never unmounts it: the app-tree panel renders against the EFFECTIVE open-state (`structureStashed ?? structureOpen`), so an open tree stays the mounted `StructureSidebar` (scroll intact) as it slides off rather than swapping to the rail. The layout widths collapse off the `previewing` flag alone, so hiding the flanks never depends on that close.

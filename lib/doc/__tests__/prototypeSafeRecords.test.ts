@@ -88,6 +88,7 @@ const WATCHER_UUID = testUuid("prototype-watcher");
 const USER_PROPERTY_UUID = testUuid("prototype-user-property");
 const USER_TYPE_UUID = testUuid("prototype-user-type");
 const PERSONA_UUID = testUuid("prototype-persona");
+const AUTOMATION_UUID = testUuid("prototype-automation");
 
 describe("prototype-safe normalized blueprint records", () => {
 	it("starts a fresh document store with normalized records", () => {
@@ -235,6 +236,20 @@ describe("prototype-safe normalized blueprint records", () => {
 			parsed([
 				{ kind: "addModule", module: module_("prototype-module") },
 				{
+					kind: "addAutomation",
+					automation: {
+						uuid: AUTOMATION_UUID,
+						kind: "case-update",
+						name: "Close completed cases",
+						caseType: "case",
+						criteriaOperator: "all",
+						criteria: [],
+						setupOnlyCriteria: [],
+						updates: [],
+						closeCase: true,
+					},
+				},
+				{
 					kind: "addUserProperty",
 					property: {
 						uuid: USER_PROPERTY_UUID,
@@ -263,6 +278,9 @@ describe("prototype-safe normalized blueprint records", () => {
 		expect(Object.getPrototypeOf(transport.userTypes ?? {})).toBe(
 			Object.prototype,
 		);
+		expect(Object.getPrototypeOf(transport.automations ?? {})).toBe(
+			Object.prototype,
+		);
 		expect(
 			Object.getPrototypeOf(
 				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
@@ -278,13 +296,21 @@ describe("prototype-safe normalized blueprint records", () => {
 				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
+		expect(Object.hasOwn(transport.automations ?? {}, AUTOMATION_UUID)).toBe(
+			true,
+		);
 		expectNullPrototype(normalized.modules);
+		expectNullPrototype(normalized.automations);
 
 		const hydrated = hydratePersistedBlueprint(transport);
 		expectNullPrototype(hydrated.modules);
 		expectNullPrototype(hydrated.userProperties);
 		expectNullPrototype(hydrated.userTypes);
 		expectNullPrototype(hydrated.userTypes?.[USER_TYPE_UUID]?.values);
+		expectNullPrototype(hydrated.automations);
+		expect(Object.hasOwn(hydrated.automations ?? {}, AUTOMATION_UUID)).toBe(
+			true,
+		);
 	});
 
 	it("diffs and replays strict-identity structural additions", () => {

@@ -21,6 +21,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RecordMutationsOptions } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
@@ -98,10 +99,12 @@ function recordProposal(
 	mutations: unknown,
 	doc: BlueprintDoc,
 	stage?: string,
+	options?: RecordMutationsOptions,
 ) {
 	return ctx.recordMutations(
 		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
 		stage,
+		options,
 	);
 }
 
@@ -164,6 +167,30 @@ describe("McpContext", () => {
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(2);
+	});
+
+	it("forwards an external organization read-set fence to the guarded writer", async () => {
+		const ctx = new McpContext({
+			appId: "a",
+			userId: "u",
+			projectId: "p",
+			runId: "r",
+			logWriter: mockLogWriter(),
+			progress: mockProgress(),
+			conversionImpact: zeroConversionImpact,
+		});
+
+		await recordProposal(
+			ctx,
+			[{ kind: "setAppName", name: "x" }],
+			mockDoc(),
+			"automations",
+			{ expectedOrganizationRevision: "17" },
+		);
+
+		expect(vi.mocked(applyBlueprintChange).mock.calls[0]?.[0]).toMatchObject({
+			expectedOrganizationRevision: "17",
+		});
 	});
 
 	it("awaits applyBlueprintChange before resolving", async () => {

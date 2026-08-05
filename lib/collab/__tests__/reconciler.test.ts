@@ -34,7 +34,11 @@ import {
 	isDocDataKey,
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { proseTemplateText } from "@/lib/domain";
+import {
+	type Automation,
+	automationMessageText,
+	proseTemplateText,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import {
@@ -48,6 +52,10 @@ const MOD = testUuid("mod-1");
 const FORM = testUuid("form-1");
 const F_A = testUuid("field-a");
 const F_B = testUuid("field-b");
+const AUTOMATION = testUuid("automation-reconciler");
+const AUTOMATION_UPDATE = testUuid("automation-reconciler-update");
+const AUTOMATION_RECIPIENT = testUuid("automation-reconciler-recipient");
+const AUTOMATION_EVENT = testUuid("automation-reconciler-event");
 const CANONICALITY_OUTCOME: PutOutcome = {
 	ok: false,
 	kind: "canonicality",
@@ -109,6 +117,72 @@ function makeRenameDoc(appName = "App"): BlueprintDoc {
 		...field,
 		caseWrite: { caseType: "patient", property: "a" },
 	};
+	return doc;
+}
+
+function caseUpdateAutomation(): Extract<Automation, { kind: "case-update" }> {
+	return {
+		uuid: AUTOMATION,
+		kind: "case-update",
+		name: "Local case update",
+		caseType: "patient",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		updates: [
+			{
+				uuid: AUTOMATION_UPDATE,
+				target: { scope: "case", property: "status_text" },
+				value: { kind: "literal", value: "closed" },
+			},
+		],
+		closeCase: false,
+	};
+}
+
+function conditionalAlertAutomation(): Extract<
+	Automation,
+	{ kind: "conditional-alert" }
+> {
+	return {
+		uuid: AUTOMATION,
+		kind: "conditional-alert",
+		name: "Peer alert",
+		caseType: "patient",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		recipients: [{ uuid: AUTOMATION_RECIPIENT, kind: "self" }],
+		schedule: {
+			kind: "immediate",
+			events: [
+				{
+					uuid: AUTOMATION_EVENT,
+					minutesToWait: 0,
+					content: {
+						kind: "sms",
+						message: automationMessageText("Peer reminder"),
+					},
+				},
+			],
+		},
+		includeDescendantLocations: false,
+		locationLevelUuids: [],
+		userDataFilters: [],
+		useUserCaseForFilter: false,
+	};
+}
+
+function makeAutomationDoc(): BlueprintDoc {
+	const doc = makeDoc("Automations");
+	doc.caseTypes = [
+		{
+			name: "patient",
+			properties: [{ name: "status_text", label: proseText("Status text") }],
+		},
+	];
+	doc.automations = { [AUTOMATION]: caseUpdateAutomation() };
+	doc.automationOrder = [AUTOMATION];
 	return doc;
 }
 
@@ -922,6 +996,118 @@ describe("reconciler", () => {
 			expect(fieldLabel(afterUndo, F_A)).toBe("A");
 			expect(fieldLabel(afterUndo, F_B)).toBe("B-peer");
 		});
+
+		it("does not refold a pending stale-kind automation patch onto a peer's replacement kind", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeAutomationDoc(),
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([
+				{
+					kind: "updateAutomation",
+					uuid: AUTOMATION,
+					targetKind: "case-update",
+					patch: { name: "Pending local rename", closeCase: true },
+				},
+			]);
+			h.reconciler.dispatchHumanBatch();
+
+			// A peer removes the logical target, then independently creates a
+			// different automation kind with the same globally available UUID. The
+			// reconciler refolds this tab's still-pending patch after each frame.
+			h.reconciler.onFrame(
+				autosaveFrame(1, "peer-remove-automation", "u2", [
+					{
+						kind: "removeAutomation",
+						uuid: AUTOMATION,
+						targetKind: "case-update",
+					},
+				]),
+			);
+			const peerAlert = conditionalAlertAutomation();
+			h.reconciler.onFrame(
+				autosaveFrame(2, "peer-add-alert", "u2", [
+					{ kind: "addAutomation", automation: peerAlert },
+				]),
+			);
+
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
+			expect(h.docStore.getState().automations?.[AUTOMATION]).toEqual(
+				peerAlert,
+			);
+		});
+
+		it.each(["removeAutomation", "moveAutomation"] as const)(
+			"does not refold a pending stale-kind %s onto a peer's replacement kind",
+			(kind) => {
+				const base = makeAutomationDoc();
+				const otherUuid = testUuid(`automation-reconciler-${kind}-other`);
+				const otherUpdateUuid = testUuid(
+					`automation-reconciler-${kind}-other-update`,
+				);
+				const other = {
+					...caseUpdateAutomation(),
+					uuid: otherUuid,
+					updates: [
+						{
+							...caseUpdateAutomation().updates[0],
+							uuid: otherUpdateUuid,
+						},
+					],
+				} satisfies Automation;
+				base.automations = { ...base.automations, [otherUuid]: other };
+				base.automationOrder = [AUTOMATION, otherUuid];
+				const h = harness({
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: base,
+					userId: "u1",
+				});
+
+				h.docStore.getState().applyMany([
+					kind === "removeAutomation"
+						? {
+								kind,
+								uuid: AUTOMATION,
+								targetKind: "case-update",
+							}
+						: {
+								kind,
+								uuid: AUTOMATION,
+								targetKind: "case-update",
+								after: otherUuid,
+							},
+				]);
+				h.reconciler.dispatchHumanBatch();
+
+				h.reconciler.onFrame(
+					autosaveFrame(1, `peer-${kind}-remove`, "u2", [
+						{
+							kind: "removeAutomation",
+							uuid: AUTOMATION,
+							targetKind: "case-update",
+						},
+					]),
+				);
+				const peerAlert = conditionalAlertAutomation();
+				h.reconciler.onFrame(
+					autosaveFrame(2, `peer-${kind}-add-alert`, "u2", [
+						{ kind: "addAutomation", automation: peerAlert, after: null },
+					]),
+				);
+
+				expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
+				expect(h.docStore.getState().automations?.[AUTOMATION]).toEqual(
+					peerAlert,
+				);
+				expect(h.docStore.getState().automationOrder).toEqual([
+					AUTOMATION,
+					otherUuid,
+				]);
+			},
+		);
 	});
 
 	// ── Two-tab / echo classification ───────────────────────────────────

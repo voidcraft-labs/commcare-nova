@@ -123,6 +123,19 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	updatePersona: { doing: "Updating persona", done: "Updated persona" },
 	removePersona: { doing: "Removing persona", done: "Removed persona" },
 	getUsers: { doing: "Inspecting users", done: "Inspected users" },
+	getAutomations: {
+		doing: "Inspecting automations",
+		done: "Inspected automations",
+	},
+	addAutomations: { doing: "Adding automations", done: "Added automations" },
+	updateAutomation: {
+		doing: "Updating automation",
+		done: "Updated automation",
+	},
+	removeAutomation: {
+		doing: "Removing automation",
+		done: "Removed automation",
+	},
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
 	configureConnect: {
 		doing: "Configuring CommCare Connect",

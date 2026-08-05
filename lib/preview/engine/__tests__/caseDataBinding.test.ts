@@ -110,6 +110,7 @@ import {
 	pickBlueprintDoc,
 } from "../caseDataBindingClient";
 import {
+	buildCaseOperationProgramFromDoc,
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs as projectSubmissionEnvelopeArgs,
@@ -330,12 +331,22 @@ const FINAL_SUBMISSION_PROTOCOL = {
 let submissionEnvelopeReceiptSequence = 0;
 
 function submissionEnvelopeArgs(
-	...args: Parameters<typeof projectSubmissionEnvelopeArgs>
+	mutation: Parameters<typeof projectSubmissionEnvelopeArgs>[0],
+	appId: Parameters<typeof projectSubmissionEnvelopeArgs>[1],
+	built?: Parameters<typeof projectSubmissionEnvelopeArgs>[2],
 ): ReturnType<typeof projectSubmissionEnvelopeArgs> {
-	const [mutation, appId, built] = args;
 	submissionEnvelopeReceiptSequence += 1;
+	const children =
+		mutation.kind === "registration" ||
+		mutation.kind === "followup" ||
+		mutation.kind === "close"
+			? mutation.children
+			: [];
 	return projectSubmissionEnvelopeArgs(mutation, appId, {
 		...built,
+		ordinaryChildRelationships:
+			built?.ordinaryChildRelationships ??
+			new Map(children.map((child) => [child.caseType, "child"] as const)),
 		submissionReceipt:
 			built?.submissionReceipt ??
 			({
@@ -2003,6 +2014,7 @@ describe("readCaseData", () => {
 		await store.update({
 			appId: APP_ID,
 			caseId: ALICE_CASE_ID,
+			parentRelationship: "child",
 			patch: { parent_case_id: BOB_CASE_ID },
 		});
 
@@ -2634,6 +2646,81 @@ describe("applySubmission — registration", () => {
 		expect(visits.rows[0]?.parent_case_id).toBe(result.primaryCaseId);
 	});
 
+	it("derives and persists an ordinary extension host from the committed case catalog", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const extensionVisit: CaseType = {
+			...VISIT_CASE_TYPE,
+			relationship: "extension",
+		};
+		const blueprint = buildDoc({
+			appName: "Extension submission",
+			caseTypes: [PATIENT_CASE_TYPE, extensionVisit],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Register patient",
+							type: "registration",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+
+		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
+			primary: {
+				caseType: "patient",
+				caseName: "Alice",
+				properties: { age: 30 },
+			},
+			children: [
+				{
+					caseType: "visit",
+					caseName: "Hosted visit",
+					properties: { notes: "checkup" },
+				},
+			],
+		};
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const identity = previewAsMe({ id: OWNER_A });
+		if (identity === null) throw new Error("expected preview identity");
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint: pickBlueprintDoc(blueprint),
+			mutation,
+			projection,
+			identity,
+		});
+		expect(built.ordinaryChildRelationships.get("visit")).toBe("extension");
+
+		const result = await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, built),
+		);
+		const childCaseId = result.childCaseIds[0];
+		expect(childCaseId).toBeDefined();
+		const edge = await sql<{
+			identifier: string;
+			relationship: string;
+			ancestor_id: string;
+		}>`
+			SELECT identifier, relationship, ancestor_id
+			FROM case_indices
+			WHERE case_id = ${childCaseId ?? ""}
+		`.execute(dbHandle.db);
+		expect(edge.rows[0]).toEqual({
+			identifier: "parent",
+			relationship: "extension",
+			ancestor_id: result.primaryCaseId,
+		});
+	});
+
 	it("admits zero children and lands the primary alone", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -3115,7 +3202,10 @@ describe("submissionEnvelopeArgs", () => {
 			ordinary: {
 				kind: "registration",
 				primary: mutation.primary,
-				children: mutation.children,
+				children: mutation.children.map((child) => ({
+					...child,
+					parentRelationship: "child",
+				})),
 			},
 		});
 	});
@@ -3147,7 +3237,10 @@ describe("submissionEnvelopeArgs", () => {
 				kind: "followup",
 				caseId: ALICE_CASE_ID,
 				patch: mutation.patch,
-				children: mutation.children,
+				children: mutation.children.map((child) => ({
+					...child,
+					parentRelationship: "child",
+				})),
 			},
 		});
 	});
@@ -3179,7 +3272,10 @@ describe("submissionEnvelopeArgs", () => {
 				kind: "close",
 				caseId: ALICE_CASE_ID,
 				patch: mutation.patch,
-				children: mutation.children,
+				children: mutation.children.map((child) => ({
+					...child,
+					parentRelationship: "child",
+				})),
 			},
 		});
 	});
@@ -3560,6 +3656,32 @@ describe("submitFormAction", () => {
 				},
 			],
 		};
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: buildDoc({
+					appName: "Case-bearing action",
+					caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							forms: [
+								{
+									uuid: FINAL_FORM_UUID,
+									name: "Register patient",
+									type: "registration",
+									fields: [],
+								},
+							],
+						},
+					],
+				}),
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			},
+		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
 		const result = await submitFormAction(mutation, APP_ID);

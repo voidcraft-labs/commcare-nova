@@ -116,7 +116,10 @@ verdict and before the entity write.
   placement against the candidate hierarchy, including archived rows: roots
   must remain at root levels, and every child place's level must remain a strict
   descendant of its parent place's level. Checking only removed levels misses
-  an occupied level whose parent level changed.
+  an occupied level whose parent level changed. The document-side removal
+  planner also refuses while an automation uses the level to filter descendant
+  location recipients, naming the automation to repair before proposing the
+  destructive batch.
 
 ## Archive is the reversible gesture, and it spans both stores
 

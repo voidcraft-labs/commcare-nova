@@ -111,6 +111,45 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("Removing a persona preserves");
 	});
 
+	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
+		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		expect(sp).toContain("Matching case counts belong only to Builder Preview");
+		expect(sp).not.toContain(
+			"counts the locally representable matching subset",
+		);
+	});
+
+	it("teaches contextual automation host and message-property refusals", () => {
+		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		expect(sp).toContain(
+			"advanced case operation can add a second extension relationship",
+		);
+		expect(sp).toContain(
+			"host-scoped criterion, update target, update source, or message case-property part",
+		);
+		expect(sp).toContain("`owner`, `host`, or `last_modified_by`");
+		expect(sp).toContain("formatter context shadows those names");
+		expect(sp).toContain(
+			"Every triggering case must contain each referenced filter property",
+		);
+		expect(sp).toContain(
+			"HQ filters only contacts that resolve to user accounts",
+		);
+		expect(sp).toContain("case, parent/child-case, case-email, case-group");
+		expect(sp).toContain(
+			"case-property event-time value must begin with H:MM or HH:MM",
+		);
+		expect(sp).toContain("AM/PM or seconds are accepted");
+		expect(sp).toContain("blank, nonmatching, or unparseable values");
+		expect(sp).toContain("12:00 PM");
+		expect(sp).toContain(
+			"Every host-scoped reference also requires exactly one live extension at runtime",
+		);
+		expect(sp).toContain(
+			"Retained extra extension indices make the current-match count unavailable",
+		);
+	});
+
 	it("edit prompt is byte-identical across different apps", () => {
 		const a = buildSolutionsArchitectPrompt(
 			fixtureDoc("Vaccine Tracker", "Patients"),

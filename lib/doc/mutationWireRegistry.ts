@@ -75,6 +75,13 @@ const MUTATION_KIND_OWNERSHIP = {
 	addLocationProperty: "whole-value",
 	updateLocationProperty: "patch",
 	removeLocationProperty: "whole-value",
+	addAutomation: "whole-value",
+	updateAutomation: "patch",
+	removeAutomation: "whole-value",
+	moveAutomation: "whole-value",
+	editAutomationItem: "whole-value",
+	setAutomationSchedule: "whole-value",
+	updateAutomationSchedule: "patch",
 	addColumn: "whole-value",
 	updateColumn: "update-column",
 	removeColumn: "whole-value",
@@ -136,6 +143,7 @@ interface Presence {
 const DISCRIMINATOR_KEYS = [
 	"targetKind",
 	"targetAction",
+	"collection",
 	"operation",
 	"action",
 	"source",
@@ -521,7 +529,9 @@ export function buildMutationWireRegistry(): MutationWireRegistryEntry[] {
 			throw new Error(`Unclassified mutation kind: ${kind}.`);
 		}
 		const targetKind =
-			kind === "updateField"
+			kind === "updateField" ||
+			kind === "updateAutomation" ||
+			kind === "editAutomationItem"
 				? literalValue(object.shape.targetKind as z.ZodType | undefined)
 				: undefined;
 		const root =
@@ -635,6 +645,8 @@ function nullMeaning(
 				jsonPointer === "/valuePatch/value")) ||
 		((kind === "updateOrganizationLevel" ||
 			kind === "updateLocationProperty") &&
+			jsonPointer.startsWith("/patch/")) ||
+		((kind === "updateAutomation" || kind === "updateAutomationSchedule") &&
 			jsonPointer.startsWith("/patch/")) ||
 		(kind === "updateColumn" &&
 			(jsonPointer === "/sortPatch" || jsonPointer === "/tilePatch")) ||
@@ -833,7 +845,9 @@ export function buildMutationClearSlotManifest(): MutationClearSlotManifestEntry
 	for (const object of outerMutationArms()) {
 		const kind = mutationKind(object);
 		const targetKind =
-			kind === "updateField"
+			kind === "updateField" ||
+			kind === "updateAutomation" ||
+			kind === "editAutomationItem"
 				? literalValue(object.shape.targetKind as z.ZodType | undefined)
 				: undefined;
 		const root =
@@ -859,7 +873,10 @@ export function buildMutationClearSlotManifest(): MutationClearSlotManifestEntry
 		(entry) => `${entry.mutationLeaf}\u0000${entry.jsonPointer}`,
 	);
 	if (new Set(keys).size !== keys.length) {
-		throw new Error("Mutation clear-slot manifest contains a duplicate leaf.");
+		const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
+		throw new Error(
+			`Mutation clear-slot manifest contains a duplicate leaf: ${[...new Set(duplicates)].join(", ")}.`,
+		);
 	}
 	return sorted;
 }

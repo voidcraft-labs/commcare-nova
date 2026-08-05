@@ -49,7 +49,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { FieldKind } from "@/lib/domain";
+import type { Automation, FieldKind } from "@/lib/domain";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -1647,5 +1647,247 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(s);
 		expect(s.modules[s.moduleOrder[0]]?.name).toBe("Renamed Module");
 		expect(toastStore.toasts).toHaveLength(0);
+	});
+
+	it("retains structured automation findings for an inline gate refusal", () => {
+		const automationUuid = testUuid("hook-gate-automation");
+		const updateUuid = testUuid("hook-gate-update");
+		const automation: Automation = {
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Existing rule",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: updateUuid,
+					target: { scope: "case", property: "state" },
+					value: { kind: "literal", value: "resolved" },
+				},
+			],
+			closeCase: false,
+		};
+		const automationDoc: BlueprintDoc = {
+			...bp,
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{
+							name: "state",
+							label: proseText("State"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			automations: { [automationUuid]: automation },
+			automationOrder: [automationUuid],
+		};
+		function automationWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: automationWrapper },
+		);
+		const duplicateUuid = testUuid("hook-gate-automation-duplicate");
+		let outcome!: ReturnType<
+			typeof result.current.mutations.inline.addAutomation
+		>;
+		act(() => {
+			outcome = result.current.mutations.inline.addAutomation({
+				...automation,
+				uuid: duplicateUuid,
+				updates: [
+					{
+						...automation.updates[0],
+						uuid: testUuid("hook-gate-update-duplicate"),
+					},
+				],
+			});
+		});
+
+		assert(!outcome.ok);
+		expect(outcome.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "AUTOMATION_INVALID",
+					details: { automationUuid: duplicateUuid, path: "name" },
+				}),
+			]),
+		);
+		expect(
+			result.current.store?.getState().automations?.[duplicateUuid],
+		).toBeUndefined();
+	});
+
+	it("atomically refuses stale full automation replacement and removal", () => {
+		const automationUuid = testUuid("hook-automation");
+		const updateUuid = testUuid("hook-automation-update");
+		const automation: Automation = {
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Original rule",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: updateUuid,
+					target: { scope: "case", property: "state" },
+					value: { kind: "literal", value: "resolved" },
+				},
+			],
+			closeCase: false,
+		};
+		const automationDoc: BlueprintDoc = {
+			...bp,
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{
+							name: "state",
+							label: proseText("State"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			automations: { [automationUuid]: automation },
+			automationOrder: [automationUuid],
+		};
+		function automationWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: automationWrapper },
+		);
+		const openedFingerprint = JSON.stringify(automation);
+
+		act(() => {
+			result.current.mutations.updateAutomation({
+				uuid: automationUuid,
+				targetKind: "case-update",
+				patch: { name: "Peer rename" },
+			});
+		});
+		let replaceOutcome!: ReturnType<
+			typeof result.current.mutations.replaceAutomation
+		>;
+		let removeOutcome!: ReturnType<
+			typeof result.current.mutations.removeAutomation
+		>;
+		act(() => {
+			replaceOutcome = result.current.mutations.replaceAutomation(
+				{ ...automation, name: "My rename" },
+				openedFingerprint,
+			);
+			removeOutcome = result.current.mutations.removeAutomation(
+				automationUuid,
+				openedFingerprint,
+			);
+		});
+
+		expect(replaceOutcome).toMatchObject({
+			ok: false,
+			messages: [expect.stringContaining("changed while you were editing")],
+		});
+		expect(removeOutcome).toMatchObject({
+			ok: false,
+			messages: [expect.stringContaining("changed while you were editing")],
+		});
+		expect(
+			result.current.store?.getState().automations?.[automationUuid]?.name,
+		).toBe("Peer rename");
+	});
+
+	it("captures the current automation kind in a successful Builder removal", () => {
+		const automationUuid = testUuid("hook-remove-automation");
+		const automation: Automation = {
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Remove this rule",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: testUuid("hook-remove-automation-update"),
+					target: { scope: "case", property: "state" },
+					value: { kind: "literal", value: "resolved" },
+				},
+			],
+			closeCase: false,
+		};
+		const automationDoc: BlueprintDoc = {
+			...bp,
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{
+							name: "state",
+							label: proseText("State"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			automations: { [automationUuid]: automation },
+			automationOrder: [automationUuid],
+		};
+		function automationWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: automationWrapper },
+		);
+
+		act(() => {
+			result.current.mutations.removeAutomation(
+				automationUuid,
+				JSON.stringify(automation),
+			);
+		});
+
+		expect(result.current.store?.getState().automations).toBeUndefined();
+		expect(result.current.store?.getState().takeCommandBatches()).toEqual([
+			[
+				{
+					kind: "removeAutomation",
+					uuid: automationUuid,
+					targetKind: "case-update",
+				},
+			],
+		]);
 	});
 });

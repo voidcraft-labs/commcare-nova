@@ -8,6 +8,12 @@
  */
 
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
+import {
+	addAutomationsTool,
+	getAutomationsTool,
+	removeAutomationTool,
+	updateAutomationTool,
+} from "@/lib/agent/tools/automations";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
@@ -86,6 +92,30 @@ export interface SharedToolRegistryEntry {
 }
 
 export const SHARED_TOOL_REGISTRY = [
+	{
+		saName: "getAutomations",
+		mcpName: "get_automations",
+		tool: getAutomationsTool,
+		requires: "view",
+	},
+	{
+		saName: "addAutomations",
+		mcpName: "add_automations",
+		tool: addAutomationsTool,
+		requires: "edit",
+	},
+	{
+		saName: "updateAutomation",
+		mcpName: "update_automation",
+		tool: updateAutomationTool,
+		requires: "edit",
+	},
+	{
+		saName: "removeAutomation",
+		mcpName: "remove_automation",
+		tool: removeAutomationTool,
+		requires: "edit",
+	},
 	{
 		saName: "addFields",
 		mcpName: "add_fields",
