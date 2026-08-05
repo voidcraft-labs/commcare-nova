@@ -62,8 +62,10 @@ never admitted because Nova text and HQ's boolean field differ. Standard
 datetime values admit date or blankness matches, not text equality/regex.
 Reset-on-change and case-property event-time slots accept custom properties only
 because HQ reads those two from `dynamic_case_properties()` rather than any
-standard scalar field. Event-time values accept `H:MM` or `HH:MM`; blank,
-missing, or malformed values fall back to 12:00 PM in HQ.
+standard scalar field. After trimming, an event-time value must begin with
+`H:MM` or `HH:MM`, and the whole value must parse as a time. Suffixes such as
+AM/PM or seconds are accepted. Blank, nonmatching, or unparseable values fall
+back to 12:00 PM in HQ.
 
 Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
 values: ordered literal-text parts plus explicit structural case-property
@@ -80,7 +82,10 @@ in every case/parent/host template scope, so those structural parts are refused
 at the app gate. Host-scoped reads are also refused when an advanced case
 operation can add a non-`parent` extension index to that automation case type:
 HQ leaves extension-host ordering undefined, while parent-scoped reads and the
-extra link itself remain valid.
+extra link itself remain valid. At runtime, every host-scoped read still
+requires exactly one live extension. Historical cases may retain extra
+extension indices; Nova cannot count current matches for those cases, and HQ
+does not define which extension it chooses as the host.
 
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
 the standard parent-closed criterion, at most once, with no authored index or

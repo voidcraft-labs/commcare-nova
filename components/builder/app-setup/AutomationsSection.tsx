@@ -4086,7 +4086,7 @@ function EventEditor({
 						{timed.timing.kind === "case-property-time" ? (
 							<Labeled
 								label="Time property"
-								hint="Every triggering case should store H:MM or HH:MM here; HQ uses 12:00 PM when the value is blank, missing, or malformed"
+								hint="After trimming, the value must begin with H:MM or HH:MM and be entirely parseable as a time. AM/PM and seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM"
 							>
 								<Input
 									value={timed.timing.property}

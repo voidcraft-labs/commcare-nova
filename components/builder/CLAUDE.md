@@ -277,7 +277,10 @@ from the current match count. A count is read-only over real open case rows; the
 states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
-activation. Copy acts on the derived text only.
+activation. A host-scoped rule's guide states that every triggering case needs
+exactly one live extension at runtime. Retained extra extension indices make
+the current-match count unavailable, and HQ does not define which extension it
+chooses as the host. Copy acts on the derived text only.
 Regenerating a changed guide remounts its copy receipt so **Copied** can never
 describe bytes from the prior guide.
 An alert using a registered custom recipient or custom content handler also
@@ -354,8 +357,10 @@ Weekly/Monthly timing and content edits fan out to every event. Human day fields
 use HQ's one-based Custom Daily values and exact Monthly day set. Weekly labels
 project the stored offset through the schedule start weekday; changing the
 start remaps and re-sorts offsets so the selected absolute weekdays stay fixed.
-Case-property timing names HQ's accepted `H:MM` / `HH:MM` runtime values and
-its 12:00 PM fallback for blank, missing, or malformed case data.
+Case-property timing explains that, after trimming, a runtime value must begin
+with `H:MM` or `HH:MM` and parse completely. It names accepted AM/PM and seconds
+suffixes plus HQ's 12:00 PM fallback for blank, nonmatching, or unparseable
+case data.
 Dependent
 survey controls clear and disable the same way HQ's form does, while the domain
 gate remains the final cross-field authority.

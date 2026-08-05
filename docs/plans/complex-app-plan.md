@@ -209,8 +209,10 @@ check. `status` is refused because Nova's open/closed text is not HQ's boolean
 because HQ compares its datetime object with authored text without coercion.
 Restart-on-change and case-property event-time fields accept
 custom properties only because their HQ runtime reads `dynamic_case_properties`
-rather than any standard scalar field. Event-time values accept `H:MM` or
-`HH:MM`; blank, missing, or malformed values fall back to 12:00 PM. A case update may set case, parent, or host properties from a literal
+rather than any standard scalar field. After trimming, an event-time value
+must begin with `H:MM` or `HH:MM`, and the whole value must parse as a time.
+Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or
+unparseable values fall back to 12:00 PM. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
 project-wide switch that evaluates every active update rule for a saved case
@@ -305,8 +307,10 @@ of relationship. Host reads resolve the declared canonical extension only when
 no advanced case-operation link can add a second extension relationship to the
 automation case type; otherwise the app gate refuses that host-scoped read
 because HQ's host selection is unordered. The extra extension link and parent
-scope remain valid. A missing parent/host relation does not satisfy either
-comparison.
+scope remain valid. Every host-scoped read also requires exactly one live
+extension at runtime. Retained extra extension indices make the current-match
+count unavailable, and HQ does not define which extension it chooses as the
+host. A missing parent/host relation does not satisfy either comparison.
 Date comparisons use the same relation resolver. They take an ISO datetime's
 written calendar component before applying the day offset, matching HQ's
 `.date()` behavior without a Postgres session-timezone conversion.

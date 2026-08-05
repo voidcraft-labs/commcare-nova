@@ -44,9 +44,11 @@ because Nova's `open`/`closed` text is not HQ's boolean field, and these rules
 already inspect open cases. The standard date fields support date and blankness
 conditions, not text equality or regex.
 Restart-on-change and case-property event-time controls accept custom case data
-only; no standard scalar property is available in those HQ fields. A
-case-property event time must contain `H:MM` or `HH:MM`. If the value is blank,
-missing, or malformed when an event is scheduled, HQ uses 12:00 PM instead.
+only; no standard scalar property is available in those HQ fields. After
+trimming, a case-property event time must begin with `H:MM` or `HH:MM`, and the
+whole value must parse as a time. Suffixes such as AM/PM or seconds are
+accepted. If the value is blank, does not begin with that pattern, or cannot be
+parsed, HQ uses 12:00 PM instead.
 
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
@@ -210,7 +212,11 @@ host reads follow that canonical extension only while the app cannot add a
 second extension relationship to the automation's case type. Nova refuses the
 host-scoped read if an advanced case operation could make HQ's host choice
 unordered; the extra extension link and parent-scoped reads remain valid. A
-missing parent/host relation does not satisfy either comparison;
+host-scoped read still requires exactly one live extension at runtime.
+Historical cases can retain extra extension indices even when the current app
+can author only one. Nova makes the current-match count unavailable in that
+state, and HQ does not define which extension it chooses as the host. A missing
+parent/host relation does not satisfy either comparison;
 HQ's full Unicode whitespace set is blank for **has value / has no value**; and regular
 expressions test strings only rather than coercing numbers or booleans to text.
 Date conditions use those same parent/host rules. HQ and Preview both discard a

@@ -981,10 +981,13 @@ describe("AutomationsSection", () => {
 		const descriptionId = timeProperty.getAttribute("aria-describedby");
 		expect(descriptionId).toBeTruthy();
 		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-			"H:MM or HH:MM",
+			"must begin with H:MM or HH:MM",
 		);
 		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-			"12:00 PM when the value is blank, missing, or malformed",
+			"AM/PM and seconds are accepted",
+		);
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+			"blank, nonmatching, or unparseable values use 12:00 PM",
 		);
 	});
 

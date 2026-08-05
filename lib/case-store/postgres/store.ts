@@ -82,6 +82,7 @@ import {
 } from "@/lib/domain/temporalValues";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import {
+	AutomationHostAmbiguityError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -905,12 +906,44 @@ export class PostgresCaseStore implements CaseStore {
 		// `compileRelationPath` handles JOIN-side cases independently
 		// — the structural tenant-scoping contract splits the two
 		// halves to make cross-tenant reads structurally impossible.
+		const projectId = this.requireProjectId();
+		const readsHost = args.automationCriteria?.requiresUnambiguousHost ?? false;
+		const ambiguityHoldClause =
+			args.includeHeld === true
+				? sql<boolean>`true`
+				: sql<boolean>`not exists (
+					select 1
+					from parked_case_values as automation_host_held
+					where automation_host_held.case_id = automation_host_candidate.case_id
+						and automation_host_held.dismissed_at is null
+				)`;
+		const ambiguousHostCaseCount = readsHost
+			? sql<string>`(
+				select count(*)
+				from cases as automation_host_candidate
+				where automation_host_candidate.app_id = ${args.appId}
+					and automation_host_candidate.project_id = ${projectId}
+					and automation_host_candidate.case_type = ${args.caseType}
+					and automation_host_candidate.status = 'open'
+					and ${ambiguityHoldClause}
+					and (
+						select count(distinct automation_host_index.ancestor_id)
+						from case_indices as automation_host_index
+						where automation_host_index.case_id = automation_host_candidate.case_id
+							and automation_host_index.relationship = 'extension'
+							and automation_host_index.depth = 1
+					) > 1
+			)`
+			: sql<string>`'0'`;
 		let qb = this.db
 			.selectFrom("cases as c")
-			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.select((eb) => [
+				eb.fn.countAll<string>().as("total"),
+				ambiguousHostCaseCount.as("ambiguous_host_case_count"),
+			])
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.project_id", "=", this.requireProjectId());
+			.where("c.project_id", "=", projectId);
 		// Same HOLD exclusion `query` applies — a count must agree with
 		// the row list its caller pairs it with.
 		if (args.includeHeld !== true) {
@@ -1099,6 +1132,10 @@ export class PostgresCaseStore implements CaseStore {
 		// a structural pg-driver violation rather than a runtime
 		// branch the caller can recover from.
 		const row = await qb.executeTakeFirstOrThrow();
+		const ambiguityCount = Number(row.ambiguous_host_case_count);
+		if (readsHost && ambiguityCount > 0) {
+			throw new AutomationHostAmbiguityError(ambiguityCount);
+		}
 		return Number(row.total);
 	}
 

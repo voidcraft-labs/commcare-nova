@@ -32,6 +32,17 @@ interface AutomationContext {
 	readonly errors: ValidationError[];
 }
 
+/**
+ * Case-insensitive display-name key shared by browser and server validation.
+ *
+ * `toLowerCase`, never `toLocaleLowerCase`: the browser's locale can differ
+ * from the server's, and Turkish/Azerbaijani casing would otherwise make `I`
+ * and `i` distinct in one runtime but duplicates in another.
+ */
+function automationNameKey(name: string): string {
+	return name.trim().toLowerCase();
+}
+
 function flag(ctx: AutomationContext, message: string, path: string): void {
 	ctx.errors.push(
 		validationError(
@@ -536,7 +547,7 @@ export function validateAutomations(doc: BlueprintDoc): ValidationError[] {
 			continue;
 		}
 		const automation = parsed.data;
-		const nameKey = automation.name.trim().toLocaleLowerCase();
+		const nameKey = automationNameKey(automation.name);
 		if (names.has(nameKey)) {
 			errors.push(
 				validationError(

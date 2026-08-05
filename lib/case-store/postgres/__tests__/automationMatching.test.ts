@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { and, eq, isIn, literal, prop } from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
+import type { AutomationHostAmbiguityError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -191,8 +192,7 @@ async function insertExtensionFixtures(): Promise<void> {
 		 VALUES
 		 ($1, 'parent', 'extension', $2, 1),
 		 ($3, 'facility_host', 'extension', $4, 1),
-		 ($5, 'parent', 'extension', $2, 1),
-		 ($5, 'aaa_custom_host', 'extension', $4, 1)`,
+		 ($5, 'parent', 'extension', $2, 1)`,
 		[
 			CANONICAL_EXTENSION_ID,
 			PARENT_ID,
@@ -203,7 +203,112 @@ async function insertExtensionFixtures(): Promise<void> {
 	);
 }
 
+async function retainSecondaryExtension(): Promise<void> {
+	await h.pool.query(
+		`INSERT INTO case_indices
+		 (case_id, identifier, relationship, ancestor_id, depth)
+		 VALUES ($1, 'aaa_custom_host', 'extension', $2, 1)`,
+		[MULTI_EXTENSION_ID, CUSTOM_HOST_ID],
+	);
+}
+
 describe("automation criteria SQL", () => {
+	it("counts a host-scoped criterion when every open case has at most one host", async () => {
+		await insertExtensionFixtures();
+
+		await expect(
+			store().count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					requiresUnambiguousHost: true,
+					operator: "all",
+					dates: [],
+					comparisons: [
+						{
+							property: "marker",
+							value: "present",
+							equal: true,
+							scope: "host",
+						},
+					],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			}),
+		).resolves.toBe(3);
+	});
+
+	it("refuses host-scoped counts for a retained second host in the same snapshot", async () => {
+		await insertExtensionFixtures();
+		const caseStore = store();
+		const count = (scope: "case" | "parent" | "host") =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					requiresUnambiguousHost: scope === "host",
+					operator: "all",
+					dates: [],
+					comparisons: [
+						{
+							property: "marker",
+							value: "present",
+							equal: true,
+							scope,
+						},
+					],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		// Relations attached to an out-of-Project case cannot turn the count into
+		// an existence oracle for another tenant.
+		await h.pool.query(
+			`INSERT INTO case_indices
+			 (case_id, identifier, relationship, ancestor_id, depth)
+			 VALUES
+			 ('01890f45-0000-7000-8000-000000000105', 'first', 'extension', $1, 1),
+			 ('01890f45-0000-7000-8000-000000000105', 'second', 'extension', $2, 1)`,
+			[PARENT_ID, CUSTOM_HOST_ID],
+		);
+		await expect(count("host")).resolves.toBe(3);
+
+		// Model a historical operation-created edge retained after that operation
+		// disappeared from the current Blueprint. HQ's `case.host` chooses the
+		// first live extension without defining its order.
+		await retainSecondaryExtension();
+		await expect(count("host")).rejects.toEqual(
+			expect.objectContaining<Partial<AutomationHostAmbiguityError>>({
+				name: "AutomationHostAmbiguityError",
+				ambiguousOpenCaseCount: 1,
+			}),
+		);
+
+		// The retained row does not affect criteria that never resolve `host/...`.
+		await expect(count("case")).resolves.toBe(0);
+		await expect(count("parent")).resolves.toBe(4);
+
+		// Automatic rules skip closed target cases before criteria evaluation, so
+		// a closed ambiguous row cannot make the open-case count unavailable.
+		await h.pool.query(
+			`UPDATE cases
+			 SET status = 'closed', closed_on = now()
+			 WHERE case_id = $1`,
+			[MULTI_EXTENSION_ID],
+		);
+		await expect(count("host")).resolves.toBe(2);
+	});
+
 	it("preserves HQ's all/any identity for an empty criteria group", async () => {
 		const caseStore = store();
 		const count = (operator: "all" | "any") =>
@@ -213,6 +318,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator,
 					dates: [],
 					comparisons: [],
@@ -239,6 +345,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [
@@ -266,6 +373,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all",
 					dates: [],
 					comparisons: [],
@@ -296,6 +404,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: openAtFacility,
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -319,6 +428,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "any",
 					dates: [],
 					comparisons: [],
@@ -365,6 +475,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -381,6 +492,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -397,6 +509,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -442,6 +555,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -490,6 +604,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: false,
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -519,6 +634,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: scope === "host",
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -549,6 +665,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				predicate: eq(prop("visit", "case_name"), literal(caseName)),
 				automationCriteria: {
+					requiresUnambiguousHost: scope === "host",
 					operator: "all" as const,
 					dates: [],
 					comparisons: [],
@@ -589,6 +706,7 @@ describe("automation criteria SQL", () => {
 			caseStore.count({
 				...base,
 				automationCriteria: {
+					requiresUnambiguousHost: comparison.scope === "host",
 					operator: "all" as const,
 					dates: [],
 					comparisons: [comparison],
@@ -693,7 +811,7 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(1);
 	});
 
-	it("matches HQ calendar-day offsets through parent and first-extension host semantics", async () => {
+	it("matches HQ calendar-day offsets through parent and sole-host semantics", async () => {
 		await insertExtensionFixtures();
 		const clock = await h.pool.query<{ today: string; tomorrow: string }>(
 			`SELECT
@@ -754,6 +872,7 @@ describe("automation criteria SQL", () => {
 				caseTypeSchemas: schemas,
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
+					requiresUnambiguousHost: scope === "host",
 					operator: "all",
 					dates: [
 						{

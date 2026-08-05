@@ -725,7 +725,7 @@ export const timedEventTimingSchema = z.discriminatedUnion("kind", [
 		})
 		.strict()
 		.describe(
-			"Read a custom case property at send time. CommCare HQ accepts H:MM or HH:MM and falls back to 12:00 when the property is blank, missing, or malformed.",
+			"Read a custom case property at send time. After trimming, CommCare HQ requires the value to begin with H:MM or HH:MM and the whole value to parse as a time. Suffixes such as AM/PM or seconds are accepted. Blank, nonmatching, or unparseable values fall back to 12:00 PM.",
 		),
 ]);
 

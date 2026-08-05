@@ -3,7 +3,11 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
-import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
+import {
+	AutomationHostAmbiguityError,
+	buildCaseTypeMap,
+	withProjectContext,
+} from "@/lib/case-store";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { automationSchema, ownRecordValue, uuidSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -144,16 +148,24 @@ export async function previewAutomationAction(
 			});
 			matching = { status: "counted", currentMatchCount };
 		} catch (error) {
-			log.error("[automations] preview count failed", error, {
-				appId: parsed.data.appId,
-				automationUuid: parsed.data.automationUuid,
-				userId: session.user.id,
-			});
-			matching = {
-				status: "unavailable",
-				message:
-					"Nova couldn't refresh the current match count just now. The setup guide below is still current; try the count again in a moment.",
-			};
+			if (error instanceof AutomationHostAmbiguityError) {
+				matching = {
+					status: "unavailable",
+					message:
+						"Nova can't count current matches because one or more open cases have more than one extension host. Repair the extra extension relationship in the case data, then refresh the count. The setup guide below is still current.",
+				};
+			} else {
+				log.error("[automations] preview count failed", error, {
+					appId: parsed.data.appId,
+					automationUuid: parsed.data.automationUuid,
+					userId: session.user.id,
+				});
+				matching = {
+					status: "unavailable",
+					message:
+						"Nova couldn't refresh the current match count just now. The setup guide below is still current; try the count again in a moment.",
+				};
+			}
 		}
 		return {
 			success: true,

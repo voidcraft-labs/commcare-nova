@@ -249,8 +249,15 @@ export type CountArgs =
 			 * relation selection, blankness, and calendar-date arithmetic differ
 			 * intentionally from general case search, so these ephemeral leaves stay
 			 * explicit. The same Kysely query composes the group and preserves ALL/ANY;
-			 * this is not a second persisted automation schema. */
+			 * this is not a second persisted automation schema. A host-scoped
+			 * criterion also makes `count` refuse with
+			 * `AutomationHostAmbiguityError` when an otherwise-visible open target
+			 * case has more than one distinct extension host; that preflight and
+			 * the count share one PostgreSQL statement snapshot. */
 			automationCriteria?: {
+				/** True when the locally matched criteria read through HQ's unordered
+				 * first extension host. Actions are setup guidance, not local execution. */
+				requiresUnambiguousHost: boolean;
 				operator: "all" | "any";
 				dates: readonly {
 					property: string;

@@ -22,6 +22,7 @@ import {
 	projectAutomationPropertyForHq,
 	projectAutomationTemplateForHq,
 } from "./hqCaseProperties";
+import { automationUsesHostScopedRead } from "./matching";
 
 export interface AutomationSetupGuide {
 	readonly title: string;
@@ -165,7 +166,7 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 		case "random-window":
 			return `at a random time in the ${timing.windowMinutes}-minute window starting at ${timing.time}`;
 		case "case-property-time":
-			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}; every triggering case should store H:MM or HH:MM there, and HQ falls back to 12:00 PM when the value is blank, missing, or malformed`;
+			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}; after trimming, the value must begin with H:MM or HH:MM and the whole value must parse as a time; suffixes such as AM/PM or seconds are accepted, while blank, nonmatching, or unparseable values fall back to 12:00 PM`;
 	}
 }
 
@@ -237,6 +238,11 @@ export function buildAutomationSetupGuide(
 	if (automation.criteria.some((criterion) => criterion.kind === "location")) {
 		caveats.push(
 			"HQ executes LocationFilterDefinition and its HTML form accepts the hidden location_filter_definition payload, but the current visible rule and alert editors do not expose that picker. Have an HQ administrator apply the named location and descendant flag through that exact form payload or another supported administrator path; do not save a rule with this step omitted.",
+		);
+	}
+	if (automationUsesHostScopedRead(automation)) {
+		caveats.push(
+			"Every host-scoped read requires exactly one live extension at runtime. Retained extra extension indices leave CommCare HQ's host choice undefined. When a criterion reads the host, those extra indices also make Nova's current-match count unavailable.",
 		);
 	}
 	if (

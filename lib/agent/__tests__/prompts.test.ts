@@ -136,8 +136,18 @@ describe("buildSolutionsArchitectPrompt", () => {
 			"HQ filters only contacts that resolve to user accounts",
 		);
 		expect(sp).toContain("case, parent/child-case, case-email, case-group");
-		expect(sp).toContain("A case-property event time accepts H:MM or HH:MM");
+		expect(sp).toContain(
+			"case-property event-time value must begin with H:MM or HH:MM",
+		);
+		expect(sp).toContain("AM/PM or seconds are accepted");
+		expect(sp).toContain("blank, nonmatching, or unparseable values");
 		expect(sp).toContain("12:00 PM");
+		expect(sp).toContain(
+			"Every host-scoped read also requires exactly one live extension at runtime",
+		);
+		expect(sp).toContain(
+			"Retained extra extension indices make the current-match count unavailable",
+		);
 	});
 
 	it("edit prompt is byte-identical across different apps", () => {

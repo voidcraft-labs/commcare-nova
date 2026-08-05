@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { automationFormChoices } from "@/lib/automations/formChoices";
-import { automationMatchProjection } from "@/lib/automations/matching";
+import {
+	automationMatchProjection,
+	automationUsesHostScopedRead,
+} from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
 	type Automation,
@@ -198,6 +201,7 @@ describe("automation domain and projections", () => {
 		};
 		const projection = automationMatchProjection(doc, rule);
 		expect(projection.countArgs.automationCriteria).toEqual({
+			requiresUnambiguousHost: false,
 			operator: "all",
 			dates: [],
 			comparisons: [],
@@ -236,6 +240,7 @@ describe("automation domain and projections", () => {
 			expect(
 				automationMatchProjection(doc, automation).countArgs.automationCriteria,
 			).toEqual({
+				requiresUnambiguousHost: false,
 				operator: "any",
 				dates: [],
 				comparisons: [],
@@ -245,6 +250,76 @@ describe("automation domain and projections", () => {
 				locationOwnerSets: [],
 			});
 		}
+	});
+
+	it("distinguishes host-matched counts from setup-only action reads", () => {
+		const rule = claimCleanup();
+		expect(automationUsesHostScopedRead(rule)).toBe(false);
+		const hostCriterion = {
+			...rule,
+			criteria: [
+				{
+					uuid: testUuid("host-preflight-criterion"),
+					kind: "match-property" as const,
+					scope: "host" as const,
+					property: "state",
+					matchType: "equal" as const,
+					value: "open",
+				},
+			],
+		};
+		expect(automationUsesHostScopedRead(hostCriterion)).toBe(true);
+		expect(
+			automationMatchProjection(buildDoc(), hostCriterion).countArgs
+				.automationCriteria?.requiresUnambiguousHost,
+		).toBe(true);
+
+		const hostUpdate = {
+			...rule,
+			updates: [
+				{
+					uuid: testUuid("host-preflight-update"),
+					target: { scope: "case" as const, property: "state" },
+					value: {
+						kind: "case-property" as const,
+						source: { scope: "host" as const, property: "state" },
+					},
+				},
+			],
+		};
+		expect(automationUsesHostScopedRead(hostUpdate)).toBe(true);
+		expect(
+			automationMatchProjection(buildDoc(), hostUpdate).countArgs
+				.automationCriteria?.requiresUnambiguousHost,
+		).toBe(false);
+
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("host-preflight-message-event"),
+					minutesToWait: 0,
+					content: {
+						kind: "sms",
+						message: {
+							parts: [
+								{
+									kind: "case-property",
+									scope: "host",
+									caseType: "household",
+									property: "state",
+								},
+							],
+						},
+					},
+				},
+			],
+		});
+		expect(automationUsesHostScopedRead(alert)).toBe(true);
+		expect(
+			automationMatchProjection(buildDoc(), alert).countArgs.automationCriteria
+				?.requiresUnambiguousHost,
+		).toBe(false);
 	});
 
 	it("lowers the distinct case-update and conditional-alert criteria matrices", () => {
@@ -1085,6 +1160,80 @@ describe("automation domain and projections", () => {
 		);
 	});
 
+	it("warns every host-read guide about live extension ambiguity", () => {
+		const hostCriterion: Automation = {
+			...claimCleanup(),
+			criteria: [
+				{
+					uuid: testUuid("guide-host-criterion"),
+					kind: "match-property",
+					scope: "host",
+					property: "region",
+					matchType: "equal",
+					value: "north",
+				},
+			],
+		};
+		const hostUpdateSource: Automation = {
+			...claimCleanup(),
+			updates: [
+				{
+					uuid: testUuid("guide-host-update"),
+					target: { scope: "case", property: "region" },
+					value: {
+						kind: "case-property",
+						source: { scope: "host", property: "region" },
+					},
+				},
+			],
+		};
+		const hostMessage = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("guide-host-message-event"),
+					minutesToWait: 0,
+					content: {
+						kind: "sms",
+						message: {
+							parts: [
+								{
+									kind: "case-property",
+									scope: "host",
+									caseType: "household",
+									property: "region",
+								},
+							],
+						},
+					},
+				},
+			],
+		});
+		for (const automation of [hostCriterion, hostUpdateSource, hostMessage]) {
+			const caveats = buildAutomationSetupGuide(
+				buildDoc({ appName: "Host reads" }),
+				automation,
+				[],
+			).caveats.join(" ");
+			expect(caveats).toContain(
+				"Every host-scoped read requires exactly one live extension at runtime",
+			);
+			expect(caveats).toContain(
+				"Retained extra extension indices leave CommCare HQ's host choice undefined",
+			);
+			expect(caveats).toContain(
+				"extra indices also make Nova's current-match count unavailable",
+			);
+		}
+		expect(
+			buildAutomationSetupGuide(
+				buildDoc({ appName: "No host read" }),
+				claimCleanup(),
+				[],
+			).caveats.join(" "),
+		).not.toContain("exactly one live extension");
+	});
+
 	it("renders date comparisons in the exact HQ current-date algebra", () => {
 		const rule: Extract<Automation, { kind: "case-update" }> = {
 			...claimCleanup(),
@@ -1570,9 +1719,10 @@ describe("automation domain and projections", () => {
 			},
 			[],
 		).steps.join(" ");
-		expect(propertyTimeText).toContain("store H:MM or HH:MM");
-		expect(propertyTimeText).toContain("falls back to 12:00 PM");
-		expect(propertyTimeText).toContain("blank, missing, or malformed");
+		expect(propertyTimeText).toContain("must begin with H:MM or HH:MM");
+		expect(propertyTimeText).toContain("AM/PM or seconds are accepted");
+		expect(propertyTimeText).toContain("fall back to 12:00 PM");
+		expect(propertyTimeText).toContain("blank, nonmatching, or unparseable");
 
 		const fixedCustomDaily = automationSchema.parse(
 			alertWithSchedule({

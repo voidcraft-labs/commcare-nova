@@ -360,6 +360,47 @@ describe("automation property criteria validation", () => {
 		addAdvancedExtensionLink(canonicalHostDoc, "parent");
 		expect(validateAutomations(canonicalHostDoc)).toEqual([]);
 	});
+
+	it("normalizes duplicate names identically outside the browser locale", () => {
+		const doc = buildDoc({
+			appName: "Locale-independent automation names",
+			caseTypes: [{ name: "visit", properties: [] }],
+		});
+		const firstUuid = testUuid("validator-automation-name-capital-i");
+		const secondUuid = testUuid("validator-automation-name-lower-i");
+		const first: Automation = {
+			uuid: firstUuid,
+			kind: "case-update",
+			name: "I alert",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [],
+			closeCase: true,
+		};
+		const second: Automation = {
+			...first,
+			uuid: secondUuid,
+			name: "i alert",
+		};
+		doc.automations = { [firstUuid]: first, [secondUuid]: second };
+		doc.automationOrder = [firstUuid, secondUuid];
+
+		// Turkish locale casing treats these as distinct; the validator must not.
+		expect(first.name.toLocaleLowerCase("tr")).not.toBe(
+			second.name.toLocaleLowerCase("tr"),
+		);
+		expect(validateAutomations(doc)).toEqual([
+			expect.objectContaining({
+				code: "AUTOMATION_INVALID",
+				details: expect.objectContaining({
+					automationUuid: secondUuid,
+					path: "name",
+				}),
+			}),
+		]);
+	});
 });
 
 function validateOne(

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { AutomationHostAmbiguityError } from "@/lib/case-store";
 import { automationSchema, type BlueprintDoc } from "@/lib/domain";
 import { OrganizationError } from "@/lib/organization/errors";
 
@@ -171,6 +172,41 @@ describe("previewAutomationAction", () => {
 			expect.any(Error),
 			expect.objectContaining({ appId: doc.appId }),
 		);
+	});
+
+	it("returns matching unavailable without logging a retained-host ambiguity as an infrastructure failure", async () => {
+		const { doc, automation } = fixture();
+		mocks.readSnapshot.mockResolvedValue({
+			blueprint: doc,
+			blueprintSeq: 42,
+			organization: { revision: "9", locations: [] },
+		});
+		mocks.count.mockRejectedValue(new AutomationHostAmbiguityError(2));
+
+		const result = await previewAutomationAction({
+			appId: doc.appId,
+			automationUuid: automation.uuid,
+			expectedAutomation: automation,
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			data: {
+				matching: {
+					status: "unavailable",
+					message: expect.stringContaining("more than one extension host"),
+				},
+				executesLocally: false,
+			},
+		});
+		if (!result.success || result.data.matching.status !== "unavailable") {
+			throw new Error("expected unavailable host-ambiguity result");
+		}
+		expect(result.data.matching.message).toContain(
+			"Repair the extra extension relationship in the case data",
+		);
+		expect(result.data.matching.message).not.toContain("try again in a moment");
+		expect(mocks.logError).not.toHaveBeenCalled();
 	});
 
 	it("refuses a stale expected automation before opening the case store", async () => {

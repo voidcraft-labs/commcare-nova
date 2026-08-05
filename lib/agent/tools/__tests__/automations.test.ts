@@ -152,8 +152,18 @@ describe("automation shared tools", () => {
 				"Recipient filters require only user-account recipient kinds",
 			);
 			expect(description).toContain("every triggering case must contain");
-			expect(description).toContain("H:MM or HH:MM");
+			expect(description).toContain("must begin with H:MM or HH:MM");
+			expect(description).toContain("AM/PM and seconds are accepted");
+			expect(description).toContain(
+				"blank, nonmatching, or unparseable values",
+			);
 			expect(description).toContain("12:00 PM");
+			expect(description).toContain(
+				"requires exactly one live extension at runtime",
+			);
+			expect(description).toContain(
+				"retained extra extension indices make the current-match count unavailable",
+			);
 		}
 	});
 

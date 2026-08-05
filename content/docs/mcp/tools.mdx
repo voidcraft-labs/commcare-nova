@@ -342,9 +342,10 @@ to `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
 `external_id` remain unchanged. `case_id` and `case_type` are read-only.
 `status` is refused because Nova text and HQ's boolean field differ. Standard
 datetime properties allow date or blankness conditions, not equality or regex,
-and restart/event-time slots accept custom case properties only. A
-case-property event time must be `H:MM` or `HH:MM`; HQ uses 12:00 PM when the
-value is blank, missing, or malformed. Concrete HQ
+and restart/event-time slots accept custom case properties only. After
+trimming, a case-property event-time value must begin with `H:MM` or `HH:MM`,
+and the whole value must parse as a time. Suffixes such as AM/PM or seconds are
+accepted; blank, nonmatching, or unparseable values use 12:00 PM. Concrete HQ
 worker/group recipient IDs must be nonblank and have no surrounding whitespace.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients. Returned guidance states that
@@ -430,7 +431,10 @@ only while the app model leaves one unambiguous canonical extension relation
 for the automated case type. If an advanced case operation can add a second
 extension relation, Nova refuses every host-scoped criterion, update source,
 and message case-property part instead of choosing from HQ's unordered
-extensions; the extra link and parent-scoped reads remain valid. Alert regex
+extensions; the extra link and parent-scoped reads remain valid. Every
+host-scoped read also requires exactly one live extension at runtime. Retained
+extra extension indices make the current-match count unavailable, and HQ does
+not define which extension it chooses as the host. Alert regex
 matching applies only to stored strings; Nova does not coerce numeric or
 boolean case values to text. Date conditions use the same relation selection
 and compare only the property's written calendar date, never its time of day.

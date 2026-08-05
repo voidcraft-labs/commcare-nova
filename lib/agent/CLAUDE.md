@@ -206,15 +206,20 @@ parent/child-case, case-email, case-group, and registered custom recipients are
 refused because HQ bypasses non-`CouchUser` contacts and a custom handler's
 result is unknowable. A structural case-property filter value requires that
 property on every triggering case because HQ directly indexes it and raises
-when missing. A case-property event time accepts `H:MM` or `HH:MM`; HQ falls
-back to 12:00 PM for blank, missing, or malformed values. The deprecated domain-wide
+when missing. After trimming, a case-property event-time value must begin with
+`H:MM` or `HH:MM`, and the whole value must parse as a time. Suffixes such as
+AM/PM or seconds are accepted; blank, nonmatching, or unparseable values fall
+back to 12:00 PM. The deprecated domain-wide
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
 per-rule tool field.
 Host-scoped reads are admitted only while the app has one unambiguous canonical
 extension relation for the automation case type. If an advanced case operation
 can add a second extension, the gate refuses host-scoped criteria, update
 sources, and message case-property parts rather than choose from HQ's unordered
-extensions; the extra link and parent-scoped reads remain valid.
+extensions; the extra link and parent-scoped reads remain valid. Every
+host-scoped read also requires exactly one live extension at runtime. Retained
+extra indices make Nova's current-match count unavailable, and HQ does not
+define which extension it chooses as the host.
 
 Tool input keeps Nova's standard property names; the guide alone projects them
 to HQ model-field names, including `case_type` to `type`; `case_id` and

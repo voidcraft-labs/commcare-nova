@@ -144,10 +144,16 @@ A parent comparison follows every depth-one `parent` identifier regardless of
 child/extension relationship. A valid host comparison has exactly one possible
 canonical extension: the app gate refuses host-scoped automation reads when an
 advanced case operation can add another extension index to that case type,
-because HQ leaves host ordering undefined. The SQL resolver still chooses the
-canonical `parent` extension first, then identifier and target order, as a
-total defensive behavior for a validation-bypassing document; no valid doc
-depends on that ordering. Missing relations do not match either comparison,
+because HQ leaves host ordering undefined. Historical rows can retain a second
+extension after the operation that authored it is removed, so a count whose
+matching criteria read the host returns both its match aggregate and an
+ambiguity aggregate in one PostgreSQL statement snapshot. Any otherwise-visible open target row with
+more than one distinct depth-one extension host refuses the count; closed rows,
+held rows, other case types, other apps, and other Projects cannot trigger it.
+The SQL resolver still chooses the canonical `parent` extension first, then
+identifier and target order, as a total defensive behavior for documents and
+queries outside that authoritative Preview count; no reported count depends on
+that ordering. Missing relations do not match either comparison,
 while a missing property on an existing related case matches does-not-equal as
 HQ does. **Has value / has no value** treats a string containing only Python
 `str.strip()` whitespace as blank while non-string JSON scalars have a value,

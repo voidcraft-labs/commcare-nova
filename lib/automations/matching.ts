@@ -1,5 +1,10 @@
 import type { CountArgs } from "@/lib/case-store";
-import type { Automation, BlueprintDoc } from "@/lib/domain";
+import type {
+	Automation,
+	AutomationContent,
+	AutomationMessageTemplate,
+	BlueprintDoc,
+} from "@/lib/domain";
 import { personasOf } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate/builders";
 import type { StoredLocation } from "@/lib/organization/types";
@@ -10,6 +15,66 @@ export interface AutomationMatchProjection {
 		"predicate" | "automationCriteria"
 	>;
 	readonly omittedCriteria: readonly string[];
+}
+
+function templateUsesHostScopedRead(
+	template: AutomationMessageTemplate,
+): boolean {
+	return template.parts.some(
+		(part) => part.kind === "case-property" && part.scope === "host",
+	);
+}
+
+function contentUsesHostScopedRead(content: AutomationContent): boolean {
+	switch (content.kind) {
+		case "sms":
+		case "sms-callback":
+		case "connect-message":
+			return templateUsesHostScopedRead(content.message);
+		case "email":
+			return (
+				templateUsesHostScopedRead(content.subject) ||
+				templateUsesHostScopedRead(
+					content.body.kind === "plain-text"
+						? content.body.message
+						: content.body.html,
+				)
+			);
+		case "sms-survey":
+		case "connect-survey":
+		case "ivr":
+		case "custom":
+			return false;
+	}
+}
+
+/** True when HQ must resolve the first extension host anywhere in the rule. */
+export function automationUsesHostScopedRead(automation: Automation): boolean {
+	if (
+		automation.criteria.some(
+			(criterion) =>
+				criterion.kind === "match-property" && criterion.scope === "host",
+		)
+	) {
+		return true;
+	}
+	if (automation.kind === "case-update") {
+		return automation.updates.some(
+			(update) =>
+				update.value.kind === "case-property" &&
+				update.value.source.scope === "host",
+		);
+	}
+	return automation.schedule.events.some((event) =>
+		contentUsesHostScopedRead(event.content),
+	);
+}
+
+function automationCriteriaUseHostScopedRead(automation: Automation): boolean {
+	return automation.criteria.some(
+		(criterion) =>
+			criterion.kind === "match-property" && criterion.scope === "host",
+	);
 }
 
 /**
@@ -153,6 +218,8 @@ export function automationMatchProjection(
 			// AutomaticUpdateRule skips closed cases before criteria evaluation.
 			predicate: eq(prop(automation.caseType, "status"), literal("open")),
 			automationCriteria: {
+				requiresUnambiguousHost:
+					automationCriteriaUseHostScopedRead(automation),
 				operator: automation.criteriaOperator,
 				dates,
 				comparisons,
