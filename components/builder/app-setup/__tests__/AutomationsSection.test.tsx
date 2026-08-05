@@ -356,7 +356,7 @@ beforeEach(() => {
 			automationUuid: RULE_UUID,
 			blueprintSeq: 3,
 			organizationRevision: "1",
-			currentMatchCount: 4,
+			matching: { status: "counted", currentMatchCount: 4 },
 			omittedCriteria: ["HQ server-modified age of at least 30 days"],
 			setupGuide: {
 				title: "Close resolved visits",
@@ -649,6 +649,13 @@ describe("AutomationsSection", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		expect(mocks.organization.reload).toHaveBeenCalledTimes(2);
+
+		mocks.organization.refreshing = true;
+		rerender(<AutomationsSection />);
+		expect(screen.getByRole("status").textContent).toContain(
+			"Refreshing places",
+		);
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 	});
 
 	it("keeps a saved place reference readable when places cannot load", async () => {
@@ -832,6 +839,31 @@ describe("AutomationsSection", () => {
 				}),
 			}),
 		);
+	});
+
+	it("identifies HQ-shadowed message property names before save", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Case property reference" }),
+		);
+		const property = screen.getByRole("textbox", {
+			name: "Message reference property 2",
+		});
+
+		fireEvent.change(property, { target: { value: "owner" } });
+		expect(property.getAttribute("aria-invalid")).toBe("true");
+		expect(
+			screen.getByText(/“owner” is reserved by CommCare HQ in messages/),
+		).toBeDefined();
+
+		fireEvent.change(property, { target: { value: "case_id" } });
+		expect(property.getAttribute("aria-invalid")).toBeNull();
+		expect(
+			screen.queryByText(/is reserved by CommCare HQ in messages/),
+		).toBeNull();
 	});
 
 	it("authors one UUID-backed location condition from the live organization", async () => {
@@ -1594,11 +1626,53 @@ describe("AutomationsSection", () => {
 		expect(
 			screen.getByText(/Nova does not run this automation in Preview/),
 		).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: "Setup guide", level: 3 }),
+		).toBeDefined();
 		expect(mocks.preview).toHaveBeenCalledWith({
 			appId: "app-automations",
 			automationUuid: RULE_UUID,
 			expectedAutomation: rule,
 		});
+	});
+
+	it("keeps setup guidance available when the optional count is unavailable", async () => {
+		mocks.automations = [rule];
+		mocks.preview.mockResolvedValueOnce({
+			success: true,
+			data: {
+				automationUuid: RULE_UUID,
+				blueprintSeq: 3,
+				organizationRevision: "1",
+				matching: {
+					status: "unavailable",
+					message:
+						"Nova couldn't refresh the current match count just now. The setup guide below is still current; try the count again in a moment.",
+				},
+				omittedCriteria: [],
+				setupGuide: {
+					title: "Close resolved visits",
+					requiredPlan: "Data Cleanup (Pro or higher)",
+					steps: ["Open the current rule editor."],
+					caveats: ["Nova does not run this automation in Preview."],
+				},
+				executesLocally: false,
+			},
+		});
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Count matching cases" }),
+		);
+
+		await screen.findByText("Open the current rule editor.");
+		expect(screen.getByRole("alert").textContent).toContain(
+			"setup guide below is still current",
+		);
+		expect(screen.getByRole("button", { name: "Copy guide" })).toBeDefined();
 	});
 
 	it("resets copied state when a refreshed setup guide changes", async () => {
@@ -1610,7 +1684,7 @@ describe("AutomationsSection", () => {
 					automationUuid: RULE_UUID,
 					blueprintSeq: 3,
 					organizationRevision: "1",
-					currentMatchCount: 4,
+					matching: { status: "counted", currentMatchCount: 4 },
 					omittedCriteria: [],
 					setupGuide: {
 						title: "First guide",
@@ -1627,7 +1701,7 @@ describe("AutomationsSection", () => {
 					automationUuid: RULE_UUID,
 					blueprintSeq: 3,
 					organizationRevision: "2",
-					currentMatchCount: 5,
+					matching: { status: "counted", currentMatchCount: 5 },
 					omittedCriteria: [],
 					setupGuide: {
 						title: "Refreshed guide",

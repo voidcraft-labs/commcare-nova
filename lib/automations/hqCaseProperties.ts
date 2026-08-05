@@ -1,6 +1,7 @@
 import {
 	type AutomationMessageTemplate,
 	CASE_SCALAR_PROPERTY_NAMES,
+	isAutomationMessageShadowedCaseProperty,
 } from "@/lib/domain";
 
 /**
@@ -26,7 +27,9 @@ import {
  *   BaseUpdateCaseDefinition
  * - corehq/messaging/scheduling/tasks.py::_get_reset_case_property_value
  * - corehq/messaging/scheduling/models/timed_schedule.py::CasePropertyTimedEvent
- * - corehq/messaging/templating.py::_get_case_template_info
+ * - corehq/messaging/templating.py::_get_case_template_info and
+ *   CaseMessagingTemplateParam.__getattr__ (owner/host/last_modified_by
+ *   shadow same-named case data)
  */
 
 export type AutomationHqPropertySlot =
@@ -101,6 +104,9 @@ export function projectAutomationTemplateForHq(
 				return part.context === "case-owner"
 					? `{case.owner.${part.property}}`
 					: `{recipient.${part.property}}`;
+			}
+			if (isAutomationMessageShadowedCaseProperty(part.property)) {
+				return "{case.[reference needs repair]}";
 			}
 			const projected = projectAutomationPropertyForHq(part.property, "read");
 			return projected === undefined

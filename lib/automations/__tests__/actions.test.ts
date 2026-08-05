@@ -111,7 +111,7 @@ describe("previewAutomationAction", () => {
 			data: {
 				blueprintSeq: 42,
 				organizationRevision: "9",
-				currentMatchCount: 7,
+				matching: { status: "counted", currentMatchCount: 7 },
 				executesLocally: false,
 				omittedCriteria: [
 					"UCR filter: unclaimed cases",
@@ -131,6 +131,45 @@ describe("previewAutomationAction", () => {
 				predicate: expect.any(Object),
 				automationCriteria: expect.objectContaining({ operator: "all" }),
 			}),
+		);
+	});
+
+	it("keeps the current setup guide available when optional counting fails", async () => {
+		const { doc, automation } = fixture();
+		mocks.readSnapshot.mockResolvedValue({
+			blueprint: doc,
+			blueprintSeq: 42,
+			organization: { revision: "9", locations: [] },
+		});
+		mocks.count.mockRejectedValue(new Error("case store unavailable"));
+
+		const result = await previewAutomationAction({
+			appId: doc.appId,
+			automationUuid: automation.uuid,
+			expectedAutomation: automation,
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			data: {
+				blueprintSeq: 42,
+				organizationRevision: "9",
+				matching: {
+					status: "unavailable",
+					message: expect.stringContaining(
+						"setup guide below is still current",
+					),
+				},
+				setupGuide: {
+					title: "Close abandoned claims: Automatic Case Update Rule",
+					steps: expect.any(Array),
+				},
+			},
+		});
+		expect(mocks.logError).toHaveBeenCalledWith(
+			"[automations] preview count failed",
+			expect.any(Error),
+			expect.objectContaining({ appId: doc.appId }),
 		);
 	});
 

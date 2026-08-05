@@ -169,7 +169,14 @@ hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
 candidate lookup tables, evaluate against that snapshot, run the organization
 cross-store integrity hook under the same app-first lock, replace the complete
-lookup and location edge sets, then write rows + history. Missing or foreign tables become one
+lookup and location edge sets, then write rows + history. An automation tool
+that returns location-derived setup guidance additionally passes the exact
+organization revision it read. After the app lock and any dedup return, the
+writer compares that clock before a fresh commit; every location write shares
+the app-first prefix, so the successful Blueprint and guide have one
+organization serialization point without a fallible post-commit read. A
+lost-response replay still returns its already-committed batch even if the
+organization advanced later. Missing or foreign tables become one
 Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded

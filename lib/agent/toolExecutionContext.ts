@@ -31,6 +31,7 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
+import type { OrganizationRevision } from "@/lib/organization/types";
 
 /**
  * What a mutation-recording commit returns: the event envelopes it logged, plus
@@ -42,6 +43,20 @@ import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
 export interface RecordMutationsResult {
 	readonly events: MutationEvent[];
 	readonly committedDoc: BlueprintDoc;
+}
+
+/**
+ * Read-set fences a tool may attach to one authoritative Blueprint commit.
+ *
+ * Most tools need only the fresh Blueprint rebase/re-verdict. A tool whose
+ * success result projects an external app-scoped store can name the exact
+ * snapshot revision it used, so the writer either commits at that same
+ * serialization point or rejects before persistence. This avoids a fallible
+ * post-commit read while preventing a successful result from describing an
+ * older external snapshot.
+ */
+export interface RecordMutationsOptions {
+	readonly expectedOrganizationRevision?: OrganizationRevision;
 }
 
 /** The impact lookup a surface injects at context construction —
@@ -115,6 +130,7 @@ export interface ToolExecutionContext {
 	recordMutations(
 		prepared: PreparedMutationCandidate,
 		stage?: string,
+		options?: RecordMutationsOptions,
 	): Promise<RecordMutationsResult>;
 
 	/**

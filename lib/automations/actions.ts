@@ -23,7 +23,15 @@ export type AutomationPreviewResult =
 				readonly automationUuid: string;
 				readonly blueprintSeq: number;
 				readonly organizationRevision: string;
-				readonly currentMatchCount: number;
+				readonly matching:
+					| {
+							readonly status: "counted";
+							readonly currentMatchCount: number;
+					  }
+					| {
+							readonly status: "unavailable";
+							readonly message: string;
+					  };
 				readonly omittedCriteria: readonly string[];
 				readonly setupGuide: AutomationSetupGuide;
 				readonly executesLocally: false;
@@ -113,30 +121,49 @@ export async function previewAutomationAction(
 			automation,
 			snapshot.organization.locations,
 		);
-		const store = await withProjectContext(
-			access.projectId,
-			session.user.id,
-			session.user.id,
+		const setupGuide = buildAutomationSetupGuide(
+			snapshot.blueprint,
+			automation,
+			snapshot.organization.locations,
 		);
-		const currentMatchCount = await store.count({
-			appId: parsed.data.appId,
-			caseType: automation.caseType,
-			caseTypeSchemas: buildCaseTypeMap(snapshot.blueprint),
-			...projection.countArgs,
-		});
+		let matching: Extract<
+			AutomationPreviewResult,
+			{ readonly success: true }
+		>["data"]["matching"];
+		try {
+			const store = await withProjectContext(
+				access.projectId,
+				session.user.id,
+				session.user.id,
+			);
+			const currentMatchCount = await store.count({
+				appId: parsed.data.appId,
+				caseType: automation.caseType,
+				caseTypeSchemas: buildCaseTypeMap(snapshot.blueprint),
+				...projection.countArgs,
+			});
+			matching = { status: "counted", currentMatchCount };
+		} catch (error) {
+			log.error("[automations] preview count failed", error, {
+				appId: parsed.data.appId,
+				automationUuid: parsed.data.automationUuid,
+				userId: session.user.id,
+			});
+			matching = {
+				status: "unavailable",
+				message:
+					"Nova couldn't refresh the current match count just now. The setup guide below is still current; try the count again in a moment.",
+			};
+		}
 		return {
 			success: true,
 			data: {
 				automationUuid: automation.uuid,
 				blueprintSeq: snapshot.blueprintSeq,
 				organizationRevision: snapshot.organization.revision,
-				currentMatchCount,
+				matching,
 				omittedCriteria: projection.omittedCriteria,
-				setupGuide: buildAutomationSetupGuide(
-					snapshot.blueprint,
-					automation,
-					snapshot.organization.locations,
-				),
+				setupGuide,
 				executesLocally: false,
 			},
 		};

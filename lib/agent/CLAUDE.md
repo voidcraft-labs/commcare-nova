@@ -211,15 +211,19 @@ requires the toggle because HQ sanitizes/rewraps it and derives plaintext.
 
 Read and successful add/update results are explicit that Nova does not execute
 or install the automation. They derive the CommCare HQ setup guide and local
-matching omissions from an authorized location snapshot acquired before the
-guarded write plus the exact `commit.newDoc` returned by that write;
+matching omissions from an authorized location snapshot plus the exact
+`commit.newDoc` returned by the guarded write. Add/update fence that location
+snapshot's revision inside the app-locked Blueprint transaction, so a successful
+guide describes the same organization serialization point as its commit;
 removal returns only its deletion receipt. No guide or match count is
 persisted, and MCP does not pretend to return the Builder-only Preview count.
 No fallible organization read may run after `guardedMutate` succeeds: reporting
 an error after persistence would strand chat on its stale closure and make an
 MCP retry collide with the identities that already committed. A concurrent
-blueprint merge still derives the returned rule from `commit.newDoc`; callers
-can use `get_automations` to regenerate against a later location revision.
+blueprint merge still derives the returned rule from `commit.newDoc`; a
+concurrent location write makes the fence reject before persistence so the
+caller retries from the newer snapshot. Callers can use `get_automations` to
+regenerate against a later location revision.
 The prompt sends the SA to this family and forbids promising Preview execution,
 message delivery, schedule progress, or HQ installation. MCP registers the
 same four tool objects through `sharedToolRegistry`, with identity pointers for

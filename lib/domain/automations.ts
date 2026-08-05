@@ -257,6 +257,51 @@ export type AutomationPropertyTarget = z.infer<
 	typeof automationPropertyTargetSchema
 >;
 
+/**
+ * Case-row metadata that HQ's automation resolver exposes as text even though
+ * Nova deliberately keeps it out of the general case-property catalog used by
+ * case lists. These names are implicit only at automation read boundaries;
+ * update targets and custom-data-only slots remain closed to them.
+ */
+export const AUTOMATION_IMPLICIT_TEXT_READ_PROPERTIES = [
+	"case_id",
+	"case_type",
+] as const;
+export type AutomationImplicitTextReadProperty =
+	(typeof AUTOMATION_IMPLICIT_TEXT_READ_PROPERTIES)[number];
+const AUTOMATION_IMPLICIT_TEXT_READ_PROPERTY_SET: ReadonlySet<string> = new Set(
+	AUTOMATION_IMPLICIT_TEXT_READ_PROPERTIES,
+);
+
+export function isAutomationImplicitTextReadProperty(
+	property: string,
+): property is AutomationImplicitTextReadProperty {
+	return AUTOMATION_IMPLICIT_TEXT_READ_PROPERTY_SET.has(property);
+}
+
+/**
+ * HQ inserts these framework values into the `case` dictionary before Python
+ * Formatter resolves an automation message. A custom case property with one
+ * of these names is therefore shadowed in every `case`, `parent`, and `host`
+ * template scope. `parent` is already a platform-reserved custom-property
+ * name at the app boundary and does not need a second automation-only entry.
+ */
+export const AUTOMATION_MESSAGE_SHADOWED_CASE_PROPERTIES = [
+	"owner",
+	"host",
+	"last_modified_by",
+] as const;
+export type AutomationMessageShadowedCaseProperty =
+	(typeof AUTOMATION_MESSAGE_SHADOWED_CASE_PROPERTIES)[number];
+const AUTOMATION_MESSAGE_SHADOWED_CASE_PROPERTY_SET: ReadonlySet<string> =
+	new Set(AUTOMATION_MESSAGE_SHADOWED_CASE_PROPERTIES);
+
+export function isAutomationMessageShadowedCaseProperty(
+	property: string,
+): property is AutomationMessageShadowedCaseProperty {
+	return AUTOMATION_MESSAGE_SHADOWED_CASE_PROPERTY_SET.has(property);
+}
+
 export const AUTOMATION_MESSAGE_CONTEXTS = ["case-owner", "recipient"] as const;
 export type AutomationMessageContext =
 	(typeof AUTOMATION_MESSAGE_CONTEXTS)[number];

@@ -28,6 +28,7 @@ import {
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import type { OrganizationRevision } from "@/lib/organization/types";
 import {
 	type ChatRunHolderCapability,
 	type CommitGuardedBatchTransactionHooks,
@@ -60,6 +61,8 @@ export interface ApplyBlueprintChangeArgs {
 	readonly userId: string;
 	/** Project captured with the caller's blueprint/scope snapshot. */
 	readonly expectedProjectId: string;
+	/** Exact organization snapshot used by a success-result projection. */
+	readonly expectedOrganizationRevision?: OrganizationRevision;
 	/** Durable batch attribution. MCP supplies this without owning a chat lease. */
 	readonly runId?: string;
 	/** Exact chat holder authority. GenerationContext supplies this; MCP and
@@ -302,6 +305,9 @@ async function persistBlueprint(
 			actorUserId: args.userId,
 			kind: args.kind,
 			expectedProjectId: args.expectedProjectId,
+			...(args.expectedOrganizationRevision !== undefined && {
+				expectedOrganizationRevision: args.expectedOrganizationRevision,
+			}),
 		},
 		hooks,
 	);

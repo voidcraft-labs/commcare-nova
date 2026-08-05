@@ -11,6 +11,8 @@ import {
 	automationMessageText,
 	automationSchema,
 	type BlueprintDoc,
+	isAutomationImplicitTextReadProperty,
+	isAutomationMessageShadowedCaseProperty,
 	isPortableAutomationRegex,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
@@ -57,6 +59,18 @@ function alertWithSchedule(
 }
 
 describe("automation domain and projections", () => {
+	it("publishes the automation-only metadata and message-shadow admission predicates", () => {
+		expect(isAutomationImplicitTextReadProperty("case_id")).toBe(true);
+		expect(isAutomationImplicitTextReadProperty("case_type")).toBe(true);
+		expect(isAutomationImplicitTextReadProperty("case_name")).toBe(false);
+		expect(isAutomationMessageShadowedCaseProperty("owner")).toBe(true);
+		expect(isAutomationMessageShadowedCaseProperty("host")).toBe(true);
+		expect(isAutomationMessageShadowedCaseProperty("last_modified_by")).toBe(
+			true,
+		);
+		expect(isAutomationMessageShadowedCaseProperty("owner_id")).toBe(false);
+	});
+
 	it("labels duplicate form names by their published app and module path", () => {
 		const doc = buildDoc({
 			appName: "Care",

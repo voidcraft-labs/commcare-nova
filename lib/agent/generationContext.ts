@@ -99,6 +99,7 @@ import {
 import { streamObjectWith } from "./subGeneration";
 import type {
 	ConversionImpactFn,
+	RecordMutationsOptions,
 	RecordMutationsResult,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
@@ -551,6 +552,7 @@ export class GenerationContext implements ToolExecutionContext {
 		prepared: PreparedMutationCandidate,
 		events: MutationEvent[],
 		stage: string | undefined,
+		options: RecordMutationsOptions | undefined,
 	): Promise<RecordMutationsResult> {
 		const mutations = prepared.mutations;
 		const batchId = crypto.randomUUID();
@@ -576,6 +578,9 @@ export class GenerationContext implements ToolExecutionContext {
 					chatRunHolder,
 					batchId,
 					kind: "chat",
+					...(options?.expectedOrganizationRevision !== undefined && {
+						expectedOrganizationRevision: options.expectedOrganizationRevision,
+					}),
 					guard: {
 						mutations,
 					},
@@ -609,6 +614,9 @@ export class GenerationContext implements ToolExecutionContext {
 					mutations,
 					actorUserId: this.session.user.id,
 					expectedProjectId: this.projectId,
+					...(options?.expectedOrganizationRevision !== undefined && {
+						expectedOrganizationRevision: options.expectedOrganizationRevision,
+					}),
 					kind: "chat",
 				});
 			}
@@ -663,12 +671,13 @@ export class GenerationContext implements ToolExecutionContext {
 	async recordMutations(
 		prepared: PreparedMutationCandidate,
 		stage?: string,
+		options?: RecordMutationsOptions,
 	): Promise<RecordMutationsResult> {
 		if (prepared.mutations.length === 0) {
 			return { events: [], committedDoc: prepared.nextDoc };
 		}
 		const events = this.buildEnvelopes(prepared.mutations, stage);
-		return this.commitBatch(prepared, events, stage);
+		return this.commitBatch(prepared, events, stage, options);
 	}
 
 	/**
@@ -691,7 +700,7 @@ export class GenerationContext implements ToolExecutionContext {
 		const events = stages.slices.flatMap((slice) =>
 			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
-		return this.commitBatch(prepared, events, undefined);
+		return this.commitBatch(prepared, events, undefined, undefined);
 	}
 
 	/**

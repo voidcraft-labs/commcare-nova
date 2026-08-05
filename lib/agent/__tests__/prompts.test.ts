@@ -111,6 +111,14 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("Removing a persona preserves");
 	});
 
+	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
+		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		expect(sp).toContain("Matching case counts belong only to Builder Preview");
+		expect(sp).not.toContain(
+			"counts the locally representable matching subset",
+		);
+	});
+
 	it("edit prompt is byte-identical across different apps", () => {
 		const a = buildSolutionsArchitectPrompt(
 			fixtureDoc("Vaccine Tracker", "Patients"),

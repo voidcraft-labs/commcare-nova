@@ -200,11 +200,14 @@ in Nova vocabulary in the document, then the setup projection translates reads
 and message tokens exactly: `case_type` → `type`, `case_name` → `name`,
 `date_opened` → `opened_on`, and `last_modified` → `modified_on`; `case_id`,
 `owner_id`, and `external_id` are already the HQ automation names. `case_id`
-and `case_type` are read-only automation metadata. Update targets use that projection too, preserving
-HQ's pre-write equality check. `status` is refused because Nova's open/closed
-text is not HQ's boolean `closed` model field, and standard datetime equality
-or regex is refused because HQ compares its datetime object with authored text
-without coercion. Restart-on-change and case-property event-time fields accept
+and `case_type` are implicit text reads for criteria, message templates, update
+value sources, and property-backed recipients only. They remain outside the
+general case-list property catalog and are refused as update targets. Other
+update targets use the projection too, preserving HQ's pre-write equality
+check. `status` is refused because Nova's open/closed text is not HQ's boolean
+`closed` model field, and standard datetime equality or regex is refused
+because HQ compares its datetime object with authored text without coercion.
+Restart-on-change and case-property event-time fields accept
 custom properties only because their HQ runtime reads `dynamic_case_properties`
 rather than any standard scalar field. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
@@ -244,6 +247,9 @@ Formatter evaluates the result. The Builder inserts references explicitly,
 SA/MCP read and write the same canonical part union, property renames rewrite
 only identity-bearing case leaves, and the generated guide projects them
 one-way to HQ's current `{case...}` / `{recipient...}` token spelling.
+Custom case properties named `owner`, `host`, or `last_modified_by` are refused
+in every case/parent/host message scope because HQ's Formatter context shadows
+them with framework objects.
 Registered custom handlers and setup-only conditions must carry exact
 trimmed nonblank values; UI instructions remain placeholders, not saved data.
 Setup-only criteria distinguish UCR filters from registered custom criteria so
@@ -289,10 +295,12 @@ always excludes closed cases and relation walks retain app/Project tenancy.
 Equality matches only an exact stored string; numbers, booleans, objects,
 arrays, null, and missing values never equal the configured string and satisfy
 inequality. Parent reads resolve the depth-one `parent` identifier regardless
-of relationship; host reads resolve the first extension regardless of
-identifier, deterministically preferring the canonical `parent` extension and
-then identifier/target order. A missing parent/host relation does not satisfy
-either comparison.
+of relationship. Host reads resolve the declared canonical extension only when
+no advanced case-operation link can add a second extension relationship to the
+automation case type; otherwise the app gate refuses that host-scoped read
+because HQ's host selection is unordered. The extra extension link and parent
+scope remain valid. A missing parent/host relation does not satisfy either
+comparison.
 Date comparisons use the same relation resolver. They take an ISO datetime's
 written calendar component before applying the day offset, matching HQ's
 `.date()` behavior without a Postgres session-timezone conversion.

@@ -126,14 +126,14 @@ export function applyAutomationMutation(
 				mut.after,
 			);
 			return;
-		case "updateAutomation":
-			applyPatch(
-				ownRecordValue(draft.automations, mut.uuid) as
-					| Record<string, unknown>
-					| undefined,
-				mut.patch,
-			);
+		case "updateAutomation": {
+			const automation = ownRecordValue(draft.automations, mut.uuid);
+			if (automation === undefined || automation.kind !== mut.targetKind) {
+				return;
+			}
+			applyPatch(automation as unknown as Record<string, unknown>, mut.patch);
 			return;
+		}
 		case "removeAutomation":
 			removeAutomation(draft, mut.uuid);
 			return;

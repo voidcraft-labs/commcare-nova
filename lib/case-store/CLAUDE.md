@@ -141,10 +141,13 @@ runtime value rules. **Equals / does not equal** compares the criterion only
 with a stored JSON string. A JSON number `5` does not equal criterion `5`, and
 numbers, booleans, objects, arrays, null, and missing values satisfy does-not-equal.
 A parent comparison follows every depth-one `parent` identifier regardless of
-child/extension relationship, while a host comparison follows the first
-extension regardless of identifier. Nova chooses that host deterministically:
-the canonical `parent` extension first, then identifier and target order.
-Missing relations do not match either comparison,
+child/extension relationship. A valid host comparison has exactly one possible
+canonical extension: the app gate refuses host-scoped automation reads when an
+advanced case operation can add another extension index to that case type,
+because HQ leaves host ordering undefined. The SQL resolver still chooses the
+canonical `parent` extension first, then identifier and target order, as a
+total defensive behavior for a validation-bypassing document; no valid doc
+depends on that ordering. Missing relations do not match either comparison,
 while a missing property on an existing related case matches does-not-equal as
 HQ does. **Has value / has no value** treats a string containing only Python
 `str.strip()` whitespace as blank while non-string JSON scalars have a value,
@@ -166,8 +169,8 @@ organization store independently.
 **Day-offset date comparisons** use this same automation-specific relation
 resolver rather than the generic identifier path. `parent` follows the
 depth-one `parent` identifier regardless of relationship; `host` follows the
-same deterministic first extension used above, so a child link merely named
-`host` cannot match. HQ converts every resolved datetime to its own calendar
+same sole-extension contract and defensive resolver used above, so a child
+link merely named `host` cannot match. HQ converts every resolved datetime to its own calendar
 date before adding the signed day offset. Nova therefore takes an ISO value's
 leading `YYYY-MM-DD` component (preserving an explicit offset's authored day),
 truncates standard UTC timestamps in UTC, and compares UTC today as a date; it

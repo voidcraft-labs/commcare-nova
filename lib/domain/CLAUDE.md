@@ -55,11 +55,14 @@ Standard case metadata remains Nova vocabulary in storage. The derived HQ
 automation projection maps `case_type`/`case_name`/`date_opened`/`last_modified`
 to `type`/`name`/`opened_on`/`modified_on` for model-field readers and templates,
 while `case_id`, `owner_id`, and `external_id` already match. `case_id` and
-`case_type` are read-only automation metadata; `status` is never admitted because
-Nova text and HQ's boolean field differ. Standard datetime values admit date or
-blankness matches, not text equality/regex. Reset-on-change and case-property
-event-time slots accept custom properties only because HQ reads those two from
-`dynamic_case_properties()` rather than any standard scalar field.
+`case_type` are implicit text reads only in automation criteria, message
+templates, update value sources, and property-backed recipients; they remain
+outside the general case-list catalog and are never update targets. `status` is
+never admitted because Nova text and HQ's boolean field differ. Standard
+datetime values admit date or blankness matches, not text equality/regex.
+Reset-on-change and case-property event-time slots accept custom properties only
+because HQ reads those two from `dynamic_case_properties()` rather than any
+standard scalar field.
 
 Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
 values: ordered literal-text parts plus explicit structural case-property
@@ -70,7 +73,13 @@ braces before HQ's Python Formatter sees them. The Builder inserts a reference
 part explicitly, machine editors send the canonical part shape directly,
 case-property renames rewrite only structural case parts, and the setup guide
 alone projects those identities to HQ's `{case...}` spelling.
-No reader reparses rendered message text to recover a reference.
+No reader reparses rendered message text to recover a reference. HQ's Formatter
+context shadows custom properties named `owner`, `host`, or `last_modified_by`
+in every case/parent/host template scope, so those structural parts are refused
+at the app gate. Host-scoped reads are also refused when an advanced case
+operation can add a non-`parent` extension index to that automation case type:
+HQ leaves extension-host ordering undefined, while parent-scoped reads and the
+extra link itself remain valid.
 
 The HTML form owns several less-obvious boundaries. Only a case-update rule has
 the standard parent-closed criterion, at most once, with no authored index or

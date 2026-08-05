@@ -5,7 +5,10 @@ import {
 	type Automation,
 	automationMessageText,
 	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Form,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import { validateAutomations } from "../rules/automations";
 
 const FILTER_USER_PROPERTY_UUID = testUuid("validator-filter-user-property");
@@ -28,6 +31,13 @@ function docWithCriterion(
 				parent_type: "household",
 				relationship,
 				properties: [{ name: "due", label: "Due", data_type: "date" }],
+			},
+		],
+		modules: [
+			{
+				name: "Visits",
+				caseType: "visit",
+				forms: [{ name: "Follow up", type: "followup" }],
 			},
 		],
 	});
@@ -59,6 +69,34 @@ function docWithCriterion(
 	doc.automations = { [uuid]: automation };
 	doc.automationOrder = [uuid];
 	return doc;
+}
+
+function addAdvancedExtensionLink(
+	doc: BlueprintDoc,
+	identifier = "facility_host",
+): void {
+	const form = Object.values(doc.forms)[0] as Form | undefined;
+	if (form === undefined) throw new Error("expected automation fixture form");
+	form.caseOperations = [
+		{
+			uuid: testUuid(`advanced-extension-${identifier}`),
+			id: `link_${identifier}`,
+			action: "update",
+			caseType: "visit",
+			target: { kind: "session" },
+			links: [
+				{
+					identifier,
+					targetType: "household",
+					target: {
+						kind: "expression",
+						expr: term(literal("household-case-id")),
+					},
+					relationship: "extension",
+				},
+			],
+		},
+	];
 }
 
 describe("automation property criteria validation", () => {
@@ -189,6 +227,139 @@ describe("automation property criteria validation", () => {
 			}),
 		]);
 	});
+
+	it.each(["case_id", "case_type"])(
+		"treats %s as implicit text metadata for automation criteria only",
+		(property) => {
+			const doc = docWithCriterion("case", property, "has-value");
+			const visit = effectiveCaseTypes(doc).find(
+				(caseType) => caseType.name === "visit",
+			);
+			expect(visit?.properties.some((entry) => entry.name === property)).toBe(
+				false,
+			);
+			expect(validateAutomations(doc)).toEqual([]);
+		},
+	);
+
+	it("refuses every host read when advanced operations can add a second extension", () => {
+		const criterionDoc = docWithCriterion(
+			"host",
+			"state",
+			"has-value",
+			"extension",
+		);
+		addAdvancedExtensionLink(criterionDoc);
+		expect(validateAutomations(criterionDoc)).toEqual([
+			expect.objectContaining({
+				message: expect.stringContaining("does not define which extension"),
+				details: expect.objectContaining({ path: "criteria.0.scope" }),
+			}),
+		]);
+
+		const updateDoc = docWithCriterion("case", "due", "has-value", "extension");
+		const update = Object.values(updateDoc.automations ?? {})[0];
+		if (update?.kind !== "case-update") {
+			throw new Error("expected automatic update");
+		}
+		update.criteria = [];
+		update.updates = [
+			{
+				uuid: testUuid("ambiguous-host-update"),
+				target: { scope: "case", property: "due" },
+				value: {
+					kind: "case-property",
+					source: { scope: "host", property: "state" },
+				},
+			},
+		];
+		update.closeCase = false;
+		addAdvancedExtensionLink(updateDoc);
+		expect(validateAutomations(updateDoc)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "updates.0.value.source.scope",
+				}),
+			}),
+		]);
+
+		const templateDoc = docWithCriterion(
+			"case",
+			"due",
+			"has-value",
+			"extension",
+		);
+		const alertUuid = testUuid("ambiguous-host-template-alert");
+		templateDoc.automations = {
+			[alertUuid]: {
+				uuid: alertUuid,
+				kind: "conditional-alert",
+				name: "Ambiguous host template",
+				caseType: "visit",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				recipients: [
+					{ uuid: testUuid("ambiguous-host-recipient"), kind: "owner" },
+				],
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("ambiguous-host-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "sms",
+								message: {
+									parts: [
+										{
+											kind: "case-property",
+											scope: "host",
+											caseType: "household",
+											property: "state",
+										},
+									],
+								},
+							},
+						},
+					],
+				},
+				includeDescendantLocations: false,
+				locationLevelUuids: [],
+				userDataFilters: [],
+				useUserCaseForFilter: false,
+			},
+		};
+		templateDoc.automationOrder = [alertUuid];
+		addAdvancedExtensionLink(templateDoc);
+		expect(validateAutomations(templateDoc)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "schedule.events.0.content.message.parts.0.scope",
+				}),
+			}),
+		]);
+	});
+
+	it("keeps parent reads and non-ambiguous advanced extension links valid", () => {
+		const parentDoc = docWithCriterion(
+			"parent",
+			"state",
+			"has-value",
+			"extension",
+		);
+		addAdvancedExtensionLink(parentDoc);
+		expect(validateAutomations(parentDoc)).toEqual([]);
+
+		const canonicalHostDoc = docWithCriterion(
+			"host",
+			"state",
+			"has-value",
+			"extension",
+		);
+		addAdvancedExtensionLink(canonicalHostDoc, "parent");
+		expect(validateAutomations(canonicalHostDoc)).toEqual([]);
+	});
 });
 
 function validateOne(
@@ -200,8 +371,6 @@ function validateOne(
 			{
 				name: "visit",
 				properties: [
-					{ name: "case_id", label: "Case ID", data_type: "text" },
-					{ name: "case_type", label: "Case type", data_type: "text" },
 					{ name: "due", label: "Due", data_type: "date" },
 					{ name: "alarm_time", label: "Alarm time", data_type: "time" },
 				],
@@ -338,6 +507,57 @@ describe("automation HQ property-slot compatibility", () => {
 		]);
 	});
 
+	it("rejects every HQ-shadowed custom message property in every relationship scope", () => {
+		for (const scope of ["case", "parent", "host"] as const) {
+			for (const property of ["owner", "host", "last_modified_by"] as const) {
+				const relationship = scope === "host" ? "extension" : "child";
+				const doc = buildDoc({
+					appName: "Shadowed automation template",
+					caseTypes: [
+						{
+							name: "household",
+							properties: [
+								{ name: property, label: property, data_type: "text" },
+							],
+						},
+						{
+							name: "visit",
+							parent_type: "household",
+							relationship,
+							properties: [
+								{ name: property, label: property, data_type: "text" },
+							],
+						},
+					],
+				});
+				const alert = alertWithContent("Reminder");
+				const content = alert.schedule.events[0]?.content;
+				if (content?.kind !== "sms") throw new Error("missing SMS content");
+				content.message = {
+					parts: [
+						{
+							kind: "case-property",
+							scope,
+							caseType: scope === "case" ? "visit" : "household",
+							property,
+						},
+					],
+				};
+				doc.automations = { [alert.uuid]: alert };
+				doc.automationOrder = [alert.uuid];
+
+				expect(validateAutomations(doc)).toEqual([
+					expect.objectContaining({
+						message: expect.stringContaining(`“${property}” is shadowed`),
+						details: expect.objectContaining({
+							path: "schedule.events.0.content.message.parts.0.property",
+						}),
+					}),
+				]);
+			}
+		}
+	});
+
 	it("accepts projected update and template properties", () => {
 		const update: Automation = {
 			uuid: testUuid("validator-update-case-name"),
@@ -361,7 +581,36 @@ describe("automation HQ property-slot compatibility", () => {
 		};
 		expect(validateOne(update)).toEqual([]);
 		expect(validateOne(alertWithContent("Hello ", "case_name"))).toEqual([]);
+		expect(validateOne(alertWithContent("ID ", "case_id"))).toEqual([]);
 		expect(validateOne(alertWithContent("Type ", "case_type"))).toEqual([]);
+
+		for (const property of ["case_id", "case_type"] as const) {
+			const metadataSource: Automation = {
+				...update,
+				uuid: testUuid(`validator-read-${property}`),
+				updates: [
+					{
+						uuid: testUuid(`validator-read-${property}-row`),
+						target: { scope: "case", property: "due" },
+						value: {
+							kind: "case-property",
+							source: { scope: "case", property },
+						},
+					},
+				],
+			};
+			expect(validateOne(metadataSource)).toEqual([]);
+
+			const recipient = alertWithContent("Reminder");
+			recipient.recipients = [
+				{
+					uuid: testUuid(`validator-recipient-${property}`),
+					kind: "case-property-user-id",
+					property,
+				},
+			];
+			expect(validateOne(recipient)).toEqual([]);
+		}
 	});
 
 	it("refuses unrepresentable update and template standard properties", () => {
@@ -399,6 +648,22 @@ describe("automation HQ property-slot compatibility", () => {
 			],
 		};
 		expect(validateOne(caseTypeUpdate)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "updates.0.target" }),
+			}),
+		]);
+		const caseIdUpdate: Automation = {
+			...update,
+			uuid: testUuid("validator-update-case-id"),
+			updates: [
+				{
+					uuid: testUuid("validator-update-case-id-row"),
+					target: { scope: "case", property: "case_id" },
+					value: { kind: "literal", value: "replacement-id" },
+				},
+			],
+		};
+		expect(validateOne(caseIdUpdate)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({ path: "updates.0.target" }),
 			}),

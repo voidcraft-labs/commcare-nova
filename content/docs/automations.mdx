@@ -36,12 +36,13 @@ nonblank and already trimmed.
 Keep authoring standard metadata with Nova names. The generated HQ guide
 translates `case_type` to `type`, `case_name` to `name`, `date_opened` to
 `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
-`external_id` are unchanged. `case_id` and `case_type` are read-only here.
-This applies to criteria, copied values, update targets, recipients, schedule
-dates, and message-template tokens. Case `status` is not available in an
-automation property slot because Nova's `open`/`closed` text is not HQ's
-boolean field, and these rules already inspect open cases. The standard date
-fields support date and blankness conditions, not text equality or regex.
+`external_id` are unchanged. `case_id` and `case_type` are implicit text reads
+for criteria, copied values, property-backed recipients, and message-template
+tokens. They stay out of ordinary case-list property choices and can never be
+update targets. Case `status` is not available in an automation property slot
+because Nova's `open`/`closed` text is not HQ's boolean field, and these rules
+already inspect open cases. The standard date fields support date and blankness
+conditions, not text equality or regex.
 Restart-on-change and case-property event-time controls accept custom case data
 only; no standard scalar property is available in those HQ fields.
 
@@ -101,7 +102,10 @@ in the Builder to insert a real case/parent/host substitution, or **Owner or
 recipient reference** for supported case-owner and message-recipient fields.
 The setup guide then prints an executable HQ token, including Nova-to-HQ
 standard-property translation. Renaming a case property updates that
-structural reference without changing literal text. Registered custom recipient/content handlers require the exact nonblank
+structural reference without changing literal text. Custom properties named
+`owner`, `host`, or `last_modified_by` cannot be inserted as message parts:
+HQ's formatter reserves and shadows those names in case, parent, and host
+contexts. Registered custom recipient/content handlers require the exact nonblank
 ID already configured in the target HQ project; placeholder instructions are
 never saved as IDs. CommCare HQ also requires a system administrator, not only
 a project administrator, to save an alert that uses either custom handler.
@@ -191,9 +195,11 @@ Preview follows HQ's value typing at this boundary: equality matches only an
 exact stored string. A stored number, boolean, object, array, null, or missing
 value cannot equal the configured string and therefore satisfies **does not
 equal**. Parent reads follow the `parent` index even when it is an extension;
-host reads follow the first extension regardless of its identifier, preferring
-the canonical `parent` extension when several exist. A missing parent/host
-relation does not satisfy either comparison;
+host reads follow that canonical extension only while the app cannot add a
+second extension relationship to the automation's case type. Nova refuses the
+host-scoped read if an advanced case operation could make HQ's host choice
+unordered; the extra extension link and parent-scoped reads remain valid. A
+missing parent/host relation does not satisfy either comparison;
 HQ's full Unicode whitespace set is blank for **has value / has no value**; and regular
 expressions test strings only rather than coercing numbers or booleans to text.
 Date conditions use those same parent/host rules. HQ and Preview both discard a
@@ -207,11 +213,13 @@ business date such as when a claim was created.
 
 ## Applying the guide
 
-Open the automation and choose **Copy setup guide**. The guide is regenerated
-from the current canonical rule, including current form, worker-information,
-and place names. Apply it to the intended CommCare HQ project space and review
-its privilege, cadence, halt threshold, and instance-specific caveats before
-saving.
+Open the automation and choose **Count matching cases**. Nova regenerates the
+guide from the current canonical rule, including current form,
+worker-information, and place names; choose **Copy guide** when it appears. If
+the optional case count is temporarily unavailable, the current guide remains
+available to copy. Apply it to the intended CommCare HQ project space and
+review its privilege, cadence, halt threshold, and instance-specific caveats
+before saving.
 Survey content names the same **app > module > form** path shown by HQ's form
 picker; a Nova UUID is never presented as an HQ form identifier. When no
 language is set, the guide selects HQ's required **Project Default** choice. An

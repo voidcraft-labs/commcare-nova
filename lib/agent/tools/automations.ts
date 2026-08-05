@@ -127,7 +127,7 @@ function allIdentities(
 
 export const getAutomationsTool = {
 	description:
-		"Read every representable automatic case-update rule and conditional alert in display order, with stable UUIDs and freshly derived manual CommCare HQ setup guidance. Nova describes and locally counts matching cases but never executes these automations.",
+		"Read every representable automatic case-update rule and conditional alert in display order, with stable UUIDs and freshly derived manual CommCare HQ setup guidance. Nova describes the locally representable matching subset but never executes these automations; match counts are available only in Builder Preview.",
 	inputSchema: getAutomationsInputSchema,
 	async execute(
 		_input: z.infer<typeof getAutomationsInputSchema>,
@@ -201,8 +201,10 @@ export const addAutomationsTool = {
 			// Guidance needs the external location catalog. Resolve it before the
 			// authoritative write so no fallible read can turn a successful commit
 			// into an error-shaped tool result and invite a duplicate retry.
-			const locations = (await readOrganization(scope(ctx))).locations;
-			const commit = await guardedMutate(ctx, doc, mutations, "automations");
+			const organization = await readOrganization(scope(ctx));
+			const commit = await guardedMutate(ctx, doc, mutations, "automations", {
+				expectedOrganizationRevision: organization.revision,
+			});
 			if (!commit.ok) return mutationError(doc, commit.error);
 			const names = input.automations.map((automation) => automation.name);
 			return {
@@ -215,7 +217,7 @@ export const addAutomationsTool = {
 						(automation) => automation.uuid,
 					),
 					setupGuides: input.automations.map((automation) =>
-						setupGuideResult(commit.newDoc, automation, locations),
+						setupGuideResult(commit.newDoc, automation, organization.locations),
 					),
 					summary: { count: names.length },
 				},
@@ -270,8 +272,10 @@ export const updateAutomationTool = {
 			}
 			// Keep every fallible external projection before the write. The guide
 			// is pure over this authorized snapshot plus the committed document.
-			const locations = (await readOrganization(scope(ctx))).locations;
-			const commit = await guardedMutate(ctx, doc, mutations, "automations");
+			const organization = await readOrganization(scope(ctx));
+			const commit = await guardedMutate(ctx, doc, mutations, "automations", {
+				expectedOrganizationRevision: organization.revision,
+			});
 			if (!commit.ok) return mutationError(doc, commit.error);
 			const committedAutomation = ownRecordValue(
 				commit.newDoc.automations,
@@ -291,7 +295,11 @@ export const updateAutomationTool = {
 					message: `Updated automation "${committedAutomation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
 					automationUuids: [input.automation.uuid],
 					setupGuides: [
-						setupGuideResult(commit.newDoc, committedAutomation, locations),
+						setupGuideResult(
+							commit.newDoc,
+							committedAutomation,
+							organization.locations,
+						),
 					],
 					summary: { subject: committedAutomation.name },
 				},

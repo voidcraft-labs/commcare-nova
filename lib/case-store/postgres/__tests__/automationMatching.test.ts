@@ -227,6 +227,36 @@ describe("automation criteria SQL", () => {
 		await expect(count("any")).resolves.toBe(0);
 	});
 
+	it("matches implicit case identity and type metadata without catalog entries", async () => {
+		const caseStore = store();
+		const base = {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas,
+			predicate: eq(prop("visit", "status"), literal("open")),
+		} as const;
+		const count = (property: "case_id" | "case_type", value: string) =>
+			caseStore.count({
+				...base,
+				automationCriteria: {
+					operator: "all" as const,
+					dates: [],
+					comparisons: [
+						{ property, value, equal: true, scope: "case" as const },
+					],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		await expect(count("case_type", "visit")).resolves.toBe(4);
+		await expect(
+			count("case_id", "01890f45-0000-7000-8000-000000000102"),
+		).resolves.toBe(1);
+	});
+
 	it("matches each location criterion as one exact owner-identity set", async () => {
 		const caseStore = store();
 		const count = (locationOwnerSets: readonly (readonly string[])[]) =>

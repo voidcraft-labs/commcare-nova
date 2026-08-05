@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import type {
+	RecordMutationsOptions,
+	ToolExecutionContext,
+} from "@/lib/agent/toolExecutionContext";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
 	type Automation,
@@ -90,6 +94,15 @@ beforeEach(() => {
 });
 
 describe("automation shared tools", () => {
+	it("keeps matching counts on Builder Preview instead of the read tool", () => {
+		expect(getAutomationsTool.description).toContain(
+			"match counts are available only in Builder Preview",
+		);
+		expect(getAutomationsTool.description).not.toContain(
+			"locally counts matching cases",
+		);
+	});
+
 	it("refuses HQ-invalid survey and schedule inputs on the shared SA/MCP schema", () => {
 		const invalidSurvey = {
 			uuid: testUuid("tool-invalid-survey"),
@@ -402,6 +415,11 @@ describe("automation shared tools", () => {
 		expect(added.mutations).toHaveLength(1);
 		expect(added.result).not.toHaveProperty("error");
 		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
+		expect(ctx.recordMutations).toHaveBeenCalledWith(
+			expect.anything(),
+			"automations",
+			{ expectedOrganizationRevision: "1" },
+		);
 	});
 
 	it("does not perform a fallible organization read after an update commits", async () => {
@@ -428,6 +446,46 @@ describe("automation shared tools", () => {
 		expect(updated.mutations).toHaveLength(1);
 		expect(updated.result).not.toHaveProperty("error");
 		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
+		expect(ctx.recordMutations).toHaveBeenCalledWith(
+			expect.anything(),
+			"automations",
+			{ expectedOrganizationRevision: "1" },
+		);
+	});
+
+	it("rejects before persistence when a place rename, metadata edit, or move advances the guidance snapshot", async () => {
+		mocks.readOrganization.mockResolvedValue({ revision: "7", locations: [] });
+		const ctx = makeCtx();
+		ctx.recordMutations = vi.fn(
+			async (
+				prepared: PreparedMutationCandidate,
+				_stage?: string,
+				options?: RecordMutationsOptions,
+			) => {
+				// Every location mutation advances this one organization clock. Model
+				// the authoritative writer observing the concurrent generation after
+				// the tool acquired revision 7 but before its Blueprint commit.
+				const currentRevision = "8";
+				if (
+					options?.expectedOrganizationRevision !== undefined &&
+					options.expectedOrganizationRevision !== currentRevision
+				) {
+					throw new BlueprintCommitRejectedError(
+						"organization revision changed",
+					);
+				}
+				return { events: [], committedDoc: prepared.nextDoc };
+			},
+		);
+
+		await expect(
+			addAutomationsTool.execute({ automations: [rule()] }, ctx, doc()),
+		).rejects.toThrow("organization revision changed");
+		expect(ctx.recordMutations).toHaveBeenCalledWith(
+			expect.anything(),
+			"automations",
+			{ expectedOrganizationRevision: "7" },
+		);
 	});
 
 	it("refuses duplicate nested identities and kind changes without saving", async () => {

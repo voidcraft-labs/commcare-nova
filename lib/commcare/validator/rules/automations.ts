@@ -12,6 +12,9 @@ import {
 	automationsOf,
 	type BlueprintDoc,
 	effectiveCaseTypes,
+	isAutomationImplicitTextReadProperty,
+	isAutomationMessageShadowedCaseProperty,
+	orderedCaseOperations,
 	organizationLevelsOf,
 	userPropertiesOf,
 } from "@/lib/domain";
@@ -24,6 +27,7 @@ interface AutomationContext {
 		string,
 		ReturnType<typeof effectiveCaseTypes>[number]
 	>;
+	readonly hostReadCanBeAmbiguous: boolean;
 	readonly errors: ValidationError[];
 }
 
@@ -58,6 +62,66 @@ function scopedCaseType(
 	return ctx.caseTypes.get(source.parent_type);
 }
 
+/**
+ * A canonical extension case uses the `parent` index. An advanced case
+ * operation can add a second extension index to the same case type, after
+ * which HQ's `get_host()` has no defined ordering. A `parent` link replaces
+ * the canonical index rather than adding another one, and a null target removes
+ * an index, so neither creates the ambiguity this guard owns.
+ */
+function canAuthorAdditionalExtensionHost(
+	doc: BlueprintDoc,
+	caseType: string,
+): boolean {
+	const declaredCaseType = doc.caseTypes?.find(
+		(candidate) => candidate.name === caseType,
+	);
+	if (declaredCaseType?.relationship !== "extension") return false;
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of orderedCaseOperations(form)) {
+			const resultingCaseType = operation.retype ?? operation.caseType;
+			if (resultingCaseType !== caseType) continue;
+			if (
+				(operation.links ?? []).some(
+					(link) =>
+						link.relationship === "extension" &&
+						link.target !== null &&
+						link.identifier !== "parent",
+				)
+			) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+function validateHostReadScope(
+	ctx: AutomationContext,
+	target: AutomationPropertyTarget,
+	path: string,
+): boolean {
+	if (target.scope !== "host" || !ctx.hostReadCanBeAmbiguous) return true;
+	flag(
+		ctx,
+		"This host property read is ambiguous because an advanced case operation can add another extension relationship to this case type. CommCare HQ does not define which extension becomes the host. Remove the additional extension link or use a non-host scope.",
+		path,
+	);
+	return false;
+}
+
+function automationReadProperty(
+	caseType: ReturnType<typeof effectiveCaseTypes>[number],
+	property: string,
+): { readonly data_type?: string } | undefined {
+	return (
+		caseType.properties.find((candidate) => candidate.name === property) ??
+		(isAutomationImplicitTextReadProperty(property)
+			? { data_type: "text" }
+			: undefined)
+	);
+}
+
 function validatePropertyTarget(
 	ctx: AutomationContext,
 	target: AutomationPropertyTarget,
@@ -65,6 +129,9 @@ function validatePropertyTarget(
 	slot: AutomationHqPropertySlot = "read",
 	semantics: "automation-property" | "message-template" = "automation-property",
 ): void {
+	if (slot === "read" && !validateHostReadScope(ctx, target, `${path}.scope`)) {
+		return;
+	}
 	const caseType = scopedCaseType(ctx, target, semantics);
 	if (caseType === undefined) {
 		flag(
@@ -74,9 +141,11 @@ function validatePropertyTarget(
 		);
 		return;
 	}
-	if (
-		!caseType.properties.some((property) => property.name === target.property)
-	) {
+	const hasProperty =
+		caseType.properties.some((property) => property.name === target.property) ||
+		((slot === "read" || slot === "update-target") &&
+			isAutomationImplicitTextReadProperty(target.property));
+	if (!hasProperty) {
 		flag(
 			ctx,
 			`Property “${target.property}” does not exist on ${caseType.name}.`,
@@ -103,6 +172,14 @@ function validateTemplate(
 	for (const [index, part] of template.parts.entries()) {
 		if (part.kind !== "case-property") continue;
 		const partPath = `${path}.parts.${index}`;
+		if (isAutomationMessageShadowedCaseProperty(part.property)) {
+			flag(
+				ctx,
+				`Custom case property “${part.property}” is shadowed by CommCare HQ's message-template context and cannot be read from the ${part.scope} case in a message. Rename the custom property before inserting it into a message.`,
+				`${partPath}.property`,
+			);
+			continue;
+		}
 		const scoped = scopedCaseType(ctx, part, "message-template");
 		if (scoped !== undefined && scoped.name !== part.caseType) {
 			flag(
@@ -158,6 +235,9 @@ function validateAutomation(ctx: AutomationContext): void {
 	for (const [index, criterion] of automation.criteria.entries()) {
 		const path = `criteria.${index}`;
 		if (criterion.kind === "match-property") {
+			if (!validateHostReadScope(ctx, criterion, `${path}.scope`)) {
+				continue;
+			}
 			const criterionCaseType = scopedCaseType(ctx, criterion);
 			if (criterionCaseType === undefined) {
 				flag(
@@ -167,8 +247,9 @@ function validateAutomation(ctx: AutomationContext): void {
 				);
 				continue;
 			}
-			const property = criterionCaseType.properties.find(
-				(candidate) => candidate.name === criterion.property,
+			const property = automationReadProperty(
+				criterionCaseType,
+				criterion.property,
 			);
 			if (property === undefined) {
 				flag(
@@ -240,11 +321,7 @@ function validateAutomation(ctx: AutomationContext): void {
 			recipient.kind === "case-property-user-id" ||
 			recipient.kind === "case-property-email"
 		) {
-			if (
-				!caseType.properties.some(
-					(property) => property.name === recipient.property,
-				)
-			) {
+			if (automationReadProperty(caseType, recipient.property) === undefined) {
 				flag(
 					ctx,
 					`Recipient property “${recipient.property}” does not exist on ${caseType.name}.`,
@@ -438,7 +515,16 @@ export function validateAutomations(doc: BlueprintDoc): ValidationError[] {
 			);
 		}
 		names.add(nameKey);
-		validateAutomation({ doc, automation, caseTypes, errors });
+		validateAutomation({
+			doc,
+			automation,
+			caseTypes,
+			hostReadCanBeAmbiguous: canAuthorAdditionalExtensionHost(
+				doc,
+				automation.caseType,
+			),
+			errors,
+		});
 	}
 	return errors;
 }

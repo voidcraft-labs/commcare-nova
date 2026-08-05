@@ -88,6 +88,7 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseType,
 	canonicalAutomationMessageTemplate,
+	isAutomationMessageShadowedCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
@@ -457,16 +458,17 @@ function AutomationSummary({
 				Nova never executes this automation. The count below is a read-only
 				Preview of current cases, not a simulation of updates or messages.
 			</p>
-			{preview !== undefined && (
+			{preview?.matching.status === "counted" && (
 				<div
 					aria-live="polite"
 					className="rounded-lg border border-nova-border px-3 py-3"
 				>
 					<p className="text-2xl font-semibold text-nova-text">
-						{preview.currentMatchCount}
+						{preview.matching.currentMatchCount}
 					</p>
 					<p className="text-[12px] text-nova-text-secondary">
-						currently matching case{preview.currentMatchCount === 1 ? "" : "s"}
+						currently matching case
+						{preview.matching.currentMatchCount === 1 ? "" : "s"}
 					</p>
 					{preview.omittedCriteria.length > 0 && (
 						<p className="mt-2 text-[12px] leading-relaxed text-nova-amber">
@@ -474,6 +476,14 @@ function AutomationSummary({
 						</p>
 					)}
 				</div>
+			)}
+			{preview?.matching.status === "unavailable" && (
+				<p
+					role="alert"
+					className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+				>
+					{preview.matching.message}
+				</p>
 			)}
 			{error !== undefined && (
 				<p
@@ -533,9 +543,9 @@ function SetupGuide({ guide }: { guide: SavedPreview["setupGuide"] }) {
 		<div className="rounded-lg border border-nova-border bg-black/10 px-3 py-3">
 			<div className="flex items-start justify-between gap-3">
 				<div>
-					<h4 className="text-[13px] font-semibold text-nova-text">
+					<h3 className="text-[13px] font-semibold text-nova-text">
 						Setup guide
-					</h4>
+					</h3>
 					<p className="mt-0.5 text-[12px] text-nova-text-muted">
 						Required plan: {guide.requiredPlan}
 					</p>
@@ -659,6 +669,18 @@ function OrganizationReferenceStatus({
 			</p>
 		);
 	}
+	if (state.refreshing) {
+		return (
+			<p
+				role="status"
+				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
+			>
+				<Spinner className="size-4" />
+				Refreshing places. Location conditions and recipients are paused until
+				this finishes.
+			</p>
+		);
+	}
 	if (state.warning !== undefined) {
 		return (
 			<p
@@ -670,18 +692,6 @@ function OrganizationReferenceStatus({
 				<Button type="button" variant="ghost-action" onClick={state.reload}>
 					Try again
 				</Button>
-			</p>
-		);
-	}
-	if (state.refreshing) {
-		return (
-			<p
-				role="status"
-				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
-			>
-				<Spinner className="size-4" />
-				Refreshing places. Location conditions and recipients are paused until
-				this finishes.
 			</p>
 		);
 	}
@@ -1454,6 +1464,7 @@ function AutomationMessageTemplateEditor({
 	template,
 	automationCaseType,
 	caseTypes,
+	path,
 	hint,
 	singleLine = false,
 	onChange,
@@ -1462,12 +1473,14 @@ function AutomationMessageTemplateEditor({
 	template: AutomationMessageTemplate;
 	automationCaseType: string;
 	caseTypes: readonly CaseType[];
+	path: readonly PropertyKey[];
 	hint?: string;
 	singleLine?: boolean;
 	onChange: (template: AutomationMessageTemplate) => void;
 }) {
 	const labelId = useId();
 	const descriptionId = `${labelId}-description`;
+	const validationIssue = useContext(AutomationValidationContext);
 	const addReferenceRef = useRef<HTMLButtonElement>(null);
 	const removeRefs = useRef(new Map<number, HTMLButtonElement>());
 	const [pendingRemovalFocus, setPendingRemovalFocus] = useState<number>();
@@ -1513,6 +1526,20 @@ function AutomationMessageTemplateEditor({
 				className="flex flex-col gap-2"
 			>
 				{template.parts.map((part, index) => {
+					const propertyPath = [...path, "parts", index, "property"];
+					const contextualPropertyError =
+						part.kind === "case-property" &&
+						validationIssue !== undefined &&
+						pathStartsWith(validationIssue.path, propertyPath)
+							? validationIssue.message
+							: undefined;
+					const draftPropertyError =
+						part.kind === "case-property" &&
+						isAutomationMessageShadowedCaseProperty(part.property)
+							? `“${part.property}” is reserved by CommCare HQ in messages. Use another case property or the explicit context controls.`
+							: undefined;
+					const propertyError = contextualPropertyError ?? draftPropertyError;
+					const propertyErrorId = `${labelId}-part-${index}-property-error`;
 					return (
 						<div
 							// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered template parts have no independent identity
@@ -1575,17 +1602,37 @@ function AutomationMessageTemplateEditor({
 											["host", "Host case"],
 										]}
 									/>
-									<Input
-										aria-label={`${label} reference property ${index + 1}`}
-										value={part.property}
-										placeholder="Enter the Nova property name"
-										onChange={(event) =>
-											replacePart(index, {
-												...part,
-												property: event.target.value,
-											})
-										}
-									/>
+									<div>
+										<Input
+											aria-label={`${label} reference property ${index + 1}`}
+											aria-invalid={
+												propertyError === undefined ? undefined : true
+											}
+											aria-describedby={
+												propertyError === undefined
+													? undefined
+													: propertyErrorId
+											}
+											value={part.property}
+											placeholder="Enter the Nova property name"
+											onChange={(event) =>
+												replacePart(index, {
+													...part,
+													property: event.target.value,
+												})
+											}
+										/>
+										<FieldError
+											id={propertyErrorId}
+											role={
+												contextualPropertyError === undefined
+													? undefined
+													: "none"
+											}
+										>
+											{propertyError}
+										</FieldError>
+									</div>
 								</div>
 							) : (
 								<div className="grid min-w-0 gap-2 @md:grid-cols-2">
@@ -4038,6 +4085,7 @@ function EventEditor({
 						template={content.message}
 						automationCaseType={automationCaseType}
 						caseTypes={caseTypes}
+						path={["schedule", "events", index, "content", "message"]}
 						onChange={(template) =>
 							updateContent((item) => {
 								if ("message" in item) item.message = template;
@@ -4052,6 +4100,7 @@ function EventEditor({
 							template={content.subject}
 							automationCaseType={automationCaseType}
 							caseTypes={caseTypes}
+							path={["schedule", "events", index, "content", "subject"]}
 							singleLine
 							onChange={(template) =>
 								updateContent((item) => {
@@ -4096,6 +4145,14 @@ function EventEditor({
 								template={content.body.message}
 								automationCaseType={automationCaseType}
 								caseTypes={caseTypes}
+								path={[
+									"schedule",
+									"events",
+									index,
+									"content",
+									"body",
+									"message",
+								]}
 								onChange={(template) =>
 									updateContent((item) => {
 										if (
@@ -4114,6 +4171,7 @@ function EventEditor({
 								template={content.body.html}
 								automationCaseType={automationCaseType}
 								caseTypes={caseTypes}
+								path={["schedule", "events", index, "content", "body", "html"]}
 								onChange={(template) =>
 									updateContent((item) => {
 										if (

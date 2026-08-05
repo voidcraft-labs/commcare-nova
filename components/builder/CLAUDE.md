@@ -242,11 +242,15 @@ current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides
 recipients, changes, schedules, filters, or content.
+The setup guide and case count share one authoritative refresh, but the count
+is optional: a case-query failure stays local to the matching result and never
+withholds the regenerated manual HQ guide.
 Place-backed conditions and recipients distinguish the first load, an initial
 failure, a failed refresh, an in-flight refresh, and a genuinely empty live
 place catalog. The editor names the state and offers the organization reload
 action where it can help; adding or changing a place reference stays paused
-until the catalog is authoritative. A saved reference whose place cannot be
+until the catalog is authoritative. A retry's in-flight state takes precedence
+over its retained prior warning. A saved reference whose place cannot be
 resolved remains readable as **Saved place unavailable**, never as a raw UUID.
 
 The section is structured vocabulary, never raw CommCare JSON: kind-specific

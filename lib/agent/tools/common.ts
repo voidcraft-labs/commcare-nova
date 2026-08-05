@@ -39,6 +39,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
+	RecordMutationsOptions,
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "../toolExecutionContext";
@@ -130,6 +131,7 @@ export async function guardedMutate(
 	prevDoc: BlueprintDoc,
 	mutations: unknown,
 	stage?: string,
+	options?: RecordMutationsOptions,
 ): Promise<GuardedMutateOutcome> {
 	const verdict = mutationCommitVerdict(
 		prevDoc,
@@ -147,7 +149,11 @@ export async function guardedMutate(
 		 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
 		 * which is NOT caught here — it propagates to `wrapMutating`, which
 		 * reloads fresh. */
-		const { committedDoc } = await ctx.recordMutations(verdict.prepared, stage);
+		const { committedDoc } = await ctx.recordMutations(
+			verdict.prepared,
+			stage,
+			options,
+		);
 		return {
 			ok: true,
 			newDoc: committedDoc,

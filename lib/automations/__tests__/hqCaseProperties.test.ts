@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isAutomationMessageShadowedCaseProperty } from "@/lib/domain";
 import {
 	projectAutomationPropertyForHq,
 	projectAutomationTemplateForHq,
@@ -91,5 +92,26 @@ describe("HQ automation case-property projection", () => {
 		).toBe(
 			"{case.type} {case.name} {case.parent.opened_on} {case.host.modified_on} {{case.owner.name}} {case.owner.name} {recipient.phone_number}",
 		);
+	});
+
+	it("fails closed when a bypassed message part names an HQ-shadowed custom property", () => {
+		for (const scope of ["case", "parent", "host"] as const) {
+			for (const property of ["owner", "host", "last_modified_by"] as const) {
+				expect(isAutomationMessageShadowedCaseProperty(property)).toBe(true);
+				expect(
+					projectAutomationTemplateForHq({
+						parts: [
+							{
+								kind: "case-property",
+								scope,
+								caseType: "visit",
+								property,
+							},
+						],
+					}),
+				).toBe("{case.[reference needs repair]}");
+			}
+		}
+		expect(isAutomationMessageShadowedCaseProperty("owner_id")).toBe(false);
 	});
 });
