@@ -39,7 +39,9 @@ Four session fields describe "what phase is the builder in":
   (`BuilderProvider.initialBuildUnfinished`: a `generating` app or an
   interrupted build admitted for re-drive), latched by `markBuildUnfinished()`
   when a `/build/new` tab's creation handoff lands, released only by
-  `markBuildFinished()` (the dispatcher's `data-done`). `deriveChatAppReady`
+  `markBuildFinished()` (called from `ChatContainer`'s stream `onData` on
+  `data-done`, or on the doc-less `data-build-complete` a purely
+  conversational build turn emits instead). `deriveChatAppReady`
   (hooks) composes it with the phase for the chat surface's build-vs-edit
   read: the advisory `appReady` request field and the cost chip both ride it,
   mirroring the server's authoritative app-row-status rule.

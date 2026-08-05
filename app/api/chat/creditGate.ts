@@ -1,5 +1,9 @@
 import type { UIMessage } from "ai";
-import { chargeAmount, isChargeableTurn } from "@/lib/db/creditPolicy";
+import {
+	CREDITS_PER_BUILD,
+	CREDITS_PER_EDIT,
+	isChargeableTurn,
+} from "@/lib/db/creditPolicy";
 
 /**
  * The credit-gate decision for one `/api/chat` POST: whether this request is a
@@ -38,10 +42,14 @@ export function creditGateDecision(input: {
 }): { chargeable: boolean; preflightCost: number } {
 	const chargeable = isChargeableTurn(input.rawMessages);
 	// A non-chargeable continuation costs nothing: no reservation, no debit. The
-	// amount is only meaningful when `chargeable` is true. `chargeAmount(true)`
-	// is the edit rate — the existing-app floor described above.
+	// amount is only meaningful when `chargeable` is true. Spelled with the rate
+	// constants directly, NOT `chargeAmount(...)`: its parameter is `appReady`,
+	// and "existing app" is a different fact that merely happens to want the
+	// same two numbers today — the floor must not silently follow a future
+	// change to the charge rule.
+	const floor = input.existingApp ? CREDITS_PER_EDIT : CREDITS_PER_BUILD;
 	return {
 		chargeable,
-		preflightCost: chargeable ? chargeAmount(input.existingApp) : 0,
+		preflightCost: chargeable ? floor : 0,
 	};
 }

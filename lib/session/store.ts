@@ -135,12 +135,15 @@ export interface BuilderSessionState {
 	/** This session's app has a BUILD that never completed. Seeded true when
 	 *  the page loads a `generating` app or an interrupted build admitted for
 	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
-	 *  lands; released only by `markBuildFinished()` (the dispatcher's
-	 *  `data-done`). App-level, not run-level, on purpose: it survives stream
-	 *  closes and the events-buffer clear, which the phase derivation cannot
-	 *  (an askQuestions pause clears the buffer while the committed modules
-	 *  make the doc read Ready). `deriveChatAppReady` keys on it so a
-	 *  mid-build tab's sends and its cost chip both read as build-mode. */
+	 *  lands; released only by `markBuildFinished()`, called from
+	 *  `ChatContainer`'s stream `onData` on `data-done` and its doc-less
+	 *  sibling `data-build-complete` (a conversational build turn completes
+	 *  the app without a doc to reconcile). App-level, not run-level, on
+	 *  purpose: it survives stream closes and the events-buffer clear, which
+	 *  the phase derivation cannot (an askQuestions pause clears the buffer
+	 *  while the committed modules make the doc read Ready).
+	 *  `deriveChatAppReady` keys on it so a mid-build tab's sends and its
+	 *  cost chip both read as build-mode. */
 	buildUnfinished: boolean;
 
 	/** Generic loading flag for async operations outside of agent writes
@@ -374,9 +377,11 @@ export interface BuilderSessionState {
 	 *  handoff, so this tab now owns a build in progress. No-ops when set. */
 	markBuildUnfinished: () => void;
 
-	/** Release `buildUnfinished` — the build run completed (`data-done`).
-	 *  One-way per build: nothing re-arms it except a new creation handoff or
-	 *  a page load of a generating app. No-ops when already clear. */
+	/** Release `buildUnfinished` — the build run completed. Called from
+	 *  `ChatContainer`'s stream `onData` on `data-done` or
+	 *  `data-build-complete`. One-way per build: nothing re-arms it except a
+	 *  new creation handoff or a page load of a generating app. No-ops when
+	 *  already clear. */
 	markBuildFinished: () => void;
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */

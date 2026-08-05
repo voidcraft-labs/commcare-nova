@@ -273,8 +273,11 @@ export class GenerationContext implements ToolExecutionContext {
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
-	 * See {@link GenerationContextOptions.editLease}. */
-	private readonly editLease: boolean;
+	 * See {@link GenerationContextOptions.editLease}. Mutable through
+	 * {@link setRunMode} alone: the serialize-with-wait path constructs the
+	 * context before its claim wins, and a stale-mode rejection there adopts
+	 * the locked row's mode after construction. */
+	private editLease: boolean;
 	/** Epoch-ms of the last run-lease heartbeat, for debounce — the per-step
 	 * refresh and the wall-clock timer share it, so a run with many fast steps
 	 * (or a step landing right after a timer tick) writes a few times per lease,
@@ -358,6 +361,18 @@ export class GenerationContext implements ToolExecutionContext {
 	 * any SA tool or heartbeat receives authority. */
 	setReacquiredHolderNonce(holderNonce: string): void {
 		this._holderNonce = holderNonce;
+	}
+
+	/** Adopt the run's authoritative build-vs-edit mode — the serialize-wait
+	 * seam parallel to {@link setReacquiredHolderNonce}. The context is built
+	 * with the pre-wait derivation, but a `ClaimModeStaleError` retry can win
+	 * the claim under the OTHER mode; everything mode-keyed in here — the
+	 * `chatRunHolder` capability every commit presents (`(mode, runId, nonce)`
+	 * identity: a wrong mode is `RunHolderLostError` on the first batch) and
+	 * the lease-heartbeat refresher — must follow the mode the claim actually
+	 * booked, so the route calls this the moment its wait-path claim wins. */
+	setRunMode(mode: "build" | "edit"): void {
+		this.editLease = mode === "edit";
 	}
 
 	/** Current exact holder generation. */

@@ -217,13 +217,16 @@ type LoadedThreadDoc = ThreadDoc & { resume_interrupted?: boolean };
 
 /** Authority carried by a server-loaded thread. Every activation must adopt
  * both values together; an omitted nonce is itself authoritative and clears a
- * capability retained from an older activation. */
+ * capability retained from an older activation. `buildUnfinished` is the
+ * session store's live latch (callers pass `liveBuildUnfinished()`, or the
+ * equal mount-time prop where the store isn't up yet): a resumed/re-driven
+ * run on an unfinished build must capture as a build. */
 export function authoritativeThreadActivationOptions(
 	thread: Pick<
 		LoadedThreadDoc,
 		"run_id" | "holder_nonce" | "active_stream_id" | "resume_interrupted"
 	>,
-	appGenerating: boolean,
+	buildUnfinished: boolean,
 	options?: { allowRedrive?: boolean },
 ) {
 	const resume = thread.active_stream_id != null;
@@ -236,7 +239,7 @@ export function authoritativeThreadActivationOptions(
 		holderNonce: thread.holder_nonce,
 		resume,
 		redrive,
-		buildResume: (resume || redrive) && appGenerating,
+		buildResume: (resume || redrive) && buildUnfinished,
 	};
 }
 
@@ -582,14 +585,24 @@ function createChatInstance(
 			 * carries identity, Project capability, and cursor together; a replay is
 			 * idempotent, while a partial or cross-scope frame must not activate the
 			 * dormant reconciler. */
-			/* The build finished: sends from this tab are edit-mode from here
-			 * on. One-way latch: without it the `unfinishedBuild` guard in
-			 * `requestFields` re-arms once `acknowledgeCompletion` clears
-			 * `runCompletedAt` (~3.5s after the celebration), and every later
-			 * send would claim + charge as a BUILD. Falls through: the
-			 * dispatcher consumes `data-done` too. */
+			/* The build finished: release the store's unfinished-build latch so
+			 * `deriveChatAppReady` reads edit-mode from here on. Without the
+			 * release, its `buildUnfinished && runCompletedAt === undefined`
+			 * term re-arms once `acknowledgeCompletion` clears `runCompletedAt`
+			 * (~3.5s after the celebration), and every later send would claim +
+			 * charge as a BUILD. Falls through: the dispatcher consumes
+			 * `data-done` too. */
 			if (type === "data-done") {
 				sessionApi.getState().markBuildFinished();
+			}
+			/* The doc-less sibling of `data-done`'s release: a purely
+			 * conversational build turn still flips the app to `complete`
+			 * server-side but has nothing to celebrate or reconcile, so the
+			 * route emits this marker instead. Only the latch reacts; the
+			 * dispatcher has no doc work to do for it. */
+			if (type === "data-build-complete") {
+				sessionApi.getState().markBuildFinished();
+				return;
 			}
 
 			if (type === "data-app-id") {

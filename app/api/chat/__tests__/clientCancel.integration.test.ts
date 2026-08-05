@@ -32,6 +32,7 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
+import { CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 
@@ -152,6 +153,9 @@ const REPLACEMENT_NONCE = "00000000-0000-4000-8000-000000000099";
 const PAUSED_BUILD_APP = "app-paused-build-mode";
 const PAUSED_BUILD_RUN = "run-paused-build-mode";
 const PAUSED_BUILD_THREAD = "thread-paused-build-mode";
+const ADOPT_APP = "app-serialize-wait-adopt";
+const ADOPT_THREAD = "thread-serialize-wait-adopt";
+const MEMBER = "user-cancel-member";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -1094,5 +1098,157 @@ describe("server-derived build-vs-edit mode", () => {
 			{ requireModeMatchesStatus: true },
 		);
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+	}, 30_000);
+
+	it("a serialize-wait whose awaited build completes adopts EDIT mode end to end: claim, run, and clean release", async () => {
+		/* The TOCTOU this pins: the waiter derived BUILD (the app was
+		 * `generating` when it queued) and the awaited build completed during
+		 * the wait. The stale claim must reject (`ClaimModeStaleError`), the
+		 * route must adopt the locked row's EDIT mode at the edit rate, and —
+		 * the part a stale `GenerationContext` used to break — the run must
+		 * FINALIZE as an edit: a context still presenting a build holder
+		 * capability dies `RunHolderLostError` on its first ownership-gated
+		 * write and strands the real `run_lock` this POST took. */
+		await seedCanonicalApp({
+			id: ADOPT_APP,
+			name: "Adopted edit app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build",
+			},
+		});
+		const { loadApp } = await import("@/lib/db/apps");
+		const app = await loadApp(ADOPT_APP);
+		if (!app) throw new Error("adopt fixture app was not persisted");
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
+			app,
+			projectId: PROJECT,
+			role: "editor",
+			canEdit: true,
+			baseSeq: app.mutation_seq,
+			actorUserId: USER,
+		});
+		/* The fake SA performs ONE real guarded commit: that write presents the
+		 * context's `(mode, runId, nonce)` holder capability, which is exactly
+		 * what a stale (pre-adoption) context corrupts — without
+		 * `ctx.setRunMode` it presents a BUILD holder against the EDIT lock
+		 * this claim took and dies `RunHolderLostError` before persisting. */
+		const { prepareMutationCandidate } = await import(
+			"@/lib/doc/commitVerdicts"
+		);
+		const { admitMutationBatch } = await import("@/lib/doc/mutationAdmission");
+		createSolutionsArchitectMock.mockImplementation(
+			(
+				ctx: GenerationContext,
+				sessionDoc: Parameters<typeof prepareMutationCandidate>[0],
+			) => ({
+				tools: {},
+				stream: async () => {
+					await ctx.recordMutations(
+						prepareMutationCandidate(
+							sessionDoc,
+							admitMutationBatch([
+								{ kind: "setAppName", name: "Adopted edit rename" },
+							]),
+						),
+					);
+					const feed = new ChunkFeed();
+					feed.push(
+						{ type: "start" },
+						{ type: "start-step" },
+						{ type: "finish-step" },
+						{ type: "finish" },
+					);
+					feed.end();
+					return feed.asAgentResult();
+				},
+			}),
+		);
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: ADOPT_APP,
+					threadId: ADOPT_THREAD,
+					messages: [
+						{
+							id: "adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Rename the survey module." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		/* The waiter announces itself with the busy conversation event; once
+		 * that lands the poll loop is live, and the "awaited build completed"
+		 * flip lands between polls. */
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", ADOPT_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({
+				status: "complete",
+				awaiting_input: false,
+				res_settled: true,
+			})
+			.where("id", "=", ADOPT_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The stale BUILD claim rejected and the retry adopted the row's mode:
+		 * the winning claim is an EDIT at the edit rate. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_EDIT);
+
+		/* The adopted run finalized as an edit: the SA's guarded commit landed
+		 * (the rename persisted — the write a stale build-mode context dies
+		 * on), the lock released, its own marker settled, the app untouched at
+		 * `complete`. A stranded lock here is the exact pre-fix failure. */
+		const row = await appDb
+			.selectFrom("apps")
+			.select([
+				"status",
+				"error_type",
+				"app_name",
+				"lock_run_id",
+				"lock_actor_user_id",
+				"res_settled",
+				"res_user_id",
+			])
+			.where("id", "=", ADOPT_APP)
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({
+			status: "complete",
+			error_type: null,
+			app_name: "Adopted edit rename",
+			lock_run_id: null,
+			lock_actor_user_id: null,
+			res_settled: true,
+			res_user_id: USER,
+		});
+		expect(failAppMock).not.toHaveBeenCalled();
 	}, 30_000);
 });

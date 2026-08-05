@@ -1398,6 +1398,14 @@ export async function POST(req: Request) {
 						...(chargeable ? { reservedAmount: cost } : {}),
 						...(reservation ? { chargePeriod: reservation.period } : {}),
 					});
+					/* The context was built with the PRE-WAIT mode, and a stale-mode
+					 * adoption above may have won under the other one. Everything
+					 * mode-keyed inside it — the `(mode, runId, nonce)` holder
+					 * capability every commit presents, the lease-heartbeat
+					 * refresher — must follow the mode the claim actually booked, or
+					 * the first guarded batch dies `RunHolderLostError` and the
+					 * `heldApp: false` bail strands the real lock this POST took. */
+					ctx.setRunMode(claimedRun.mode);
 
 					/* A held app may have advanced while we waited (the prior holder
 					 * committed batches), so re-read one authorized persisted snapshot for
@@ -1778,6 +1786,7 @@ export async function POST(req: Request) {
 					usage.configureRun({
 						promptMode: editing ? "edit" : "build",
 						appReady: editing,
+						model: saModel,
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
@@ -2303,6 +2312,14 @@ export async function POST(req: Request) {
 									seq: finalSeq,
 									success: true,
 								});
+							} else {
+								/* A conversational build turn: `completeAndSettleRun` above
+								 * still flipped the app to `complete`, so the client's
+								 * unfinished-build latch must release even though there is
+								 * no doc to celebrate or reconcile. Without this, the tab
+								 * keeps reading (and pricing) every later send as a build
+								 * against an app the server now runs as an edit. */
+								ctx.emit("data-build-complete", {});
 							}
 						} catch (error) {
 							await failRun(error, "route:finalize");
