@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -932,6 +933,16 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("RUN_AUTO_CASE_UPDATES_ON_SAVE");
 		expect(text).toContain("project-wide");
 		expect(text).not.toContain("50,000");
+		for (const path of [
+			"content/docs/automations.mdx",
+			"docs/plans/complex-app-plan.md",
+			"docs/research/advanced-case-actions.md",
+		]) {
+			const source = readFileSync(path, "utf8");
+			expect(source, path).toMatch(/between cases|before the next case/);
+			expect(source, path).toMatch(/can exceed|may carry the total above/);
+			expect(source, path).not.toMatch(/at most 10,000|default cap/);
+		}
 
 		const projectedUpdate = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),

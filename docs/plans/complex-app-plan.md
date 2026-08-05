@@ -322,8 +322,10 @@ SMS Survey additionally requires Inbound SMS access, and Connect content
 requires the `COMMCARE_CONNECT` domain toggle plus every resolved recipient
 being a CommCare mobile worker with an active PersonalID link at runtime,
 the hourly task visits each project once daily at `auto_case_update_hour`
-(midnight UTC by default), and the default cap is 10,000 updates per project,
-case type, and database partition per run. The unrelated 50,000 outbound-SMS
+(midnight UTC by default), and the default halt threshold is 10,000 updates per
+project, case type, and database partition per run. HQ checks that threshold
+between cases, so the final case may carry the total above it before the run
+stops. The unrelated 50,000 outbound-SMS
 daily limit never appears as an automation cap. A zero-ordinary-criterion claim
 cleanup rule remains constructible with only server-modified age plus close,
 and its guide warns that the boundary is latest server modification, not a
