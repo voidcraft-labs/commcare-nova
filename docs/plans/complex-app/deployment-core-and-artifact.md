@@ -2,9 +2,8 @@
 
 **PR:** `Durable deployment records, ownership mappings, and the setup artifact`
 
-**Depends on:** [automations](automations-and-setup-guidance.md) for artifact
-content.
-· **Blocks:** [attachment emission](attachment-emission-and-link-ux.md),
+**Depends on:** nothing outstanding. · **Blocks:**
+[attachment emission](attachment-emission-and-link-ux.md),
 [push and provisioning](push-and-provisioning-drivers.md), and
 [App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 

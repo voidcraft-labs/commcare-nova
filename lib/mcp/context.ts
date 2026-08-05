@@ -42,6 +42,7 @@ import {
 } from "@/lib/agent/lookupContext";
 import type {
 	ConversionImpactFn,
+	RecordMutationsOptions,
 	RecordMutationsResult,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
@@ -175,6 +176,7 @@ export class McpContext implements ToolExecutionContext {
 	async recordMutations(
 		prepared: PreparedMutationCandidate,
 		stage?: string,
+		options?: RecordMutationsOptions,
 	): Promise<RecordMutationsResult> {
 		if (prepared.mutations.length === 0) {
 			return { events: [], committedDoc: prepared.nextDoc };
@@ -183,7 +185,7 @@ export class McpContext implements ToolExecutionContext {
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		const committedDoc = await this.saveBlueprint(prepared);
+		const committedDoc = await this.saveBlueprint(prepared, options);
 		const events = this.buildEnvelopes(prepared.mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
@@ -297,6 +299,7 @@ export class McpContext implements ToolExecutionContext {
 	 */
 	private async saveBlueprint(
 		prepared: PreparedMutationCandidate,
+		options?: RecordMutationsOptions,
 	): Promise<BlueprintDoc> {
 		const mutations = prepared.mutations;
 		const result = await applyBlueprintChange({
@@ -306,6 +309,9 @@ export class McpContext implements ToolExecutionContext {
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
 			kind: "mcp",
+			...(options?.expectedOrganizationRevision !== undefined && {
+				expectedOrganizationRevision: options.expectedOrganizationRevision,
+			}),
 			/* Guarded commit: the persistence boundary re-reads the stored
 			 * blueprint, re-applies this batch, and re-runs the validity
 			 * verdict inside a transaction — two concurrent gate-approved

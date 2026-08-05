@@ -18,7 +18,11 @@ import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	automationMessageText,
+	type BlueprintDoc,
+	type Field,
+} from "@/lib/domain";
 
 /** Field lookup by semantic id (unique across these fixtures). */
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -248,6 +252,60 @@ function organizationDoc(): BlueprintDoc {
 		[beds]: { uuid: beds, slug: "beds", label: "Beds" },
 	};
 	doc.locationPropertyOrder = [beds];
+	return doc;
+}
+
+function automationDoc(): BlueprintDoc {
+	const doc = richDoc();
+	const cleanup = testUuid("automation-cleanup");
+	const alert = testUuid("automation-alert");
+	doc.automations = {
+		[cleanup]: {
+			uuid: cleanup,
+			kind: "case-update",
+			name: "Close completed patients",
+			caseType: "patient",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: testUuid("automation-update"),
+					target: { scope: "case", property: "workflow_status" },
+					value: { kind: "literal", value: "complete" },
+				},
+			],
+			closeCase: false,
+		},
+		[alert]: {
+			uuid: alert,
+			kind: "conditional-alert",
+			name: "Patient reminder",
+			caseType: "patient",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [{ uuid: testUuid("automation-recipient"), kind: "self" }],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("automation-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms",
+							message: automationMessageText("Follow up"),
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		},
+	};
+	doc.automationOrder = [cleanup, alert];
 	return doc;
 }
 
@@ -1086,6 +1144,164 @@ const GUARD_COVERAGE = {
 				},
 			],
 		}),
+	},
+
+	// ── Human-applied automations ──────────────────────────────────
+	addAutomation: {
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "addAutomation",
+					automation: {
+						uuid: testUuid("automation-duplicate-name"),
+						kind: "case-update",
+						name: "Close completed patients",
+						caseType: "patient",
+						criteriaOperator: "all",
+						criteria: [],
+						setupOnlyCriteria: [],
+						updates: [],
+						closeCase: true,
+					},
+				},
+			],
+		}),
+		expectCodes: ["AUTOMATION_INVALID"],
+	},
+	updateAutomation: {
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "updateAutomation",
+					uuid: testUuid("automation-cleanup"),
+					targetKind: "case-update",
+					patch: { caseType: "missing" },
+				},
+			],
+		}),
+		expectCodes: ["AUTOMATION_INVALID"],
+	},
+	removeAutomation: {
+		neverGates: "removing one automation leaves the app valid",
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "removeAutomation",
+					uuid: testUuid("automation-cleanup"),
+					targetKind: "case-update",
+				},
+			],
+		}),
+	},
+	moveAutomation: {
+		neverGates: "moving an automation changes sequence only",
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "moveAutomation",
+					uuid: testUuid("automation-alert"),
+					targetKind: "conditional-alert",
+					after: null,
+				},
+			],
+		}),
+	},
+	editAutomationItem: {
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "editAutomationItem",
+					automationUuid: testUuid("automation-cleanup"),
+					targetKind: "case-update",
+					edit: {
+						collection: "criterion",
+						operation: "add",
+						value: {
+							uuid: testUuid("automation-invalid-criterion"),
+							kind: "match-property",
+							scope: "case",
+							property: "missing",
+							matchType: "has-value",
+						},
+					},
+				},
+			],
+		}),
+		expectCodes: ["AUTOMATION_INVALID"],
+	},
+	setAutomationSchedule: {
+		build: () => ({
+			doc: automationDoc(),
+			batch: [
+				{
+					kind: "setAutomationSchedule",
+					uuid: testUuid("automation-alert"),
+					schedule: {
+						kind: "immediate",
+						events: [
+							{
+								uuid: testUuid("automation-invalid-event"),
+								minutesToWait: 0,
+								content: {
+									kind: "sms-survey",
+									formUuid: testUuid("missing-form"),
+									expirationHours: 24,
+									reminderIntervalsMinutes: [],
+									submitPartiallyCompletedForms: false,
+									includeCaseUpdatesInPartialSubmissions: false,
+								},
+							},
+						],
+					},
+				},
+			],
+		}),
+		expectCodes: ["AUTOMATION_INVALID"],
+	},
+	updateAutomationSchedule: {
+		build: () => ({
+			doc: (() => {
+				const doc = automationDoc();
+				const alert = doc.automations?.[testUuid("automation-alert")];
+				if (alert?.kind === "conditional-alert") {
+					alert.schedule = {
+						kind: "timed",
+						repeatEvery: 7,
+						totalIterations: -1,
+						startOffsetDays: 0,
+						startDayOfWeek: -1,
+						start: { kind: "rule-trigger" },
+						events: [
+							{
+								uuid: testUuid("automation-event"),
+								day: 0,
+								timing: { kind: "specific-time", time: "09:00" },
+								content: {
+									kind: "sms",
+									message: automationMessageText("Follow up"),
+								},
+							},
+						],
+					};
+				}
+				return doc;
+			})(),
+			batch: [
+				{
+					kind: "updateAutomationSchedule",
+					uuid: testUuid("automation-alert"),
+					patch: {
+						start: { kind: "case-property", property: "missing" },
+					},
+				},
+			],
+		}),
+		expectCodes: ["AUTOMATION_INVALID"],
 	},
 } satisfies Record<Mutation["kind"], Coverage>;
 

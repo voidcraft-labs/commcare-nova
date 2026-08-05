@@ -535,6 +535,63 @@ describe("commitGuardedBatch (Postgres)", () => {
 		).toBe("Home village");
 	});
 
+	it("fences an organization-derived result before writing, while a committed retry remains idempotent", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		await h
+			.db()
+			.insertInto("app_organization_state")
+			.values({ app_id: appId, revision: "2" })
+			.execute();
+		const batchId = crypto.randomUUID();
+		const mutations = renameVillageLabel(doc, "Current organization guide");
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				expectedOrganizationRevision: "1",
+				batchId,
+				mutations,
+				actorUserId: OWNER,
+				kind: "autosave",
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
+
+		const committed = await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			expectedOrganizationRevision: "2",
+			batchId,
+			mutations,
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		expect(committed).toMatchObject({ seq: 1, deduped: false });
+
+		// Once this exact batch committed, a lost-response retry returns that
+		// success even if the external projection advanced afterwards.
+		await h
+			.db()
+			.updateTable("app_organization_state")
+			.set({ revision: "3" })
+			.where("app_id", "=", appId)
+			.execute();
+		const replay = await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			expectedOrganizationRevision: "2",
+			batchId,
+			mutations,
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		expect(replay).toMatchObject({ seq: 1, deduped: true });
+		expect(await readStream(appId)).toHaveLength(1);
+	});
+
 	it("rejects a reused batchId whose admitted content differs", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);

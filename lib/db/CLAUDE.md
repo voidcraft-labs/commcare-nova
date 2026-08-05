@@ -27,14 +27,13 @@ cursor reads for this surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
-groups) plus one `blueprint_entities` row per entity. Eight kinds share that table
+groups) plus one `blueprint_entities` row per entity. Nine kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
-flat alongside `organization_level` / `location_property` — no parent, constant ordinal, sequence living entirely in each entity's
-position in its parent's sequence. **Every kind branches explicitly in the assembler**: its
-shape is `if module / else if form / else field`, so a new kind that falls
-through is read as a field, fails `blueprintDocSchema`, and stops the whole app
-from loading rather than losing one row. The five flat collections' doc slots
+flat alongside `organization_level` / `location_property` / `automation`; no
+parent, with the ordinal preserving that flat collection's sequence. **Every kind
+branches explicitly in the assembler**; an unsupported kind fails closed before
+assembly instead of being interpreted as another entity shape. The six flat collections' doc slots
 are optional and OMITTED when empty, so an app declaring none assembles to
 exactly the doc it did before they existed.
 `blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact
@@ -175,7 +174,14 @@ hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
 candidate lookup tables, evaluate against that snapshot, run the organization
 cross-store integrity hook under the same app-first lock, replace the complete
-lookup and location edge sets, then write rows + history. Missing or foreign tables become one
+lookup and location edge sets, then write rows + history. An automation tool
+that returns location-derived setup guidance additionally passes the exact
+organization revision it read. After the app lock and any dedup return, the
+writer compares that clock before a fresh commit; every location write shares
+the app-first prefix, so the successful Blueprint and guide have one
+organization serialization point without a fallible post-commit read. A
+lost-response replay still returns its already-committed batch even if the
+organization advanced later. Missing or foreign tables become one
 Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded

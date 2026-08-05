@@ -1,5 +1,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type Automation,
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentity,
 	type BlueprintAuthoredIdentityKind,
@@ -48,6 +49,80 @@ function nestedFormIdentities(
 	];
 }
 
+function nestedAutomationIdentities(
+	automation: Automation,
+): BlueprintAuthoredIdentity[] {
+	return [
+		{ uuid: automation.uuid, kind: "automation" },
+		...automation.criteria.map((criterion) => ({
+			uuid: criterion.uuid,
+			kind: "automationCriterion" as const,
+			ownerUuid: automation.uuid,
+		})),
+		...automation.setupOnlyCriteria.map((criterion) => ({
+			uuid: criterion.uuid,
+			kind: "automationSetupOnlyCriterion" as const,
+			ownerUuid: automation.uuid,
+		})),
+		...(automation.kind === "case-update"
+			? automation.updates.map((update) => ({
+					uuid: update.uuid,
+					kind: "automationUpdate" as const,
+					ownerUuid: automation.uuid,
+				}))
+			: [
+					...automation.recipients.map((recipient) => ({
+						uuid: recipient.uuid,
+						kind: "automationRecipient" as const,
+						ownerUuid: automation.uuid,
+					})),
+					...automation.schedule.events.map((event) => ({
+						uuid: event.uuid,
+						kind: "automationEvent" as const,
+						ownerUuid: automation.uuid,
+					})),
+					...automation.userDataFilters.map((filter) => ({
+						uuid: filter.uuid,
+						kind: "automationUserDataFilter" as const,
+						ownerUuid: automation.uuid,
+					})),
+				]),
+	];
+}
+
+type AutomationItemCollection = Extract<
+	Mutation,
+	{ kind: "editAutomationItem" }
+>["edit"]["collection"];
+
+function automationItemIdentityKind(
+	collection: AutomationItemCollection,
+): BlueprintAuthoredIdentityKind {
+	return collection === "criterion"
+		? "automationCriterion"
+		: collection === "setup-only-criterion"
+			? "automationSetupOnlyCriterion"
+			: collection === "update"
+				? "automationUpdate"
+				: collection === "recipient"
+					? "automationRecipient"
+					: collection === "user-data-filter"
+						? "automationUserDataFilter"
+						: "automationEvent";
+}
+
+function automationEditIdentity(
+	mutation: Extract<Mutation, { kind: "editAutomationItem" }>,
+): BlueprintAuthoredIdentity | undefined {
+	const edit = mutation.edit;
+	if (edit.operation !== "add") return undefined;
+	return {
+		uuid: edit.value.uuid,
+		kind: automationItemIdentityKind(edit.collection),
+		ownerUuid: mutation.automationUuid,
+	};
+}
+
 function inlineOptionIdentities(
 	ownerUuid: Uuid,
 	source: unknown,
@@ -91,6 +166,79 @@ interface MutationIdentityClaim {
 	 * mutation gets this exception.
 	 */
 	readonly preserveIfOwnedBy?: Uuid;
+}
+
+interface OwnedIdentityScope {
+	readonly kind: BlueprintAuthoredIdentityKind;
+	readonly ownerUuid: Uuid;
+}
+
+interface OwnedIdentityReplacement extends OwnedIdentityScope {
+	readonly retainedUuids: ReadonlySet<Uuid>;
+}
+
+interface OwnedIdentityRemoval extends OwnedIdentityScope {
+	readonly uuid: Uuid;
+}
+
+/**
+ * Whole-collection mutations preserve only the identities still present in
+ * their final payload. Keep that semantic separate from their claims: an
+ * omitted child is a removal even though the replacement mutation carries no
+ * explicit remove arm for it.
+ */
+function ownedIdentityReplacementBy(
+	mutation: Mutation,
+): OwnedIdentityReplacement | undefined {
+	switch (mutation.kind) {
+		case "updateField": {
+			if (!("optionsSource" in mutation.patch)) return undefined;
+			return {
+				kind: "selectOption",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					inlineOptionIdentities(
+						mutation.uuid,
+						mutation.patch.optionsSource,
+					).map((identity) => identity.uuid),
+				),
+			};
+		}
+		case "setAutomationSchedule":
+			return {
+				kind: "automationEvent",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					mutation.schedule.events.map((event) => event.uuid),
+				),
+			};
+		default:
+			return undefined;
+	}
+}
+
+/** Explicit child removals that can precede a same-owner collection replace. */
+function ownedIdentityRemovalBy(
+	mutation: Mutation,
+): OwnedIdentityRemoval | undefined {
+	switch (mutation.kind) {
+		case "removeOption":
+			return {
+				uuid: mutation.uuid,
+				kind: "selectOption",
+				ownerUuid: mutation.fieldUuid,
+			};
+		case "editAutomationItem":
+			return mutation.edit.operation === "remove"
+				? {
+						uuid: mutation.edit.uuid,
+						kind: automationItemIdentityKind(mutation.edit.collection),
+						ownerUuid: mutation.automationUuid,
+					}
+				: undefined;
+		default:
+			return undefined;
+	}
 }
 
 function createClaims(
@@ -169,6 +317,21 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 			return createClaims([
 				{ uuid: mutation.property.uuid, kind: "locationProperty" },
 			]);
+		case "addAutomation":
+			return createClaims(nestedAutomationIdentities(mutation.automation));
+		case "editAutomationItem": {
+			const identity = automationEditIdentity(mutation);
+			return identity === undefined ? [] : createClaims([identity]);
+		}
+		case "setAutomationSchedule":
+			return mutation.schedule.events.map((event) => ({
+				identity: {
+					uuid: event.uuid,
+					kind: "automationEvent",
+					ownerUuid: mutation.uuid,
+				},
+				preserveIfOwnedBy: mutation.uuid,
+			}));
 		case "updateForm":
 			return mutation.caseOperationChange?.operation === "add"
 				? createClaims([
@@ -210,6 +373,10 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "updateOrganizationLevel":
 		case "removeLocationProperty":
 		case "updateLocationProperty":
+		case "updateAutomation":
+		case "removeAutomation":
+		case "moveAutomation":
+		case "updateAutomationSchedule":
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
@@ -241,17 +408,48 @@ export function mutationIdentityAdmissionIssue(
 	for (const identity of authoredBlueprintIdentities(doc)) {
 		seen.set(identity.uuid, identity);
 	}
+	const live = new Map(seen);
+	const removedInBatch = new Set<Uuid>();
 	const claimedInBatch = new Set<Uuid>();
 	for (const [mutationIndex, mutation] of mutations.entries()) {
+		const replacement = ownedIdentityReplacementBy(mutation);
+		if (replacement !== undefined) {
+			for (const identity of live.values()) {
+				if (
+					identity.kind === replacement.kind &&
+					identity.ownerUuid === replacement.ownerUuid &&
+					!replacement.retainedUuids.has(identity.uuid)
+				) {
+					live.delete(identity.uuid);
+					removedInBatch.add(identity.uuid);
+				}
+			}
+		}
+		const removal = ownedIdentityRemovalBy(mutation);
+		if (removal !== undefined) {
+			const identity = live.get(removal.uuid);
+			if (
+				identity?.kind === removal.kind &&
+				identity.ownerUuid === removal.ownerUuid
+			) {
+				live.delete(removal.uuid);
+				removedInBatch.add(removal.uuid);
+			}
+		}
 		for (const claim of identitiesClaimedBy(mutation)) {
 			const { identity } = claim;
 			const existing = seen.get(identity.uuid);
+			const liveExisting = live.get(identity.uuid);
 			const preservesOwnedIdentity =
 				existing !== undefined &&
+				liveExisting !== undefined &&
 				!claimedInBatch.has(identity.uuid) &&
+				!removedInBatch.has(identity.uuid) &&
 				claim.preserveIfOwnedBy !== undefined &&
 				existing.kind === identity.kind &&
+				liveExisting.kind === identity.kind &&
 				existing.ownerUuid === claim.preserveIfOwnedBy &&
+				liveExisting.ownerUuid === claim.preserveIfOwnedBy &&
 				identity.ownerUuid === claim.preserveIfOwnedBy;
 			if (existing !== undefined && !preservesOwnedIdentity) {
 				return {
@@ -264,6 +462,7 @@ export function mutationIdentityAdmissionIssue(
 			}
 			claimedInBatch.add(identity.uuid);
 			seen.set(identity.uuid, identity);
+			live.set(identity.uuid, identity);
 		}
 	}
 	return undefined;

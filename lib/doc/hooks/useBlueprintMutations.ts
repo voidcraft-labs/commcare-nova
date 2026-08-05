@@ -48,6 +48,7 @@ import {
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
@@ -99,6 +100,8 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
+	type Automation,
+	type AutomationSchedule,
 	asUuid,
 	type CaseProperty,
 	type CommitOutcome,
@@ -111,6 +114,7 @@ import {
 	type FormIconRef,
 	type FormType,
 	fieldRegistry,
+	findAuthoredBlueprintIdentity,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type LocationProperty,
 	type MediaAssetId,
@@ -130,6 +134,26 @@ import {
 export type AddCommitOutcome =
 	| { ok: true; uuid: Uuid }
 	| { ok: false; messages: string[] };
+
+export interface StructuredCommitFinding {
+	readonly code: string;
+	readonly details?: Readonly<Record<string, string>>;
+}
+
+/** Automation editor outcome. Gate failures retain their structured findings
+ * so the complete-rule surface can associate app-wide validation with the
+ * exact canonical automation path instead of flattening it to footer copy. */
+export type AutomationCommitOutcome =
+	| { ok: true }
+	| {
+			ok: false;
+			messages: string[];
+			findings?: readonly StructuredCommitFinding[];
+	  };
+
+export type AddAutomationCommitOutcome =
+	| { ok: true; uuid: Uuid }
+	| Exclude<AutomationCommitOutcome, { ok: true }>;
 
 /**
  * A patch over one user-collection entity: any subset of its mutable
@@ -444,6 +468,28 @@ export interface BlueprintMutations {
 		patch: UserEntityPatch<LocationProperty>,
 	) => CommitOutcome;
 	removeLocationProperty: (uuid: Uuid) => CommitOutcome;
+	/** Human-applied HQ automation authoring. Nested values already carry their
+	 * stable UUIDs; every subsequent item edit is a distinct merge unit. */
+	addAutomation: (automation: Automation) => AddAutomationCommitOutcome;
+	replaceAutomation: (
+		automation: Automation,
+		expectedFingerprint?: string,
+	) => AutomationCommitOutcome;
+	updateAutomation: (
+		mutation: Omit<Extract<Mutation, { kind: "updateAutomation" }>, "kind">,
+	) => CommitOutcome;
+	removeAutomation: (uuid: Uuid, expectedFingerprint?: string) => CommitOutcome;
+	editAutomationItem: (
+		mutation: Extract<Mutation, { kind: "editAutomationItem" }>,
+	) => CommitOutcome;
+	setAutomationSchedule: (
+		uuid: Uuid,
+		schedule: AutomationSchedule,
+	) => CommitOutcome;
+	updateAutomationSchedule: (
+		uuid: Uuid,
+		patch: Extract<Mutation, { kind: "updateAutomationSchedule" }>["patch"],
+	) => CommitOutcome;
 	/** Set a persona's primary place followed by any additional places. */
 	setPersonaLocations: (
 		personaUuid: Uuid,
@@ -655,7 +701,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				mutations: Mutation[],
 			):
 				| { ok: true; results: MutationResult[] }
-				| { ok: false; messages: string[] } => {
+				| {
+						ok: false;
+						messages: string[];
+						findings?: readonly StructuredCommitFinding[];
+				  } => {
 				/* View-only access — no user edit reaches the store. The visible
 				 * affordances are already hidden for a viewer; this is the
 				 * airtight backstop for any that aren't, so a stray dispatch
@@ -691,7 +741,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// SA path keeps the verbose `ValidationError.message`.
 					const lines = userFacingErrors(verdict.findings);
 					if (announce) notifyRejectedCommit(lines);
-					return { ok: false, messages: lines };
+					return { ok: false, messages: lines, findings: verdict.findings };
 				}
 				// The candidate commits, and the batch that produced it is kept
 				// verbatim. Persistence replays exactly these commands rather than
@@ -710,6 +760,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			} => {
 				const messages = [
 					"Connect participation must be changed through the app-wide Connect configuration.",
+				];
+				if (announce) notifyRejectedCommit(messages);
+				return { ok: false, messages };
+			};
+			const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
+				const messages = [
+					"This automation changed while you were editing it. Close and reopen it to review the latest version.",
 				];
 				if (announce) notifyRejectedCommit(messages);
 				return { ok: false, messages };
@@ -1326,6 +1383,105 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						return NOOP_REJECTION;
 					}
 					return toOutcome(guardedApply(removeLocationPropertyMutations(uuid)));
+				},
+
+				addAutomation(automation) {
+					const uuid = automation.uuid;
+					if (findAuthoredBlueprintIdentity(get(), uuid) !== undefined) {
+						warnUnresolved("addAutomation", { uuid });
+						return NOOP_REJECTION;
+					}
+					const applied = guardedApply([
+						{
+							kind: "addAutomation",
+							automation,
+						},
+					]);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				replaceAutomation(automation, expectedFingerprint) {
+					const before = ownRecordValue(get().automations, automation.uuid);
+					if (before === undefined) {
+						warnUnresolved("replaceAutomation", { uuid: automation.uuid });
+						return NOOP_REJECTION;
+					}
+					if (
+						expectedFingerprint !== undefined &&
+						JSON.stringify(before) !== expectedFingerprint
+					) {
+						return rejectAutomationConflict();
+					}
+					return toOutcome(
+						guardedApply(automationChangesForUpdate(before, automation)),
+					);
+				},
+
+				updateAutomation(mutation) {
+					if (ownRecordValue(get().automations, mutation.uuid) === undefined) {
+						warnUnresolved("updateAutomation", { uuid: mutation.uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateAutomation", ...mutation }]),
+					);
+				},
+
+				removeAutomation(uuid, expectedFingerprint) {
+					const before = ownRecordValue(get().automations, uuid);
+					if (before === undefined) {
+						warnUnresolved("removeAutomation", { uuid });
+						return NOOP_REJECTION;
+					}
+					if (
+						expectedFingerprint !== undefined &&
+						JSON.stringify(before) !== expectedFingerprint
+					) {
+						return rejectAutomationConflict();
+					}
+					return toOutcome(
+						guardedApply([
+							{ kind: "removeAutomation", uuid, targetKind: before.kind },
+						]),
+					);
+				},
+
+				editAutomationItem(mutation) {
+					const automation = ownRecordValue(
+						get().automations,
+						mutation.automationUuid,
+					);
+					if (
+						automation === undefined ||
+						automation.kind !== mutation.targetKind
+					) {
+						warnUnresolved("editAutomationItem", {
+							uuid: mutation.automationUuid,
+						});
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply([mutation]));
+				},
+
+				setAutomationSchedule(uuid, schedule) {
+					if (ownRecordValue(get().automations, uuid) === undefined) {
+						warnUnresolved("setAutomationSchedule", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "setAutomationSchedule", uuid, schedule }]),
+					);
+				},
+
+				updateAutomationSchedule(uuid, patch) {
+					if (ownRecordValue(get().automations, uuid) === undefined) {
+						warnUnresolved("updateAutomationSchedule", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateAutomationSchedule", uuid, patch }]),
+					);
 				},
 
 				setPersonaLocations(personaUuid, locationIds) {

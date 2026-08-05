@@ -171,6 +171,37 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		expect(plan.references.join(" ")).toMatch(/owner.*visit|visit.*owner/i);
 	});
 
+	it("blocks when an automation runs on the retiring case type", () => {
+		const doc = twoModuleDoc();
+		const automationUuid = testUuid("retirement-automation");
+		doc.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "case-update",
+				name: "Close stale visits",
+				caseType: "visit",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				updates: [],
+				closeCase: true,
+			},
+		};
+		doc.automationOrder = [automationUuid];
+
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+		expect(plan.references).toContain(
+			'automation "Close stale visits" uses the "visit" case type',
+		);
+		expect(plan.userMessage).toMatch(/update or remove.*first/i);
+	});
+
 	it("blocks on module and form display-condition case-type references", () => {
 		const doc = twoModuleDoc({
 			patientModuleDisplayReference: true,

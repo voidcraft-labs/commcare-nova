@@ -128,6 +128,38 @@ beforeEach(() => {
 });
 
 describe("PlacesSubsection", () => {
+	it("names both location-condition and recipient archive blockers", async () => {
+		const current = organization([LOCATION], vi.fn());
+		current.describeArchive = vi.fn().mockResolvedValue({
+			ok: true,
+			impact: {
+				revision: "1",
+				confirmationToken: "archive-impact-token",
+				affectedLocationCount: 1,
+				unassignedPersonaCount: 0,
+				unassignedPersonaPreview: [],
+				ownedCases: 0,
+				blockingOwnerRuleFormCount: 0,
+				blockingOwnerRuleFormPreview: [],
+				blockingAutomationCount: 1,
+				blockingAutomationPreview: ["Escalate clinic cases"],
+			},
+		});
+		render(<PlacesSubsection organization={current} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /Clinic clinic Depth 1 Facility/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+		expect(
+			await screen.findByText(
+				/Change the location condition or recipient before archiving/,
+			),
+		).toBeDefined();
+	});
+
 	it("preserves a newer scalar draft across an older save response and refresh", async () => {
 		let resolveUpdate:
 			| ((value: { ok: boolean; location: StoredLocation }) => void)

@@ -28,7 +28,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import type {
+	Automation,
+	BlueprintDoc,
+	Field,
+	Form,
+	Module,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
@@ -39,7 +45,11 @@ import { makeTestContext } from "./fixtures";
  * result — mirroring the real writer, so the SA's working doc advances across
  * serialized tool calls exactly as it would against Postgres. `__seedServerDoc`
  * seeds the tracked doc to the SA's initial doc per test. */
-const { commitGuardedBatchMock, seedServerDoc } = vi.hoisted(() => {
+const {
+	commitGuardedBatchMock,
+	readOrganizationAuthoringSnapshotMock,
+	seedServerDoc,
+} = vi.hoisted(() => {
 	let serverDoc: unknown = null;
 	let seq = 0;
 	return {
@@ -60,12 +70,18 @@ const { commitGuardedBatchMock, seedServerDoc } = vi.hoisted(() => {
 				deduped: false,
 			};
 		}),
+		readOrganizationAuthoringSnapshotMock: vi.fn(),
 	};
 });
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 	commitGuardedBatch: commitGuardedBatchMock,
+}));
+
+vi.mock("@/lib/organization/service", () => ({
+	readOrganization: vi.fn(),
+	readOrganizationAuthoringSnapshot: readOrganizationAuthoringSnapshotMock,
 }));
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
@@ -197,5 +213,70 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		const [, readResult] = await Promise.all([inFlightWrite, inFlightRead]);
 		const fieldIds = readResult.form.fields.map((f) => f.id).sort();
 		expect(fieldIds).toEqual(["case_name", "dob"]);
+	});
+
+	it("adopts an authoritative zero-diff automation snapshot in the chat working doc", async () => {
+		const doc = makeDoc();
+		const automation: Automation = {
+			uuid: testUuid("automation-noop-snapshot"),
+			kind: "conditional-alert",
+			name: "Follow-up survey",
+			caseType: "patient",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [
+				{ uuid: testUuid("automation-noop-recipient"), kind: "self" },
+			],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("automation-noop-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms-survey",
+							formUuid: FORM,
+							expirationHours: 24,
+							reminderIntervalsMinutes: [],
+							submitPartiallyCompletedForms: false,
+							includeCaseUpdatesInPartialSubmissions: false,
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		};
+		doc.automations = { [automation.uuid]: automation };
+		doc.automationOrder = [automation.uuid];
+		const authoritativeDoc = structuredClone(doc);
+		const authoritativeForm = authoritativeDoc.forms[FORM];
+		if (authoritativeForm === undefined) throw new Error("missing form");
+		authoritativeForm.name = "Peer-renamed follow-up";
+		readOrganizationAuthoringSnapshotMock.mockResolvedValue({
+			blueprint: authoritativeDoc,
+			blueprintSeq: 4,
+			organization: { revision: "3", locations: [] },
+		});
+		seedServerDoc(doc);
+		const sa = createSolutionsArchitect(ctx, doc, false);
+
+		const updateResult = await runTool(sa, "updateAutomation", {
+			automation,
+		});
+		expect(updateResult).toMatchObject({
+			message:
+				'Automation "Follow-up survey" already has the requested settings.',
+		});
+
+		const formResult = (await runTool(sa, "getForm", {
+			moduleUuid: MOD,
+			formUuid: FORM,
+		})) as { form: { name: string } };
+		expect(formResult.form.name).toBe("Peer-renamed follow-up");
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 	});
 });

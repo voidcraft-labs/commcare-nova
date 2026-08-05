@@ -923,9 +923,9 @@ export async function resetSampleCases(
  * with the canonical compiler-bug invariant (`cases.case_name` is
  * NOT NULL; a valid blueprint always carries the name leaf).
  *
- * The optional `built` half attaches the server-derived operation
- * program and the ordinary action's module case type (the rolling
- * proof's final implicit step) — both produced by
+ * The `built` half attaches the server-derived child relationships,
+ * operation program, and ordinary action's module case type (the rolling
+ * proof's final implicit step), all produced by
  * `buildCaseOperationProgramFromDoc` from the same authorized committed
  * doc the action used to resolve its persona, never client structure.
  */
@@ -933,6 +933,12 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
+	/** Committed case-type relationship for each ordinary child destination.
+	 * The client mutation never asserts this wire/runtime fact. */
+	readonly ordinaryChildRelationships: ReadonlyMap<
+		string,
+		NonNullable<CaseType["relationship"]>
+	>;
 	readonly submissionReceipt?: NonNullable<
 		ApplySubmissionArgs["submissionReceipt"]
 	>;
@@ -1257,8 +1263,20 @@ export function buildCaseOperationProgramFromDoc(args: {
 			"The submitted form no longer exists in the committed app.",
 		);
 	}
+	const caseTypeSchemas = buildCaseTypeMap(blueprint);
+	const ordinaryChildRelationships = new Map(
+		[...caseTypeSchemas].map(
+			([caseType, definition]) =>
+				[caseType, definition.relationship ?? "child"] as const,
+		),
+	);
+	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
+	const ordinaryStructure = {
+		ordinaryChildRelationships,
+		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
+	};
 	const operations = orderedCaseOperations(form);
-	if (operations.length === 0) return {};
+	if (operations.length === 0) return ordinaryStructure;
 	/* Operations present but NO collected answers means the client's doc
 	 * snapshot predates a co-editor's operation add. Running with empty
 	 * bindings would blank-write fields, while silently submitting the
@@ -1371,8 +1389,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	for (const [field, value] of Object.entries(args.identity.session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
-	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
 	return {
+		...ordinaryStructure,
 		program: {
 			formUuid,
 			operations: envelopeOperations,
@@ -1380,7 +1398,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseId: mutation.caseId }
 				: {}),
-			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseTypeSchemas,
 			organizationLevels: organizationLevelsOf(doc),
 			sessionUser: new Map(Object.entries(args.identity.session.user)),
 			userPropertySlugs: new Map(
@@ -1391,7 +1409,6 @@ export function buildCaseOperationProgramFromDoc(args: {
 				? {}
 				: { viewerTimeZone: args.viewerTimeZone }),
 		},
-		...(ordinaryCaseType !== undefined && { ordinaryCaseType }),
 	};
 }
 
@@ -1411,9 +1428,9 @@ function owningModuleCaseType(
 export function submissionEnvelopeArgs(
 	mutation: SubmissionMutation,
 	appId: string,
-	built?: BuiltSubmissionOperations,
+	built: BuiltSubmissionOperations,
 ): ApplySubmissionArgs {
-	if (built?.submissionReceipt === undefined) {
+	if (built.submissionReceipt === undefined) {
 		throw new Error(
 			compilerBugMessage({
 				where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
@@ -1425,12 +1442,28 @@ export function submissionEnvelopeArgs(
 		);
 	}
 	const operations =
-		built?.program === undefined ? {} : { operations: built.program };
+		built.program === undefined ? {} : { operations: built.program };
 	const captureIntent =
-		built?.captureIntent === undefined
+		built.captureIntent === undefined
 			? {}
 			: { captureIntent: built.captureIntent };
 	const submissionReceipt = { submissionReceipt: built.submissionReceipt };
+	const childSeed = <T extends { readonly caseType: string }>(child: T) => {
+		const parentRelationship = built.ordinaryChildRelationships.get(
+			child.caseType,
+		);
+		if (parentRelationship === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
+					invariant: `ordinary child case type \`${child.caseType}\` has no committed relationship projection`,
+					detail:
+						"The server must derive every ordinary child's parent relationship from the same committed case-type catalog that authorized the submission. Without it, the case store would silently collapse an extension host into an ordinary child edge.",
+				}),
+			);
+		}
+		return { ...child, parentRelationship };
+	};
 	switch (mutation.kind) {
 		case "registration":
 			return {
@@ -1438,7 +1471,7 @@ export function submissionEnvelopeArgs(
 				ordinary: {
 					kind: "registration",
 					primary: mutation.primary,
-					children: mutation.children,
+					children: mutation.children.map(childSeed),
 				},
 				...operations,
 				...submissionReceipt,
@@ -1451,11 +1484,11 @@ export function submissionEnvelopeArgs(
 				ordinary: {
 					kind: mutation.kind,
 					caseId: mutation.caseId,
-					...(built?.ordinaryCaseType !== undefined && {
+					...(built.ordinaryCaseType !== undefined && {
 						caseType: built.ordinaryCaseType,
 					}),
 					patch: mutation.patch,
-					children: mutation.children,
+					children: mutation.children.map(childSeed),
 				},
 				...operations,
 				...submissionReceipt,

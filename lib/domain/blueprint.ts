@@ -8,6 +8,7 @@
 // load.
 
 import { z } from "zod";
+import { automationNestedUuids, automationSchema } from "./automations";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
@@ -144,6 +145,11 @@ const blueprintDocObjectSchema = z
 		).optional(),
 		locationPropertyOrder: z.array(uuidSchema).optional(),
 
+		/** Human-applied HQ rules and alerts. Preview only evaluates current
+		 * matches; it never runs these schedules. */
+		automations: ownRecordSchema(uuidSchema, automationSchema).optional(),
+		automationOrder: z.array(uuidSchema).optional(),
+
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})
 	.strict();
@@ -216,6 +222,7 @@ export function blueprintTopologyIssues(
 	registerRecord("personas", doc.personas ?? {});
 	registerRecord("organizationLevels", doc.organizationLevels ?? {});
 	registerRecord("locationProperties", doc.locationProperties ?? {});
+	registerRecord("automations", doc.automations ?? {});
 
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
 		if (
@@ -324,6 +331,18 @@ export function blueprintTopologyIssues(
 				"options",
 				index,
 				"uuid",
+			]);
+		}
+	}
+	for (const [automationUuid, automation] of Object.entries(
+		doc.automations ?? {},
+	)) {
+		for (const [index, uuid] of automationNestedUuids(automation).entries()) {
+			registerIdentity(uuid, "automation child", [
+				"automations",
+				automationUuid,
+				"children",
+				index,
 			]);
 		}
 	}
@@ -562,6 +581,12 @@ export function blueprintTopologyIssues(
 		doc.locationProperties ?? {},
 		"locationPropertyOrder",
 		doc.locationPropertyOrder ?? [],
+	);
+	exactSequence(
+		"automations",
+		doc.automations ?? {},
+		"automationOrder",
+		doc.automationOrder ?? [],
 	);
 
 	return issues;

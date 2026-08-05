@@ -2,7 +2,7 @@
 //
 // There is no blueprint blob: an app's current state is scalar columns on its
 // `apps` row (name, connectType, caseTypes, logo) plus one `blueprint_entities`
-// row per module/form/field. `assembleBlueprint` reconstructs the exact
+// row per hierarchical or flat authored entity. `assembleBlueprint` reconstructs the exact
 // `PersistableDoc` (records + membership arrays by stored `ordinal`);
 // `decomposeBlueprint` is its inverse; `diffBlueprints` computes the minimal
 // row-set a committed batch actually changed, so a one-field edit writes one
@@ -37,8 +37,8 @@ export interface EntityRow {
  * The entity kinds a blueprint decomposes into.
  *
  * The first three carry the runnable app and encode their hierarchy in
- * `(parent_uuid, ordinal)`. The last three are the flat user collections
- * (`lib/domain/users.ts`): they have no parent, so they persist with a null
+ * `(parent_uuid, ordinal)`. The final collections are flat app-level catalogs
+ * (users, organization, and automations): they have no parent, so they persist with a null
  * parent, but their `ordinal` is real — it IS their sequence, the same as
  * every other collection.
  */
@@ -50,7 +50,8 @@ export type EntityRowKind =
 	| "user_type"
 	| "persona"
 	| "organization_level"
-	| "location_property";
+	| "location_property"
+	| "automation";
 
 /** Which doc slot each flat user collection round-trips through. */
 const FLAT_COLLECTIONS = [
@@ -59,6 +60,7 @@ const FLAT_COLLECTIONS = [
 	["persona", "personas", "personaOrder"],
 	["organization_level", "organizationLevels", "organizationLevelOrder"],
 	["location_property", "locationProperties", "locationPropertyOrder"],
+	["automation", "automations", "automationOrder"],
 ] as const satisfies readonly (readonly [
 	EntityRowKind,
 	(
@@ -67,6 +69,7 @@ const FLAT_COLLECTIONS = [
 		| "personas"
 		| "organizationLevels"
 		| "locationProperties"
+		| "automations"
 	),
 	(
 		| "userPropertyOrder"
@@ -74,6 +77,7 @@ const FLAT_COLLECTIONS = [
 		| "personaOrder"
 		| "organizationLevelOrder"
 		| "locationPropertyOrder"
+		| "automationOrder"
 	),
 ])[];
 

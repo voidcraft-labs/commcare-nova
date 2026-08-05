@@ -1998,6 +1998,20 @@ function ArchivePlace({
 							before archiving.
 						</li>
 					)}
+					{impact.blockingAutomationCount > 0 && (
+						<li className="text-nova-amber">
+							Archiving would break{" "}
+							{impact.blockingAutomationCount === 1
+								? "the automation"
+								: "these automations"}{" "}
+							{impact.blockingAutomationPreview.join(", ")}
+							{impact.blockingAutomationCount >
+							impact.blockingAutomationPreview.length
+								? ` and ${impact.blockingAutomationCount - impact.blockingAutomationPreview.length} more`
+								: ""}
+							. Change the location condition or recipient before archiving.
+						</li>
+					)}
 					<li>Archiving is reversible. You can bring the place back.</li>
 				</ul>
 			)}
@@ -2006,7 +2020,9 @@ function ArchivePlace({
 					type="button"
 					variant="destructive"
 					disabled={
-						impact === undefined || impact.blockingOwnerRuleFormCount > 0
+						impact === undefined ||
+						impact.blockingOwnerRuleFormCount > 0 ||
+						impact.blockingAutomationCount > 0
 					}
 					onClick={async () => {
 						closeConfirmation();

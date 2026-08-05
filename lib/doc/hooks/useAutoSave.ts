@@ -110,6 +110,8 @@ export function projectSaveSlice(
 		organizationLevelOrder: s.organizationLevelOrder,
 		locationProperties: s.locationProperties,
 		locationPropertyOrder: s.locationPropertyOrder,
+		automations: s.automations,
+		automationOrder: s.automationOrder,
 		commandQueueRevision: s.commandQueueRevision ?? 0,
 	};
 }

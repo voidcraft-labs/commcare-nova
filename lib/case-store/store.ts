@@ -127,6 +127,32 @@ export interface CaseUpdate {
 	readonly properties?: JsonObject | string;
 }
 
+type CaseUpdateWithoutParent = Omit<CaseUpdate, "parent_case_id"> & {
+	readonly parent_case_id?: undefined | null;
+};
+
+/**
+ * A parent assignment is valid by construction only when it carries the edge
+ * relationship that the caller derived from its authoritative source. Ordinary
+ * form actions use the committed case-type declaration; advanced case-operation
+ * links bypass this API and persist their authored relationship directly.
+ */
+export type CaseUpdateArgs = {
+	readonly appId: string;
+	readonly caseId: string;
+} & (
+	| {
+			readonly patch: Omit<CaseUpdate, "parent_case_id"> & {
+				readonly parent_case_id: string;
+			};
+			readonly parentRelationship: "child" | "extension";
+	  }
+	| {
+			readonly patch: CaseUpdateWithoutParent;
+			readonly parentRelationship?: never;
+	  }
+);
+
 /**
  * One sort key for a case-list query. The expression slot is a
  * `ValueExpression` (not a bare property name) so authors can sort
@@ -219,6 +245,51 @@ export type CountArgs =
 			/** Runtime values for input/session terms used by the predicate. */
 			bindings?: TermBindings;
 			predicate?: Predicate;
+			/** Local-only automation criterion group. HQ property comparisons,
+			 * relation selection, blankness, and calendar-date arithmetic differ
+			 * intentionally from general case search, so these ephemeral leaves stay
+			 * explicit. The same Kysely query composes the group and preserves ALL/ANY;
+			 * this is not a second persisted automation schema. A host-scoped
+			 * criterion also makes `count` refuse with
+			 * `AutomationHostAmbiguityError` when an otherwise-visible open target
+			 * case has more than one distinct extension host; that preflight and
+			 * the count share one PostgreSQL statement snapshot. */
+			automationCriteria?: {
+				/** True when the locally matched criteria read through HQ's unordered
+				 * first extension host. Actions are setup guidance, not local execution. */
+				requiresUnambiguousHost: boolean;
+				operator: "all" | "any";
+				dates: readonly {
+					property: string;
+					days: number;
+					matchType:
+						| "date-days-before"
+						| "date-days-lte"
+						| "date-days-gt"
+						| "date-days";
+					scope: "case" | "parent" | "host";
+				}[];
+				comparisons: readonly {
+					property: string;
+					value: string;
+					equal: boolean;
+					scope: "case" | "parent" | "host";
+				}[];
+				regexes: readonly { property: string; pattern: string }[];
+				blankness: readonly {
+					property: string;
+					hasValue: boolean;
+					scope: "case" | "parent" | "host";
+				}[];
+				closedParents: readonly {
+					identifier: string;
+					relationship: "child" | "extension";
+				}[];
+				/** One HQ LocationFilterDefinition per entry, lowered to the exact
+				 * local owner identities it can match: the selected location/subtree
+				 * plus personas whose primary location is inside it. */
+				locationOwnerSets: readonly (readonly string[])[];
+			};
 			/** Same hold contract as `QueryArgs.includeHeld` — a count must
 			 * agree with the row list its caller pairs it with. */
 			includeHeld?: boolean;
@@ -233,6 +304,7 @@ export type CountArgs =
 			appId: string;
 			ownerId: string;
 			caseType?: never;
+			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;
 			bindings?: never;
@@ -799,7 +871,12 @@ export interface CaseStore extends SchemaCaseStore {
 	 * the `case_indices` parent edge in the same transaction.
 	 * Returns the generated `case_id`.
 	 */
-	insert(args: { appId: string; row: CaseInsert }): Promise<{
+	insert(args: {
+		appId: string;
+		row: CaseInsert;
+		/** Relationship for a supplied `parent_case_id`; ordinary child when omitted. */
+		parentRelationship?: "child" | "extension";
+	}): Promise<{
 		caseId: string;
 	}>;
 
@@ -830,11 +907,7 @@ export interface CaseStore extends SchemaCaseStore {
 	 * re-derives `case_indices` if `parent_case_id` changed. Throws
 	 * `CaseNotFoundError` when the bound Project cannot see the row.
 	 */
-	update(args: {
-		appId: string;
-		caseId: string;
-		patch: CaseUpdate;
-	}): Promise<void>;
+	update(args: CaseUpdateArgs): Promise<void>;
 
 	/**
 	 * Close a case row. Atomically stamps `closed_on = now()` and the

@@ -55,7 +55,9 @@
 
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type Automation,
 	assignedLocationUuids,
+	automationsOf,
 	type BlueprintDoc,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
@@ -185,7 +187,8 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	} else if (
 		ownRecordValue(organizationLevelsOf(doc), carrier) ||
 		ownRecordValue(locationPropertiesOf(doc), carrier) ||
-		ownRecordValue(personasOf(doc), carrier)
+		ownRecordValue(personasOf(doc), carrier) ||
+		ownRecordValue(automationsOf(doc), carrier)
 	) {
 		return {};
 	} else return {};
@@ -371,8 +374,175 @@ function extractCarrierEdges(
 		return;
 	}
 	const persona = ownRecordValue(personasOf(doc), carrier);
-	if (persona)
+	if (persona) {
 		extractPersonaLocationEdges(makeSink(index, carrier, ctx), persona);
+		return;
+	}
+	const automation = ownRecordValue(automationsOf(doc), carrier);
+	if (automation) {
+		extractAutomationEdges(makeSink(index, carrier, ctx), doc, automation);
+	}
+}
+
+function automationScopeCaseType(
+	doc: BlueprintDoc,
+	automation: Automation,
+	scope: "case" | "parent" | "host",
+): string | undefined {
+	if (scope === "case") return automation.caseType;
+	const source = doc.caseTypes?.find(
+		(type) => type.name === automation.caseType,
+	);
+	if (source?.parent_type === undefined) return undefined;
+	if (scope === "host" && source.relationship !== "extension") {
+		return undefined;
+	}
+	return source.parent_type;
+}
+
+function extractAutomationEdges(
+	sink: EdgeSink,
+	doc: BlueprintDoc,
+	automation: Automation,
+): void {
+	sink.edge(caseTypeTargetKey(automation.caseType), "automation_case_type");
+	for (const criterion of automation.criteria) {
+		if (criterion.kind === "match-property") {
+			const caseType = automationScopeCaseType(
+				doc,
+				automation,
+				criterion.scope,
+			);
+			if (caseType !== undefined) {
+				sink.edge(
+					casePropertyTargetKey(caseType, criterion.property),
+					"automation_criterion_property",
+				);
+			}
+		} else if (criterion.kind === "location") {
+			sink.edge(
+				locationTargetKey(criterion.locationUuid),
+				"automation_criterion_location",
+			);
+		}
+	}
+	if (automation.kind === "case-update") {
+		for (const update of automation.updates) {
+			for (const target of [
+				update.target,
+				...(update.value.kind === "case-property" ? [update.value.source] : []),
+			]) {
+				const caseType = automationScopeCaseType(doc, automation, target.scope);
+				if (caseType !== undefined) {
+					sink.edge(
+						casePropertyTargetKey(caseType, target.property),
+						"automation_update_property",
+					);
+				}
+			}
+		}
+		return;
+	}
+	for (const recipient of automation.recipients) {
+		if (recipient.kind === "location") {
+			sink.edge(
+				locationTargetKey(recipient.locationUuid),
+				"automation_recipient_location",
+			);
+		} else if (
+			recipient.kind === "case-property-username" ||
+			recipient.kind === "case-property-user-id" ||
+			recipient.kind === "case-property-email"
+		) {
+			sink.edge(
+				casePropertyTargetKey(automation.caseType, recipient.property),
+				"automation_recipient_property",
+			);
+		}
+	}
+	for (const levelUuid of automation.locationLevelUuids) {
+		sink.edge(entityTargetKey(levelUuid), "automation_location_level");
+	}
+	for (const filter of automation.userDataFilters) {
+		sink.edge(
+			userPropertyTargetKey(filter.userPropertyUuid),
+			"automation_user_data_filter",
+		);
+		for (const value of filter.values) {
+			if (value.kind !== "case-property") continue;
+			sink.edge(
+				casePropertyTargetKey(value.caseType, value.property),
+				"automation_user_data_filter_value",
+			);
+		}
+	}
+	for (const property of [
+		automation.resetCaseProperty,
+		automation.stopDateCaseProperty,
+	]) {
+		if (property !== undefined) {
+			sink.edge(
+				casePropertyTargetKey(automation.caseType, property),
+				"automation_alert_property",
+			);
+		}
+	}
+	if (
+		automation.schedule.kind === "timed" &&
+		automation.schedule.start.kind === "case-property"
+	) {
+		sink.edge(
+			casePropertyTargetKey(
+				automation.caseType,
+				automation.schedule.start.property,
+			),
+			"automation_schedule_property",
+		);
+	}
+	const schedule = automation.schedule;
+	if (schedule.kind === "timed") {
+		for (const event of schedule.events) {
+			if (event.timing.kind !== "case-property-time") continue;
+			sink.edge(
+				casePropertyTargetKey(automation.caseType, event.timing.property),
+				"automation_schedule_property",
+			);
+		}
+	}
+	for (const event of schedule.events) {
+		if (
+			event.content.kind === "sms-survey" ||
+			event.content.kind === "ivr" ||
+			event.content.kind === "connect-survey"
+		) {
+			sink.edge(
+				entityTargetKey(event.content.formUuid),
+				"automation_content_form",
+			);
+		}
+		const templates =
+			event.content.kind === "email"
+				? [
+						event.content.subject,
+						event.content.body.kind === "plain-text"
+							? event.content.body.message
+							: event.content.body.html,
+					]
+				: event.content.kind === "sms" ||
+						event.content.kind === "sms-callback" ||
+						event.content.kind === "connect-message"
+					? [event.content.message]
+					: [];
+		for (const template of templates) {
+			for (const part of template.parts) {
+				if (part.kind !== "case-property") continue;
+				sink.edge(
+					casePropertyTargetKey(part.caseType, part.property),
+					"automation_template_property",
+				);
+			}
+		}
+	}
 }
 
 function extractOrganizationLevelEdges(
@@ -907,6 +1077,7 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 		...Object.keys(organizationLevelsOf(doc)),
 		...Object.keys(locationPropertiesOf(doc)),
 		...Object.keys(personasOf(doc)),
+		...Object.keys(automationsOf(doc)),
 	];
 	for (const carrier of carriers) {
 		contexts.set(carrier, carrierContext(doc, carrier));
@@ -1086,12 +1257,33 @@ export function planReferenceIndexMaintenance(
 		case "addCaseProperty":
 		case "setCaseProperty":
 		case "removeCaseProperty":
+			break;
 		case "setCaseTypeMeta":
+			// Parent/host automation edges resolve through the source case type's
+			// current ancestry metadata. Re-extract only automations authored on
+			// that source so incremental maintenance stays identical to a rebuild.
+			for (const automation of Object.values(automationsOf(doc))) {
+				if (automation.caseType === mut.caseType) carriers.add(automation.uuid);
+			}
+			break;
+		case "addAutomation":
+			carriers.add(mut.automation.uuid);
+			break;
+		case "updateAutomation":
+		case "removeAutomation":
+		case "moveAutomation":
+		case "setAutomationSchedule":
+		case "updateAutomationSchedule":
+			carriers.add(mut.uuid);
+			break;
+		case "editAutomationItem":
+			carriers.add(mut.automationUuid);
 			break;
 		case "renameCaseProperties":
 			for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
 			for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
 			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
+			for (const uuid of Object.keys(automationsOf(doc))) carriers.add(uuid);
 			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);

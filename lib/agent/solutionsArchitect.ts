@@ -186,7 +186,12 @@ export function createSolutionsArchitect(
 							case "read":
 								return outcome.data;
 							case "mutate": {
-								if (outcome.mutations.length > 0) doc = outcome.newDoc;
+								/* Most no-op results return the invocation doc. A tool may instead
+								 * perform an authoritative read to prove that the requested state is
+								 * already persisted. Adopt that exact `newDoc` too, so a concurrent
+								 * peer edit observed by the proof is not discarded from the SA's
+								 * working closure merely because no history row was needed. */
+								doc = outcome.newDoc;
 								/* A committed row migration that PARKED saved case values stashed a
 								 * note on the context — append it to a message-bearing
 								 * result so the SA relays the data consequence to the

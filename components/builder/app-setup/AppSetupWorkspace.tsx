@@ -30,6 +30,7 @@ import {
 	type AppSetupSection,
 } from "@/lib/routing/types";
 import { selectableSegmentCls } from "@/lib/styles";
+import { AutomationsSection } from "./AutomationsSection";
 import { OrganizationSection } from "./OrganizationSection";
 import { UsersSection } from "./UsersSection";
 
@@ -47,10 +48,11 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
  * a control that does nothing.
  */
 const SECTION_PENDING_COPY: Readonly<
-	Record<Exclude<AppSetupSection, "users" | "organization">, string>
+	Record<
+		Exclude<AppSetupSection, "users" | "organization" | "automations">,
+		string
+	>
 > = {
-	automations:
-		"Rules that run on a schedule against your cases, and the messages they send.",
 	publishing:
 		"The CommCare project this app is published to, what Nova will create there, and what you set up by hand.",
 };
@@ -101,6 +103,8 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 						<UsersSection />
 					) : section === "organization" ? (
 						<OrganizationSection />
+					) : section === "automations" ? (
+						<AutomationsSection />
 					) : (
 						<PendingSection section={section} />
 					)}
@@ -117,7 +121,7 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 function PendingSection({
 	section,
 }: {
-	section: Exclude<AppSetupSection, "users" | "organization">;
+	section: Exclude<AppSetupSection, "users" | "organization" | "automations">;
 }) {
 	return (
 		<section aria-labelledby={`app-setup-${section}-heading`}>

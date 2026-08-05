@@ -1,6 +1,9 @@
 import type { Draft } from "immer";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	type Automation,
+	type AutomationContent,
+	type AutomationMessageTemplate,
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
@@ -14,6 +17,8 @@ import {
 	rewriteModuleCaseRefs,
 } from "./mutations/referenceRewrites";
 import type { Mutation } from "./types";
+
+const COMPARISON_SENTINEL = "\0case-property\0";
 
 export type CasePropertyRenamePlanIssueReason =
 	| "self-rename"
@@ -200,6 +205,9 @@ export function rewriteCasePropertyCarriers(
 	for (const module of Object.values(doc.modules)) {
 		rewriteModuleCaseRefs(module, resolve);
 	}
+	for (const automation of Object.values(doc.automations ?? {})) {
+		rewriteAutomationCaseProperties(doc, automation, resolve);
+	}
 	for (const caseType of doc.caseTypes ?? []) {
 		for (const property of caseType.properties) {
 			mapCasePropertiesInProse(property.label, resolve);
@@ -224,7 +232,134 @@ export function rewriteCasePropertyCarriers(
 	}
 }
 
-const COMPARISON_SENTINEL = "\0case-property\0";
+function automationScopeCaseType(
+	doc: BlueprintDoc,
+	automation: Automation,
+	scope: "case" | "parent" | "host",
+): string | undefined {
+	if (scope === "case") return automation.caseType;
+	const source = doc.caseTypes?.find(
+		(caseType) => caseType.name === automation.caseType,
+	);
+	if (source?.parent_type === undefined) return undefined;
+	if (scope === "host" && source.relationship !== "extension") {
+		return undefined;
+	}
+	return source.parent_type;
+}
+
+function rewriteAutomationTemplate(
+	template: AutomationMessageTemplate,
+	resolve: (caseType: string, property: string) => string | undefined,
+): void {
+	for (const part of template.parts) {
+		if (part.kind !== "case-property") continue;
+		const destination = resolve(part.caseType, part.property);
+		if (destination !== undefined) part.property = destination;
+	}
+}
+
+function rewriteAutomationContent(
+	content: AutomationContent,
+	resolve: (caseType: string, property: string) => string | undefined,
+): void {
+	const rewrite = (value: AutomationMessageTemplate): void =>
+		rewriteAutomationTemplate(value, resolve);
+	switch (content.kind) {
+		case "sms":
+		case "connect-message":
+		case "sms-callback":
+			rewrite(content.message);
+			break;
+		case "email":
+			rewrite(content.subject);
+			if (content.body.kind === "plain-text") {
+				rewrite(content.body.message);
+			} else {
+				rewrite(content.body.html);
+			}
+			break;
+		case "sms-survey":
+		case "ivr":
+		case "connect-survey":
+		case "custom":
+			break;
+	}
+}
+
+function rewriteAutomationCaseProperties(
+	doc: BlueprintDoc,
+	automation: Automation,
+	resolve: (caseType: string, property: string) => string | undefined,
+): void {
+	const rewriteScoped = (target: {
+		scope: "case" | "parent" | "host";
+		property: string;
+	}): void => {
+		const caseType = automationScopeCaseType(doc, automation, target.scope);
+		if (caseType === undefined) return;
+		const destination = resolve(caseType, target.property);
+		if (destination !== undefined) target.property = destination;
+	};
+	for (const criterion of automation.criteria) {
+		if (criterion.kind !== "match-property") continue;
+		rewriteScoped(criterion);
+	}
+	if (automation.kind === "case-update") {
+		for (const update of automation.updates) {
+			rewriteScoped(update.target);
+			if (update.value.kind === "case-property") {
+				rewriteScoped(update.value.source);
+			}
+		}
+		return;
+	}
+	for (const recipient of automation.recipients) {
+		if (
+			recipient.kind === "case-property-username" ||
+			recipient.kind === "case-property-user-id" ||
+			recipient.kind === "case-property-email"
+		) {
+			const destination = resolve(automation.caseType, recipient.property);
+			if (destination !== undefined) recipient.property = destination;
+		}
+	}
+	for (const filter of automation.userDataFilters) {
+		for (const value of filter.values) {
+			if (value.kind !== "case-property") continue;
+			const destination = resolve(value.caseType, value.property);
+			if (destination !== undefined) value.property = destination;
+		}
+	}
+	for (const key of ["resetCaseProperty", "stopDateCaseProperty"] as const) {
+		const property = automation[key];
+		if (property === undefined) continue;
+		const destination = resolve(automation.caseType, property);
+		if (destination !== undefined) automation[key] = destination;
+	}
+	if (
+		automation.schedule.kind === "timed" &&
+		automation.schedule.start.kind === "case-property"
+	) {
+		const destination = resolve(
+			automation.caseType,
+			automation.schedule.start.property,
+		);
+		if (destination !== undefined) {
+			automation.schedule.start.property = destination;
+		}
+	}
+	if (automation.schedule.kind === "timed") {
+		for (const event of automation.schedule.events) {
+			if (event.timing.kind !== "case-property-time") continue;
+			const destination = resolve(automation.caseType, event.timing.property);
+			if (destination !== undefined) event.timing.property = destination;
+		}
+	}
+	for (const event of automation.schedule.events) {
+		rewriteAutomationContent(event.content, resolve);
+	}
+}
 
 export interface CasePropertyCarrierName {
 	readonly path: string;

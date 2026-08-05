@@ -141,6 +141,121 @@ Inside an operation, SA/MCP read and write the same canonical AST the document s
 
 Action legality is structural in `caseOperationInputSchema`: create requires a new target plus name and cannot carry rename/retype; update targets an existing case and cannot carry a create name; close targets an existing case and cannot carry owner/rename/retype/links. Operation ids, write properties, and link identifiers import the validator-owned ASCII letter/digit/underscore rules from `lib/domain/caseOperationIdentifiers.ts`; no surface maintains a more permissive XML-name copy. Platform-owned case types and reserved write properties are rejected at this boundary as well as by the validator backstop. Batch add plans against a working overlay, so a later item can target an earlier create in the same call and the one guarded commit remains atomic. Full-shape update does not imply whole-object replacement: `updateCaseOperationMutations` diffs it into identity-keyed operation, write-property, and link-identifier mutations, preserving unrelated concurrent edits. A move names the operation it now follows; an anchor cannot be shifted by a peer's insert, so there is no rank to fence, and the tool reports the rank derived from `commit.newDoc`.
 
+### Automation authoring: canonical intent plus a derived setup guide
+
+`tools/automations.ts` is the shared SA/MCP family: read, batch add, singular
+complete update, and singular remove. The input is the exact domain union, so
+every automation and nested criterion, setup-only instruction, update,
+recipient, event, and user-data filter is addressed by canonical UUID. Add may
+predeclare those final UUIDs; update must preserve the automation's UUID and
+kind. A full update is only a boundary convenience: it diffs through
+`diffDocsToMutations` into the same identity-keyed item changes the Builder
+uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
+schema.
+
+The shared input schema admits only schedules that project into one current HQ
+HTML setup form, including schedule-wide content type and timing, Weekly/Monthly shared content,
+event ordering/separation/windows, day/offset laws, and survey expiration plus
+partial-submission dependencies. These are domain refinements used by both SA
+and MCP; tools must not post-process or weaken them.
+
+Message fields use the canonical `AutomationMessageTemplate` part union rather
+than strings with magic token syntax. A `text` part is always literal, even if
+it contains `{case.foo}`; the HQ projection doubles its braces before Python
+Formatter sees it. Case substitutions are explicit `case-property` parts
+carrying scope plus the Nova `(caseType, property)` identity. Case-owner and
+message-recipient substitutions are explicit closed `context-property` parts.
+SA and MCP write that shape directly, and only the derived HQ guide prints
+executable `{case...}` / `{recipient...}` tokens. Custom case properties named
+`owner`, `host`, or `last_modified_by` are refused in every message case scope
+because HQ's formatter context shadows them; use an actual context-property
+part for case-owner/recipient values or rename the custom case property.
+Registered handler IDs and setup-only instructions must be concrete, trimmed,
+and nonblank; no tool may send instructional placeholder copy as data.
+Setup-only instructions carry an explicit UCR or registered-custom family.
+Recipient-filter values are structural exact literals or custom case-property
+references; brace-wrapped literals are refused because HQ executes them as
+lookups. The generated guide uses exact JSON when multiple/blank/whitespace
+values require HQ's system-administrator-only mode on a new alert, and names
+the UCR toggle and registered-custom administrator prerequisite separately.
+Returned setup guidance states that HQ requires a system administrator to save
+an alert using a registered custom recipient or custom content handler; a
+project administrator cannot complete that manual step alone.
+
+The same schema preserves HQ's kind-specific criteria matrix instead of
+admitting a shared superset. Case updates accept value/date comparisons against
+case, parent, or host properties plus at most one standard closed-parent
+condition; alerts accept direct-case value comparisons plus portable regex and
+do not accept date, closed-parent, or server-modified criteria. Both accept at
+most one UUID-backed location condition and its descendant flag. The generated
+guide states that HQ accepts and executes the payload while its current visible
+editors hide the picker; the tool never demotes that condition to setup prose.
+Names are already trimmed and nonblank; equality and update literals are
+canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
+There is no web-user recipient; Connect content refuses the case-relative,
+case-property-email, and case-group arms HQ cannot save. The returned guide
+names Inbound SMS access for SMS Survey, and for Connect it names both the
+`COMMCARE_CONNECT` toggle and the runtime requirement that every resolved
+recipient be a CommCare mobile worker with an active PersonalID link. A timed reset property
+requires a rule-trigger start. Checkbox-style, case-property, and custom
+recipient kinds are singletons; concrete list targets and worker-property
+filter keys are unique. Descendant controls require a location recipient and
+location-level filters require descendants. Recipient filters are admitted
+only when every recipient resolves or expands to an HQ user account; case,
+parent/child-case, case-email, case-group, and registered custom recipients are
+refused because HQ bypasses non-`CouchUser` contacts and a custom handler's
+result is unknowable. A structural case-property filter value requires that
+property on every triggering case because HQ directly indexes it and raises
+when missing. After trimming, a case-property event-time value must begin with
+`H:MM` or `HH:MM`, and the whole value must parse as a time. Suffixes such as
+AM/PM or seconds are accepted; blank, nonmatching, or unparseable values fall
+back to 12:00 PM. The deprecated domain-wide
+`RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
+per-rule tool field.
+Host-scoped references are admitted only while the app has one unambiguous
+canonical extension relation for the automation case type. If an advanced case
+operation can add a second extension, the gate refuses host-scoped criteria,
+update targets, update sources, and message case-property parts rather than
+choose from HQ's unordered extensions; the extra link and parent-scoped
+references remain valid. Every host-scoped reference also requires exactly one
+live extension at runtime. Retained extra indices make Nova's current-match
+count unavailable, and HQ does not define which extension it chooses as the
+host.
+
+Tool input keeps Nova's standard property names; the guide alone projects them
+to HQ model-field names, including `case_type` to `type`; `case_id` and
+`case_type` are read-only. `status`, standard-datetime equality/regex, and every
+standard scalar in HQ's dynamic-only reset/event-time slots are refused by the
+shared gate. Concrete HQ recipient IDs are trimmed and nonblank. Email content has exactly one `body` arm: plain text targets a
+domain without Rich text emails, while rich text carries HTML source only and
+requires the toggle because HQ sanitizes/rewraps it and derives plaintext.
+
+Read and successful add/update results are explicit that Nova does not execute
+or install the automation. Mutation-bearing writes derive the CommCare HQ setup
+guide and local matching omissions from an authorized location snapshot plus
+the exact `commit.newDoc` returned by the guarded write. Add/update fence that
+location snapshot's revision inside the app-locked Blueprint transaction, so a
+successful write guide describes the same organization serialization point as
+its commit; removal returns only its deletion receipt. No guide or match count
+is persisted, and MCP does not pretend to return the Builder-only Preview count.
+No fallible organization read may run after `guardedMutate` succeeds: reporting
+an error after persistence would strand chat on its stale closure and make an
+MCP retry collide with the identities that already committed. A concurrent
+blueprint merge still derives the returned rule from `commit.newDoc`; a
+concurrent location write makes the fence reject before persistence so the
+caller retries from the newer snapshot. Callers can use `get_automations` to
+regenerate against a later location revision.
+An invocation-time zero diff is not by itself a persisted no-op. Update reads
+one authoritative Blueprint-plus-organization snapshot: only an exact match
+with the requested complete automation returns success and guidance from that
+snapshot; a changed or removed target returns a concurrency conflict. The chat
+wrapper adopts the returned authoritative `newDoc` even though no mutation row
+was needed, while MCP's next request starts from a fresh authorized snapshot.
+The prompt sends the SA to this family and forbids promising Preview execution,
+message delivery, schedule progress, or HQ installation. MCP registers the
+same four tool objects through `sharedToolRegistry`, with identity pointers for
+every nested UUID and no alternate wire schema.
+
 ### Media authoring — dedicated carriers + the asset library
 
 The generic mutation tools deliberately omit every media slot (`toolSchemaGenerator.ts`'s `saOptionSchema` drops `media`; the field-edit schema carries no `*_media` key). The SA can neither mint nor discover an asset id from those surfaces, so a media slot there would only let it write a dangling reference. Media authoring lives in its own `tools/media/` package:

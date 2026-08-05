@@ -30,6 +30,7 @@ import {
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	asUuid,
+	automationMessageText,
 	type BlueprintDoc,
 	type OrganizationLevel,
 	type Persona,
@@ -229,6 +230,89 @@ async function commitReverseOwnerForm(levelUuid: Uuid): Promise<void> {
 				owner: term(ownerLocationAtLevel(levelUuid, "patient")),
 			}),
 		),
+		actorUserId: ACTOR_A,
+		kind: "autosave",
+		expectedProjectId: PROJECT_A,
+	});
+}
+
+async function commitLocationAutomation(locationUuid: Uuid): Promise<void> {
+	await commitGuardedBatch({
+		appId: APP_ID,
+		batchId: `location-automation-${locationUuid}`,
+		mutations: admitMutationBatch([
+			{
+				kind: "addAutomation",
+				automation: {
+					uuid: asUuid("77777777-7777-4777-8777-777777777771"),
+					kind: "conditional-alert",
+					name: "Alert Mercy Clinic",
+					caseType: "patient",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
+					recipients: [
+						{
+							uuid: asUuid("77777777-7777-4777-8777-777777777772"),
+							kind: "location",
+							locationUuid,
+						},
+					],
+					schedule: {
+						kind: "immediate",
+						events: [
+							{
+								uuid: asUuid("77777777-7777-4777-8777-777777777773"),
+								minutesToWait: 0,
+								content: {
+									kind: "sms",
+									message: automationMessageText("Hello"),
+								},
+							},
+						],
+					},
+					includeDescendantLocations: false,
+					locationLevelUuids: [],
+					userDataFilters: [],
+					useUserCaseForFilter: false,
+				},
+			},
+		]),
+		actorUserId: ACTOR_A,
+		kind: "autosave",
+		expectedProjectId: PROJECT_A,
+	});
+}
+
+async function commitLocationCriterionAutomation(
+	locationUuid: Uuid,
+): Promise<void> {
+	await commitGuardedBatch({
+		appId: APP_ID,
+		batchId: `location-criterion-automation-${locationUuid}`,
+		mutations: admitMutationBatch([
+			{
+				kind: "addAutomation",
+				automation: {
+					uuid: asUuid("77777777-7777-4777-8777-777777777781"),
+					kind: "case-update",
+					name: "Clean up Mercy Clinic",
+					caseType: "patient",
+					criteriaOperator: "all",
+					criteria: [
+						{
+							uuid: asUuid("77777777-7777-4777-8777-777777777782"),
+							kind: "location",
+							locationUuid,
+							includeDescendants: true,
+						},
+					],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		]),
 		actorUserId: ACTOR_A,
 		kind: "autosave",
 		expectedProjectId: PROJECT_A,
@@ -1792,6 +1876,37 @@ describe("locations store — removing a level", () => {
 });
 
 describe("locations store — the archive cascade", () => {
+	it("blocks archive while an automation condition references the subtree", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		await commitLocationCriterionAutomation(facility);
+
+		const impact = await describeArchiveImpact(scope(), facility);
+		expect(impact.blockingAutomationCount).toBe(1);
+		expect(impact.blockingAutomationPreview).toEqual(["Clean up Mercy Clinic"]);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
+	it("blocks archive while an automation recipient references the subtree", async () => {
+		await seedWorkflowOrgApp();
+		const { facility } = await seedChain();
+		await commitLocationAutomation(facility);
+
+		const impact = await describeArchiveImpact(scope(), facility);
+		expect(impact.blockingAutomationCount).toBe(1);
+		expect(impact.blockingAutomationPreview).toEqual(["Alert Mercy Clinic"]);
+		await expect(
+			setLocationArchived(scope(), facility, true, impact.revision, impact),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(
+			(await readOrganization(scope())).locations.find(
+				(location) => location.id === facility,
+			)?.archivedAt,
+		).toBeNull();
+	});
+
 	it("blocks preflight when archiving the sole reverse-owner destination", async () => {
 		await seedWorkflowOrgApp();
 		const { facility } = await seedChain();

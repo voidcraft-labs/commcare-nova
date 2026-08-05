@@ -45,6 +45,9 @@ export interface SubmissionCaseSeed {
 	readonly caseName?: string;
 	readonly externalId?: string;
 	readonly properties: JsonObject;
+	/** Server-derived from the committed child case type. Present only when
+	 * this seed is linked to an ordinary form's parent case. */
+	readonly parentRelationship?: NonNullable<CaseType["relationship"]>;
 }
 
 /**

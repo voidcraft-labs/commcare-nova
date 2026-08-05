@@ -1,6 +1,6 @@
 // lib/case-store/errors.ts
 //
-// Typed user-domain errors. Four shapes carry `instanceof`
+// Typed user-domain errors. These shapes carry `instanceof`
 // discrimination so API routes and Server Actions can map them to
 // typed result arms; every other throw across `lib/case-store/**`
 // is an internal-invariant violation that reuses the helpers from
@@ -25,6 +25,40 @@
 // SDK use.
 
 const INDENT = "    ";
+
+/**
+ * Thrown by an automation-scoped `CaseStore.count` when its target population
+ * contains an open case with more than one distinct extension host. CommCare
+ * HQ resolves `host/...` through the first live extension index without an
+ * ordering contract, so returning Nova's defensive deterministic choice would
+ * present an authoritative count HQ is not guaranteed to reproduce.
+ *
+ * The count and ambiguity preflight come from one PostgreSQL statement and
+ * therefore one statement snapshot. The error carries only an aggregate, not
+ * case or host identities, so callers cannot turn the refusal into a relation
+ * discovery surface.
+ */
+export class AutomationHostAmbiguityError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "AutomationHostAmbiguityError";
+	/** Number of open, otherwise-visible target cases with ambiguous hosts. */
+	readonly ambiguousOpenCaseCount: number;
+
+	constructor(ambiguousOpenCaseCount: number) {
+		super(
+			[
+				"Automation match count has ambiguous extension hosts.",
+				``,
+				`${INDENT}ambiguous_open_case_count: ${ambiguousOpenCaseCount}`,
+				``,
+				"CommCare HQ reads `host/...` from the first live extension index but",
+				"does not define that index order. Nova therefore cannot report one of",
+				"the possible host projections as an authoritative Preview count.",
+			].join("\n"),
+		);
+		this.ambiguousOpenCaseCount = ambiguousOpenCaseCount;
+	}
+}
 
 /**
  * Thrown by `CaseStore.update` when the patched `(case_id,

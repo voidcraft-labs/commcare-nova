@@ -71,6 +71,9 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 	if (doc.locationProperties !== undefined) {
 		doc.locationProperties = normalizeOwnRecord(doc.locationProperties);
 	}
+	if (doc.automations !== undefined) {
+		doc.automations = normalizeOwnRecord(doc.automations);
+	}
 }
 
 /**

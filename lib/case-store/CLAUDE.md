@@ -56,11 +56,30 @@ lifecycle prefix.
 
 `CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated fixed-text scalar passes through `prepareCaseScalarTextValue`: boundary U+0000..U+0020 code units are removed and the 255 UTF-16-unit cap is enforced; create-name, rename, and owner reject blank, while `external_id` keeps an explicit blank as `""`. Ordinary field writes use the same contract. `case_name` and `external_id` route to dedicated row columns across single/bulk create, update, merge, and retype and never enter JSONB. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated custom-property write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
 
+The committed-doc builder also projects each ordinary child's
+`CaseType.relationship` even when there are no advanced operations. The client
+cannot assert it, and the envelope persists the canonical `parent` edge as
+`child` or `extension` exactly like the XForm.
+
 **The operation program is also the external-data compiler-context boundary.** Its optional `lookupTableSchemas` is the rows-free `tableId → columnId → dataType` projection from one Project-authorized definitions snapshot. Preview derives the exact table ids from canonical lookup-reference occurrences whose carrier UUID belongs to the built form's operations, using the same committed blueprint that produced the program; a carrier-free program performs no definition read. `evaluateBatch` threads this one map into every condition, value, runtime target, write guard, and link target, and the schema-healing wrapper retries `applySubmission` with the same envelope object and map. It also threads the committed organization-level hierarchy: a fixed-place owner evaluates to the same UUID stored in `app_locations` and emitted as the fixture `@id`, while a reverse owner hop walks the selected case owner's live ancestor branch to the admitted unique destination level. Never fetch definitions or organization shape from inside individual expression arms or substitute a fallback type: lookup governance keeps referenced table/column identities and types stable, organization admission makes reverse hops scalar, and `lookup_rows` plus `app_locations` remain current tenant-bound reads inside the submission transaction.
 
 Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer storage plan describes exact retained JSON properties, casts, parking, and missing requirements; scalar row metadata such as `case_name` is excluded because it survives independently of the JSON schema. Its `safe` verdict means Nova can execute that plan atomically, while `wirePortable` is deliberately stricter: no conversion and no parking. Authored operations are admitted only under `wirePortable`, because CommCare's case XML retype changes `case_type` without casting or removing old property values, and the authoritative submission transaction executes exactly that subset (`postgres/submissionEnvelope.ts::applyRetypeEffect`). Conversion/parking retypes stay dormant until a shared wire representation can make the device and Nova projection agree; if that representation lands, execute the complete plan as one transaction and surface parked values through Data to review. Never implement a richer retype as a bare `case_type` update around the schema store.
 
 **Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
+
+Historical ordinary extension edges follow the same scan-then-migrate rule.
+Before automations, ordinary parent writes always persisted `child`; advanced
+case-operation links already persisted their authored relationship and may own
+the same `parent` identifier, so a catalog-wide rewrite is forbidden.
+`scan-case-parent-relationships.ts` classifies each current extension edge from
+same-Project topology, durable ordinary-child receipts, any executed operation
+touch, and ancestry mutations. The paired writer requires traffic cutover,
+takes the app then relationship locks, reclassifies, and compare-and-sets only
+`repairable-ordinary` rows. Unknown, operation-touched, catalog-changed, and
+noncanonical rows remain loud refusals. Generic `CaseStore.update` likewise
+requires an explicit relationship for every non-null parent assignment and can
+repair a same-parent stale edge; it never preserves an old value or guesses
+from the current catalog.
 
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
@@ -105,6 +124,68 @@ explicit destructive confirmation. Replacing a parent case type preserves its
 surviving children but atomically detaches them (`parent_case_id = null` and
 removes the corresponding `case_indices` edges); it never cascades deletion
 into another case type or invents random relationships to the new sample rows.
+
+Automation matching is another read over these same rows, not an execution
+runtime. `countCases({ automationCriteria })` composes the automation kind's
+ordinary property criteria, case-update closed-parent criterion, and each
+organization-backed location owner set into one tenant-bound SQL count and
+always limits the outer case to `status = "open"`. Closed-parent relation walks
+bind both sides to the store's app and Project. Structurally distinct setup-only
+UCR/registered-custom criteria
+and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
+those omissions in the result. No case-store method updates a case, sends a
+message, or advances a schedule on an automation's behalf.
+
+Three property-comparison families bypass the generic Predicate compiler to retain HQ's
+runtime value rules. **Equals / does not equal** compares the criterion only
+with a stored JSON string. A JSON number `5` does not equal criterion `5`, and
+numbers, booleans, objects, arrays, null, and missing values satisfy does-not-equal.
+A parent comparison follows every depth-one `parent` identifier regardless of
+child/extension relationship. A valid host comparison has exactly one possible
+canonical extension: the app gate refuses host-scoped automation reads when an
+advanced case operation can add another extension index to that case type,
+because HQ leaves host ordering undefined. Historical rows can retain a second
+extension after the operation that authored it is removed, so a count whose
+matching criteria read the host returns both its match aggregate and an
+ambiguity aggregate in one PostgreSQL statement snapshot. Any otherwise-visible open target row with
+more than one distinct depth-one extension host refuses the count; closed rows,
+held rows, other case types, other apps, and other Projects cannot trigger it.
+The SQL resolver still chooses the canonical `parent` extension first, then
+identifier and target order, as a total defensive behavior for documents and
+queries outside that authoritative Preview count; no reported count depends on
+that ordering. Missing relations do not match either comparison,
+while a missing property on an existing related case matches does-not-equal as
+HQ does. **Has value / has no value** treats a string containing only Python
+`str.strip()` whitespace as blank while non-string JSON scalars have a value,
+including through case-update parent/host relations; a missing relation has no
+value. The SQL uses that explicit Unicode trim repertoire rather than
+PostgreSQL's locale-dependent POSIX whitespace class.
+Alert regex uses
+HQ's beginning-anchored behavior and evaluates stored strings only; it never
+casts a number or boolean to text. PostgreSQL evaluation runs under C collation;
+the admitted pattern is lowered to absolute-start ARE syntax, unescaped dots
+outside classes exclude LF, and `$` accepts absolute end or exactly one final
+LF. PostgreSQL's newline-sensitive modes are not used because they would also
+change negated-class behavior that Python leaves alone. Closed-parent is fixed to the standard
+depth-one `parent` child index accepted by HQ's setup form. A location clause
+is one exact owner-id set derived before the query from the selected place,
+its requested descendants, and personas whose primary place is in that set;
+the SQL layer combines it under the same ALL/ANY operator and does not read the
+organization store independently.
+**Day-offset date comparisons** use this same automation-specific relation
+resolver rather than the generic identifier path. `parent` follows the
+depth-one `parent` identifier regardless of relationship; `host` follows the
+same sole-extension contract and defensive resolver used above, so a child
+link merely named `host` cannot match. HQ converts every resolved datetime to its own calendar
+date before adding the signed day offset. Nova therefore takes an ISO value's
+leading `YYYY-MM-DD` component (preserving an explicit offset's authored day),
+truncates standard UTC timestamps in UTC, and compares UTC today as a date; it
+never preserves the time of day or lets the Postgres session timezone shift it.
+An automation criteria group is never dropped merely because every locally
+evaluable collection is empty: the SQL lowering preserves Python/HQ's boolean
+identity exactly, so `ALL` of zero local criteria is true and `ANY` of zero is
+false. Setup-only omissions remain named separately and never turn empty `ANY`
+into an all-open count.
 
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 

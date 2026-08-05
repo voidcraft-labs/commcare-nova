@@ -289,6 +289,7 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 			],
 		};
 		const envelope = submissionEnvelopeArgs(mutation, "app-1", {
+			ordinaryChildRelationships: new Map([["newborn", "child"]]),
 			submissionReceipt: {
 				entryKey: mutation.entryKey,
 				formUuid: testUuid(mutation.formUuid),

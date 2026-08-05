@@ -69,10 +69,11 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Twelve authorable kinds share ONE global identity namespace — modules, forms,
+Nineteen authorable kinds share ONE global identity namespace: modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
-worker properties, user types, personas, organization levels, and location
-properties
+worker properties, user types, personas, organization levels, location
+properties, automations, and their criteria, setup-only criteria, updates,
+recipients, events, and user-data filters
 (`lib/domain/authoredIdentities.ts`) — because `blueprint_entities` keys every
 entity row by `(app_id, uuid)`, and because a nested identity is both an SA/MCP
 address and an expression leaf. App, case, Project, actor/owner, thread, run,
@@ -166,6 +167,190 @@ rows are keyed by app rather than Project, the authoritative cross-Project app
 move carries the whole organization without a second retenant operation.
 `lib/domain/CLAUDE.md` and `lib/organization/CLAUDE.md` own the implementation
 detail.
+
+### Representable automations and regenerated setup guidance
+
+Nova authors two automation families in one canonical Blueprint collection:
+automatic case updates and conditional alerts. Every rule and every nested
+criterion, setup-only instruction, update, recipient, schedule event, and
+user-data filter has global UUID identity. The Builder, Solutions Architect,
+and MCP API edit those exact objects through one granular mutation grammar;
+there is no draft object, whole-rule persistence shortcut, compatibility shape,
+or second tool schema. Entity-row decomposition persists an automation as a
+flat top-level entity, and replay admits the same UUID and ordering laws as the
+rest of the document.
+
+The vocabulary follows the two current HTML forms rather than a shared
+criteria superset. Automatic updates accept the four value comparisons plus
+four date comparisons against case, parent, or host properties, with `ALL` or
+`ANY`, at most one standard parent-closed condition, and a separate
+server-modified-age switch. Both families accept at most one UUID-backed
+location condition plus its descendant flag. HQ's shared runtime and form POST
+execute that `LocationFilterDefinition`, although the current visible rule and
+alert editors hide its picker; generated guidance states the administrator-path
+requirement instead of erasing the condition from Nova. Conditional alerts accept the four value
+comparisons plus regex against direct case properties only; they do not accept
+date, parent/host, closed-parent, or server-modified conditions.
+The standard parent-closed condition has no custom index or extension relationship.
+Equality and update literals are exact nonblank, unquoted stored values;
+date criteria compare the current date directly with the property date plus a
+signed day offset after truncating a datetime to its written calendar date;
+regexes are nonempty and portable. Standard metadata stays
+in Nova vocabulary in the document, then the setup projection translates reads
+and message tokens exactly: `case_type` → `type`, `case_name` → `name`,
+`date_opened` → `opened_on`, and `last_modified` → `modified_on`; `case_id`,
+`owner_id`, and `external_id` are already the HQ automation names. `case_id`
+and `case_type` are implicit text reads for criteria, message templates, update
+value sources, and property-backed recipients only. They remain outside the
+general case-list property catalog and are refused as update targets. Other
+update targets use the projection too, preserving HQ's pre-write equality
+check. `status` is refused because Nova's open/closed text is not HQ's boolean
+`closed` model field, and standard datetime equality or regex is refused
+because HQ compares its datetime object with authored text without coercion.
+Restart-on-change and case-property event-time fields accept
+custom properties only because their HQ runtime reads `dynamic_case_properties`
+rather than any standard scalar field. After trimming, an event-time value
+must begin with `H:MM` or `HH:MM`, and the whole value must parse as a time.
+Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or
+unparseable values fall back to 12:00 PM. A case update may set case, parent, or host properties from a literal
+or property value and may close the case. HQ's deprecated
+`RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
+project-wide switch that evaluates every active update rule for a saved case
+type, not a per-rule setting. A conditional alert carries the
+closed case-relative/generic/custom recipient union, SMS/email/survey/Connect/
+registered-custom content, immediate or timed schedules, and optional
+user-data or usercase filters. Web users are not representable recipients, and
+Connect content excludes the case-relative, case-property-email, and case-group
+recipients that HQ refuses. Checkbox-style, case-property, and custom
+recipient kinds are singletons; list-backed recipients keep unique concrete
+targets. Descendant controls require a location recipient, location-level
+filters require descendants, concrete HQ worker/group IDs are trimmed and
+nonblank, and user-data filters have one structural value list per worker
+property. A value is either an exact literal, including empty or whitespace, or
+an explicit custom case-property reference carrying `(caseType, property)`
+identity. Brace-wrapped literals are refused because HQ would execute them as
+case lookups. Every triggering case must carry each referenced property because
+HQ indexes `case_json[property]` directly and raises if it is missing. HQ
+applies filters only to `CouchUser` contacts, so the canonical gate excludes
+case, parent/child-case, case-email, case-group, and registered custom
+recipients whenever filters exist; known non-users bypass the filter and a
+custom handler's runtime type cannot be proven. The guide emits exact JSON when multiple keys/values or exact
+blank/whitespace values require HQ's system-admin-only JSON mode on a new alert.
+IVR and SMS/callback survive only so a historical
+configuration remains representable; current HQ refuses new activation, which
+the Builder and guide state rather than silently treating them as deployable.
+Registered custom recipient/content handlers must exist on the target instance,
+and the guide states HQ's additional system-administrator requirement to save
+an alert that uses either handler; project-admin access alone is not enough.
+There is no push-notification arm and no untyped escape hatch
+(`corehq/apps/data_interfaces/models.py::AutomaticUpdateRule`,
+`corehq/messaging/scheduling/models.py::Schedule`).
+
+Message subjects, bodies, and rich HTML source store an ordered structural
+template: literal text parts, explicit case-property scope and
+`(caseType, property)` identity parts, and closed case-owner/recipient context
+property parts. Typed or pasted `{case.foo}` text remains literal and is never
+reparsed; the setup projection doubles literal braces before HQ's Python
+Formatter evaluates the result. The Builder inserts references explicitly,
+SA/MCP read and write the same canonical part union, property renames rewrite
+only identity-bearing case leaves, and the generated guide projects them
+one-way to HQ's current `{case...}` / `{recipient...}` token spelling.
+Custom case properties named `owner`, `host`, or `last_modified_by` are refused
+in every case/parent/host message scope because HQ's Formatter context shadows
+them with framework objects.
+Registered custom handlers and setup-only conditions must carry exact
+trimmed nonblank values; UI instructions remain placeholders, not saved data.
+Setup-only criteria distinguish UCR filters from registered custom criteria so
+guidance can require `CASE_UPDATES_UCR_FILTERS` for the former and an HQ system
+administrator for the latter.
+
+Email content targets exactly one current HQ form. A plain-text body requires
+the domain-level Rich text emails toggle to be off. A rich-text body requires
+it on and stores only the submitted HTML source: HQ sanitizes supported markup
+and CSS, rewraps the body, and derives the plain-text alternative, so Nova does
+not store an independently authored plaintext body or promise byte-exact HTML.
+All email events in one schedule use the same body form because the toggle is a
+domain-wide prerequisite.
+
+Every conditional-alert schedule also maps to one form the current HQ HTML
+editor can save and uses its single schedule-wide content type. Immediate events after the first observe its five-minute tick.
+Custom Daily events share one timing mode and satisfy ordering, separation, and
+random-window rules; Weekly and Monthly schedules use the UI's shared timing and
+content form, with their exact repetition, offset, and day sets. The canonical
+zero-based Custom Daily day is projected to HQ's one-based event row, while a
+Monthly day already uses the UI's 1–28 or -3–-1 value. Weekly and Monthly day
+pickers exclude selected siblings, normalize event order, and stop adding when
+their closed choices are exhausted. Weekly days remain runtime offsets from the
+start weekday; the Builder labels their projected absolute weekdays and remaps
+offsets when the start changes so existing selections retain their meaning. A
+specific-date Custom Daily guide omits HQ's hidden start-offset control, and a
+specific-date Weekly guide explains that HQ derives the hidden start weekday
+from that date.
+Dates use Nova's calendar picker, times use
+locale clock entry with canonical storage, and repeated-row removal preserves
+keyboard focus across all rule families. Survey reminder totals
+remain below expiration and partial case updates cannot be selected without
+partial submission. Timed reset-on-property-change requires a rule-trigger
+start. Setup guidance selects **Immediately** only for one zero-delay event and
+**Custom Immediate Schedule** for delayed or repeated immediate events.
+
+Preview presents a read-only count over the same real open case rows used by the
+running app. Nova's AST-to-Kysely boundary can exactly lower each kind's
+property comparisons, including automatic-update parent/host reads, plus its
+closed-parent relation and each location condition's direct/subtree location
+owners plus personas whose primary place is in that set; the outer query
+always excludes closed cases and relation walks retain app/Project tenancy.
+Equality matches only an exact stored string; numbers, booleans, objects,
+arrays, null, and missing values never equal the configured string and satisfy
+inequality. Parent reads resolve the depth-one `parent` identifier regardless
+of relationship. Host references resolve the declared canonical extension only
+when no advanced case-operation link can add a second extension relationship to
+the automation case type; otherwise the app gate refuses host-scoped criteria,
+update targets, update sources, and message case-property parts because HQ's
+host selection is unordered. The extra extension link and parent scope remain
+valid. Every host-scoped reference also requires exactly one live
+extension at runtime. Retained extra extension indices make the current-match
+count unavailable, and HQ does not define which extension it chooses as the
+host. A missing parent/host relation does not satisfy either comparison.
+Date comparisons use the same relation resolver. They take an ISO datetime's
+written calendar component before applying the day offset, matching HQ's
+`.date()` behavior without a Postgres session-timezone conversion.
+Whitespace-only strings count as blank and regex evaluation applies only to
+stored strings, matching HQ instead of coercing JSON scalars.
+UCR filters, instance-registered custom criteria, and HQ server-modified age
+have no honest local evaluator, so the first two are distinct setup-only kinds and every
+omission is named beside a partial count. Preview never updates a case, sends a
+message, advances a schedule, or implies that current matching predicts HQ's
+next sweep.
+
+Each read regenerates a human-applied setup guide from current identities and
+names. HQ provides HTML setup pages only (plus the conditional-alert content
+spreadsheet); no REST resource exists for rules, alerts, or schedules. Publishing
+therefore does not install an automation, and changing or removing one in Nova
+does not claim to alter a manually configured HQ rule. The guide carries the
+exact HTML route templates (`/a/<domain>/data/edit/automatic_updates/` and
+`/a/<domain>/messaging/conditional/`) plus the actual gates and runtime facts:
+survey content resolves its canonical Nova form UUID to the current published
+`app > module > form` picker path rather than presenting that UUID as an HQ
+identifier; the required default-language field chooses **Project Default**
+when Nova stores no code, and an explicit code names the target-project
+language prerequisite. The remaining setup facts are exact:
+case updates require Data Cleanup (Pro+), alerts
+require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
+SMS Survey additionally requires Inbound SMS access, and Connect content
+requires the `COMMCARE_CONNECT` domain toggle plus every resolved recipient
+being a CommCare mobile worker with an active PersonalID link at runtime,
+the hourly task visits each project once daily at `auto_case_update_hour`
+(midnight UTC by default), and the default halt threshold is 10,000 updates per
+project, case type, and database partition per run. HQ checks that threshold
+between cases, so the final case may carry the total above it before the run
+stops. The unrelated 50,000 outbound-SMS
+daily limit never appears as an automation cap. A zero-ordinary-criterion claim
+cleanup rule remains constructible with only server-modified age plus close,
+and its guide warns that the boundary is latest server modification, not a
+business claim date. `lib/domain/CLAUDE.md`, `lib/doc/CLAUDE.md`,
+`lib/case-store/CLAUDE.md`, `lib/agent/CLAUDE.md`, and
+`components/builder/CLAUDE.md` own the implementation detail.
 
 ### Expressions and prose store identity; text is a projection
 
@@ -1344,7 +1529,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Eleven units, one file each. **Every entry below is a pointer, not a summary of
+Ten units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1387,22 +1572,10 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### Representable automations and setup guidance
-
-[`complex-app/automations-and-setup-guidance.md`](complex-app/automations-and-setup-guidance.md)
-· depends on nothing outstanding · blocks the deployment-core and
-app-setup-UI units
-
-Automation schemas limited to what HQ can represent, plus regenerated setup
-guidance. **The file holds** the closed criteria, action, recipient, and content
-vocabularies, the real cadence and cap (and the widely cited figure that is
-wrong), the total absence of a REST surface, and which criteria are constructible
-versus setup-artifact-only.
-
 ### Deployment core and artifact
 
 [`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
-· depends on automations · blocks the
+· depends on nothing outstanding · blocks the
 attachment-emission, push-and-provisioning, and app-setup-UI units
 
 Durable deployment and resource-mapping records, preflight, ownership and
@@ -1428,8 +1601,8 @@ the org model is not pushable at all.
 · depends on the remaining deployment-chain units plus the usercase unit
 · blocks nothing
 
-The App setup workspace's two remaining sections — Automations and Deployment —
-plus the SA and MCP surfaces and public docs for the four prerequisite units.
+The App setup workspace's remaining Deployment section, plus the SA and MCP
+surfaces and public docs for the remaining prerequisite units.
 **The file is deliberately short**: its substance is the prerequisite units'
 files and the baseline UI review in the contracts.
 
@@ -1487,21 +1660,20 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [automations](complex-app/automations-and-setup-guidance.md) | — |
-| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | automations |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | None |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, automations, deployment core, push and provisioning |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, deployment core, push and provisioning |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
 Four units have no outstanding prerequisites and can start in any order:
-grouped case tiles, the usercase, automations, and form links and sections. They
+grouped case tiles, the usercase, deployment core, and form links and sections. They
 are the independent entry points — every other unit descends from one of them.
 
-The remaining deployment chain (automations → deployment core → push and
-provisioning) is the critical path: it gates attachment emission, the
+The remaining deployment chain (deployment core → push and provisioning) is
+the critical path: it gates attachment emission, the
 App setup UI, session endpoints, and multi-select, so anything needing a real
 HQ target waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.

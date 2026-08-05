@@ -33,6 +33,7 @@ import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { assertNever } from "@/lib/utils/assertNever";
 import { normalizeBlueprintOwnRecords } from "../ownRecords";
 import { applyAppMutation } from "./app";
+import { applyAutomationMutation } from "./automations";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { applyModuleMutation } from "./modules";
@@ -129,6 +130,15 @@ function dispatchMutation(
 		case "updateLocationProperty":
 		case "removeLocationProperty":
 			applyOrganizationMutation(draft, mut);
+			return;
+		case "addAutomation":
+		case "updateAutomation":
+		case "removeAutomation":
+		case "moveAutomation":
+		case "editAutomationItem":
+		case "setAutomationSchedule":
+		case "updateAutomationSchedule":
+			applyAutomationMutation(draft, mut);
 			return;
 		default:
 			assertNever(mut, "applyMutation");
