@@ -98,6 +98,7 @@ function makeCondenser(
 				prompt: opts.prompt,
 				file: opts.file,
 				instruction: opts.instruction,
+				images: opts.images,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: CONDENSER_PROVIDER_OPTIONS,
 			});

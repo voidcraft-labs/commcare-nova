@@ -16,7 +16,10 @@
  * a `prompt` (text/docx/xlsx), or a native `{ type: "file" }` block the provider
  * turns into its own document block (a PDF the model reads directly — no
  * client-side text extraction, preserving layout/structure a flat decode loses).
- * Either way the model fills the schema via the provider's controlled generation.
+ * A text `prompt` may additionally carry `images` (a docx's embedded figures),
+ * riding the same user message as image file parts so the model reads the
+ * document's diagrams and mockups alongside its text. Either way the model fills
+ * the schema via the provider's controlled generation.
  */
 
 import type { FinishReason, LanguageModelUsage } from "ai";
@@ -108,6 +111,45 @@ export type SubGenerationProviderOptions = NonNullable<
 	Parameters<typeof generateObject>[0]["providerOptions"]
 >;
 
+/**
+ * One image attached beside a text `prompt` (a docx's embedded figure). Rides
+ * the same user message as the prompt, as an image file part the provider turns
+ * into its native image block. When `label` is set, a text part carrying it
+ * immediately precedes the image part: the correlation between an in-text
+ * marker and its image is then stated in the content itself, not left to the
+ * model counting attachment order.
+ */
+export interface SubGenerationImage {
+	/** Image IANA media type (e.g. `image/png`). */
+	mediaType: string;
+	/** The image bytes as a `data:` URL. */
+	data: string;
+	/** Optional text emitted directly before the image part. */
+	label?: string;
+}
+
+/**
+ * The user-message content for a text prompt with attached images: the decoded
+ * document text first, then each image in order, preceded by its label part
+ * when one is set. Shared by the blocking and streaming calls so the two can
+ * never drift on how figures ride the wire.
+ */
+function promptWithImagesContent(
+	prompt: string,
+	images: SubGenerationImage[],
+): Array<
+	| { type: "text"; text: string }
+	| { type: "file"; data: string; mediaType: string }
+> {
+	return [
+		{ type: "text", text: prompt },
+		...images.flatMap((image) => [
+			...(image.label ? [{ type: "text" as const, text: image.label }] : []),
+			{ type: "file" as const, data: image.data, mediaType: image.mediaType },
+		]),
+	];
+}
+
 /** What a structured sub-generation returns: the parsed object, or `null` when
  *  the model couldn't produce a valid one (truncation past `maxOutputTokens`, or a
  *  malformed response — the AI SDK throws `NoObjectGeneratedError`, which we
@@ -146,13 +188,20 @@ export async function generateObjectWith<T>(opts: {
 	file?: { mediaType: string; data: string };
 	/** Instruction that accompanies a `file` input. */
 	instruction?: string;
+	/** Images attached beside a text `prompt` (a docx's embedded figures), in
+	 *  order. Only meaningful with `prompt`: a `file` document carries its own
+	 *  images natively, so `file` takes precedence and `images` is ignored. */
+	images?: SubGenerationImage[];
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
 }): Promise<SubGenerationObjectResult<T>> {
 	try {
-		// A `file` input rides as a native document block in a user message; a text
-		// `prompt` goes through directly. Branch the call (rather than spreading a
-		// union) so each `generateObject` overload type-checks cleanly.
+		// A `file` input rides as a native document block in a user message.
+		// Everything else is ONE messages-form call: a bare string prompt is
+		// wire-identical to a single user message with one text part (the SDK's
+		// own conversion), so the no-images case deliberately shares the images
+		// branch rather than keeping a third near-identical option block that
+		// must be edited in lockstep.
 		const result = opts.file
 			? await generateObject({
 					model: opts.model,
@@ -178,7 +227,15 @@ export async function generateObjectWith<T>(opts: {
 					model: opts.model,
 					instructions: opts.system,
 					schema: opts.schema,
-					prompt: opts.prompt ?? "",
+					messages: [
+						{
+							role: "user",
+							content: promptWithImagesContent(
+								opts.prompt ?? "",
+								opts.images ?? [],
+							),
+						},
+					],
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				});
@@ -236,6 +293,10 @@ export async function streamObjectWith<T>(opts: {
 	file?: { mediaType: string; data: string };
 	/** Instruction that accompanies a `file` input. */
 	instruction?: string;
+	/** Images attached beside a text `prompt` (a docx's embedded figures), in
+	 *  order. Only meaningful with `prompt`: a `file` document carries its own
+	 *  images natively, so `file` takes precedence and `images` is ignored. */
+	images?: SubGenerationImage[];
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
 	/** Called per streamed chunk (reasoning OR output) with its character count —
@@ -247,8 +308,9 @@ export async function streamObjectWith<T>(opts: {
 	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
 	let pending: PromiseLike<unknown>[] = [];
 	try {
-		// Branch the call by input shape (same as `generateObjectWith`) so each
-		// `streamText` overload type-checks cleanly.
+		// Same two-branch shape as `generateObjectWith`: a native `file` block,
+		// or ONE messages-form call for text-with-optional-images (a bare string
+		// prompt is wire-identical to a single user message with one text part).
 		const result = opts.file
 			? streamText({
 					model: opts.model,
@@ -274,7 +336,15 @@ export async function streamObjectWith<T>(opts: {
 					model: opts.model,
 					instructions: opts.system,
 					output: Output.object({ schema: opts.schema }),
-					prompt: opts.prompt ?? "",
+					messages: [
+						{
+							role: "user",
+							content: promptWithImagesContent(
+								opts.prompt ?? "",
+								opts.images ?? [],
+							),
+						},
+					],
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				});

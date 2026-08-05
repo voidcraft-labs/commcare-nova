@@ -1081,6 +1081,7 @@ export class GenerationContext implements ToolExecutionContext {
 				prompt: opts.prompt,
 				file: opts.file,
 				instruction: opts.instruction,
+				images: opts.images,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.providerOptions,
 				onProgress: opts.onProgress,

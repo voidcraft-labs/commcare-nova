@@ -96,14 +96,18 @@ describe("GenerationContext.extractDocumentStructured", () => {
 
 		expect(out).toEqual({ object: OBJECT, truncated: false });
 
-		// System prompt, the decoded text prompt, the structured-output request, and
-		// the output cap pass through; no `messages` (that's the file path).
+		// System prompt, the decoded text prompt, the structured-output request,
+		// and the output cap pass through. The text prompt rides the one
+		// messages form (a bare string prompt is wire-identical to a single user
+		// message with one text part).
 		const call = mockStreamText().mock.calls[0][0];
 		expect(call.instructions).toBe("extract");
-		expect(call.prompt).toBe("the document body");
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{ role: "user", content: [{ type: "text", text: "the document body" }] },
+		]);
 		expect(call.output).toBeDefined(); // Output.object({ schema })
 		expect(call.maxOutputTokens).toBe(4096);
-		expect(call.messages).toBeUndefined();
 
 		// The mocked usage fans into the shared accumulator (the method's own return
 		// omits usage, so the snapshot is the only place to observe trackSubGeneration).
@@ -136,6 +140,38 @@ describe("GenerationContext.extractDocumentStructured", () => {
 				type: "file",
 				data: "data:application/pdf;base64,AAAA",
 				mediaType: "application/pdf",
+			},
+		]);
+	});
+
+	it("sends a text prompt plus labeled figure images as one user message", async () => {
+		mockStreamText().mockReturnValue(streamResult());
+
+		await ctx.extractDocumentStructured({
+			system: "extract",
+			prompt: "Filename: design.docx\n\nbody",
+			images: [
+				{
+					mediaType: "image/png",
+					data: "data:image/png;base64,AAAA",
+					label: '<nova:figure index="1"/>',
+				},
+			],
+			schema,
+			label: "attachment-docx",
+		});
+
+		// The figures pass through to the shared structured core: the document
+		// text leads and each image follows its marker label.
+		const call = mockStreamText().mock.calls[0][0];
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages[0].content).toEqual([
+			{ type: "text", text: "Filename: design.docx\n\nbody" },
+			{ type: "text", text: '<nova:figure index="1"/>' },
+			{
+				type: "file",
+				data: "data:image/png;base64,AAAA",
+				mediaType: "image/png",
 			},
 		]);
 	});
