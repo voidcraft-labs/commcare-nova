@@ -1440,7 +1440,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					) {
 						return rejectAutomationConflict();
 					}
-					return toOutcome(guardedApply([{ kind: "removeAutomation", uuid }]));
+					return toOutcome(
+						guardedApply([
+							{ kind: "removeAutomation", uuid, targetKind: before.kind },
+						]),
+					);
 				},
 
 				editAutomationItem(mutation) {

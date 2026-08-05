@@ -2,6 +2,7 @@ import type { Draft } from "immer";
 import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	type Automation,
 	ownRecordValue,
 	recordWithoutKey,
 	recordWithValue,
@@ -97,13 +98,18 @@ function applyPatch(
 	}
 }
 
-function removeAutomation(draft: Draft<BlueprintDoc>, uuid: string): void {
+function removeAutomation(
+	draft: Draft<BlueprintDoc>,
+	uuid: string,
+	targetKind: Automation["kind"],
+): void {
+	const automation = ownRecordValue(draft.automations, uuid);
+	if (automation === undefined || automation.kind !== targetKind) return;
 	const remainingOrder = (draft.automationOrder ?? []).filter(
 		(entry) => entry !== uuid,
 	);
 	if (remainingOrder.length === 0) delete draft.automationOrder;
 	else draft.automationOrder = remainingOrder;
-	if (ownRecordValue(draft.automations, uuid) === undefined) return;
 	const remaining = recordWithoutKey(draft.automations, uuid);
 	if (Object.keys(remaining).length === 0) delete draft.automations;
 	else draft.automations = remaining;
@@ -135,15 +141,20 @@ export function applyAutomationMutation(
 			return;
 		}
 		case "removeAutomation":
-			removeAutomation(draft, mut.uuid);
+			removeAutomation(draft, mut.uuid, mut.targetKind);
 			return;
-		case "moveAutomation":
+		case "moveAutomation": {
+			const automation = ownRecordValue(draft.automations, mut.uuid);
+			if (automation === undefined || automation.kind !== mut.targetKind) {
+				return;
+			}
 			draft.automationOrder = spliceAfter(
 				draft.automationOrder,
 				mut.uuid,
 				mut.after,
 			);
 			return;
+		}
 		case "setAutomationSchedule": {
 			const automation = ownRecordValue(draft.automations, mut.uuid);
 			if (automation?.kind === "conditional-alert") {

@@ -4,7 +4,10 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type Automation,
@@ -109,6 +112,104 @@ function replayWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
 }
 
 describe("automation mutation replay", () => {
+	it("requires immutable target kinds on top-level remove and move commands", () => {
+		expect(
+			mutationSchema.safeParse({
+				kind: "removeAutomation",
+				uuid: AUTOMATION_UUID,
+			}).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse({
+				kind: "moveAutomation",
+				uuid: AUTOMATION_UUID,
+				after: null,
+			}).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse({
+				kind: "removeAutomation",
+				uuid: AUTOMATION_UUID,
+				targetKind: "case-update",
+			}).success,
+		).toBe(true);
+		expect(
+			mutationSchema.safeParse({
+				kind: "moveAutomation",
+				uuid: AUTOMATION_UUID,
+				targetKind: "case-update",
+				after: null,
+			}).success,
+		).toBe(true);
+	});
+
+	it.each(["removeAutomation", "moveAutomation"] as const)(
+		"makes a stale-kind %s a total reducer no-op and an admission refusal",
+		(kind) => {
+			const before = docWithRule();
+			const otherUuid = testUuid(`doc-stale-${kind}-alert`);
+			const other = alert(otherUuid, `stale-${kind}`);
+			before.automations = { ...before.automations, [otherUuid]: other };
+			before.automationOrder = [AUTOMATION_UUID, otherUuid];
+			const mutation: Mutation =
+				kind === "removeAutomation"
+					? {
+							kind,
+							uuid: AUTOMATION_UUID,
+							targetKind: "conditional-alert",
+						}
+					: {
+							kind,
+							uuid: AUTOMATION_UUID,
+							targetKind: "conditional-alert",
+							after: otherUuid,
+						};
+
+			expect(mutationTargetsInvalid(before, [mutation])).toBe(true);
+			const after = produce(before, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+			expect(toPersistableDoc(after)).toEqual(toPersistableDoc(before));
+		},
+	);
+
+	it("applies and idempotently replays current-kind removals and moves", () => {
+		const before = docWithRule();
+		const otherUuid = testUuid("doc-current-kind-alert");
+		before.automations = {
+			...before.automations,
+			[otherUuid]: alert(otherUuid, "current-kind"),
+		};
+		before.automationOrder = [AUTOMATION_UUID, otherUuid];
+		const move = admitMutationBatch([
+			{
+				kind: "moveAutomation",
+				uuid: AUTOMATION_UUID,
+				targetKind: "case-update",
+				after: otherUuid,
+			},
+		]);
+		expect(mutationTargetsInvalid(before, move)).toBe(false);
+		const moved = produce(before, (draft) => {
+			applyMutations(draft, [...move, ...move]);
+		});
+		expect(moved.automationOrder).toEqual([otherUuid, AUTOMATION_UUID]);
+
+		const remove = admitMutationBatch([
+			{
+				kind: "removeAutomation",
+				uuid: AUTOMATION_UUID,
+				targetKind: "case-update",
+			},
+		]);
+		expect(mutationTargetsInvalid(moved, remove)).toBe(false);
+		const removed = produce(moved, (draft) => {
+			applyMutations(draft, [...remove, ...remove]);
+		});
+		expect(removed.automations?.[AUTOMATION_UUID]).toBeUndefined();
+		expect(removed.automationOrder).toEqual([otherUuid]);
+	});
+
 	it("keeps criterion edits discriminated by their immutable automation kind", () => {
 		const base = {
 			kind: "editAutomationItem",
@@ -308,9 +409,76 @@ describe("automation mutation replay", () => {
 			draft.automationOrder = [alertB, alertC, AUTOMATION_UUID];
 		});
 
+		const mutations = diffDocsToMutations(prev, next);
+		for (const mutation of mutations) {
+			if (mutation.kind !== "moveAutomation") continue;
+			expect(mutation.targetKind).toBe(next.automations?.[mutation.uuid]?.kind);
+		}
 		expect(toPersistableDoc(replayWire(prev, next))).toEqual(
 			toPersistableDoc(next),
 		);
+	});
+
+	it("diffs removals with the removed automation's immutable kind", () => {
+		const prev = docWithRule();
+		const next = produce(prev, (draft) => {
+			delete draft.automations;
+			delete draft.automationOrder;
+		});
+		expect(diffDocsToMutations(prev, next)).toContainEqual({
+			kind: "removeAutomation",
+			uuid: AUTOMATION_UUID,
+			targetKind: "case-update",
+		});
+	});
+
+	it("keeps target-kind preconditions in move and add-removal undo commands", () => {
+		const base = docWithRule();
+		const otherUuid = testUuid("doc-undo-alert");
+		const added = alert(otherUuid, "undo");
+		const store = createBlueprintDocStore();
+		store.getState().load(base);
+		store.getState().startTracking();
+
+		const add = admitMutationBatch([
+			{ kind: "addAutomation", automation: added },
+		]);
+		store.getState().applyMany(add);
+		expect(store.getState().takeCommandBatches()).toEqual([add]);
+		store.getState().undo();
+		expect(store.getState().takeCommandBatches()).toEqual([
+			admitMutationBatch([
+				{
+					kind: "removeAutomation",
+					uuid: otherUuid,
+					targetKind: "conditional-alert",
+				},
+			]),
+		]);
+
+		store.getState().redo();
+		store.getState().takeCommandBatches();
+		const move = admitMutationBatch([
+			{
+				kind: "moveAutomation",
+				uuid: AUTOMATION_UUID,
+				targetKind: "case-update",
+				after: otherUuid,
+			},
+		]);
+		store.getState().applyMany(move);
+		store.getState().takeCommandBatches();
+		store.getState().undo();
+		expect(store.getState().takeCommandBatches()).toEqual([
+			admitMutationBatch([
+				{
+					kind: "moveAutomation",
+					uuid: AUTOMATION_UUID,
+					targetKind: "case-update",
+					after: null,
+				},
+			]),
+		]);
 	});
 
 	it("replays a schedule-kind replacement and timed event edits", () => {

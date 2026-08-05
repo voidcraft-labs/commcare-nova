@@ -251,6 +251,13 @@ describe("automation shared tools", () => {
 			ctx,
 			updated.newDoc,
 		);
+		expect(removed.mutations).toEqual([
+			{
+				kind: "removeAutomation",
+				uuid: RULE_UUID,
+				targetKind: "case-update",
+			},
+		]);
 		expect(removed.newDoc.automations).toBeUndefined();
 		expect(removed.newDoc.automationOrder).toBeUndefined();
 	});

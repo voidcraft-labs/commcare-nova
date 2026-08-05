@@ -1188,7 +1188,11 @@ const GUARD_COVERAGE = {
 		build: () => ({
 			doc: automationDoc(),
 			batch: [
-				{ kind: "removeAutomation", uuid: testUuid("automation-cleanup") },
+				{
+					kind: "removeAutomation",
+					uuid: testUuid("automation-cleanup"),
+					targetKind: "case-update",
+				},
 			],
 		}),
 	},
@@ -1200,6 +1204,7 @@ const GUARD_COVERAGE = {
 				{
 					kind: "moveAutomation",
 					uuid: testUuid("automation-alert"),
+					targetKind: "conditional-alert",
 					after: null,
 				},
 			],

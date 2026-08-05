@@ -2124,14 +2124,29 @@ function diffAutomationCollections(
 	}
 	for (const uuid of Object.keys(prevRecord)) {
 		if (!hasOwnRecordKey(nextRecord, uuid)) {
-			out.push({ kind: "removeAutomation", uuid: asUuid(uuid) });
+			const automation = ownRecordValue(prevRecord, uuid);
+			if (automation !== undefined) {
+				out.push({
+					kind: "removeAutomation",
+					uuid: asUuid(uuid),
+					targetKind: automation.kind,
+				});
+			}
 		}
 	}
 	for (const move of sequenceMovesTo(
 		arrivalsProjected(prev.automationOrder ?? [], next.automationOrder ?? []),
 		next.automationOrder ?? [],
 	)) {
-		out.push({ kind: "moveAutomation", uuid: move.uuid, after: move.after });
+		const automation = ownRecordValue(nextRecord, move.uuid);
+		if (automation !== undefined) {
+			out.push({
+				kind: "moveAutomation",
+				uuid: move.uuid,
+				targetKind: automation.kind,
+				after: move.after,
+			});
+		}
 	}
 	return out;
 }

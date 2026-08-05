@@ -1099,12 +1099,21 @@ function createMutationSchema({
 				})
 				.strict(),
 		]),
-		z.object({ kind: z.literal("removeAutomation"), uuid: uuidSchema }),
-		z.object({
-			kind: z.literal("moveAutomation"),
-			uuid: uuidSchema,
-			after: uuidSchema.nullable(),
-		}),
+		z
+			.object({
+				kind: z.literal("removeAutomation"),
+				uuid: uuidSchema,
+				targetKind: z.enum(["case-update", "conditional-alert"]),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("moveAutomation"),
+				uuid: uuidSchema,
+				targetKind: z.enum(["case-update", "conditional-alert"]),
+				after: uuidSchema.nullable(),
+			})
+			.strict(),
 		z.discriminatedUnion("targetKind", [
 			z
 				.object({

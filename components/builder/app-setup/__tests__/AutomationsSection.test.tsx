@@ -647,7 +647,12 @@ describe("AutomationsSection", () => {
 		const { rerender } = render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
-		expect(screen.getByRole("status").textContent).toContain("Loading places");
+		const loadingStatus = screen.getByRole("status");
+		expect(loadingStatus.textContent).toContain("Loading places");
+		expect(screen.getAllByRole("status")).toHaveLength(1);
+		expect(
+			loadingStatus.querySelector('[role="status"], [aria-live]'),
+		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Location condition" }),
 		).toHaveProperty("disabled", true);
@@ -672,9 +677,12 @@ describe("AutomationsSection", () => {
 
 		mocks.organization.refreshing = true;
 		rerender(<AutomationsSection />);
-		expect(screen.getByRole("status").textContent).toContain(
-			"Refreshing places",
-		);
+		const refreshingStatus = screen.getByRole("status");
+		expect(refreshingStatus.textContent).toContain("Refreshing places");
+		expect(screen.getAllByRole("status")).toHaveLength(1);
+		expect(
+			refreshingStatus.querySelector('[role="status"], [aria-live]'),
+		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 	});
 
@@ -1756,6 +1764,85 @@ describe("AutomationsSection", () => {
 		expect(screen.getByText("7")).toBeDefined();
 		expect(screen.queryByText("Open the rule editor.")).toBeNull();
 	});
+
+	it.each([
+		{
+			name: "automation conflict",
+			code: "conflict",
+			message: "This automation changed while you were viewing it.",
+		},
+		{
+			name: "missing automation",
+			code: "not_found",
+			message: "That automation no longer exists.",
+		},
+		{
+			name: "access removal",
+			code: "not_found",
+			message: "That app isn't available, or you no longer have access.",
+		},
+		{
+			name: "authentication loss",
+			code: "unauthenticated",
+			message: "Sign in to preview this automation.",
+		},
+	] as const)(
+		"clears the refused snapshot after $name, restores focus, and permits a fresh retry",
+		async ({ code, message }) => {
+			mocks.automations = [rule];
+			render(<AutomationsSection />);
+			fireEvent.click(
+				screen.getByRole("button", { name: /Close resolved visits/ }),
+			);
+			await settleBaseUiTransitions();
+			fireEvent.click(
+				screen.getByRole("button", { name: "Count matching cases" }),
+			);
+			await screen.findByText("Open the rule editor.");
+			fireEvent.click(screen.getByRole("button", { name: "Copy guide" }));
+			await screen.findByRole("button", { name: "Copied" });
+
+			const refusedRefresh = deferred<{
+				success: false;
+				code: typeof code;
+				message: string;
+			}>();
+			mocks.preview.mockReturnValueOnce(refusedRefresh.promise);
+			const refresh = screen.getByRole("button", {
+				name: "Refresh count and guide",
+			});
+			focusElement(refresh);
+			fireEvent.click(refresh);
+			await waitFor(() => expect(refresh).toHaveProperty("disabled", true));
+			expect(screen.getByText("4")).toBeDefined();
+			expect(screen.getByText("Open the rule editor.")).toBeDefined();
+			expect(screen.getByRole("button", { name: "Copied" })).toBeDefined();
+
+			await act(async () => {
+				refusedRefresh.resolve({ success: false, code, message });
+				await refusedRefresh.promise;
+			});
+
+			const alert = await screen.findByRole("alert");
+			expect(alert.textContent).toBe(message);
+			const retry = screen.getByRole("button", {
+				name: "Count matching cases",
+			});
+			expect(retry).toHaveProperty("disabled", false);
+			await waitFor(() => expect(document.activeElement).toBe(retry));
+			expect(screen.queryByText("4")).toBeNull();
+			expect(screen.queryByText("Open the rule editor.")).toBeNull();
+			expect(screen.queryByRole("button", { name: "Copy guide" })).toBeNull();
+			expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+
+			fireEvent.click(retry);
+			await screen.findByText("Open the rule editor.");
+			expect(screen.queryByRole("alert")).toBeNull();
+			expect(screen.getByText("4")).toBeDefined();
+			expect(screen.getByRole("button", { name: "Copy guide" })).toBeDefined();
+			expect(mocks.preview).toHaveBeenCalledTimes(3);
+		},
+	);
 
 	it("retires a rejected Preview refresh when its summary unmounts", async () => {
 		mocks.automations = [rule];

@@ -1019,7 +1019,11 @@ describe("reconciler", () => {
 			// reconciler refolds this tab's still-pending patch after each frame.
 			h.reconciler.onFrame(
 				autosaveFrame(1, "peer-remove-automation", "u2", [
-					{ kind: "removeAutomation", uuid: AUTOMATION },
+					{
+						kind: "removeAutomation",
+						uuid: AUTOMATION,
+						targetKind: "case-update",
+					},
 				]),
 			);
 			const peerAlert = conditionalAlertAutomation();
@@ -1034,6 +1038,76 @@ describe("reconciler", () => {
 				peerAlert,
 			);
 		});
+
+		it.each(["removeAutomation", "moveAutomation"] as const)(
+			"does not refold a pending stale-kind %s onto a peer's replacement kind",
+			(kind) => {
+				const base = makeAutomationDoc();
+				const otherUuid = testUuid(`automation-reconciler-${kind}-other`);
+				const otherUpdateUuid = testUuid(
+					`automation-reconciler-${kind}-other-update`,
+				);
+				const other = {
+					...caseUpdateAutomation(),
+					uuid: otherUuid,
+					updates: [
+						{
+							...caseUpdateAutomation().updates[0],
+							uuid: otherUpdateUuid,
+						},
+					],
+				} satisfies Automation;
+				base.automations = { ...base.automations, [otherUuid]: other };
+				base.automationOrder = [AUTOMATION, otherUuid];
+				const h = harness({
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: base,
+					userId: "u1",
+				});
+
+				h.docStore.getState().applyMany([
+					kind === "removeAutomation"
+						? {
+								kind,
+								uuid: AUTOMATION,
+								targetKind: "case-update",
+							}
+						: {
+								kind,
+								uuid: AUTOMATION,
+								targetKind: "case-update",
+								after: otherUuid,
+							},
+				]);
+				h.reconciler.dispatchHumanBatch();
+
+				h.reconciler.onFrame(
+					autosaveFrame(1, `peer-${kind}-remove`, "u2", [
+						{
+							kind: "removeAutomation",
+							uuid: AUTOMATION,
+							targetKind: "case-update",
+						},
+					]),
+				);
+				const peerAlert = conditionalAlertAutomation();
+				h.reconciler.onFrame(
+					autosaveFrame(2, `peer-${kind}-add-alert`, "u2", [
+						{ kind: "addAutomation", automation: peerAlert, after: null },
+					]),
+				);
+
+				expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
+				expect(h.docStore.getState().automations?.[AUTOMATION]).toEqual(
+					peerAlert,
+				);
+				expect(h.docStore.getState().automationOrder).toEqual([
+					AUTOMATION,
+					otherUuid,
+				]);
+			},
+		);
 	});
 
 	// ── Two-tab / echo classification ───────────────────────────────────

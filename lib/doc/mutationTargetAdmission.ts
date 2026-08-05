@@ -807,7 +807,7 @@ export function mutationTargetsInvalid(
 				seedAutomation(m.automation);
 				break;
 			case "removeAutomation":
-				if (!automations.has(m.uuid)) return true;
+				if (automations.get(m.uuid) !== m.targetKind) return true;
 				automations.delete(m.uuid);
 				automationScheduleKinds.delete(m.uuid);
 				for (const [uuid, owner] of automationItemOwners) {
@@ -819,7 +819,7 @@ export function mutationTargetsInvalid(
 				if (automations.get(m.uuid) !== m.targetKind) return true;
 				break;
 			case "moveAutomation":
-				if (!automations.has(m.uuid)) return true;
+				if (automations.get(m.uuid) !== m.targetKind) return true;
 				break;
 			case "setAutomationSchedule":
 				if (automations.get(m.uuid) !== "conditional-alert") return true;

@@ -353,7 +353,13 @@ export const removeAutomationTool = {
 			const commit = await guardedMutate(
 				ctx,
 				doc,
-				[{ kind: "removeAutomation", uuid: automation.uuid }],
+				[
+					{
+						kind: "removeAutomation",
+						uuid: automation.uuid,
+						targetKind: automation.kind,
+					},
+				],
 				"automations",
 			);
 			if (!commit.ok) return mutationError(doc, commit.error);

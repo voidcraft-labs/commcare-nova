@@ -450,8 +450,12 @@ function AutomationSummary({
 					expectedAutomation: automation,
 				});
 				if (latestRequestRef.current !== request) return;
-				if (result.success) setPreview(result.data);
-				else setError(result.message);
+				if (result.success) {
+					setPreview(result.data);
+				} else {
+					setPreview(undefined);
+					setError(result.message);
+				}
 			} catch {
 				if (latestRequestRef.current !== request) return;
 				setError(AUTOMATION_PREVIEW_UNAVAILABLE_MESSAGE);
@@ -521,7 +525,7 @@ function AutomationSummary({
 			{preview?.matching.status === "unavailable" && (
 				<p
 					role="alert"
-					className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+					className="rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
 				>
 					{preview.matching.message}
 				</p>
@@ -529,7 +533,7 @@ function AutomationSummary({
 			{error !== undefined && (
 				<p
 					role="alert"
-					className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] text-nova-text"
+					className="rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] px-3 py-3 text-[13px] text-nova-text"
 				>
 					{error}
 				</p>
@@ -582,7 +586,7 @@ function SetupGuide({ guide }: { guide: SavedPreview["setupGuide"] }) {
 		[guide],
 	);
 	return (
-		<div className="rounded-lg border border-nova-border bg-black/10 px-3 py-3">
+		<div className="rounded-lg border border-nova-border bg-nova-deep px-3 py-3">
 			<div className="flex items-start justify-between gap-3">
 				<div>
 					<h3 className="text-[13px] font-semibold text-nova-text">
@@ -610,7 +614,7 @@ function SetupGuide({ guide }: { guide: SavedPreview["setupGuide"] }) {
 				</Button>
 			</div>
 			{copyError && (
-				<p role="alert" className="mt-2 text-[12px] text-nova-red">
+				<p role="alert" className="mt-2 text-[12px] text-nova-rose">
 					The browser couldn't copy the guide. Select the steps below instead.
 				</p>
 			)}
@@ -692,7 +696,7 @@ function OrganizationReferenceStatus({
 				role="status"
 				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
 			>
-				<Spinner className="size-4" />
+				<Spinner className="size-4" role="presentation" aria-hidden="true" />
 				Loading places. Location conditions and recipients will be available
 				when this finishes.
 			</p>
@@ -702,7 +706,7 @@ function OrganizationReferenceStatus({
 		return (
 			<p
 				role="alert"
-				className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+				className="rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
 			>
 				{state.error} Location conditions and recipients are unavailable.{" "}
 				<Button type="button" variant="ghost-action" onClick={state.reload}>
@@ -717,7 +721,7 @@ function OrganizationReferenceStatus({
 				role="status"
 				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
 			>
-				<Spinner className="size-4" />
+				<Spinner className="size-4" role="presentation" aria-hidden="true" />
 				Refreshing places. Location conditions and recipients are paused until
 				this finishes.
 			</p>
@@ -1040,7 +1044,7 @@ function AutomationEditor({
 								{canEdit && state.kind === "existing" && (
 									<fieldset
 										disabled={peerConflict}
-										className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
+										className="rounded-lg border border-nova-rose/25 bg-nova-rose/[0.03] p-3 disabled:opacity-60"
 									>
 										<legend className="sr-only">Remove automation</legend>
 										{confirmRemove ? (
@@ -1093,7 +1097,7 @@ function AutomationEditor({
 									className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
 										peerConflict
 											? "border-nova-amber/40 bg-nova-amber/[0.06]"
-											: "border-nova-red/40 bg-nova-red/[0.06]"
+											: "border-nova-rose/40 bg-nova-rose/[0.06]"
 									}`}
 								>
 									{peerConflict && (
@@ -1235,7 +1239,7 @@ function ValidationFieldset({
 				<p
 					id={errorId}
 					role="none"
-					className="mt-2 text-[12px] leading-relaxed text-nova-red"
+					className="mt-2 text-[12px] leading-relaxed text-nova-rose"
 				>
 					{error}
 				</p>
@@ -1273,7 +1277,7 @@ function ValidationGroup({
 				<p
 					id={errorId}
 					role="none"
-					className="text-[12px] leading-relaxed text-nova-red"
+					className="text-[12px] leading-relaxed text-nova-rose"
 				>
 					{error}
 				</p>
@@ -1586,7 +1590,7 @@ function AutomationMessageTemplateEditor({
 						<div
 							// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered template parts have no independent identity
 							key={index}
-							className="grid min-w-0 gap-2 rounded-lg border border-nova-border bg-black/10 p-2 @md:grid-cols-[minmax(0,1fr)_auto]"
+							className="grid min-w-0 gap-2 rounded-lg border border-nova-border bg-nova-deep p-2 @md:grid-cols-[minmax(0,1fr)_auto]"
 						>
 							{part.kind === "text" ? (
 								singleLine ? (
@@ -1795,7 +1799,7 @@ function Toggle({
 	return (
 		<label
 			htmlFor={id}
-			className={`flex min-h-11 items-start gap-3 rounded-lg border border-white/[0.05] bg-black/10 px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+			className={`flex min-h-11 items-start gap-3 rounded-lg border border-nova-border bg-nova-deep px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
 		>
 			<Checkbox
 				id={id}
@@ -1979,7 +1983,7 @@ function ConditionsEditor({
 					key={criterion.uuid}
 					path={["criteria", index]}
 					label={`Condition ${index + 1}`}
-					className="rounded-lg border border-nova-border bg-black/10 p-3"
+					className="rounded-lg border border-nova-border bg-nova-deep p-3"
 				>
 					<div className="grid gap-3 @md:grid-cols-2">
 						<Labeled label={`Condition ${index + 1}`}>
@@ -2317,7 +2321,7 @@ function SetupOnlyEditor({
 					key={criterion.uuid}
 					path={["setupOnlyCriteria", index]}
 					label={`HQ-only condition ${index + 1}`}
-					className="grid gap-3 rounded-lg border border-nova-border bg-black/10 p-3 @md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
+					className="grid gap-3 rounded-lg border border-nova-border bg-nova-deep p-3 @md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
 				>
 					<Labeled label={`Condition ${index + 1} type`}>
 						<Choice
@@ -2415,7 +2419,7 @@ function CaseUpdateEditor({
 					key={update.uuid}
 					path={["updates", index]}
 					label={`Case change ${index + 1}`}
-					className="rounded-lg border border-nova-border bg-black/10 p-3"
+					className="rounded-lg border border-nova-border bg-nova-deep p-3"
 				>
 					<div className="grid gap-3 @md:grid-cols-2">
 						<Labeled label="Change">
@@ -2750,7 +2754,7 @@ function UserFilterValuesEditor({
 			{rows.map(({ key, value, valueIndex }) => (
 				<div
 					key={key}
-					className="grid gap-3 rounded-md border border-nova-border/70 p-3 @md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto]"
+					className="grid gap-3 rounded-lg border border-nova-border bg-nova-deep p-3 @md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto]"
 				>
 					<Labeled label={`Value ${valueIndex + 1} type`}>
 						<Choice
@@ -2927,7 +2931,7 @@ function AlertEditor({
 							key={recipient.uuid}
 							path={["recipients", index]}
 							label={`Recipient ${index + 1}`}
-							className="rounded-lg border border-nova-border bg-black/10 p-3"
+							className="rounded-lg border border-nova-border bg-nova-deep p-3"
 						>
 							<div className="grid gap-3 @md:grid-cols-2">
 								<Labeled label={`Recipient ${index + 1}`}>
@@ -3189,7 +3193,7 @@ function AlertEditor({
 						key={filter.uuid}
 						path={["userDataFilters", index]}
 						label={`Recipient filter ${index + 1}`}
-						className="grid gap-3 rounded-lg border border-nova-border bg-black/10 p-3 @md:grid-cols-2"
+						className="grid gap-3 rounded-lg border border-nova-border bg-nova-deep p-3 @md:grid-cols-2"
 					>
 						<Labeled label="Worker information">
 							<Choice
@@ -3997,7 +4001,7 @@ function EventEditor({
 		});
 
 	return (
-		<div className="rounded-lg border border-nova-border bg-black/10 p-3">
+		<div className="rounded-lg border border-nova-border bg-nova-deep p-3">
 			<div className="grid gap-3 @md:grid-cols-2">
 				{scheduleKind === "immediate" ? (
 					<Labeled label="Minutes after previous event">
