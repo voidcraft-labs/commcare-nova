@@ -140,6 +140,38 @@ describe("GenerationContext.extractDocumentStructured", () => {
 		]);
 	});
 
+	it("sends a text prompt plus labeled figure images as one user message", async () => {
+		mockStreamText().mockReturnValue(streamResult());
+
+		await ctx.extractDocumentStructured({
+			system: "extract",
+			prompt: "Filename: design.docx\n\nbody",
+			images: [
+				{
+					mediaType: "image/png",
+					data: "data:image/png;base64,AAAA",
+					label: '<nova:figure index="1"/>',
+				},
+			],
+			schema,
+			label: "attachment-docx",
+		});
+
+		// The figures pass through to the shared structured core: the document
+		// text leads and each image follows its marker label.
+		const call = mockStreamText().mock.calls[0][0];
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages[0].content).toEqual([
+			{ type: "text", text: "Filename: design.docx\n\nbody" },
+			{ type: "text", text: '<nova:figure index="1"/>' },
+			{
+				type: "file",
+				data: "data:image/png;base64,AAAA",
+				mediaType: "image/png",
+			},
+		]);
+	});
+
 	it("flags truncation when the model reports a length finish", async () => {
 		mockStreamText().mockReturnValue(
 			streamResult({

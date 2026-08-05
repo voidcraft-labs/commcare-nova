@@ -203,6 +203,78 @@ describe("streamObjectWith", () => {
 		expect(result.object).toEqual({ x: 7 });
 	});
 
+	it("attaches images beside the prompt as labeled file parts in one user message", async () => {
+		streamTextMock.mockReturnValue({
+			stream: streamOf([{ type: "text-delta", text: "x" }]),
+			output: Promise.resolve({ x: 1 }),
+			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+			warnings: Promise.resolve([]),
+			finishReason: Promise.resolve("stop"),
+		});
+
+		await streamObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			prompt: "doc text",
+			images: [
+				{
+					mediaType: "image/png",
+					data: "data:image/png;base64,AAA",
+					label: '<nova:figure index="1"/>',
+				},
+				// No label: the image part rides alone.
+				{ mediaType: "image/jpeg", data: "data:image/jpeg;base64,BBB" },
+			],
+		});
+
+		// The document text leads; each labeled image is preceded by its label
+		// text part; an unlabeled image rides bare. No top-level `prompt`.
+		const call = streamTextMock.mock.calls[0][0];
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "doc text" },
+					{ type: "text", text: '<nova:figure index="1"/>' },
+					{
+						type: "file",
+						data: "data:image/png;base64,AAA",
+						mediaType: "image/png",
+					},
+					{
+						type: "file",
+						data: "data:image/jpeg;base64,BBB",
+						mediaType: "image/jpeg",
+					},
+				],
+			},
+		]);
+	});
+
+	it("keeps the plain prompt form when images is empty", async () => {
+		streamTextMock.mockReturnValue({
+			stream: streamOf([]),
+			output: Promise.resolve({ x: 1 }),
+			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+			warnings: Promise.resolve([]),
+			finishReason: Promise.resolve("stop"),
+		});
+
+		await streamObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			prompt: "p",
+			images: [],
+		});
+
+		const call = streamTextMock.mock.calls[0][0];
+		expect(call.prompt).toBe("p");
+		expect(call.messages).toBeUndefined();
+	});
+
 	it("drives generation with no onProgress (drains the stream, returns the object)", async () => {
 		streamTextMock.mockReturnValue({
 			stream: streamOf([{ type: "text-delta", text: "x" }]),

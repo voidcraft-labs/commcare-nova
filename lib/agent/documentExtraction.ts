@@ -27,6 +27,7 @@ import type { DocumentKind } from "@/lib/domain/multimedia";
 import { reasoningProviderOptions } from "@/lib/models";
 import { normalizeExtractText } from "./extractNormalization";
 import {
+	type SubGenerationImage,
 	type SubGenerationProviderOptions,
 	streamObjectWith,
 } from "./subGeneration";
@@ -66,6 +67,10 @@ export interface ExtractDocumentStructuredOpts<T> {
 	prompt?: string;
 	file?: { mediaType: string; data: string };
 	instruction?: string;
+	/** Embedded figure images attached beside a text `prompt` (a docx's
+	 *  figures), in marker-index order; each carries a `label` text part naming
+	 *  its in-text `<nova:figure/>` marker. Never set with `file`. */
+	images?: SubGenerationImage[];
 	schema: z.ZodType<T>;
 	label: string;
 	model?: string;
@@ -175,7 +180,9 @@ export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions =
  * `.describe()`s. The document's filename is supplied per call in the user turn
  * (never in this cached system prefix): it leads the turn as metadata so the
  * model can ground the `title`/`summary` and name the document in its findings
- * without fabricating one. See `extractDocument`.
+ * without fabricating one. A docx's figures note (`figuresNote`) rides that
+ * same metadata block; the static reading rules for figures live in this
+ * prompt's Figures section. See `extractDocument`.
  */
 export const EXTRACT_SYSTEM = `# Document Requirements Extractor
 
@@ -248,6 +255,16 @@ Zero-invention does not mean say less. A vivid layer — usually a rich field-by
 8. **Calibration** — the document's own framing: provisional / draft / subject-to-change / version markers, named external parties it is produced for, and authoring rules ("use exactly these values / codes / labels"). These frame how everything else should be read — capture them as findings, not flavor.
 
 A document often interleaves several of these in one place — fields beside commercial or legal terms, scope phasing, deployment locale, named stakeholders, acceptance or sign-off criteria, priority or emphasis weighting, the document's stated purpose. Carry all of them. Within a single sentence, keep every clause: two stated constraints are two findings, not one. A thin document still yields a thin extract — sweep every layer, but **build only from what is present**; do not manufacture a layer the document lacks.
+
+## Figures: attached images are document content the reader will never see
+
+When the metadata before the document lists embedded figures, each embedded image was replaced in the text by a \`<nova:figure index="N"/>\` marker at the exact spot it occupied, and the images themselves follow the document text, each preceded by its matching \`<nova:figure index="N"/>\` label. Read every attached figure as part of the document, under the same rules as the text: a diagram, flowchart, form mockup, screenshot, or photographed form often carries requirements stated nowhere else. Fields shown in a mockup are fields; option lists visible in a screenshot are option sets; arrows in a flow diagram are status flows or skip logic, tagged \`[derived]\` where the connection is deduced from layout rather than labeled.
+
+Three disciplines keep figure content faithful:
+
+- **The marker index is pipeline numbering, not the document's.** The document's own captions and cross-references ("Figure 3", "Figure A-2") are verbatim content on a separate numbering scheme: relay them exactly, never renumber them to match the markers, and never raise a Conflict or Gap merely because the two schemes disagree or a caption-referenced figure number matches no marker.
+- **The architect reading your extract cannot see any figure.** Everything a figure states must land in the extract as complete, self-contained findings, exactly as if the same content had been prose. Name a figure only as provenance with the content spelled out beside it ("the flow diagram at figure 4 shows referral moving to closed on approval"), and quote the document's own caption verbatim when one exists. Never write a pointer the reader would have to follow — "as shown in figure 4" with the content left in the image loses that content permanently.
+- **The markers are scaffolding, not content.** Never copy a \`<nova:figure>\` tag into the extract. Content a figure renders too small or degraded to read is an unknown to note, never a guess. A figure the metadata lists as present but not attached is content that exists and was not read: record that it exists (with its caption or alt text, when any) and raise an Open question when its content clearly matters.
 
 ## Work the document before you write
 
@@ -485,13 +502,254 @@ function preflightOfficeArchive(buffer: Buffer, kind: "docx" | "xlsx"): void {
 	);
 }
 
-/** docx buffer → markdown. mammoth maps Word styles (headings, lists, tables)
- *  to clean markdown structure, which preserves the document's outline far
- *  better than a flat text extraction. */
-export async function docxToMarkdown(buffer: Buffer): Promise<string> {
+// ── Embedded figures (docx) ────────────────────────────────────────────────
+//
+// mammoth's DEFAULT image converter inlines every embedded image as a base64
+// `data:` URI in the markdown TEXT. That is the exact failure this machinery
+// replaces: a 2.6 MB design document with a dozen PNGs became a ~900k-token
+// prompt that was 96% base64 noise, and the structured call could not produce
+// a parseable object (observed in production, 2026-08-04). Instead, each
+// embedded image becomes a `<nova:figure index="N"/>` marker at the spot it
+// occupied, and the readable images ride the SAME call as native image parts
+// (vision tokens, roughly a thousandth of the base64-as-text cost), each
+// preceded by a text part naming its marker so the correlation is stated in
+// the content rather than left to attachment-order counting.
+//
+// The marker is deliberately namespaced, never "Figure N" prose: the
+// document's OWN captions and cross-references ("Figure 3", "Figure A-2")
+// are verbatim content on their own numbering scheme, and a bare "Figure N"
+// marker would collide with them the moment any embedded image is uncaptioned
+// or decorative. `EXTRACT_SYSTEM` § Figures teaches the model both namespaces
+// and forbids reconciling them.
+
+/** Image formats the summarizer reads natively as image parts. Anything else
+ *  a docx embeds (EMF/WMF vector drawings, TIFF, BMP) keeps its in-text
+ *  marker and is reported as present-but-not-read. */
+const MODEL_READABLE_FIGURE_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+]);
+
+/** Attachment caps. Per-figure and whole-document byte bounds keep the
+ *  request body sane (base64 inflates bytes by a third), and the count cap
+ *  bounds the vision-token spend on a pathological document; a requirements
+ *  document's real diagrams sit far inside all three. Figures past a cap keep
+ *  their marker and are reported as present-but-not-read. */
+export const MAX_EXTRACT_FIGURES = 24;
+export const MAX_EXTRACT_FIGURE_BYTES = 4 * 1024 * 1024;
+export const MAX_EXTRACT_FIGURE_TOTAL_BYTES = 20 * 1024 * 1024;
+
+/** One embedded image collected during docx conversion, in document order.
+ *  `index` is the 1-based marker index; `bytes` is empty when mammoth could
+ *  not read the image's data (the plan then omits it as unreadable). */
+export interface DocxFigure {
+	index: number;
+	/** Lowercased archive-declared content type; `""` when undeclared. */
+	mediaType: string;
+	bytes: Buffer;
+	/** Trimmed author-supplied alt text, or `null` when the docx has none. */
+	altText: string | null;
+}
+
+/** Why a collected figure is not attached to the extraction call. */
+export type OmittedFigureReason =
+	| "unsupported-format"
+	| "too-large"
+	| "over-attachment-budget"
+	| "unreadable";
+
+/** The attachment decision over a document's collected figures: `attached`
+ *  entries are ready-to-send image parts (data URL + marker label), `omitted`
+ *  entries keep only their marker and are reported as not read. */
+export interface FigureAttachmentPlan {
+	attached: {
+		index: number;
+		mediaType: string;
+		data: string;
+		label: string;
+	}[];
+	omitted: { index: number; reason: OmittedFigureReason }[];
+}
+
+/** Minimal XML-attribute escape for the marker's `alt` slot. */
+function escapeAttr(text: string): string {
+	return text
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;");
+}
+
+/** The unique `src` minted per figure during conversion. mammoth emits it as
+ *  the byte-exact image `![](<sentinel>)`, which the post-pass swaps for the
+ *  real marker tag; the scheme prefix can't occur in document prose. */
+function figureSentinel(index: number): string {
+	return `nova-figure://${index}`;
+}
+
+/** The namespaced in-text marker for one figure. With alt text the document's
+ *  own wording rides along verbatim: `<nova:figure index="3" alt="…"/>`. */
+export function figureMarker(index: number, altText?: string | null): string {
+	const alt = altText ? ` alt="${escapeAttr(altText)}"` : "";
+	return `<nova:figure index="${index}"${alt}/>`;
+}
+
+/** The slice of mammoth's per-image object the collector reads; structurally
+ *  matches `MammothImage` in `mammoth.d.ts`, and tests drive it with plain
+ *  fakes. */
+export interface EmbeddedImage {
+	contentType?: string;
+	altText?: string;
+	readAsBuffer(): Promise<Buffer>;
+}
+
+/**
+ * The per-image collection step, split from the mammoth wiring so the
+ * numbering, alt-text, and unreadable-image behavior are unit-testable
+ * without loading mammoth (whose import the async-leak detector flags).
+ * Appends the figure to `figures` and returns the img attributes mammoth
+ * should emit: the sentinel `src` plus an EMPTY `alt`, which overrides the
+ * document's own alt text so the emitted sentinel stays byte-exact for the
+ * post-pass (the real marker restores the alt text, escaped).
+ */
+export async function collectEmbeddedImage(
+	figures: DocxFigure[],
+	image: EmbeddedImage,
+): Promise<{ src: string; alt: string }> {
+	const index = figures.length + 1;
+	let bytes: Buffer = Buffer.alloc(0);
+	try {
+		bytes = await image.readAsBuffer();
+	} catch {
+		// Unreadable image data: keep the marker, attach nothing. The plan
+		// reports it as present-but-not-read; a broken image must never fail
+		// the whole document's extraction.
+	}
+	const altText = image.altText?.trim() || null;
+	figures.push({
+		index,
+		mediaType: (image.contentType ?? "").toLowerCase(),
+		bytes,
+		altText,
+	});
+	return { src: figureSentinel(index), alt: "" };
+}
+
+/** docx buffer → markdown plus the embedded figures, collected in document
+ *  order. mammoth maps Word styles (headings, lists, tables) to clean
+ *  markdown structure, which preserves the document's outline far better
+ *  than a flat text extraction; each embedded image is replaced by its
+ *  `<nova:figure/>` marker instead of the default base64 inlining. */
+export async function docxToMarkdownWithFigures(
+	buffer: Buffer,
+): Promise<{ markdown: string; figures: DocxFigure[] }> {
 	preflightOfficeArchive(buffer, "docx");
-	const { value } = await mammoth.convertToMarkdown({ buffer });
-	return value;
+	const figures: DocxFigure[] = [];
+	const convertImage = mammoth.images.imgElement((image) =>
+		collectEmbeddedImage(figures, image),
+	);
+	const { value } = await mammoth.convertToMarkdown(
+		{ buffer },
+		{ convertImage },
+	);
+	// Swap each sentinel image for its marker tag. Exact-string replacement on
+	// a sentinel this module minted; nothing here parses the markdown.
+	let markdown = value;
+	for (const figure of figures) {
+		markdown = markdown.replaceAll(
+			`![](${figureSentinel(figure.index)})`,
+			figureMarker(figure.index, figure.altText),
+		);
+	}
+	return { markdown, figures };
+}
+
+/**
+ * Decide which collected figures ride the extraction call. Pure, in marker
+ * order: an unreadable, unsupported-format, or oversized figure is omitted
+ * with its reason, and once the count or total-byte budget is spent every
+ * later figure is omitted as over-budget. Attached entries carry the data URL
+ * plus the label part (`<nova:figure index="N"/>`) that precedes the image in
+ * the call.
+ */
+export function planFigureAttachments(
+	figures: DocxFigure[],
+): FigureAttachmentPlan {
+	const attached: FigureAttachmentPlan["attached"] = [];
+	const omitted: FigureAttachmentPlan["omitted"] = [];
+	let totalBytes = 0;
+	for (const figure of figures) {
+		if (figure.bytes.length === 0) {
+			omitted.push({ index: figure.index, reason: "unreadable" });
+			continue;
+		}
+		if (!MODEL_READABLE_FIGURE_TYPES.has(figure.mediaType)) {
+			omitted.push({ index: figure.index, reason: "unsupported-format" });
+			continue;
+		}
+		if (figure.bytes.length > MAX_EXTRACT_FIGURE_BYTES) {
+			omitted.push({ index: figure.index, reason: "too-large" });
+			continue;
+		}
+		if (
+			attached.length >= MAX_EXTRACT_FIGURES ||
+			totalBytes + figure.bytes.length > MAX_EXTRACT_FIGURE_TOTAL_BYTES
+		) {
+			omitted.push({ index: figure.index, reason: "over-attachment-budget" });
+			continue;
+		}
+		totalBytes += figure.bytes.length;
+		attached.push({
+			index: figure.index,
+			mediaType: figure.mediaType,
+			data: `data:${figure.mediaType};base64,${figure.bytes.toString("base64")}`,
+			label: figureMarker(figure.index),
+		});
+	}
+	return { attached, omitted };
+}
+
+/** Model-facing wording for each omission reason, used by `figuresNote`. */
+const OMITTED_REASON_TEXT: Record<OmittedFigureReason, string> = {
+	"unsupported-format": "an image format the model can't read",
+	"too-large": "too large to attach",
+	"over-attachment-budget": "over the attachment budget",
+	unreadable: "its image data couldn't be read",
+};
+
+/**
+ * The figures metadata line(s) for the user turn, or `""` for a document with
+ * no embedded images (whose prompt then stays in the plain filename-only
+ * shape). States how many figures exist, that markers replaced them in the
+ * text, that attached images follow in index order behind their marker
+ * labels, and exactly which figures are present but not read.
+ */
+export function figuresNote(plan: FigureAttachmentPlan): string {
+	const total = plan.attached.length + plan.omitted.length;
+	if (total === 0) return "";
+	const lines: string[] = [];
+	if (plan.attached.length > 0) {
+		const attachedCount =
+			plan.attached.length === total ? "all" : String(plan.attached.length);
+		lines.push(
+			`Embedded figures: ${total}. Each was replaced in the text by a <nova:figure index="N"/> marker at the spot it occupied; ${attachedCount} attached after the text in index order, each preceded by its marker.`,
+		);
+	} else {
+		lines.push(
+			`Embedded figures: ${total}, none attached. Each was replaced in the text by a <nova:figure index="N"/> marker at the spot it occupied.`,
+		);
+	}
+	if (plan.omitted.length > 0) {
+		const parts = plan.omitted.map(
+			(o) => `figure ${o.index} (${OMITTED_REASON_TEXT[o.reason]})`,
+		);
+		lines.push(
+			`Not attached: ${parts.join(", ")}. These are present in the document but were not read.`,
+		);
+	}
+	return lines.join("\n");
 }
 
 // Hard caps so a sparse or malicious workbook can't blow up extraction. A
@@ -620,7 +878,9 @@ export function xlsxToMarkdown(buffer: Buffer): string {
  *
  *   - PDF → a NATIVE document block (the model reads the original, preserving
  *     layout a flat decode would lose); text/docx/xlsx → decode to markdown
- *     (docx via mammoth, xlsx via SheetJS, text verbatim), then condense.
+ *     (docx via mammoth, xlsx via SheetJS, text verbatim), then condense. A
+ *     docx's embedded figures ride the same call as image parts behind
+ *     `<nova:figure/>` markers in the text (see "Embedded figures" above).
  *   - The model fills `extractDocumentSchema` in field order — `title`/`summary`
  *     first, then the large `extract` last (see the schema's field-order note).
  *
@@ -665,19 +925,38 @@ export async function extractDocument(opts: {
 			onProgress,
 		});
 	} else {
-		const body =
-			kind === "docx"
-				? await docxToMarkdown(bytes)
-				: kind === "xlsx"
-					? xlsxToMarkdown(bytes)
-					: bytes.toString("utf-8");
+		// A docx additionally yields its embedded figures: markers replace the
+		// images in the text, the readable images ride the same call as image
+		// parts, and the metadata block reports any figure that is present but
+		// not attached (`EXTRACT_SYSTEM` § Figures teaches the reading rules).
+		let body: string;
+		let images: SubGenerationImage[] | undefined;
+		let metadata = `Filename: ${filename}`;
+		if (kind === "docx") {
+			const { markdown, figures } = await docxToMarkdownWithFigures(bytes);
+			body = markdown;
+			const plan = planFigureAttachments(figures);
+			const note = figuresNote(plan);
+			if (note) metadata += `\n${note}`;
+			if (plan.attached.length > 0) {
+				images = plan.attached.map(({ mediaType, data, label }) => ({
+					mediaType,
+					data,
+					label,
+				}));
+			}
+		} else {
+			body = kind === "xlsx" ? xlsxToMarkdown(bytes) : bytes.toString("utf-8");
+		}
 		result = await condenser.extractDocumentStructured({
 			system: EXTRACT_SYSTEM,
-			// The filename leads the user turn (separated from the body by a blank
-			// line so it reads as metadata, not a requirement) so the model can
-			// ground the `title`/`summary` and name the document in its findings
-			// without fabricating one. The body follows verbatim.
-			prompt: `Filename: ${filename}\n\n${body}`,
+			// The filename (plus any figures note) leads the user turn, separated
+			// from the body by a blank line so it reads as metadata, not a
+			// requirement: the model can ground the `title`/`summary` and name the
+			// document in its findings without fabricating one. The body follows
+			// verbatim.
+			prompt: `${metadata}\n\n${body}`,
+			images,
 			schema: extractDocumentSchema,
 			label: `extract:${filename}`,
 			model: CONDENSER_MODEL,
@@ -744,6 +1023,7 @@ export function createExtractionCondenser(): AttachmentCondenser {
 				prompt: args.prompt,
 				file: args.file,
 				instruction: args.instruction,
+				images: args.images,
 				maxOutputTokens: args.maxOutputTokens,
 				providerOptions: args.providerOptions,
 				onProgress: args.onProgress,
