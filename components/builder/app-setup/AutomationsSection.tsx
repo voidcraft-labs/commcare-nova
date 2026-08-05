@@ -83,6 +83,7 @@ import {
 	automationMessageText,
 	automationRecipientKindIsSingleton,
 	automationRecipientSupportsConnect,
+	automationRecipientSupportsUserDataFilter,
 	automationSchema,
 	automationTimedScheduleSetupForm,
 	CASE_SCALAR_PROPERTY_NAMES,
@@ -2625,9 +2626,12 @@ function recipientKindAvailable(
 	recipients: readonly AutomationRecipient[],
 	locations: readonly StoredLocation[],
 	usesConnect: boolean,
+	usesUserDataFilters: boolean,
 	excludeUuid?: Uuid,
 ): boolean {
 	if (usesConnect && !automationRecipientSupportsConnect(kind)) return false;
+	if (usesUserDataFilters && !automationRecipientSupportsUserDataFilter(kind))
+		return false;
 	const peers = recipients.filter(
 		(recipient) => recipient.uuid !== excludeUuid,
 	);
@@ -2750,6 +2754,8 @@ function UserFilterValuesEditor({
 				Literal values stay exact: an empty value matches missing or empty
 				worker data, and spaces are not trimmed. Insert a case property
 				explicitly when the accepted value should come from the matching case.
+				Every triggering case must contain that property because HQ raises an
+				error when it is missing.
 			</p>
 			{rows.map(({ key, value, valueIndex }) => (
 				<div
@@ -2811,7 +2817,7 @@ function UserFilterValuesEditor({
 					) : (
 						<Labeled
 							label="Case property"
-							hint="HQ can read custom case data in this filter value"
+							hint="Required on every triggering case; HQ raises an error when this property is missing"
 						>
 							<Choice
 								value={value.property}
@@ -2911,6 +2917,7 @@ function AlertEditor({
 			automation.recipients,
 			availableLocations,
 			usesConnect,
+			automation.userDataFilters.length > 0,
 		),
 	)?.[0];
 	const nextFilterProperty = userProperties.find(
@@ -2921,6 +2928,9 @@ function AlertEditor({
 	);
 	const filterCaseType = caseTypes.find(
 		(candidate) => candidate.name === automation.caseType,
+	);
+	const recipientsSupportUserDataFilters = automation.recipients.every(
+		(recipient) => automationRecipientSupportsUserDataFilter(recipient.kind),
 	);
 	return (
 		<div className="flex flex-col gap-6">
@@ -2960,11 +2970,15 @@ function AlertEditor({
 											const connectBlocked =
 												usesConnect &&
 												!automationRecipientSupportsConnect(kind);
+											const filterBlocked =
+												automation.userDataFilters.length > 0 &&
+												!automationRecipientSupportsUserDataFilter(kind);
 											const unavailable = !recipientKindAvailable(
 												kind,
 												automation.recipients,
 												availableLocations,
 												usesConnect,
+												automation.userDataFilters.length > 0,
 												recipient.uuid,
 											);
 											return [
@@ -2975,9 +2989,11 @@ function AlertEditor({
 														? "Location (add a place first)"
 														: connectBlocked
 															? `${label} (not available for Connect)`
-															: unavailable
-																? `${label} (already selected)`
-																: label,
+															: filterBlocked
+																? `${label} (not available with recipient filters)`
+																: unavailable
+																	? `${label} (already selected)`
+																	: label,
 												unavailable,
 											] as const;
 										})}
@@ -3120,6 +3136,12 @@ function AlertEditor({
 				onEdit={onEdit}
 			/>
 			<Section title="Recipient filters and schedule controls">
+				<p className="text-[12px] leading-relaxed text-nova-text-muted">
+					HQ applies recipient filters only to contacts that resolve to user
+					accounts. Nova does not combine filters with case, parent/child-case,
+					case-email, case-group, or registered custom recipients because they
+					would bypass the filter or have an unknown runtime type.
+				</p>
 				{hasLocationRecipient && (
 					<Toggle
 						checked={automation.includeDescendantLocations}
@@ -3243,7 +3265,10 @@ function AlertEditor({
 					ref={filterFocus.addRef}
 					type="button"
 					variant="outline"
-					disabled={nextFilterProperty === undefined}
+					disabled={
+						nextFilterProperty === undefined ||
+						!recipientsSupportUserDataFilters
+					}
 					onClick={() =>
 						onEdit((draft) => {
 							if (draft.kind === "conditional-alert" && nextFilterProperty)
@@ -4061,7 +4086,7 @@ function EventEditor({
 						{timed.timing.kind === "case-property-time" ? (
 							<Labeled
 								label="Time property"
-								hint="HQ reads only a custom case property in this field"
+								hint="Every triggering case should store H:MM or HH:MM here; HQ uses 12:00 PM when the value is blank, missing, or malformed"
 							>
 								<Input
 									value={timed.timing.property}

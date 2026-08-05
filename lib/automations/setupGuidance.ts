@@ -165,7 +165,7 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 		case "random-window":
 			return `at a random time in the ${timing.windowMinutes}-minute window starting at ${timing.time}`;
 		case "case-property-time":
-			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}`;
+			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}; every triggering case should store H:MM or HH:MM there, and HQ falls back to 12:00 PM when the value is blank, missing, or malformed`;
 	}
 }
 
@@ -423,6 +423,22 @@ export function buildAutomationSetupGuide(
 			const [name, values] = Object.entries(projected)[0] ?? ["", []];
 			steps.push(
 				`Under recipient filters, choose “${source}” and “Yes”; set property name to ${JSON.stringify(name)} and property value to ${JSON.stringify(values[0] ?? "")}.`,
+			);
+		}
+		caveats.push(
+			"CommCare HQ evaluates recipient filters only for contacts that resolve to user accounts (CouchUser). Nova therefore allows these filters only with user-account recipient choices; case, parent/child-case, case-email, case-group, and registered custom recipients are excluded because they bypass the filter or have an unknown runtime type.",
+		);
+		const casePropertyFilterValues = automation.userDataFilters.flatMap(
+			(filter) =>
+				filter.values.flatMap((value) =>
+					value.kind === "case-property"
+						? [describeAutomationPropertyForHq(value.property, "dynamic-only")]
+						: [],
+				),
+		);
+		if (casePropertyFilterValues.length > 0) {
+			caveats.push(
+				`Every triggering case must contain ${casePropertyFilterValues.map((property) => `case property ${property}`).join(", ")}. HQ directly indexes each referenced property while expanding recipients, so a missing property raises an error instead of acting like an empty accepted value.`,
 			);
 		}
 	} else {

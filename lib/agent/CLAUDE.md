@@ -200,7 +200,14 @@ recipient be a CommCare mobile worker with an active PersonalID link. A timed re
 requires a rule-trigger start. Checkbox-style, case-property, and custom
 recipient kinds are singletons; concrete list targets and worker-property
 filter keys are unique. Descendant controls require a location recipient and
-location-level filters require descendants. The deprecated domain-wide
+location-level filters require descendants. Recipient filters are admitted
+only when every recipient resolves or expands to an HQ user account; case,
+parent/child-case, case-email, case-group, and registered custom recipients are
+refused because HQ bypasses non-`CouchUser` contacts and a custom handler's
+result is unknowable. A structural case-property filter value requires that
+property on every triggering case because HQ directly indexes it and raises
+when missing. A case-property event time accepts `H:MM` or `HH:MM`; HQ falls
+back to 12:00 PM for blank, missing, or malformed values. The deprecated domain-wide
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
 per-rule tool field.
 Host-scoped reads are admitted only while the app has one unambiguous canonical

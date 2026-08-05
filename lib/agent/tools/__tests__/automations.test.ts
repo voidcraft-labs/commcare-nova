@@ -148,6 +148,12 @@ describe("automation shared tools", () => {
 			);
 			expect(description).toContain("owner, host, or last_modified_by");
 			expect(description).toContain("formatter context shadows those names");
+			expect(description).toContain(
+				"Recipient filters require only user-account recipient kinds",
+			);
+			expect(description).toContain("every triggering case must contain");
+			expect(description).toContain("H:MM or HH:MM");
+			expect(description).toContain("12:00 PM");
 		}
 	});
 
@@ -187,6 +193,58 @@ describe("automation shared tools", () => {
 			addAutomationsInputSchema.safeParse({ automations: [invalidSurvey] })
 				.success,
 		).toBe(false);
+	});
+
+	it("refuses a recipient-filter combination HQ would silently bypass", () => {
+		const invalidFilteredAlert = {
+			uuid: testUuid("tool-invalid-filter-alert"),
+			kind: "conditional-alert",
+			name: "Filtered case alert",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [
+				{ uuid: testUuid("tool-invalid-filter-recipient"), kind: "self" },
+			],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("tool-invalid-filter-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms",
+							message: automationMessageText("Hello"),
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [
+				{
+					uuid: testUuid("tool-invalid-filter"),
+					userPropertyUuid: testUuid("tool-invalid-filter-property"),
+					values: [{ kind: "literal", value: "nurse" }],
+				},
+			],
+			useUserCaseForFilter: false,
+		};
+		const parsed = addAutomationsInputSchema.safeParse({
+			automations: [invalidFilteredAlert],
+		});
+		expect(parsed.success).toBe(false);
+		if (!parsed.success) {
+			expect(parsed.error.issues).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						path: ["automations", 0, "recipients", 0, "kind"],
+						message: expect.stringContaining("non-user contacts bypass"),
+					}),
+				]),
+			);
+		}
 	});
 
 	it("adds, reads, granularly updates, and removes the same canonical object", async () => {

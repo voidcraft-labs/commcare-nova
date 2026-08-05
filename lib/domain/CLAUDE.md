@@ -62,7 +62,8 @@ never admitted because Nova text and HQ's boolean field differ. Standard
 datetime values admit date or blankness matches, not text equality/regex.
 Reset-on-change and case-property event-time slots accept custom properties only
 because HQ reads those two from `dynamic_case_properties()` rather than any
-standard scalar field.
+standard scalar field. Event-time values accept `H:MM` or `HH:MM`; blank,
+missing, or malformed values fall back to 12:00 PM in HQ.
 
 Message subjects, bodies, and HTML source are `AutomationMessageTemplate`
 values: ordered literal-text parts plus explicit structural case-property
@@ -102,8 +103,14 @@ requires descendants, and the user-data filter carries one structural value
 list per worker-property UUID. Its values are exact literals, including empty
 and whitespace, or explicit `(caseType, property)` lookups into custom case data.
 A brace-wrapped literal is invalid because HQ would reinterpret it as a lookup;
-property renames rewrite only the structural lookup. Setup guidance emits exact
-JSON whenever HQ's single-value fields would trim or lose the model.
+property renames rewrite only the structural lookup. Every triggering case must
+contain a referenced property because HQ indexes `case_json[property]`
+directly and raises when it is missing. HQ applies these filters only to
+`CouchUser` contacts. The shared recipient-capability map therefore refuses a
+filter alongside case, parent/child-case, case-email, case-group, or registered
+custom recipients: the known non-user results bypass filtering, and Nova cannot
+prove a custom handler's runtime result. Setup guidance emits exact JSON
+whenever HQ's single-value fields would trim or lose the model.
 
 Every schedule uses the HQ form's one content type. Timed schedules use the
 runtime's day/repeat encoding but must project into one actual HQ setup form.

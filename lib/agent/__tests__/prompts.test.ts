@@ -129,6 +129,15 @@ describe("buildSolutionsArchitectPrompt", () => {
 		);
 		expect(sp).toContain("`owner`, `host`, or `last_modified_by`");
 		expect(sp).toContain("formatter context shadows those names");
+		expect(sp).toContain(
+			"Every triggering case must contain each referenced filter property",
+		);
+		expect(sp).toContain(
+			"HQ filters only contacts that resolve to user accounts",
+		);
+		expect(sp).toContain("case, parent/child-case, case-email, case-group");
+		expect(sp).toContain("A case-property event time accepts H:MM or HH:MM");
+		expect(sp).toContain("12:00 PM");
 	});
 
 	it("edit prompt is byte-identical across different apps", () => {

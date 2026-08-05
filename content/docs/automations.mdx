@@ -44,7 +44,9 @@ because Nova's `open`/`closed` text is not HQ's boolean field, and these rules
 already inspect open cases. The standard date fields support date and blankness
 conditions, not text equality or regex.
 Restart-on-change and case-property event-time controls accept custom case data
-only; no standard scalar property is available in those HQ fields.
+only; no standard scalar property is available in those HQ fields. A
+case-property event time must contain `H:MM` or `HH:MM`. If the value is blank,
+missing, or malformed when an event is scheduled, HQ uses 12:00 PM instead.
 
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
@@ -147,6 +149,12 @@ so Nova makes that refusal visible instead of presenting those types as
 deployable choices.
 
 Recipient filters can use the app's custom worker information or the user case.
+HQ evaluates them only for contacts that resolve to user accounts. Nova allows
+filters with the case owner, last submitting user, username/user-id case
+properties, mobile workers, user groups, and locations. It refuses a filtered
+alert that also targets the case, parent or child cases, an email case property,
+a case group, or a registered custom recipient: known non-user contacts bypass
+every filter, and Nova cannot prove what contact type a custom handler returns.
 Message templates may use case, owner, parent, host, and recipient values. HQ's
 current alert form has no representable web-user recipient. Connect messages
 and surveys also cannot target the matched case, parent case, all child cases,
@@ -163,7 +171,10 @@ worker-information property has one accepted-value list. Values are structural:
 an exact literal (including empty or surrounding spaces), or an explicit custom
 case-property lookup. Empty matches missing or empty worker data in HQ. Literal
 brace text is refused because HQ would execute a whole `{property}` value as a
-case lookup rather than store it literally. Multiple properties or values,
+case lookup rather than store it literally. Every triggering case must contain
+each property used by a structural lookup. HQ directly indexes that property
+while expanding recipients, so a missing property raises an error instead of
+acting like an empty accepted value. Multiple properties or values,
 including exact empty/whitespace values, use HQ's JSON filter mode; a new alert
 exposes that mode only to a system administrator. A custom recipient or content handler must already be registered
 on the target HQ instance; Nova cannot create one. An HQ system administrator

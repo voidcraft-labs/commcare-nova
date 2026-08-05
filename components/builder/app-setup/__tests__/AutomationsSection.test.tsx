@@ -101,7 +101,10 @@ function repeatedRowsAlert(): Extract<
 			text: `HQ condition ${index}`,
 		})),
 		recipients: [
-			{ uuid: testUuid("ui-repeated-recipient-0"), kind: "self" },
+			{
+				uuid: testUuid("ui-repeated-recipient-0"),
+				kind: "last-submitting-user",
+			},
 			{ uuid: testUuid("ui-repeated-recipient-1"), kind: "owner" },
 		],
 		schedule: {
@@ -962,6 +965,29 @@ describe("AutomationsSection", () => {
 		);
 	});
 
+	it("explains HQ's case-property event-time format and noon fallback", async () => {
+		mocks.automations = [monthlyAlert()];
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Monthly alert/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Schedule timing mode", "Time in a case property");
+
+		const [timeProperty] = screen.getAllByRole("textbox", {
+			name: "Time property",
+		});
+		if (timeProperty === undefined)
+			throw new Error("missing time property input");
+		const descriptionId = timeProperty.getAttribute("aria-describedby");
+		expect(descriptionId).toBeTruthy();
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+			"H:MM or HH:MM",
+		);
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+			"12:00 PM when the value is blank, missing, or malformed",
+		);
+	});
+
 	it("keeps registered handlers blank until the author supplies a real ID", async () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
@@ -1043,12 +1069,33 @@ describe("AutomationsSection", () => {
 		await chooseChoice("Recipient 1", "Case owner");
 		expect(screen.queryByText("Facility level")).toBeNull();
 
-		fireEvent.click(screen.getByRole("button", { name: "Recipient" }));
 		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
 		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
 		expect(
 			screen.getByRole("button", { name: "Recipient filter" }),
 		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByText(/HQ applies recipient filters only to contacts/)
+				.textContent,
+		).toContain("unknown runtime type");
+		fireEvent.click(screen.getByRole("button", { name: "Recipient" }));
+		const secondRecipient = screen.getByRole("combobox", {
+			name: "Recipient 2",
+		});
+		expect(secondRecipient.textContent).toContain("Last submitting user");
+		fireEvent.click(screen.getByRole("combobox", { name: "Recipient 1" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen
+				.getByRole("option", {
+					name: "The case (not available with recipient filters)",
+				})
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
+		await settleBaseUiTransitions();
 		fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
 			target: { value: "Reminder" },
 		});
@@ -1058,7 +1105,7 @@ describe("AutomationsSection", () => {
 			expect.objectContaining({
 				recipients: [
 					expect.objectContaining({ kind: "owner" }),
-					expect.objectContaining({ kind: "self" }),
+					expect.objectContaining({ kind: "last-submitting-user" }),
 				],
 				includeDescendantLocations: false,
 				locationLevelUuids: [],
@@ -1090,7 +1137,14 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
 		await chooseChoice("Automation type", "Conditional alert");
-		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
+		const addFilter = screen.getByRole("button", { name: "Recipient filter" });
+		expect(addFilter).toHaveProperty("disabled", true);
+		expect(
+			screen.getByText(/Nova does not combine filters with case/).textContent,
+		).toContain("unknown runtime type");
+		await chooseChoice("Recipient 1", "Case owner");
+		expect(addFilter).toHaveProperty("disabled", false);
+		fireEvent.click(addFilter);
 		const first = screen.getByRole("textbox", {
 			name: "Exact literal value 1",
 		});
@@ -1098,6 +1152,16 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Accepted value" }));
 		await chooseChoice("Value 2 type", "Value from this case");
 		await chooseChoice("Case property", "case_color");
+		const propertyTrigger = screen.getByRole("combobox", {
+			name: "Case property",
+		});
+		const descriptionId = propertyTrigger.getAttribute("aria-describedby");
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+			"Required on every triggering case",
+		);
+		expect(
+			screen.getByText(/Every triggering case must contain that property/),
+		).toBeTruthy();
 		fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
 			target: { value: "Reminder" },
 		});

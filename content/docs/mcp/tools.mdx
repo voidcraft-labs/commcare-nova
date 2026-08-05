@@ -342,7 +342,9 @@ to `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
 `external_id` remain unchanged. `case_id` and `case_type` are read-only.
 `status` is refused because Nova text and HQ's boolean field differ. Standard
 datetime properties allow date or blankness conditions, not equality or regex,
-and restart/event-time slots accept custom case properties only. Concrete HQ
+and restart/event-time slots accept custom case properties only. A
+case-property event time must be `H:MM` or `HH:MM`; HQ uses 12:00 PM when the
+value is blank, missing, or malformed. Concrete HQ
 worker/group recipient IDs must be nonblank and have no surrounding whitespace.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients. Returned guidance states that
@@ -355,7 +357,12 @@ location-level filters require descendants, and each worker-property filter key
 appears once. Each filter value is either an exact `literal` (empty and
 surrounding whitespace are meaningful) or a structural `case-property` value
 with `(caseType, property)` identity. Never encode a lookup as brace-wrapped
-literal text: HQ interprets that string dynamically. Multiple keys/values or
+literal text: HQ interprets that string dynamically. Every triggering case
+must contain a referenced property because HQ raises when its direct lookup is
+missing. HQ applies filters only to user-account recipients, so the schema
+refuses filters with case, parent/child-case, case-email, case-group, or
+registered custom recipients; those results bypass filters or have an unknown
+runtime type. Multiple keys/values or
 exact empty/whitespace values require HQ's JSON filter mode and the returned
 guide names its system-administrator prerequisite.
 

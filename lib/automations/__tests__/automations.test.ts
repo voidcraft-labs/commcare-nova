@@ -9,6 +9,7 @@ import {
 	type Automation,
 	type AutomationSchedule,
 	automationMessageText,
+	automationRecipientSupportsUserDataFilter,
 	automationSchema,
 	type BlueprintDoc,
 	isAutomationImplicitTextReadProperty,
@@ -69,6 +70,27 @@ describe("automation domain and projections", () => {
 			true,
 		);
 		expect(isAutomationMessageShadowedCaseProperty("owner_id")).toBe(false);
+		for (const kind of [
+			"owner",
+			"last-submitting-user",
+			"case-property-username",
+			"case-property-user-id",
+			"location",
+			"mobile-worker",
+			"user-group",
+		] as const) {
+			expect(automationRecipientSupportsUserDataFilter(kind)).toBe(true);
+		}
+		for (const kind of [
+			"self",
+			"parent-case",
+			"all-child-cases",
+			"case-property-email",
+			"case-group",
+			"custom",
+		] as const) {
+			expect(automationRecipientSupportsUserDataFilter(kind)).toBe(false);
+		}
 	});
 
 	it("labels duplicate form names by their published app and module path", () => {
@@ -754,6 +776,9 @@ describe("automation domain and projections", () => {
 				},
 			],
 		});
+		alert.recipients = [
+			{ uuid: testUuid("filter-value-owner"), kind: "owner" },
+		];
 		const userPropertyUuid = testUuid("filter-value-user-property");
 		const filter = {
 			uuid: testUuid("filter-value-row"),
@@ -797,6 +822,72 @@ describe("automation domain and projections", () => {
 				],
 			}).success,
 		).toBe(false);
+	});
+
+	it("refuses recipient filters that HQ would bypass for non-user contacts", () => {
+		const alert = alertWithSchedule({
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("recipient-filter-scope-event"),
+					minutesToWait: 0,
+					content: { kind: "sms", message: automationMessageText("Hello") },
+				},
+			],
+		});
+		const filter = {
+			uuid: testUuid("recipient-filter-scope-filter"),
+			userPropertyUuid: testUuid("recipient-filter-scope-property"),
+			values: [{ kind: "literal" as const, value: "nurse" }],
+		};
+
+		for (const recipient of [
+			{ uuid: testUuid("filtered-self"), kind: "self" as const },
+			{ uuid: testUuid("filtered-parent"), kind: "parent-case" as const },
+			{ uuid: testUuid("filtered-children"), kind: "all-child-cases" as const },
+			{
+				uuid: testUuid("filtered-email"),
+				kind: "case-property-email" as const,
+				property: "email",
+			},
+			{
+				uuid: testUuid("filtered-case-group"),
+				kind: "case-group" as const,
+				hqId: "cases",
+			},
+			{
+				uuid: testUuid("filtered-custom"),
+				kind: "custom" as const,
+				registeredId: "recipient_handler",
+			},
+		]) {
+			const parsed = automationSchema.safeParse({
+				...alert,
+				recipients: [recipient],
+				userDataFilters: [filter],
+			});
+			expect(parsed.success).toBe(false);
+			if (!parsed.success) {
+				expect(parsed.error.issues).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							path: ["recipients", 0, "kind"],
+							message: expect.stringContaining(
+								"applies these filters only to recipients that resolve to user accounts",
+							),
+						}),
+					]),
+				);
+			}
+		}
+
+		expect(
+			automationSchema.safeParse({
+				...alert,
+				recipients: [{ uuid: testUuid("filtered-owner"), kind: "owner" }],
+				userDataFilters: [filter],
+			}).success,
+		).toBe(true);
 	});
 
 	it("refuses values and HTML-form shapes CommCare HQ would rewrite or reject", () => {
@@ -1325,6 +1416,7 @@ describe("automation domain and projections", () => {
 				},
 			],
 		});
+		base.recipients = [{ uuid: testUuid("guide-filter-owner"), kind: "owner" }];
 		const complex: Extract<Automation, { kind: "conditional-alert" }> = {
 			...base,
 			setupOnlyCriteria: [
@@ -1376,6 +1468,15 @@ describe("automation domain and projections", () => {
 		expect(caveats).toContain("registered custom criterion");
 		expect(caveats).toContain(
 			"JSON recipient-filter mode only to system administrators",
+		);
+		expect(caveats).toContain(
+			"evaluates recipient filters only for contacts that resolve to user accounts",
+		);
+		expect(caveats).toContain(
+			"Every triggering case must contain case property case_color",
+		);
+		expect(caveats).toContain(
+			"a missing property raises an error instead of acting like an empty accepted value",
 		);
 
 		const simple = buildAutomationSetupGuide(
@@ -1446,6 +1547,32 @@ describe("automation domain and projections", () => {
 		);
 		expect(customText).toContain("day 1 in the HQ editor");
 		expect(customText).not.toContain("day 0");
+		if (customDaily.schedule.kind !== "timed") {
+			throw new Error("expected timed schedule");
+		}
+
+		const propertyTimeText = buildAutomationSetupGuide(
+			buildDoc({ appName: "Property-time guide" }),
+			{
+				...customDaily,
+				uuid: testUuid("guide-property-time-alert"),
+				schedule: {
+					...customDaily.schedule,
+					events: customDaily.schedule.events.map((event) => ({
+						...event,
+						uuid: testUuid("guide-property-time-event"),
+						timing: {
+							kind: "case-property-time" as const,
+							property: "preferred_time",
+						},
+					})),
+				},
+			},
+			[],
+		).steps.join(" ");
+		expect(propertyTimeText).toContain("store H:MM or HH:MM");
+		expect(propertyTimeText).toContain("falls back to 12:00 PM");
+		expect(propertyTimeText).toContain("blank, missing, or malformed");
 
 		const fixedCustomDaily = automationSchema.parse(
 			alertWithSchedule({

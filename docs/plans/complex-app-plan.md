@@ -209,7 +209,8 @@ check. `status` is refused because Nova's open/closed text is not HQ's boolean
 because HQ compares its datetime object with authored text without coercion.
 Restart-on-change and case-property event-time fields accept
 custom properties only because their HQ runtime reads `dynamic_case_properties`
-rather than any standard scalar field. A case update may set case, parent, or host properties from a literal
+rather than any standard scalar field. Event-time values accept `H:MM` or
+`HH:MM`; blank, missing, or malformed values fall back to 12:00 PM. A case update may set case, parent, or host properties from a literal
 or property value and may close the case. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` is deliberately absent because it is one
 project-wide switch that evaluates every active update rule for a saved case
@@ -226,7 +227,12 @@ nonblank, and user-data filters have one structural value list per worker
 property. A value is either an exact literal, including empty or whitespace, or
 an explicit custom case-property reference carrying `(caseType, property)`
 identity. Brace-wrapped literals are refused because HQ would execute them as
-case lookups. The guide emits exact JSON when multiple keys/values or exact
+case lookups. Every triggering case must carry each referenced property because
+HQ indexes `case_json[property]` directly and raises if it is missing. HQ
+applies filters only to `CouchUser` contacts, so the canonical gate excludes
+case, parent/child-case, case-email, case-group, and registered custom
+recipients whenever filters exist; known non-users bypass the filter and a
+custom handler's runtime type cannot be proven. The guide emits exact JSON when multiple keys/values or exact
 blank/whitespace values require HQ's system-admin-only JSON mode on a new alert.
 IVR and SMS/callback survive only so a historical
 configuration remains representable; current HQ refuses new activation, which

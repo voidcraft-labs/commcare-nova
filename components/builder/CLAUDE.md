@@ -331,6 +331,12 @@ away. Each worker-property filter can be added once. Its accepted values are
 individual literal/case-property rows: literal inputs preserve empty and exact
 whitespace, case-property rows resolve custom properties by identity, and the
 guide announces when the resulting exact JSON needs an HQ system administrator.
+HQ filters only contacts that resolve to user accounts, so adding a filter
+disables the case, parent/child-case, case-email, case-group, and registered
+custom recipient choices; with any such recipient already selected, adding a
+filter is disabled and the visible note explains the runtime scope. A
+case-property filter value says that every triggering case must contain the
+property because HQ's direct lookup raises if it is missing.
 Closed-parent exposes no custom index or relationship. Exact HQ
 literal inputs start nonblank, and switching dependent schedule choices clears
 values the new form cannot save.
@@ -348,6 +354,8 @@ Weekly/Monthly timing and content edits fan out to every event. Human day fields
 use HQ's one-based Custom Daily values and exact Monthly day set. Weekly labels
 project the stored offset through the schedule start weekday; changing the
 start remaps and re-sorts offsets so the selected absolute weekdays stay fixed.
+Case-property timing names HQ's accepted `H:MM` / `HH:MM` runtime values and
+its 12:00 PM fallback for blank, missing, or malformed case data.
 Dependent
 survey controls clear and disable the same way HQ's form does, while the domain
 gate remains the final cross-field authority.

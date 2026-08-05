@@ -241,6 +241,105 @@ describe("case parent relationship scan-then-migrate", () => {
 		});
 	});
 
+	test("refuses a receipt-proven row after a historical whole-catalog replacement", async ({
+		db,
+		pgClient,
+	}) => {
+		const historicalCatalogId = "historical-catalog-extension";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({ case_id: PARENT_ID, case_type: "household" }),
+				makeCaseRow({
+					case_id: historicalCatalogId,
+					case_type: "visit",
+					parent_case_id: PARENT_ID,
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: historicalCatalogId,
+				ancestor_id: PARENT_ID,
+				identifier: "parent",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+		await seedReceipt(db, {
+			entryKey: "ordinary-before-legacy-catalog",
+			createdAt: new Date("2026-08-01T00:00:00.000Z"),
+			childCaseIds: [historicalCatalogId],
+		});
+
+		// The fixture's app genesis is sequence 1, which is the exact sequence
+		// recorded by the completed receipt above. Insert the historical mutation
+		// shape directly into the real permanent log at N + 1: it is intentionally
+		// absent from the current Mutation type but remains valid stored history.
+		await pgClient.query(
+			`
+				INSERT INTO app_changes (
+					app_id,
+					seq,
+					batch_id,
+					run_id,
+					actor_id,
+					kind,
+					mutations,
+					from_project_id,
+					to_project_id,
+					ts
+				)
+				VALUES ($1, 2, $2, NULL, $3, 'autosave', $4::jsonb, NULL, NULL, $5)
+			`,
+			[
+				APP_ID,
+				"historical-set-case-types",
+				"historical-editor",
+				JSON.stringify([
+					{
+						kind: "setCaseTypes",
+						caseTypes: blueprint.caseTypes,
+					},
+				]),
+				new Date("2026-08-01T00:00:01.000Z"),
+			],
+		);
+
+		const findings = await findCaseParentRelationshipFindings(db, {
+			appId: APP_ID,
+			projectId: PROJECT_ID,
+			blueprint,
+		});
+		expect(findings).toEqual([
+			expect.objectContaining({
+				caseId: historicalCatalogId,
+				standing: "catalog-changed",
+			}),
+		]);
+
+		const candidates = findings.filter(
+			(finding) => finding.standing === "repairable-ordinary",
+		);
+		expect(
+			await repairCaseParentRelationships(db, {
+				appId: APP_ID,
+				projectId: PROJECT_ID,
+				caseType: "visit",
+				parentType: "household",
+				caseIds: candidates.map((candidate) => candidate.caseId),
+			}),
+		).toEqual([]);
+		expect(
+			await db
+				.selectFrom("case_indices")
+				.select("relationship")
+				.where("case_id", "=", historicalCatalogId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ relationship: "child" });
+	});
+
 	test("uses one text-array bind for candidate lists beyond PostgreSQL's parameter ceiling", async ({
 		db,
 	}) => {

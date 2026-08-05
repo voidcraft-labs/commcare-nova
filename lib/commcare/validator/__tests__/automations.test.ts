@@ -454,6 +454,20 @@ describe("automation HQ property-slot compatibility", () => {
 			},
 		];
 		expect(validateOne(alert)).toEqual([]);
+		alert.recipients = [
+			{ uuid: testUuid("validator-filtered-case"), kind: "self" },
+		];
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				message: expect.stringContaining("non-user contacts bypass"),
+				details: expect.objectContaining({
+					path: "recipients.0.kind",
+				}),
+			}),
+		]);
+		alert.recipients = [
+			{ uuid: testUuid("validator-alert-owner"), kind: "owner" },
+		];
 		const filter = alert.userDataFilters[0];
 		if (filter === undefined) throw new Error("missing recipient filter");
 

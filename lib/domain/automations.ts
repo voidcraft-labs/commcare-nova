@@ -723,7 +723,10 @@ export const timedEventTimingSchema = z.discriminatedUnion("kind", [
 			kind: z.literal("case-property-time"),
 			property: z.string().min(1).max(126),
 		})
-		.strict(),
+		.strict()
+		.describe(
+			"Read a custom case property at send time. CommCare HQ accepts H:MM or HH:MM and falls back to 12:00 when the property is blank, missing, or malformed.",
+		),
 ]);
 
 export const automationImmediateEventSchema = z
@@ -1125,7 +1128,10 @@ export const automationUserDataFilterValueSchema = z.discriminatedUnion(
 				caseType: z.string().min(1).max(126),
 				property: z.string().min(1).max(126),
 			})
-			.strict(),
+			.strict()
+			.describe(
+				"Use the triggering case's custom property as an accepted worker-filter value. Every triggering case must contain this property because CommCare HQ directly indexes it and raises an error when it is missing.",
+			),
 	],
 );
 export type AutomationUserDataFilterValue = z.infer<
@@ -1241,20 +1247,40 @@ function validateHtmlCriteriaShape(
 	}
 }
 
-const CONNECT_INCOMPATIBLE_RECIPIENT_KINDS = new Set<
-	AutomationRecipient["kind"]
->([
-	"self",
-	"parent-case",
-	"all-child-cases",
-	"case-property-email",
-	"case-group",
-]);
+const AUTOMATION_RECIPIENT_CAPABILITIES = {
+	self: { connect: false, userDataFilter: false },
+	owner: { connect: true, userDataFilter: true },
+	"last-submitting-user": { connect: true, userDataFilter: true },
+	"parent-case": { connect: false, userDataFilter: false },
+	"all-child-cases": { connect: false, userDataFilter: false },
+	"case-property-username": { connect: true, userDataFilter: true },
+	"case-property-user-id": { connect: true, userDataFilter: true },
+	"case-property-email": { connect: false, userDataFilter: false },
+	location: { connect: true, userDataFilter: true },
+	"mobile-worker": { connect: true, userDataFilter: true },
+	"user-group": { connect: true, userDataFilter: true },
+	"case-group": { connect: false, userDataFilter: false },
+	// A registered handler may return any HQ contact type. Nova cannot prove
+	// that its result reaches the CouchUser-only recipient-filter branch.
+	custom: { connect: true, userDataFilter: false },
+} as const satisfies Readonly<
+	Record<
+		AutomationRecipient["kind"],
+		{ readonly connect: boolean; readonly userDataFilter: boolean }
+	>
+>;
 
 export function automationRecipientSupportsConnect(
 	kind: AutomationRecipient["kind"],
 ): boolean {
-	return !CONNECT_INCOMPATIBLE_RECIPIENT_KINDS.has(kind);
+	return AUTOMATION_RECIPIENT_CAPABILITIES[kind].connect;
+}
+
+/** HQ applies worker/user-case recipient filters only to CouchUser contacts. */
+export function automationRecipientSupportsUserDataFilter(
+	kind: AutomationRecipient["kind"],
+): boolean {
+	return AUTOMATION_RECIPIENT_CAPABILITIES[kind].userDataFilter;
 }
 
 function validateConditionalAlert(
@@ -1332,6 +1358,17 @@ function validateConditionalAlert(
 			});
 		} else {
 			seenUserProperties.add(filter.userPropertyUuid);
+		}
+	}
+	if (automation.userDataFilters.length > 0) {
+		for (const [index, recipient] of automation.recipients.entries()) {
+			if (!automationRecipientSupportsUserDataFilter(recipient.kind)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["recipients", index, "kind"],
+					message: `${recipient.kind} recipients cannot be combined with recipient filters. CommCare HQ applies these filters only to recipients that resolve to user accounts; non-user contacts bypass every filter, and a registered custom recipient's runtime type is unknowable.`,
+				});
+			}
 		}
 	}
 

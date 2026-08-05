@@ -73,6 +73,12 @@ function changesAncestry(
 	mutation: Readonly<Record<string, unknown>>,
 	caseType: string,
 ): boolean {
+	// `setCaseTypes` was the historical whole-catalog mutation. Permanent
+	// app_changes rows can still contain it even though current writers only
+	// emit granular catalog mutations. Because replacing the whole catalog
+	// could have changed any current type's ancestry, every later occurrence is
+	// conservatively ambiguous for every current extension type.
+	if (mutation.kind === "setCaseTypes") return true;
 	if (mutation.caseType !== caseType) return false;
 	if (
 		mutation.kind === "declareCaseType" ||
@@ -281,7 +287,7 @@ export async function findCaseParentRelationshipFindings(
 				parentCaseId: first.parent_case_id,
 				standing: "catalog-changed",
 				detail:
-					"the case type ancestry declaration changed after the ordinary child receipt",
+					"the case type ancestry declaration or historical whole-catalog replacement changed after the ordinary child receipt",
 			});
 			continue;
 		}
