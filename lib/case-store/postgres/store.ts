@@ -274,6 +274,78 @@ function automationRelationIndexFilter(args: {
 	)`;
 }
 
+/** HQ's day-offset criteria compare calendar dates, not instants. Dynamic
+ * date/datetime values are schema-canonical ISO strings, so taking the leading
+ * date component preserves an explicit offset's authored calendar day instead
+ * of routing it through the Postgres session timezone. Standard timestamps are
+ * stored in UTC and are truncated there, matching HQ's model datetime. */
+function automationCriterionDateForAlias(alias: string, property: string) {
+	const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	if (scalar !== undefined) {
+		return sql<Date | null>`timezone('UTC', ${sql.ref(`${alias}.${scalar.column}`)})::date`;
+	}
+	const storedJson = sql<unknown | null>`${sql.ref(
+		`${alias}.properties`,
+	)} -> ${property}`;
+	const storedText = sql<string | null>`${sql.ref(
+		`${alias}.properties`,
+	)} ->> ${property}`;
+	return sql<Date | null>`case
+		when jsonb_typeof(${storedJson}) = 'string'
+			then substring(${storedText} from 1 for 10)::date
+		else null
+	end`;
+}
+
+function automationDateCriterionClause(criterion: {
+	readonly property: string;
+	readonly days: number;
+	readonly matchType:
+		| "date-days-before"
+		| "date-days-lte"
+		| "date-days-gt"
+		| "date-days";
+	readonly scope: "case" | "parent" | "host";
+}) {
+	const comparisonForAlias = (alias: string) => {
+		const storedDate = automationCriterionDateForAlias(
+			alias,
+			criterion.property,
+		);
+		const today = sql<Date>`timezone('UTC', now())::date`;
+		const threshold = sql<Date>`${storedDate} + ${criterion.days}::integer`;
+		switch (criterion.matchType) {
+			case "date-days-before":
+				return sql<boolean>`${today} < ${threshold}`;
+			case "date-days-lte":
+				return sql<boolean>`${today} <= ${threshold}`;
+			case "date-days-gt":
+				return sql<boolean>`${today} > ${threshold}`;
+			case "date-days":
+				return sql<boolean>`${today} >= ${threshold}`;
+		}
+	};
+	if (criterion.scope === "case") return comparisonForAlias("c");
+	const relatedComparison = comparisonForAlias("automation_date_related");
+	return sql<boolean>`exists (
+		select 1
+		from case_indices as automation_date_index
+		join cases as automation_date_related
+			on automation_date_related.case_id = automation_date_index.ancestor_id
+			and automation_date_related.app_id = c.app_id
+			and automation_date_related.project_id = c.project_id
+		where automation_date_index.case_id = c.case_id
+			and ${automationRelationIndexFilter({
+				scope: criterion.scope,
+				caseAlias: "c",
+				indexAlias: "automation_date_index",
+				firstHostAlias: "automation_date_first_host",
+			})}
+			and automation_date_index.depth = 1
+			and ${relatedComparison}
+	)`;
+}
+
 /** The Postgres-backed implementation of `CaseStore`. */
 export class PostgresCaseStore implements CaseStore {
 	/**
@@ -769,9 +841,7 @@ export class PostgresCaseStore implements CaseStore {
 			const group = args.automationCriteria;
 			qb = qb.where((whereEb) => {
 				const clauses = [
-					...(group.predicate === undefined
-						? []
-						: [compilePredicate(group.predicate, ctx)]),
+					...group.dates.map(automationDateCriterionClause),
 					...group.comparisons.map((criterion) => {
 						const comparisonForAlias = (alias: string) => {
 							const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(

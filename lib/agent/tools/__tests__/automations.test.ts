@@ -267,6 +267,75 @@ describe("automation shared tools", () => {
 		]);
 	});
 
+	it("commits and guides automatic-update parent references on an extension case type", async () => {
+		const current = doc();
+		const visit = current.caseTypes?.find(
+			(caseType) => caseType.name === "visit",
+		);
+		if (visit === undefined) throw new Error("missing visit type");
+		visit.parent_type = "household";
+		visit.relationship = "extension";
+		current.caseTypes = [
+			...(current.caseTypes ?? []),
+			{
+				name: "household",
+				properties: [
+					{
+						name: "parent_state",
+						label: { parts: [{ kind: "text", text: "Parent state" }] },
+						data_type: "text",
+					},
+				],
+			},
+		];
+		const baseRule = rule();
+		if (baseRule.kind !== "case-update") {
+			throw new Error("expected automatic update");
+		}
+		const extensionRule: Extract<Automation, { kind: "case-update" }> = {
+			...baseRule,
+			criteria: [
+				{
+					uuid: testUuid("tool-extension-parent-criterion"),
+					kind: "match-property",
+					scope: "parent",
+					property: "parent_state",
+					matchType: "has-value",
+				},
+			],
+			updates: [
+				{
+					uuid: UPDATE_UUID,
+					target: { scope: "parent", property: "parent_state" },
+					value: {
+						kind: "case-property",
+						source: { scope: "parent", property: "parent_state" },
+					},
+				},
+			],
+		};
+		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
+
+		const added = await addAutomationsTool.execute(
+			{ automations: [extensionRule] },
+			makeCtx(),
+			current,
+		);
+
+		expect(added.mutations).toHaveLength(1);
+		expect(added.result).toMatchObject({
+			setupGuides: [
+				{
+					setupGuide: {
+						steps: expect.arrayContaining([
+							expect.stringContaining("parent/parent_state"),
+						]),
+					},
+				},
+			],
+		});
+	});
+
 	it("returns guidance from the merged committed rule after a concurrent edit", async () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
@@ -310,6 +379,55 @@ describe("automation shared tools", () => {
 				},
 			],
 		});
+	});
+
+	it("does not perform a fallible organization read after an add commits", async () => {
+		let committed = false;
+		mocks.readOrganization.mockImplementation(async () => {
+			if (committed) throw new Error("organization changed after commit");
+			return { revision: "1", locations: [] };
+		});
+		const ctx = makeCtx();
+		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
+			committed = true;
+			return { events: [], committedDoc: prepared.nextDoc };
+		});
+
+		const added = await addAutomationsTool.execute(
+			{ automations: [rule()] },
+			ctx,
+			doc(),
+		);
+
+		expect(added.mutations).toHaveLength(1);
+		expect(added.result).not.toHaveProperty("error");
+		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not perform a fallible organization read after an update commits", async () => {
+		const existing = doc();
+		existing.automations = { [RULE_UUID]: rule() };
+		existing.automationOrder = [RULE_UUID];
+		let committed = false;
+		mocks.readOrganization.mockImplementation(async () => {
+			if (committed) throw new Error("organization changed after commit");
+			return { revision: "1", locations: [] };
+		});
+		const ctx = makeCtx();
+		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
+			committed = true;
+			return { events: [], committedDoc: prepared.nextDoc };
+		});
+
+		const updated = await updateAutomationTool.execute(
+			{ automation: { ...rule(), name: "Updated safely" } },
+			ctx,
+			existing,
+		);
+
+		expect(updated.mutations).toHaveLength(1);
+		expect(updated.result).not.toHaveProperty("error");
+		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
 	});
 
 	it("refuses duplicate nested identities and kind changes without saving", async () => {

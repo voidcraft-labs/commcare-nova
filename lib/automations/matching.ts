@@ -1,27 +1,7 @@
 import type { CountArgs } from "@/lib/case-store";
-import type {
-	Automation,
-	AutomationCriterion,
-	BlueprintDoc,
-} from "@/lib/domain";
-import { effectiveCaseTypes, personasOf } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
-import {
-	ancestorPath,
-	and,
-	dateAdd,
-	eq,
-	gt,
-	gte,
-	literal,
-	lt,
-	lte,
-	or,
-	prop,
-	relationStep,
-	term,
-	today,
-} from "@/lib/domain/predicate/builders";
+import type { Automation, BlueprintDoc } from "@/lib/domain";
+import { personasOf } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/predicate/builders";
 import type { StoredLocation } from "@/lib/organization/types";
 
 export interface AutomationMatchProjection {
@@ -32,62 +12,26 @@ export interface AutomationMatchProjection {
 	readonly omittedCriteria: readonly string[];
 }
 
-function propertyCriterion(
-	doc: BlueprintDoc,
-	automation: Automation,
-	criterion: Extract<AutomationCriterion, { kind: "match-property" }>,
-): Predicate | undefined {
-	const source = effectiveCaseTypes(doc).find(
-		(caseType) => caseType.name === automation.caseType,
-	);
-	const property = prop(
-		automation.caseType,
-		criterion.property,
-		criterion.scope === "case"
-			? undefined
-			: ancestorPath(relationStep(criterion.scope, source?.parent_type)),
-	);
-	switch (criterion.matchType) {
-		case "equal":
-		case "not-equal":
-		case "has-value":
-		case "has-no-value":
-		case "regex":
-			return undefined;
-		case "date-days-before":
-		case "date-days-lte":
-		case "date-days-gt":
-		case "date-days": {
-			const threshold = dateAdd(
-				term(property),
-				"days",
-				term(literal(criterion.days ?? 0)),
-			);
-			if (criterion.matchType === "date-days-before") {
-				return lt(today(), threshold);
-			}
-			if (criterion.matchType === "date-days-lte") {
-				return lte(today(), threshold);
-			}
-			if (criterion.matchType === "date-days-gt") {
-				return gt(today(), threshold);
-			}
-			return gte(today(), threshold);
-		}
-	}
-}
-
 /**
  * Lower the locally evaluable part of one automation into the case store's
- * existing Predicate→Kysely path. Setup-only prose and HQ server-modified age
- * are returned as explicit omissions instead of influencing the count.
+ * same count query. Setup-only prose and HQ server-modified age are returned as
+ * explicit omissions instead of influencing the count.
  */
 export function automationMatchProjection(
 	doc: BlueprintDoc,
 	automation: Automation,
 	locations: readonly StoredLocation[] = [],
 ): AutomationMatchProjection {
-	const predicates: Predicate[] = [];
+	const dates: {
+		property: string;
+		days: number;
+		matchType:
+			| "date-days-before"
+			| "date-days-lte"
+			| "date-days-gt"
+			| "date-days";
+		scope: "case" | "parent" | "host";
+	}[] = [];
 	const comparisons: {
 		property: string;
 		value: string;
@@ -168,8 +112,12 @@ export function automationMatchProjection(
 					scope: criterion.scope,
 				});
 			} else {
-				const lowered = propertyCriterion(doc, automation, criterion);
-				if (lowered !== undefined) predicates.push(lowered);
+				dates.push({
+					property: criterion.property,
+					days: criterion.days ?? 0,
+					matchType: criterion.matchType,
+					scope: criterion.scope,
+				});
 			}
 			continue;
 		}
@@ -187,14 +135,6 @@ export function automationMatchProjection(
 		}
 	}
 
-	const groupedPredicate =
-		predicates.length === 0
-			? undefined
-			: predicates.length === 1
-				? predicates[0]
-				: automation.criteriaOperator === "all"
-					? and(predicates[0], predicates[1], ...predicates.slice(2))
-					: or(predicates[0], predicates[1], ...predicates.slice(2));
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map(
 			(criterion) =>
@@ -214,9 +154,7 @@ export function automationMatchProjection(
 			predicate: eq(prop(automation.caseType, "status"), literal("open")),
 			automationCriteria: {
 				operator: automation.criteriaOperator,
-				...(groupedPredicate === undefined
-					? {}
-					: { predicate: groupedPredicate }),
+				dates,
 				comparisons,
 				regexes,
 				blankness,

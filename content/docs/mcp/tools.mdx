@@ -328,7 +328,9 @@ not a caller-selected index or extension. Names must be nonblank and already
 trimmed. Equality and fixed-update literals must be exact, nonblank, unquoted
 stored values, and alert regex patterns must be nonempty. Web users are not a recipient arm.
 Date conditions compare the current date directly with the property date plus
-a signed day offset.
+a signed day offset. If the property is a datetime, HQ and Preview use its
+written calendar date and discard the time and explicit offset before adding
+days.
 Both automation families accept at most one UUID-backed location condition
 with an explicit descendant flag. HQ's runtime and form POST accept it, though
 the current visible editors hide the picker; returned guidance states the
@@ -410,7 +412,8 @@ the `parent` identifier regardless of relationship; host reads use the first
 extension regardless of identifier, with the canonical `parent` extension
 preferred when several exist. Alert regex
 matching applies only to stored strings; Nova does not coerce numeric or
-boolean case values to text.
+boolean case values to text. Date conditions use the same relation selection
+and compare only the property's written calendar date, never its time of day.
 
 | Tool | What it does |
 |---|---|

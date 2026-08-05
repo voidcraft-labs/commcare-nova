@@ -42,12 +42,15 @@ function flag(ctx: AutomationContext, message: string, path: string): void {
 function scopedCaseType(
 	ctx: AutomationContext,
 	target: AutomationPropertyTarget,
+	semantics: "automation-property" | "message-template" = "automation-property",
 ): ReturnType<typeof effectiveCaseTypes>[number] | undefined {
 	const source = ctx.caseTypes.get(ctx.automation.caseType);
 	if (target.scope === "case") return source;
 	if (source?.parent_type === undefined) return undefined;
 	if (
-		(target.scope === "parent" && source.relationship === "extension") ||
+		(semantics === "message-template" &&
+			target.scope === "parent" &&
+			source.relationship === "extension") ||
 		(target.scope === "host" && source.relationship !== "extension")
 	) {
 		return undefined;
@@ -60,8 +63,9 @@ function validatePropertyTarget(
 	target: AutomationPropertyTarget,
 	path: string,
 	slot: AutomationHqPropertySlot = "read",
+	semantics: "automation-property" | "message-template" = "automation-property",
 ): void {
-	const caseType = scopedCaseType(ctx, target);
+	const caseType = scopedCaseType(ctx, target, semantics);
 	if (caseType === undefined) {
 		flag(
 			ctx,
@@ -99,7 +103,7 @@ function validateTemplate(
 	for (const [index, part] of template.parts.entries()) {
 		if (part.kind !== "case-property") continue;
 		const partPath = `${path}.parts.${index}`;
-		const scoped = scopedCaseType(ctx, part);
+		const scoped = scopedCaseType(ctx, part, "message-template");
 		if (scoped !== undefined && scoped.name !== part.caseType) {
 			flag(
 				ctx,
@@ -108,7 +112,7 @@ function validateTemplate(
 			);
 			continue;
 		}
-		validatePropertyTarget(ctx, part, partPath, "read");
+		validatePropertyTarget(ctx, part, partPath, "read", "message-template");
 	}
 }
 

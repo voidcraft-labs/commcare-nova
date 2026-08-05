@@ -14,6 +14,7 @@ function docWithCriterion(
 	scope: "case" | "parent" | "host",
 	property: string,
 	matchType: "has-value" | "equal" | "date-days",
+	relationship: "child" | "extension" = "child",
 ): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Automation validation",
@@ -25,7 +26,7 @@ function docWithCriterion(
 			{
 				name: "visit",
 				parent_type: "household",
-				relationship: "child",
+				relationship,
 				properties: [{ name: "due", label: "Due", data_type: "date" }],
 			},
 		],
@@ -65,6 +66,80 @@ describe("automation property criteria validation", () => {
 		expect(
 			validateAutomations(docWithCriterion("parent", "state", "has-value")),
 		).toEqual([]);
+	});
+
+	it("resolves parent criteria and update properties through a canonical extension edge", () => {
+		const doc = docWithCriterion("parent", "state", "has-value", "extension");
+		const automation = Object.values(doc.automations ?? {})[0];
+		if (automation?.kind !== "case-update") {
+			throw new Error("expected automatic update");
+		}
+		automation.updates = [
+			{
+				uuid: testUuid("validator-extension-parent-update"),
+				target: { scope: "parent", property: "state" },
+				value: {
+					kind: "case-property",
+					source: { scope: "parent", property: "state" },
+				},
+			},
+		];
+		automation.closeCase = false;
+
+		expect(validateAutomations(doc)).toEqual([]);
+	});
+
+	it("keeps alert case.parent templates child-only on an extension case type", () => {
+		const doc = docWithCriterion("parent", "state", "has-value", "extension");
+		const uuid = testUuid("validator-extension-parent-template");
+		const alert: Automation = {
+			uuid,
+			kind: "conditional-alert",
+			name: "Extension template",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			recipients: [
+				{ uuid: testUuid("validator-extension-template-owner"), kind: "owner" },
+			],
+			schedule: {
+				kind: "immediate",
+				events: [
+					{
+						uuid: testUuid("validator-extension-template-event"),
+						minutesToWait: 0,
+						content: {
+							kind: "sms",
+							message: {
+								parts: [
+									{
+										kind: "case-property",
+										scope: "parent",
+										caseType: "household",
+										property: "state",
+									},
+								],
+							},
+						},
+					},
+				],
+			},
+			includeDescendantLocations: false,
+			locationLevelUuids: [],
+			userDataFilters: [],
+			useUserCaseForFilter: false,
+		};
+		doc.automations = { [uuid]: alert };
+		doc.automationOrder = [uuid];
+
+		expect(validateAutomations(doc)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					path: "schedule.events.0.content.message.parts.0",
+				}),
+			}),
+		]);
 	});
 
 	it("rejects a scope with no matching relationship", () => {

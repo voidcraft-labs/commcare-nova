@@ -17,6 +17,7 @@ const CUSTOM_HOST_ID = "01890f45-0000-7000-8000-000000000120";
 const CANONICAL_EXTENSION_ID = "01890f45-0000-7000-8000-000000000121";
 const CUSTOM_EXTENSION_ID = "01890f45-0000-7000-8000-000000000122";
 const MULTI_EXTENSION_ID = "01890f45-0000-7000-8000-000000000123";
+const CHILD_IDENTIFIER_HOST_ID = "01890f45-0000-7000-8000-000000000124";
 
 const h = setupPerTestDatabase({ databaseNamePrefix: "automation_match_" });
 
@@ -30,6 +31,11 @@ const schemas = new Map<string, CaseType>([
 					name: "marker",
 					label: proseText("Marker"),
 					data_type: "text",
+				},
+				{
+					name: "due_at",
+					label: proseText("Due at"),
+					data_type: "datetime",
 				},
 			],
 		},
@@ -55,6 +61,11 @@ const schemas = new Map<string, CaseType>([
 					name: "attempts",
 					label: proseText("Attempts"),
 					data_type: "int",
+				},
+				{
+					name: "due_at",
+					label: proseText("Due at"),
+					data_type: "datetime",
 				},
 			],
 		},
@@ -172,6 +183,7 @@ describe("automation criteria SQL", () => {
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
 					operator,
+					dates: [],
 					comparisons: [],
 					regexes: [],
 					blankness: [],
@@ -194,6 +206,7 @@ describe("automation criteria SQL", () => {
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
 					operator: "all",
+					dates: [],
 					comparisons: [],
 					regexes: [],
 					blankness: [],
@@ -223,6 +236,7 @@ describe("automation criteria SQL", () => {
 				predicate: openAtFacility,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [],
 					regexes: [{ property: "code", pattern: "ABC-[0-9]+" }],
 					blankness: [],
@@ -245,6 +259,7 @@ describe("automation criteria SQL", () => {
 				predicate: eq(prop("visit", "status"), literal("open")),
 				automationCriteria: {
 					operator: "any",
+					dates: [],
 					comparisons: [],
 					regexes: [{ property: "code", pattern: "never" }],
 					blankness: [],
@@ -274,6 +289,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [],
 					regexes: [],
 					blankness: [
@@ -289,6 +305,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [],
 					regexes: [],
 					blankness: [
@@ -304,6 +321,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [],
 					regexes: [{ property: "code", pattern: "[0-9]+" }],
 					blankness: [],
@@ -328,6 +346,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [],
 					regexes: [],
 					blankness: [{ property: "marker", hasValue, scope }],
@@ -361,6 +380,7 @@ describe("automation criteria SQL", () => {
 				...base,
 				automationCriteria: {
 					operator: "all" as const,
+					dates: [],
 					comparisons: [comparison],
 					regexes: [],
 					blankness: [],
@@ -461,5 +481,109 @@ describe("automation criteria SQL", () => {
 				scope: "host",
 			}),
 		).resolves.toBe(1);
+	});
+
+	it("matches HQ calendar-day offsets through parent and first-extension host semantics", async () => {
+		await insertExtensionFixtures();
+		const clock = await h.pool.query<{ today: string; tomorrow: string }>(
+			`SELECT
+			 to_char(timezone('UTC', now())::date, 'YYYY-MM-DD') AS today,
+			 to_char(timezone('UTC', now())::date + 1, 'YYYY-MM-DD') AS tomorrow`,
+		);
+		const today = clock.rows[0]?.today;
+		const tomorrow = clock.rows[0]?.tomorrow;
+		if (today === undefined || tomorrow === undefined) {
+			throw new Error("missing database clock");
+		}
+		await h.pool.query(
+			`UPDATE cases
+			 SET properties = properties || jsonb_build_object('due_at', $1::text)
+			 WHERE case_id = $2`,
+			[`${today}T23:30:00-08:00`, PARENT_ID],
+		);
+		await h.pool.query(
+			`UPDATE cases
+			 SET properties = properties || jsonb_build_object('due_at', $1::text)
+			 WHERE case_id = $2`,
+			[`${tomorrow}T01:00:00+14:00`, CUSTOM_HOST_ID],
+		);
+		await h.pool.query(
+			`UPDATE cases
+			 SET properties = properties || jsonb_build_object('due_at', $1::text)
+			 WHERE case_id = '01890f45-0000-7000-8000-000000000102'`,
+			[`${today}T23:30:00-08:00`],
+		);
+		await h.pool.query(
+			`INSERT INTO cases
+			 (case_id, app_id, project_id, owner_id, case_type, case_name,
+			  status, closed_on, properties)
+			 VALUES
+			 ($1, $2, $3, 'facility-a', 'visit', 'Child link named host',
+			  'open', null, '{}'::jsonb)`,
+			[CHILD_IDENTIFIER_HOST_ID, APP_ID, PROJECT_ID],
+		);
+		await h.pool.query(
+			`INSERT INTO case_indices
+			 (case_id, identifier, relationship, ancestor_id, depth)
+			 VALUES ($1, 'host', 'child', $2, 1)`,
+			[CHILD_IDENTIFIER_HOST_ID, CUSTOM_HOST_ID],
+		);
+
+		const caseStore = store();
+		const count = (
+			scope: "case" | "parent" | "host",
+			matchType:
+				| "date-days-before"
+				| "date-days-lte"
+				| "date-days-gt"
+				| "date-days",
+		) =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					operator: "all",
+					dates: [
+						{
+							property: "due_at",
+							days: 0,
+							matchType,
+							scope,
+						},
+					],
+					comparisons: [],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		for (const [matchType, expected] of [
+			["date-days-before", 0],
+			["date-days-lte", 1],
+			["date-days-gt", 0],
+			["date-days", 1],
+		] as const) {
+			await expect(count("case", matchType)).resolves.toBe(expected);
+		}
+		for (const [matchType, expected] of [
+			["date-days-before", 0],
+			["date-days-lte", 4],
+			["date-days-gt", 0],
+			["date-days", 4],
+		] as const) {
+			await expect(count("parent", matchType)).resolves.toBe(expected);
+		}
+		for (const [matchType, expected] of [
+			["date-days-before", 1],
+			["date-days-lte", 4],
+			["date-days-gt", 0],
+			["date-days", 3],
+		] as const) {
+			await expect(count("host", matchType)).resolves.toBe(expected);
+		}
 	});
 });

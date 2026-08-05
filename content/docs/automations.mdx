@@ -184,6 +184,9 @@ the canonical `parent` extension when several exist. A missing parent/host
 relation does not satisfy either comparison;
 surrounding whitespace is blank for **has value / has no value**; and regular
 expressions test strings only rather than coercing numbers or booleans to text.
+Date conditions use those same parent/host rules. HQ and Preview both discard a
+datetime's time of day and explicit offset before adding the signed day offset,
+so the comparison uses the calendar date written in the property.
 
 Closed cases are always excluded. A rule with no ordinary criteria is valid;
 for example, a claim-cleanup rule can use only HQ's server-modified boundary and

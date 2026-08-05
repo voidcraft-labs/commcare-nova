@@ -219,14 +219,23 @@ export type CountArgs =
 			/** Runtime values for input/session terms used by the predicate. */
 			bindings?: TermBindings;
 			predicate?: Predicate;
-			/** Local-only automation criterion group. Date leaves use the existing
-			 * typed Predicate AST. String-only comparisons, regexes, and HQ blankness
-			 * stay separate because the general case-search compiler deliberately
-			 * coerces typed properties. The same Kysely query composes the group,
-			 * preserving ALL/ANY without inventing another persisted AST. */
+			/** Local-only automation criterion group. HQ property comparisons,
+			 * relation selection, blankness, and calendar-date arithmetic differ
+			 * intentionally from general case search, so these ephemeral leaves stay
+			 * explicit. The same Kysely query composes the group and preserves ALL/ANY;
+			 * this is not a second persisted automation schema. */
 			automationCriteria?: {
 				operator: "all" | "any";
-				predicate?: Predicate;
+				dates: readonly {
+					property: string;
+					days: number;
+					matchType:
+						| "date-days-before"
+						| "date-days-lte"
+						| "date-days-gt"
+						| "date-days";
+					scope: "case" | "parent" | "host";
+				}[];
 				comparisons: readonly {
 					property: string;
 					value: string;

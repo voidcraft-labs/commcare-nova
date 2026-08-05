@@ -162,6 +162,7 @@ describe("automation domain and projections", () => {
 		const projection = automationMatchProjection(doc, rule);
 		expect(projection.countArgs.automationCriteria).toEqual({
 			operator: "all",
+			dates: [],
 			comparisons: [],
 			regexes: [],
 			blankness: [],
@@ -199,6 +200,7 @@ describe("automation domain and projections", () => {
 				automationMatchProjection(doc, automation).countArgs.automationCriteria,
 			).toEqual({
 				operator: "any",
+				dates: [],
 				comparisons: [],
 				regexes: [],
 				blankness: [],
@@ -254,7 +256,32 @@ describe("automation domain and projections", () => {
 				scope: "case",
 			},
 		]);
-		expect(projection.countArgs.automationCriteria?.predicate).toBeDefined();
+		expect(projection.countArgs.automationCriteria?.dates).toEqual([
+			{
+				property: "due_date",
+				days: 3,
+				matchType: "date-days-before",
+				scope: "case",
+			},
+			{
+				property: "due_date",
+				days: 3,
+				matchType: "date-days-lte",
+				scope: "case",
+			},
+			{
+				property: "due_date",
+				days: 3,
+				matchType: "date-days-gt",
+				scope: "case",
+			},
+			{
+				property: "due_date",
+				days: 3,
+				matchType: "date-days",
+				scope: "case",
+			},
+		]);
 
 		const alert = alertWithSchedule({
 			kind: "immediate",

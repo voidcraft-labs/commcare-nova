@@ -143,6 +143,15 @@ is one exact owner-id set derived before the query from the selected place,
 its requested descendants, and personas whose primary place is in that set;
 the SQL layer combines it under the same ALL/ANY operator and does not read the
 organization store independently.
+**Day-offset date comparisons** use this same automation-specific relation
+resolver rather than the generic identifier path. `parent` follows the
+depth-one `parent` identifier regardless of relationship; `host` follows the
+same deterministic first extension used above, so a child link merely named
+`host` cannot match. HQ converts every resolved datetime to its own calendar
+date before adding the signed day offset. Nova therefore takes an ISO value's
+leading `YYYY-MM-DD` component (preserving an explicit offset's authored day),
+truncates standard UTC timestamps in UTC, and compares UTC today as a date; it
+never preserves the time of day or lets the Postgres session timezone shift it.
 An automation criteria group is never dropped merely because every locally
 evaluable collection is empty: the SQL lowering preserves Python/HQ's boolean
 identity exactly, so `ALL` of zero local criteria is true and `ANY` of zero is

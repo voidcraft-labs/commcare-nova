@@ -198,9 +198,12 @@ export const addAutomationsTool = {
 				});
 				after = automation.uuid;
 			}
+			// Guidance needs the external location catalog. Resolve it before the
+			// authoritative write so no fallible read can turn a successful commit
+			// into an error-shaped tool result and invite a duplicate retry.
+			const locations = (await readOrganization(scope(ctx))).locations;
 			const commit = await guardedMutate(ctx, doc, mutations, "automations");
 			if (!commit.ok) return mutationError(doc, commit.error);
-			const locations = (await readOrganization(scope(ctx))).locations;
 			const names = input.automations.map((automation) => automation.name);
 			return {
 				kind: "mutate",
@@ -265,6 +268,9 @@ export const updateAutomationTool = {
 					},
 				};
 			}
+			// Keep every fallible external projection before the write. The guide
+			// is pure over this authorized snapshot plus the committed document.
+			const locations = (await readOrganization(scope(ctx))).locations;
 			const commit = await guardedMutate(ctx, doc, mutations, "automations");
 			if (!commit.ok) return mutationError(doc, commit.error);
 			const committedAutomation = ownRecordValue(
@@ -277,7 +283,6 @@ export const updateAutomationTool = {
 					"The automation changed concurrently and is no longer available.",
 				);
 			}
-			const locations = (await readOrganization(scope(ctx))).locations;
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,

@@ -426,6 +426,95 @@ describe("explicit app-wide case-property rename", () => {
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 
+	it("indexes and renames automatic-update parent properties through an extension edge", () => {
+		const start = fixture();
+		const patient = start.caseTypes?.[0];
+		if (patient === undefined) throw new Error("missing patient type");
+		patient.parent_type = "household";
+		patient.relationship = "extension";
+		start.caseTypes = [
+			patient,
+			{
+				name: "household",
+				properties: [
+					{
+						name: "state",
+						label: proseText("State"),
+						data_type: "text",
+					},
+				],
+			},
+		];
+		const automationUuid = testUuid("rename-extension-parent-automation");
+		start.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "case-update",
+				name: "Update extension parent",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [
+					{
+						uuid: testUuid("rename-extension-parent-criterion"),
+						kind: "match-property",
+						scope: "parent",
+						property: "state",
+						matchType: "has-value",
+					},
+				],
+				setupOnlyCriteria: [],
+				updates: [
+					{
+						uuid: testUuid("rename-extension-parent-update"),
+						target: { scope: "parent", property: "state" },
+						value: {
+							kind: "case-property",
+							source: { scope: "parent", property: "state" },
+						},
+					},
+				],
+				closeCase: false,
+			},
+		};
+		start.automationOrder = [automationUuid];
+		start.refIndex = buildReferenceIndex(start);
+		expect(
+			referencingSlotsOf(
+				start,
+				casePropertyTargetKey("household", "state"),
+			).get(automationUuid),
+		).toEqual(
+			expect.arrayContaining([
+				"automation_criterion_property",
+				"automation_update_property",
+			]),
+		);
+
+		const next = apply(
+			start,
+			admittedRename({
+				caseType: "household",
+				from: "state",
+				to: "parent_state",
+			}),
+		);
+		const automation = next.automations?.[automationUuid];
+		if (automation?.kind !== "case-update") {
+			throw new Error("missing automatic update");
+		}
+		expect(automation.criteria[0]).toMatchObject({
+			scope: "parent",
+			property: "parent_state",
+		});
+		expect(automation.updates[0]).toMatchObject({
+			target: { scope: "parent", property: "parent_state" },
+			value: {
+				source: { scope: "parent", property: "parent_state" },
+			},
+		});
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+	});
+
 	it.each([
 		["self-rename", [{ caseType: "patient", from: "a", to: "a" }]],
 		[

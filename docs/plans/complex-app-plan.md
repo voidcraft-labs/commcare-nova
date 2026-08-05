@@ -194,7 +194,8 @@ date, parent/host, closed-parent, or server-modified conditions.
 The standard parent-closed condition has no custom index or extension relationship.
 Equality and update literals are exact nonblank, unquoted stored values;
 date criteria compare the current date directly with the property date plus a
-signed day offset; regexes are nonempty and portable. Standard metadata stays
+signed day offset after truncating a datetime to its written calendar date;
+regexes are nonempty and portable. Standard metadata stays
 in Nova vocabulary in the document, then the setup projection translates reads
 and message tokens exactly: `case_type` → `type`, `case_name` → `name`,
 `date_opened` → `opened_on`, and `last_modified` → `modified_on`; `case_id`,
@@ -292,6 +293,9 @@ of relationship; host reads resolve the first extension regardless of
 identifier, deterministically preferring the canonical `parent` extension and
 then identifier/target order. A missing parent/host relation does not satisfy
 either comparison.
+Date comparisons use the same relation resolver. They take an ISO datetime's
+written calendar component before applying the day offset, matching HQ's
+`.date()` behavior without a Postgres session-timezone conversion.
 Whitespace-only strings count as blank and regex evaluation applies only to
 stored strings, matching HQ instead of coercing JSON scalars.
 UCR filters, instance-registered custom criteria, and HQ server-modified age

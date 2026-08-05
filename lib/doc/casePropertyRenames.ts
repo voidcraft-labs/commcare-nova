@@ -242,10 +242,7 @@ function automationScopeCaseType(
 		(caseType) => caseType.name === automation.caseType,
 	);
 	if (source?.parent_type === undefined) return undefined;
-	if (
-		(scope === "parent" && source.relationship === "extension") ||
-		(scope === "host" && source.relationship !== "extension")
-	) {
+	if (scope === "host" && source.relationship !== "extension") {
 		return undefined;
 	}
 	return source.parent_type;
