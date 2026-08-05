@@ -233,8 +233,15 @@ const mocks = vi.hoisted(() => ({
 	levels: [] as { uuid: Uuid; name: string }[],
 	locations: [] as StoredLocation[],
 	canEdit: true,
-	addAutomation: vi.fn(() => ({ ok: true, uuid: "new" })),
-	replaceAutomation: vi.fn(() => ({ ok: true })),
+	addAutomation: vi.fn((_automation: Automation): unknown => ({
+		ok: true,
+		uuid: "new",
+	})),
+	replaceAutomation: vi.fn(
+		(_automation: Automation, _expectedFingerprint?: string): unknown => ({
+			ok: true,
+		}),
+	),
 	removeAutomation: vi.fn(() => ({ ok: true })),
 	preview: vi.fn(),
 }));
@@ -408,6 +415,36 @@ describe("AutomationsSection", () => {
 			"Enter a nonblank automation name without surrounding whitespace.",
 		);
 		expect(mocks.addAutomation).not.toHaveBeenCalled();
+	});
+
+	it("associates a shared commit-gate finding with its automation field", async () => {
+		mocks.addAutomation.mockImplementationOnce((automation: Automation) => ({
+			ok: false,
+			messages: ["Give every automation a distinct name."],
+			findings: [
+				{
+					code: "AUTOMATION_INVALID",
+					scope: "app",
+					message: "Two automations have the same name.",
+					location: {},
+					details: { automationUuid: automation.uuid, path: "name" },
+				},
+			],
+		}));
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toBe("Give every automation a distinct name.");
+		const name = screen.getByRole("textbox", { name: "Name" });
+		expect(name.getAttribute("aria-invalid")).toBe("true");
+		const describedBy = name.getAttribute("aria-describedby");
+		expect(describedBy).not.toBeNull();
+		expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+			"Give every automation a distinct name.",
+		);
 	});
 
 	it("allows more property conditions but only one closed-parent condition", () => {
@@ -1027,10 +1064,13 @@ describe("AutomationsSection", () => {
 		});
 		fireEvent.input(input, { target: { value: "5, nope" } });
 		expect(input.getAttribute("aria-invalid")).toBe("true");
+		fireEvent.blur(input);
+		expect(input.getAttribute("value")).toBe("5, nope");
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 		expect(screen.getByRole("alert").textContent).toContain(
 			"Use up to 100 positive whole minutes separated by commas.",
 		);
+		expect(input.getAttribute("value")).toBe("5, nope");
 		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
 	});
 

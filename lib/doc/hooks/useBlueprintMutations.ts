@@ -135,6 +135,26 @@ export type AddCommitOutcome =
 	| { ok: true; uuid: Uuid }
 	| { ok: false; messages: string[] };
 
+export interface StructuredCommitFinding {
+	readonly code: string;
+	readonly details?: Readonly<Record<string, string>>;
+}
+
+/** Automation editor outcome. Gate failures retain their structured findings
+ * so the complete-rule surface can associate app-wide validation with the
+ * exact canonical automation path instead of flattening it to footer copy. */
+export type AutomationCommitOutcome =
+	| { ok: true }
+	| {
+			ok: false;
+			messages: string[];
+			findings?: readonly StructuredCommitFinding[];
+	  };
+
+export type AddAutomationCommitOutcome =
+	| { ok: true; uuid: Uuid }
+	| Exclude<AutomationCommitOutcome, { ok: true }>;
+
 /**
  * A patch over one user-collection entity: any subset of its mutable
  * slots, with a cleared optional slot spelled `null` (JSON drops
@@ -450,11 +470,11 @@ export interface BlueprintMutations {
 	removeLocationProperty: (uuid: Uuid) => CommitOutcome;
 	/** Human-applied HQ automation authoring. Nested values already carry their
 	 * stable UUIDs; every subsequent item edit is a distinct merge unit. */
-	addAutomation: (automation: Automation) => AddCommitOutcome;
+	addAutomation: (automation: Automation) => AddAutomationCommitOutcome;
 	replaceAutomation: (
 		automation: Automation,
 		expectedFingerprint?: string,
-	) => CommitOutcome;
+	) => AutomationCommitOutcome;
 	updateAutomation: (
 		mutation: Omit<Extract<Mutation, { kind: "updateAutomation" }>, "kind">,
 	) => CommitOutcome;
@@ -681,7 +701,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				mutations: Mutation[],
 			):
 				| { ok: true; results: MutationResult[] }
-				| { ok: false; messages: string[] } => {
+				| {
+						ok: false;
+						messages: string[];
+						findings?: readonly StructuredCommitFinding[];
+				  } => {
 				/* View-only access — no user edit reaches the store. The visible
 				 * affordances are already hidden for a viewer; this is the
 				 * airtight backstop for any that aren't, so a stray dispatch
@@ -717,7 +741,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// SA path keeps the verbose `ValidationError.message`.
 					const lines = userFacingErrors(verdict.findings);
 					if (announce) notifyRejectedCommit(lines);
-					return { ok: false, messages: lines };
+					return { ok: false, messages: lines, findings: verdict.findings };
 				}
 				// The candidate commits, and the batch that produced it is kept
 				// verbatim. Persistence replays exactly these commands rather than

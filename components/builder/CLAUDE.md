@@ -231,7 +231,9 @@ refusal is announced once. Comma-separated reminder intervals keep their
 in-progress text locally while focused, report invalid text into that same
 refusal path, and project only positive whole-minute lists into the canonical
 automation; blur or Enter canonicalizes a valid list. Removal uses an explicit
-confirmation. Viewers receive the same expanded readable rule,
+confirmation. Invalid reminder text survives blur and Save with its refusal so
+the author can correct what is visibly wrong; it never snaps back to an older
+valid list while leaving a stale error. Viewers receive the same expanded readable rule,
 current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides

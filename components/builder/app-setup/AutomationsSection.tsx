@@ -599,6 +599,27 @@ function pathStartsWith(
 	);
 }
 
+function automationCommitErrorPath(
+	result: {
+		readonly findings?: readonly {
+			readonly details?: Readonly<Record<string, string>>;
+		}[];
+	},
+	automationUuid: Uuid,
+): readonly PropertyKey[] {
+	const findings = result.findings ?? [];
+	const finding =
+		findings.find(
+			(candidate) => candidate.details?.automationUuid === automationUuid,
+		) ?? findings.find((candidate) => candidate.details?.path === "name");
+	const path = finding?.details?.path;
+	if (path === undefined) return [];
+	return path
+		.split(".")
+		.filter((segment) => segment.length > 0)
+		.map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
+}
+
 function AutomationEditor({
 	state,
 	current,
@@ -704,6 +725,7 @@ function AutomationEditor({
 				result.messages[0] ??
 					"Nova refused this automation because it would make the app invalid.",
 			);
+			setErrorPath(automationCommitErrorPath(result, state.automation.uuid));
 			return;
 		}
 		onClose();
@@ -1122,8 +1144,8 @@ function ReminderIntervalsEditor({
 	};
 
 	useEffect(() => {
-		if (!editing) setDraft(canonical);
-	}, [canonical, editing]);
+		if (!editing && draftError === undefined) setDraft(canonical);
+	}, [canonical, draftError, editing]);
 	useEffect(
 		() => () => {
 			reportDraftError(key, undefined);

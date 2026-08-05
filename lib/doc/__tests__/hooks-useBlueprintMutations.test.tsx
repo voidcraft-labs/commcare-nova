@@ -1649,6 +1649,88 @@ describe("useBlueprintMutations — commit gate", () => {
 		expect(toastStore.toasts).toHaveLength(0);
 	});
 
+	it("retains structured automation findings for an inline gate refusal", () => {
+		const automationUuid = testUuid("hook-gate-automation");
+		const updateUuid = testUuid("hook-gate-update");
+		const automation: Automation = {
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Existing rule",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: updateUuid,
+					target: { scope: "case", property: "state" },
+					value: { kind: "literal", value: "resolved" },
+				},
+			],
+			closeCase: false,
+		};
+		const automationDoc: BlueprintDoc = {
+			...bp,
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{
+							name: "state",
+							label: proseText("State"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			automations: { [automationUuid]: automation },
+			automationOrder: [automationUuid],
+		};
+		function automationWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: automationWrapper },
+		);
+		const duplicateUuid = testUuid("hook-gate-automation-duplicate");
+		let outcome!: ReturnType<
+			typeof result.current.mutations.inline.addAutomation
+		>;
+		act(() => {
+			outcome = result.current.mutations.inline.addAutomation({
+				...automation,
+				uuid: duplicateUuid,
+				updates: [
+					{
+						...automation.updates[0],
+						uuid: testUuid("hook-gate-update-duplicate"),
+					},
+				],
+			});
+		});
+
+		assert(!outcome.ok);
+		expect(outcome.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "AUTOMATION_INVALID",
+					details: { automationUuid: duplicateUuid, path: "name" },
+				}),
+			]),
+		);
+		expect(
+			result.current.store?.getState().automations?.[duplicateUuid],
+		).toBeUndefined();
+	});
+
 	it("atomically refuses stale full automation replacement and removal", () => {
 		const automationUuid = testUuid("hook-automation");
 		const updateUuid = testUuid("hook-automation-update");
