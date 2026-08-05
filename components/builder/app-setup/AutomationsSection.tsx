@@ -723,7 +723,7 @@ function AutomationEditor({
 		if (!result.ok) {
 			setError(
 				result.messages[0] ??
-					"Nova refused this automation because it would make the app invalid.",
+					"Nova couldn't save this automation. Review its settings and try again.",
 			);
 			setErrorPath(automationCommitErrorPath(result, state.automation.uuid));
 			return;
@@ -1825,7 +1825,8 @@ function ConditionsEditor({
 										[
 											"location",
 											"Case owner location",
-											hasLocation && criterion.kind !== "location",
+											defaultLocationUuid === undefined ||
+												(hasLocation && criterion.kind !== "location"),
 										],
 										[
 											"closed-parent",
@@ -1872,7 +1873,8 @@ function ConditionsEditor({
 										[
 											"location",
 											"Case owner location",
-											hasLocation && criterion.kind !== "location",
+											defaultLocationUuid === undefined ||
+												(hasLocation && criterion.kind !== "location"),
 										],
 									]}
 								/>

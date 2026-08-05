@@ -943,6 +943,9 @@ describe("automation domain and projections", () => {
 			expect(source, path).toMatch(/can exceed|may carry the total above/);
 			expect(source, path).not.toMatch(/at most 10,000|default cap/);
 		}
+		const publicDocs = readFileSync("content/docs/automations.mdx", "utf8");
+		expect(publicDocs).not.toMatch(/\bcap\b/i);
+		expect(publicDocs).not.toContain("—");
 
 		const projectedUpdate = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),

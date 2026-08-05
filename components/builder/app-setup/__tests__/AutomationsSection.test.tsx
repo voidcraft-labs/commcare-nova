@@ -578,6 +578,39 @@ describe("AutomationsSection", () => {
 		expect(screen.getByText(/standard parent link/i)).toBeDefined();
 	});
 
+	it("keeps location conditions unavailable until a live place can back them", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		expect(
+			screen.getByRole("button", { name: "Location condition" }),
+		).toHaveProperty("disabled", true);
+
+		const expectLocationKindDisabled = async () => {
+			const condition = screen.getByRole("combobox", { name: "Condition 1" });
+			fireEvent.click(condition);
+			await settleBaseUiTransitions();
+			const location = screen.getByRole("option", {
+				name: "Case owner location",
+			});
+			expect(location.getAttribute("aria-disabled")).toBe("true");
+			fireEvent.pointerDown(location, { pointerType: "mouse" });
+			fireEvent.click(location);
+			expect(condition.textContent).toContain("Case property");
+			fireEvent.keyDown(document.activeElement ?? document.body, {
+				key: "Escape",
+			});
+			await settleBaseUiTransitions();
+		};
+
+		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		await expectLocationKindDisabled();
+
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		await expectLocationKindDisabled();
+	});
+
 	it("offers only the current HQ criteria for each automation kind", async () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));

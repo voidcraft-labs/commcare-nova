@@ -94,8 +94,8 @@ Historical IVR definitions additionally preserve the maximum attempts per
 question.
 
 Message subjects and bodies are structural templates. Ordinary text is always
-literal—even text such as `{case.case_name}`. The setup guide doubles literal
-braces because HQ renders the complete message with Python's formatter; that
+literal, including text such as `{case.case_name}`. The setup guide doubles
+literal braces because HQ renders the complete message with Python's formatter; that
 escaping keeps the text literal after setup. Use **Case property reference**
 in the Builder to insert a real case/parent/host substitution, or **Owner or
 recipient reference** for supported case-owner and message-recipient fields.
@@ -103,8 +103,8 @@ The setup guide then prints an executable HQ token, including Nova-to-HQ
 standard-property translation. Renaming a case property updates that
 structural reference without changing literal text. Registered custom recipient/content handlers require the exact nonblank
 ID already configured in the target HQ project; placeholder instructions are
-never saved as IDs. CommCare HQ also requires a system administrator—not only
-a project administrator—to save an alert that uses either custom handler.
+never saved as IDs. CommCare HQ also requires a system administrator, not only
+a project administrator, to save an alert that uses either custom handler.
 
 An email event chooses one body form:
 
@@ -159,9 +159,9 @@ worker-information property has one accepted-value list. Values are structural:
 an exact literal (including empty or surrounding spaces), or an explicit custom
 case-property lookup. Empty matches missing or empty worker data in HQ. Literal
 brace text is refused because HQ would execute a whole `{property}` value as a
-case lookup rather than store it literally. Multiple properties or values—and
-exact empty/whitespace values—use HQ's JSON filter mode; a new alert exposes
-that mode only to a system administrator. A custom recipient or content handler must already be registered
+case lookup rather than store it literally. Multiple properties or values,
+including exact empty/whitespace values, use HQ's JSON filter mode; a new alert
+exposes that mode only to a system administrator. A custom recipient or content handler must already be registered
 on the target HQ instance; Nova cannot create one. An HQ system administrator
 must save the resulting alert because a project administrator cannot save a
 custom recipient/content configuration alone.
@@ -210,7 +210,8 @@ business date such as when a claim was created.
 Open the automation and choose **Copy setup guide**. The guide is regenerated
 from the current canonical rule, including current form, worker-information,
 and place names. Apply it to the intended CommCare HQ project space and review
-its privilege, cadence, cap, and instance-specific caveats before saving.
+its privilege, cadence, halt threshold, and instance-specific caveats before
+saving.
 Survey content names the same **app > module > form** path shown by HQ's form
 picker; a Nova UUID is never presented as an HQ form identifier. When no
 language is set, the guide selects HQ's required **Project Default** choice. An
