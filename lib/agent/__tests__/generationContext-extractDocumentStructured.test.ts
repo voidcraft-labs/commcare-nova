@@ -96,14 +96,18 @@ describe("GenerationContext.extractDocumentStructured", () => {
 
 		expect(out).toEqual({ object: OBJECT, truncated: false });
 
-		// System prompt, the decoded text prompt, the structured-output request, and
-		// the output cap pass through; no `messages` (that's the file path).
+		// System prompt, the decoded text prompt, the structured-output request,
+		// and the output cap pass through. The text prompt rides the one
+		// messages form (a bare string prompt is wire-identical to a single user
+		// message with one text part).
 		const call = mockStreamText().mock.calls[0][0];
 		expect(call.instructions).toBe("extract");
-		expect(call.prompt).toBe("the document body");
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{ role: "user", content: [{ type: "text", text: "the document body" }] },
+		]);
 		expect(call.output).toBeDefined(); // Output.object({ schema })
 		expect(call.maxOutputTokens).toBe(4096);
-		expect(call.messages).toBeUndefined();
 
 		// The mocked usage fans into the shared accumulator (the method's own return
 		// omits usage, so the snapshot is the only place to observe trackSubGeneration).

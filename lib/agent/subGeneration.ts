@@ -196,11 +196,12 @@ export async function generateObjectWith<T>(opts: {
 	providerOptions?: SubGenerationProviderOptions;
 }): Promise<SubGenerationObjectResult<T>> {
 	try {
-		// A `file` input rides as a native document block in a user message; a text
-		// `prompt` goes through directly, in a user message carrying image file
-		// parts when the document has attached figures. Branch the call (rather
-		// than spreading a union) so each `generateObject` overload type-checks
-		// cleanly.
+		// A `file` input rides as a native document block in a user message.
+		// Everything else is ONE messages-form call: a bare string prompt is
+		// wire-identical to a single user message with one text part (the SDK's
+		// own conversion), so the no-images case deliberately shares the images
+		// branch rather than keeping a third near-identical option block that
+		// must be edited in lockstep.
 		const result = opts.file
 			? await generateObject({
 					model: opts.model,
@@ -222,31 +223,22 @@ export async function generateObjectWith<T>(opts: {
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				})
-			: opts.images?.length
-				? await generateObject({
-						model: opts.model,
-						instructions: opts.system,
-						schema: opts.schema,
-						messages: [
-							{
-								role: "user",
-								content: promptWithImagesContent(
-									opts.prompt ?? "",
-									opts.images,
-								),
-							},
-						],
-						maxOutputTokens: opts.maxOutputTokens,
-						providerOptions: opts.providerOptions,
-					})
-				: await generateObject({
-						model: opts.model,
-						instructions: opts.system,
-						schema: opts.schema,
-						prompt: opts.prompt ?? "",
-						maxOutputTokens: opts.maxOutputTokens,
-						providerOptions: opts.providerOptions,
-					});
+			: await generateObject({
+					model: opts.model,
+					instructions: opts.system,
+					schema: opts.schema,
+					messages: [
+						{
+							role: "user",
+							content: promptWithImagesContent(
+								opts.prompt ?? "",
+								opts.images ?? [],
+							),
+						},
+					],
+					maxOutputTokens: opts.maxOutputTokens,
+					providerOptions: opts.providerOptions,
+				});
 		return {
 			object: result.object,
 			usage: result.usage,
@@ -316,8 +308,9 @@ export async function streamObjectWith<T>(opts: {
 	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
 	let pending: PromiseLike<unknown>[] = [];
 	try {
-		// Branch the call by input shape (same as `generateObjectWith`) so each
-		// `streamText` overload type-checks cleanly.
+		// Same two-branch shape as `generateObjectWith`: a native `file` block,
+		// or ONE messages-form call for text-with-optional-images (a bare string
+		// prompt is wire-identical to a single user message with one text part).
 		const result = opts.file
 			? streamText({
 					model: opts.model,
@@ -339,31 +332,22 @@ export async function streamObjectWith<T>(opts: {
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				})
-			: opts.images?.length
-				? streamText({
-						model: opts.model,
-						instructions: opts.system,
-						output: Output.object({ schema: opts.schema }),
-						messages: [
-							{
-								role: "user",
-								content: promptWithImagesContent(
-									opts.prompt ?? "",
-									opts.images,
-								),
-							},
-						],
-						maxOutputTokens: opts.maxOutputTokens,
-						providerOptions: opts.providerOptions,
-					})
-				: streamText({
-						model: opts.model,
-						instructions: opts.system,
-						output: Output.object({ schema: opts.schema }),
-						prompt: opts.prompt ?? "",
-						maxOutputTokens: opts.maxOutputTokens,
-						providerOptions: opts.providerOptions,
-					});
+			: streamText({
+					model: opts.model,
+					instructions: opts.system,
+					output: Output.object({ schema: opts.schema }),
+					messages: [
+						{
+							role: "user",
+							content: promptWithImagesContent(
+								opts.prompt ?? "",
+								opts.images ?? [],
+							),
+						},
+					],
+					maxOutputTokens: opts.maxOutputTokens,
+					providerOptions: opts.providerOptions,
+				});
 
 		pending = [
 			result.output,

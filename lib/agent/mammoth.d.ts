@@ -30,8 +30,10 @@ declare module "mammoth" {
 	/** One embedded image, as mammoth hands it to a custom image converter:
 	 *  the archive-declared content type, the author-supplied alt text (when
 	 *  any), and lazy byte readers. Only the members our figure collector
-	 *  consumes are declared. */
-	interface MammothImage {
+	 *  consumes are declared. Exported so `documentExtraction.ts` can alias it
+	 *  type-only (erased at compile time, so importing the alias never loads
+	 *  mammoth or bluebird). */
+	export interface MammothImage {
 		contentType?: string;
 		altText?: string;
 		readAsBuffer(): Promise<Buffer>;

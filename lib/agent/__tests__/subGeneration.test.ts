@@ -1,12 +1,13 @@
 /**
- * Unit tests for `streamObjectWith` — the streaming structured-generation core.
+ * Unit tests for the structured sub-generation cores: `streamObjectWith` (the
+ * streaming path — per-chunk `onProgress` fed from BOTH reasoning and output
+ * deltas, the final-object-only result, the output-failure → null mapping) and
+ * `generateObjectWith` (the blocking twin, whose input wiring must not drift
+ * from the streaming path's — its only production-adjacent caller is the paid
+ * preview script, so drift would ship silently without these).
  *
- * The AI SDK's `streamText` (with `Output.object`) is mocked at the import
- * boundary so no model runs: we drive a fake `stream` + result promises and
- * assert what the streaming path adds over the blocking `generateObjectWith` —
- * per-chunk `onProgress` fed from BOTH reasoning and output deltas (reasoning is
- * most of the work at high thinking), the final-object-only result, and the
- * output-failure → null mapping (a structured call has no partial to salvage).
+ * The AI SDK's `streamText` / `generateObject` are mocked at the import
+ * boundary so no model runs.
  */
 
 import type { LanguageModelUsage } from "ai";
@@ -21,11 +22,14 @@ const USAGE = {
 	outputTokens: 0,
 } as unknown as LanguageModelUsage;
 
-const { streamTextMock } = vi.hoisted(() => ({ streamTextMock: vi.fn() }));
+const { streamTextMock, generateObjectMock } = vi.hoisted(() => ({
+	streamTextMock: vi.fn(),
+	generateObjectMock: vi.fn(),
+}));
 
-// Mock the SDK: `streamText` is driven per test; `Output.object` is a passthrough
-// (the mocked streamText ignores it); `NoObjectGeneratedError` is a real class so
-// the production `isInstance` check (and our `new …()` here) agree.
+// Mock the SDK: `streamText`/`generateObject` are driven per test; `Output.object`
+// is a passthrough (the mocked streamText ignores it); `NoObjectGeneratedError` is
+// a real class so the production `isInstance` check (and our `new …()` here) agree.
 vi.mock("ai", () => {
 	class NoObjectGeneratedError extends Error {
 		usage: unknown;
@@ -41,14 +45,14 @@ vi.mock("ai", () => {
 	}
 	return {
 		streamText: streamTextMock,
-		generateObject: vi.fn(),
+		generateObject: generateObjectMock,
 		Output: { object: (cfg: unknown) => cfg },
 		NoObjectGeneratedError,
 	};
 });
 
 import { NoObjectGeneratedError } from "ai";
-import { streamObjectWith } from "../subGeneration";
+import { generateObjectWith, streamObjectWith } from "../subGeneration";
 
 type StreamPart = { type: string; text?: string };
 
@@ -253,7 +257,7 @@ describe("streamObjectWith", () => {
 		]);
 	});
 
-	it("keeps the plain prompt form when images is empty", async () => {
+	it("sends a bare prompt as one user message with one text part (no images)", async () => {
 		streamTextMock.mockReturnValue({
 			stream: streamOf([]),
 			output: Promise.resolve({ x: 1 }),
@@ -270,9 +274,13 @@ describe("streamObjectWith", () => {
 			images: [],
 		});
 
+		// One messages form for text-with-optional-images: a bare string prompt is
+		// wire-identical to this shape, so there is deliberately no third branch.
 		const call = streamTextMock.mock.calls[0][0];
-		expect(call.prompt).toBe("p");
-		expect(call.messages).toBeUndefined();
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{ role: "user", content: [{ type: "text", text: "p" }] },
+		]);
 	});
 
 	it("drives generation with no onProgress (drains the stream, returns the object)", async () => {
@@ -292,5 +300,99 @@ describe("streamObjectWith", () => {
 		});
 
 		expect(result.object).toEqual({ x: 9 });
+	});
+});
+
+describe("generateObjectWith", () => {
+	const RESULT = {
+		object: { x: 1 },
+		usage: { inputTokens: 2, outputTokens: 3 },
+		warnings: [],
+		finishReason: "stop",
+	};
+
+	it("attaches images beside the prompt exactly like the streaming path", async () => {
+		generateObjectMock.mockResolvedValue(RESULT);
+
+		const result = await generateObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			prompt: "doc text",
+			images: [
+				{
+					mediaType: "image/png",
+					data: "data:image/png;base64,AAA",
+					label: '<nova:figure index="1"/>',
+				},
+			],
+		});
+
+		expect(result.object).toEqual({ x: 1 });
+		const call = generateObjectMock.mock.calls[0][0];
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "doc text" },
+					{ type: "text", text: '<nova:figure index="1"/>' },
+					{
+						type: "file",
+						data: "data:image/png;base64,AAA",
+						mediaType: "image/png",
+					},
+				],
+			},
+		]);
+	});
+
+	it("sends a bare prompt as one user message with one text part", async () => {
+		generateObjectMock.mockResolvedValue(RESULT);
+
+		await generateObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			prompt: "p",
+		});
+
+		const call = generateObjectMock.mock.calls[0][0];
+		expect(call.prompt).toBeUndefined();
+		expect(call.messages).toEqual([
+			{ role: "user", content: [{ type: "text", text: "p" }] },
+		]);
+	});
+
+	it("gives a native file block precedence over images", async () => {
+		generateObjectMock.mockResolvedValue(RESULT);
+
+		await generateObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			file: {
+				mediaType: "application/pdf",
+				data: "data:application/pdf;base64,BB",
+			},
+			instruction: "Extract.",
+			images: [{ mediaType: "image/png", data: "data:image/png;base64,AAA" }],
+		});
+
+		// A `file` document carries its own images natively; `images` is ignored.
+		const call = generateObjectMock.mock.calls[0][0];
+		expect(call.messages).toEqual([
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "Extract." },
+					{
+						type: "file",
+						data: "data:application/pdf;base64,BB",
+						mediaType: "application/pdf",
+					},
+				],
+			},
+		]);
 	});
 });
