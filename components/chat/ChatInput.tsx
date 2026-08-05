@@ -45,7 +45,7 @@ import { isDocumentKind } from "@/lib/domain/multimedia";
 import {
 	useAccessPhase,
 	useAppId,
-	useBuilderIsReady,
+	useChatAppReady,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
@@ -176,12 +176,16 @@ export function ChatInput({
 		[reconcilerContext],
 	);
 
-	/* Cost-chip data: mirror the server's charge exactly. `useBuilderIsReady` is
-	 * the same `appReady` flag `ChatContainer` puts on the /api/chat request body
-	 * (true once the blueprint is Ready/Completed → an edit; false during a fresh
-	 * build), so the number shown before sending equals what the server debits.
-	 * `chargeAmount` owns the amounts: never hardcode 100/5 here. */
-	const appReady = useBuilderIsReady();
+	/* Cost-chip data: mirror the server's charge exactly. `useChatAppReady` is
+	 * the same derivation `ChatContainer`'s request fields use, and it tracks
+	 * the server's app-row-status rule through the session store's
+	 * `buildUnfinished` latch: a mid-build send (a paused askQuestions round,
+	 * a re-drive) shows the build rate even though the committed modules make
+	 * the phase read Ready. `useBuilderIsReady` deliberately does NOT carry
+	 * that latch (it answers "is there a usable blueprint", which is true
+	 * mid-build), so the chip must not use it. `chargeAmount` owns the
+	 * amounts: never hardcode 100/5 here. */
+	const appReady = useChatAppReady();
 	/* Land chat-attached documents in THIS app's Project so the conversation
 	 * resolves them under the same Project (see `resolveAttachments`). */
 	const appId = useAppId();

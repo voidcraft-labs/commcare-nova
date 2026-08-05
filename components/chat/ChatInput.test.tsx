@@ -16,7 +16,7 @@ const builder = vi.hoisted(() => ({ ready: false }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => "authorized",
 	useAppId: () => null,
-	useBuilderIsReady: () => builder.ready,
+	useChatAppReady: () => builder.ready,
 	useProjectScopeEpoch: () => 0,
 }));
 

@@ -621,6 +621,24 @@ export async function notifyAppStream(
 	);
 }
 
+/** Poke the stream channel's run-lifecycle-STATUS lane from INSIDE the
+ * transaction that changes `apps.status`. Same channel as the mutation poke
+ * (one LISTEN covers both), distinguished by the `statusChanged` marker so
+ * the relay re-reads the app row instead of the mutation log. Today only
+ * build completion sends it: that is the one transition that changes a
+ * connected tab's pricing (`generating` → `complete` releases the client's
+ * build-rate latch), and without it the release rides the relay's ~10 s
+ * reauthorization cadence. The other transitions (`error`, a re-drive's
+ * `generating`) move between build-priced states and stay on the cadence. */
+export async function notifyAppStatus(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${APP_STREAM_CHANNEL}, ${JSON.stringify({ appId, statusChanged: true })})`.execute(
+		tx,
+	);
+}
+
 /** Poke lookup subscribers from INSIDE the mutation transaction. Revisions
  * stay strings so JSON never rounds a signed-int64 value. */
 export async function notifyLookupProject(

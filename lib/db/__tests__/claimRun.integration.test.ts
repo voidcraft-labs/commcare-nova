@@ -115,6 +115,51 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		});
 	});
 
+	it("requireModeMatchesStatus rejects a stale BUILD claim on a complete app with the row's own mode, as a rollback that held nothing", async () => {
+		const { claimAndReserveRun, ClaimModeStaleError } = await import("../apps");
+		await seedApp({ status: "complete" });
+
+		/* The chat route's serialize-wait shape: the mode was derived from a
+		 * pre-wait snapshot (`generating` → build), the awaited build completed,
+		 * and the stale build claim would flip the finished app back to
+		 * `generating` at the build rate. The guard reads the LOCKED row. */
+		const stale = claimAndReserveRun(
+			APP_ID,
+			"build",
+			"run-stale-mode",
+			OWNER,
+			CREDITS_PER_BUILD,
+			PROJECT_ID,
+			HOLDER_NONCE,
+			{ requireModeMatchesStatus: true },
+		);
+		await expect(stale).rejects.toBeInstanceOf(ClaimModeStaleError);
+		await expect(stale).rejects.toMatchObject({ statusMode: "edit" });
+
+		// The rejection is a rollback that held nothing.
+		expect(await readStatus()).toBe("complete");
+		expect(await h.readReservation(APP_ID)).toBeUndefined();
+		expect(await h.readRunLock(APP_ID)).toBeUndefined();
+
+		// The corrected retry (the route adopts `statusMode`) claims cleanly.
+		const claim = await claimAndReserveRun(
+			APP_ID,
+			"edit",
+			"run-stale-mode",
+			OWNER,
+			CREDITS_PER_EDIT,
+			PROJECT_ID,
+			HOLDER_NONCE,
+			{ requireModeMatchesStatus: true },
+		);
+		expect(claim.mode).toBe("edit");
+		expect(await h.readReservation(APP_ID)).toMatchObject({
+			settled: false,
+			reserved: CREDITS_PER_EDIT,
+			runId: "run-stale-mode",
+		});
+	});
+
 	it("rejects a stale expected Project before a claim charges credits or writes a lease", async () => {
 		const { claimAndReserveRun } = await import("../apps");
 		const { AppProjectChangedError } = await import("../commitGuard");

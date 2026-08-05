@@ -10,30 +10,30 @@ const message = (role: "user" | "assistant"): UIMessage =>
 	({ id: "m", role, parts: [{ type: "text", text: "x" }] }) as UIMessage;
 
 describe("creditGateDecision", () => {
-	it("charges a build (appReady false) the full 100 when the last raw message is a user instruction", () => {
+	it("pre-flights a new build at the full 100 when the last raw message is a user instruction", () => {
 		expect(
 			creditGateDecision({
 				rawMessages: [message("assistant"), message("user")],
-				appReady: false,
+				existingApp: false,
 			}),
-		).toEqual({ chargeable: true, cost: 100 });
+		).toEqual({ chargeable: true, preflightCost: 100 });
 	});
 
-	it("charges an edit (appReady true) the cheap 5 when the last raw message is a user instruction", () => {
+	it("pre-flights an existing app at the 5-credit floor: the app row's real mode isn't loaded yet, and the floor can never falsely reject an affordable edit", () => {
 		expect(
 			creditGateDecision({
 				rawMessages: [message("assistant"), message("user")],
-				appReady: true,
+				existingApp: true,
 			}),
-		).toEqual({ chargeable: true, cost: 5 });
+		).toEqual({ chargeable: true, preflightCost: 5 });
 	});
 
 	it("does not charge a continuation — last message assistant (answered-askQuestions auto-resend) is free", () => {
 		expect(
 			creditGateDecision({
 				rawMessages: [message("user"), message("assistant")],
-				appReady: false,
+				existingApp: false,
 			}),
-		).toEqual({ chargeable: false, cost: 0 });
+		).toEqual({ chargeable: false, preflightCost: 0 });
 	});
 });

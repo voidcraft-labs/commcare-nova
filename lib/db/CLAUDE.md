@@ -114,7 +114,12 @@ design.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
-(delivered on commit, after the rows are visible); presence reauthorizes against
+(delivered on commit, after the rows are visible); `completeAndSettleRun`
+pokes the same channel with a `statusChanged` marker so connected builder
+streams re-read and re-announce the app status the moment a build commits
+`complete` (the one status transition that changes a tab's pricing; every
+other transition stays on the stream route's reauthorization cadence);
+presence reauthorizes against
 the app row + exact membership and writes/sweeps/deletes + pokes
 `nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
 poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
@@ -432,7 +437,17 @@ with an explicit allowance (its value is credit policy, seeded in code).
 
 ## Pricing + the charge signal
 
-Build = 100 credits, edit = 5 (`chargeAmount(appReady)`). `isChargeableTurn`
+Build = 100 credits, edit = 5 (`chargeAmount(appReady)`), with `appReady`
+derived SERVER-SIDE from the app row's status (only a `complete` app charges
+the edit rate; the client's own `appReady` claim feeds nothing but a
+disagreement warn). The advisory pre-flight balance read keys on `appId`
+PRESENCE: the exact build rate for a new build, the edit-rate floor for an
+existing app. There is deliberately NO second advisory read at the derived
+rate: on the direct path the claim transaction's own affordability check
+rejects pre-stream with the same 429, and a queued turn's final rate is only
+known at the winning poll (a turn that derived build because the app was
+mid-build usually wins as a 5-credit edit once that build completes), so a
+derived-rate reject would falsely turn away an affordable turn. `isChargeableTurn`
 decides charge vs. free continuation off the **last message's role**: a fresh
 instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
 ends with the SA's `assistant` (free). It MUST read the **raw
@@ -443,7 +458,7 @@ clarification round-trip.
 ## Claim and reserve are ONE transaction
 
 `claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId,
-holderNonce)`
+holderNonce, opts?)`
 (and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
 transaction: fresh Project `edit` authorization, then the busy check
 (`lease.live`, or a paused run of ANOTHER actor →
@@ -451,6 +466,13 @@ transaction: fresh Project `edit` authorization, then the busy check
 abandoned `askQuestions` round must not lock its own user out until the lease
 lapses; the leftover refund + claim writes below resolve it and its late
 answer bails via `reacquireLease`),
+then — when `opts.requireModeMatchesStatus` is set — a mode re-derivation off
+the LOCKED row's status (`complete` → edit, else build) that rejects a stale
+requested mode with `ClaimModeStaleError(statusMode)` carrying the row's own
+mode (the chat route always passes the flag: its mode was read off an
+unlocked snapshot, and on rejection it adopts the thrown mode + rate and
+retries bounded, so a claim can never book a mode the locked row no longer
+supports),
 the cross-app one-build-per-user scan (`GenerationInProgressError`), the
 unconditional refund of any leftover UNSETTLED marker (a superseded
 hard-killed run's stranded hold, refunded to ITS charged actor/period), the

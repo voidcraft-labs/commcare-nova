@@ -29,6 +29,76 @@ import {
 	streamText,
 } from "ai";
 import type { ZodType } from "zod";
+import { log } from "@/lib/logger";
+
+/**
+ * Classify the SHAPE of an unparseable structured output without carrying any
+ * of its content: the text is the model's rendering of a customer document,
+ * and these logs mirror to Sentry, whose retention Nova doesn't control (the
+ * event-log stance in `generationContext.ts` — aggregate usage only, never
+ * prompt/output content — applies at least as strongly here). The shape plus
+ * `finishReason` and `textLength` separate the failure modes that need
+ * separate follow-ups: nothing came back at all, a fence the parser can't
+ * see past, JSON that parses but misses the schema, or non-JSON prose.
+ */
+function classifyUnparseableText(
+	text: string | undefined,
+): "empty" | "fenced" | "json-like" | "prose" {
+	const trimmed = text?.trim() ?? "";
+	if (trimmed.length === 0) return "empty";
+	if (trimmed.startsWith("```")) return "fenced";
+	if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json-like";
+	return "prose";
+}
+
+/**
+ * Record the shape of a structured generation that yielded no parseable
+ * object. Every call runs the provider stateless (`store: false`), so there is
+ * no dashboard record to consult afterward: the finish reason, token usage,
+ * response id, and the shape of what came back are captured here or lost.
+ * Truncation (`finishReason: "length"`) is the guillotine doing its
+ * documented job on an oversized document — an expected external condition,
+ * so it logs as `warn` (Cloud-Logging-only); every other unparseable shape is
+ * a model/parser defect and mirrors to Sentry as `error`.
+ *
+ * The parameter is `NoObjectGeneratedError`, not `unknown`, so a call site
+ * that failed to narrow is a compile error instead of a silent no-op — the
+ * exact observability gap this function exists to close.
+ */
+function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
+	const detail = {
+		finishReason: err.finishReason,
+		responseId: err.response?.id,
+		modelId: err.response?.modelId,
+		inputTokens: err.usage?.inputTokens,
+		outputTokens: err.usage?.outputTokens,
+		textLength: err.text?.length ?? 0,
+		textShape: classifyUnparseableText(err.text),
+	};
+	if (err.finishReason === "length") {
+		log.warn(
+			"[subGeneration] structured output truncated at the output ceiling",
+			detail,
+		);
+	} else {
+		/* NEVER hand the raw error to the Sentry mirror: its cause chain
+		 * (JSONParseError / TypeValidationError) embeds the model's full raw
+		 * text in the cause MESSAGE, and Sentry's default linkedErrors
+		 * integration walks causes — the customer-document content this
+		 * function promises to keep out of logs would land in third-party
+		 * retention. A fresh cause-less error carries the grouping key;
+		 * `detail` already holds every safe fact. */
+		const sanitized = new Error(
+			`Structured output was unparseable (finishReason: ${detail.finishReason}, shape: ${detail.textShape})`,
+		);
+		sanitized.name = err.name;
+		log.error(
+			"[subGeneration] structured output was unparseable",
+			sanitized,
+			detail,
+		);
+	}
+}
 
 /** The provider-options shape `generateObject` accepts (e.g. a provider's
  *  reasoning depth). `ai` declares this internally but doesn't export the
@@ -125,6 +195,7 @@ export async function generateObjectWith<T>(opts: {
 		// caller can meter spent tokens and detect truncation. Any other error (a
 		// real network/auth/server failure) propagates.
 		if (NoObjectGeneratedError.isInstance(err)) {
+			logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,
@@ -244,7 +315,33 @@ export async function streamObjectWith<T>(opts: {
 		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
 		const object = await result.output.then(
 			(o) => o as T,
-			() => null,
+			(err: unknown) => {
+				if (NoObjectGeneratedError.isInstance(err)) {
+					logUnparseableStructuredOutput(err);
+				} else {
+					/* The stream drained cleanly yet the output promise rejected
+					 * with something other than a parse failure. The caller only
+					 * sees `object: null`, so this line is the ONLY record of what
+					 * actually went wrong. Same discipline as
+					 * `logUnparseableStructuredOutput`: NEVER hand the raw
+					 * rejection to the Sentry mirror — an unwrapped
+					 * JSONParseError / TypeValidationError embeds the model's
+					 * full raw text (its rendering of a customer document) in
+					 * the error MESSAGE itself, so a cause-less name-only error
+					 * carries the grouping key instead. */
+					const name = err instanceof Error ? err.name : typeof err;
+					const sanitized = new Error(
+						`Structured output promise rejected after a clean drain (${name}, finishReason: ${finishReason})`,
+					);
+					if (err instanceof Error) sanitized.name = err.name;
+					log.error(
+						"[subGeneration] structured output promise rejected after a clean drain",
+						sanitized,
+						{ finishReason },
+					);
+				}
+				return null;
+			},
 		);
 		return { object, usage, warnings, finishReason };
 	} catch (err) {
@@ -255,6 +352,7 @@ export async function streamObjectWith<T>(opts: {
 		// (which fails the suite). The original error is what the caller classifies.
 		for (const p of pending) void Promise.resolve(p).catch(() => {});
 		if (NoObjectGeneratedError.isInstance(err)) {
+			logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,

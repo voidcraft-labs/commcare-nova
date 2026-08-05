@@ -732,3 +732,81 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		runtime.suspend();
 	});
 });
+
+describe("app-status frame → buildUnfinished latch", () => {
+	it("routes the server's lifecycle read into the latch and ignores garbage", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		/* A tab that opened a generating app: latch seeded true, and — the gap
+		 * this frame closes — never attached to the run's chat stream, so no
+		 * `data-done` will ever release it. */
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+			buildUnfinished: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		/* Malformed / out-of-vocabulary frames must not move a pricing signal. */
+		stream.emit("app-status", "not json");
+		stream.emit("app-status", JSON.stringify({ status: "deleted" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(true);
+
+		/* The teammate's build finished: only `complete` releases. */
+		stream.emit("app-status", JSON.stringify({ status: "complete" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+
+		/* The frames are seq-less, so the STORE enforces direction: `complete`
+		 * is terminal in the app lifecycle, and an arming frame delivered
+		 * after an observed completion is a stale read (a cadence tick that
+		 * resolved just before the completing run committed), not fresh
+		 * truth. It must not re-price a finished app's sends as builds. */
+		stream.emit("app-status", JSON.stringify({ status: "generating" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+		stream.emit("app-status", JSON.stringify({ status: "error" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+
+		runtime.suspend();
+	});
+
+	it("arms the latch from a frame before any observed completion", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		/* An `error` app whose page seed read false (the arm this frame
+		 * channel repairs at connect): no completion observed, so the frame
+		 * arms normally. */
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+			buildUnfinished: false,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		stream.emit("app-status", JSON.stringify({ status: "error" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(true);
+
+		runtime.suspend();
+	});
+});

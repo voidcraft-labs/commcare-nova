@@ -32,6 +32,8 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
+import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
+import { getCurrentPeriod } from "@/lib/db/period";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 
@@ -149,6 +151,17 @@ const WAIT_APP = "app-serialize-wait-snapshot";
 const WAIT_THREAD = "thread-serialize-wait-snapshot";
 const MOVED_PROJECT = "project-after-serialize-wait";
 const REPLACEMENT_NONCE = "00000000-0000-4000-8000-000000000099";
+const PAUSED_BUILD_APP = "app-paused-build-mode";
+const PAUSED_BUILD_RUN = "run-paused-build-mode";
+const PAUSED_BUILD_THREAD = "thread-paused-build-mode";
+const ADOPT_APP = "app-serialize-wait-adopt";
+const ADOPT_THREAD = "thread-serialize-wait-adopt";
+const FASTFAIL_APP = "app-fastfail-build-rate";
+const DIRECT_ADOPT_APP = "app-direct-adopt-readmit";
+const DIRECT_ADOPT_THREAD = "thread-direct-adopt-readmit";
+const WAITFAIL_APP = "app-wait-adopt-summary";
+const WAITFAIL_THREAD = "thread-wait-adopt-summary";
+const MEMBER = "user-cancel-member";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -425,6 +438,50 @@ async function seedCanonicalApp(args: {
 			)
 			.execute();
 	});
+}
+
+type LoadedFixtureApp = NonNullable<
+	Awaited<ReturnType<typeof import("@/lib/db/apps")["loadApp"]>>
+>;
+
+/** The authorized-snapshot shape the route destructures, built from a loaded
+ *  app row. One builder so a new snapshot field lands in every test at once. */
+function snapshotFor(app: LoadedFixtureApp) {
+	return {
+		app,
+		projectId: PROJECT,
+		role: "editor" as const,
+		canEdit: true,
+		baseSeq: app.mutation_seq,
+		actorUserId: USER,
+	};
+}
+
+/** Seed a persisted app, load it back, and (by default) point the snapshot
+ *  mock at the persisted row: the fixture every server-derived-mode test
+ *  needs, varying only in id and row overrides. A test whose mock shape is
+ *  nonstandard (a stale first snapshot, a post-win fault) passes
+ *  `mock: false` and wires `resolveAuthorizedAppSnapshotMock` itself from
+ *  the returned app/snapshot. */
+async function seedSnapshotApp(args: {
+	id: string;
+	name: string;
+	overrides?: Partial<Insertable<AppDatabase["apps"]>>;
+	mock?: boolean;
+}) {
+	await seedCanonicalApp({
+		id: args.id,
+		name: args.name,
+		overrides: args.overrides,
+	});
+	const { loadApp } = await import("@/lib/db/apps");
+	const app = await loadApp(args.id);
+	if (!app) throw new Error(`fixture app ${args.id} was not persisted`);
+	const snapshot = snapshotFor(app);
+	if (args.mock !== false) {
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue(snapshot);
+	}
+	return { app, snapshot };
 }
 
 async function seedSerializeWaitEdit() {
@@ -950,5 +1007,548 @@ describe("free-continuation resume admission", () => {
 		expect(completeAndSettleRunMock).not.toHaveBeenCalled();
 		expect(failAppMock).not.toHaveBeenCalled();
 		expect(clearRunLockMock).not.toHaveBeenCalled();
+	}, 30_000);
+});
+
+describe("server-derived build-vs-edit mode", () => {
+	/** Seed a PAUSED mid-build app (status `generating`, `awaiting_input`, a
+	 *  build-shaped holder) plus the thread its answer round belongs to, and
+	 *  point the snapshot mock at the persisted row. The regression fixture: a
+	 *  `/build/new` tab whose phase derivation drifted to Ready answers with
+	 *  `appReady: true`, and only the app row knows better. */
+	async function seedPausedBuild(): Promise<void> {
+		await seedSnapshotApp({
+			id: PAUSED_BUILD_APP,
+			name: "Paused build app",
+			overrides: {
+				status: "generating",
+				awaiting_input: true,
+				run_id: PAUSED_BUILD_RUN,
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: USER,
+				res_run_id: PAUSED_BUILD_RUN,
+			},
+		});
+		await appDb
+			.insertInto("threads")
+			.values({
+				thread_id: PAUSED_BUILD_THREAD,
+				app_id: PAUSED_BUILD_APP,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "build",
+				summary: "Paused build answer",
+				run_id: PAUSED_BUILD_RUN,
+				active_stream_id: null,
+				active_holder_nonce: null,
+				messages: JSON.stringify([]),
+			})
+			.execute();
+	}
+
+	it("resumes a paused build's answer as a BUILD even when the client claims appReady", async () => {
+		await seedPausedBuild();
+		/* Bail on `released` so the test pins only the admission decision: the
+		 * mode argument is the whole regression (the client's `appReady: true`
+		 * used to resume this as an `edit` against the build holder, and every
+		 * answer bounced as superseded). */
+		reacquireLeaseMock.mockResolvedValueOnce({ outcome: "released" });
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: PAUSED_BUILD_APP,
+					appReady: true,
+					threadId: PAUSED_BUILD_THREAD,
+					runId: PAUSED_BUILD_RUN,
+					holderNonce: REPLACEMENT_NONCE,
+					messages: [
+						{
+							id: "paused-build-user",
+							role: "user",
+							parts: [{ type: "text", text: "Build a nutrition app." }],
+						},
+						{
+							id: "paused-build-answer",
+							role: "assistant",
+							parts: [{ type: "text", text: "Questions answered." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const wire = await response.text();
+		expect(reacquireLeaseMock).toHaveBeenCalledWith(
+			PAUSED_BUILD_APP,
+			PAUSED_BUILD_RUN,
+			REPLACEMENT_NONCE,
+			"build",
+			USER,
+			PROJECT,
+		);
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+		expect(wire).toContain('"type":"run_released"');
+	}, 30_000);
+
+	it("claims a chargeable turn on a non-complete app as a BUILD at the build rate", async () => {
+		await seedPausedBuild();
+		/* Reject the claim with an infrastructure error so the request stops at
+		 * the claim boundary; the assertion is the claim's mode + cost, which
+		 * used to follow the client's `appReady: true` (edit, 5 credits). */
+		claimAndReserveRunMock.mockRejectedValueOnce(
+			new Error("claim interception: arguments are the assertion"),
+		);
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: PAUSED_BUILD_APP,
+					appReady: true,
+					threadId: "thread-paused-build-chargeable",
+					messages: [
+						{
+							id: "paused-build-new-instruction",
+							role: "user",
+							parts: [{ type: "text", text: "Start over with two modules." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(503);
+		expect(claimAndReserveRunMock).toHaveBeenCalledWith(
+			PAUSED_BUILD_APP,
+			"build",
+			expect.any(String),
+			USER,
+			100,
+			PROJECT,
+			expect.any(String),
+			{ requireModeMatchesStatus: true },
+		);
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+	}, 30_000);
+
+	it("a serialize-wait whose awaited build completes adopts EDIT mode end to end: claim, run, and clean release", async () => {
+		/* The TOCTOU this pins: the waiter derived BUILD (the app was
+		 * `generating` when it queued) and the awaited build completed during
+		 * the wait. The stale claim must reject (`ClaimModeStaleError`), the
+		 * route must adopt the locked row's EDIT mode at the edit rate, and —
+		 * the part a stale `GenerationContext` used to break — the run must
+		 * FINALIZE as an edit: a context still presenting a build holder
+		 * capability dies `RunHolderLostError` on its first ownership-gated
+		 * write and strands the real `run_lock` this POST took. */
+		await seedSnapshotApp({
+			id: ADOPT_APP,
+			name: "Adopted edit app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build",
+			},
+		});
+		/* The fake SA performs ONE real guarded commit: that write presents the
+		 * context's `(mode, runId, nonce)` holder capability, which is exactly
+		 * what a stale (pre-adoption) context corrupts — without
+		 * `ctx.setRunMode` it presents a BUILD holder against the EDIT lock
+		 * this claim took and dies `RunHolderLostError` before persisting. */
+		const { prepareMutationCandidate } = await import(
+			"@/lib/doc/commitVerdicts"
+		);
+		const { admitMutationBatch } = await import("@/lib/doc/mutationAdmission");
+		createSolutionsArchitectMock.mockImplementation(
+			(
+				ctx: GenerationContext,
+				sessionDoc: Parameters<typeof prepareMutationCandidate>[0],
+			) => ({
+				tools: {},
+				stream: async () => {
+					await ctx.recordMutations(
+						prepareMutationCandidate(
+							sessionDoc,
+							admitMutationBatch([
+								{ kind: "setAppName", name: "Adopted edit rename" },
+							]),
+						),
+					);
+					const feed = new ChunkFeed();
+					feed.push(
+						{ type: "start" },
+						{ type: "start-step" },
+						{ type: "finish-step" },
+						{ type: "finish" },
+					);
+					feed.end();
+					return feed.asAgentResult();
+				},
+			}),
+		);
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: ADOPT_APP,
+					threadId: ADOPT_THREAD,
+					messages: [
+						{
+							id: "adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Rename the survey module." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		/* The waiter announces itself with the busy conversation event; once
+		 * that lands the poll loop is live, and the "awaited build completed"
+		 * flip lands between polls. */
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", ADOPT_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({
+				status: "complete",
+				awaiting_input: false,
+				res_settled: true,
+			})
+			.where("id", "=", ADOPT_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The stale BUILD claim rejected and the retry adopted the row's mode:
+		 * the winning claim is an EDIT at the edit rate. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_EDIT);
+
+		/* The adopted run finalized as an edit: the SA's guarded commit landed
+		 * (the rename persisted — the write a stale build-mode context dies
+		 * on), the lock released, its own marker settled, the app untouched at
+		 * `complete`. A stranded lock here is the exact pre-fix failure. */
+		const row = await appDb
+			.selectFrom("apps")
+			.select([
+				"status",
+				"error_type",
+				"app_name",
+				"lock_run_id",
+				"lock_actor_user_id",
+				"res_settled",
+				"res_user_id",
+			])
+			.where("id", "=", ADOPT_APP)
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({
+			status: "complete",
+			error_type: null,
+			app_name: "Adopted edit rename",
+			lock_run_id: null,
+			lock_actor_user_id: null,
+			res_settled: true,
+			res_user_id: USER,
+		});
+		expect(failAppMock).not.toHaveBeenCalled();
+	}, 30_000);
+
+	it("queues a turn affordable at the edit floor behind a live build instead of rejecting it at the derived build rate", async () => {
+		/* The regression a derived-rate advisory reject would reintroduce:
+		 * this POST derives BUILD (the app is mid-build), computes the
+		 * 100-credit rate, and the balance is 50. Rejecting pre-stream at
+		 * that rate turns away a turn that is actually affordable: the
+		 * serialize-wait re-derives the mode at the winning poll, and once
+		 * the awaited build completes this turn wins as a 5-credit EDIT. The
+		 * unaffordable-build case needs no advisory read either; on a free
+		 * (uncontended) app the claim transaction's own affordability check
+		 * rejects pre-stream with the same 429. */
+		await seedSnapshotApp({
+			id: FASTFAIL_APP,
+			name: "Edit-floor affordable app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build-live",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build-live",
+			},
+		});
+		await appDb
+			.insertInto("credit_months")
+			.values({
+				user_id: USER,
+				period: getCurrentPeriod(),
+				allowance: 2000,
+				consumed: 1950,
+				bonus: 0,
+				updated_at: new Date().toISOString(),
+			})
+			.execute();
+		/* The fake SA reports real step usage so the run earns its cost: the
+		 * settle then KEEPS the 5-credit charge instead of the zero-cost
+		 * refund, which is the figure the final assertion pins. */
+		createSolutionsArchitectMock.mockImplementation(
+			(ctx: GenerationContext) => ({
+				tools: {},
+				stream: async () => {
+					ctx.handleAgentStep(
+						{ usage: PAUSED_USAGE, toolCalls: [] },
+						"Solutions Architect",
+					);
+					const feed = new ChunkFeed();
+					feed.push(
+						{ type: "start" },
+						{ type: "start-step" },
+						{ type: "finish-step" },
+						{ type: "finish" },
+					);
+					feed.end();
+					return feed.asAgentResult();
+				},
+			}),
+		);
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: FASTFAIL_APP,
+					threadId: "thread-fastfail-build-rate",
+					messages: [
+						{
+							id: "fastfail-user",
+							role: "user",
+							parts: [{ type: "text", text: "Add another module." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		/* Not a pre-stream 429: the stream opens and the turn queues. */
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", FASTFAIL_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({ status: "complete", awaiting_input: false, res_settled: true })
+			.where("id", "=", FASTFAIL_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).not.toContain('"type":"out_of_credits"');
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The winning claim adopted the edit rate the balance affords, and the
+		 * settled charge is the 5 credits the turn actually cost. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_EDIT);
+		const month = await appDb
+			.selectFrom("credit_months")
+			.select(["consumed"])
+			.where("user_id", "=", USER)
+			.where("period", "=", getCurrentPeriod())
+			.executeTakeFirstOrThrow();
+		expect(month.consumed).toBe(1950 + CREDITS_PER_EDIT);
+	}, 30_000);
+
+	it("re-admits from a fresh snapshot when the direct-path claim rejects a stale mode", async () => {
+		/* The stale-snapshot direction the direct path can hit: the unlocked
+		 * admission read said `complete` (edit-shaped) but the locked row is
+		 * `error` (build-shaped: a reaped build awaiting re-drive, free to
+		 * claim). The flip PROVES the row changed, so the adoption must
+		 * re-read the authorized snapshot — the SA seeds its working doc from
+		 * it — rather than patching the mode alone and building against the
+		 * stale document. */
+		const { app, snapshot } = await seedSnapshotApp({
+			id: DIRECT_ADOPT_APP,
+			name: "Fresh build app",
+			overrides: { status: "error" },
+			mock: false,
+		});
+		resolveAuthorizedAppSnapshotMock
+			.mockResolvedValueOnce({
+				...snapshot,
+				app: {
+					...app,
+					status: "complete",
+					blueprint: { ...app.blueprint, appName: "Stale complete snapshot" },
+				},
+			})
+			.mockResolvedValue(snapshot);
+		createSolutionsArchitectMock.mockImplementation(() => ({
+			tools: {},
+			stream: async () => {
+				const feed = new ChunkFeed();
+				feed.push(
+					{ type: "start" },
+					{ type: "start-step" },
+					{ type: "finish-step" },
+					{ type: "finish" },
+				);
+				feed.end();
+				return feed.asAgentResult();
+			},
+		}));
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: DIRECT_ADOPT_APP,
+					appReady: true,
+					threadId: DIRECT_ADOPT_THREAD,
+					messages: [
+						{
+							id: "direct-adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Continue the build." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wire = await response.text();
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The stale EDIT claim rejected against the locked build-shaped row and
+		 * the retry adopted BUILD at the build rate. */
+		const firstClaim = claimAndReserveRunMock.mock.calls[0];
+		expect(firstClaim?.[1]).toBe("edit");
+		expect(firstClaim?.[4]).toBe(CREDITS_PER_EDIT);
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("build");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_BUILD);
+
+		/* The adoption re-read the snapshot, and the SA seeded from the FRESH
+		 * document, not the stale pre-flip capture. */
+		expect(
+			resolveAuthorizedAppSnapshotMock.mock.calls.length,
+		).toBeGreaterThanOrEqual(2);
+		const saCall = createSolutionsArchitectMock.mock.calls[0];
+		expect(saCall?.[1]?.appName).toBe("Fresh build app");
+		expect(saCall?.[2]).toBe(false);
+	}, 30_000);
+
+	it("a wait-path adoption that fails before SA construction still flushes the ADOPTED mode to its run summary", async () => {
+		/* The accumulator was seeded with the PRE-WAIT mode (build). The poll
+		 * loop adopts EDIT mid-wait, wins, and then the post-win snapshot read
+		 * faults — a death BEFORE the SA-construction `configureRun` that used
+		 * to be the only mode correction. The flushed summary must describe
+		 * the mode the claim actually booked, or admin inspect reads a phantom
+		 * zero-module build failure. */
+		const { snapshot } = await seedSnapshotApp({
+			id: WAITFAIL_APP,
+			name: "Wait adopt summary app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build-summary",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build-summary",
+			},
+			mock: false,
+		});
+		resolveAuthorizedAppSnapshotMock
+			.mockResolvedValueOnce(snapshot)
+			.mockRejectedValue(new Error("post-win snapshot connection dropped"));
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: WAITFAIL_APP,
+					threadId: WAITFAIL_THREAD,
+					messages: [
+						{
+							id: "wait-adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Rename the app." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", WAITFAIL_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({ status: "complete", awaiting_input: false, res_settled: true })
+			.where("id", "=", WAITFAIL_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).toContain('"type":"internal"');
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+
+		/* The winning claim adopted edit; the flushed summary must say so. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		const summary = await appDb
+			.selectFrom("run_summaries")
+			.select(["prompt_mode", "app_ready"])
+			.where("app_id", "=", WAITFAIL_APP)
+			.executeTakeFirstOrThrow();
+		expect(summary).toEqual({ prompt_mode: "edit", app_ready: true });
 	}, 30_000);
 });

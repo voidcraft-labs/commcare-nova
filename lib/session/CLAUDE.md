@@ -32,6 +32,29 @@ Four session fields describe "what phase is the builder in":
 - `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs. `beginRun({startedWithData})` overrides the capture for ONE case: reconnecting to an in-flight BUILD run after a page refresh, where the build's committed modules are already in the loaded doc and the default capture would misread the resumed build as an edit.
 - `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (the chat route's drain-end build-finished signal). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
+- `buildUnfinished: boolean` — the APP-level "this app's build never
+  completed" latch, deliberately not derivable from the buffer (which clears
+  on every stream close, an askQuestions pause included, while canonical
+  genesis makes the doc read Ready). Seeded by the page
+  (`BuilderProvider.initialBuildUnfinished`: a `generating` app or an
+  interrupted build admitted for re-drive), latched by `markBuildUnfinished()`
+  when a `/build/new` tab's creation handoff lands or an `app-status` frame
+  reports `generating`/`error`, released by
+  `markBuildFinished()` from two channels: `ChatContainer`'s stream `onData`
+  on `data-done` (or the doc-less `data-build-complete` a purely
+  conversational build turn emits instead), and the reconciler's `app-status`
+  SSE frame when the server observes `complete` — the release for tabs never
+  attached to the run's stream (a second tab, a co-member watching a
+  teammate's build). The release also latches the sibling `buildCompleted`
+  flag, which makes the pair one-way per build: `complete` is terminal in the
+  app lifecycle, so after an observed completion `markBuildUnfinished()`
+  no-ops — a stale seq-less `generating` frame delivered after this tab's own
+  `data-done` release cannot re-price a finished app's sends as builds.
+  `reset()` deliberately leaves it alone: it is app truth, and the frozen
+  constructor init would resurrect a released latch. `deriveChatAppReady`
+  (hooks) composes it with the phase for the chat surface's build-vs-edit
+  read: the advisory `appReady` request field and the cost chip both ride it,
+  mirroring the server's authoritative app-row-status rule.
 
 Run-boundary actions are orthogonal and atomic:
 
@@ -79,7 +102,7 @@ composer draft are deliberately retained.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` as a run-mode fact captured before canonical genesis is activated — an initial build uses the Generating layout even though its persisted app is already the born-valid survey starter; an edit keeps the builder Ready/interactive while the agent works.
 
-When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store.
+When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store for anything derivable from the existing base facts. A store field is only for a genuinely NEW base fact the derivations cannot reach — `buildUnfinished` is the example (the buffer it would derive from clears on every stream close), and it carries the burden that earned it: explicit seed, latch, and release channels documented on the field.
 
 ## Staged media uploads
 

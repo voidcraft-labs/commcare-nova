@@ -74,6 +74,7 @@ export function BuilderProvider({
 	children,
 	initialDoc,
 	initialAccess,
+	initialBuildUnfinished,
 	userId,
 }: {
 	buildId: string;
@@ -86,6 +87,10 @@ export function BuilderProvider({
 	 *  active-Project role with `baseSeq: 0`; its reconciler is still dormant
 	 *  until creation. */
 	initialAccess?: InitialBuilderAccess;
+	/** Seed the session store's unfinished-build latch: true when the page
+	 *  loaded a `generating` app or an interrupted build admitted for
+	 *  re-drive, so the tab's first send already reads as build-mode. */
+	initialBuildUnfinished?: boolean;
 	/** The session user id: the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
@@ -95,6 +100,7 @@ export function BuilderProvider({
 			buildId={buildId}
 			initialDoc={initialDoc}
 			initialAccess={initialAccess}
+			initialBuildUnfinished={initialBuildUnfinished}
 			userId={userId}
 		>
 			{children}
@@ -114,12 +120,14 @@ function BuilderProviderInner({
 	children,
 	initialDoc,
 	initialAccess,
+	initialBuildUnfinished,
 	userId,
 }: {
 	buildId: string;
 	children: ReactNode;
 	initialDoc?: PersistableDoc;
 	initialAccess?: InitialBuilderAccess;
+	initialBuildUnfinished?: boolean;
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
@@ -136,6 +144,7 @@ function BuilderProviderInner({
 		 * missing test/embedding data fail-closed instead of manufacturing edit
 		 * authority on the client. */
 		canEdit: initialAccess?.canEdit ?? false,
+		buildUnfinished: initialBuildUnfinished ?? false,
 	}))[0];
 
 	/* The builder provider stack below the two stores, wrapped in

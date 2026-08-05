@@ -132,6 +132,35 @@ export interface BuilderSessionState {
 	 *  close silently. Drives the Completed phase. */
 	runCompletedAt: number | undefined;
 
+	/** This session's app has a BUILD that never completed. Seeded true when
+	 *  the page loads a `generating` app or an interrupted build admitted for
+	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
+	 *  lands; released by `markBuildFinished()` from two channels: this tab's
+	 *  own stream `onData` (`data-done`, or the doc-less `data-build-complete`
+	 *  a conversational build turn emits instead), and the reconciler's
+	 *  `app-status` SSE frame when the server observes `complete` — the path
+	 *  for tabs never attached to the run's stream (a second tab, a co-member
+	 *  watching a teammate's build; the frame's `generating`/`error` arms
+	 *  re-latch, mirroring the server's only-`complete`-is-edit rule).
+	 *  App-level, not run-level, on purpose: it survives stream closes and
+	 *  the events-buffer clear, which the phase derivation cannot (an
+	 *  askQuestions pause clears the buffer while the committed modules make
+	 *  the doc read Ready). `deriveChatAppReady` keys on it so a mid-build
+	 *  tab's sends and its cost chip both read as build-mode. */
+	buildUnfinished: boolean;
+
+	/** This session OBSERVED the app's build reach `complete` (any
+	 *  `markBuildFinished` channel). One-way enforcement for the latch above:
+	 *  once set, `markBuildUnfinished` no-ops, because `complete` is terminal
+	 *  in the app lifecycle (no path flips a complete app back to
+	 *  `generating`/`error`), so any later arming signal is by definition
+	 *  stale, e.g. an in-flight `app-status: generating` frame the stream
+	 *  route read milliseconds before the completing run committed, delivered
+	 *  after this tab's own `data-done` already released the latch. Without
+	 *  the guard that frame re-prices a finished app's sends as builds for up
+	 *  to one reauth cadence. Never reset: app truth, like the latch. */
+	buildCompleted: boolean;
+
 	/** Generic loading flag for async operations outside of agent writes
 	 *  (e.g. initial app load, import). */
 	loading: boolean;
@@ -359,6 +388,22 @@ export interface BuilderSessionState {
 	 *  already cleared. */
 	acknowledgeCompletion: () => void;
 
+	/** Latch `buildUnfinished` from two channels: a `/build/new` tab's
+	 *  app-creation handoff (this tab now owns a build in progress), and the
+	 *  reconciler's `app-status` SSE frame reporting `generating`/`error`
+	 *  (the arm for a tab whose page seed missed it, e.g. an `error` app
+	 *  loaded before the frame channel existed for it). No-ops when set, and
+	 *  no-ops FOREVER once `buildCompleted` is set: a finished build cannot
+	 *  re-arm, so a stale frame delivered after the release is ignored. */
+	markBuildUnfinished: () => void;
+
+	/** Release `buildUnfinished` and latch `buildCompleted` — the build run
+	 *  completed. Three channels: `ChatContainer`'s stream `onData` on
+	 *  `data-done` or `data-build-complete`, and the reconciler's
+	 *  `app-status` SSE frame reporting `complete` (the release for tabs
+	 *  never attached to the run's own chat stream). */
+	markBuildFinished: () => void;
+
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
 
@@ -541,6 +586,10 @@ export interface SessionStoreInit {
 	 *  builder shows the loading skeleton immediately rather than flashing
 	 *  the idle/chat state. */
 	loading?: boolean;
+	/** Seed the unfinished-build latch — true when the page loaded a
+	 *  `generating` app or an interrupted build admitted for re-drive, so the
+	 *  first send already reads as build-mode. */
+	buildUnfinished?: boolean;
 	/** Pre-set the app id. */
 	appId?: string;
 	/** Pre-set the atomic access tuple from the server-rendered app snapshot. */
@@ -580,6 +629,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				events: [] as Event[],
 				runStartedWithData: false,
 				runCompletedAt: undefined as number | undefined,
+				buildUnfinished: init?.buildUnfinished ?? false,
+				buildCompleted: false,
 				loading: init?.loading ?? false,
 
 				/* App identity */
@@ -675,6 +726,21 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				acknowledgeCompletion() {
 					if (get().runCompletedAt === undefined) return;
 					set({ runCompletedAt: undefined });
+				},
+
+				markBuildUnfinished() {
+					const s = get();
+					/* One-way per build: `complete` is terminal in the app
+					 * lifecycle, so an arming signal after an observed completion
+					 * is a stale frame, never fresh truth. */
+					if (s.buildCompleted || s.buildUnfinished) return;
+					set({ buildUnfinished: true });
+				},
+
+				markBuildFinished() {
+					const s = get();
+					if (s.buildCompleted && !s.buildUnfinished) return;
+					set({ buildUnfinished: false, buildCompleted: true });
 				},
 
 				pushEvents(events: Event[]) {
@@ -1199,7 +1265,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					for (const abort of stagedUploadAborts.values()) abort();
 					stagedUploadAborts.clear();
 					set({
-						/* Generation lifecycle */
+						/* Generation lifecycle. `buildUnfinished` is deliberately NOT
+						 * re-seeded here: it tracks a fact about the APP (its build never
+						 * completed), not this session, and the constructor-time `init`
+						 * snapshot goes stale the moment a run releases the latch —
+						 * re-seeding would resurrect it and re-price edits as builds.
+						 * Same reasoning as `resetProjectScope` leaving it alone; the
+						 * app-status stream keeps it converged with the server. */
 						events: [],
 						runStartedWithData: false,
 						runCompletedAt: undefined,

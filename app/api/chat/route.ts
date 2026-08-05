@@ -40,6 +40,7 @@ import {
 } from "@/lib/db/appAccess";
 import {
 	type ClaimedRun,
+	ClaimModeStaleError,
 	type CreateAppReceipt,
 	claimAndReserveRun,
 	clearRunLock,
@@ -60,7 +61,7 @@ import {
 	CommitReauthError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD, chargeAmount } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
@@ -207,15 +208,22 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array and the raw `body.appReady`. The last message's ROLE is the charge
-	 * signal (a fresh instruction ends with `user`; an answered-askQuestions
-	 * auto-resend ends with `assistant` and rides free), so any future
-	 * transform of the history the SA receives must not feed back into this
-	 * read. (`validateChatMessages` only validates + types the array; it does
-	 * not reorder or trim, so `messages` here is still the raw history.) */
-	const { chargeable, cost } = creditGateDecision({
+	 * array. The last message's ROLE is the charge signal (a fresh instruction
+	 * ends with `user`; an answered-askQuestions auto-resend ends with
+	 * `assistant` and rides free), so any future transform of the history the
+	 * SA receives must not feed back into this read. (`validateChatMessages`
+	 * only validates + types the array; it does not reorder or trim, so
+	 * `messages` here is still the raw history.)
+	 *
+	 * `preflightCost` feeds only the advisory fast-fail balance read below:
+	 * the build rate for a new build (checked before `createApp` can mint an
+	 * orphan app), the cheapest chargeable amount for an existing app whose
+	 * real mode isn't loaded yet. The authoritative charge is derived from
+	 * the app row's own status once the app is created/loaded (`appReady` /
+	 * `cost` below) and re-checked inside the claim transaction. */
+	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
-		appReady: !!body.appReady,
+		existingApp: parsed.data.appId !== undefined,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
 	 * chargeable instruction/redrive always gets a fresh server value even if a
@@ -260,7 +268,7 @@ export async function POST(req: Request) {
 
 		if (chargeable) {
 			const balance = await getCurrentCreditBalance(userId);
-			if (balance < cost) {
+			if (balance < preflightCost) {
 				return Response.json(
 					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
 					{ status: 429 },
@@ -279,7 +287,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { runId, appReady } = parsed.data;
+	const { runId } = parsed.data;
 	/* A turn without a thread id starts a fresh server-minted thread (see the
 	 * schema): the conversation persists either way. */
 	const threadId = parsed.data.threadId ?? crypto.randomUUID();
@@ -425,6 +433,39 @@ export async function POST(req: Request) {
 	 * answers and be REAPED, freeing the app for another run. Done inside `execute`
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
+	/* Build-vs-edit, derived SERVER-SIDE from the app row and nothing else: a
+	 * new build and any app not at `complete` (a `generating` build, a paused
+	 * askQuestions round, a reaped build being re-driven) run as BUILD; only a
+	 * `complete` app runs as EDIT. This one binding drives the charge, the
+	 * claim mode, the resume mode, the SA prompt/effort, and the lease
+	 * heartbeat. It first derives from the admission snapshot, and because a
+	 * serialize-wait can hold that read stale for minutes, every chargeable
+	 * claim passes `requireModeMatchesStatus`: a claim whose mode no longer
+	 * matches the LOCKED row rejects with the row's own mode
+	 * (`ClaimModeStaleError`) and this binding re-derives before retrying, so
+	 * a won claim and the run it starts cannot disagree. The client still
+	 * sends its own `appReady` for its UI, but it is advisory here: trusting
+	 * it once let a paused build's answer resume as an EDIT against the BUILD
+	 * holder, which rejected every answer as superseded (the storm behind the
+	 * `paused_timeout` reap this fixes). */
+	let appReady = false;
+	/* The authoritative charge for a chargeable POST, set in both admission
+	 * branches below once `appReady` is known; `preflightCost` above remains
+	 * the advisory fast-fail figure. */
+	let cost = 0;
+	/* The ONE spelling of the chargeable mode binding. Every site that
+	 * (re)derives the claim mode for a chargeable existing-app turn routes
+	 * through here, so the charge, the claim mode, and everything downstream
+	 * keyed on `appReady` (the SA prompt/model, the run summary, the lease
+	 * heartbeat) can never disagree about which mode this POST is booking.
+	 * Returns the bound mode so a call site can hold it in a definite local
+	 * (the mutable optional `claimMode` binding doesn't narrow). */
+	const bindChargeableMode = (ready: boolean): "build" | "edit" => {
+		appReady = ready;
+		cost = chargeAmount(ready);
+		claimMode = ready ? "edit" : "build";
+		return claimMode;
+	};
 	if (!appId) {
 		const expectedProjectId = parsed.data.expectedProjectId;
 		if (expectedProjectId === undefined) {
@@ -495,6 +536,9 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+		/* A brand-new app is a BUILD by definition: `appReady` stays false and
+		 * the charge is the build rate, whatever the client claimed. */
+		cost = chargeable ? chargeAmount(false) : 0;
 		/* Reserve the new build's credits: one transaction over the app row the
 		 * create just wrote (the row itself is the claim: `createApp` writes it
 		 * `generating` BEFORE this, so a second concurrent new build sees it in
@@ -592,6 +636,35 @@ export async function POST(req: Request) {
 			}
 			throw err;
 		}
+		/* The authoritative mode read: only a `complete` app is EDIT-shaped. A
+		 * `generating` app (live or paused mid-build) and an `error` app (a
+		 * reaped build awaiting re-drive; a failed edit never flips its app to
+		 * `error`) both continue as BUILDS, so a paused build's answer resumes
+		 * against the build holder and a re-drive re-claims at the build rate. */
+		appReady = loadedApp.status === "complete";
+		cost = chargeable ? chargeAmount(appReady) : 0;
+		if (!!parsed.data.appReady !== appReady) {
+			/* Not an error: the request proceeds on the derived mode. The warn is
+			 * the visibility into clients whose own phase read disagrees (the bug
+			 * this derivation retired: a `/build/new` tab answering a paused
+			 * build's questions as an edit) and into stale pre-fix tabs. */
+			log.warn("[chat] client appReady disagrees with app status", {
+				appId,
+				clientAppReady: !!parsed.data.appReady,
+				derivedAppReady: appReady,
+				appStatus: loadedApp.status,
+			});
+		}
+		/* Deliberately NO second advisory balance read at the derived rate. On
+		 * the direct path the claim transaction's own affordability check
+		 * rejects pre-stream with the same 429, so a read here would only add
+		 * a roundtrip. On a conflict the derived rate is not necessarily the
+		 * rate this turn ends at: the serialize-wait re-derives the mode at
+		 * the winning poll, and a turn that derived BUILD because the app was
+		 * mid-build usually wins as a 5-credit EDIT once that build completes,
+		 * so a hard reject at the build rate here would falsely turn away an
+		 * affordable turn. The floor read above plus the in-transaction check
+		 * cover both paths. */
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
 			 * AND reserves its credits in ONE transaction: a BUILD-mode
@@ -608,20 +681,73 @@ export async function POST(req: Request) {
 			 * On a CONFLICT the route does not 429: it defers the whole
 			 * claim+reserve sequence into `execute` behind a poll-wait
 			 * (`waitForClaim`), so a second collaborator's request serializes
-			 * behind the holder instead of bouncing. */
-			claimMode = parsed.data.appReady ? "edit" : "build";
+			 * behind the holder instead of bouncing.
+			 *
+			 * `requireModeMatchesStatus` makes the derived mode airtight: it was
+			 * read off an unlocked snapshot, so the claim re-checks it against
+			 * the LOCKED row and rejects with the row's own mode instead of
+			 * booking a stale one; the retry below adopts that mode. A flip per
+			 * attempt needs another actor's full claim cycle in between, so the
+			 * bounded retries only give way to the serialize-wait, never spin. */
+			let directClaimMode = bindChargeableMode(appReady);
 			try {
-				claimedRun = await claimAndReserveRun(
-					appId,
-					claimMode,
-					effectiveRunId,
-					userId,
-					cost,
-					projectId,
-					holderNonce,
-				);
-				reservation = claimedRun.reservation;
-				holderNonce = claimedRun.holderNonce;
+				for (let attempt = 0; ; attempt++) {
+					try {
+						claimedRun = await claimAndReserveRun(
+							appId,
+							directClaimMode,
+							effectiveRunId,
+							userId,
+							cost,
+							projectId,
+							holderNonce,
+							{ requireModeMatchesStatus: true },
+						);
+						reservation = claimedRun.reservation;
+						holderNonce = claimedRun.holderNonce;
+						break;
+					} catch (err) {
+						if (err instanceof ClaimModeStaleError && attempt < 2) {
+							/* The flip PROVES the app row changed since the unlocked
+							 * admission read, so re-admit from a fresh authorized
+							 * snapshot rather than patching the mode alone: the SA
+							 * seeds its working doc from `loadedApp`, and an adopted
+							 * EDIT run must edit the document the completed build
+							 * actually committed, not the mid-build capture. Mode +
+							 * rate re-derive from that same snapshot; a further flip
+							 * rejects again at the locked claim and consumes the next
+							 * bounded attempt. */
+							try {
+								const readmitted = await resolveAuthorizedAppSnapshot(
+									appId,
+									userId,
+									"edit",
+								);
+								loadedApp = readmitted.app;
+								projectId = readmitted.projectId;
+								projectRole = readmitted.role;
+							} catch (readmitErr) {
+								if (readmitErr instanceof AppAccessError) {
+									return Response.json(
+										{ error: "App not found", type: "not_found" },
+										{ status: 404 },
+									);
+								}
+								throw readmitErr;
+							}
+							directClaimMode = bindChargeableMode(
+								loadedApp.status === "complete",
+							);
+							continue;
+						}
+						if (err instanceof ClaimModeStaleError) {
+							/* Three flips in a row means live contention: serialize
+							 * behind it like any other conflict. */
+							throw new RunConflictError();
+						}
+						throw err;
+					}
+				}
 			} catch (err) {
 				if (err instanceof RunConflictError) {
 					/* The app is held: wait inside the stream (below), don't reject. */
@@ -697,7 +823,7 @@ export async function POST(req: Request) {
 	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
 	 * The run-shape fields are seeded from what this POST already knows
-	 * (`appReady` from the request, the
+	 * (`appReady` derived from the app row's status, the
 	 * authorization read's module count) and re-written via
 	 * `usage.configureRun()` inside the execute block at their authoritative
 	 * moment. The seed must be REAL, not placeholder: `prompt_mode` /
@@ -720,7 +846,7 @@ export async function POST(req: Request) {
 		// can diverge again).
 		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
-		appReady: !!appReady,
+		appReady,
 		moduleCount:
 			loadedApp?.module_count ??
 			createdAppReceipt?.blueprint.moduleOrder.length ??
@@ -823,7 +949,7 @@ export async function POST(req: Request) {
 					 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds
 					 * via `status` (no lock) → no heartbeat. `appReady` is the build-vs-edit
 					 * signal. */
-					editLease: !!appReady,
+					editLease: appReady,
 					conversionImpact: async (args) =>
 						(await withSchemaContext()).conversionImpact({ appId, ...args }),
 				});
@@ -1213,12 +1339,24 @@ export async function POST(req: Request) {
 								cost,
 								projectId,
 								holderNonce,
+								{ requireModeMatchesStatus: true },
 							);
 							reservation = claimedRun.reservation;
 							holderNonce = claimedRun.holderNonce;
 							break;
 						} catch (err) {
 							if (err instanceof RunConflictError) continue; // still held: keep waiting
+							if (err instanceof ClaimModeStaleError) {
+								/* The awaited holder finished and changed the app's shape
+								 * (a build the waiter queued behind completed → this turn
+								 * is now an edit of a complete app, or the reverse). Adopt
+								 * the locked row's mode + rate and re-poll: everything
+								 * downstream (`editing`, the heartbeat, the thread type,
+								 * `usage.configureRun`) reads these same bindings, so the
+								 * won claim and the run it starts cannot disagree. */
+								bindChargeableMode(err.statusMode === "edit");
+								continue;
+							}
 							if (err instanceof AppProjectChangedError) {
 								gateBail = {
 									type: "app_changed",
@@ -1302,12 +1440,28 @@ export async function POST(req: Request) {
 					 * accumulator so the flush-time refund/settle targets the right
 					 * period (the seed left these unset for the wait path). A free
 					 * continuation never reaches here (it doesn't claim), so `chargeable`
-					 * is the didReserve signal. */
+					 * is the didReserve signal. The mode fields ride along because a
+					 * stale-mode adoption in the poll loop may have won under the OTHER
+					 * mode than the pre-wait seed pinned: a run that dies between this
+					 * win and the SA-construction `configureRun` still flushes a summary,
+					 * and it must describe the mode the claim actually booked. */
+					const wonEdit = claimedRun.mode === "edit";
 					usage.configureRun({
 						didReserve: chargeable,
 						...(chargeable ? { reservedAmount: cost } : {}),
 						...(reservation ? { chargePeriod: reservation.period } : {}),
+						promptMode: claimedRun.mode,
+						appReady: wonEdit,
+						model: wonEdit ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 					});
+					/* The context was built with the PRE-WAIT mode, and a stale-mode
+					 * adoption above may have won under the other one. Everything
+					 * mode-keyed inside it — the `(mode, runId, nonce)` holder
+					 * capability every commit presents, the lease-heartbeat
+					 * refresher — must follow the mode the claim actually booked, or
+					 * the first guarded batch dies `RunHolderLostError` and the
+					 * `heldApp: false` bail strands the real lock this POST took. */
+					ctx.setRunMode(claimedRun.mode);
 
 					/* A held app may have advanced while we waited (the prior holder
 					 * committed batches), so re-read one authorized persisted snapshot for
@@ -1326,6 +1480,15 @@ export async function POST(req: Request) {
 							throw new AppProjectChangedError();
 						}
 						loadedApp = fresh.app;
+						/* The seed pinned the PRE-WAIT snapshot's module count, stale by
+						 * definition when the awaited holder was committing modules. The
+						 * mode restatement above could not fix it (the fresh count only
+						 * exists once this snapshot resolves), so restate it here: a run
+						 * that dies between this point and the SA-construction
+						 * `configureRun` flushes the count of the document it actually
+						 * ran against. A death at the snapshot read itself still flushes
+						 * the seed value; no fresher count exists on that path. */
+						usage.configureRun({ moduleCount: fresh.app.module_count });
 					} catch (err) {
 						const failure =
 							err instanceof AppAccessError
@@ -1367,6 +1530,9 @@ export async function POST(req: Request) {
 				 * Authorization, Project-scope, and infrastructure failures all fail CLOSED:
 				 * the route emits one terminal error and never starts the SA. */
 				if (resumeMustCheckSupersede) {
+					/* The server-derived mode: a paused build resumes as a BUILD even
+					 * when the answering tab's own phase read drifted (the exact drift
+					 * that once resumed answers as edits and bounced every one). */
 					const resumeMode = appReady ? "edit" : "build";
 					let reacquire:
 						| ReacquireOutcome
@@ -1668,14 +1834,14 @@ export async function POST(req: Request) {
 				}
 
 				try {
-					/* Editing vs. build: determined by appReady alone. If the app
-					 * exists (builder phase Ready/Completed), the SA gets the editing
-					 * prompt + medium reasoning effort; a build gets the build prompt
-					 * at the xhigh ceiling. This holds for the entire edit session,
-					 * including follow-up requests after askQuestions rounds. appReady
-					 * is false during initial generation even after modules exist, so
-					 * a build's follow-up turns keep build mode mid-build. */
-					const editing = !!appReady;
+					/* Editing vs. build: determined by the server-derived appReady
+					 * alone (the app row's status at admission). A `complete` app
+					 * gets the editing prompt + medium reasoning effort; everything
+					 * else, including a paused build's answered askQuestions round
+					 * and a reaped build's re-drive, gets the build prompt at the
+					 * xhigh ceiling, so a build's follow-up turns keep build mode
+					 * mid-build whatever the client's own phase read says. */
+					const editing = appReady;
 					const saModel = editing ? SA_EDIT_MODEL : SA_BUILD_MODEL;
 
 					/* Backfill the accumulator seed now that we know the real
@@ -1685,6 +1851,7 @@ export async function POST(req: Request) {
 					usage.configureRun({
 						promptMode: editing ? "edit" : "build",
 						appReady: editing,
+						model: saModel,
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
@@ -2210,6 +2377,14 @@ export async function POST(req: Request) {
 									seq: finalSeq,
 									success: true,
 								});
+							} else {
+								/* A conversational build turn: `completeAndSettleRun` above
+								 * still flipped the app to `complete`, so the client's
+								 * unfinished-build latch must release even though there is
+								 * no doc to celebrate or reconcile. Without this, the tab
+								 * keeps reading (and pricing) every later send as a build
+								 * against an app the server now runs as an edit. */
+								ctx.emit("data-build-complete", {});
 							}
 						} catch (error) {
 							await failRun(error, "route:finalize");

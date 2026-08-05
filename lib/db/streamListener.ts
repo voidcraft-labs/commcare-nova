@@ -34,10 +34,15 @@ import {
 	PRESENCE_CHANNEL,
 } from "./pg";
 
-/** One open stream's callbacks. A poke re-queries; the args are advisory. */
+/** One open stream's callbacks. A poke re-queries; the args are advisory.
+ *  `onStatusPoke` is the run-lifecycle-status lane of the app channel
+ *  (`statusChanged` marker payloads): re-read the app row's status and
+ *  re-announce it. Optional so headless subscribers without a status surface
+ *  can omit it. */
 interface Subscriber {
 	readonly onMutationPoke: (seq: number) => void;
 	readonly onPresencePoke: () => void;
+	readonly onStatusPoke?: () => void;
 }
 
 /** appId → the streams currently open for it in this process. */
@@ -214,6 +219,9 @@ function dispatchCatchUpAll(): void {
 		for (const sub of set) {
 			safeCall(() => sub.onMutationPoke(0));
 			safeCall(() => sub.onPresencePoke());
+			/* A completion notify can land in a listener-connection gap; the
+			 * catch-up re-announce converges the status like every other lane. */
+			safeCall(() => sub.onStatusPoke?.());
 		}
 	}
 	for (const set of chatSubscribers.values()) {
@@ -235,6 +243,7 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 		streamId?: unknown;
 		projectId?: unknown;
 		revision?: unknown;
+		statusChanged?: unknown;
 	};
 	try {
 		parsed = JSON.parse(msg.payload);
@@ -286,6 +295,10 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 		return;
 	}
 	if (msg.channel === APP_STREAM_CHANNEL) {
+		if (parsed.statusChanged === true) {
+			dispatch(appId, (sub) => sub.onStatusPoke?.());
+			return;
+		}
 		const seq = typeof parsed.seq === "number" ? parsed.seq : 0;
 		dispatch(appId, (sub) => sub.onMutationPoke(seq));
 	} else if (msg.channel === PRESENCE_CHANNEL) {
@@ -401,10 +414,11 @@ export function subscribeAppStream(
 	appId: string,
 	onMutationPoke: (seq: number) => void,
 	onPresencePoke: () => void,
+	onStatusPoke?: () => void,
 ): () => void {
 	// A new subscriber intends the listener alive — re-arm after a prior teardown.
 	torndown = false;
-	const sub: Subscriber = { onMutationPoke, onPresencePoke };
+	const sub: Subscriber = { onMutationPoke, onPresencePoke, onStatusPoke };
 	let set = subscribers.get(appId);
 	if (set === undefined) {
 		set = new Set();

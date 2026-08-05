@@ -45,8 +45,12 @@ export const chatRequestSchema = z.object({
 	 * continuation must echo it so a stale same-thread tab cannot resume a
 	 * successor claim. */
 	holderNonce: chatHolderNonceSchema.optional(),
-	/** App ID: present after first save so subsequent saves update the same doc. */
-	appId: z.string().optional(),
+	/** App ID: present after first save so subsequent saves update the same doc.
+	 * `min(1)` is load-bearing: PRESENCE of this field is what classifies the
+	 * request as an existing-app turn (the credit pre-flight's floor and the
+	 * admission branch both key on it), so an empty string must be a parse
+	 * error rather than a value the two checks read differently. */
+	appId: z.string().min(1).optional(),
 	/** Project captured by the server-rendered `/build/new` page. New-app
 	 *  creation targets this exact Project after a fresh server-side edit gate;
 	 *  it never re-resolves the session's mutable active Project mid-request. */
@@ -56,9 +60,13 @@ export const chatRequestSchema = z.object({
 		.max(255)
 		.refine((value) => value.trim().length > 0)
 		.optional(),
-	/** True when the app has completed initial generation (builder phase is Ready
-	 *  or Completed). Prevents fresh-edit mode from activating mid-generation
-	 *  when modules exist but the build isn't finished yet. */
+	/** The client's own read of "the app has completed initial generation"
+	 *  (builder phase Ready or Completed). ADVISORY ONLY: the route derives the
+	 *  authoritative build-vs-edit mode from the app row's status (only
+	 *  `complete` is edit-shaped) and uses this field solely for a disagreement
+	 *  warn — nothing else reads it (the credit pre-flight keys on `appId`
+	 *  presence, deliberately never on a client-claimed mode). It stays on the
+	 *  wire so the server can see when a client's phase read has drifted. */
 	appReady: z.boolean().optional(),
 	/** True on the client's automatic re-drive of an instance-killed run (the
 	 *  loader detected a dead live-stream marker and the thread's last turn is
