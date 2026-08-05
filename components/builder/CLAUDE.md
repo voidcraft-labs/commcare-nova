@@ -244,7 +244,12 @@ projection with its controls disabled, never a reduced summary that hides
 recipients, changes, schedules, filters, or content.
 The setup guide and case count share one authoritative refresh, but the count
 is optional: a case-query failure stays local to the matching result and never
-withholds the regenerated manual HQ guide.
+withholds the regenerated manual HQ guide. A rejected Server Action transport
+stays in the section's retryable alert, retains any prior count and guide, and
+only the latest still-mounted refresh may replace that state or clear pending.
+Because a disabled native button loses focus in real browsers, completion
+restores the refresh trigger only when it started focused and focus did not move
+to another control while the request was pending.
 Place-backed conditions and recipients distinguish the first load, an initial
 failure, a failed refresh, an in-flight refresh, and a genuinely empty live
 place catalog. The editor names the state and offers the organization reload

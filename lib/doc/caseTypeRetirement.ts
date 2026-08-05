@@ -25,6 +25,7 @@
  * "References" are the slots that NAME the case type:
  *   - another case-type record declaring it as `parent_type`;
  *   - a field's `caseWrite.caseType` (the field writes to it);
+ *   - an automation's target or related case-type references;
  *   - a typed `case-ref` atom in any XPath or prose slot (the reference-slot
  *     registry enumerates them);
  *   - a predicate/expression AST leaf whose `PropertyRef.caseType` or
@@ -49,12 +50,14 @@ import { referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import {
+	automationsOf,
 	caseTypeTargetKey,
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
 	isOwnerOnlyCaseSearchConfig,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
+	ownRecordValue,
 	type ProseTemplate,
 	readSlotStrings,
 	readSlotValues,
@@ -291,8 +294,8 @@ function userBlockedRetirementMessage(
  *
  * The catalog's `parent_type` links stay a direct read of the
  * root-level `doc.caseTypes` array — the registry's owning entities
- * are field / form / module, so the catalog has no carrier uuid to
- * index under.
+ * are field / form / module / automation, so the catalog has no carrier
+ * uuid to index under.
  */
 function findCaseTypeReferences(
 	doc: BlueprintDoc,
@@ -317,10 +320,20 @@ function findCaseTypeReferences(
 	 * the walk this lookup replaced never visited those either. */
 	const scanIndex = buildCarrierScanIndex(doc);
 	const placed: CarrierPlacement[] = [];
+	const automationReferences: RetirementReference[] = [];
 	for (const carrierUuid of referencingCarrierUuids(
 		doc,
 		caseTypeTargetKey(caseType),
 	)) {
+		const automation = ownRecordValue(automationsOf(doc), carrierUuid);
+		if (automation !== undefined) {
+			automationReferences.push(
+				sameRef(
+					`automation "${automation.name}" uses the "${caseType}" case type`,
+				),
+			);
+			continue;
+		}
 		const parsedCarrierUuid = uuidSchema.safeParse(carrierUuid);
 		if (!parsedCarrierUuid.success) continue;
 		const placement = placeCarrier(doc, parsedCarrierUuid.data, scanIndex);
@@ -352,6 +365,7 @@ function findCaseTypeReferences(
 			collectFormSlotReferences(form, caseType, where, references);
 		}
 	}
+	references.push(...automationReferences);
 
 	return references;
 }

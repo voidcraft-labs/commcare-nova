@@ -119,6 +119,18 @@ describe("buildSolutionsArchitectPrompt", () => {
 		);
 	});
 
+	it("teaches contextual automation host and message-property refusals", () => {
+		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		expect(sp).toContain(
+			"advanced case operation can add a second extension relationship",
+		);
+		expect(sp).toContain(
+			"host-scoped criterion, update source, or message case-property part",
+		);
+		expect(sp).toContain("`owner`, `host`, or `last_modified_by`");
+		expect(sp).toContain("formatter context shadows those names");
+	});
+
 	it("edit prompt is byte-identical across different apps", () => {
 		const a = buildSolutionsArchitectPrompt(
 			fixtureDoc("Vaccine Tracker", "Patients"),

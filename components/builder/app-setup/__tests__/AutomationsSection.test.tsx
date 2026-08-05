@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	focusElement,
@@ -327,6 +333,20 @@ function expectLocalizedRefusal(control: HTMLElement): void {
 			.split(/\s+/)
 			.map((id) => document.getElementById(id)?.textContent),
 	).toContain(alert.textContent);
+}
+
+function deferred<T>(): {
+	readonly promise: Promise<T>;
+	readonly resolve: (value: T) => void;
+	readonly reject: (reason?: unknown) => void;
+} {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((settle, refuse) => {
+		resolve = settle;
+		reject = refuse;
+	});
+	return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -1673,6 +1693,93 @@ describe("AutomationsSection", () => {
 			"setup guide below is still current",
 		);
 		expect(screen.getByRole("button", { name: "Copy guide" })).toBeDefined();
+	});
+
+	it("localizes a rejected Preview refresh, clears pending, and retries without discarding the guide", async () => {
+		mocks.automations = [rule];
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Count matching cases" }),
+		);
+		await screen.findByText("Open the rule editor.");
+
+		const rejectedRefresh = deferred<never>();
+		mocks.preview.mockReturnValueOnce(rejectedRefresh.promise);
+		const refresh = screen.getByRole("button", {
+			name: "Refresh count and guide",
+		});
+		focusElement(refresh);
+		fireEvent.click(refresh);
+		await waitFor(() => expect(refresh).toHaveProperty("disabled", true));
+
+		await act(async () => {
+			rejectedRefresh.reject(new Error("Server Action transport failed"));
+			await rejectedRefresh.promise.catch(() => undefined);
+		});
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toBe(
+			"Nova couldn't refresh this automation just now. Try again in a moment.",
+		);
+		expect(refresh).toHaveProperty("disabled", false);
+		await waitFor(() => expect(document.activeElement).toBe(refresh));
+		expect(screen.getByText("4")).toBeDefined();
+		expect(screen.getByText("Open the rule editor.")).toBeDefined();
+		expect(screen.getByRole("button", { name: "Copy guide" })).toBeDefined();
+
+		mocks.preview.mockResolvedValueOnce({
+			success: true,
+			data: {
+				automationUuid: RULE_UUID,
+				blueprintSeq: 4,
+				organizationRevision: "2",
+				matching: { status: "counted", currentMatchCount: 7 },
+				omittedCriteria: [],
+				setupGuide: {
+					title: "Close resolved visits",
+					requiredPlan: "Data Cleanup (Pro or higher)",
+					steps: ["Retry setup step."],
+					caveats: ["Nova does not run this automation in Preview."],
+				},
+				executesLocally: false,
+			},
+		});
+		fireEvent.click(refresh);
+		await screen.findByText("Retry setup step.");
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(refresh).toHaveProperty("disabled", false);
+		expect(mocks.preview).toHaveBeenCalledTimes(3);
+		expect(screen.getByText("7")).toBeDefined();
+		expect(screen.queryByText("Open the rule editor.")).toBeNull();
+	});
+
+	it("retires a rejected Preview refresh when its summary unmounts", async () => {
+		mocks.automations = [rule];
+		const pendingRefresh = deferred<never>();
+		mocks.preview.mockReturnValueOnce(pendingRefresh.promise);
+		const { unmount } = render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Count matching cases" }),
+		);
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", { name: "Count matching cases" }),
+			).toHaveProperty("disabled", true),
+		);
+
+		unmount();
+		await act(async () => {
+			pendingRefresh.reject(new Error("Server Action transport failed"));
+			await pendingRefresh.promise.catch(() => undefined);
+		});
 	});
 
 	it("resets copied state when a refreshed setup guide changes", async () => {

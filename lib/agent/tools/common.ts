@@ -230,12 +230,12 @@ export async function guardedMutateStages(
  *
  * - `kind`: the discriminator — always `"mutate"`.
  * - `mutations`: the computed batch. The tool has already persisted it
- *   via `ctx.recordMutations` before returning; the SA wrapper uses the
- *   presence of mutations to decide whether to advance its own working
- *   doc closure.
- * - `newDoc`: the post-mutation doc, precomputed once by the tool so
- *   callers avoid a redundant second Immer pass. MCP adapters ignore
- *   this (their doc lifecycle is per-call, not per-closure).
+ *   via `ctx.recordMutations` before returning when it is nonempty.
+ * - `newDoc`: the tool's exact post-call working doc, precomputed once so
+ *   callers avoid a redundant second Immer pass. It is normally the
+ *   post-mutation doc; an authoritative zero-diff proof may return a fresher
+ *   persisted snapshot. Chat adopts it even when `mutations` is empty. MCP
+ *   adapters ignore it because their doc lifecycle is per-call.
  * - `result`: the value the LLM sees as the tool's return. Per-tool
  *   typed via the `R` parameter.
  */

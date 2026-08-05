@@ -11,6 +11,7 @@ import {
 	type Automation,
 	automationMessageText,
 	type BlueprintDoc,
+	type Uuid,
 } from "@/lib/domain";
 
 const mocks = vi.hoisted(() => ({
@@ -89,6 +90,40 @@ function rule(): Automation {
 	};
 }
 
+function surveyRule(formUuid: Uuid): Automation {
+	return {
+		uuid: RULE_UUID,
+		kind: "conditional-alert",
+		name: "Visit survey",
+		caseType: "visit",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		recipients: [{ uuid: testUuid("tool-survey-recipient"), kind: "self" }],
+		schedule: {
+			kind: "immediate",
+			events: [
+				{
+					uuid: testUuid("tool-survey-event"),
+					minutesToWait: 0,
+					content: {
+						kind: "sms-survey",
+						formUuid,
+						expirationHours: 24,
+						reminderIntervalsMinutes: [],
+						submitPartiallyCompletedForms: false,
+						includeCaseUpdatesInPartialSubmissions: false,
+					},
+				},
+			],
+		},
+		includeDescendantLocations: false,
+		locationLevelUuids: [],
+		userDataFilters: [],
+		useUserCaseForFilter: false,
+	};
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -101,6 +136,19 @@ describe("automation shared tools", () => {
 		expect(getAutomationsTool.description).not.toContain(
 			"locally counts matching cases",
 		);
+	});
+
+	it("teaches contextual host and message-property refusals on both write tools", () => {
+		for (const description of [
+			addAutomationsTool.description,
+			updateAutomationTool.description,
+		]) {
+			expect(description).toContain(
+				"advanced case operation can add a second extension relationship",
+			);
+			expect(description).toContain("owner, host, or last_modified_by");
+			expect(description).toContain("formatter context shadows those names");
+		}
 	});
 
 	it("refuses HQ-invalid survey and schedule inputs on the shared SA/MCP schema", () => {
@@ -392,6 +440,103 @@ describe("automation shared tools", () => {
 				},
 			],
 		});
+	});
+
+	it("proves a zero-diff update from one authoritative Blueprint and organization snapshot", async () => {
+		const invocationDoc = doc();
+		const formUuid = Object.keys(invocationDoc.forms)[0] as Uuid | undefined;
+		if (formUuid === undefined) throw new Error("missing form");
+		const requested = surveyRule(formUuid);
+		invocationDoc.automations = { [RULE_UUID]: requested };
+		invocationDoc.automationOrder = [RULE_UUID];
+
+		const authoritativeDoc = structuredClone(invocationDoc);
+		const authoritativeForm = authoritativeDoc.forms[formUuid];
+		if (authoritativeForm === undefined) throw new Error("missing form");
+		authoritativeForm.name = "Renamed peer survey";
+		const moduleUuid = Object.keys(authoritativeDoc.modules)[0] as
+			| Uuid
+			| undefined;
+		if (moduleUuid === undefined) throw new Error("missing module");
+		const authoritativeModule = authoritativeDoc.modules[moduleUuid];
+		if (authoritativeModule === undefined) throw new Error("missing module");
+		authoritativeModule.name = "Renamed peer module";
+		const peerBase = rule();
+		if (peerBase.kind !== "case-update") {
+			throw new Error("expected case-update peer rule");
+		}
+		const peerRule = {
+			...peerBase,
+			uuid: testUuid("tool-peer-automation"),
+			updates: [
+				{
+					...peerBase.updates[0],
+					uuid: testUuid("tool-peer-automation-update"),
+				},
+			],
+		} satisfies Automation;
+		authoritativeDoc.automations = {
+			...authoritativeDoc.automations,
+			[peerRule.uuid]: peerRule,
+		};
+		authoritativeDoc.automationOrder = [RULE_UUID, peerRule.uuid];
+		mocks.readAuthoring.mockResolvedValue({
+			blueprint: authoritativeDoc,
+			blueprintSeq: 9,
+			organization: { revision: "4", locations: [] },
+		});
+		const ctx = makeCtx();
+
+		const updated = await updateAutomationTool.execute(
+			{ automation: requested },
+			ctx,
+			invocationDoc,
+		);
+
+		expect(updated.mutations).toEqual([]);
+		expect(updated.newDoc).toBe(authoritativeDoc);
+		expect(updated.newDoc.automations?.[peerRule.uuid]).toEqual(peerRule);
+		expect(JSON.stringify(updated.result)).toContain("Renamed peer module");
+		expect(JSON.stringify(updated.result)).toContain("Renamed peer survey");
+		expect(updated.result).not.toHaveProperty("error");
+		expect(ctx.recordMutations).not.toHaveBeenCalled();
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
+		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns a fresh-doc conflict when a zero-diff invocation races a peer automation edit", async () => {
+		const invocationDoc = doc();
+		const requested = rule();
+		invocationDoc.automations = { [RULE_UUID]: requested };
+		invocationDoc.automationOrder = [RULE_UUID];
+		const authoritativeDoc = structuredClone(invocationDoc);
+		const peerAutomation = authoritativeDoc.automations?.[RULE_UUID];
+		if (peerAutomation === undefined) throw new Error("missing automation");
+		peerAutomation.name = "Peer renamed this rule";
+		mocks.readAuthoring.mockResolvedValue({
+			blueprint: authoritativeDoc,
+			blueprintSeq: 10,
+			organization: { revision: "5", locations: [] },
+		});
+		const ctx = makeCtx();
+
+		const updated = await updateAutomationTool.execute(
+			{ automation: requested },
+			ctx,
+			invocationDoc,
+		);
+
+		expect(updated).toMatchObject({
+			mutations: [],
+			newDoc: authoritativeDoc,
+			result: {
+				error:
+					"This automation changed concurrently. Read automations again and retry from the current complete state.",
+			},
+		});
+		expect(ctx.recordMutations).not.toHaveBeenCalled();
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
+		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not perform a fallible organization read after an add commits", async () => {

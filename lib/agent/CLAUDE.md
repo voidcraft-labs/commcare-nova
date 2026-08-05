@@ -166,7 +166,10 @@ Formatter sees it. Case substitutions are explicit `case-property` parts
 carrying scope plus the Nova `(caseType, property)` identity. Case-owner and
 message-recipient substitutions are explicit closed `context-property` parts.
 SA and MCP write that shape directly, and only the derived HQ guide prints
-executable `{case...}` / `{recipient...}` tokens.
+executable `{case...}` / `{recipient...}` tokens. Custom case properties named
+`owner`, `host`, or `last_modified_by` are refused in every message case scope
+because HQ's formatter context shadows them; use an actual context-property
+part for case-owner/recipient values or rename the custom case property.
 Registered handler IDs and setup-only instructions must be concrete, trimmed,
 and nonblank; no tool may send instructional placeholder copy as data.
 Setup-only instructions carry an explicit UCR or registered-custom family.
@@ -200,6 +203,11 @@ filter keys are unique. Descendant controls require a location recipient and
 location-level filters require descendants. The deprecated domain-wide
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
 per-rule tool field.
+Host-scoped reads are admitted only while the app has one unambiguous canonical
+extension relation for the automation case type. If an advanced case operation
+can add a second extension, the gate refuses host-scoped criteria, update
+sources, and message case-property parts rather than choose from HQ's unordered
+extensions; the extra link and parent-scoped reads remain valid.
 
 Tool input keeps Nova's standard property names; the guide alone projects them
 to HQ model-field names, including `case_type` to `type`; `case_id` and
@@ -210,13 +218,13 @@ domain without Rich text emails, while rich text carries HTML source only and
 requires the toggle because HQ sanitizes/rewraps it and derives plaintext.
 
 Read and successful add/update results are explicit that Nova does not execute
-or install the automation. They derive the CommCare HQ setup guide and local
-matching omissions from an authorized location snapshot plus the exact
-`commit.newDoc` returned by the guarded write. Add/update fence that location
-snapshot's revision inside the app-locked Blueprint transaction, so a successful
-guide describes the same organization serialization point as its commit;
-removal returns only its deletion receipt. No guide or match count is
-persisted, and MCP does not pretend to return the Builder-only Preview count.
+or install the automation. Mutation-bearing writes derive the CommCare HQ setup
+guide and local matching omissions from an authorized location snapshot plus
+the exact `commit.newDoc` returned by the guarded write. Add/update fence that
+location snapshot's revision inside the app-locked Blueprint transaction, so a
+successful write guide describes the same organization serialization point as
+its commit; removal returns only its deletion receipt. No guide or match count
+is persisted, and MCP does not pretend to return the Builder-only Preview count.
 No fallible organization read may run after `guardedMutate` succeeds: reporting
 an error after persistence would strand chat on its stale closure and make an
 MCP retry collide with the identities that already committed. A concurrent
@@ -224,6 +232,12 @@ blueprint merge still derives the returned rule from `commit.newDoc`; a
 concurrent location write makes the fence reject before persistence so the
 caller retries from the newer snapshot. Callers can use `get_automations` to
 regenerate against a later location revision.
+An invocation-time zero diff is not by itself a persisted no-op. Update reads
+one authoritative Blueprint-plus-organization snapshot: only an exact match
+with the requested complete automation returns success and guidance from that
+snapshot; a changed or removed target returns a concurrency conflict. The chat
+wrapper adopts the returned authoritative `newDoc` even though no mutation row
+was needed, while MCP's next request starts from a fresh authorized snapshot.
 The prompt sends the SA to this family and forbids promising Preview execution,
 message delivery, schedule progress, or HQ installation. MCP registers the
 same four tool objects through `sharedToolRegistry`, with identity pointers for

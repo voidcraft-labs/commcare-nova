@@ -25,12 +25,14 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
 	assignedLocationUuids,
+	automationsOf,
 	type BlueprintDoc,
 	entityTargetKey,
 	type LocationProperty,
 	locationPropertiesOf,
 	type OrganizationLevel,
 	organizationLevelsOf,
+	ownRecordValue,
 	type PersonaLocations,
 	personasOf,
 	type Uuid,
@@ -79,7 +81,7 @@ export type RemoveOrganizationLevelPlan =
 /**
  * Plan a level removal.
  *
- * Three things can block it, and each is refused with what to do rather than
+ * Four things can block it, and each is refused with what to do rather than
  * silently repaired:
  *
  *   - **Places still stand at it.** Refused with the count when the caller
@@ -92,6 +94,9 @@ export type RemoveOrganizationLevelPlan =
  *     starting point, an address-book allowlist. Those are refused rather than
  *     rewritten because each one encodes an intent that has no automatic
  *     substitute.
+ *   - **An automation filters location recipients by it.** The planner names
+ *     the automation to repair rather than proposing a level removal the
+ *     absolute automation gate will later reject.
  *
  * A location property that applies only to the removed level IS a blocker.
  * Empty scope has no stored spelling, while absent scope means every level;
@@ -140,6 +145,19 @@ export function removeOrganizationLevelPlan(
 		return {
 			ok: false,
 			userMessage: `A case-owner rule uses "${level.name}". Choose a different destination in that rule first, then remove the level.`,
+		};
+	}
+	const automationReferrers = indexedReferrers.flatMap((carrier) => {
+		const automation = ownRecordValue(automationsOf(doc), carrier);
+		return automation === undefined ? [] : [automation];
+	});
+	if (automationReferrers.length > 0) {
+		const names = automationReferrers
+			.map((automation) => `"${automation.name}"`)
+			.join(", ");
+		return {
+			ok: false,
+			userMessage: `${automationReferrers.length === 1 ? "Automation" : "Automations"} ${names} ${automationReferrers.length === 1 ? "uses" : "use"} "${level.name}" as a recipient location level. Change ${automationReferrers.length === 1 ? "that automation" : "those automations"} first, then remove the level.`,
 		};
 	}
 

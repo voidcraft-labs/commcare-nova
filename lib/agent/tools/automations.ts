@@ -2,6 +2,7 @@ import { produce } from "immer";
 import { z } from "zod";
 import { automationMatchProjection } from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -40,7 +41,7 @@ export const addAutomationsInputSchema = z
 			.min(1)
 			.max(50)
 			.describe(
-				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names and UUID-backed location conditions. Message fields are structural templates: text parts stay literal, case-property parts are explicit identity references, and context-property parts explicitly select case-owner or recipient values. Recipient-filter values are structural exact literals or custom case-property references. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs, language codes, and setup-only instructions are exact trimmed nonblank target-HQ values; setup-only instructions distinguish UCR from registered-custom criteria.",
+				"Complete automation definitions in display order. Every automation and nested collection item uses a stable UUID. Use Nova case-property names and UUID-backed location conditions. Host-scoped reads are refused when an advanced case operation can add a second extension relationship to the automation case type. Message fields are structural templates: text parts stay literal, case-property parts are explicit identity references, and context-property parts explicitly select case-owner or recipient values. Message case-property parts cannot use owner, host, or last_modified_by because CommCare HQ's formatter context shadows those names. Recipient-filter values are structural exact literals or custom case-property references. Email content carries exactly one plain-text or rich-text body, never parallel bodies. Registered IDs, language codes, and setup-only instructions are exact trimmed nonblank target-HQ values; setup-only instructions distinguish UCR from registered-custom criteria.",
 			),
 		afterAutomationUuid: uuidSchema
 			.nullable()
@@ -54,7 +55,7 @@ export const addAutomationsInputSchema = z
 export const updateAutomationInputSchema = z
 	.object({
 		automation: automationSchema.describe(
-			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names, structural message-template and recipient-filter values, explicit UCR/registered-custom setup-only kinds, exact registered/setup-only text, and one email body form.",
+			"Complete desired state of one existing automation. Preserve every UUID that still names the same rule or nested item; omitted nested items are removed. Use Nova case-property names, structural message-template and recipient-filter values, explicit UCR/registered-custom setup-only kinds, exact registered/setup-only text, and one email body form. Host-scoped reads are refused when an advanced case operation can add a second extension relationship to the automation case type. Message case-property parts cannot use owner, host, or last_modified_by because CommCare HQ's formatter context shadows those names.",
 		),
 	})
 	.strict();
@@ -158,7 +159,7 @@ export const getAutomationsTool = {
 
 export const addAutomationsTool = {
 	description:
-		"Add one or more complete automatic case-update rules or conditional alerts to the app. Use Nova standard property names; case_type projects to HQ type, while case_id and case_type are read-only. The gate refuses status, standard-datetime equality/regex, every standard scalar in dynamic-only restart/event-time slots, and blank or padded HQ recipient IDs. Email body is plain-text (Rich text emails off) or rich-text HTML source (toggle on; HQ sanitizes it and derives plaintext). This records canonical Nova definitions and setup guidance; it does not install or run them in CommCare HQ.",
+		"Add one or more complete automatic case-update rules or conditional alerts to the app. Use Nova standard property names; case_type projects to HQ type, while case_id and case_type are read-only. The gate refuses status, standard-datetime equality/regex, every standard scalar in dynamic-only restart/event-time slots, and blank or padded HQ recipient IDs. Host-scoped reads are refused when an advanced case operation can add a second extension relationship to the automation case type. Message case-property parts cannot use owner, host, or last_modified_by because CommCare HQ's formatter context shadows those names. Email body is plain-text (Rich text emails off) or rich-text HTML source (toggle on; HQ sanitizes it and derives plaintext). This records canonical Nova definitions and setup guidance; it does not install or run them in CommCare HQ.",
 	inputSchema: addAutomationsInputSchema,
 	async execute(
 		input: z.infer<typeof addAutomationsInputSchema>,
@@ -230,7 +231,7 @@ export const addAutomationsTool = {
 
 export const updateAutomationTool = {
 	description:
-		"Replace one existing automation with its complete desired canonical state. Use Nova standard property names and one plain-text or rich-text email body. The automation kind and UUID are create-once; nested UUIDs preserve identity across edits.",
+		"Replace one existing automation with its complete desired canonical state. Use Nova standard property names and one plain-text or rich-text email body. Host-scoped reads are refused when an advanced case operation can add a second extension relationship to the automation case type. Message case-property parts cannot use owner, host, or last_modified_by because CommCare HQ's formatter context shadows those names. The automation kind and UUID are create-once; nested UUIDs preserve identity across edits.",
 	inputSchema: updateAutomationInputSchema,
 	async execute(
 		input: z.infer<typeof updateAutomationInputSchema>,
@@ -257,16 +258,38 @@ export const updateAutomationTool = {
 			});
 			const mutations = diffDocsToMutations(doc, next);
 			if (mutations.length === 0) {
-				const locations = (await readOrganization(scope(ctx))).locations;
+				// The invocation closure may trail a peer. Prove the no-op and derive
+				// guidance from one authoritative Blueprint-plus-organization read;
+				// otherwise stale target state could be reported as current.
+				const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
+				const persistedAutomation = ownRecordValue(
+					authoring.blueprint.automations,
+					input.automation.uuid,
+				);
+				if (
+					persistedAutomation === undefined ||
+					!deepEqual(persistedAutomation, input.automation)
+				) {
+					return mutationError(
+						authoring.blueprint,
+						"This automation changed concurrently. Read automations again and retry from the current complete state.",
+					);
+				}
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
+					newDoc: authoring.blueprint,
 					result: {
-						message: `Automation "${before.name}" already has the requested settings.`,
-						automationUuids: [before.uuid],
-						setupGuides: [setupGuideResult(doc, before, locations)],
-						summary: { subject: before.name },
+						message: `Automation "${persistedAutomation.name}" already has the requested settings.`,
+						automationUuids: [persistedAutomation.uuid],
+						setupGuides: [
+							setupGuideResult(
+								authoring.blueprint,
+								persistedAutomation,
+								authoring.organization.locations,
+							),
+						],
+						summary: { subject: persistedAutomation.name },
 					},
 				};
 			}

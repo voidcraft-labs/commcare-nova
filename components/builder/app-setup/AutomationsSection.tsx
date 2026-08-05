@@ -101,6 +101,9 @@ import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
 
+const AUTOMATION_PREVIEW_UNAVAILABLE_MESSAGE =
+	"Nova couldn't refresh this automation just now. Try again in a moment.";
+
 type AutomationOrganizationState = Pick<
 	OrganizationView,
 	"loading" | "error" | "warning" | "refreshing" | "reload"
@@ -421,18 +424,56 @@ function AutomationSummary({
 	const [preview, setPreview] = useState<SavedPreview>();
 	const [error, setError] = useState<string>();
 	const [pending, setPending] = useState(false);
+	const latestRequestRef = useRef(0);
+	const refreshButtonRef = useRef<HTMLButtonElement>(null);
+	const focusFrameRef = useRef<number | null>(null);
+	useEffect(
+		() => () => {
+			latestRequestRef.current += 1;
+			if (focusFrameRef.current !== null) {
+				cancelAnimationFrame(focusFrameRef.current);
+			}
+		},
+		[],
+	);
 	const load = () => {
+		const request = ++latestRequestRef.current;
+		const restoreTriggerFocus =
+			refreshButtonRef.current === document.activeElement;
 		setPending(true);
 		setError(undefined);
 		startTransition(async () => {
-			const result = await previewAutomationAction({
-				appId,
-				automationUuid: automation.uuid,
-				expectedAutomation: automation,
-			});
-			if (result.success) setPreview(result.data);
-			else setError(result.message);
-			setPending(false);
+			try {
+				const result = await previewAutomationAction({
+					appId,
+					automationUuid: automation.uuid,
+					expectedAutomation: automation,
+				});
+				if (latestRequestRef.current !== request) return;
+				if (result.success) setPreview(result.data);
+				else setError(result.message);
+			} catch {
+				if (latestRequestRef.current !== request) return;
+				setError(AUTOMATION_PREVIEW_UNAVAILABLE_MESSAGE);
+			} finally {
+				if (latestRequestRef.current === request) {
+					setPending(false);
+					if (restoreTriggerFocus) {
+						if (focusFrameRef.current !== null) {
+							cancelAnimationFrame(focusFrameRef.current);
+						}
+						focusFrameRef.current = requestAnimationFrame(() => {
+							focusFrameRef.current = null;
+							if (
+								latestRequestRef.current === request &&
+								document.activeElement === document.body
+							) {
+								refreshButtonRef.current?.focus();
+							}
+						});
+					}
+				}
+			}
 		});
 	};
 
@@ -495,6 +536,7 @@ function AutomationSummary({
 			)}
 			<div className="flex flex-wrap gap-2">
 				<Button
+					ref={refreshButtonRef}
 					type="button"
 					variant="outline"
 					onClick={load}

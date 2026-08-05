@@ -376,6 +376,13 @@ requirement. The returned guide also names HQ's system-administrator save
 requirement whenever a custom recipient or custom content handler is present;
 registration plus project-administrator access is not sufficient.
 
+Custom case properties named `owner`, `host`, or `last_modified_by` cannot be
+used in a message `case-property` part in case, parent, or host scope. HQ adds
+those names to its formatter context before it adds custom case data, so the
+framework values shadow same-named custom properties. Rename the custom
+property, or use a `context-property` part when the intended value is the real
+case-owner or recipient context.
+
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
 after the first wait at least five minutes. Custom Daily events use one timing mode and remain ordered; Weekly and Monthly schedules also
@@ -411,9 +418,12 @@ For locally countable property criteria, whitespace-only strings are blank and
 equality matches only an exact stored string. Stored non-string values never
 equal the configured string and therefore satisfy inequality. A parent/host
 equality or inequality requires that related case to exist. Parent reads use
-the `parent` identifier regardless of relationship; host reads use the first
-extension regardless of identifier, with the canonical `parent` extension
-preferred when several exist. Alert regex
+the `parent` identifier regardless of relationship. Host reads are admitted
+only while the app model leaves one unambiguous canonical extension relation
+for the automated case type. If an advanced case operation can add a second
+extension relation, Nova refuses every host-scoped criterion, update source,
+and message case-property part instead of choosing from HQ's unordered
+extensions; the extra link and parent-scoped reads remain valid. Alert regex
 matching applies only to stored strings; Nova does not coerce numeric or
 boolean case values to text. Date conditions use the same relation selection
 and compare only the property's written calendar date, never its time of day.

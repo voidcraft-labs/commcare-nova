@@ -9,6 +9,7 @@ import {
 	type AutomationContent,
 	type AutomationMessageTemplate,
 	type AutomationPropertyTarget,
+	automationSchema,
 	automationsOf,
 	type BlueprintDoc,
 	effectiveCaseTypes,
@@ -501,7 +502,40 @@ export function validateAutomations(doc: BlueprintDoc): ValidationError[] {
 	const caseTypes = new Map(
 		effectiveCaseTypes(doc).map((caseType) => [caseType.name, caseType]),
 	);
-	for (const automation of Object.values(automationsOf(doc))) {
+	for (const candidate of Object.values(automationsOf(doc))) {
+		// Granular automation mutations deliberately own one scalar or child
+		// collection at a time. Re-parse their complete result here so an
+		// individually canonical remove/update cannot commit an aggregate shape
+		// the domain schema refuses (for example, no recipients or events, a
+		// duplicate singleton, or incompatible recipient/location settings).
+		// This is part of the absolute validator rather than a reducer check, so
+		// Builder, SA, MCP, replayed concurrent candidates, and export all apply
+		// the same complete-domain contract.
+		const parsed = automationSchema.safeParse(candidate);
+		if (!parsed.success) {
+			for (const issue of parsed.error.issues) {
+				const path = issue.path.map(String).join(".");
+				errors.push(
+					validationError(
+						"AUTOMATION_INVALID",
+						"app",
+						`Automation “${candidate.name}” is not valid. ${issue.message}`,
+						{},
+						{
+							automationUuid: candidate.uuid,
+							path:
+								path.length > 0
+									? path
+									: candidate.kind === "case-update"
+										? "updates"
+										: "automation",
+						},
+					),
+				);
+			}
+			continue;
+		}
+		const automation = parsed.data;
 		const nameKey = automation.name.trim().toLocaleLowerCase();
 		if (names.has(nameKey)) {
 			errors.push(
