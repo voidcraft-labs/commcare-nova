@@ -162,7 +162,7 @@ describe("previewAutomationAction", () => {
 					),
 				},
 				setupGuide: {
-					title: "Close abandoned claims: Automatic Case Update Rule",
+					title: "Close abandoned claims: automatic case update rule",
 					steps: expect.any(Array),
 				},
 			},

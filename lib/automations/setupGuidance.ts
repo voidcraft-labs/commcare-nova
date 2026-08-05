@@ -22,7 +22,7 @@ import {
 	projectAutomationPropertyForHq,
 	projectAutomationTemplateForHq,
 } from "./hqCaseProperties";
-import { automationUsesHostScopedRead } from "./matching";
+import { automationUsesHostScope } from "./matching";
 
 export interface AutomationSetupGuide {
 	readonly title: string;
@@ -240,9 +240,9 @@ export function buildAutomationSetupGuide(
 			"HQ executes LocationFilterDefinition and its HTML form accepts the hidden location_filter_definition payload, but the current visible rule and alert editors do not expose that picker. Have an HQ administrator apply the named location and descendant flag through that exact form payload or another supported administrator path; do not save a rule with this step omitted.",
 		);
 	}
-	if (automationUsesHostScopedRead(automation)) {
+	if (automationUsesHostScope(automation)) {
 		caveats.push(
-			"Every host-scoped read requires exactly one live extension at runtime. Retained extra extension indices leave CommCare HQ's host choice undefined. When a condition reads the host, those extra indices also make the case count unavailable.",
+			"Every host-scoped reference requires exactly one live extension at runtime. Retained extra extension indices leave CommCare HQ's host choice undefined. When a condition reads the host, those extra indices also make the case count unavailable.",
 		);
 	}
 	if (
@@ -297,7 +297,7 @@ export function buildAutomationSetupGuide(
 			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that project-wide effect separately.",
 		);
 		return {
-			title: `${automation.name}: Automatic Case Update Rule`,
+			title: `${automation.name}: automatic case update rule`,
 			requiredPlan: "Data Cleanup (Pro or higher)",
 			steps,
 			caveats,
@@ -522,7 +522,7 @@ export function buildAutomationSetupGuide(
 		);
 	}
 	return {
-		title: `${automation.name}: Conditional Alert`,
+		title: `${automation.name}: conditional alert`,
 		requiredPlan: "Reminders Framework (Standard or higher)",
 		steps,
 		caveats,

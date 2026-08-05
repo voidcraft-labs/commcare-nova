@@ -432,6 +432,42 @@ describe("AutomationsSection", () => {
 		);
 	});
 
+	it("keeps an empty viewer informed without offering an unavailable action", () => {
+		mocks.canEdit = false;
+		render(<AutomationsSection />);
+		expect(
+			screen.getByText(/A Project editor can add one/).textContent,
+		).toContain("send a message without a form submission");
+		expect(screen.queryByRole("button", { name: "Add automation" })).toBeNull();
+	});
+
+	it("preserves shared new-rule work when the automation type changes", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		const name = screen.getByRole("textbox", { name: "Name" });
+		fireEvent.change(name, {
+			target: { value: "Follow up on overdue visits" },
+		});
+		await chooseChoice("Match", "Any condition");
+
+		await chooseChoice("Automation type", "Conditional alert");
+		expect(screen.getByRole("textbox", { name: "Name" })).toHaveProperty(
+			"value",
+			"Follow up on overdue visits",
+		);
+		expect(
+			screen.getByRole("combobox", { name: "Match" }).textContent,
+		).toContain("Any condition");
+		expect(screen.getByText(/Type-specific settings reset/)).toBeDefined();
+
+		await chooseChoice("Automation type", "Automatic case update");
+		expect(screen.getByRole("textbox", { name: "Name" })).toHaveProperty(
+			"value",
+			"Follow up on overdue visits",
+		);
+	});
+
 	it("refuses an invalid draft with human validation copy", async () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));

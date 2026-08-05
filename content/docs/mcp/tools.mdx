@@ -302,7 +302,7 @@ user-data filter that still represents the same item. A complete update removes
 any nested UUID it omits, but the server projects that desired state into the
 same granular mutation grammar used by the Builder and Solutions Architect.
 
-Nova can describe automatic case-update rules and conditional alerts that
+commcare nova can describe automatic case-update rules and conditional alerts that
 CommCare HQ can represent. It never claims to install them: HQ exposes HTML
 setup pages and an alert-content spreadsheet import, but no REST resource for
 rules, alerts, or schedules. Reads and successful add/update results return
@@ -315,7 +315,7 @@ The returned guide identifies the exact current HTML route templates:
 `/a/<domain>/messaging/conditional/` for conditional alerts. HQ's deprecated
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide and can trigger every
 active case-update rule for a saved case type, so it is a deployment caveat,
-not a field in Nova's per-rule schema.
+not a field in commcare nova's per-rule schema.
 
 The loaded schema mirrors the two current HTML forms without a shared criteria
 superset. Automatic updates accept value/date comparisons against case,
@@ -336,11 +336,13 @@ with an explicit descendant flag. HQ's runtime and form POST accept it, though
 the current visible editors hide the picker; returned guidance states the
 HQ-administrator application requirement. The condition remains locally
 countable from the organization snapshot and is never reduced to setup prose.
-Automation inputs always use Nova's standard property names. Returned setup
-guidance projects `case_type` to HQ `type`, `case_name` to `name`, `date_opened`
-to `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
-`external_id` remain unchanged. `case_id` and `case_type` are read-only.
-`status` is refused because Nova text and HQ's boolean field differ. Standard
+Automation inputs always use commcare nova's standard property names. Returned
+setup guidance projects `case_type` to HQ `type`, `case_name` to `name`,
+`date_opened` to `opened_on`, and `last_modified` to `modified_on`; `case_id`,
+`owner_id`, and `external_id` remain unchanged. `case_id` and `case_type` are
+read-only.
+`status` is refused because the app stores open/closed text while HQ exposes a
+boolean field. Standard
 datetime properties allow date or blankness conditions, not equality or regex,
 and restart/event-time slots accept custom case properties only. After
 trimming, a case-property event-time value must begin with `H:MM` or `HH:MM`,
@@ -429,22 +431,23 @@ equality or inequality requires that related case to exist. Parent reads use
 the `parent` identifier regardless of relationship. Host reads are admitted
 only while the app model leaves one unambiguous canonical extension relation
 for the automated case type. If an advanced case operation can add a second
-extension relation, Nova refuses every host-scoped criterion, update source,
-and message case-property part instead of choosing from HQ's unordered
-extensions; the extra link and parent-scoped reads remain valid. Every
-host-scoped read also requires exactly one live extension at runtime. Retained
-extra extension indices make the current-match count unavailable, and HQ does
-not define which extension it chooses as the host. Alert regex
-matching applies only to stored strings; Nova does not coerce numeric or
-boolean case values to text. Date conditions use the same relation selection
-and compare only the property's written calendar date, never its time of day.
+extension relation, commcare nova refuses every host-scoped criterion, update
+target, update source, and message case-property part instead of choosing from
+HQ's unordered extensions; the extra link and parent-scoped references remain
+valid. Every host-scoped reference also requires exactly one live extension at
+runtime. Retained extra extension indices make the current-match count
+unavailable, and HQ does not define which extension it chooses as the host.
+Alert regex matching applies only to stored strings; commcare nova does not
+coerce numeric or boolean case values to text. Date conditions use the same
+relation selection and compare only the property's written calendar date, never
+its time of day.
 
 | Tool | What it does |
 |---|---|
 | `get_automations` | Read every automation in display order, including stable nested UUIDs, regenerated setup guidance, and an explicit statement that Preview does not execute it. |
 | `add_automations` | Add one or more complete automatic case-update rules or conditional alerts atomically and return each regenerated guide and omission list. Caller-supplied UUIDs are final identities and must be globally unused. |
 | `update_automation` | Set one automation's complete desired state and return its regenerated guide and omission list while preserving its immutable UUID and kind. Existing nested UUIDs preserve identity; omitted nested items are removed. |
-| `remove_automation` | Remove one automation and its derived guide from Nova without claiming to change CommCare HQ. |
+| `remove_automation` | Remove one automation and its derived guide from commcare nova without claiming to change CommCare HQ. |
 
 ## Working on modules
 

@@ -108,15 +108,18 @@ function canAuthorAdditionalExtensionHost(
 	return false;
 }
 
-function validateHostReadScope(
+function validateHostScope(
 	ctx: AutomationContext,
 	target: AutomationPropertyTarget,
 	path: string,
+	slot: "read" | "update-target" = "read",
 ): boolean {
 	if (target.scope !== "host" || !ctx.hostReadCanBeAmbiguous) return true;
 	flag(
 		ctx,
-		"This host property read is ambiguous because an advanced case operation can add another extension relationship to this case type. CommCare HQ does not define which extension becomes the host. Remove the additional extension link or use a non-host scope.",
+		slot === "update-target"
+			? "This host update target is ambiguous because an advanced case operation can add another extension relationship to this case type. CommCare HQ does not define which extension becomes the host. Remove the additional extension link or update a non-host case."
+			: "This host property read is ambiguous because an advanced case operation can add another extension relationship to this case type. CommCare HQ does not define which extension becomes the host. Remove the additional extension link or use a non-host scope.",
 		path,
 	);
 	return false;
@@ -141,7 +144,10 @@ function validatePropertyTarget(
 	slot: AutomationHqPropertySlot = "read",
 	semantics: "automation-property" | "message-template" = "automation-property",
 ): void {
-	if (slot === "read" && !validateHostReadScope(ctx, target, `${path}.scope`)) {
+	if (
+		(slot === "read" || slot === "update-target") &&
+		!validateHostScope(ctx, target, `${path}.scope`, slot)
+	) {
 		return;
 	}
 	const caseType = scopedCaseType(ctx, target, semantics);
@@ -247,7 +253,7 @@ function validateAutomation(ctx: AutomationContext): void {
 	for (const [index, criterion] of automation.criteria.entries()) {
 		const path = `criteria.${index}`;
 		if (criterion.kind === "match-property") {
-			if (!validateHostReadScope(ctx, criterion, `${path}.scope`)) {
+			if (!validateHostScope(ctx, criterion, `${path}.scope`)) {
 				continue;
 			}
 			const criterionCaseType = scopedCaseType(ctx, criterion);

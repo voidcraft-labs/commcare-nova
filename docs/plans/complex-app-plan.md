@@ -303,11 +303,12 @@ always excludes closed cases and relation walks retain app/Project tenancy.
 Equality matches only an exact stored string; numbers, booleans, objects,
 arrays, null, and missing values never equal the configured string and satisfy
 inequality. Parent reads resolve the depth-one `parent` identifier regardless
-of relationship. Host reads resolve the declared canonical extension only when
-no advanced case-operation link can add a second extension relationship to the
-automation case type; otherwise the app gate refuses that host-scoped read
-because HQ's host selection is unordered. The extra extension link and parent
-scope remain valid. Every host-scoped read also requires exactly one live
+of relationship. Host references resolve the declared canonical extension only
+when no advanced case-operation link can add a second extension relationship to
+the automation case type; otherwise the app gate refuses host-scoped criteria,
+update targets, update sources, and message case-property parts because HQ's
+host selection is unordered. The extra extension link and parent scope remain
+valid. Every host-scoped reference also requires exactly one live
 extension at runtime. Retained extra extension indices make the current-match
 count unavailable, and HQ does not define which extension it chooses as the
 host. A missing parent/host relation does not satisfy either comparison.

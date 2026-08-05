@@ -212,14 +212,15 @@ AM/PM or seconds are accepted; blank, nonmatching, or unparseable values fall
 back to 12:00 PM. The deprecated domain-wide
 `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
 per-rule tool field.
-Host-scoped reads are admitted only while the app has one unambiguous canonical
-extension relation for the automation case type. If an advanced case operation
-can add a second extension, the gate refuses host-scoped criteria, update
-sources, and message case-property parts rather than choose from HQ's unordered
-extensions; the extra link and parent-scoped reads remain valid. Every
-host-scoped read also requires exactly one live extension at runtime. Retained
-extra indices make Nova's current-match count unavailable, and HQ does not
-define which extension it chooses as the host.
+Host-scoped references are admitted only while the app has one unambiguous
+canonical extension relation for the automation case type. If an advanced case
+operation can add a second extension, the gate refuses host-scoped criteria,
+update targets, update sources, and message case-property parts rather than
+choose from HQ's unordered extensions; the extra link and parent-scoped
+references remain valid. Every host-scoped reference also requires exactly one
+live extension at runtime. Retained extra indices make Nova's current-match
+count unavailable, and HQ does not define which extension it chooses as the
+host.
 
 Tool input keeps Nova's standard property names; the guide alone projects them
 to HQ model-field names, including `case_type` to `type`; `case_id` and

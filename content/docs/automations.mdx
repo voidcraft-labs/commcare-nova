@@ -215,9 +215,10 @@ exact stored string. A stored number, boolean, object, array, null, or missing
 value cannot equal the configured string and therefore satisfies **does not
 equal**. Parent reads follow the `parent` index even when it is an extension.
 Host reads follow the extension relationship while the app permits only one.
-The Builder refuses a host read if an advanced case operation could make HQ's
-host choice unordered; the extra extension link and parent reads remain valid.
-A host read still requires exactly one live extension at run time. Historical
+The Builder refuses a host condition, update target, update source, or message
+reference if an advanced case operation could make HQ's host choice unordered;
+the extra extension link and parent references remain valid. A host reference
+still requires exactly one live extension at run time. Historical
 cases can retain extra extension indices even when the current app can author
 only one. The case count is unavailable in that state because HQ does not
 define which extension it chooses as the host. A missing parent or host

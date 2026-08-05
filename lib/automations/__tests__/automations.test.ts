@@ -5,7 +5,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { automationFormChoices } from "@/lib/automations/formChoices";
 import {
 	automationMatchProjection,
-	automationUsesHostScopedRead,
+	automationUsesHostScope,
 } from "@/lib/automations/matching";
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import {
@@ -254,7 +254,7 @@ describe("automation domain and projections", () => {
 
 	it("distinguishes host-matched counts from setup-only action reads", () => {
 		const rule = claimCleanup();
-		expect(automationUsesHostScopedRead(rule)).toBe(false);
+		expect(automationUsesHostScope(rule)).toBe(false);
 		const hostCriterion = {
 			...rule,
 			criteria: [
@@ -268,7 +268,7 @@ describe("automation domain and projections", () => {
 				},
 			],
 		};
-		expect(automationUsesHostScopedRead(hostCriterion)).toBe(true);
+		expect(automationUsesHostScope(hostCriterion)).toBe(true);
 		expect(
 			automationMatchProjection(buildDoc(), hostCriterion).countArgs
 				.automationCriteria?.requiresUnambiguousHost,
@@ -287,9 +287,25 @@ describe("automation domain and projections", () => {
 				},
 			],
 		};
-		expect(automationUsesHostScopedRead(hostUpdate)).toBe(true);
+		expect(automationUsesHostScope(hostUpdate)).toBe(true);
 		expect(
 			automationMatchProjection(buildDoc(), hostUpdate).countArgs
+				.automationCriteria?.requiresUnambiguousHost,
+		).toBe(false);
+
+		const hostUpdateTarget = {
+			...rule,
+			updates: [
+				{
+					uuid: testUuid("host-preflight-update-target"),
+					target: { scope: "host" as const, property: "state" },
+					value: { kind: "literal" as const, value: "review" },
+				},
+			],
+		};
+		expect(automationUsesHostScope(hostUpdateTarget)).toBe(true);
+		expect(
+			automationMatchProjection(buildDoc(), hostUpdateTarget).countArgs
 				.automationCriteria?.requiresUnambiguousHost,
 		).toBe(false);
 
@@ -315,7 +331,7 @@ describe("automation domain and projections", () => {
 				},
 			],
 		});
-		expect(automationUsesHostScopedRead(alert)).toBe(true);
+		expect(automationUsesHostScope(alert)).toBe(true);
 		expect(
 			automationMatchProjection(buildDoc(), alert).countArgs.automationCriteria
 				?.requiresUnambiguousHost,
@@ -1160,7 +1176,7 @@ describe("automation domain and projections", () => {
 		);
 	});
 
-	it("warns every host-read guide about live extension ambiguity", () => {
+	it("warns every host-scoped guide about live extension ambiguity", () => {
 		const hostCriterion: Automation = {
 			...claimCleanup(),
 			criteria: [
@@ -1187,6 +1203,16 @@ describe("automation domain and projections", () => {
 				},
 			],
 		};
+		const hostUpdateTarget: Automation = {
+			...claimCleanup(),
+			updates: [
+				{
+					uuid: testUuid("guide-host-update-target"),
+					target: { scope: "host", property: "region" },
+					value: { kind: "literal", value: "north" },
+				},
+			],
+		};
 		const hostMessage = alertWithSchedule({
 			kind: "immediate",
 			events: [
@@ -1209,14 +1235,19 @@ describe("automation domain and projections", () => {
 				},
 			],
 		});
-		for (const automation of [hostCriterion, hostUpdateSource, hostMessage]) {
+		for (const automation of [
+			hostCriterion,
+			hostUpdateSource,
+			hostUpdateTarget,
+			hostMessage,
+		]) {
 			const caveats = buildAutomationSetupGuide(
 				buildDoc({ appName: "Host reads" }),
 				automation,
 				[],
 			).caveats.join(" ");
 			expect(caveats).toContain(
-				"Every host-scoped read requires exactly one live extension at runtime",
+				"Every host-scoped reference requires exactly one live extension at runtime",
 			);
 			expect(caveats).toContain(
 				"Retained extra extension indices leave CommCare HQ's host choice undefined",

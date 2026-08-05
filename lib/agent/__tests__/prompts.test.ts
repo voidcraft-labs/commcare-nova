@@ -125,7 +125,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 			"advanced case operation can add a second extension relationship",
 		);
 		expect(sp).toContain(
-			"host-scoped criterion, update source, or message case-property part",
+			"host-scoped criterion, update target, update source, or message case-property part",
 		);
 		expect(sp).toContain("`owner`, `host`, or `last_modified_by`");
 		expect(sp).toContain("formatter context shadows those names");
@@ -143,7 +143,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("blank, nonmatching, or unparseable values");
 		expect(sp).toContain("12:00 PM");
 		expect(sp).toContain(
-			"Every host-scoped read also requires exactly one live extension at runtime",
+			"Every host-scoped reference also requires exactly one live extension at runtime",
 		);
 		expect(sp).toContain(
 			"Retained extra extension indices make the current-match count unavailable",

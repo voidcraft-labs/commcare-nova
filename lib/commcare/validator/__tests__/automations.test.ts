@@ -283,6 +283,35 @@ describe("automation property criteria validation", () => {
 			}),
 		]);
 
+		const updateTargetDoc = docWithCriterion(
+			"case",
+			"due",
+			"has-value",
+			"extension",
+		);
+		const targetUpdate = Object.values(updateTargetDoc.automations ?? {})[0];
+		if (targetUpdate?.kind !== "case-update") {
+			throw new Error("expected automatic update");
+		}
+		targetUpdate.criteria = [];
+		targetUpdate.updates = [
+			{
+				uuid: testUuid("ambiguous-host-update-target"),
+				target: { scope: "host", property: "state" },
+				value: { kind: "literal", value: "review" },
+			},
+		];
+		targetUpdate.closeCase = false;
+		addAdvancedExtensionLink(updateTargetDoc);
+		expect(validateAutomations(updateTargetDoc)).toEqual([
+			expect.objectContaining({
+				message: expect.stringContaining("host update target is ambiguous"),
+				details: expect.objectContaining({
+					path: "updates.0.target.scope",
+				}),
+			}),
+		]);
+
 		const templateDoc = docWithCriterion(
 			"case",
 			"due",

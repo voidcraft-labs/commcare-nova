@@ -246,6 +246,11 @@ current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides
 recipients, changes, schedules, filters, or content.
+The empty state is permission-aware: editors get the Add instruction and
+viewers are told that a Project editor can add the first rule. In a new-rule
+editor, changing the automation kind preserves the root UUID, custom name,
+case type, match operator, setup-only instructions, and criteria valid for the
+new kind; it resets kind-specific settings and says so beside the control.
 The setup guide and case count share one authoritative refresh, but the count
 is optional: a case-query failure stays local to the matching result and never
 withholds the regenerated manual HQ guide. A resolved Server Action refusal
@@ -281,10 +286,11 @@ from the case count. A count is read-only over real open case rows; the persiste
 states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
-activation. A host-scoped rule's guide states that every triggering case needs
-exactly one live extension at runtime. Retained extra extension indices make
-the case count unavailable, and HQ does not define which extension it
-chooses as the host. Copy acts on the derived text only.
+activation. A rule with any host-scoped condition, update target, update
+source, or message reference has one guide caveat stating that every triggering
+case needs exactly one live extension at runtime. Retained extra extension
+indices make the case count unavailable, and HQ does not define which extension
+it chooses as the host. Copy acts on the derived text only.
 Regenerating a changed guide remounts its copy receipt so **Copied** can never
 describe bytes from the prior guide.
 An alert using a registered custom recipient or custom content handler also

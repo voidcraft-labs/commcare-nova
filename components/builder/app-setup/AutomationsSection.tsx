@@ -80,6 +80,8 @@ import {
 	type AutomationTimedEvent,
 	type AutomationUserDataFilter,
 	asUuid,
+	automationAlertCriterionSchema,
+	automationCaseUpdateCriterionSchema,
 	automationMessageText,
 	automationRecipientKindIsSingleton,
 	automationRecipientSupportsConnect,
@@ -237,7 +239,9 @@ function uuid(): Uuid {
 	return asUuid(crypto.randomUUID());
 }
 
-function newCaseUpdate(caseType: string): Automation {
+function newCaseUpdate(
+	caseType: string,
+): Extract<Automation, { kind: "case-update" }> {
 	return {
 		uuid: uuid(),
 		kind: "case-update",
@@ -251,7 +255,9 @@ function newCaseUpdate(caseType: string): Automation {
 	};
 }
 
-function newAlert(caseType: string): Automation {
+function newAlert(
+	caseType: string,
+): Extract<Automation, { kind: "conditional-alert" }> {
 	return {
 		uuid: uuid(),
 		kind: "conditional-alert",
@@ -275,6 +281,46 @@ function newAlert(caseType: string): Automation {
 		locationLevelUuids: [],
 		userDataFilters: [],
 		useUserCaseForFilter: false,
+	};
+}
+
+function changeNewAutomationKind(
+	automation: Automation,
+	kind: Automation["kind"],
+): Automation {
+	if (automation.kind === kind) return automation;
+	const defaultName =
+		automation.kind === "case-update"
+			? "New case update"
+			: "New conditional alert";
+	const preservedName =
+		automation.name === defaultName ? undefined : automation.name;
+	const shared = {
+		uuid: automation.uuid,
+		criteriaOperator: automation.criteriaOperator,
+		setupOnlyCriteria: automation.setupOnlyCriteria,
+	};
+	if (kind === "case-update") {
+		const next = newCaseUpdate(automation.caseType);
+		return {
+			...next,
+			...shared,
+			name: preservedName ?? next.name,
+			criteria: automation.criteria.flatMap((criterion) => {
+				const result = automationCaseUpdateCriterionSchema.safeParse(criterion);
+				return result.success ? [result.data] : [];
+			}),
+		};
+	}
+	const next = newAlert(automation.caseType);
+	return {
+		...next,
+		...shared,
+		name: preservedName ?? next.name,
+		criteria: automation.criteria.flatMap((criterion) => {
+			const result = automationAlertCriterionSchema.safeParse(criterion);
+			return result.success ? [result.data] : [];
+		}),
 	};
 }
 
@@ -334,8 +380,9 @@ export function AutomationsSection() {
 			<div className="mt-8 flex flex-col gap-2">
 				{automations.length === 0 ? (
 					<SubsectionEmpty>
-						No automations yet. Add one when CommCare HQ should change a case or
-						send a message without a form submission.
+						{canEdit
+							? "No automations yet. Add one when CommCare HQ should change a case or send a message without a form submission."
+							: "No automations yet. A Project editor can add one when CommCare HQ should change a case or send a message without a form submission."}
 					</SubsectionEmpty>
 				) : (
 					automations.map((automation) => (
@@ -991,14 +1038,18 @@ function AutomationEditor({
 											/>
 										</Labeled>
 										{state.kind === "new" && (
-											<Labeled label="Automation type">
+											<Labeled
+												label="Automation type"
+												hint="Changing the type keeps the name, case type, match rule, and compatible conditions. Type-specific settings reset."
+											>
 												<Choice
 													value={state.automation.kind}
 													onChange={(kind) =>
 														onChange(
-															kind === "case-update"
-																? newCaseUpdate(state.automation.caseType)
-																: newAlert(state.automation.caseType),
+															changeNewAutomationKind(
+																state.automation,
+																kind as Automation["kind"],
+															),
 														)
 													}
 													options={[

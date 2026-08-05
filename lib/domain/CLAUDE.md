@@ -79,11 +79,12 @@ alone projects those identities to HQ's `{case...}` spelling.
 No reader reparses rendered message text to recover a reference. HQ's Formatter
 context shadows custom properties named `owner`, `host`, or `last_modified_by`
 in every case/parent/host template scope, so those structural parts are refused
-at the app gate. Host-scoped reads are also refused when an advanced case
+at the app gate. Host-scoped criteria, update targets, update sources, and
+message case-property parts are also refused when an advanced case
 operation can add a non-`parent` extension index to that automation case type:
-HQ leaves extension-host ordering undefined, while parent-scoped reads and the
-extra link itself remain valid. At runtime, every host-scoped read still
-requires exactly one live extension. Historical cases may retain extra
+HQ leaves extension-host ordering undefined, while parent-scoped references
+and the extra link itself remain valid. At runtime, every host-scoped reference
+still requires exactly one live extension. Historical cases may retain extra
 extension indices; Nova cannot count current matches for those cases, and HQ
 does not define which extension it chooses as the host.
 

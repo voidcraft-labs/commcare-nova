@@ -49,7 +49,7 @@ function contentUsesHostScopedRead(content: AutomationContent): boolean {
 }
 
 /** True when HQ must resolve the first extension host anywhere in the rule. */
-export function automationUsesHostScopedRead(automation: Automation): boolean {
+export function automationUsesHostScope(automation: Automation): boolean {
 	if (
 		automation.criteria.some(
 			(criterion) =>
@@ -61,8 +61,9 @@ export function automationUsesHostScopedRead(automation: Automation): boolean {
 	if (automation.kind === "case-update") {
 		return automation.updates.some(
 			(update) =>
-				update.value.kind === "case-property" &&
-				update.value.source.scope === "host",
+				update.target.scope === "host" ||
+				(update.value.kind === "case-property" &&
+					update.value.source.scope === "host"),
 		);
 	}
 	return automation.schedule.events.some((event) =>
