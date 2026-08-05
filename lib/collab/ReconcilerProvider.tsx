@@ -540,7 +540,12 @@ export function createReconcilerRuntime(
 			 * interrupted build awaiting re-drive) both keep sends priced and
 			 * captured as builds. The own-stream releases (`data-done` /
 			 * `data-build-complete`) stay: they land instantly while this frame
-			 * rides a ~10 s cadence, and the actions are idempotent. */
+			 * rides the completion notify or the reauth cadence. Frames are
+			 * seq-less, so ordering against the own-stream release is the
+			 * STORE's job: after an observed completion `markBuildUnfinished`
+			 * no-ops, which is what stops a `generating` frame read
+			 * milliseconds before the completing run committed from re-arming a
+			 * latch this tab already released. */
 			if (frame.status === "complete") {
 				sessionStore.getState().markBuildFinished();
 			} else {

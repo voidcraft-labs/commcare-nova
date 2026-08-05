@@ -147,6 +147,7 @@ import {
 	type AppDatabase,
 	type AppsTable,
 	getAppDb,
+	notifyAppStatus,
 	notifyAppStream,
 	notifyPresence,
 	withAppTx,
@@ -2526,7 +2527,9 @@ export async function completeAndSettleRun(
 					.where("id", "=", appId)
 					.where(expectedReapedBuildCompletionPredicate(expectedHolder))
 					.executeTakeFirst();
-				return updatedExactlyOne(result) ? "owned" : "released";
+				if (!updatedExactlyOne(result)) return "released";
+				await notifyAppStatus(tx, appId);
+				return "owned";
 			}
 			return lease.present ? "superseded" : "released";
 		}
@@ -2536,7 +2539,12 @@ export async function completeAndSettleRun(
 			.where("id", "=", appId)
 			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
-		return updatedExactlyOne(result) ? "owned" : "superseded";
+		if (!updatedExactlyOne(result)) return "superseded";
+		/* Delivered on commit: connected builder streams re-read + re-announce
+		 * the app status, so a co-member tab's build-rate latch releases the
+		 * moment the build completes instead of on the next reauth cadence. */
+		await notifyAppStatus(tx, appId);
+		return "owned";
 	});
 }
 

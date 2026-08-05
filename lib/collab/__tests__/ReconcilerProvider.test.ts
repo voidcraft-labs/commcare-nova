@@ -767,11 +767,43 @@ describe("app-status frame → buildUnfinished latch", () => {
 		stream.emit("app-status", JSON.stringify({ status: "complete" }));
 		expect(sessionStore.getState().buildUnfinished).toBe(false);
 
-		/* A re-drive flipped the row back: `generating` and `error` re-latch,
-		 * mirroring the server's only-`complete`-is-edit rule. */
+		/* The frames are seq-less, so the STORE enforces direction: `complete`
+		 * is terminal in the app lifecycle, and an arming frame delivered
+		 * after an observed completion is a stale read (a cadence tick that
+		 * resolved just before the completing run committed), not fresh
+		 * truth. It must not re-price a finished app's sends as builds. */
 		stream.emit("app-status", JSON.stringify({ status: "generating" }));
-		expect(sessionStore.getState().buildUnfinished).toBe(true);
-		stream.emit("app-status", JSON.stringify({ status: "complete" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+		stream.emit("app-status", JSON.stringify({ status: "error" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+
+		runtime.suspend();
+	});
+
+	it("arms the latch from a frame before any observed completion", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		/* An `error` app whose page seed read false (the arm this frame
+		 * channel repairs at connect): no completion observed, so the frame
+		 * arms normally. */
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+			buildUnfinished: false,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
 		stream.emit("app-status", JSON.stringify({ status: "error" }));
 		expect(sessionStore.getState().buildUnfinished).toBe(true);
 

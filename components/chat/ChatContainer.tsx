@@ -389,6 +389,13 @@ function installCreatedApp(
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references: safe across re-renders within the same app session. */
+/** Consecutive fatal-error strikes at which the answered-askQuestions
+ *  auto-resend stops retrying. Two, not one: the first strike may be a
+ *  transient infrastructure fault whose single automatic retry succeeds
+ *  unnoticed; a second consecutive fatal error means the rejection is real
+ *  and retrying unattended only re-runs it. */
+const AUTO_RESEND_FATAL_HALT_STRIKES = 2;
+
 function createChatInstance(
 	init: ActiveThreadInit,
 	docStoreRef: { current: BlueprintDocStore | null },
@@ -397,16 +404,17 @@ function createChatInstance(
 	holderNonceRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
-	autoResendHaltRef: { current: boolean },
+	autoResendFatalStrikesRef: { current: number },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
 	},
 	projectToast: ProjectToastEmitter,
 	ownerScopeEpoch: number,
 ): Chat<NovaUIMessage> {
-	/* A fresh Chat instance starts unhalted: the latch guards runs of THIS
-	 * instance, not whatever a previously open thread ended on. */
-	autoResendHaltRef.current = false;
+	/* A fresh Chat instance starts with a clean slate: the strike count
+	 * guards runs of THIS instance, not whatever a previously open thread
+	 * ended on. */
+	autoResendFatalStrikesRef.current = 0;
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
 	 * authorization read. We send only the `appId`.
@@ -472,9 +480,11 @@ function createChatInstance(
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
 			prepareSendMessagesRequest: ({ api, messages, trigger }) => {
-				/* Every outbound request is a fresh attempt: release the
-				 * fatal-error halt so its own outcome decides the next one. */
-				autoResendHaltRef.current = false;
+				/* Deliberately NO strike reset here: this callback fires for the
+				 * automatic resends too, and a reset per outbound attempt would
+				 * unbound the very loop the strike cap exists to stop. The resets
+				 * live on the USER actions (`handleSubmit`, `handleToolOutput`)
+				 * and on a fresh Chat instance. */
 				return {
 					api,
 					headers: { "content-type": "application/json" },
@@ -492,15 +502,19 @@ function createChatInstance(
 			},
 		}),
 		sendAutomaticallyWhen: (args) => {
-			/* A run that ended in a FATAL generation error halts the answered-
-			 * askQuestions auto-resend until the user acts (answers again, sends
-			 * a message, or reloads). The route's graceful bails (superseded /
-			 * released resumes and their kin) stream that error and close CLEAN,
-			 * so without this latch the SDK's post-request evaluation still sees
-			 * an answered round as the last message and immediately re-sends: one
+			/* Consecutive FATAL generation errors halt the answered-askQuestions
+			 * auto-resend until the user acts (answers again, sends a message,
+			 * or reloads). The route's graceful bails (superseded / released
+			 * resumes and their kin) stream that error and close CLEAN, so
+			 * without this cap the SDK's post-request evaluation still sees an
+			 * answered round as the last message and immediately re-sends: one
 			 * rejection became an unattended ~1/s retry loop measured at 6,369
-			 * POSTs before the tab closed. */
-			if (autoResendHaltRef.current) return false;
+			 * POSTs before the tab closed. The cap is 2 rather than 1 so a
+			 * one-off transient fault (an infra blip the route streams as
+			 * fatal) still self-heals on the single automatic retry the old
+			 * unconditional resend provided. */
+			if (autoResendFatalStrikesRef.current >= AUTO_RESEND_FATAL_HALT_STRIKES)
+				return false;
 			const owner = sessionStoreRef.current?.getState();
 			return (
 				chatGenerationCanWrite(
@@ -527,7 +541,7 @@ function createChatInstance(
 				type: string;
 				data: Record<string, unknown>;
 			};
-			/* Arm the auto-resend halt the moment a run reports a FATAL error
+			/* Count the fatal strike the moment a run reports a FATAL error
 			 * (the same envelope the dispatcher toasts, read through the same
 			 * typed reader). It must be read off the stream here, not inferred
 			 * later: the bail stream closes cleanly, so by the time the SDK
@@ -538,7 +552,7 @@ function createChatInstance(
 				type === "data-conversation-event" &&
 				conversationEventError(data)?.fatal === true
 			) {
-				autoResendHaltRef.current = true;
+				autoResendFatalStrikesRef.current += 1;
 			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
@@ -728,12 +742,17 @@ export function ChatContainer({
 		() => sessionStoreRef.current?.getState().buildUnfinished ?? false,
 		[],
 	);
-	/** Set while a run's FATAL error blocks the answered-askQuestions
-	 *  auto-resend; armed by the Chat instance's stream handler, released by a
-	 *  fresh user answer (`handleToolOutput`), any outbound request, or a new
-	 *  Chat instance. Lives on the component so the answer path can release
-	 *  what the factory's closures armed. */
-	const autoResendHaltRef = useRef(false);
+	/** Consecutive FATAL-error count for the current answered-askQuestions
+	 *  round: incremented by the Chat instance's stream handler on every fatal
+	 *  conversation-event error, reset to zero by a fresh user action (a new
+	 *  answer via `handleToolOutput`, a typed message via `handleSubmit`) or a
+	 *  new Chat instance. The auto-resend halts at
+	 *  `AUTO_RESEND_FATAL_HALT_STRIKES`, so a TRANSIENT fault (an infra blip,
+	 *  a claim-write hiccup) still self-heals on one automatic retry while a
+	 *  PERSISTENT rejection stops after two POSTs instead of the unattended
+	 *  ~1/s loop the boolean latch was built against. Lives on the component
+	 *  so the user-action paths can reset what the factory's closures armed. */
+	const autoResendFatalStrikesRef = useRef(0);
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	const holderNonceRef = useRef<string | undefined>(
 		initialThread?.holder_nonce,
@@ -854,7 +873,7 @@ export function ChatContainer({
 				holderNonceRef,
 				reconcilerCtxRef,
 				ownUserIdRef,
-				autoResendHaltRef,
+				autoResendFatalStrikesRef,
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
@@ -882,7 +901,7 @@ export function ChatContainer({
 			holderNonceRef,
 			reconcilerCtxRef,
 			ownUserIdRef,
-			autoResendHaltRef,
+			autoResendFatalStrikesRef,
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
@@ -1495,6 +1514,9 @@ export function ChatContainer({
 			if (!text.trim() && !attachments?.length) return;
 			agentEngagedRef.current = true;
 			setSendFailedBeforeApp(false);
+			/* A typed message is an explicit fresh attempt: clear the fatal
+			 * strikes so an earlier halted round can't bleed into this one. */
+			autoResendFatalStrikesRef.current = 0;
 			// Attachments ride as asset-id refs in message METADATA, not file parts.
 			// The route's resolveAttachments expands each ref into the stored extract
 			// (documents) or image bytes (vision) before the SA. A turn with no
@@ -1517,11 +1539,11 @@ export function ChatContainer({
 				session.scopeEpoch !== scopeEpoch
 			)
 				return;
-			/* A fresh answer is the user asking to try again: release the
-			 * fatal-error halt BEFORE the SDK's post-output auto-resend
-			 * evaluation runs, so re-answering a failed round works without a
-			 * reload while the halt still stops unattended loops. */
-			autoResendHaltRef.current = false;
+			/* A fresh answer is the user asking to try again: clear the fatal
+			 * strikes BEFORE the SDK's post-output auto-resend evaluation runs,
+			 * so re-answering a failed round works without a reload while the
+			 * strike cap still stops unattended loops. */
+			autoResendFatalStrikesRef.current = 0;
 			addToolOutput(params);
 		},
 		[addToolOutput, scopeEpoch],

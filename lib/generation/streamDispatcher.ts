@@ -92,8 +92,8 @@ function injectSignalEnergy(type: string): void {
  * The ONE reader of a `data-conversation-event` envelope's error payload,
  * typed against `ConversationEvent` so the wire shape is asserted in exactly
  * one place. Both consumers ride it: this dispatcher's toast (severity from
- * `fatal`) and `ChatContainer`'s auto-resend halt (armed only by a fatal
- * error). A silent structural cast in either would stop matching if the
+ * `fatal`) and `ChatContainer`'s auto-resend fatal-strike counter (only a
+ * fatal error counts). A silent structural cast in either would stop matching if the
  * envelope ever changed, and for the halt that failure mode is the retry
  * storm coming back with nothing failing at compile time. Returns null for
  * every non-error conversation event.

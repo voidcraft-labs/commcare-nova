@@ -453,6 +453,19 @@ export async function POST(req: Request) {
 	 * branches below once `appReady` is known; `preflightCost` above remains
 	 * the advisory fast-fail figure. */
 	let cost = 0;
+	/* The ONE spelling of the chargeable mode binding. Every site that
+	 * (re)derives the claim mode for a chargeable existing-app turn routes
+	 * through here, so the charge, the claim mode, and everything downstream
+	 * keyed on `appReady` (the SA prompt/model, the run summary, the lease
+	 * heartbeat) can never disagree about which mode this POST is booking.
+	 * Returns the bound mode so a call site can hold it in a definite local
+	 * (the mutable optional `claimMode` binding doesn't narrow). */
+	const bindChargeableMode = (ready: boolean): "build" | "edit" => {
+		appReady = ready;
+		cost = chargeAmount(ready);
+		claimMode = ready ? "edit" : "build";
+		return claimMode;
+	};
 	if (!appId) {
 		const expectedProjectId = parsed.data.expectedProjectId;
 		if (expectedProjectId === undefined) {
@@ -642,35 +655,16 @@ export async function POST(req: Request) {
 				appStatus: loadedApp.status,
 			});
 		}
-		if (chargeable && cost > preflightCost) {
-			/* The gate upstream only proved the edit-rate FLOOR (the app row
-			 * wasn't loaded yet); this turn derived the BUILD rate. Re-run the
-			 * same advisory read at the authoritative amount: without it an
-			 * unaffordable build-mode turn sails past the floor, loses the claim
-			 * to a live holder, and serialize-waits out the whole hold only for
-			 * the in-transaction affordability check to reject what this read
-			 * can reject pre-stream. Advisory like the gate (the claim
-			 * transaction stays authoritative) and fails CLOSED the same way. */
-			try {
-				const balance = await getCurrentCreditBalance(userId);
-				if (balance < cost) {
-					return Response.json(
-						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
-						{ status: 429 },
-					);
-				}
-			} catch (err) {
-				log.error("[chat] credit gate read failed", err);
-				return Response.json(
-					{
-						error:
-							"Unable to verify your credit balance. Please try again shortly.",
-						type: "internal",
-					},
-					{ status: 503 },
-				);
-			}
-		}
+		/* Deliberately NO second advisory balance read at the derived rate. On
+		 * the direct path the claim transaction's own affordability check
+		 * rejects pre-stream with the same 429, so a read here would only add
+		 * a roundtrip. On a conflict the derived rate is not necessarily the
+		 * rate this turn ends at: the serialize-wait re-derives the mode at
+		 * the winning poll, and a turn that derived BUILD because the app was
+		 * mid-build usually wins as a 5-credit EDIT once that build completes,
+		 * so a hard reject at the build rate here would falsely turn away an
+		 * affordable turn. The floor read above plus the in-transaction check
+		 * cover both paths. */
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
 			 * AND reserves its credits in ONE transaction: a BUILD-mode
@@ -695,13 +689,13 @@ export async function POST(req: Request) {
 			 * booking a stale one; the retry below adopts that mode. A flip per
 			 * attempt needs another actor's full claim cycle in between, so the
 			 * bounded retries only give way to the serialize-wait, never spin. */
-			claimMode = appReady ? "edit" : "build";
+			let directClaimMode = bindChargeableMode(appReady);
 			try {
 				for (let attempt = 0; ; attempt++) {
 					try {
 						claimedRun = await claimAndReserveRun(
 							appId,
-							claimMode,
+							directClaimMode,
 							effectiveRunId,
 							userId,
 							cost,
@@ -741,9 +735,9 @@ export async function POST(req: Request) {
 								}
 								throw readmitErr;
 							}
-							appReady = loadedApp.status === "complete";
-							cost = chargeAmount(appReady);
-							claimMode = appReady ? "edit" : "build";
+							directClaimMode = bindChargeableMode(
+								loadedApp.status === "complete",
+							);
 							continue;
 						}
 						if (err instanceof ClaimModeStaleError) {
@@ -1360,9 +1354,7 @@ export async function POST(req: Request) {
 								 * downstream (`editing`, the heartbeat, the thread type,
 								 * `usage.configureRun`) reads these same bindings, so the
 								 * won claim and the run it starts cannot disagree. */
-								appReady = err.statusMode === "edit";
-								cost = chargeAmount(appReady);
-								claimMode = err.statusMode;
+								bindChargeableMode(err.statusMode === "edit");
 								continue;
 							}
 							if (err instanceof AppProjectChangedError) {
@@ -1458,7 +1450,7 @@ export async function POST(req: Request) {
 						didReserve: chargeable,
 						...(chargeable ? { reservedAmount: cost } : {}),
 						...(reservation ? { chargePeriod: reservation.period } : {}),
-						promptMode: wonEdit ? "edit" : "build",
+						promptMode: claimedRun.mode,
 						appReady: wonEdit,
 						model: wonEdit ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 					});
@@ -1488,6 +1480,15 @@ export async function POST(req: Request) {
 							throw new AppProjectChangedError();
 						}
 						loadedApp = fresh.app;
+						/* The seed pinned the PRE-WAIT snapshot's module count, stale by
+						 * definition when the awaited holder was committing modules. The
+						 * mode restatement above could not fix it (the fresh count only
+						 * exists once this snapshot resolves), so restate it here: a run
+						 * that dies between this point and the SA-construction
+						 * `configureRun` flushes the count of the document it actually
+						 * ran against. A death at the snapshot read itself still flushes
+						 * the seed value; no fresher count exists on that path. */
+						usage.configureRun({ moduleCount: fresh.app.module_count });
 					} catch (err) {
 						const failure =
 							err instanceof AppAccessError

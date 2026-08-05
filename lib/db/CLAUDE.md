@@ -115,7 +115,12 @@ design.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
-(delivered on commit, after the rows are visible); presence reauthorizes against
+(delivered on commit, after the rows are visible); `completeAndSettleRun`
+pokes the same channel with a `statusChanged` marker so connected builder
+streams re-read and re-announce the app status the moment a build commits
+`complete` (the one status transition that changes a tab's pricing; every
+other transition stays on the stream route's reauthorization cadence);
+presence reauthorizes against
 the app row + exact membership and writes/sweeps/deletes + pokes
 `nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
 poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
@@ -429,10 +434,14 @@ with an explicit allowance (its value is credit policy, seeded in code).
 Build = 100 credits, edit = 5 (`chargeAmount(appReady)`), with `appReady`
 derived SERVER-SIDE from the app row's status (only a `complete` app charges
 the edit rate; the client's own `appReady` claim feeds nothing but a
-disagreement warn — the advisory pre-flight balance read keys on `appId`
+disagreement warn). The advisory pre-flight balance read keys on `appId`
 PRESENCE: the exact build rate for a new build, the edit-rate floor for an
-existing app, then a second advisory read at the derived rate once the row is
-loaded so an unaffordable build-mode turn fails fast). `isChargeableTurn`
+existing app. There is deliberately NO second advisory read at the derived
+rate: on the direct path the claim transaction's own affordability check
+rejects pre-stream with the same 429, and a queued turn's final rate is only
+known at the winning poll (a turn that derived build because the app was
+mid-build usually wins as a 5-credit edit once that build completes), so a
+derived-rate reject would falsely turn away an affordable turn. `isChargeableTurn`
 decides charge vs. free continuation off the **last message's role**: a fresh
 instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
 ends with the SA's `assistant` (free). It MUST read the **raw

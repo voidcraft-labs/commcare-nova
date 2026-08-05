@@ -322,10 +322,21 @@ export async function streamObjectWith<T>(opts: {
 					/* The stream drained cleanly yet the output promise rejected
 					 * with something other than a parse failure. The caller only
 					 * sees `object: null`, so this line is the ONLY record of what
-					 * actually went wrong. */
+					 * actually went wrong. Same discipline as
+					 * `logUnparseableStructuredOutput`: NEVER hand the raw
+					 * rejection to the Sentry mirror — an unwrapped
+					 * JSONParseError / TypeValidationError embeds the model's
+					 * full raw text (its rendering of a customer document) in
+					 * the error MESSAGE itself, so a cause-less name-only error
+					 * carries the grouping key instead. */
+					const name = err instanceof Error ? err.name : typeof err;
+					const sanitized = new Error(
+						`Structured output promise rejected after a clean drain (${name}, finishReason: ${finishReason})`,
+					);
+					if (err instanceof Error) sanitized.name = err.name;
 					log.error(
 						"[subGeneration] structured output promise rejected after a clean drain",
-						err,
+						sanitized,
 						{ finishReason },
 					);
 				}

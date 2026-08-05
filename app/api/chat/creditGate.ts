@@ -25,9 +25,11 @@ import {
  * amount (the edit rate), a floor that can never falsely reject an affordable
  * turn whatever mode the app row turns out to be in. Feeding a client-claimed
  * mode in here instead would let a stale tab's guess 429 a user who can
- * afford their edit. (Once the row IS loaded, the route re-runs the same
- * advisory read at the derived rate, so an unaffordable build-mode turn still
- * fails fast instead of serialize-waiting into the transactional rejection.)
+ * afford their edit. (There is deliberately no follow-up read at the derived
+ * rate once the row is loaded: the claim transaction rejects an unaffordable
+ * direct-path turn pre-stream anyway, and a queued turn's final rate is only
+ * decided at the winning poll, where a build-derived turn usually adopts the
+ * edit rate, so a derived-rate reject would break this floor property.)
  *
  * CRITICAL: `rawMessages` must be the array straight off `body.messages`.
  * The last message's ROLE is the charge signal (a fresh instruction ends with

@@ -1234,6 +1234,32 @@ describe("reset", () => {
 		latched.getState().reset();
 		expect(latched.getState().buildUnfinished).toBe(true);
 	});
+
+	it("ignores a stale re-arm after an observed completion (one-way per build)", () => {
+		/* The seq-less app-status frames carry no ordering, so a `generating`
+		 * frame read milliseconds before the completing run committed can be
+		 * delivered AFTER this tab's own `data-done` released the latch.
+		 * `complete` is terminal in the app lifecycle, so any arming signal
+		 * after an observed completion is stale by definition and must not
+		 * re-price a finished app's sends as builds. */
+		const store = createBuilderSessionStore({ buildUnfinished: true });
+		store.getState().markBuildFinished();
+		store.getState().markBuildUnfinished();
+		expect(store.getState().buildUnfinished).toBe(false);
+
+		/* Before any observed completion the arm channels work normally: the
+		 * creation handoff, and an `error` frame repairing a missed seed. */
+		const fresh = createBuilderSessionStore();
+		fresh.getState().markBuildUnfinished();
+		expect(fresh.getState().buildUnfinished).toBe(true);
+
+		/* A born-complete tab that observes the connect-time `complete` frame
+		 * is equally protected from a later stale frame. */
+		const bornComplete = createBuilderSessionStore();
+		bornComplete.getState().markBuildFinished();
+		bornComplete.getState().markBuildUnfinished();
+		expect(bornComplete.getState().buildUnfinished).toBe(false);
+	});
 });
 
 // ── Events buffer + run lifecycle ────────────────────────────────────────

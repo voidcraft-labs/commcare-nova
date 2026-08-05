@@ -149,6 +149,18 @@ export interface BuilderSessionState {
 	 *  tab's sends and its cost chip both read as build-mode. */
 	buildUnfinished: boolean;
 
+	/** This session OBSERVED the app's build reach `complete` (any
+	 *  `markBuildFinished` channel). One-way enforcement for the latch above:
+	 *  once set, `markBuildUnfinished` no-ops, because `complete` is terminal
+	 *  in the app lifecycle (no path flips a complete app back to
+	 *  `generating`/`error`), so any later arming signal is by definition
+	 *  stale, e.g. an in-flight `app-status: generating` frame the stream
+	 *  route read milliseconds before the completing run committed, delivered
+	 *  after this tab's own `data-done` already released the latch. Without
+	 *  the guard that frame re-prices a finished app's sends as builds for up
+	 *  to one reauth cadence. Never reset: app truth, like the latch. */
+	buildCompleted: boolean;
+
 	/** Generic loading flag for async operations outside of agent writes
 	 *  (e.g. initial app load, import). */
 	loading: boolean;
@@ -376,15 +388,20 @@ export interface BuilderSessionState {
 	 *  already cleared. */
 	acknowledgeCompletion: () => void;
 
-	/** Latch `buildUnfinished` — a `/build/new` tab received the app-creation
-	 *  handoff, so this tab now owns a build in progress. No-ops when set. */
+	/** Latch `buildUnfinished` from two channels: a `/build/new` tab's
+	 *  app-creation handoff (this tab now owns a build in progress), and the
+	 *  reconciler's `app-status` SSE frame reporting `generating`/`error`
+	 *  (the arm for a tab whose page seed missed it, e.g. an `error` app
+	 *  loaded before the frame channel existed for it). No-ops when set, and
+	 *  no-ops FOREVER once `buildCompleted` is set: a finished build cannot
+	 *  re-arm, so a stale frame delivered after the release is ignored. */
 	markBuildUnfinished: () => void;
 
-	/** Release `buildUnfinished` — the build run completed. Called from
-	 *  `ChatContainer`'s stream `onData` on `data-done` or
-	 *  `data-build-complete`. One-way per build: nothing re-arms it except a
-	 *  new creation handoff or a page load of a generating app. No-ops when
-	 *  already clear. */
+	/** Release `buildUnfinished` and latch `buildCompleted` — the build run
+	 *  completed. Three channels: `ChatContainer`'s stream `onData` on
+	 *  `data-done` or `data-build-complete`, and the reconciler's
+	 *  `app-status` SSE frame reporting `complete` (the release for tabs
+	 *  never attached to the run's own chat stream). */
 	markBuildFinished: () => void;
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
@@ -613,6 +630,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				runStartedWithData: false,
 				runCompletedAt: undefined as number | undefined,
 				buildUnfinished: init?.buildUnfinished ?? false,
+				buildCompleted: false,
 				loading: init?.loading ?? false,
 
 				/* App identity */
@@ -711,13 +729,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markBuildUnfinished() {
-					if (get().buildUnfinished) return;
+					const s = get();
+					/* One-way per build: `complete` is terminal in the app
+					 * lifecycle, so an arming signal after an observed completion
+					 * is a stale frame, never fresh truth. */
+					if (s.buildCompleted || s.buildUnfinished) return;
 					set({ buildUnfinished: true });
 				},
 
 				markBuildFinished() {
-					if (!get().buildUnfinished) return;
-					set({ buildUnfinished: false });
+					const s = get();
+					if (s.buildCompleted && !s.buildUnfinished) return;
+					set({ buildUnfinished: false, buildCompleted: true });
 				},
 
 				pushEvents(events: Event[]) {

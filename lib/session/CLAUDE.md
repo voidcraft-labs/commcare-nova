@@ -38,13 +38,18 @@ Four session fields describe "what phase is the builder in":
   genesis makes the doc read Ready). Seeded by the page
   (`BuilderProvider.initialBuildUnfinished`: a `generating` app or an
   interrupted build admitted for re-drive), latched by `markBuildUnfinished()`
-  when a `/build/new` tab's creation handoff lands, released by
+  when a `/build/new` tab's creation handoff lands or an `app-status` frame
+  reports `generating`/`error`, released by
   `markBuildFinished()` from two channels: `ChatContainer`'s stream `onData`
   on `data-done` (or the doc-less `data-build-complete` a purely
   conversational build turn emits instead), and the reconciler's `app-status`
   SSE frame when the server observes `complete` — the release for tabs never
   attached to the run's stream (a second tab, a co-member watching a
-  teammate's build; the frame's `generating`/`error` arms re-latch instead).
+  teammate's build). The release also latches the sibling `buildCompleted`
+  flag, which makes the pair one-way per build: `complete` is terminal in the
+  app lifecycle, so after an observed completion `markBuildUnfinished()`
+  no-ops — a stale seq-less `generating` frame delivered after this tab's own
+  `data-done` release cannot re-price a finished app's sends as builds.
   `reset()` deliberately leaves it alone: it is app truth, and the frozen
   constructor init would resurrect a released latch. `deriveChatAppReady`
   (hooks) composes it with the phase for the chat surface's build-vs-edit

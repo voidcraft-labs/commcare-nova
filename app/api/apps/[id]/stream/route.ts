@@ -31,10 +31,13 @@
  *   event: presence              the full presence roster snapshot.
  *   event: app-status            the app row's run-lifecycle status
  *                                (`generating | complete | error`). Emitted on
- *                                connect and again when the reauthorization
- *                                cadence observes a change — the channel that
- *                                tells a tab not attached to a run's chat
- *                                stream that a build finished. Seq-less.
+ *                                connect, on the completion notify a build's
+ *                                terminal transaction sends (so the release
+ *                                lands the moment `complete` commits), and
+ *                                when the reauthorization cadence observes any
+ *                                other change — the channel that tells a tab
+ *                                not attached to a run's chat stream that a
+ *                                build finished. Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
@@ -246,6 +249,8 @@ function openStream(args: {
 				let organizationPump: ReturnType<
 					typeof createCoalescedStreamPump
 				> | null = null;
+				let statusPump: ReturnType<typeof createCoalescedStreamPump> | null =
+					null;
 				let unsubscribeApp: (() => void) | null = null;
 				let unsubscribeOrganization: (() => void) | null = null;
 				let unsubscribeLookup: (() => void) | null = null;
@@ -278,6 +283,7 @@ function openStream(args: {
 					mutationPump?.close();
 					lookupPump?.close();
 					organizationPump?.close();
+					statusPump?.close();
 					unsubscribeApp?.();
 					unsubscribeOrganization?.();
 					unsubscribeLookup?.();
@@ -551,6 +557,32 @@ function openStream(args: {
 							});
 						},
 					});
+					/* Run-lifecycle status lane: `completeAndSettleRun` pokes this the
+					 * moment a build commits `complete`, so a tab not attached to the
+					 * run's own chat stream (a second tab, a co-member) releases its
+					 * build-rate latch immediately instead of waiting out the reauth
+					 * cadence below (which stays as the carrier for every other
+					 * transition and the notify's at-least-once backstop). The scope
+					 * re-read keeps the emit authorized and admits the status through
+					 * the closed vocabulary, same as the cadence's read. */
+					statusPump = createCoalescedStreamPump({
+						async run() {
+							if (closed) return;
+							const fresh = await reauthorizeStreamScope(appId, userId);
+							if (closed) return;
+							sendAppStatus(fresh.status);
+						},
+						onError(err) {
+							if (err instanceof AppAccessError) {
+								revokeAndClose("access-revoked");
+								return;
+							}
+							log.warn("[stream] app-status pump error (will retry)", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
 
 					/* If the cursor fell below the retention window, the client is too far
 					 * behind to replay economically. The log is PERMANENT so the entries DO
@@ -573,6 +605,9 @@ function openStream(args: {
 						() => {
 							void emitRoster();
 						},
+						() => {
+							statusPump?.poke();
+						},
 					);
 					runAfterAppStreamSubscribeTestHook();
 					unsubscribeOrganization = subscribeAppOrganization(appId, () => {
@@ -589,10 +624,15 @@ function openStream(args: {
 					organizationPump.poke();
 					void emitRoster();
 
-					/* The connect-time status snapshot. The cadence below re-emits on
-					 * change; both go through the wire schema so a value the closed
-					 * vocabulary doesn't admit is dropped here rather than shipped to
-					 * every connected tab's pricing latch. */
+					/* The connect-time status snapshot. The completion notify (the
+					 * status pump above) and the cadence below re-emit on change.
+					 * There is NO emit-time validation here: every status this
+					 * function sees was already admitted through the closed
+					 * vocabulary by `parsePersistedAppLifecycleStatus` at its scope
+					 * read (connect admission, the pump's reauthorization, the
+					 * cadence's), which is the one place an out-of-vocabulary row
+					 * value is stopped before it can reach a connected tab's
+					 * pricing latch. */
 					sendAppStatus(scope.status);
 
 					/* Continuous revocation: re-run the session + scope check on a cadence and

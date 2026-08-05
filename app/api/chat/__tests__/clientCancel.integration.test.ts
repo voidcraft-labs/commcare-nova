@@ -440,6 +440,50 @@ async function seedCanonicalApp(args: {
 	});
 }
 
+type LoadedFixtureApp = NonNullable<
+	Awaited<ReturnType<typeof import("@/lib/db/apps")["loadApp"]>>
+>;
+
+/** The authorized-snapshot shape the route destructures, built from a loaded
+ *  app row. One builder so a new snapshot field lands in every test at once. */
+function snapshotFor(app: LoadedFixtureApp) {
+	return {
+		app,
+		projectId: PROJECT,
+		role: "editor" as const,
+		canEdit: true,
+		baseSeq: app.mutation_seq,
+		actorUserId: USER,
+	};
+}
+
+/** Seed a persisted app, load it back, and (by default) point the snapshot
+ *  mock at the persisted row: the fixture every server-derived-mode test
+ *  needs, varying only in id and row overrides. A test whose mock shape is
+ *  nonstandard (a stale first snapshot, a post-win fault) passes
+ *  `mock: false` and wires `resolveAuthorizedAppSnapshotMock` itself from
+ *  the returned app/snapshot. */
+async function seedSnapshotApp(args: {
+	id: string;
+	name: string;
+	overrides?: Partial<Insertable<AppDatabase["apps"]>>;
+	mock?: boolean;
+}) {
+	await seedCanonicalApp({
+		id: args.id,
+		name: args.name,
+		overrides: args.overrides,
+	});
+	const { loadApp } = await import("@/lib/db/apps");
+	const app = await loadApp(args.id);
+	if (!app) throw new Error(`fixture app ${args.id} was not persisted`);
+	const snapshot = snapshotFor(app);
+	if (args.mock !== false) {
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue(snapshot);
+	}
+	return { app, snapshot };
+}
+
 async function seedSerializeWaitEdit() {
 	await seedCanonicalApp({ id: WAIT_APP, name: "Waited edit app" });
 
@@ -973,7 +1017,7 @@ describe("server-derived build-vs-edit mode", () => {
 	 *  `/build/new` tab whose phase derivation drifted to Ready answers with
 	 *  `appReady: true`, and only the app row knows better. */
 	async function seedPausedBuild(): Promise<void> {
-		await seedCanonicalApp({
+		await seedSnapshotApp({
 			id: PAUSED_BUILD_APP,
 			name: "Paused build app",
 			overrides: {
@@ -1003,17 +1047,6 @@ describe("server-derived build-vs-edit mode", () => {
 				messages: JSON.stringify([]),
 			})
 			.execute();
-		const { loadApp } = await import("@/lib/db/apps");
-		const app = await loadApp(PAUSED_BUILD_APP);
-		if (!app) throw new Error("paused-build fixture app was not persisted");
-		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
-			app,
-			projectId: PROJECT,
-			role: "editor",
-			canEdit: true,
-			baseSeq: app.mutation_seq,
-			actorUserId: USER,
-		});
 	}
 
 	it("resumes a paused build's answer as a BUILD even when the client claims appReady", async () => {
@@ -1115,7 +1148,7 @@ describe("server-derived build-vs-edit mode", () => {
 		 * FINALIZE as an edit: a context still presenting a build holder
 		 * capability dies `RunHolderLostError` on its first ownership-gated
 		 * write and strands the real `run_lock` this POST took. */
-		await seedCanonicalApp({
+		await seedSnapshotApp({
 			id: ADOPT_APP,
 			name: "Adopted edit app",
 			overrides: {
@@ -1128,17 +1161,6 @@ describe("server-derived build-vs-edit mode", () => {
 				res_user_id: MEMBER,
 				res_run_id: "run-other-build",
 			},
-		});
-		const { loadApp } = await import("@/lib/db/apps");
-		const app = await loadApp(ADOPT_APP);
-		if (!app) throw new Error("adopt fixture app was not persisted");
-		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
-			app,
-			projectId: PROJECT,
-			role: "editor",
-			canEdit: true,
-			baseSeq: app.mutation_seq,
-			actorUserId: USER,
 		});
 		/* The fake SA performs ONE real guarded commit: that write presents the
 		 * context's `(mode, runId, nonce)` holder capability, which is exactly
@@ -1258,16 +1280,19 @@ describe("server-derived build-vs-edit mode", () => {
 		expect(failAppMock).not.toHaveBeenCalled();
 	}, 30_000);
 
-	it("fast-fails an unaffordable build-mode turn at the derived rate instead of serialize-waiting", async () => {
-		/* The pre-flight only proved the 5-credit FLOOR (the app row wasn't
-		 * loaded yet). Once admission derives the 100-credit build rate, the
-		 * route must re-run the advisory read: without it this POST (balance
-		 * 50, app held by a live build) would open its stream and serialize-
-		 * wait out the whole hold, only for the in-transaction affordability
-		 * check to reject minutes later. */
-		await seedCanonicalApp({
+	it("queues a turn affordable at the edit floor behind a live build instead of rejecting it at the derived build rate", async () => {
+		/* The regression a derived-rate advisory reject would reintroduce:
+		 * this POST derives BUILD (the app is mid-build), computes the
+		 * 100-credit rate, and the balance is 50. Rejecting pre-stream at
+		 * that rate turns away a turn that is actually affordable: the
+		 * serialize-wait re-derives the mode at the winning poll, and once
+		 * the awaited build completes this turn wins as a 5-credit EDIT. The
+		 * unaffordable-build case needs no advisory read either; on a free
+		 * (uncontended) app the claim transaction's own affordability check
+		 * rejects pre-stream with the same 429. */
+		await seedSnapshotApp({
 			id: FASTFAIL_APP,
-			name: "Unaffordable build app",
+			name: "Edit-floor affordable app",
 			overrides: {
 				status: "generating",
 				run_id: "run-other-build-live",
@@ -1278,17 +1303,6 @@ describe("server-derived build-vs-edit mode", () => {
 				res_user_id: MEMBER,
 				res_run_id: "run-other-build-live",
 			},
-		});
-		const { loadApp } = await import("@/lib/db/apps");
-		const app = await loadApp(FASTFAIL_APP);
-		if (!app) throw new Error("fast-fail fixture app was not persisted");
-		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
-			app,
-			projectId: PROJECT,
-			role: "editor",
-			canEdit: true,
-			baseSeq: app.mutation_seq,
-			actorUserId: USER,
 		});
 		await appDb
 			.insertInto("credit_months")
@@ -1301,6 +1315,29 @@ describe("server-derived build-vs-edit mode", () => {
 				updated_at: new Date().toISOString(),
 			})
 			.execute();
+		/* The fake SA reports real step usage so the run earns its cost: the
+		 * settle then KEEPS the 5-credit charge instead of the zero-cost
+		 * refund, which is the figure the final assertion pins. */
+		createSolutionsArchitectMock.mockImplementation(
+			(ctx: GenerationContext) => ({
+				tools: {},
+				stream: async () => {
+					ctx.handleAgentStep(
+						{ usage: PAUSED_USAGE, toolCalls: [] },
+						"Solutions Architect",
+					);
+					const feed = new ChunkFeed();
+					feed.push(
+						{ type: "start" },
+						{ type: "start-step" },
+						{ type: "finish-step" },
+						{ type: "finish" },
+					);
+					feed.end();
+					return feed.asAgentResult();
+				},
+			}),
+		);
 
 		const response = await POST(
 			new Request("http://localhost/api/chat", {
@@ -1320,11 +1357,42 @@ describe("server-derived build-vs-edit mode", () => {
 			}),
 		);
 
-		expect(response.status).toBe(429);
-		const body = (await response.json()) as { type: string };
-		expect(body.type).toBe("out_of_credits");
-		expect(claimAndReserveRunMock).not.toHaveBeenCalled();
-		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+		/* Not a pre-stream 429: the stream opens and the turn queues. */
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", FASTFAIL_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({ status: "complete", awaiting_input: false, res_settled: true })
+			.where("id", "=", FASTFAIL_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).not.toContain('"type":"out_of_credits"');
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The winning claim adopted the edit rate the balance affords, and the
+		 * settled charge is the 5 credits the turn actually cost. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_EDIT);
+		const month = await appDb
+			.selectFrom("credit_months")
+			.select(["consumed"])
+			.where("user_id", "=", USER)
+			.where("period", "=", getCurrentPeriod())
+			.executeTakeFirstOrThrow();
+		expect(month.consumed).toBe(1950 + CREDITS_PER_EDIT);
 	}, 30_000);
 
 	it("re-admits from a fresh snapshot when the direct-path claim rejects a stale mode", async () => {
@@ -1335,35 +1403,22 @@ describe("server-derived build-vs-edit mode", () => {
 		 * re-read the authorized snapshot — the SA seeds its working doc from
 		 * it — rather than patching the mode alone and building against the
 		 * stale document. */
-		await seedCanonicalApp({
+		const { app, snapshot } = await seedSnapshotApp({
 			id: DIRECT_ADOPT_APP,
 			name: "Fresh build app",
 			overrides: { status: "error" },
+			mock: false,
 		});
-		const { loadApp } = await import("@/lib/db/apps");
-		const app = await loadApp(DIRECT_ADOPT_APP);
-		if (!app) throw new Error("direct-adopt fixture app was not persisted");
 		resolveAuthorizedAppSnapshotMock
 			.mockResolvedValueOnce({
+				...snapshot,
 				app: {
 					...app,
 					status: "complete",
 					blueprint: { ...app.blueprint, appName: "Stale complete snapshot" },
 				},
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: app.mutation_seq,
-				actorUserId: USER,
 			})
-			.mockResolvedValue({
-				app,
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: app.mutation_seq,
-				actorUserId: USER,
-			});
+			.mockResolvedValue(snapshot);
 		createSolutionsArchitectMock.mockImplementation(() => ({
 			tools: {},
 			stream: async () => {
@@ -1427,7 +1482,7 @@ describe("server-derived build-vs-edit mode", () => {
 		 * to be the only mode correction. The flushed summary must describe
 		 * the mode the claim actually booked, or admin inspect reads a phantom
 		 * zero-module build failure. */
-		await seedCanonicalApp({
+		const { snapshot } = await seedSnapshotApp({
 			id: WAITFAIL_APP,
 			name: "Wait adopt summary app",
 			overrides: {
@@ -1440,19 +1495,10 @@ describe("server-derived build-vs-edit mode", () => {
 				res_user_id: MEMBER,
 				res_run_id: "run-other-build-summary",
 			},
+			mock: false,
 		});
-		const { loadApp } = await import("@/lib/db/apps");
-		const app = await loadApp(WAITFAIL_APP);
-		if (!app) throw new Error("wait-adopt fixture app was not persisted");
 		resolveAuthorizedAppSnapshotMock
-			.mockResolvedValueOnce({
-				app,
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: app.mutation_seq,
-				actorUserId: USER,
-			})
+			.mockResolvedValueOnce(snapshot)
 			.mockRejectedValue(new Error("post-win snapshot connection dropped"));
 
 		const response = await POST(

@@ -152,7 +152,9 @@ const {
 	closeStreamListener,
 	subscribeLookupProject,
 } = await import("@/lib/db/streamListener");
-const { createApp, commitGuardedBatch } = await import("@/lib/db/apps");
+const { createApp, commitGuardedBatch, completeAndSettleRun } = await import(
+	"@/lib/db/apps"
+);
 const { createLookupTable } = await import("@/lib/lookup/service");
 
 const USER = "user-1";
@@ -887,6 +889,49 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(statusFrames.at(-1)?.data).toEqual({ status: "complete" });
 		/* Seq-less: only mutation frames own Last-Event-ID. */
 		for (const frame of statusFrames) expect(frame.id).toBeUndefined();
+	});
+
+	it("announces completion off the terminal transaction's own notify", async () => {
+		/* The real build-completion writer: `completeAndSettleRun` commits
+		 * `generating` → `complete` AND pokes the app channel's status lane in
+		 * the same transaction, so a connected tab's release does not have to
+		 * wait out the reauthorization cadence. This runs the whole path end
+		 * to end: terminal transaction → NOTIFY → listener dispatch → status
+		 * pump reauthorization → frame. */
+		const appId = await seedApp(0);
+		const runId = "run-status-notify";
+		const nonce = testUuid("60000000-0000-4000-8000-000000000000");
+		await appDb
+			.updateTable("apps")
+			.set({
+				status: "generating",
+				run_id: runId,
+				run_holder_nonce: nonce,
+				res_period: "2026-08",
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: USER,
+				res_run_id: runId,
+			})
+			.where("id", "=", appId)
+			.execute();
+
+		const { frames } = await collectUntil(appId, {
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "app-status" &&
+						(x.data as { status?: string }).status === "complete",
+				),
+			onOpen: async () => {
+				const outcome = await completeAndSettleRun(appId, runId, nonce);
+				expect(outcome).toBe("owned");
+			},
+		});
+
+		const statusFrames = frames.filter((x) => x.event === "app-status");
+		expect(statusFrames[0]?.data).toEqual({ status: "generating" });
+		expect(statusFrames.at(-1)?.data).toEqual({ status: "complete" });
 	});
 
 	it("emits an initial full lookup manifest without an SSE mutation id", async () => {
