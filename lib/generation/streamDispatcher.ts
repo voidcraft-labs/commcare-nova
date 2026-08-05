@@ -89,6 +89,27 @@ function injectSignalEnergy(type: string): void {
 // ── Public API ──────────────────────────────────────────────────────────
 
 /**
+ * The ONE reader of a `data-conversation-event` envelope's error payload,
+ * typed against `ConversationEvent` so the wire shape is asserted in exactly
+ * one place. Both consumers ride it: this dispatcher's toast (severity from
+ * `fatal`) and `ChatContainer`'s auto-resend halt (armed only by a fatal
+ * error). A silent structural cast in either would stop matching if the
+ * envelope ever changed, and for the halt that failure mode is the retry
+ * storm coming back with nothing failing at compile time. Returns null for
+ * every non-error conversation event.
+ */
+export function conversationEventError(
+	data: Record<string, unknown>,
+): { message: string; fatal: boolean } | null {
+	const event = data as unknown as ConversationEvent;
+	if (event.payload?.type !== "error") return null;
+	return {
+		message: event.payload.error.message,
+		fatal: !!event.payload.error.fatal,
+	};
+}
+
+/**
  * Dispatch a single server-sent stream event to the appropriate handlers.
  *
  * @param type         - stream event type (e.g. "data-mutations")
@@ -193,11 +214,12 @@ export function applyStreamEvent(
 	if (type === "data-conversation-event") {
 		const event = data as unknown as ConversationEvent;
 		sessionStore.getState().pushEvent(event);
-		if (event.payload.type === "error") {
+		const error = conversationEventError(data);
+		if (error) {
 			(projectToast ?? showToast)(
-				event.payload.error.fatal ? "error" : "warning",
+				error.fatal ? "error" : "warning",
 				"Generation error",
-				event.payload.error.message,
+				error.message,
 			);
 		}
 		return;

@@ -132,6 +132,17 @@ export interface BuilderSessionState {
 	 *  close silently. Drives the Completed phase. */
 	runCompletedAt: number | undefined;
 
+	/** This session's app has a BUILD that never completed. Seeded true when
+	 *  the page loads a `generating` app or an interrupted build admitted for
+	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
+	 *  lands; released only by `markBuildFinished()` (the dispatcher's
+	 *  `data-done`). App-level, not run-level, on purpose: it survives stream
+	 *  closes and the events-buffer clear, which the phase derivation cannot
+	 *  (an askQuestions pause clears the buffer while the committed modules
+	 *  make the doc read Ready). `deriveChatAppReady` keys on it so a
+	 *  mid-build tab's sends and its cost chip both read as build-mode. */
+	buildUnfinished: boolean;
+
 	/** Generic loading flag for async operations outside of agent writes
 	 *  (e.g. initial app load, import). */
 	loading: boolean;
@@ -359,6 +370,15 @@ export interface BuilderSessionState {
 	 *  already cleared. */
 	acknowledgeCompletion: () => void;
 
+	/** Latch `buildUnfinished` — a `/build/new` tab received the app-creation
+	 *  handoff, so this tab now owns a build in progress. No-ops when set. */
+	markBuildUnfinished: () => void;
+
+	/** Release `buildUnfinished` — the build run completed (`data-done`).
+	 *  One-way per build: nothing re-arms it except a new creation handoff or
+	 *  a page load of a generating app. No-ops when already clear. */
+	markBuildFinished: () => void;
+
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
 
@@ -541,6 +561,10 @@ export interface SessionStoreInit {
 	 *  builder shows the loading skeleton immediately rather than flashing
 	 *  the idle/chat state. */
 	loading?: boolean;
+	/** Seed the unfinished-build latch — true when the page loaded a
+	 *  `generating` app or an interrupted build admitted for re-drive, so the
+	 *  first send already reads as build-mode. */
+	buildUnfinished?: boolean;
 	/** Pre-set the app id. */
 	appId?: string;
 	/** Pre-set the atomic access tuple from the server-rendered app snapshot. */
@@ -580,6 +604,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				events: [] as Event[],
 				runStartedWithData: false,
 				runCompletedAt: undefined as number | undefined,
+				buildUnfinished: init?.buildUnfinished ?? false,
 				loading: init?.loading ?? false,
 
 				/* App identity */
@@ -675,6 +700,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				acknowledgeCompletion() {
 					if (get().runCompletedAt === undefined) return;
 					set({ runCompletedAt: undefined });
+				},
+
+				markBuildUnfinished() {
+					if (get().buildUnfinished) return;
+					set({ buildUnfinished: true });
+				},
+
+				markBuildFinished() {
+					if (!get().buildUnfinished) return;
+					set({ buildUnfinished: false });
 				},
 
 				pushEvents(events: Event[]) {
@@ -1203,6 +1238,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						events: [],
 						runStartedWithData: false,
 						runCompletedAt: undefined,
+						buildUnfinished: init?.buildUnfinished ?? false,
 						loading: false,
 
 						/* App identity */

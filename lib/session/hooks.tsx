@@ -513,3 +513,48 @@ export function useBuilderIsReady(): boolean {
 	const phase = useBuilderPhase();
 	return phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 }
+
+/** Session slice required by `deriveChatAppReady` — `derivePhase`'s inputs
+ *  plus the app-level unfinished-build latch. */
+export interface DeriveChatAppReadySession extends DerivePhaseSession {
+	buildUnfinished: boolean;
+}
+
+/**
+ * The chat surface's build-vs-edit read: "is this app usable, so a send is an
+ * edit-mode request?" NOT the same question as `useBuilderIsReady` — an
+ * askQuestions pause closes the stream, `endRun` clears the events buffer,
+ * and the committed modules make the phase read Ready mid-build. The
+ * `buildUnfinished` latch is app-level, so it survives exactly that window:
+ * while it holds (and the build hasn't just completed — the `runCompletedAt`
+ * term bridges the render between `data-done` stamping completion and this
+ * derivation observing the release), every send is a build.
+ *
+ * The route derives the AUTHORITATIVE mode from the app row's status; this
+ * derivation exists so the tab's chrome, its cost chip, and the advisory
+ * `appReady` request field all agree with what the server will charge.
+ */
+export function deriveChatAppReady(
+	session: DeriveChatAppReadySession,
+	docHasData: boolean,
+): boolean {
+	const unfinishedBuild =
+		session.buildUnfinished && session.runCompletedAt === undefined;
+	if (unfinishedBuild) return false;
+	const phase = derivePhase(session, docHasData);
+	return phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
+}
+
+/** Reactive `deriveChatAppReady` — what the cost chip shows and the chat
+ *  request's advisory `appReady` field carries. */
+export function useChatAppReady(): boolean {
+	const session = useBuilderSessionShallow((s) => ({
+		loading: s.loading,
+		runCompletedAt: s.runCompletedAt,
+		events: s.events,
+		runStartedWithData: s.runStartedWithData,
+		buildUnfinished: s.buildUnfinished,
+	}));
+	const hasData = useBlueprintDoc(docHasData);
+	return deriveChatAppReady(session, hasData);
+}

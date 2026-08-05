@@ -58,11 +58,13 @@ import {
 	type PersistableDoc,
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
-import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
-import { pushBuilderHistory } from "@/lib/routing/useClientPath";
-import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
-	derivePhase,
+	applyStreamEvent,
+	conversationEventError,
+} from "@/lib/generation/streamDispatcher";
+import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import {
+	deriveChatAppReady,
 	useAccessPhase,
 	useCanEdit,
 	useProjectScopeEpoch,
@@ -393,7 +395,6 @@ function createChatInstance(
 	holderNonceRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
-	appGeneratingRef: { current: boolean },
 	autoResendHaltRef: { current: boolean },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
@@ -406,64 +407,29 @@ function createChatInstance(
 	autoResendHaltRef.current = false;
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
-	 * authorization read. We send only the `appId`; `hasData` still feeds the
-	 * `appReady` phase derivation below.
+	 * authorization read. We send only the `appId`.
 	 *
 	 * `appReady` here is ADVISORY: the route derives the authoritative
 	 * build-vs-edit mode (charge, claim, resume, prompt) from the app row's
 	 * own status and only compares this field against it for telemetry. It is
-	 * still computed honestly because the SAME derivation drives this tab's
-	 * chrome and cost chip, and a value that tracks the server keeps that
-	 * telemetry quiet. The phase alone is NOT a sufficient read for an
-	 * unfinished build: `endRun` clears the events buffer on EVERY stream
-	 * close, an askQuestions pause included, so a paused build's answer send
-	 * derives phase Ready off the committed modules. `unfinishedBuild` below
-	 * is what actually keeps such sends reading as build-mode. */
+	 * still computed honestly, through the SAME `deriveChatAppReady` the cost
+	 * chip renders (the session store's `buildUnfinished` latch is what keeps
+	 * a mid-build send reading as build-mode after an askQuestions pause has
+	 * cleared the events buffer), so a disagreement warn server-side means a
+	 * real drift, not a known one. */
 	const requestFields = () => {
 		const doc = docStoreRef.current?.getState();
 		const session = sessionStoreRef.current;
 		if (!session) return {};
 		const sessionState = session.getState();
 		const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-		const phase = derivePhase(
-			{
-				loading: sessionState.loading,
-				runCompletedAt: sessionState.runCompletedAt,
-				events: sessionState.events,
-				runStartedWithData: sessionState.runStartedWithData,
-			},
-			hasData,
-		);
-		/* An UNFINISHED build owns the mode regardless of what the phase
-		 * derivation reads off a fresh session: the page loaded a `generating`
-		 * app (or an interrupted build being re-driven), its committed modules
-		 * make `hasData` true and the event buffer is empty, so the derived
-		 * phase would read Ready and flip this send to edit mode. Until a run
-		 * COMPLETES in this session, sends against such an app are build-mode
-		 * sends: the paused-round answer after a mid-build refresh and the
-		 * instance-death re-drive both depend on it.
-		 *
-		 * Completion is a one-way LATCH on the ref (flipped by the `data-done`
-		 * handler below), not a live read of `runCompletedAt`: the session
-		 * store clears `runCompletedAt` ~3.5s after the celebration
-		 * (`acknowledgeCompletion`), and a guard re-armed by that clear would
-		 * send every later message in this tab as a BUILD: charged at build
-		 * rates, claiming in build mode (flipping the complete app back to
-		 * `generating`), and breaking edit-run answer resends against the
-		 * edit's `run_lock`. The `runCompletedAt` term only covers the render
-		 * gap between `data-done` arriving and this closure observing it. */
-		const unfinishedBuild =
-			appGeneratingRef.current && sessionState.runCompletedAt == null;
-		const appReady =
-			!unfinishedBuild &&
-			(phase === BuilderPhase.Ready || phase === BuilderPhase.Completed);
 		return {
 			threadId: init.threadId,
 			runId: runIdRef.current,
 			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
 			expectedProjectId: expectedProjectIdForChatRequest(sessionState),
-			appReady,
+			appReady: deriveChatAppReady(sessionState, hasData),
 		};
 	};
 
@@ -560,18 +526,17 @@ function createChatInstance(
 				data: Record<string, unknown>;
 			};
 			/* Arm the auto-resend halt the moment a run reports a FATAL error
-			 * (the same envelope the dispatcher toasts). It must be read off the
-			 * stream here, not inferred later: the bail stream closes cleanly, so
-			 * by the time the SDK evaluates `sendAutomaticallyWhen` the failed
-			 * response has left no message behind to tell this round apart from
-			 * one that was never tried. */
-			if (type === "data-conversation-event") {
-				const payload = (data as { payload?: unknown }).payload as
-					| { type?: string; error?: { fatal?: boolean } }
-					| undefined;
-				if (payload?.type === "error" && payload.error?.fatal === true) {
-					autoResendHaltRef.current = true;
-				}
+			 * (the same envelope the dispatcher toasts, read through the same
+			 * typed reader). It must be read off the stream here, not inferred
+			 * later: the bail stream closes cleanly, so by the time the SDK
+			 * evaluates `sendAutomaticallyWhen` the failed response has left no
+			 * message behind to tell this round apart from one that was never
+			 * tried. */
+			if (
+				type === "data-conversation-event" &&
+				conversationEventError(data)?.fatal === true
+			) {
+				autoResendHaltRef.current = true;
 			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
@@ -624,7 +589,7 @@ function createChatInstance(
 			 * send would claim + charge as a BUILD. Falls through: the
 			 * dispatcher consumes `data-done` too. */
 			if (type === "data-done") {
-				appGeneratingRef.current = false;
+				sessionApi.getState().markBuildFinished();
 			}
 
 			if (type === "data-app-id") {
@@ -646,13 +611,13 @@ function createChatInstance(
 					return;
 				}
 				/* This tab now owns an UNFINISHED build. The RSC page only seeds
-				 * this ref for tabs that LOADED a generating app; a `/build/new`
+				 * the latch for tabs that LOADED a generating app; a `/build/new`
 				 * tab must latch it at creation or its later sends read as
 				 * edit-mode the moment the phase derivation loses the run (an
 				 * askQuestions pause clears the events buffer, and the committed
-				 * starter modules make the doc read Ready). `data-done` below is
+				 * starter modules make the doc read Ready). `data-done` above is
 				 * the matching release. */
-				appGeneratingRef.current = true;
+				sessionApi.getState().markBuildUnfinished();
 				installCreatedApp(
 					activation,
 					docApi,
@@ -694,12 +659,14 @@ interface ChatContainerProps {
 	 *  detected on this load), which triggers the auto-re-drive. */
 	initialThread?: LoadedThreadDoc | null;
 	/** True when the page loaded an app whose BUILD is unfinished, a
-	 *  `generating` app, or an interrupted build admitted for re-drive. It's
-	 *  the build-run signal for a live-thread resume/re-drive (an edit run
-	 *  never flips a complete app's status) and keeps sends in build mode
-	 *  until a run completes. `thread_type` can't drive this (it freezes at
-	 *  thread creation, so the app's first conversation reads "build"
-	 *  forever). */
+	 *  `generating` app, or an interrupted build admitted for re-drive.
+	 *  MOUNT-TIME only: it seeds the initial resume/re-drive capture below;
+	 *  every later decision reads the session store's `buildUnfinished`
+	 *  latch, which the page seeds with this same value
+	 *  (`BuilderProvider.initialBuildUnfinished`) and which then tracks the
+	 *  in-tab creation handoff and `data-done`. `thread_type` can't drive
+	 *  either (it freezes at thread creation, so the app's first
+	 *  conversation reads "build" forever). */
 	appGenerating?: boolean;
 	/** The signed-in user: a replayed run's credit-refund notice is shown
 	 *  only to the actor who was actually charged. */
@@ -737,11 +704,16 @@ export function ChatContainer({
 	reconcilerCtxRef.current = reconcilerCtx;
 	const ownUserIdRef = useRef(currentUserId);
 	ownUserIdRef.current = currentUserId;
-	/** The page-load "this app's build is unfinished" signal (a `generating`
-	 *  app, or an interrupted build admitted for re-drive): read by
-	 *  `requestFields` to keep sends in build mode until a run completes. */
-	const appGeneratingRef = useRef(!!appGenerating);
-	appGeneratingRef.current = !!appGenerating;
+	/** The LIVE unfinished-build signal, read at decision time. It lives in
+	 *  the session store (seeded by the page's `initialBuildUnfinished`,
+	 *  latched by `data-app-id`, released by `data-done`) — a component ref
+	 *  synced from the `appGenerating` prop cannot carry it, because the prop
+	 *  is frozen at page load (`/build/new` promotes via the History API, no
+	 *  RSC re-render) and a per-render sync would clobber every latch. */
+	const liveBuildUnfinished = useCallback(
+		() => sessionStoreRef.current?.getState().buildUnfinished ?? false,
+		[],
+	);
 	/** Set while a run's FATAL error blocks the answered-askQuestions
 	 *  auto-resend; armed by the Chat instance's stream handler, released by a
 	 *  fresh user answer (`handleToolOutput`), any outbound request, or a new
@@ -863,7 +835,6 @@ export function ChatContainer({
 				holderNonceRef,
 				reconcilerCtxRef,
 				ownUserIdRef,
-				appGeneratingRef,
 				autoResendHaltRef,
 				threadHydrationStateRef,
 				projectToast,
@@ -892,7 +863,6 @@ export function ChatContainer({
 			holderNonceRef,
 			reconcilerCtxRef,
 			ownUserIdRef,
-			appGeneratingRef,
 			autoResendHaltRef,
 			threadHydrationStateRef,
 			projectToast,
@@ -1066,10 +1036,7 @@ export function ChatContainer({
 								pending.retainedMessages,
 							),
 						},
-						authoritativeThreadActivationOptions(
-							thread,
-							appGeneratingRef.current,
-						),
+						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
 					),
 				);
 				setThreadScopeReloading(false);
@@ -1114,7 +1081,13 @@ export function ChatContainer({
 			controller.abort();
 			activeThreadReadsRef.current.delete(controller);
 		};
-	}, [accessPhase, scopeEpoch, activateThread, projectToast]);
+	}, [
+		accessPhase,
+		scopeEpoch,
+		activateThread,
+		projectToast,
+		liveBuildUnfinished,
+	]);
 
 	// ── Live-run resume ───────────────────────────────────────────────────
 	/* A hydrated thread with a run in flight reconnects HERE: `resumeStream`
@@ -1193,10 +1166,7 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						authoritativeThreadActivationOptions(
-							thread,
-							appGeneratingRef.current,
-						),
+						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
 					),
 				);
 				return;
@@ -1218,10 +1188,7 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						authoritativeThreadActivationOptions(
-							thread,
-							appGeneratingRef.current,
-						),
+						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
 					),
 				);
 				return;
@@ -1238,11 +1205,9 @@ export function ChatContainer({
 								? (thread.messages as NovaUIMessage[])
 								: messagesRef.current,
 					},
-					authoritativeThreadActivationOptions(
-						thread,
-						appGeneratingRef.current,
-						{ allowRedrive: false },
-					),
+					authoritativeThreadActivationOptions(thread, liveBuildUnfinished(), {
+						allowRedrive: false,
+					}),
 				),
 			);
 		} catch {
@@ -1251,7 +1216,7 @@ export function ChatContainer({
 		} finally {
 			activeThreadReadsRef.current.delete(controller);
 		}
-	}, [chat, activateThread]);
+	}, [chat, activateThread, liveBuildUnfinished]);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
@@ -1305,17 +1270,17 @@ export function ChatContainer({
 					},
 					authoritativeThreadActivationOptions(
 						thread,
-						/* `appGenerating` (not thread_type, which freezes at
-						 * creation) is the build-run signal: an edit run resumed
-						 * in the app's original build-typed thread must keep the
-						 * edit-mode capture. */
-						!!appGenerating,
+						/* The live unfinished-build signal (not thread_type, which
+						 * freezes at creation): an edit run resumed in the app's
+						 * original build-typed thread must keep the edit-mode
+						 * capture. */
+						liveBuildUnfinished(),
 					),
 				),
 			);
 			return true;
 		},
-		[chat, appGenerating, activateThread, projectToast],
+		[chat, activateThread, projectToast, liveBuildUnfinished],
 	);
 
 	const startNewChat = useCallback(() => {

@@ -1091,6 +1091,7 @@ describe("server-derived build-vs-edit mode", () => {
 			100,
 			PROJECT,
 			expect.any(String),
+			{ requireModeMatchesStatus: true },
 		);
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
 	}, 30_000);

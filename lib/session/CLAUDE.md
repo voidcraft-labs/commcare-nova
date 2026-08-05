@@ -32,6 +32,17 @@ Four session fields describe "what phase is the builder in":
 - `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs. `beginRun({startedWithData})` overrides the capture for ONE case: reconnecting to an in-flight BUILD run after a page refresh, where the build's committed modules are already in the loaded doc and the default capture would misread the resumed build as an edit.
 - `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (the chat route's drain-end build-finished signal). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
+- `buildUnfinished: boolean` — the APP-level "this app's build never
+  completed" latch, deliberately not derivable from the buffer (which clears
+  on every stream close, an askQuestions pause included, while canonical
+  genesis makes the doc read Ready). Seeded by the page
+  (`BuilderProvider.initialBuildUnfinished`: a `generating` app or an
+  interrupted build admitted for re-drive), latched by `markBuildUnfinished()`
+  when a `/build/new` tab's creation handoff lands, released only by
+  `markBuildFinished()` (the dispatcher's `data-done`). `deriveChatAppReady`
+  (hooks) composes it with the phase for the chat surface's build-vs-edit
+  read: the advisory `appReady` request field and the cost chip both ride it,
+  mirroring the server's authoritative app-row-status rule.
 
 Run-boundary actions are orthogonal and atomic:
 

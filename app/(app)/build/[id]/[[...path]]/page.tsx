@@ -176,6 +176,12 @@ export default async function BuilderPage({
 			buildId={id}
 			initialDoc={initialDoc}
 			initialAccess={initialAccess}
+			/* An interrupted build counts: its re-drive must run in build
+			 * mode (the claim flips the `error` row back to `generating`).
+			 * Seeds the session store's `buildUnfinished` latch, the same
+			 * value the `appGenerating` prop below carries for mount-time
+			 * thread-activation decisions. */
+			initialBuildUnfinished={app.status === "generating" || buildInterrupted}
 			userId={session.user.id}
 		>
 			<BuilderLayout
@@ -183,8 +189,6 @@ export default async function BuilderPage({
 				commcareSettings={commcareSettings}
 				threads={threads}
 				initialThread={initialThread}
-				/* An interrupted build counts: its re-drive must run in build
-				 * mode (the claim flips the `error` row back to `generating`). */
 				appGenerating={app.status === "generating" || buildInterrupted}
 				currentUserId={session.user.id}
 			/>

@@ -2199,6 +2199,27 @@ export class GenerationInProgressError extends Error {
 	}
 }
 
+/**
+ * Thrown by the claim transaction (opt-in via `requireModeMatchesStatus`)
+ * when the caller's build-vs-edit mode no longer matches the LOCKED row's
+ * status: only a `complete` app claims as an edit; everything else claims as
+ * a build. The chat route derives its mode from an unlocked snapshot read,
+ * and a serialize-wait can hold that read stale for up to two minutes — long
+ * enough for the awaited build to complete, which would let a "build" claim
+ * flip the finished app back to `generating` and book the build rate for what
+ * is now an edit. The rejection is a rollback that held nothing; `statusMode`
+ * is the mode the locked row supports, so the caller re-derives and retries
+ * instead of guessing.
+ */
+export class ClaimModeStaleError extends Error {
+	constructor(readonly statusMode: "build" | "edit") {
+		super(
+			"The app's state changed while this request waited, so its build-vs-edit mode was re-derived before claiming.",
+		);
+		this.name = "ClaimModeStaleError";
+	}
+}
+
 /** What a successful claim returns. There is no prior-state snapshot to
  *  restore: every rejection is a transaction rollback. */
 export interface ClaimedRun {
@@ -2249,6 +2270,15 @@ export async function claimAndReserveRun(
 	cost: number,
 	expectedProjectId: string,
 	holderNonce: string = crypto.randomUUID(),
+	opts?: {
+		/** Reject (`ClaimModeStaleError`) instead of claiming when `mode` no
+		 *  longer matches the LOCKED row's status (`complete` → edit, anything
+		 *  else → build). The chat route always passes this: its mode comes
+		 *  from an unlocked snapshot that a serialize-wait can hold stale.
+		 *  Left off, the claim keeps its historical trust-the-caller shape
+		 *  (the lifecycle suites exercise deliberate mode/status splits). */
+		requireModeMatchesStatus?: boolean;
+	},
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
 	try {
@@ -2290,6 +2320,13 @@ export async function claimAndReserveRun(
 					lease.reapableStrandedEdit,
 					toExactRunHolderIdentity(lease.holderIdentity),
 				);
+			}
+			/* Mode-vs-status agreement, read off the LOCKED row so it cannot be
+			 * stale. Checked only once the app is claimable: a busy app keeps
+			 * reading as a conflict (the waiter re-derives when it re-polls). */
+			if (opts?.requireModeMatchesStatus) {
+				const statusMode = fresh.status === "complete" ? "edit" : "build";
+				if (statusMode !== mode) throw new ClaimModeStaleError(statusMode);
 			}
 			if (mode === "build") {
 				const scan = await scanActiveGeneration(tx, actorUserId, appId);
