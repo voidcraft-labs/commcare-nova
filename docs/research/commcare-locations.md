@@ -95,7 +95,7 @@ The full narrative lives in the ACA memo (§2.1); here is the locations-specific
 
 Locations appear on both sides of the restore-size ledger ("USS Designing and Building Performant Apps", USH — the internal playbook; "Managing Application Size as it Relates to Performance", commcarepublic):
 
-- **As owners** they *are* the caseload dial: what a level owns and who is assigned there decides restore size; buckets exist to hold data off restores; auto-update rules (50k updates/day cap — "Automatically Update Cases", commcarepublic) shepherd cases between owners as workflows age out.
+- **As owners** they *are* the caseload dial: what a level owns and who is assigned there decides restore size; buckets exist to hold data off restores; auto-update rules (a daily sweep with a default 10,000-update between-case halt threshold, whose final case can exceed it) shepherd cases between owners as workflows age out.
 - **As fixture content** they are payload: big trees need `expand_to`/`include_only` pruning; the playbook lists location fixtures alongside lookup tables as restore-size line items.
 - **Web Apps multiplies everything** via `cc-sync-after-form` (sync per submission — ACA memo §2.3), and smart links force a *full* restore on every click (playbook), so both ownership scope and fixture scope are per-interaction costs there, not login costs.
 

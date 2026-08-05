@@ -1,3 +1,4 @@
+import type { Transaction } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -5,8 +6,10 @@ import {
 	makeCaseRow,
 	test,
 } from "@/lib/case-store/sql/__tests__/setup";
+import type { AppDatabase } from "@/lib/db/pg";
 import type { PersistableDoc } from "@/lib/domain";
 import {
+	classifyCaseParentRelationshipsInSnapshot,
 	findCaseParentRelationshipFindings,
 	repairCaseParentRelationships,
 } from "../lib/caseParentRelationshipRepair";
@@ -174,5 +177,108 @@ describe("case parent relationship scan-then-migrate", () => {
 			{ case_id: REPAIRABLE_ID, relationship: "extension" },
 			{ case_id: UNKNOWN_ID, relationship: "child" },
 		]);
+	});
+
+	test("loads Project placement from the classification snapshot instead of stale enumeration", async ({
+		db,
+	}) => {
+		await db
+			.updateTable("apps")
+			.set({ case_types: JSON.stringify(blueprint.caseTypes) })
+			.where("id", "=", APP_ID)
+			.executeTakeFirstOrThrow();
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({ case_id: PARENT_ID, case_type: "household" }),
+				makeCaseRow({
+					case_id: REPAIRABLE_ID,
+					case_type: "visit",
+					parent_case_id: PARENT_ID,
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: REPAIRABLE_ID,
+				ancestor_id: PARENT_ID,
+				identifier: "parent",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+		await seedReceipt(db, {
+			entryKey: "ordinary-after-project-move",
+			createdAt: new Date("2026-08-01T00:00:00.000Z"),
+			childCaseIds: [REPAIRABLE_ID],
+		});
+
+		// This is the false-clean result the pre-snapshot enumerated Project
+		// produced after an app move committed before classification began.
+		expect(
+			await findCaseParentRelationshipFindings(db, {
+				appId: APP_ID,
+				projectId: "project-before-move",
+				blueprint,
+			}),
+		).toEqual([]);
+
+		const snapshot = await classifyCaseParentRelationshipsInSnapshot(
+			db as unknown as Transaction<AppDatabase>,
+			APP_ID,
+		);
+		expect(snapshot).toEqual({
+			appId: APP_ID,
+			appName: APP_ID,
+			projectId: PROJECT_ID,
+			findings: [
+				expect.objectContaining({
+					caseId: REPAIRABLE_ID,
+					standing: "repairable-ordinary",
+				}),
+			],
+		});
+	});
+
+	test("uses one text-array bind for candidate lists beyond PostgreSQL's parameter ceiling", async ({
+		db,
+	}) => {
+		const candidateId = "large-list-extension";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({ case_id: PARENT_ID, case_type: "household" }),
+				makeCaseRow({
+					case_id: candidateId,
+					case_type: "visit",
+					parent_case_id: PARENT_ID,
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: candidateId,
+				ancestor_id: PARENT_ID,
+				identifier: "parent",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+
+		const moreThanProtocolAllows = Array.from(
+			{ length: 70_000 },
+			(_, index) => `not-present-${index}`,
+		);
+		expect(
+			await repairCaseParentRelationships(db, {
+				appId: APP_ID,
+				projectId: PROJECT_ID,
+				caseType: "visit",
+				parentType: "household",
+				caseIds: [candidateId, ...moreThanProtocolAllows],
+			}),
+		).toEqual([candidateId]);
 	});
 });

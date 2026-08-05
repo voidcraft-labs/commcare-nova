@@ -214,7 +214,7 @@ property. Property controls author the required and accepted-values contracts
 and preflight every existing place so a catalog change cannot create a
 cross-store state the server would refuse.
 
-## App setup — Automations
+## App setup: Automations
 
 `app-setup/AutomationsSection.tsx` edits the Blueprint's canonical automation
 union. A new rule is born as one complete valid object with caller-minted UUIDs;
@@ -242,6 +242,12 @@ current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides
 recipients, changes, schedules, filters, or content.
+Place-backed conditions and recipients distinguish the first load, an initial
+failure, a failed refresh, an in-flight refresh, and a genuinely empty live
+place catalog. The editor names the state and offers the organization reload
+action where it can help; adding or changing a place reference stays paused
+until the catalog is authoritative. A saved reference whose place cannot be
+resolved remains readable as **Saved place unavailable**, never as a raw UUID.
 
 The section is structured vocabulary, never raw CommCare JSON: kind-specific
 property criteria, one UUID-backed location criterion, the case-update-only closed-parent filter, explicit setup-only

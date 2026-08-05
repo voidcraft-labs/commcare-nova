@@ -1,18 +1,13 @@
-/** READ ONLY — classify historical extension parent edges before repair. */
+/** READ ONLY: classify historical extension parent edges before repair. */
 
 import "dotenv/config";
 import { Command } from "commander";
-import type { Transaction } from "kysely";
-import {
-	closeCaseStoreDatabase,
-	type Database,
-} from "../lib/case-store/postgres/connection";
+import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
 import { getAppDb } from "../lib/db/pg";
 import {
 	type CaseParentRelationshipStanding,
-	findCaseParentRelationshipFindings,
+	classifyCaseParentRelationshipsInSnapshot,
 } from "./lib/caseParentRelationshipRepair";
-import { loadPersistedBlueprintReadOnly } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -52,9 +47,7 @@ function scopeArgs(): string {
 
 async function main(): Promise<void> {
 	const db = await getAppDb();
-	let appsQuery = db
-		.selectFrom("apps")
-		.select(["id", "app_name", "project_id"]);
+	let appsQuery = db.selectFrom("apps").select("id");
 	if (options.app !== undefined) {
 		appsQuery = appsQuery.where("id", "=", options.app);
 	}
@@ -68,22 +61,13 @@ async function main(): Promise<void> {
 	let failures = 0;
 	for (const app of apps) {
 		try {
-			const findings = await db
+			const snapshot = await db
 				.transaction()
 				.setIsolationLevel("repeatable read")
 				.setAccessMode("read only")
-				.execute(async (tx) => {
-					const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
-					if (blueprint === null) return [];
-					return findCaseParentRelationshipFindings(
-						tx as unknown as Transaction<Database>,
-						{
-							appId: app.id,
-							projectId: app.project_id,
-							blueprint,
-						},
-					);
-				});
+				.execute((tx) => classifyCaseParentRelationshipsInSnapshot(tx, app.id));
+			if (snapshot === null) continue;
+			const findings = snapshot.findings;
 			if (findings.length === 0) continue;
 			const counts = new Map<CaseParentRelationshipStanding, number>();
 			for (const finding of findings) {
@@ -92,7 +76,7 @@ async function main(): Promise<void> {
 				else if (finding.standing !== "clean") ambiguous++;
 			}
 			console.log(
-				`${app.id} (${app.app_name || "unnamed"}), Project ${app.project_id}`,
+				`${snapshot.appId} (${snapshot.appName || "unnamed"}), Project ${snapshot.projectId}`,
 			);
 			console.log(
 				`  ${standings.map((standing) => `${standing}=${counts.get(standing) ?? 0}`).join(" ")}`,
@@ -101,13 +85,13 @@ async function main(): Promise<void> {
 				(finding) => finding.standing !== "clean",
 			)) {
 				console.log(
-					`  ${finding.caseType} ${finding.caseId}: ${finding.standing} — ${finding.detail}`,
+					`  ${finding.caseType} ${finding.caseId}: ${finding.standing}: ${finding.detail}`,
 				);
 			}
 		} catch (error) {
 			failures++;
 			console.log(
-				`${app.id}: FAILED — ${error instanceof Error ? error.message : String(error)}`,
+				`${app.id}: FAILED: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 	}

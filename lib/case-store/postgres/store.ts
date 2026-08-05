@@ -995,7 +995,8 @@ export class PostgresCaseStore implements CaseStore {
 							scalar === undefined
 								? sql<boolean>`jsonb_typeof(c.properties -> ${criterion.property}) = 'string'
 									and ((c.properties ->> ${criterion.property}) collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`
-								: sql<boolean>`(coalesce(${sql.ref(`c.${scalar.column}`)}, '') collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`;
+								: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is not null
+									and ((${sql.ref(`c.${scalar.column}`)}) collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`;
 						return (
 							// HQ's REGEX uses Python `re.match`, anchored at the
 							// beginning, and only tests actual strings. The lowering adds

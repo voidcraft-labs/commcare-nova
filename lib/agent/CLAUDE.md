@@ -141,7 +141,7 @@ Inside an operation, SA/MCP read and write the same canonical AST the document s
 
 Action legality is structural in `caseOperationInputSchema`: create requires a new target plus name and cannot carry rename/retype; update targets an existing case and cannot carry a create name; close targets an existing case and cannot carry owner/rename/retype/links. Operation ids, write properties, and link identifiers import the validator-owned ASCII letter/digit/underscore rules from `lib/domain/caseOperationIdentifiers.ts`; no surface maintains a more permissive XML-name copy. Platform-owned case types and reserved write properties are rejected at this boundary as well as by the validator backstop. Batch add plans against a working overlay, so a later item can target an earlier create in the same call and the one guarded commit remains atomic. Full-shape update does not imply whole-object replacement: `updateCaseOperationMutations` diffs it into identity-keyed operation, write-property, and link-identifier mutations, preserving unrelated concurrent edits. A move names the operation it now follows; an anchor cannot be shifted by a peer's insert, so there is no rank to fence, and the tool reports the rank derived from `commit.newDoc`.
 
-### Automation authoring — canonical intent plus a derived setup guide
+### Automation authoring: canonical intent plus a derived setup guide
 
 `tools/automations.ts` is the shared SA/MCP family: read, batch add, singular
 complete update, and singular remove. The input is the exact domain union, so

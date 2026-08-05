@@ -945,7 +945,18 @@ describe("automation domain and projections", () => {
 		}
 		const publicDocs = readFileSync("content/docs/automations.mdx", "utf8");
 		expect(publicDocs).not.toMatch(/\bcap\b/i);
-		expect(publicDocs).not.toContain("—");
+		expect(publicDocs).not.toContain("\u2014");
+		for (const path of [
+			"content/docs/automations.mdx",
+			"docs/plans/complex-app-plan.md",
+			"docs/research/advanced-case-actions.md",
+			"docs/research/commcare-locations.md",
+		]) {
+			const source = readFileSync(path, "utf8");
+			expect(source, path).not.toMatch(
+				/50(?:,000|k)\s+updates?\s*\/\s*day\s+cap/i,
+			);
+		}
 
 		const projectedUpdate = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),

@@ -91,6 +91,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import type { OrganizationView } from "@/lib/organization/useOrganization";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -98,6 +99,11 @@ import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
+
+type AutomationOrganizationState = Pick<
+	OrganizationView,
+	"loading" | "error" | "warning" | "refreshing" | "reload"
+>;
 
 function Input(props: ComponentProps<typeof ShadcnInput>) {
 	return <ShadcnInput {...props} autoComplete="off" data-1p-ignore="" />;
@@ -380,6 +386,7 @@ export function AutomationsSection() {
 					locations={organization.locations.filter(
 						(location) => location.archivedAt === null,
 					)}
+					organizationState={organization}
 					levels={levels}
 					userProperties={userProperties}
 					canEdit={canEdit}
@@ -620,12 +627,85 @@ function automationCommitErrorPath(
 		.map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
 }
 
+function OrganizationReferenceStatus({
+	state,
+	hasLiveLocations,
+}: {
+	state: AutomationOrganizationState;
+	hasLiveLocations: boolean;
+}) {
+	if (state.loading) {
+		return (
+			<p
+				role="status"
+				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
+			>
+				<Spinner className="size-4" />
+				Loading places. Location conditions and recipients will be available
+				when this finishes.
+			</p>
+		);
+	}
+	if (state.error !== undefined) {
+		return (
+			<p
+				role="alert"
+				className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+			>
+				{state.error} Location conditions and recipients are unavailable.{" "}
+				<Button type="button" variant="ghost-action" onClick={state.reload}>
+					Try again
+				</Button>
+			</p>
+		);
+	}
+	if (state.warning !== undefined) {
+		return (
+			<p
+				role="status"
+				className="rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+			>
+				Places couldn't be refreshed. Existing place references remain visible,
+				but adding or changing them is paused. {state.warning}{" "}
+				<Button type="button" variant="ghost-action" onClick={state.reload}>
+					Try again
+				</Button>
+			</p>
+		);
+	}
+	if (state.refreshing) {
+		return (
+			<p
+				role="status"
+				className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-3 text-[13px] text-nova-text-muted"
+			>
+				<Spinner className="size-4" />
+				Refreshing places. Location conditions and recipients are paused until
+				this finishes.
+			</p>
+		);
+	}
+	if (!hasLiveLocations) {
+		return (
+			<p
+				role="status"
+				className="rounded-lg border border-nova-border px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+			>
+				Add or unarchive a place in Organization before using location
+				conditions or location recipients.
+			</p>
+		);
+	}
+	return null;
+}
+
 function AutomationEditor({
 	state,
 	current,
 	caseTypes,
 	forms,
 	locations,
+	organizationState,
 	levels,
 	userProperties,
 	canEdit,
@@ -638,6 +718,7 @@ function AutomationEditor({
 	caseTypes: readonly CaseType[];
 	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
+	organizationState: AutomationOrganizationState;
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
 	canEdit: boolean;
@@ -658,6 +739,11 @@ function AutomationEditor({
 	const peerConflict =
 		state.kind === "existing" &&
 		(current === undefined || fingerprint(current) !== state.opened);
+	const locationChoicesAvailable =
+		!organizationState.loading &&
+		organizationState.error === undefined &&
+		organizationState.warning === undefined &&
+		!organizationState.refreshing;
 
 	useEffect(() => nameRef.current?.focus(), []);
 	const reportDraftError = useCallback(
@@ -776,6 +862,10 @@ function AutomationEditor({
 							</DialogDescription>
 						</DialogHeader>
 						<DialogBody className="space-y-6 pb-2">
+							<OrganizationReferenceStatus
+								state={organizationState}
+								hasLiveLocations={locations.length > 0}
+							/>
 							<fieldset
 								disabled={!canEdit || peerConflict}
 								className="contents"
@@ -857,6 +947,7 @@ function AutomationEditor({
 								<ConditionsEditor
 									automation={state.automation}
 									locations={locations}
+									locationChoicesAvailable={locationChoicesAvailable}
 									onEdit={edit}
 								/>
 								<SetupOnlyEditor automation={state.automation} onEdit={edit} />
@@ -887,6 +978,7 @@ function AutomationEditor({
 										caseTypes={caseTypes}
 										forms={forms}
 										locations={locations}
+										locationChoicesAvailable={locationChoicesAvailable}
 										levels={levels}
 										userProperties={userProperties}
 										onEdit={edit}
@@ -1283,6 +1375,23 @@ function Choice({
 	);
 }
 
+function automationLocationOptions(
+	locations: readonly StoredLocation[],
+	selectedUuid?: Uuid,
+): readonly ChoiceOption[] {
+	const options: ChoiceOption[] = locations.map((location) => [
+		location.id,
+		`${location.name} (${location.siteCode})`,
+	]);
+	if (
+		selectedUuid !== undefined &&
+		!locations.some((location) => location.id === selectedUuid)
+	) {
+		options.unshift([selectedUuid, "Saved place unavailable", true]);
+	}
+	return options;
+}
+
 function automationMessageReferenceCaseType(
 	caseTypes: readonly CaseType[],
 	automationCaseType: string,
@@ -1597,7 +1706,7 @@ function Toggle({
 	return (
 		<label
 			htmlFor={id}
-			className={`flex min-h-11 items-start gap-3 rounded-lg border border-white/[0.05] bg-black/10 px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer"}`}
+			className={`flex min-h-11 items-start gap-3 rounded-lg border border-white/[0.05] bg-black/10 px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
 		>
 			<Checkbox
 				id={id}
@@ -1705,17 +1814,21 @@ function useRepeatedRowRemovalFocus(items: readonly { readonly uuid: Uuid }[]) {
 function ConditionsEditor({
 	automation,
 	locations,
+	locationChoicesAvailable,
 	onEdit,
 }: {
 	automation: Automation;
 	locations: readonly StoredLocation[];
+	locationChoicesAvailable: boolean;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
 	const rowFocus = useRepeatedRowRemovalFocus(automation.criteria);
 	const liveLocations = locations.filter(
 		(location) => location.archivedAt === null,
 	);
-	const defaultLocationUuid = liveLocations[0]?.id;
+	const defaultLocationUuid = locationChoicesAvailable
+		? liveLocations[0]?.id
+		: undefined;
 	const hasClosedParent = automation.criteria.some(
 		(criterion) => criterion.kind === "closed-parent",
 	);
@@ -2012,6 +2125,7 @@ function ConditionsEditor({
 								<Labeled label="Location">
 									<Choice
 										value={criterion.locationUuid}
+										disabled={!locationChoicesAvailable}
 										onChange={(locationUuid) =>
 											onEdit((draft) => {
 												const item = draft.criteria[index];
@@ -2020,10 +2134,10 @@ function ConditionsEditor({
 												}
 											})
 										}
-										options={liveLocations.map((location) => [
-											location.id,
-											`${location.name} (${location.siteCode})`,
-										])}
+										options={automationLocationOptions(
+											liveLocations,
+											criterion.locationUuid,
+										)}
 									/>
 								</Labeled>
 								<Toggle
@@ -2081,7 +2195,11 @@ function ConditionsEditor({
 				<Button
 					type="button"
 					variant="outline"
-					disabled={hasLocation || liveLocations.length === 0}
+					disabled={
+						!locationChoicesAvailable ||
+						hasLocation ||
+						liveLocations.length === 0
+					}
 					onClick={() => add("location")}
 				>
 					<Icon icon={tablerPlus} />
@@ -2666,6 +2784,7 @@ function AlertEditor({
 	caseTypes,
 	forms,
 	locations,
+	locationChoicesAvailable,
 	levels,
 	userProperties,
 	onEdit,
@@ -2674,6 +2793,7 @@ function AlertEditor({
 	caseTypes: readonly CaseType[];
 	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
+	locationChoicesAvailable: boolean;
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
@@ -2691,8 +2811,14 @@ function AlertEditor({
 	const hasLocationRecipient = automation.recipients.some(
 		(recipient) => recipient.kind === "location",
 	);
+	const availableLocations = locationChoicesAvailable ? locations : [];
 	const addRecipientKind = RECIPIENT_KINDS.find(([kind]) =>
-		recipientKindAvailable(kind, automation.recipients, locations, usesConnect),
+		recipientKindAvailable(
+			kind,
+			automation.recipients,
+			availableLocations,
+			usesConnect,
+		),
 	)?.[0];
 	const nextFilterProperty = userProperties.find(
 		(property) =>
@@ -2724,7 +2850,7 @@ function AlertEditor({
 											);
 											const replacement = recipientFor(
 												kind as AutomationRecipient["kind"],
-												locations,
+												availableLocations,
 												peers,
 											);
 											if (replacement)
@@ -2744,19 +2870,21 @@ function AlertEditor({
 											const unavailable = !recipientKindAvailable(
 												kind,
 												automation.recipients,
-												locations,
+												availableLocations,
 												usesConnect,
 												recipient.uuid,
 											);
 											return [
 												kind,
-												kind === "location" && locations.length === 0
-													? "Location (add a place first)"
-													: connectBlocked
-														? `${label} (not available for Connect)`
-														: unavailable
-															? `${label} (already selected)`
-															: label,
+												kind === "location" && !locationChoicesAvailable
+													? "Location (places unavailable)"
+													: kind === "location" && locations.length === 0
+														? "Location (add a place first)"
+														: connectBlocked
+															? `${label} (not available for Connect)`
+															: unavailable
+																? `${label} (already selected)`
+																: label,
 												unavailable,
 											] as const;
 										})}
@@ -2822,6 +2950,7 @@ function AlertEditor({
 									<Labeled label="Location">
 										<Choice
 											value={recipient.locationUuid}
+											disabled={!locationChoicesAvailable}
 											onChange={(value) =>
 												onEdit((draft) => {
 													if (draft.kind === "conditional-alert") {
@@ -2831,15 +2960,19 @@ function AlertEditor({
 													}
 												})
 											}
-											options={locations.map((location) => [
-												location.id,
-												location.name,
-												automation.recipients.some(
-													(candidate) =>
-														candidate.uuid !== recipient.uuid &&
-														candidate.kind === "location" &&
-														candidate.locationUuid === location.id,
-												),
+											options={automationLocationOptions(
+												locations,
+												recipient.locationUuid,
+											).map(([id, label, unavailable]) => [
+												id,
+												label,
+												unavailable ||
+													automation.recipients.some(
+														(candidate) =>
+															candidate.uuid !== recipient.uuid &&
+															candidate.kind === "location" &&
+															candidate.locationUuid === id,
+													),
 											])}
 										/>
 									</Labeled>
@@ -2874,7 +3007,7 @@ function AlertEditor({
 								) {
 									const recipient = recipientFor(
 										addRecipientKind,
-										locations,
+										availableLocations,
 										draft.recipients,
 									);
 									if (recipient !== undefined) draft.recipients.push(recipient);

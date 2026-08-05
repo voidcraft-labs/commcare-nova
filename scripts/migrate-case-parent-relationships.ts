@@ -1,5 +1,5 @@
 /**
- * WRITER — repair receipt-proven ordinary extension edges only. Dry-run by
+ * WRITER: repair receipt-proven ordinary extension edges only. Dry-run by
  * default. Advanced-operation and otherwise ambiguous parent links are never
  * rewritten.
  */
@@ -13,13 +13,11 @@ import {
 } from "../lib/case-store/postgres/connection";
 import { getAppDb, withAppTx } from "../lib/db/pg";
 import {
+	classifyCaseParentRelationshipsInSnapshot,
 	findCaseParentRelationshipFindings,
 	repairCaseParentRelationships,
 } from "./lib/caseParentRelationshipRepair";
-import {
-	loadPersistedBlueprintInTransaction,
-	loadPersistedBlueprintReadOnly,
-} from "./lib/loadPersistedBlueprint";
+import { loadPersistedBlueprintInTransaction } from "./lib/loadPersistedBlueprint";
 import { runMain } from "./lib/main";
 
 interface Options {
@@ -63,9 +61,7 @@ async function main(): Promise<void> {
 		);
 	}
 	const db = await getAppDb();
-	let appsQuery = db
-		.selectFrom("apps")
-		.select(["id", "app_name", "project_id"]);
+	let appsQuery = db.selectFrom("apps").select(["id", "app_name"]);
 	if (options.app !== undefined) {
 		appsQuery = appsQuery.where("id", "=", options.app);
 	}
@@ -77,7 +73,7 @@ async function main(): Promise<void> {
 	console.log(
 		options.execute === true
 			? "Repairing receipt-proven ordinary extension edges…\n"
-			: "DRY RUN — nothing writes without --execute.\n",
+			: "DRY RUN: nothing writes without --execute.\n",
 	);
 	let planned = 0;
 	let repaired = 0;
@@ -86,22 +82,15 @@ async function main(): Promise<void> {
 	for (const app of apps) {
 		try {
 			if (options.execute !== true) {
-				const findings = await db
+				const snapshot = await db
 					.transaction()
 					.setIsolationLevel("repeatable read")
 					.setAccessMode("read only")
-					.execute(async (tx) => {
-						const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
-						if (blueprint === null) return [];
-						return findCaseParentRelationshipFindings(
-							tx as unknown as Transaction<Database>,
-							{
-								appId: app.id,
-								projectId: app.project_id,
-								blueprint,
-							},
-						);
-					});
+					.execute((tx) =>
+						classifyCaseParentRelationshipsInSnapshot(tx, app.id),
+					);
+				if (snapshot === null) continue;
+				const findings = snapshot.findings;
 				const candidates = findings.filter(
 					(finding) => finding.standing === "repairable-ordinary",
 				);
@@ -114,7 +103,7 @@ async function main(): Promise<void> {
 				ambiguous += unresolved.length;
 				if (candidates.length > 0 || unresolved.length > 0) {
 					console.log(
-						`${app.id} (${app.app_name || "unnamed"}): ${candidates.length} repairable; ${unresolved.length} refused as ambiguous/topology`,
+						`${snapshot.appId} (${snapshot.appName || "unnamed"}), Project ${snapshot.projectId}: ${candidates.length} repairable; ${unresolved.length} refused as ambiguous/topology`,
 					);
 				}
 				continue;
@@ -195,7 +184,7 @@ async function main(): Promise<void> {
 		} catch (error) {
 			failures++;
 			console.log(
-				`${app.id}: FAILED — ${error instanceof Error ? error.message : String(error)}`,
+				`${app.id}: FAILED: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 	}

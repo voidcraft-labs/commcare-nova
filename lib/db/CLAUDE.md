@@ -30,7 +30,7 @@ denormalized list fields + the run lease and credit marker as nullable column
 groups) plus one `blueprint_entities` row per entity. Nine kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
-flat alongside `organization_level` / `location_property` / `automation` — no
+flat alongside `organization_level` / `location_property` / `automation`; no
 parent, with the ordinal preserving that flat collection's sequence. **Every kind
 branches explicitly in the assembler**; an unsupported kind fails closed before
 assembly instead of being interpreted as another entity shape. The six flat collections' doc slots

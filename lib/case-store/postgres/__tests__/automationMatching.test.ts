@@ -440,6 +440,42 @@ describe("automation criteria SQL", () => {
 		await expect(count("$")).resolves.toBe(2);
 	});
 
+	it("does not treat null standard scalars as empty regex strings", async () => {
+		await h.pool.query(
+			`INSERT INTO cases
+			 (case_id, app_id, project_id, owner_id, case_type, case_name,
+			  external_id, status, closed_on, properties)
+			 VALUES
+			 ('01890f45-0000-7000-8000-000000000143', $1, $2, null,
+			  'visit', 'Null standard scalars', null, 'open', null, '{}'::jsonb),
+			 ('01890f45-0000-7000-8000-000000000144', $1, $2, '',
+			  'visit', 'Empty standard scalars', '', 'open', null, '{}'::jsonb)`,
+			[APP_ID, PROJECT_ID],
+		);
+		const caseStore = store();
+		const count = (property: "external_id" | "owner_id") =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					operator: "all" as const,
+					dates: [],
+					comparisons: [],
+					regexes: [{ property, pattern: "$" }],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		// HQ calls regex.match only for Python strings. SQL NULL models None,
+		// while a persisted empty text scalar is an actual string and matches `$`.
+		await expect(count("external_id")).resolves.toBe(1);
+		await expect(count("owner_id")).resolves.toBe(1);
+	});
+
 	it("matches parent and host blankness with HQ missing-relation semantics", async () => {
 		await insertExtensionFixtures();
 		const caseStore = store();

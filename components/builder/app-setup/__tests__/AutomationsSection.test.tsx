@@ -232,6 +232,13 @@ const mocks = vi.hoisted(() => ({
 	userProperties: [] as { uuid: Uuid; label: string; slug: string }[],
 	levels: [] as { uuid: Uuid; name: string }[],
 	locations: [] as StoredLocation[],
+	organization: {
+		loading: false,
+		error: undefined as string | undefined,
+		warning: undefined as string | undefined,
+		refreshing: false,
+		reload: vi.fn(),
+	},
 	canEdit: true,
 	addAutomation: vi.fn((_automation: Automation): unknown => ({
 		ok: true,
@@ -277,12 +284,8 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 vi.mock("@/lib/organization/useOrganization", () => ({
 	useOrganization: () => ({
 		locations: mocks.locations,
-		loading: false,
-		error: undefined,
-		warning: undefined,
-		refreshing: false,
+		...mocks.organization,
 		revision: "1",
-		reload: vi.fn(),
 	}),
 }));
 vi.mock("@/lib/session/hooks", () => ({
@@ -337,6 +340,11 @@ beforeEach(() => {
 	mocks.userProperties = [];
 	mocks.levels = [];
 	mocks.locations = [];
+	mocks.organization.loading = false;
+	mocks.organization.error = undefined;
+	mocks.organization.warning = undefined;
+	mocks.organization.refreshing = false;
+	mocks.organization.reload.mockClear();
 	mocks.canEdit = true;
 	mocks.addAutomation.mockClear();
 	mocks.replaceAutomation.mockClear();
@@ -583,6 +591,9 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
 		expect(
+			screen.getByText(/Add or unarchive a place in Organization/),
+		).toBeDefined();
+		expect(
 			screen.getByRole("button", { name: "Location condition" }),
 		).toHaveProperty("disabled", true);
 
@@ -609,6 +620,65 @@ describe("AutomationsSection", () => {
 		await chooseChoice("Automation type", "Conditional alert");
 		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
 		await expectLocationKindDisabled();
+	});
+
+	it("keeps place loading and failures distinct from an empty organization", async () => {
+		mocks.organization.loading = true;
+		const { rerender } = render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		expect(screen.getByRole("status").textContent).toContain("Loading places");
+		expect(
+			screen.getByRole("button", { name: "Location condition" }),
+		).toHaveProperty("disabled", true);
+
+		mocks.organization.loading = false;
+		mocks.organization.error = "Places could not be reached.";
+		rerender(<AutomationsSection />);
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Location conditions and recipients are unavailable",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(mocks.organization.reload).toHaveBeenCalledOnce();
+
+		mocks.organization.error = undefined;
+		mocks.organization.warning = "The latest places could not be loaded.";
+		rerender(<AutomationsSection />);
+		expect(screen.getByRole("status").textContent).toContain(
+			"adding or changing them is paused",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(mocks.organization.reload).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps a saved place reference readable when places cannot load", async () => {
+		const locationUuid = testUuid("unavailable-saved-location");
+		mocks.automations = [
+			{
+				...rule,
+				criteria: [
+					{
+						uuid: testUuid("unavailable-location-criterion"),
+						kind: "location",
+						locationUuid,
+						includeDescendants: true,
+					},
+				],
+			},
+		];
+		mocks.organization.error = "Places could not be reached.";
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+
+		const location = screen.getByRole("combobox", { name: "Location" });
+		expect(location.textContent).toContain("Saved place unavailable");
+		expect(location.textContent).not.toContain(locationUuid);
+		expect(location).toHaveProperty("disabled", true);
 	});
 
 	it("offers only the current HQ criteria for each automation kind", async () => {

@@ -37,6 +37,10 @@ const caseParentScanner = readFileSync(
 	"scripts/scan-case-parent-relationships.ts",
 	"utf8",
 );
+const caseParentMigration = readFileSync(
+	"scripts/migrate-case-parent-relationships.ts",
+	"utf8",
+);
 
 function stepOffset(id: string): number {
 	const offset = cloudBuild.indexOf(`  - id: ${id}\n`);
@@ -256,8 +260,13 @@ describe("durable deployment policy", () => {
 		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
 		expect(caseParentScanner).toContain('.setAccessMode("read only")');
 		expect(caseParentScanner).toContain(
-			"loadPersistedBlueprintReadOnly(tx, app.id)",
+			"classifyCaseParentRelationshipsInSnapshot(tx, app.id)",
 		);
+		expect(caseParentMigration).toContain(
+			"classifyCaseParentRelationshipsInSnapshot(tx, app.id)",
+		);
+		expect(caseParentScanner).not.toContain("projectId: app.project_id");
+		expect(caseParentMigration).not.toContain("projectId: app.project_id");
 		expect(caseParentScanner).toContain(
 			"--job=commcare-nova-case-parent-relationship-repair",
 		);

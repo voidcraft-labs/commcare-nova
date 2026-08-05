@@ -6,10 +6,12 @@
  * rows with no later operation touch or ancestry-catalog change are writable.
  */
 
-import { type Kysely, sql } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 import type { Database } from "../../lib/case-store/postgres/connection";
 import { parseSubmissionEnvelopeResult } from "../../lib/case-store/submission";
+import type { AppDatabase } from "../../lib/db/pg";
 import type { PersistableDoc } from "../../lib/domain";
+import { loadPersistedBlueprintReadOnly } from "./loadPersistedBlueprint";
 
 export type CaseParentRelationshipStanding =
 	| "clean"
@@ -26,6 +28,13 @@ export interface CaseParentRelationshipFinding {
 	readonly parentCaseId: string;
 	readonly standing: CaseParentRelationshipStanding;
 	readonly detail: string;
+}
+
+export interface CaseParentRelationshipAppSnapshot {
+	readonly appId: string;
+	readonly appName: string;
+	readonly projectId: string;
+	readonly findings: readonly CaseParentRelationshipFinding[];
 }
 
 interface RelationshipRow {
@@ -289,6 +298,45 @@ export async function findCaseParentRelationshipFindings(
 	return findings;
 }
 
+/**
+ * Reload the app placement and classify its rows from one caller-owned
+ * REPEATABLE READ snapshot. App enumeration is only a work list: an app may
+ * move Projects before this snapshot begins, so no metadata from that earlier
+ * query is accepted here.
+ */
+export async function classifyCaseParentRelationshipsInSnapshot(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<CaseParentRelationshipAppSnapshot | null> {
+	const app = await tx
+		.selectFrom("apps")
+		.select(["id", "app_name", "project_id"])
+		.where("id", "=", appId)
+		.executeTakeFirst();
+	if (app === undefined) return null;
+
+	const blueprint = await loadPersistedBlueprintReadOnly(tx, app.id);
+	if (blueprint === null) {
+		throw new Error(
+			`App ${app.id} disappeared inside a repeatable-read relationship-repair snapshot.`,
+		);
+	}
+	const findings = await findCaseParentRelationshipFindings(
+		tx as unknown as Transaction<Database>,
+		{
+			appId: app.id,
+			projectId: app.project_id,
+			blueprint,
+		},
+	);
+	return {
+		appId: app.id,
+		appName: app.app_name,
+		projectId: app.project_id,
+		findings,
+	};
+}
+
 export async function repairCaseParentRelationships(
 	db: Kysely<Database>,
 	args: {
@@ -317,7 +365,7 @@ export async function repairCaseParentRelationships(
 		  AND child.project_id = ${args.projectId}
 		  AND child.case_type = ${args.caseType}
 		  AND parent.case_type = ${args.parentType}
-		  AND edge.case_id IN (${sql.join(args.caseIds)})
+		  AND edge.case_id = ANY(${sql.val(args.caseIds)}::text[])
 		RETURNING edge.case_id
 	`.execute(db);
 	return result.rows.map((row) => row.case_id).toSorted();

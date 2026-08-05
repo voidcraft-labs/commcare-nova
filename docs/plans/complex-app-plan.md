@@ -69,7 +69,7 @@ Uppercase is rejected, never normalized; nil and max fail on their version and
 variant nibbles. `lib/domain/lookupIds.ts` keeps the three lookup identities on
 their own brands and the narrower UUIDv7 pattern.
 
-Nineteen authorable kinds share ONE global identity namespace — modules, forms,
+Nineteen authorable kinds share ONE global identity namespace: modules, forms,
 fields, select options, case-list columns, Search inputs, case operations,
 worker properties, user types, personas, organization levels, location
 properties, automations, and their criteria, setup-only criteria, updates,
@@ -220,7 +220,7 @@ recipient kinds are singletons; list-backed recipients keep unique concrete
 targets. Descendant controls require a location recipient, location-level
 filters require descendants, concrete HQ worker/group IDs are trimmed and
 nonblank, and user-data filters have one structural value list per worker
-property. A value is either an exact literal—including empty or whitespace—or
+property. A value is either an exact literal, including empty or whitespace, or
 an explicit custom case-property reference carrying `(caseType, property)`
 identity. Brace-wrapped literals are refused because HQ would execute them as
 case lookups. The guide emits exact JSON when multiple keys/values or exact
@@ -1641,7 +1641,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | — |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | None |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
 | [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, deployment core, push and provisioning |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
