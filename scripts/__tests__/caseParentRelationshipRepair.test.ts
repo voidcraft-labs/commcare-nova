@@ -124,8 +124,8 @@ describe("case parent relationship scan-then-migrate", () => {
 			childCaseIds: [TOUCHED_ID],
 		});
 		await seedReceipt(db, {
-			entryKey: "later-operation",
-			createdAt: new Date("2026-08-02T00:00:00.000Z"),
+			entryKey: "same-timestamp-operation",
+			createdAt: new Date("2026-08-01T00:00:00.000Z"),
 			operationCaseId: TOUCHED_ID,
 		});
 

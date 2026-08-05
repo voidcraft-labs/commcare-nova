@@ -39,7 +39,6 @@ interface RelationshipRow {
 }
 
 interface ReceiptProvenance {
-	readonly createdAt: Date;
 	readonly appMutationSeq: bigint;
 }
 
@@ -165,29 +164,27 @@ export async function findCaseParentRelationshipFindings(
 
 	const receiptRows = await db
 		.selectFrom("form_submission_intents")
-		.select(["result", "created_at", "app_mutation_seq"])
+		.select(["result", "app_mutation_seq"])
 		.where("app_id", "=", args.appId)
 		.where("project_id", "=", args.projectId)
 		.where("result", "is not", null)
-		.orderBy("created_at")
 		.execute();
 	const ordinaryOrigin = new Map<string, ReceiptProvenance>();
-	const operationTouches = new Map<string, Date[]>();
+	const operationTouches = new Set<string>();
 	for (const receipt of receiptRows) {
 		const result = parseSubmissionEnvelopeResult(receipt.result);
 		for (const caseId of result.childCaseIds) {
-			if (!ordinaryOrigin.has(caseId)) {
+			const mutationSeq = BigInt(receipt.app_mutation_seq);
+			const prior = ordinaryOrigin.get(caseId);
+			if (prior === undefined || mutationSeq < prior.appMutationSeq) {
 				ordinaryOrigin.set(caseId, {
-					createdAt: receipt.created_at,
-					appMutationSeq: BigInt(receipt.app_mutation_seq),
+					appMutationSeq: mutationSeq,
 				});
 			}
 		}
 		for (const operation of result.operations) {
 			if (!operation.executed) continue;
-			const touches = operationTouches.get(operation.caseId) ?? [];
-			touches.push(receipt.created_at);
-			operationTouches.set(operation.caseId, touches);
+			operationTouches.add(operation.caseId);
 		}
 	}
 
@@ -251,11 +248,7 @@ export async function findCaseParentRelationshipFindings(
 			});
 			continue;
 		}
-		if (
-			(operationTouches.get(first.case_id) ?? []).some(
-				(touchedAt) => touchedAt > origin.createdAt,
-			)
-		) {
+		if (operationTouches.has(first.case_id)) {
 			findings.push({
 				caseId: first.case_id,
 				caseType: first.case_type,
@@ -263,7 +256,7 @@ export async function findCaseParentRelationshipFindings(
 				parentCaseId: first.parent_case_id,
 				standing: "operation-touched",
 				detail:
-					"an executed advanced operation touched the case after its ordinary child receipt",
+					"an executed advanced operation touched the case, so receipt provenance cannot prove the current relationship",
 			});
 			continue;
 		}

@@ -72,8 +72,8 @@ Before automations, ordinary parent writes always persisted `child`; advanced
 case-operation links already persisted their authored relationship and may own
 the same `parent` identifier, so a catalog-wide rewrite is forbidden.
 `scan-case-parent-relationships.ts` classifies each current extension edge from
-same-Project topology, durable ordinary-child receipts, later operation
-touches, and ancestry mutations. The paired writer requires traffic cutover,
+same-Project topology, durable ordinary-child receipts, any executed operation
+touch, and ancestry mutations. The paired writer requires traffic cutover,
 takes the app then relationship locks, reclassifies, and compare-and-sets only
 `repairable-ordinary` rows. Unknown, operation-touched, catalog-changed, and
 noncanonical rows remain loud refusals. Generic `CaseStore.update` likewise
