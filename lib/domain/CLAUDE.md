@@ -71,7 +71,10 @@ relationship. Equality and fixed-update literals are exact nonblank HQ values
 without whitespace normalization or outer quote syntax, automation names are
 already trimmed and nonblank, and alert regex patterns are nonempty. The recipient union has no web
 user, and Connect content refuses self, parent-case, all-child-cases,
-case-property-email, and case-group recipients. A timed reset property requires
+case-property-email, and case-group recipients. SMS Survey setup requires
+Inbound SMS access; Connect setup requires the `COMMCARE_CONNECT` toggle and
+runtime recipients that resolve to CommCare mobile workers with active
+PersonalID links. A timed reset property requires
 a rule-trigger start. Concrete HQ worker/group recipient IDs are already trimmed
 and nonblank. Registered custom recipient/content IDs and setup-only
 instructions are likewise concrete, trimmed, and nonblank; instructional copy

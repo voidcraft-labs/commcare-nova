@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { automationSchema, type BlueprintDoc } from "@/lib/domain";
+import { OrganizationError } from "@/lib/organization/errors";
 
 const mocks = vi.hoisted(() => ({
 	getSession: vi.fn(),
@@ -150,6 +151,31 @@ describe("previewAutomationAction", () => {
 		).resolves.toMatchObject({ success: false, code: "conflict" });
 		expect(mocks.withProjectContext).not.toHaveBeenCalled();
 		expect(mocks.count).not.toHaveBeenCalled();
+	});
+
+	it("collapses access loss between authorization and the organization snapshot to not found", async () => {
+		const { doc, automation } = fixture();
+		mocks.readSnapshot.mockRejectedValue(
+			new OrganizationError(
+				"not_found",
+				"The app moved Projects after the first access check.",
+			),
+		);
+
+		await expect(
+			previewAutomationAction({
+				appId: doc.appId,
+				automationUuid: automation.uuid,
+				expectedAutomation: automation,
+			}),
+		).resolves.toEqual({
+			success: false,
+			code: "not_found",
+			message: "That app isn't available, or you no longer have access.",
+		});
+		expect(mocks.withProjectContext).not.toHaveBeenCalled();
+		expect(mocks.count).not.toHaveBeenCalled();
+		expect(mocks.logError).not.toHaveBeenCalled();
 	});
 
 	it("fails closed before app access when there is no session", async () => {

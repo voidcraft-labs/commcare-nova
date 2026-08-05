@@ -318,6 +318,9 @@ when Nova stores no code, and an explicit code names the target-project
 language prerequisite. The remaining setup facts are exact:
 case updates require Data Cleanup (Pro+), alerts
 require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
+SMS Survey additionally requires Inbound SMS access, and Connect content
+requires the `COMMCARE_CONNECT` domain toggle plus every resolved recipient
+being a CommCare mobile worker with an active PersonalID link at runtime,
 the hourly task visits each project once daily at `auto_case_update_hour`
 (midnight UTC by default), and the default cap is 10,000 updates per project,
 case type, and database partition per run. The unrelated 50,000 outbound-SMS

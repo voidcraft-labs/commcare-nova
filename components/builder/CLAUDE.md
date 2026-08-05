@@ -222,10 +222,16 @@ editing works on a local complete copy and saves through
 `replaceAutomation`, which derives the shared item-granular mutation grammar.
 An open editor fingerprints the authoritative automation: if a peer changes or
 removes it, Save and Remove both refuse with a visible conflict and keep the
-person's local work for comparison. Gate findings stay in the editor, and
+person's local work for comparison. The portalized dialog establishes its own
+container for every `@md` layout; App setup's outer container does not cross the
+portal boundary. Gate findings stay in persistent footer chrome while the body
+scrolls, the responsible field carries `aria-invalid` plus its described error,
+and
 removal uses an explicit confirmation. Viewers receive the same expanded readable rule,
 current-match information, and generated setup guide with every mutating
-control absent or disabled.
+control absent or disabled; **View full definition** opens the complete editor
+projection with its controls disabled, never a reduced summary that hides
+recipients, changes, schedules, filters, or content.
 
 The section is structured vocabulary, never raw CommCare JSON: kind-specific
 property criteria, one UUID-backed location criterion, the case-update-only closed-parent filter, explicit setup-only
@@ -240,9 +246,15 @@ states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. Copy acts on the derived text only.
+Regenerating a changed guide remounts its copy receipt so **Copied** can never
+describe bytes from the prior guide.
 An alert using a registered custom recipient or custom content handler also
 names HQ's system-administrator save requirement; registration alone is not
 presented as sufficient for a project administrator.
+Content-specific caveats are equally exact: SMS Survey names Inbound SMS access,
+and Connect names the `COMMCARE_CONNECT` toggle plus the requirement that every
+runtime recipient resolve to a CommCare mobile worker with an active PersonalID
+link.
 
 The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
 or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated

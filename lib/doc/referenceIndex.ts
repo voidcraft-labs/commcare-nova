@@ -1257,7 +1257,14 @@ export function planReferenceIndexMaintenance(
 		case "addCaseProperty":
 		case "setCaseProperty":
 		case "removeCaseProperty":
+			break;
 		case "setCaseTypeMeta":
+			// Parent/host automation edges resolve through the source case type's
+			// current ancestry metadata. Re-extract only automations authored on
+			// that source so incremental maintenance stays identical to a rebuild.
+			for (const automation of Object.values(automationsOf(doc))) {
+				if (automation.caseType === mut.caseType) carriers.add(automation.uuid);
+			}
 			break;
 		case "addAutomation":
 			carriers.add(mut.automation.uuid);

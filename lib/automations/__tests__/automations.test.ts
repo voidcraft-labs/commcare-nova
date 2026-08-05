@@ -1144,6 +1144,8 @@ describe("automation domain and projections", () => {
 		expect(emailGuide.caveats.join(" ")).toContain(
 			"sanitizes the submitted HTML",
 		);
+		expect(guide.caveats.join(" ")).toContain("Inbound SMS access");
+		expect(guide.caveats.join(" ")).toContain("Outbound SMS is still required");
 		expect(text).toContain("Include descendant locations");
 		expect(text).toContain("District");
 		expect(text).toContain("Choose fr in the required Default language field");
@@ -1163,6 +1165,34 @@ describe("automation domain and projections", () => {
 		expect(projectDefaultGuide).not.toContain(
 			"Leave the default language blank",
 		);
+
+		const connectGuide = buildAutomationSetupGuide(
+			doc,
+			{
+				...alert,
+				uuid: testUuid("connect-prerequisite-alert"),
+				recipients: [
+					{ uuid: testUuid("connect-prerequisite-owner"), kind: "owner" },
+				],
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("connect-prerequisite-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "connect-message",
+								message: automationMessageText("Visit due"),
+							},
+						},
+					],
+				},
+			},
+			[],
+		).caveats.join(" ");
+		expect(connectGuide).toContain("COMMCARE_CONNECT");
+		expect(connectGuide).toContain("CommCare mobile worker (CommCareUser)");
+		expect(connectGuide).toContain("active PersonalID link");
 
 		const customHandlerGuide = buildAutomationSetupGuide(
 			doc,

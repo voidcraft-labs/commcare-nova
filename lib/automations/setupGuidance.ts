@@ -453,6 +453,22 @@ export function buildAutomationSetupGuide(
 			"This email definition requires the domain-level Rich text emails toggle. HQ sanitizes the submitted HTML, removes unsupported markup and CSS, wraps the result in its own html/body shell, and derives the plain-text alternative from that HTML. Review the saved rendering; the HTML source is not a byte-exact output and there is no separately authored plain-text body.",
 		);
 	}
+	const contentKinds = automation.schedule.events.map(
+		(event) => event.content.kind,
+	);
+	if (contentKinds.includes("sms-survey")) {
+		caveats.push(
+			"SMS Survey content requires Inbound SMS access on the target CommCare HQ project. HQ hides the content type and refuses setup without that access; Outbound SMS is still required when messages are sent.",
+		);
+	}
+	if (
+		contentKinds.includes("connect-message") ||
+		contentKinds.includes("connect-survey")
+	) {
+		caveats.push(
+			"Connect content requires the COMMCARE_CONNECT domain toggle. Every recipient the rule resolves at run time must be a CommCare mobile worker (CommCareUser) with an active PersonalID link; HQ refuses an explicitly selected worker without that link, and unresolved or non-mobile-worker recipients cannot receive the content.",
+		);
+	}
 	caveats.push(
 		"Conditional alerts require Reminders Framework (Standard or higher). SMS delivery additionally requires Outbound SMS at send time; an email-only alert does not.",
 		"Message templates may read {case.<property>}, case owner/parent/host fields, and {recipient.*}. Custom recipients and custom content must already be registered on the target HQ instance.",

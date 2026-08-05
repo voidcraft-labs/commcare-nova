@@ -190,7 +190,10 @@ editors hide the picker; the tool never demotes that condition to setup prose.
 Names are already trimmed and nonblank; equality and update literals are
 canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
 There is no web-user recipient; Connect content refuses the case-relative,
-case-property-email, and case-group arms HQ cannot save. A timed reset property
+case-property-email, and case-group arms HQ cannot save. The returned guide
+names Inbound SMS access for SMS Survey, and for Connect it names both the
+`COMMCARE_CONNECT` toggle and the runtime requirement that every resolved
+recipient be a CommCare mobile worker with an active PersonalID link. A timed reset property
 requires a rule-trigger start. Checkbox-style, case-property, and custom
 recipient kinds are singletons; concrete list targets and worker-property
 filter keys are unique. Descendant controls require a location recipient and

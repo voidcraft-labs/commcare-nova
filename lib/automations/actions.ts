@@ -7,6 +7,7 @@ import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { automationSchema, ownRecordValue, uuidSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import type { OrganizationScope } from "@/lib/organization/types";
 import { automationMatchProjection } from "./matching";
@@ -140,7 +141,10 @@ export async function previewAutomationAction(
 			},
 		};
 	} catch (error) {
-		if (error instanceof AppAccessError) {
+		if (
+			error instanceof AppAccessError ||
+			(error instanceof OrganizationError && error.code === "not_found")
+		) {
 			return {
 				success: false,
 				code: "not_found",

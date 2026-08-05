@@ -307,6 +307,10 @@ async function chooseFromChoice(
 }
 
 beforeEach(() => {
+	Object.defineProperty(navigator, "clipboard", {
+		configurable: true,
+		value: { writeText: vi.fn().mockResolvedValue(undefined) },
+	});
 	mocks.automations = [];
 	mocks.caseTypes = [{ name: "visit", properties: [] }];
 	mocks.forms = [];
@@ -344,6 +348,9 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
 		const name = screen.getByRole("textbox", { name: "Name" });
+		expect(screen.getByRole("dialog").className.split(" ")).toContain(
+			"@container",
+		);
 		expect(document.activeElement).toBe(name);
 		expect(
 			screen.getByRole("combobox", { name: "Automation type" }),
@@ -380,9 +387,19 @@ describe("AutomationsSection", () => {
 			target: { value: "" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
-		expect(screen.getByRole("alert").textContent).toBe(
-			"Enter an automation name.",
-		);
+		const emptyNameAlert = screen.getByRole("alert");
+		expect(emptyNameAlert.textContent).toBe("Enter an automation name.");
+		const name = screen.getByRole("textbox", { name: "Name" });
+		expect(name.getAttribute("aria-invalid")).toBe("true");
+		expect(name.getAttribute("aria-describedby")).not.toBeNull();
+		expect(
+			emptyNameAlert.closest('[data-slot="dialog-footer"]'),
+		).not.toBeNull();
+		expect(
+			screen
+				.getByRole("button", { name: "Save automation" })
+				.getAttribute("aria-describedby"),
+		).toBe(emptyNameAlert.id);
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
 			target: { value: "  Padded name  " },
 		});
@@ -1249,6 +1266,62 @@ describe("AutomationsSection", () => {
 		});
 	});
 
+	it("resets copied state when a refreshed setup guide changes", async () => {
+		mocks.automations = [rule];
+		mocks.preview
+			.mockResolvedValueOnce({
+				success: true,
+				data: {
+					automationUuid: RULE_UUID,
+					blueprintSeq: 3,
+					organizationRevision: "1",
+					currentMatchCount: 4,
+					omittedCriteria: [],
+					setupGuide: {
+						title: "First guide",
+						requiredPlan: "Data Cleanup (Pro or higher)",
+						steps: ["First setup step."],
+						caveats: ["First caveat."],
+					},
+					executesLocally: false,
+				},
+			})
+			.mockResolvedValueOnce({
+				success: true,
+				data: {
+					automationUuid: RULE_UUID,
+					blueprintSeq: 3,
+					organizationRevision: "2",
+					currentMatchCount: 5,
+					omittedCriteria: [],
+					setupGuide: {
+						title: "Refreshed guide",
+						requiredPlan: "Data Cleanup (Pro or higher)",
+						steps: ["Refreshed setup step."],
+						caveats: ["Refreshed caveat."],
+					},
+					executesLocally: false,
+				},
+			});
+		render(<AutomationsSection />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Close resolved visits/ }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Count matching cases" }),
+		);
+		await screen.findByText("First setup step.");
+		fireEvent.click(screen.getByRole("button", { name: "Copy guide" }));
+		await screen.findByRole("button", { name: "Copied" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Refresh count and guide" }),
+		);
+		await screen.findByText("Refreshed setup step.");
+		expect(screen.getByRole("button", { name: "Copy guide" })).toBeDefined();
+		expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+	});
+
 	it("keeps every definition readable for a Project viewer and hides edits", async () => {
 		mocks.automations = [rule];
 		mocks.canEdit = false;
@@ -1261,6 +1334,41 @@ describe("AutomationsSection", () => {
 		expect(
 			screen.queryByRole("button", { name: "Edit automation" }),
 		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "View full definition" }),
+		);
+		await settleBaseUiTransitions();
+		expect(screen.getByRole("dialog").textContent).toContain(
+			"Read the complete saved definition below",
+		);
+		expect(screen.getByRole("textbox", { name: "Name" })).toHaveProperty(
+			"value",
+			"Close resolved visits",
+		);
+		expect(
+			screen.getByDisplayValue("state").closest("fieldset"),
+		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByDisplayValue("resolved").closest("fieldset"),
+		).toHaveProperty("disabled", true);
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Close the matching case" })
+				.hasAttribute("data-checked"),
+		).toBe(true);
+		expect(
+			screen.queryByRole("button", { name: "Save automation" }),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Remove automation" }),
+		).toBeNull();
+		const footerClose = screen
+			.getByRole("dialog")
+			.querySelector('[data-slot="dialog-footer"] button');
+		if (!(footerClose instanceof HTMLElement)) {
+			throw new Error("expected the view-only footer Close button");
+		}
+		fireEvent.click(footerClose);
 		expect(
 			screen.getByRole("button", { name: "Count matching cases" }),
 		).toBeDefined();
@@ -1278,6 +1386,11 @@ describe("AutomationsSection", () => {
 		mocks.automations = [{ ...rule, name: "Peer changed this" }];
 		rerender(<AutomationsSection />);
 		expect(screen.getByText(/A co-editor changed or removed/)).toBeDefined();
+		expect(
+			screen
+				.getByText(/A co-editor changed or removed/)
+				.closest('[data-slot="dialog-footer"]'),
+		).not.toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Save automation" }),
 		).toHaveProperty("disabled", true);

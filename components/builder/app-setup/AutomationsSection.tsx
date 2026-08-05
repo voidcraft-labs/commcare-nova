@@ -379,6 +379,7 @@ export function AutomationsSection() {
 					)}
 					levels={levels}
 					userProperties={userProperties}
+					canEdit={canEdit}
 					onChange={(automation) =>
 						setEditor((current) =>
 							current === undefined ? current : { ...current, automation },
@@ -488,13 +489,16 @@ function AutomationSummary({
 						? "Count matching cases"
 						: "Refresh count and guide"}
 				</Button>
-				{canEdit && (
-					<Button type="button" variant="secondary" onClick={onEdit}>
-						Edit automation
-					</Button>
-				)}
+				<Button type="button" variant="secondary" onClick={onEdit}>
+					{canEdit ? "Edit automation" : "View full definition"}
+				</Button>
 			</div>
-			{preview !== undefined && <SetupGuide guide={preview.setupGuide} />}
+			{preview !== undefined && (
+				<SetupGuide
+					key={JSON.stringify(preview.setupGuide)}
+					guide={preview.setupGuide}
+				/>
+			)}
 		</div>
 	);
 }
@@ -578,6 +582,7 @@ function AutomationEditor({
 	locations,
 	levels,
 	userProperties,
+	canEdit,
 	onChange,
 	onClose,
 	onRemoved,
@@ -589,6 +594,7 @@ function AutomationEditor({
 	locations: readonly StoredLocation[];
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
+	canEdit: boolean;
 	onChange: (automation: Automation) => void;
 	onClose: () => void;
 	onRemoved: () => void;
@@ -597,6 +603,8 @@ function AutomationEditor({
 	const session = useBuilderSessionApi();
 	const nameRef = useRef<HTMLInputElement>(null);
 	const [error, setError] = useState<string>();
+	const [errorPath, setErrorPath] = useState<readonly PropertyKey[]>([]);
+	const refusalId = useId();
 	const [confirmRemove, setConfirmRemove] = useState(false);
 	const peerConflict =
 		state.kind === "existing" &&
@@ -607,6 +615,7 @@ function AutomationEditor({
 	const edit = (recipe: (draft: WritableDraft<Automation>) => void) => {
 		onChange(produce(state.automation, recipe));
 		setError(undefined);
+		setErrorPath([]);
 	};
 	const save = () => {
 		if (!session.getState().canEdit) {
@@ -623,10 +632,11 @@ function AutomationEditor({
 		}
 		const parsed = automationSchema.safeParse(state.automation);
 		if (!parsed.success) {
+			const firstIssue = parsed.error.issues[0];
 			setError(
-				parsed.error.issues[0]?.message ??
-					"Review the automation settings before saving.",
+				firstIssue?.message ?? "Review the automation settings before saving.",
 			);
+			setErrorPath(firstIssue?.path ?? []);
 			return;
 		}
 		const result =
@@ -666,199 +676,218 @@ function AutomationEditor({
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
-			<DialogContent className="sm:max-w-3xl">
+			<DialogContent className="@container sm:max-w-3xl">
 				<DialogHeader>
 					<DialogTitle>
 						{state.kind === "new"
 							? "Add automation"
-							: `Edit ${state.automation.name}`}
+							: `${canEdit ? "Edit" : "View"} ${state.automation.name}`}
 					</DialogTitle>
 					<DialogDescription>
-						Nova saves a precise CommCare HQ setup definition. It won't run here
-						or be installed when you publish.
+						{canEdit
+							? "Nova saves a precise CommCare HQ setup definition. It won't run here or be installed when you publish."
+							: "Read the complete saved definition below. Nova won't run it here or install it when the app is published."}
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-6 pb-2">
-					{peerConflict && (
-						<p
-							role="alert"
-							className="flex gap-2 rounded-lg border border-nova-amber/40 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+					<fieldset disabled={!canEdit || peerConflict} className="contents">
+						<legend className="sr-only">
+							{canEdit ? "Automation settings" : "Saved automation definition"}
+						</legend>
+						<fieldset
+							className="grid gap-4 @md:grid-cols-2"
+							disabled={peerConflict}
 						>
-							<Icon
-								icon={tablerAlertTriangle}
-								className="mt-0.5 shrink-0"
-								aria-hidden="true"
-							/>
-							A co-editor changed or removed this automation. Close and reopen
-							it before saving.
-						</p>
-					)}
-					<fieldset
-						className="grid gap-4 @md:grid-cols-2"
-						disabled={peerConflict}
-					>
-						<legend className="sr-only">Automation identity</legend>
-						<Labeled label="Name">
-							<Input
-								ref={nameRef}
-								value={state.automation.name}
-								onChange={(event) =>
-									edit((draft) => {
-										draft.name = event.target.value;
-									})
-								}
-							/>
-						</Labeled>
-						<Labeled label="Case type">
-							<Choice
-								value={state.automation.caseType}
-								onChange={(caseType) =>
-									edit((draft) => {
-										draft.caseType = caseType;
-										updateAutomationContextReferenceCaseTypes(
-											draft,
-											caseTypes,
-											caseType,
-										);
-									})
-								}
-								options={caseTypes.map((caseType) => [
-									caseType.name,
-									caseType.name,
-								])}
-							/>
-						</Labeled>
-						{state.kind === "new" && (
-							<Labeled label="Automation type">
+							<legend className="sr-only">Automation identity</legend>
+							<Labeled
+								label="Name"
+								error={errorPath[0] === "name" ? error : undefined}
+							>
+								<Input
+									ref={nameRef}
+									value={state.automation.name}
+									onChange={(event) =>
+										edit((draft) => {
+											draft.name = event.target.value;
+										})
+									}
+								/>
+							</Labeled>
+							<Labeled label="Case type">
 								<Choice
-									value={state.automation.kind}
-									onChange={(kind) =>
-										onChange(
-											kind === "case-update"
-												? newCaseUpdate(state.automation.caseType)
-												: newAlert(state.automation.caseType),
-										)
+									value={state.automation.caseType}
+									onChange={(caseType) =>
+										edit((draft) => {
+											draft.caseType = caseType;
+											updateAutomationContextReferenceCaseTypes(
+												draft,
+												caseTypes,
+												caseType,
+											);
+										})
+									}
+									options={caseTypes.map((caseType) => [
+										caseType.name,
+										caseType.name,
+									])}
+								/>
+							</Labeled>
+							{state.kind === "new" && (
+								<Labeled label="Automation type">
+									<Choice
+										value={state.automation.kind}
+										onChange={(kind) =>
+											onChange(
+												kind === "case-update"
+													? newCaseUpdate(state.automation.caseType)
+													: newAlert(state.automation.caseType),
+											)
+										}
+										options={[
+											["case-update", "Automatic case update"],
+											["conditional-alert", "Conditional alert"],
+										]}
+									/>
+								</Labeled>
+							)}
+							<Labeled label="Match">
+								<Choice
+									value={state.automation.criteriaOperator}
+									onChange={(value) =>
+										edit((draft) => {
+											draft.criteriaOperator = value as "all" | "any";
+										})
 									}
 									options={[
-										["case-update", "Automatic case update"],
-										["conditional-alert", "Conditional alert"],
+										["all", "All conditions"],
+										["any", "Any condition"],
 									]}
 								/>
 							</Labeled>
-						)}
-						<Labeled label="Match">
-							<Choice
-								value={state.automation.criteriaOperator}
-								onChange={(value) =>
-									edit((draft) => {
-										draft.criteriaOperator = value as "all" | "any";
-									})
-								}
-								options={[
-									["all", "All conditions"],
-									["any", "Any condition"],
-								]}
-							/>
-						</Labeled>
-					</fieldset>
+						</fieldset>
 
-					<ConditionsEditor
-						automation={state.automation}
-						locations={locations}
-						onEdit={edit}
-					/>
-					<SetupOnlyEditor automation={state.automation} onEdit={edit} />
-					{state.automation.kind === "case-update" && (
-						<OptionalNumber
-							label="Only cases last changed on the server at least this many days ago"
-							value={state.automation.serverModifiedBoundaryDays}
-							onChange={(value) =>
-								edit((draft) => {
-									if (draft.kind !== "case-update") return;
-									if (value === undefined)
-										delete draft.serverModifiedBoundaryDays;
-									else draft.serverModifiedBoundaryDays = value;
-								})
-							}
-						/>
-					)}
-
-					{state.automation.kind === "case-update" ? (
-						<CaseUpdateEditor automation={state.automation} onEdit={edit} />
-					) : (
-						<AlertEditor
+						<ConditionsEditor
 							automation={state.automation}
-							caseTypes={caseTypes}
-							forms={forms}
 							locations={locations}
-							levels={levels}
-							userProperties={userProperties}
 							onEdit={edit}
 						/>
-					)}
+						<SetupOnlyEditor automation={state.automation} onEdit={edit} />
+						{state.automation.kind === "case-update" && (
+							<OptionalNumber
+								label="Only cases last changed on the server at least this many days ago"
+								value={state.automation.serverModifiedBoundaryDays}
+								onChange={(value) =>
+									edit((draft) => {
+										if (draft.kind !== "case-update") return;
+										if (value === undefined)
+											delete draft.serverModifiedBoundaryDays;
+										else draft.serverModifiedBoundaryDays = value;
+									})
+								}
+							/>
+						)}
 
-					{error !== undefined && (
+						{state.automation.kind === "case-update" ? (
+							<CaseUpdateEditor automation={state.automation} onEdit={edit} />
+						) : (
+							<AlertEditor
+								automation={state.automation}
+								caseTypes={caseTypes}
+								forms={forms}
+								locations={locations}
+								levels={levels}
+								userProperties={userProperties}
+								onEdit={edit}
+							/>
+						)}
+
+						{canEdit && state.kind === "existing" && (
+							<fieldset
+								disabled={peerConflict}
+								className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
+							>
+								<legend className="sr-only">Remove automation</legend>
+								{confirmRemove ? (
+									<div
+										role="alert"
+										className="flex flex-wrap items-center justify-between gap-3"
+									>
+										<p className="text-[13px] text-nova-text">
+											Remove this Nova definition? A rule already set up in
+											CommCare HQ won't be removed.
+										</p>
+										<div className="flex gap-2">
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() => setConfirmRemove(false)}
+											>
+												Cancel
+											</Button>
+											<Button
+												type="button"
+												variant="destructive"
+												disabled={peerConflict}
+												onClick={remove}
+											>
+												Remove automation
+											</Button>
+										</div>
+									</div>
+								) : (
+									<Button
+										type="button"
+										variant="ghost-destructive"
+										disabled={peerConflict}
+										onClick={() => setConfirmRemove(true)}
+									>
+										<Icon icon={tablerTrash} aria-hidden="true" /> Remove
+										automation
+									</Button>
+								)}
+							</fieldset>
+						)}
+					</fieldset>
+				</DialogBody>
+				<DialogFooter className="flex-col items-stretch gap-3">
+					{(peerConflict || error !== undefined) && (
 						<p
+							id={refusalId}
 							role="alert"
-							className="rounded-lg border border-nova-red/40 bg-nova-red/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text"
+							className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
+								peerConflict
+									? "border-nova-amber/40 bg-nova-amber/[0.06]"
+									: "border-nova-red/40 bg-nova-red/[0.06]"
+							}`}
 						>
-							{error}
+							{peerConflict && (
+								<Icon
+									icon={tablerAlertTriangle}
+									className="mt-0.5 shrink-0"
+									aria-hidden="true"
+								/>
+							)}
+							{peerConflict
+								? "A co-editor changed or removed this automation. Close and reopen it before saving."
+								: error}
 						</p>
 					)}
-					{state.kind === "existing" && (
-						<fieldset
-							disabled={peerConflict}
-							className="rounded-lg border border-nova-red/25 bg-nova-red/[0.03] p-3 disabled:opacity-60"
-						>
-							<legend className="sr-only">Remove automation</legend>
-							{confirmRemove ? (
-								<div
-									role="alert"
-									className="flex flex-wrap items-center justify-between gap-3"
-								>
-									<p className="text-[13px] text-nova-text">
-										Remove this Nova definition? A rule already set up in
-										CommCare HQ won't be removed.
-									</p>
-									<div className="flex gap-2">
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() => setConfirmRemove(false)}
-										>
-											Cancel
-										</Button>
-										<Button
-											type="button"
-											variant="destructive"
-											disabled={peerConflict}
-											onClick={remove}
-										>
-											Remove automation
-										</Button>
-									</div>
-								</div>
-							) : (
-								<Button
-									type="button"
-									variant="ghost-destructive"
-									disabled={peerConflict}
-									onClick={() => setConfirmRemove(true)}
-								>
-									<Icon icon={tablerTrash} aria-hidden="true" /> Remove
-									automation
-								</Button>
-							)}
-						</fieldset>
-					)}
-				</DialogBody>
-				<DialogFooter>
-					<Button type="button" variant="outline" onClick={onClose}>
-						Cancel
-					</Button>
-					<Button type="button" onClick={save} disabled={peerConflict}>
-						Save automation
-					</Button>
+					<div className="flex justify-end gap-2">
+						<Button type="button" variant="outline" onClick={onClose}>
+							{canEdit ? "Cancel" : "Close"}
+						</Button>
+						{canEdit && (
+							<Button
+								type="button"
+								onClick={save}
+								disabled={peerConflict}
+								aria-invalid={error !== undefined || undefined}
+								aria-describedby={error !== undefined ? refusalId : undefined}
+							>
+								Save automation
+							</Button>
+						)}
+					</div>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
@@ -909,16 +938,20 @@ function Labeled({
 					id?: string;
 					"aria-label"?: string;
 					"aria-describedby"?: string;
+					"aria-invalid"?: boolean;
 				}>,
 				{
 					id,
 					"aria-label": label,
 					"aria-describedby":
 						[descriptionId, errorId].filter(Boolean).join(" ") || undefined,
+					"aria-invalid": error === undefined ? undefined : true,
 				},
 			)}
 			{hint && <FieldDescription id={descriptionId}>{hint}</FieldDescription>}
-			<FieldError id={errorId}>{error}</FieldError>
+			<FieldError id={errorId} role="none">
+				{error}
+			</FieldError>
 		</Field>
 	);
 }
@@ -933,6 +966,7 @@ function Choice({
 	id,
 	"aria-label": ariaLabel,
 	"aria-describedby": ariaDescribedBy,
+	"aria-invalid": ariaInvalid,
 }: {
 	value: string;
 	onChange: (value: string) => void;
@@ -941,6 +975,7 @@ function Choice({
 	id?: string;
 	"aria-label"?: string;
 	"aria-describedby"?: string;
+	"aria-invalid"?: boolean;
 }) {
 	return (
 		<Select
@@ -952,6 +987,7 @@ function Choice({
 				id={id}
 				aria-label={ariaLabel}
 				aria-describedby={ariaDescribedBy}
+				aria-invalid={ariaInvalid}
 				className="w-full"
 				wrapValue
 			>

@@ -345,7 +345,10 @@ datetime properties allow date or blankness conditions, not equality or regex,
 and restart/event-time slots accept custom case properties only. Concrete HQ
 worker/group recipient IDs must be nonblank and have no surrounding whitespace.
 Connect content also refuses matched-case, parent-case, all-child-cases,
-case-property-email, and case-group recipients. Checkbox-style,
+case-property-email, and case-group recipients. Returned guidance states that
+SMS Survey requires Inbound SMS access. Connect content requires the
+`COMMCARE_CONNECT` domain toggle, and every resolved recipient must be a
+CommCare mobile worker with an active PersonalID link. Checkbox-style,
 case-property, and custom recipient kinds are singletons; list recipients cannot
 repeat a concrete target. Descendant controls require a location recipient,
 location-level filters require descendants, and each worker-property filter key

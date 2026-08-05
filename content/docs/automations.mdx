@@ -130,18 +130,24 @@ The setup guide gives both `/a/<domain>/messaging/conditional/` and
 **Messaging → Conditional Alerts**. Conditional
 alerts require **Reminders Framework** (Standard or higher). SMS delivery also
 requires **Outbound SMS** when the message is sent; an email-only alert does
-not. Current CommCare HQ retains IVR and SMS/callback to display historical
-configurations but refuses new activation, so Nova makes that refusal visible
-instead of presenting those types as deployable choices.
+not. SMS Survey content additionally requires **Inbound SMS** access: HQ hides
+that choice and refuses setup without it. Current CommCare HQ retains IVR and
+SMS/callback to display historical configurations but refuses new activation,
+so Nova makes that refusal visible instead of presenting those types as
+deployable choices.
 
 Recipient filters can use the app's custom worker information or the user case.
 Message templates may use case, owner, parent, host, and recipient values. HQ's
 current alert form has no representable web-user recipient. Connect messages
 and surveys also cannot target the matched case, parent case, all child cases,
 an email stored on the case, or a case group; Nova refuses those combinations
-before save. HQ's checkbox-style, case-property, and custom recipient choices
-can each appear once; worker, group, and location lists may contain distinct
-targets only. Descendant controls appear only for a location recipient, and
+before save. They require the **COMMCARE_CONNECT** domain toggle, and every
+recipient resolved at run time must be a CommCare mobile worker with an active
+PersonalID link. HQ refuses explicitly selected workers without that link, and
+unresolved or non-mobile-worker recipients cannot receive Connect content.
+HQ's checkbox-style, case-property, and custom recipient choices can each
+appear once; worker, group, and location lists may contain distinct targets
+only. Descendant controls appear only for a location recipient, and
 location-level filtering appears only when descendants are included. Each
 worker-information property has one accepted-value list. Values are structural:
 an exact literal (including empty or surrounding spaces), or an explicit custom

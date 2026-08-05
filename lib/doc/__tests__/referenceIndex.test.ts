@@ -29,6 +29,7 @@ import {
 } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	automationSchema,
 	type BlueprintDoc,
 	canonicalProseTemplate,
 	casePropertyTargetKey,
@@ -586,5 +587,86 @@ describe("incremental maintenance", () => {
 		expect(next.refIndex?.in).toEqual({});
 		expect(next.refIndex?.out).toEqual({});
 		expect(next.refIndex?.decl).toEqual({});
+	});
+
+	it("rekeys parent and host automation edges when source ancestry changes", () => {
+		const automationUuid = testUuid("automation-meta-reference");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "visit",
+					parent_type: "household",
+					relationship: "extension",
+					properties: [],
+				},
+				{
+					name: "household",
+					properties: [
+						{ name: "state", label: "State", data_type: "text" },
+						{ name: "source", label: "Source", data_type: "text" },
+						{ name: "target", label: "Target", data_type: "text" },
+					],
+				},
+				{
+					name: "patient",
+					properties: [
+						{ name: "state", label: "State", data_type: "text" },
+						{ name: "source", label: "Source", data_type: "text" },
+						{ name: "target", label: "Target", data_type: "text" },
+					],
+				},
+			],
+		}) as BlueprintDoc;
+		const automation = automationSchema.parse({
+			uuid: automationUuid,
+			kind: "case-update",
+			name: "Move household values",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [
+				{
+					uuid: testUuid("automation-meta-criterion"),
+					kind: "match-property",
+					scope: "parent",
+					property: "state",
+					matchType: "has-value",
+				},
+			],
+			setupOnlyCriteria: [],
+			updates: [
+				{
+					uuid: testUuid("automation-meta-update"),
+					target: { scope: "parent", property: "target" },
+					value: {
+						kind: "case-property",
+						source: { scope: "host", property: "source" },
+					},
+				},
+			],
+			closeCase: false,
+		});
+		doc.automations = { [automationUuid]: automation };
+		doc.automationOrder = [automationUuid];
+		doc.refIndex = buildReferenceIndex(doc);
+
+		const next = apply(doc, [
+			{ kind: "setCaseTypeMeta", caseType: "visit", parent_type: "patient" },
+		]);
+
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+		expect(slotsFor(next, casePropertyTargetKey("household", "state"))).toEqual(
+			{},
+		);
+		expect(
+			slotsFor(next, casePropertyTargetKey("household", "source")),
+		).toEqual({});
+		expect(
+			slotsFor(next, casePropertyTargetKey("household", "target")),
+		).toEqual({});
+		for (const property of ["state", "source", "target"]) {
+			expect(
+				Object.keys(slotsFor(next, casePropertyTargetKey("patient", property))),
+			).toContain(automationUuid);
+		}
 	});
 });
