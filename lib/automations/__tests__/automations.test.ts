@@ -913,7 +913,7 @@ describe("automation domain and projections", () => {
 		).toBe(false);
 	});
 
-	it("regenerates exact plan, route, cadence, cap, and non-execution guidance", () => {
+	it("regenerates exact plan, route, cadence, threshold, and non-execution guidance", () => {
 		const guide = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),
 			claimCleanup(),
@@ -924,6 +924,9 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("/a/<domain>/data/edit/automatic_updates/");
 		expect(text).toContain("Data → Edit Data → Automatic Case Update Rules");
 		expect(text).toContain("10,000 updates");
+		expect(text).toContain("checks the threshold between cases");
+		expect(text).toContain("final total can exceed the threshold");
+		expect(text).not.toContain("at most 10,000");
 		expect(text).toContain("once daily");
 		expect(text).toContain("does not run this automation in Preview");
 		expect(text).toContain("RUN_AUTO_CASE_UPDATES_ON_SAVE");

@@ -287,7 +287,7 @@ export function buildAutomationSetupGuide(
 		if (automation.closeCase) steps.push("Turn on Close case.");
 		caveats.push(
 			"Case-update rules require the Data Cleanup privilege (Pro or higher). HQ’s hourly task runs each project once daily at auto_case_update_hour, midnight UTC by default.",
-			"HQ processes at most 10,000 updates per project, case type, and database partition in one run unless the project’s auto_case_update_limit overrides it. Hitting the cap halts that run and the next daily sweep tries again.",
+			"HQ’s default halt threshold is 10,000 updates per project, case type, and database partition unless the project’s auto_case_update_limit overrides it. HQ checks the threshold between cases; one case can apply several updates, so the final total can exceed the threshold before HQ stops. The next daily sweep tries again.",
 			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that global blast radius separately.",
 		);
 		return {

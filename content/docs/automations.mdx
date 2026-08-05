@@ -50,9 +50,11 @@ The setup guide gives both the exact route template
 **Data → Edit Data → Automatic Case Update Rules**.
 These rules require CommCare HQ's **Data Cleanup** privilege (Pro or higher).
 CommCare HQ's hourly task visits each project space once each day, at midnight
-UTC by default. One run processes at most 10,000 updates per project space,
+UTC by default. Its default halt threshold is 10,000 updates per project space,
 case type, and database partition unless that project has a different limit.
-Reaching the limit stops that run; the next daily sweep tries again.
+HQ checks the threshold between cases. One case can apply several updates, so
+the final total can exceed the threshold before HQ stops; the next daily sweep
+tries again.
 
 HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide, not a
 property of one rule, so Nova does not store or offer it per automation. If a
