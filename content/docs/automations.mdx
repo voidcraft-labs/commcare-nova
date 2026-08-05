@@ -1,16 +1,17 @@
 ---
 title: Automations
-description: Describe case updates and conditional alerts, check current matches, and follow exact CommCare HQ setup guidance.
+description: Describe case updates and conditional alerts, count matching cases, and follow exact CommCare HQ setup guidance.
 ---
 
 Automations let a CommCare HQ project update cases or send messages when cases
-match a rule. In Nova, open **App setup → Automations** to describe the rule once
-using the same app vocabulary as the Builder, Solutions Architect, and MCP API.
+match a rule. In commcare nova, open **App setup → Automations** to describe the
+rule once using the same app vocabulary as the Builder, Solutions Architect,
+and MCP API.
 
-Nova does not run automations in Preview, and publishing an app does not install
-them in CommCare HQ. Each saved automation produces a fresh setup guide for a
-person to apply in the target project space. CommCare HQ currently provides
-HTML setup pages for these rules, not a REST resource Nova could safely drive.
+commcare nova does not run automations in Preview, and publishing an app does
+not install them in CommCare HQ. Each saved automation produces a fresh setup
+guide for a person to apply in the target project space. CommCare HQ currently
+provides HTML setup pages for these rules, not an API the app could safely use.
 
 ## Automatic case updates
 
@@ -25,30 +26,30 @@ means the property date minus two days.
 
 The CommCare HQ form accepts one standard closed-parent condition per rule. It
 does not expose another case-index name or relationship for that condition, and
-its visible editor does not expose regex. A rule may carry one location
-condition with an explicit descendant choice. HQ accepts and executes that
-form payload, but the current visible rule and alert editors hide the location
-picker, so the generated guide calls out the required HQ-administrator path.
+its visible editor does not expose regular expressions. A rule may carry one
+location condition with an explicit descendant choice. HQ accepts and executes
+that form payload, but the current visible rule and alert editors hide the
+location picker, so the generated guide calls out the required HQ-administrator
+path.
 Equality values and fixed update values are the exact nonblank text HQ stores:
 omit surrounding whitespace and matching outer quotes. Rule names must also be
 nonblank and already trimmed.
 
-Keep authoring standard metadata with Nova names. The generated HQ guide
+Use the app's standard property names while authoring. The generated HQ guide
 translates `case_type` to `type`, `case_name` to `name`, `date_opened` to
 `opened_on`, and `last_modified` to `modified_on`; `case_id`, `owner_id`, and
-`external_id` are unchanged. `case_id` and `case_type` are implicit text reads
+`external_id` are unchanged. `case_id` and `case_type` are built-in text values
 for criteria, copied values, property-backed recipients, and message-template
 tokens. They stay out of ordinary case-list property choices and can never be
 update targets. Case `status` is not available in an automation property slot
-because Nova's `open`/`closed` text is not HQ's boolean field, and these rules
+because the app's `open`/`closed` text is not HQ's boolean field, and these rules
 already inspect open cases. The standard date fields support date and blankness
-conditions, not text equality or regex.
+conditions, not text equality or regular expressions.
 Restart-on-change and case-property event-time controls accept custom case data
 only; no standard scalar property is available in those HQ fields. After
-trimming, a case-property event time must begin with `H:MM` or `HH:MM`, and the
-whole value must parse as a time. Suffixes such as AM/PM or seconds are
-accepted. If the value is blank, does not begin with that pattern, or cannot be
-parsed, HQ uses 12:00 PM instead.
+trimming spaces, a case-property event time must start with `H:MM` or `HH:MM`
+and contain a complete time. AM, PM, and seconds are accepted. Blank or
+unrecognized values use 12:00 PM.
 
 The setup guide gives both the exact route template
 `/a/<domain>/data/edit/automatic_updates/` and its breadcrumb,
@@ -62,31 +63,32 @@ the final total can exceed the threshold before HQ stops; the next daily sweep
 tries again.
 
 HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide, not a
-property of one rule, so Nova does not store or offer it per automation. If a
+property of one rule, so the Builder does not offer it per automation. If a
 target project has that switch enabled, saving a case evaluates every active
-automatic-update rule for that case type. Treat that global blast radius as a
+automatic-update rule for that case type. Treat that project-wide effect as a
 separate deployment decision; the daily sweep remains the recovery path.
 
 ## Conditional alerts
+
+### Schedules and message content
 
 A conditional alert sends one or more scheduled events to case-relative or
 explicit recipients. Supported content includes SMS, email, SMS survey,
 Connect messages and surveys, and instance-registered custom content. A timed
 schedule can start when the rule matches, on a fixed date, or from a case date
-property. Nova keeps each schedule to one content type and each timed schedule
-inside one setup form CommCare HQ can actually save: Custom Daily events share
-one timing mode and stay ordered, Weekly events share timing and content, and Monthly events share timing and
-content while using days 1–28 or the final three days of the month. Weekly and
-Monthly day pickers exclude days already selected, keep HQ's canonical order,
-and stop offering another event when every available day is used. HQ stores a
-Weekly event as an offset from the schedule's start weekday. Nova shows the
-resulting weekday name and remaps those offsets when the start changes, so a
-selected Wednesday remains Wednesday. For a fixed-date start, the HQ guide
-does not invent the hidden Custom Daily start-offset or Weekly start-weekday
-controls; it explains that HQ uses the date directly and derives its weekday.
-Fixed and
-random event starts are at least five minutes apart, and random windows cannot
-overlap.
+property. The Builder keeps each schedule to one content type and each timed
+schedule inside one setup form CommCare HQ can save. Custom Daily events share
+one timing mode and stay ordered. Weekly events share timing and content.
+Monthly events share timing and content while using days 1–28 or the final
+three days of the month. Weekly and Monthly day pickers exclude days already
+selected, keep HQ's saved order, and stop offering another event when every
+available day is used. HQ stores a Weekly event as an offset from the
+schedule's start weekday. The Builder shows the resulting weekday name and
+remaps those offsets when the start changes, so a selected Wednesday remains
+Wednesday. For a fixed-date start, the HQ guide does not invent the hidden
+Custom Daily start-offset or Weekly start-weekday controls; it explains that HQ
+uses the date directly and derives its weekday. Fixed and random event starts
+are at least five minutes apart, and random windows cannot overlap.
 Survey definitions include their 1–168 hour expiration, reminder intervals,
 partial-submission choice, and whether partial submissions carry case updates.
 Reminder intervals must total less than the expiration window; the case-update
@@ -100,17 +102,17 @@ question.
 
 Message subjects and bodies are structural templates. Ordinary text is always
 literal, including text such as `{case.case_name}`. The setup guide doubles
-literal braces because HQ renders the complete message with Python's formatter; that
-escaping keeps the text literal after setup. Use **Case property reference**
+literal braces because HQ renders the complete message with Python's formatter;
+that escaping keeps the text literal after setup. Use **Case property reference**
 in the Builder to insert a real case/parent/host substitution, or **Owner or
 recipient reference** for supported case-owner and message-recipient fields.
-The setup guide then prints an executable HQ token, including Nova-to-HQ
-standard-property translation. Renaming a case property updates that
-structural reference without changing literal text. Custom properties named
-`owner`, `host`, or `last_modified_by` cannot be inserted as message parts:
+The setup guide then prints the corresponding HQ token, including translation
+from app property names to HQ property names. Renaming a case property updates
+that structural reference without changing literal text. Custom properties
+named `owner`, `host`, or `last_modified_by` cannot be inserted as message parts:
 HQ's formatter reserves and shadows those names in case, parent, and host
-contexts. Registered custom recipient/content handlers require the exact nonblank
-ID already configured in the target HQ project; placeholder instructions are
+contexts. Registered custom recipient/content handlers require the exact
+nonblank ID already configured in the target HQ project; placeholder instructions are
 never saved as IDs. CommCare HQ also requires a system administrator, not only
 a project administrator, to save an alert that uses either custom handler.
 
@@ -128,43 +130,48 @@ All email events in one schedule use the same form. Restart-on-property-change
 and case-property event times accept custom case properties only because those
 two HQ fields do not read standard case metadata.
 
+### Conditions and access
+
 Alert conditions use the four direct-case value comparisons or a portable
 regular expression. The alert form does not accept date comparisons,
 parent/host property references, a closed-parent condition, or server-modified
 age. It accepts the same one location-condition payload that the runtime
 executes, with the same current visible-picker limitation described above.
-Regex patterns must be nonempty and remain
-inside Nova's shared HQ/Postgres subset. That subset excludes pattern newlines,
-lookarounds, shorthand character escapes, database collation classes, malformed
-or lower-less repetition bounds, and bounds above 255. Preview preserves HQ's
+Regular expressions must be nonempty and remain inside the shared HQ/Postgres
+subset. That subset excludes pattern newlines, lookarounds, shorthand character
+escapes, database collation classes, malformed or lower-less repetition bounds,
+and bounds above 255. Preview preserves HQ's
 default behavior for dots and a final newline rather than applying PostgreSQL's
 different newline mode.
 
 The setup guide gives both `/a/<domain>/messaging/conditional/` and
-**Messaging → Conditional Alerts**. Conditional
-alerts require **Reminders Framework** (Standard or higher). SMS delivery also
+**Messaging → Conditional Alerts**. Conditional alerts require **Reminders
+Framework** (Standard or higher). SMS delivery also
 requires **Outbound SMS** when the message is sent; an email-only alert does
 not. SMS Survey content additionally requires **Inbound SMS** access: HQ hides
 that choice and refuses setup without it. Current CommCare HQ retains IVR and
 SMS/callback to display historical configurations but refuses new activation,
-so Nova makes that refusal visible instead of presenting those types as
+so the Builder makes that refusal visible instead of presenting those types as
 deployable choices.
 
+### Recipients and filters
+
 Recipient filters can use the app's custom worker information or the user case.
-HQ evaluates them only for contacts that resolve to user accounts. Nova allows
-filters with the case owner, last submitting user, username/user-id case
+HQ evaluates them only for contacts that resolve to user accounts. The Builder
+allows filters with the case owner, last submitting user, username/user-id case
 properties, mobile workers, user groups, and locations. It refuses a filtered
 alert that also targets the case, parent or child cases, an email case property,
 a case group, or a registered custom recipient: known non-user contacts bypass
-every filter, and Nova cannot prove what contact type a custom handler returns.
+every filter, and a custom handler does not guarantee a user account.
 Message templates may use case, owner, parent, host, and recipient values. HQ's
 current alert form has no representable web-user recipient. Connect messages
 and surveys also cannot target the matched case, parent case, all child cases,
-an email stored on the case, or a case group; Nova refuses those combinations
-before save. They require the **COMMCARE_CONNECT** domain toggle, and every
-recipient resolved at run time must be a CommCare mobile worker with an active
-PersonalID link. HQ refuses explicitly selected workers without that link, and
-unresolved or non-mobile-worker recipients cannot receive Connect content.
+an email stored on the case, or a case group; the Builder refuses those
+combinations before save. They require the **COMMCARE_CONNECT** domain toggle,
+and every recipient resolved at run time must be a CommCare mobile worker with
+an active PersonalID link. HQ refuses explicitly selected workers without that
+link, and unresolved or non-mobile-worker recipients cannot receive Connect
+content.
 HQ's checkbox-style, case-property, and custom recipient choices can each
 appear once; worker, group, and location lists may contain distinct targets
 only. Descendant controls appear only for a location recipient, and
@@ -174,54 +181,52 @@ an exact literal (including empty or surrounding spaces), or an explicit custom
 case-property lookup. Empty matches missing or empty worker data in HQ. Literal
 brace text is refused because HQ would execute a whole `{property}` value as a
 case lookup rather than store it literally. Every triggering case must contain
-each property used by a structural lookup. HQ directly indexes that property
-while expanding recipients, so a missing property raises an error instead of
-acting like an empty accepted value. Multiple properties or values,
-including exact empty/whitespace values, use HQ's JSON filter mode; a new alert
-exposes that mode only to a system administrator. A custom recipient or content handler must already be registered
-on the target HQ instance; Nova cannot create one. An HQ system administrator
-must save the resulting alert because a project administrator cannot save a
-custom recipient/content configuration alone.
+each property used by a case-property lookup. HQ reads that property while
+expanding recipients, so it cannot run the filter when the property is missing.
+Multiple properties or values, including exact empty/whitespace values, use
+HQ's JSON filter mode; a new alert exposes that mode only to a system
+administrator.
 
 ## Current matches
 
-Preview can count the real, open Nova case rows that currently match the parts
-of a rule it can evaluate. The count is information only. It never changes a
-case, sends a message, advances a schedule, or predicts the next HQ sweep.
+Preview can count the real, open case rows that currently match the parts of a
+rule it can evaluate. The count is information only. It never changes a case,
+sends a message, advances a schedule, or predicts the next HQ sweep.
 
-Nova can count each kind's ordinary property comparisons, including
-automatic-update parent and host reads, plus the automatic-update
+The case count can evaluate each kind's ordinary property comparisons,
+including automatic-update parent and host reads, plus the automatic-update
 closed-parent condition. A location condition matches cases owned by the
-selected place (and requested descendants) plus cases owned by a Nova persona
-whose primary place is in that set, matching HQ's mobile-worker lookup. Three HQ-only inputs have no honest local equivalent:
-a UCR filter, an instance-registered custom criterion, and automatic-update
-server-modified age. Store UCR and custom criteria as distinct setup-only kinds;
-Nova stores server-modified age as its own case-update field. When a rule mixes
-countable and setup-only criteria, the screen names every omitted part beside
-the count instead of presenting a partial count as complete.
+selected place and requested descendants. It also matches cases owned by an app
+persona whose primary place is in that set, following HQ's mobile-worker
+lookup. Three HQ-only inputs have no honest local equivalent: a
+user-configurable report (UCR) filter, an instance-registered custom criterion,
+and automatic-update server-modified age. The rule stores each one separately.
+When a rule mixes countable and HQ-only conditions, the screen names every
+omitted part beside the count instead of presenting a partial count as
+complete.
 
-The generated guide names their target-side prerequisites: UCR criteria need
-the `CASE_UPDATES_UCR_FILTERS` domain toggle, while a registered custom
-criterion requires a CommCare HQ system administrator to save the automation.
+The generated guide names their target-side prerequisites: user-configurable
+report (UCR) conditions need the `CASE_UPDATES_UCR_FILTERS` domain toggle, while
+a registered custom condition requires a CommCare HQ system administrator to
+save the automation.
 
 Preview follows HQ's value typing at this boundary: equality matches only an
 exact stored string. A stored number, boolean, object, array, null, or missing
 value cannot equal the configured string and therefore satisfies **does not
-equal**. Parent reads follow the `parent` index even when it is an extension;
-host reads follow that canonical extension only while the app cannot add a
-second extension relationship to the automation's case type. Nova refuses the
-host-scoped read if an advanced case operation could make HQ's host choice
-unordered; the extra extension link and parent-scoped reads remain valid. A
-host-scoped read still requires exactly one live extension at runtime.
-Historical cases can retain extra extension indices even when the current app
-can author only one. Nova makes the current-match count unavailable in that
-state, and HQ does not define which extension it chooses as the host. A missing
-parent/host relation does not satisfy either comparison;
-HQ's full Unicode whitespace set is blank for **has value / has no value**; and regular
-expressions test strings only rather than coercing numbers or booleans to text.
-Date conditions use those same parent/host rules. HQ and Preview both discard a
-datetime's time of day and explicit offset before adding the signed day offset,
-so the comparison uses the calendar date written in the property.
+equal**. Parent reads follow the `parent` index even when it is an extension.
+Host reads follow the extension relationship while the app permits only one.
+The Builder refuses a host read if an advanced case operation could make HQ's
+host choice unordered; the extra extension link and parent reads remain valid.
+A host read still requires exactly one live extension at run time. Historical
+cases can retain extra extension indices even when the current app can author
+only one. The case count is unavailable in that state because HQ does not
+define which extension it chooses as the host. A missing parent or host
+relation does not satisfy either comparison. HQ's full Unicode whitespace set
+is blank for **has value / has no value**, and regular expressions test strings
+only rather than coercing numbers or booleans to text. Date conditions use
+those same parent/host rules. HQ and Preview both discard a datetime's time of
+day and explicit offset before adding the signed day offset, so the comparison
+uses the calendar date written in the property.
 
 Closed cases are always excluded. A rule with no ordinary criteria is valid;
 for example, a claim-cleanup rule can use only HQ's server-modified boundary and
@@ -230,23 +235,23 @@ business date such as when a claim was created.
 
 ## Applying the guide
 
-Open the automation and choose **Count matching cases**. Nova regenerates the
-guide from the current canonical rule, including current form,
-worker-information, and place names; choose **Copy guide** when it appears. If
-the optional case count is temporarily unavailable, the current guide remains
-available to copy. Apply it to the intended CommCare HQ project space and
-review its privilege, cadence, halt threshold, and instance-specific caveats
-before saving.
+Open the automation and choose **Count matching cases**. The Builder regenerates
+the guide from the saved rule, including current form, worker-information, and
+place names; choose **Copy guide** when it appears. If the optional case count
+is temporarily unavailable, the current guide remains available to copy.
+Apply it to the intended CommCare HQ project space and review its privilege,
+cadence, halt threshold, and instance-specific caveats before saving.
 Survey content names the same **app > module > form** path shown by HQ's form
-picker; a Nova UUID is never presented as an HQ form identifier. When no
+picker; an app identifier is never presented as an HQ form identifier. When no
 language is set, the guide selects HQ's required **Project Default** choice. An
 explicit language code must already be configured for the target HQ project.
 
-Schedule dates use Nova's calendar picker and times use locale-friendly clock
-entry while the saved rule remains canonical. Removing an item from any
-repeated rule section keeps keyboard focus on the next or previous item, then
-on that section's add action when the list becomes empty.
+Schedule dates use the Builder's calendar picker, and times use
+locale-friendly clock entry while the saved rule keeps an exact value.
+Removing an item from any repeated rule section keeps keyboard focus on the
+next or previous item, then on that section's add action when the list becomes
+empty.
 
-Removing or changing an automation in Nova does not alter a rule previously
-configured by hand in CommCare HQ. Keep the two in sync until Nova's Deployment
-work can track the setup artifact against an explicit target.
+Removing or changing an automation in commcare nova does not alter a rule
+previously configured by hand in CommCare HQ. Keep the two in sync until manual
+deployment support can track the setup artifact against a specific target.

@@ -222,7 +222,9 @@ editing works on a local complete copy and saves through
 `replaceAutomation`, which derives the shared item-granular mutation grammar.
 An open editor fingerprints the authoritative automation: if a peer changes or
 removes it, Save and Remove both refuse with a visible conflict and keep the
-person's local work for comparison. The portalized dialog establishes its own
+person's local work for comparison. A changed rule tells the author to close
+and reopen it to review the newer version; a removed rule says to close the
+editor and never offers a nonexistent rule to reopen. The portalized dialog establishes its own
 container for every `@md` layout; App setup's outer container does not cross the
 portal boundary. Gate findings stay in persistent footer chrome while the body
 scrolls, and the responsible control or repeated-row fieldset carries
@@ -234,10 +236,12 @@ disappears, so those collection-level refusals also have a stable local anchor
 without duplicating descendant-row errors. Comma-separated reminder intervals keep their
 in-progress text locally while focused, report invalid text into that same
 refusal path, and project only positive whole-minute lists into the canonical
-automation; blur or Enter canonicalizes a valid list. Removal uses an explicit
-confirmation. Invalid reminder text survives blur and Save with its refusal so
-the author can correct what is visibly wrong; it never snaps back to an older
-valid list while leaving a stale error. Viewers receive the same expanded readable rule,
+automation; blur or Enter canonicalizes a valid list. Automation removal uses
+an explicit inline confirmation: opening moves focus into the alert, Cancel
+restores the newly rendered Remove trigger, and successful removal returns to
+the section's Add action. Invalid reminder text survives blur and Save with its
+refusal so the author can correct what is visibly wrong; it never snaps back to
+an older valid list while leaving a stale error. Viewers receive the same expanded readable rule,
 current-match information, and generated setup guide with every mutating
 control absent or disabled; **View full definition** opens the complete editor
 projection with its controls disabled, never a reduced summary that hides
@@ -273,13 +277,13 @@ places resolve through current UUID-backed catalogs. HQ-only conditions choose
 the structural UCR or registered-custom family and retain an exact setup note,
 while case-update
 server-modified age is a separate structured field; all are visibly omitted
-from the current match count. A count is read-only over real open case rows; the persistent note
+from the case count. A count is read-only over real open case rows; the persistent note
 states that Preview never updates cases, sends messages, advances schedules, or
 installs anything in HQ. The regenerated guide names the exact HTML route,
 privilege, cadence, cap, omissions, and unsupported historical IVR/callback
 activation. A host-scoped rule's guide states that every triggering case needs
 exactly one live extension at runtime. Retained extra extension indices make
-the current-match count unavailable, and HQ does not define which extension it
+the case count unavailable, and HQ does not define which extension it
 chooses as the host. Copy acts on the derived text only.
 Regenerating a changed guide remounts its copy receipt so **Copied** can never
 describe bytes from the prior guide.
@@ -294,7 +298,7 @@ link.
 The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
 or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated
 run-on-save flag is never offered on a rule because HQ owns it as a project-wide
-blast-radius switch. Survey content resolves its UUID to the current published
+switch. Survey content resolves its UUID to the current published
 app > module > form path that HQ's picker displays; Nova UUIDs never masquerade
 as HQ form identifiers, and the Builder uses that full path to disambiguate
 same-named forms while persisting only the UUID. The required default-language control projects an empty
@@ -306,7 +310,11 @@ noncredential input attributes. Dates use `DatePicker`, clock times use `TimeFie
 the canonical clock parser, and Weekly/Monthly event days use closed choices
 that exclude siblings and disable Add when exhausted. Removing any repeated
 criterion, setup instruction, update, recipient, recipient filter, or event
-hands focus to the next or previous row action, then its Add action.
+hands focus to the next or previous enabled row action, then its Add action.
+Nested creation controls use verb-first **Add ...** labels, and an exhausted or
+unavailable control replaces that label with the exact reason it is disabled.
+The switch label and helper copy take the shared disabled opacity only once,
+including when an ancestor fieldset disables the editor.
 
 Message subjects/bodies use the structural template editor. Literal controls
 never parse token-looking text; projection doubles literal braces for HQ's

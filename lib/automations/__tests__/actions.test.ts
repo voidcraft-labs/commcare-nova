@@ -115,7 +115,7 @@ describe("previewAutomationAction", () => {
 				matching: { status: "counted", currentMatchCount: 7 },
 				executesLocally: false,
 				omittedCriteria: [
-					"UCR filter: unclaimed cases",
+					"User-configurable report (UCR) filter: unclaimed cases",
 					"HQ server-modified age of at least 30 days",
 				],
 			},

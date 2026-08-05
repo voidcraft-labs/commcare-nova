@@ -211,7 +211,7 @@ describe("automation domain and projections", () => {
 			locationOwnerSets: [],
 		});
 		expect(projection.omittedCriteria).toEqual([
-			"UCR filter: stale_claims",
+			"User-configurable report (UCR) filter: stale_claims",
 			"HQ server-modified age of at least 30 days",
 		]);
 		expect(projection.countArgs.predicate).toMatchObject({ kind: "eq" });
@@ -1156,7 +1156,7 @@ describe("automation domain and projections", () => {
 			[],
 		).steps.join(" ");
 		expect(projectedUpdate).toContain(
-			"Update name (Nova property case_name) to the value of modified_on (Nova property last_modified)",
+			"Update name (app property case_name) to the value of modified_on (app property last_modified)",
 		);
 	});
 
@@ -1222,7 +1222,7 @@ describe("automation domain and projections", () => {
 				"Retained extra extension indices leave CommCare HQ's host choice undefined",
 			);
 			expect(caveats).toContain(
-				"extra indices also make Nova's current-match count unavailable",
+				"extra indices also make the case count unavailable",
 			);
 		}
 		expect(
@@ -1410,7 +1410,7 @@ describe("automation domain and projections", () => {
 		const text = [...guide.steps, ...emailGuide.steps].join(" ");
 		expect(text).toContain("/a/<domain>/messaging/conditional/");
 		expect(text).toContain(
-			"Case property name (Nova property case_name) has a value",
+			"Case property name (app property case_name) has a value",
 		);
 		expect(guide.steps).toContain("Set Status to Active.");
 		expect(text).toContain("Choose Immediately");
@@ -1611,7 +1611,7 @@ describe("automation domain and projections", () => {
 			'"team": [\n    "  north  ",\n    "{case_color}"\n  ]',
 		);
 		expect(steps).toContain("select “JSON”");
-		expect(steps).toContain("UCR filter 1");
+		expect(steps).toContain("User-configurable report (UCR) filter 1");
 		expect(steps).toContain("Registered custom criterion 2");
 		expect(caveats).toContain("CASE_UPDATES_UCR_FILTERS");
 		expect(caveats).toContain("registered custom criterion");
@@ -1619,13 +1619,13 @@ describe("automation domain and projections", () => {
 			"JSON recipient-filter mode only to system administrators",
 		);
 		expect(caveats).toContain(
-			"evaluates recipient filters only for contacts that resolve to user accounts",
+			"evaluates recipient filters only for contacts that resolve to CommCare user accounts",
 		);
 		expect(caveats).toContain(
 			"Every triggering case must contain case property case_color",
 		);
 		expect(caveats).toContain(
-			"a missing property raises an error instead of acting like an empty accepted value",
+			"it cannot run the filter when a property is missing",
 		);
 
 		const simple = buildAutomationSetupGuide(
@@ -1692,7 +1692,7 @@ describe("automation domain and projections", () => {
 		).steps.join(" ");
 		expect(customText).toContain("Choose Custom Daily Schedule");
 		expect(customText).toContain(
-			"date in case property opened_on (Nova property date_opened)",
+			"date in case property opened_on (app property date_opened)",
 		);
 		expect(customText).toContain("day 1 in the HQ editor");
 		expect(customText).not.toContain("day 0");
@@ -1719,11 +1719,11 @@ describe("automation domain and projections", () => {
 			},
 			[],
 		).steps.join(" ");
-		expect(propertyTimeText).toContain("must begin with H:MM or HH:MM");
-		expect(propertyTimeText).toContain("AM/PM or seconds are accepted");
-		expect(propertyTimeText).toContain("fall back to 12:00 PM");
-		expect(propertyTimeText).toContain("blank, nonmatching, or unparseable");
-
+		expect(propertyTimeText).toContain("must start with H:MM or HH:MM");
+		expect(propertyTimeText).toContain("AM, PM, and seconds are accepted");
+		expect(propertyTimeText).toContain(
+			"blank or unrecognized values use 12:00 PM",
+		);
 		const fixedCustomDaily = automationSchema.parse(
 			alertWithSchedule({
 				kind: "timed",

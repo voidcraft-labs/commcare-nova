@@ -82,7 +82,7 @@ export function describeAutomationPropertyForHq(
 	if (projected === undefined) return property;
 	return projected === property
 		? property
-		: `${projected} (Nova property ${property})`;
+		: `${projected} (app property ${property})`;
 }
 
 /**

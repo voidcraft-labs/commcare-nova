@@ -6,6 +6,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -129,6 +130,7 @@ function repeatedRowsAlert(): Extract<
 					? [
 							{ kind: "literal" as const, value: "value-0" },
 							{ kind: "literal" as const, value: "value-0-extra" },
+							{ kind: "literal" as const, value: "value-0-final" },
 						]
 					: [{ kind: "literal" as const, value: "value-1" }],
 		})),
@@ -596,10 +598,10 @@ describe("AutomationsSection", () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		const propertyButton = screen.getByRole("button", {
-			name: "Property condition",
+			name: "Add property condition",
 		});
 		const closedParentButton = screen.getByRole("button", {
-			name: "Closed parent",
+			name: "Add closed parent",
 		});
 
 		fireEvent.click(closedParentButton);
@@ -617,7 +619,9 @@ describe("AutomationsSection", () => {
 			screen.getByText(/Add or unarchive a place in Organization/),
 		).toBeDefined();
 		expect(
-			screen.getByRole("button", { name: "Location condition" }),
+			screen.getByRole("button", {
+				name: "Add a place before adding a location condition",
+			}),
 		).toHaveProperty("disabled", true);
 
 		const expectLocationKindDisabled = async () => {
@@ -625,7 +629,7 @@ describe("AutomationsSection", () => {
 			fireEvent.click(condition);
 			await settleBaseUiTransitions();
 			const location = screen.getByRole("option", {
-				name: "Case owner location",
+				name: /^Case owner location/,
 			});
 			expect(location.getAttribute("aria-disabled")).toBe("true");
 			fireEvent.pointerDown(location, { pointerType: "mouse" });
@@ -637,11 +641,15 @@ describe("AutomationsSection", () => {
 			await settleBaseUiTransitions();
 		};
 
-		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add property condition" }),
+		);
 		await expectLocationKindDisabled();
 
 		await chooseChoice("Automation type", "Conditional alert");
-		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add property condition" }),
+		);
 		await expectLocationKindDisabled();
 	});
 
@@ -657,7 +665,7 @@ describe("AutomationsSection", () => {
 			loadingStatus.querySelector('[role="status"], [aria-live]'),
 		).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Location condition" }),
+			screen.getByRole("button", { name: "Places unavailable" }),
 		).toHaveProperty("disabled", true);
 
 		mocks.organization.loading = false;
@@ -723,7 +731,9 @@ describe("AutomationsSection", () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
-		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add property condition" }),
+		);
 		await chooseChoice("Case source", "Parent case");
 		expect(
 			screen.getByRole("combobox", { name: "Case source" }).textContent,
@@ -732,7 +742,7 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		expect(
 			screen.getByRole("option", {
-				name: "Current date < property date + offset",
+				name: "Before the property date plus the offset",
 			}),
 		).toBeDefined();
 		expect(
@@ -744,7 +754,9 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 
 		await chooseChoice("Automation type", "Conditional alert");
-		fireEvent.click(screen.getByRole("button", { name: "Property condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add property condition" }),
+		);
 		fireEvent.click(screen.getByRole("combobox", { name: "Comparison" }));
 		await settleBaseUiTransitions();
 		expect(
@@ -752,10 +764,12 @@ describe("AutomationsSection", () => {
 		).toBeDefined();
 		expect(
 			screen.queryByRole("option", {
-				name: "Current date < property date + offset",
+				name: "Before the property date plus the offset",
 			}),
 		).toBeNull();
-		expect(screen.queryByRole("button", { name: "Closed parent" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add closed parent" }),
+		).toBeNull();
 		expect(screen.queryByText(/last changed on the server/i)).toBeNull();
 	});
 
@@ -818,7 +832,7 @@ describe("AutomationsSection", () => {
 			target: { value: "Literal {case.case_name}" },
 		});
 		fireEvent.click(
-			screen.getByRole("button", { name: "Case property reference" }),
+			screen.getByRole("button", { name: "Add case property reference" }),
 		);
 		fireEvent.change(
 			screen.getByRole("textbox", {
@@ -826,13 +840,15 @@ describe("AutomationsSection", () => {
 			}),
 			{ target: { value: "case_name" } },
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Literal text" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add literal text" }));
 		fireEvent.change(
 			screen.getByRole("textbox", { name: "Message literal text 3" }),
 			{ target: { value: " done" } },
 		);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Owner or recipient reference" }),
+			screen.getByRole("button", {
+				name: "Add owner or recipient reference",
+			}),
 		);
 		await chooseChoice("Message context source 4", "Message recipient");
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
@@ -878,7 +894,7 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		await chooseChoice("Automation type", "Conditional alert");
 		fireEvent.click(
-			screen.getByRole("button", { name: "Case property reference" }),
+			screen.getByRole("button", { name: "Add case property reference" }),
 		);
 		const property = screen.getByRole("textbox", {
 			name: "Message reference property 2",
@@ -918,7 +934,9 @@ describe("AutomationsSection", () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
-		fireEvent.click(screen.getByRole("button", { name: "Location condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add location condition" }),
+		);
 
 		expect(
 			screen.getByRole("combobox", { name: "Location" }).textContent,
@@ -931,7 +949,9 @@ describe("AutomationsSection", () => {
 				.hasAttribute("data-checked"),
 		).toBe(true);
 		expect(
-			screen.getByRole("button", { name: "Location condition" }),
+			screen.getByRole("button", {
+				name: "Location condition already added",
+			}),
 		).toHaveProperty("disabled", true);
 
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
@@ -981,13 +1001,13 @@ describe("AutomationsSection", () => {
 		const descriptionId = timeProperty.getAttribute("aria-describedby");
 		expect(descriptionId).toBeTruthy();
 		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-			"must begin with H:MM or HH:MM",
+			"must start with H:MM or HH:MM",
 		);
 		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-			"AM/PM and seconds are accepted",
+			"AM, PM, and seconds are accepted",
 		);
 		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-			"blank, nonmatching, or unparseable values use 12:00 PM",
+			"Blank or unrecognized values use 12:00 PM",
 		);
 	});
 
@@ -1072,16 +1092,22 @@ describe("AutomationsSection", () => {
 		await chooseChoice("Recipient 1", "Case owner");
 		expect(screen.queryByText("Facility level")).toBeNull();
 
-		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
-		fireEvent.click(screen.getByRole("button", { name: "Recipient filter" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add recipient filter" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add recipient filter" }),
+		);
 		expect(
-			screen.getByRole("button", { name: "Recipient filter" }),
+			screen.getByRole("button", {
+				name: "Every worker information field already has a filter",
+			}),
 		).toHaveProperty("disabled", true);
 		expect(
 			screen.getByText(/HQ applies recipient filters only to contacts/)
 				.textContent,
-		).toContain("unknown runtime type");
-		fireEvent.click(screen.getByRole("button", { name: "Recipient" }));
+		).toContain("Other recipient types can bypass the filter");
+		fireEvent.click(screen.getByRole("button", { name: "Add recipient" }));
 		const secondRecipient = screen.getByRole("combobox", {
 			name: "Recipient 2",
 		});
@@ -1140,11 +1166,13 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
 		await chooseChoice("Automation type", "Conditional alert");
-		const addFilter = screen.getByRole("button", { name: "Recipient filter" });
+		const addFilter = screen.getByRole("button", {
+			name: "Choose compatible recipients before adding a filter",
+		});
 		expect(addFilter).toHaveProperty("disabled", true);
 		expect(
-			screen.getByText(/Nova does not combine filters with case/).textContent,
-		).toContain("unknown runtime type");
+			screen.getByText(/Filters work only with recipients/).textContent,
+		).toContain("Other recipient types can bypass the filter");
 		await chooseChoice("Recipient 1", "Case owner");
 		expect(addFilter).toHaveProperty("disabled", false);
 		fireEvent.click(addFilter);
@@ -1152,7 +1180,7 @@ describe("AutomationsSection", () => {
 			name: "Exact literal value 1",
 		});
 		fireEvent.change(first, { target: { value: "  north  " } });
-		fireEvent.click(screen.getByRole("button", { name: "Accepted value" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add accepted value" }));
 		await chooseChoice("Value 2 type", "Value from this case");
 		await chooseChoice("Case property", "case_color");
 		const propertyTrigger = screen.getByRole("combobox", {
@@ -1192,7 +1220,9 @@ describe("AutomationsSection", () => {
 		render(<AutomationsSection />);
 		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
 		await settleBaseUiTransitions();
-		fireEvent.click(screen.getByRole("button", { name: "HQ-only condition" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add HQ-only condition" }),
+		);
 		await chooseChoice("Condition 1 type", "Registered custom criterion");
 		fireEvent.change(
 			screen.getByRole("textbox", { name: "Exact setup note 1" }),
@@ -1426,7 +1456,7 @@ describe("AutomationsSection", () => {
 		await chooseChoice("Automation type", "Conditional alert");
 		await chooseChoice("Schedule type", "Timed repeating schedule");
 		await chooseChoice("CommCare HQ schedule form", "Weekly");
-		fireEvent.click(screen.getByRole("button", { name: "Schedule event" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add schedule event" }));
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 
 		expect(mocks.addAutomation).toHaveBeenCalledWith(
@@ -1461,7 +1491,7 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		expect(
 			screen
-				.getByRole("option", { name: "Day 2" })
+				.getByRole("option", { name: "Day 2 (already selected)" })
 				.getAttribute("aria-disabled"),
 		).toBe("true");
 		const lastDay = screen.getByRole("option", {
@@ -1499,7 +1529,9 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
 		await settleBaseUiTransitions();
 		expect(
-			screen.getByRole("button", { name: "Schedule event" }),
+			screen.getByRole("button", {
+				name: "Every available day already has an event",
+			}),
 		).toHaveProperty("disabled", true);
 	});
 
@@ -1561,7 +1593,7 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
 		await settleBaseUiTransitions();
-		fireEvent.click(screen.getByRole("button", { name: "Schedule event" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add schedule event" }));
 		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
 		expect(mocks.replaceAutomation).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1637,13 +1669,13 @@ describe("AutomationsSection", () => {
 		fireEvent.click(removeValue);
 		await waitFor(() =>
 			expect(document.activeElement).toBe(
-				screen.getAllByRole("button", { name: "Accepted value" })[0],
+				screen.getAllByRole("button", { name: "Remove value" })[0],
 			),
 		);
 
 		for (const name of [
 			"Remove condition",
-			"Remove",
+			"Remove HQ-only condition 1",
 			"Remove recipient",
 			"Remove filter",
 		] as const) {
@@ -1669,7 +1701,7 @@ describe("AutomationsSection", () => {
 		fireEvent.click(removeEvents[0]);
 		await waitFor(() =>
 			expect(document.activeElement).toBe(
-				screen.getByRole("button", { name: "Schedule event" }),
+				screen.getByRole("button", { name: "Add schedule event" }),
 			),
 		);
 	});
@@ -1798,7 +1830,7 @@ describe("AutomationsSection", () => {
 
 		const alert = await screen.findByRole("alert");
 		expect(alert.textContent).toBe(
-			"Nova couldn't refresh this automation just now. Try again in a moment.",
+			"Couldn't refresh this automation. Try again in a moment.",
 		);
 		expect(refresh).toHaveProperty("disabled", false);
 		await waitFor(() => expect(document.activeElement).toBe(refresh));
@@ -2027,6 +2059,11 @@ describe("AutomationsSection", () => {
 				.hasAttribute("data-checked"),
 		).toBe(true);
 		expect(
+			screen
+				.getByRole("checkbox", { name: "Close the matching case" })
+				.hasAttribute("data-disabled"),
+		).toBe(true);
+		expect(
 			screen.queryByRole("button", { name: "Save automation" }),
 		).toBeNull();
 		expect(
@@ -2055,12 +2092,21 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		mocks.automations = [{ ...rule, name: "Peer changed this" }];
 		rerender(<AutomationsSection />);
-		expect(screen.getByText(/A co-editor changed or removed/)).toBeDefined();
+		expect(screen.getByText(/A co-editor saved a newer version/)).toBeDefined();
 		expect(
 			screen
-				.getByText(/A co-editor changed or removed/)
+				.getByText(/A co-editor saved a newer version/)
 				.closest('[data-slot="dialog-footer"]'),
 		).not.toBeNull();
+		expect(
+			screen.getByRole("dialog").querySelector('[data-slot="dialog-footer"]')
+				?.textContent,
+		).toContain("Close");
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Close the matching case" })
+				.hasAttribute("data-disabled"),
+		).toBe(true);
 		expect(
 			screen.getByRole("button", { name: "Save automation" }),
 		).toHaveProperty("disabled", true);
@@ -2070,6 +2116,13 @@ describe("AutomationsSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Remove automation" }));
 		expect(mocks.replaceAutomation).not.toHaveBeenCalled();
 		expect(mocks.removeAutomation).not.toHaveBeenCalled();
+
+		mocks.automations = [];
+		rerender(<AutomationsSection />);
+		expect(
+			screen.getByText(/A co-editor removed this automation/),
+		).toBeDefined();
+		expect(screen.queryByText(/reopen the automation to review/)).toBeNull();
 	});
 
 	it("passes the opened fingerprint to the atomic replacement", async () => {
@@ -2100,6 +2153,24 @@ describe("AutomationsSection", () => {
 		await settleBaseUiTransitions();
 		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
 		await settleBaseUiTransitions();
+		const removeTrigger = screen.getByRole("button", {
+			name: "Remove automation",
+		});
+		focusElement(removeTrigger);
+		fireEvent.click(removeTrigger);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole("alert")),
+		);
+		fireEvent.click(
+			within(screen.getByRole("alert")).getByRole("button", {
+				name: "Cancel",
+			}),
+		);
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByRole("button", { name: "Remove automation" }),
+			),
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Remove automation" }));
 		fireEvent.click(screen.getByRole("button", { name: "Remove automation" }));
 		await waitFor(() =>

@@ -37,8 +37,8 @@ function locationName(
 ): string {
 	const location = locations.find((candidate) => candidate.id === uuid);
 	return location === undefined
-		? `the location with Nova id ${uuid}`
-		: `“${location.name}” (site code ${location.siteCode}; Nova id ${uuid})`;
+		? `the location with app ID ${uuid}`
+		: `“${location.name}” (site code ${location.siteCode}; app ID ${uuid})`;
 }
 
 function describeCriterion(
@@ -154,7 +154,7 @@ function describePublishedFormChoice(
 ): string {
 	const choice = automationFormChoice(doc, formUuid);
 	if (choice === undefined) {
-		return "repair the missing Nova form reference before choosing a published form in HQ";
+		return "repair the missing app form reference before choosing a published form in HQ";
 	}
 	return `choose the published form path “${choice.label}” in HQ’s form picker`;
 }
@@ -166,7 +166,7 @@ function describeTiming(timing: AutomationTimedEvent["timing"]): string {
 		case "random-window":
 			return `at a random time in the ${timing.windowMinutes}-minute window starting at ${timing.time}`;
 		case "case-property-time":
-			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}; after trimming, the value must begin with H:MM or HH:MM and the whole value must parse as a time; suffixes such as AM/PM or seconds are accepted, while blank, nonmatching, or unparseable values fall back to 12:00 PM`;
+			return `at the time stored in custom case property ${describeAutomationPropertyForHq(timing.property, "dynamic-only")}; after trimming spaces, the value must start with H:MM or HH:MM and contain a complete time; AM, PM, and seconds are accepted, while blank or unrecognized values use 12:00 PM`;
 	}
 }
 
@@ -179,7 +179,7 @@ function commonSteps(
 		`Set criteria matching to ${automation.criteriaOperator === "all" ? "ALL" : "ANY"}.`,
 	];
 	if (automation.criteria.length === 0) {
-		steps.push("Add no ordinary criteria rows.");
+		steps.push("Leave the standard condition list empty.");
 	} else {
 		steps.push(
 			...automation.criteria.map(
@@ -191,7 +191,7 @@ function commonSteps(
 	steps.push(
 		...automation.setupOnlyCriteria.map(
 			(criterion, index) =>
-				`${criterion.kind === "ucr-filter" ? "UCR filter" : "Registered custom criterion"} ${index + 1}: ${criterion.text}`,
+				`${criterion.kind === "ucr-filter" ? "User-configurable report (UCR) filter" : "Registered custom criterion"} ${index + 1}: ${criterion.text}`,
 		),
 	);
 	if (
@@ -232,8 +232,8 @@ export function buildAutomationSetupGuide(
 ): AutomationSetupGuide {
 	const steps = commonSteps(automation, locations);
 	const caveats = [
-		"Nova does not run this automation in Preview and publishing the app does not install it. Save it manually in the target CommCare HQ project.",
-		"CommCare HQ has no REST resource for rules, alerts, or schedules. The available editors are HTML pages; conditional alerts also have an Excel content upload.",
+		"commcare nova does not run this automation in Preview, and publishing the app does not install it. Save it manually in the target CommCare HQ project.",
+		"CommCare HQ does not expose rules, alerts, or schedules through its API. Set them up in the available web pages; conditional alerts also support an Excel content upload.",
 	];
 	if (automation.criteria.some((criterion) => criterion.kind === "location")) {
 		caveats.push(
@@ -242,7 +242,7 @@ export function buildAutomationSetupGuide(
 	}
 	if (automationUsesHostScopedRead(automation)) {
 		caveats.push(
-			"Every host-scoped read requires exactly one live extension at runtime. Retained extra extension indices leave CommCare HQ's host choice undefined. When a criterion reads the host, those extra indices also make Nova's current-match count unavailable.",
+			"Every host-scoped read requires exactly one live extension at runtime. Retained extra extension indices leave CommCare HQ's host choice undefined. When a condition reads the host, those extra indices also make the case count unavailable.",
 		);
 	}
 	if (
@@ -259,7 +259,7 @@ export function buildAutomationSetupGuide(
 		)
 	) {
 		caveats.push(
-			"The target HQ project must have the CASE_UPDATES_UCR_FILTERS domain toggle enabled before its automation editor exposes UCR filter criteria.",
+			"The target HQ project must have the CASE_UPDATES_UCR_FILTERS domain toggle enabled before its automation editor exposes user-configurable report (UCR) filter conditions.",
 		);
 	}
 	if (
@@ -294,7 +294,7 @@ export function buildAutomationSetupGuide(
 		caveats.push(
 			"Case-update rules require the Data Cleanup privilege (Pro or higher). HQ’s hourly task runs each project once daily at auto_case_update_hour, midnight UTC by default.",
 			"HQ’s default halt threshold is 10,000 updates per project, case type, and database partition unless the project’s auto_case_update_limit overrides it. HQ checks the threshold between cases; one case can apply several updates, so the final total can exceed the threshold before HQ stops. The next daily sweep tries again.",
-			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that global blast radius separately.",
+			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that project-wide effect separately.",
 		);
 		return {
 			title: `${automation.name}: Automatic Case Update Rule`,
@@ -320,8 +320,8 @@ export function buildAutomationSetupGuide(
 					.map((uuid) => {
 						const level = ownRecordValue(levels, uuid);
 						return level === undefined
-							? `Nova level ${uuid}`
-							: `“${level.name}” (${level.code}; Nova id ${uuid})`;
+							? `app location level ${uuid}`
+							: `“${level.name}” (${level.code}; app ID ${uuid})`;
 					})
 					.join("; ")}.`,
 		automation.defaultLanguageCode === undefined
@@ -432,7 +432,7 @@ export function buildAutomationSetupGuide(
 			);
 		}
 		caveats.push(
-			"CommCare HQ evaluates recipient filters only for contacts that resolve to user accounts (CouchUser). Nova therefore allows these filters only with user-account recipient choices; case, parent/child-case, case-email, case-group, and registered custom recipients are excluded because they bypass the filter or have an unknown runtime type.",
+			"CommCare HQ evaluates recipient filters only for contacts that resolve to CommCare user accounts. commcare nova therefore allows these filters only with known user-account recipients; case, parent or child case, case email, case group, and registered custom recipients are excluded because they bypass the filter or do not guarantee a user account.",
 		);
 		const casePropertyFilterValues = automation.userDataFilters.flatMap(
 			(filter) =>
@@ -444,7 +444,7 @@ export function buildAutomationSetupGuide(
 		);
 		if (casePropertyFilterValues.length > 0) {
 			caveats.push(
-				`Every triggering case must contain ${casePropertyFilterValues.map((property) => `case property ${property}`).join(", ")}. HQ directly indexes each referenced property while expanding recipients, so a missing property raises an error instead of acting like an empty accepted value.`,
+				`Every triggering case must contain ${casePropertyFilterValues.map((property) => `case property ${property}`).join(", ")}. HQ reads each referenced property while expanding recipients, so it cannot run the filter when a property is missing.`,
 			);
 		}
 	} else {

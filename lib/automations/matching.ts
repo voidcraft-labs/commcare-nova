@@ -203,7 +203,7 @@ export function automationMatchProjection(
 	const omittedCriteria = [
 		...automation.setupOnlyCriteria.map(
 			(criterion) =>
-				`${criterion.kind === "ucr-filter" ? "UCR filter" : "Registered custom criterion"}: ${criterion.text}`,
+				`${criterion.kind === "ucr-filter" ? "User-configurable report (UCR) filter" : "Registered custom criterion"}: ${criterion.text}`,
 		),
 		...(automation.kind !== "case-update" ||
 		automation.serverModifiedBoundaryDays === undefined

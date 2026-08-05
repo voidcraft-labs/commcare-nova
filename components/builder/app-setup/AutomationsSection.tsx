@@ -98,12 +98,14 @@ import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
+import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { EntryRow, SubsectionEmpty } from "./subsection";
 
 type SavedPreview = Extract<AutomationPreviewResult, { success: true }>["data"];
 
 const AUTOMATION_PREVIEW_UNAVAILABLE_MESSAGE =
-	"Nova couldn't refresh this automation just now. Try again in a moment.";
+	"Couldn't refresh this automation. Try again in a moment.";
 
 type AutomationOrganizationState = Pick<
 	OrganizationView,
@@ -148,6 +150,17 @@ const CONTENT_KINDS: readonly [AutomationContent["kind"], string][] = [
 	["connect-survey", "Connect survey"],
 	["custom", "Registered custom content"],
 ];
+
+const AUTOMATION_MESSAGE_CONTEXT_PROPERTY_LABELS = {
+	name: "Name",
+	first_name: "First name",
+	last_name: "Last name",
+	phone_number: "Phone number",
+	site_code: "Site code",
+} satisfies Record<
+	(typeof AUTOMATION_MESSAGE_CONTEXT_PROPERTIES)[number],
+	string
+>;
 
 const WEEKDAY_NAMES = [
 	"Monday",
@@ -306,20 +319,23 @@ export function AutomationsSection() {
 				Automations
 			</h2>
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
-				Describe case updates and messages that CommCare HQ should run. Nova can
-				count currently matching cases and keep exact setup steps current, but
-				it doesn't run or install these rules.
+				Describe automatic case updates and conditional alerts for CommCare HQ.
+				You can count matching cases and get current setup steps here, but this
+				app doesn't run or install the rules.
 			</p>
-			<aside className="mt-4 max-w-prose rounded-lg border border-nova-amber/35 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
+			<div
+				role="note"
+				className="mt-4 max-w-prose rounded-lg border border-nova-amber/35 bg-nova-amber/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+			>
 				Publishing the app won't activate these automations. Follow the
 				generated guide in the target CommCare HQ project after publishing.
-			</aside>
+			</div>
 
 			<div className="mt-8 flex flex-col gap-2">
 				{automations.length === 0 ? (
 					<SubsectionEmpty>
-						No automations yet. Add one when cases should change or send a
-						message without a person submitting a form.
+						No automations yet. Add one when CommCare HQ should change a case or
+						send a message without a form submission.
 					</SubsectionEmpty>
 				) : (
 					automations.map((automation) => (
@@ -495,14 +511,14 @@ function AutomationSummary({
 				<p>
 					<span className="text-nova-text-muted">Matching</span>
 					<br />
-					{automation.criteriaOperator === "all" ? "All" : "Any"} of{" "}
-					{automation.criteria.length} locally countable condition
-					{automation.criteria.length === 1 ? "" : "s"}
+					{automation.criteria.length === 0
+						? "No conditions in the case count"
+						: `${automation.criteriaOperator === "all" ? "All" : "Any"} ${automation.criteria.length} ${automation.criteria.length === 1 ? "condition" : "conditions"} in the case count`}
 				</p>
 			</div>
 			<p className="rounded-lg border border-nova-violet/25 bg-nova-violet/[0.05] px-3 py-3 text-[12px] leading-relaxed text-nova-text-secondary">
-				Nova never executes this automation. The count below is a read-only
-				Preview of current cases, not a simulation of updates or messages.
+				Counting cases never executes this automation. The count only reads
+				current data; it doesn't simulate updates or messages.
 			</p>
 			{preview?.matching.status === "counted" && (
 				<div
@@ -616,7 +632,7 @@ function SetupGuide({ guide }: { guide: SavedPreview["setupGuide"] }) {
 			</div>
 			{copyError && (
 				<p role="alert" className="mt-2 text-[12px] text-nova-rose">
-					The browser couldn't copy the guide. Select the steps below instead.
+					Couldn't copy the guide. Select the steps below instead.
 				</p>
 			)}
 			<ol className="mt-3 list-decimal space-y-2 pl-5 text-[12px] leading-relaxed text-nova-text-secondary">
@@ -649,6 +665,7 @@ interface AutomationValidationIssue {
 const AutomationValidationContext = createContext<
 	AutomationValidationIssue | undefined
 >(undefined);
+const AutomationEditorDisabledContext = createContext(false);
 const AutomationDraftErrorContext = createContext<
 	(key: string, issue: AutomationValidationIssue | undefined) => void
 >(() => undefined);
@@ -793,9 +810,17 @@ function AutomationEditor({
 	>({});
 	const refusalId = useId();
 	const [confirmRemove, setConfirmRemove] = useState(false);
-	const peerConflict =
+	const { triggerRef: removeTriggerRef, panelRef: removePanelRef } =
+		useInlineConfirmFocus(confirmRemove);
+	const peerRemoved = state.kind === "existing" && current === undefined;
+	const peerChanged =
 		state.kind === "existing" &&
-		(current === undefined || fingerprint(current) !== state.opened);
+		current !== undefined &&
+		fingerprint(current) !== state.opened;
+	const peerConflict = peerRemoved || peerChanged;
+	const peerConflictMessage = peerRemoved
+		? "A co-editor removed this automation. Your changes here weren't saved. Close this editor to continue."
+		: "A co-editor saved a newer version. Your changes here weren't saved. Close this editor, then reopen the automation to review the latest version.";
 	const locationChoicesAvailable =
 		!organizationState.loading &&
 		organizationState.error === undefined &&
@@ -839,9 +864,7 @@ function AutomationEditor({
 			return;
 		}
 		if (peerConflict) {
-			setError(
-				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
-			);
+			setError(peerConflictMessage);
 			return;
 		}
 		const firstDraftError = Object.values(draftErrors)[0];
@@ -866,7 +889,7 @@ function AutomationEditor({
 		if (!result.ok) {
 			setError(
 				result.messages[0] ??
-					"Nova couldn't save this automation. Review its settings and try again.",
+					"Couldn't save this automation. Review its settings and try again.",
 			);
 			setErrorPath(automationCommitErrorPath(result, state.automation.uuid));
 			return;
@@ -881,9 +904,7 @@ function AutomationEditor({
 			return;
 		}
 		if (peerConflict) {
-			setError(
-				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
-			);
+			setError(peerConflictMessage);
 			return;
 		}
 		const result = mutations.inline.removeAutomation(
@@ -891,249 +912,256 @@ function AutomationEditor({
 			state.opened,
 		);
 		if (result.ok) onRemoved();
-		else
-			setError(result.messages[0] ?? "Nova couldn't remove this automation.");
+		else setError(result.messages[0] ?? "Couldn't remove this automation.");
 	};
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent className="@container sm:max-w-3xl">
-				<AutomationDraftErrorContext.Provider value={reportDraftError}>
-					<AutomationValidationContext.Provider
-						value={
-							error === undefined
-								? undefined
-								: { message: error, path: errorPath }
-						}
-					>
-						<DialogHeader>
-							<DialogTitle>
-								{state.kind === "new"
-									? "Add automation"
-									: `${canEdit ? "Edit" : "View"} ${state.automation.name}`}
-							</DialogTitle>
-							<DialogDescription>
-								{canEdit
-									? "Nova saves a precise CommCare HQ setup definition. It won't run here or be installed when you publish."
-									: "Read the complete saved definition below. Nova won't run it here or install it when the app is published."}
-							</DialogDescription>
-						</DialogHeader>
-						<DialogBody className="space-y-6 pb-2">
-							<OrganizationReferenceStatus
-								state={organizationState}
-								hasLiveLocations={locations.length > 0}
-							/>
-							<fieldset
-								disabled={!canEdit || peerConflict}
-								className="contents"
-							>
-								<legend className="sr-only">
+				<AutomationEditorDisabledContext.Provider
+					value={!canEdit || peerConflict}
+				>
+					<AutomationDraftErrorContext.Provider value={reportDraftError}>
+						<AutomationValidationContext.Provider
+							value={
+								error === undefined
+									? undefined
+									: { message: error, path: errorPath }
+							}
+						>
+							<DialogHeader>
+								<DialogTitle>
+									{state.kind === "new"
+										? "Add automation"
+										: `${canEdit ? "Edit" : "View"} ${state.automation.name}`}
+								</DialogTitle>
+								<DialogDescription>
 									{canEdit
-										? "Automation settings"
-										: "Saved automation definition"}
-								</legend>
+										? "This saves a precise CommCare HQ setup definition. It won't run here or be installed when you publish."
+										: "Read the complete saved definition below. It won't run here or be installed when the app is published."}
+								</DialogDescription>
+							</DialogHeader>
+							<DialogBody className="space-y-6 pb-2">
+								<OrganizationReferenceStatus
+									state={organizationState}
+									hasLiveLocations={locations.length > 0}
+								/>
 								<fieldset
-									className="grid gap-4 @md:grid-cols-2"
-									disabled={peerConflict}
+									disabled={!canEdit || peerConflict}
+									className="contents"
 								>
-									<legend className="sr-only">Automation identity</legend>
-									<Labeled label="Name" path={["name"]}>
-										<Input
-											ref={nameRef}
-											value={state.automation.name}
-											onChange={(event) =>
-												edit((draft) => {
-													draft.name = event.target.value;
-												})
-											}
-										/>
-									</Labeled>
-									<Labeled label="Case type" path={["caseType"]}>
-										<Choice
-											value={state.automation.caseType}
-											onChange={(caseType) =>
-												edit((draft) => {
-													draft.caseType = caseType;
-													updateAutomationContextReferenceCaseTypes(
-														draft,
-														caseTypes,
-														caseType,
-													);
-												})
-											}
-											options={caseTypes.map((caseType) => [
-												caseType.name,
-												caseType.name,
-											])}
-										/>
-									</Labeled>
-									{state.kind === "new" && (
-										<Labeled label="Automation type">
+									<legend className="sr-only">
+										{canEdit
+											? "Automation settings"
+											: "Saved automation definition"}
+									</legend>
+									<fieldset
+										className="grid gap-4 @md:grid-cols-2"
+										disabled={peerConflict}
+									>
+										<legend className="sr-only">Automation identity</legend>
+										<Labeled label="Name" path={["name"]}>
+											<Input
+												ref={nameRef}
+												value={state.automation.name}
+												onChange={(event) =>
+													edit((draft) => {
+														draft.name = event.target.value;
+													})
+												}
+											/>
+										</Labeled>
+										<Labeled label="Case type" path={["caseType"]}>
 											<Choice
-												value={state.automation.kind}
-												onChange={(kind) =>
-													onChange(
-														kind === "case-update"
-															? newCaseUpdate(state.automation.caseType)
-															: newAlert(state.automation.caseType),
-													)
+												value={state.automation.caseType}
+												onChange={(caseType) =>
+													edit((draft) => {
+														draft.caseType = caseType;
+														updateAutomationContextReferenceCaseTypes(
+															draft,
+															caseTypes,
+															caseType,
+														);
+													})
+												}
+												options={caseTypes.map((caseType) => [
+													caseType.name,
+													caseType.name,
+												])}
+											/>
+										</Labeled>
+										{state.kind === "new" && (
+											<Labeled label="Automation type">
+												<Choice
+													value={state.automation.kind}
+													onChange={(kind) =>
+														onChange(
+															kind === "case-update"
+																? newCaseUpdate(state.automation.caseType)
+																: newAlert(state.automation.caseType),
+														)
+													}
+													options={[
+														["case-update", "Automatic case update"],
+														["conditional-alert", "Conditional alert"],
+													]}
+												/>
+											</Labeled>
+										)}
+										<Labeled label="Match" path={["criteriaOperator"]}>
+											<Choice
+												value={state.automation.criteriaOperator}
+												onChange={(value) =>
+													edit((draft) => {
+														draft.criteriaOperator = value as "all" | "any";
+													})
 												}
 												options={[
-													["case-update", "Automatic case update"],
-													["conditional-alert", "Conditional alert"],
+													["all", "All conditions"],
+													["any", "Any condition"],
 												]}
 											/>
 										</Labeled>
-									)}
-									<Labeled label="Match" path={["criteriaOperator"]}>
-										<Choice
-											value={state.automation.criteriaOperator}
-											onChange={(value) =>
-												edit((draft) => {
-													draft.criteriaOperator = value as "all" | "any";
-												})
-											}
-											options={[
-												["all", "All conditions"],
-												["any", "Any condition"],
-											]}
-										/>
-									</Labeled>
-								</fieldset>
+									</fieldset>
 
-								<ConditionsEditor
-									automation={state.automation}
-									locations={locations}
-									locationChoicesAvailable={locationChoicesAvailable}
-									onEdit={edit}
-								/>
-								<SetupOnlyEditor automation={state.automation} onEdit={edit} />
-								{state.automation.kind === "case-update" && (
-									<OptionalNumber
-										label="Only cases last changed on the server at least this many days ago"
-										value={state.automation.serverModifiedBoundaryDays}
-										path={["serverModifiedBoundaryDays"]}
-										onChange={(value) =>
-											edit((draft) => {
-												if (draft.kind !== "case-update") return;
-												if (value === undefined)
-													delete draft.serverModifiedBoundaryDays;
-												else draft.serverModifiedBoundaryDays = value;
-											})
-										}
-									/>
-								)}
-
-								{state.automation.kind === "case-update" ? (
-									<CaseUpdateEditor
+									<ConditionsEditor
 										automation={state.automation}
-										onEdit={edit}
-									/>
-								) : (
-									<AlertEditor
-										automation={state.automation}
-										caseTypes={caseTypes}
-										forms={forms}
 										locations={locations}
 										locationChoicesAvailable={locationChoicesAvailable}
-										levels={levels}
-										userProperties={userProperties}
 										onEdit={edit}
 									/>
-								)}
-
-								{canEdit && state.kind === "existing" && (
-									<fieldset
-										disabled={peerConflict}
-										className="rounded-lg border border-nova-rose/25 bg-nova-rose/[0.03] p-3 disabled:opacity-60"
-									>
-										<legend className="sr-only">Remove automation</legend>
-										{confirmRemove ? (
-											<div
-												role="alert"
-												className="flex flex-wrap items-center justify-between gap-3"
-											>
-												<p className="text-[13px] text-nova-text">
-													Remove this Nova definition? A rule already set up in
-													CommCare HQ won't be removed.
-												</p>
-												<div className="flex gap-2">
-													<Button
-														type="button"
-														variant="ghost"
-														onClick={() => setConfirmRemove(false)}
-													>
-														Cancel
-													</Button>
-													<Button
-														type="button"
-														variant="destructive"
-														disabled={peerConflict}
-														onClick={remove}
-													>
-														Remove automation
-													</Button>
-												</div>
-											</div>
-										) : (
-											<Button
-												type="button"
-												variant="ghost-destructive"
-												disabled={peerConflict}
-												onClick={() => setConfirmRemove(true)}
-											>
-												<Icon icon={tablerTrash} aria-hidden="true" /> Remove
-												automation
-											</Button>
-										)}
-									</fieldset>
-								)}
-							</fieldset>
-						</DialogBody>
-						<DialogFooter className="flex-col items-stretch gap-3">
-							{(peerConflict || error !== undefined) && (
-								<p
-									id={refusalId}
-									role="alert"
-									className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
-										peerConflict
-											? "border-nova-amber/40 bg-nova-amber/[0.06]"
-											: "border-nova-rose/40 bg-nova-rose/[0.06]"
-									}`}
-								>
-									{peerConflict && (
-										<Icon
-											icon={tablerAlertTriangle}
-											className="mt-0.5 shrink-0"
-											aria-hidden="true"
+									<SetupOnlyEditor
+										automation={state.automation}
+										onEdit={edit}
+									/>
+									{state.automation.kind === "case-update" && (
+										<OptionalNumber
+											label="Only cases last changed on the server at least this many days ago"
+											value={state.automation.serverModifiedBoundaryDays}
+											path={["serverModifiedBoundaryDays"]}
+											onChange={(value) =>
+												edit((draft) => {
+													if (draft.kind !== "case-update") return;
+													if (value === undefined)
+														delete draft.serverModifiedBoundaryDays;
+													else draft.serverModifiedBoundaryDays = value;
+												})
+											}
 										/>
 									)}
-									{peerConflict
-										? "A co-editor changed or removed this automation. Close and reopen it before saving."
-										: error}
-								</p>
-							)}
-							<div className="flex justify-end gap-2">
-								<Button type="button" variant="outline" onClick={onClose}>
-									{canEdit ? "Cancel" : "Close"}
-								</Button>
-								{canEdit && (
-									<Button
-										type="button"
-										onClick={save}
-										disabled={peerConflict}
-										aria-invalid={error !== undefined || undefined}
-										aria-describedby={
-											error !== undefined ? refusalId : undefined
-										}
+
+									{state.automation.kind === "case-update" ? (
+										<CaseUpdateEditor
+											automation={state.automation}
+											onEdit={edit}
+										/>
+									) : (
+										<AlertEditor
+											automation={state.automation}
+											caseTypes={caseTypes}
+											forms={forms}
+											locations={locations}
+											locationChoicesAvailable={locationChoicesAvailable}
+											levels={levels}
+											userProperties={userProperties}
+											onEdit={edit}
+										/>
+									)}
+
+									{canEdit && state.kind === "existing" && (
+										<fieldset
+											disabled={peerConflict}
+											className="rounded-lg border border-nova-rose/25 bg-nova-rose/[0.03] p-3"
+										>
+											<legend className="sr-only">Remove automation</legend>
+											{confirmRemove ? (
+												<div
+													ref={removePanelRef}
+													role="alert"
+													tabIndex={-1}
+													className="flex flex-col gap-3 outline-none @sm:flex-row @sm:items-center @sm:justify-between"
+												>
+													<p className="text-[13px] text-nova-text">
+														Remove this saved definition? A rule already set up
+														in CommCare HQ won't be removed.
+													</p>
+													<div className="flex flex-col-reverse gap-2 @sm:flex-row">
+														<Button
+															type="button"
+															variant="ghost"
+															onClick={() => setConfirmRemove(false)}
+														>
+															Cancel
+														</Button>
+														<Button
+															type="button"
+															variant="destructive"
+															disabled={peerConflict}
+															onClick={remove}
+														>
+															Remove automation
+														</Button>
+													</div>
+												</div>
+											) : (
+												<Button
+													ref={removeTriggerRef}
+													type="button"
+													variant="ghost-destructive"
+													disabled={peerConflict}
+													onClick={() => setConfirmRemove(true)}
+												>
+													<Icon icon={tablerTrash} aria-hidden="true" /> Remove
+													automation
+												</Button>
+											)}
+										</fieldset>
+									)}
+								</fieldset>
+							</DialogBody>
+							<DialogFooter className="flex-col items-stretch gap-3">
+								{(peerConflict || error !== undefined) && (
+									<p
+										id={refusalId}
+										role="alert"
+										className={`flex gap-2 rounded-lg border px-3 py-3 text-[13px] leading-relaxed text-nova-text ${
+											peerConflict
+												? "border-nova-amber/40 bg-nova-amber/[0.06]"
+												: "border-nova-rose/40 bg-nova-rose/[0.06]"
+										}`}
 									>
-										Save automation
-									</Button>
+										{peerConflict && (
+											<Icon
+												icon={tablerAlertTriangle}
+												className="mt-0.5 shrink-0"
+												aria-hidden="true"
+											/>
+										)}
+										{peerConflict ? peerConflictMessage : error}
+									</p>
 								)}
-							</div>
-						</DialogFooter>
-					</AutomationValidationContext.Provider>
-				</AutomationDraftErrorContext.Provider>
+								<div className="flex flex-col-reverse gap-2 @sm:flex-row @sm:justify-end">
+									<Button type="button" variant="outline" onClick={onClose}>
+										{canEdit && !peerConflict ? "Cancel" : "Close"}
+									</Button>
+									{canEdit && (
+										<Button
+											type="button"
+											onClick={save}
+											disabled={peerConflict}
+											aria-invalid={error !== undefined || undefined}
+											aria-describedby={
+												error !== undefined ? refusalId : undefined
+											}
+										>
+											Save automation
+										</Button>
+									)}
+								</div>
+							</DialogFooter>
+						</AutomationValidationContext.Provider>
+					</AutomationDraftErrorContext.Provider>
+				</AutomationEditorDisabledContext.Provider>
 			</DialogContent>
 		</Dialog>
 	);
@@ -1661,7 +1689,7 @@ function AutomationMessageTemplateEditor({
 													: propertyErrorId
 											}
 											value={part.property}
-											placeholder="Enter the Nova property name"
+											placeholder="Enter this app's property name"
 											onChange={(event) =>
 												replacePart(index, {
 													...part,
@@ -1707,7 +1735,10 @@ function AutomationMessageTemplateEditor({
 											})
 										}
 										options={AUTOMATION_MESSAGE_CONTEXT_PROPERTIES.map(
-											(property) => [property, property.replaceAll("_", " ")],
+											(property) => [
+												property,
+												AUTOMATION_MESSAGE_CONTEXT_PROPERTY_LABELS[property],
+											],
 										)}
 									/>
 								</div>
@@ -1735,7 +1766,9 @@ function AutomationMessageTemplateEditor({
 						}
 					>
 						<Icon icon={tablerPlus} aria-hidden="true" />
-						Literal text
+						{template.parts.at(-1)?.kind === "text"
+							? "Literal text already added"
+							: "Add literal text"}
 					</Button>
 					<Button
 						ref={addReferenceRef}
@@ -1756,7 +1789,7 @@ function AutomationMessageTemplateEditor({
 						}
 					>
 						<Icon icon={tablerPlus} aria-hidden="true" />
-						Case property reference
+						Add case property reference
 					</Button>
 					<Button
 						type="button"
@@ -1775,7 +1808,7 @@ function AutomationMessageTemplateEditor({
 						}
 					>
 						<Icon icon={tablerPlus} aria-hidden="true" />
-						Owner or recipient reference
+						Add owner or recipient reference
 					</Button>
 				</div>
 			</fieldset>
@@ -1797,22 +1830,24 @@ function Toggle({
 	disabled?: boolean;
 }) {
 	const id = useId();
+	const editorDisabled = useContext(AutomationEditorDisabledContext);
+	const isDisabled = disabled || editorDisabled;
 	return (
 		<label
 			htmlFor={id}
-			className={`flex min-h-11 items-start gap-3 rounded-lg border border-nova-border bg-nova-deep px-3 py-2.5 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+			className="group/toggle flex min-h-11 items-start gap-3 rounded-lg border border-nova-border bg-nova-deep px-3 py-2.5 has-[:disabled]:cursor-not-allowed has-[:enabled]:cursor-pointer"
 		>
 			<Checkbox
 				id={id}
 				checked={checked}
 				onCheckedChange={onChange}
-				disabled={disabled}
+				disabled={isDisabled}
 				className="mt-1"
 			/>
-			<span className="flex flex-col">
+			<span className="flex flex-col group-has-[:disabled]/toggle:opacity-(--disabled-opacity)">
 				<span className="text-[13px] text-nova-text">{label}</span>
 				{description && (
-					<span className="text-[11px] leading-relaxed text-nova-text-secondary">
+					<span className="text-[13px] leading-relaxed text-nova-text-secondary">
 						{description}
 					</span>
 				)}
@@ -1975,8 +2010,8 @@ function ConditionsEditor({
 			title="Conditions"
 			description={
 				automation.kind === "case-update"
-					? "The current-match count always excludes closed cases. Server-modified, UCR, and registered custom conditions are named separately because Nova can't count them locally."
-					: "The current-match count always excludes closed cases. UCR and registered custom conditions are named separately because Nova can't count them locally."
+					? "The case count always excludes closed cases. Conditions it can't count appear separately, including server change time, user-configurable report filters, and registered custom logic."
+					: "The case count always excludes closed cases. User-configurable report filters and registered custom logic appear separately because the count can't evaluate them."
 			}
 		>
 			{automation.criteria.map((criterion, index) => (
@@ -2031,13 +2066,19 @@ function ConditionsEditor({
 										["match-property", "Case property"],
 										[
 											"location",
-											"Case owner location",
+											defaultLocationUuid === undefined
+												? `Case owner location (${locationChoicesAvailable ? "add a place first" : "places unavailable"})`
+												: hasLocation && criterion.kind !== "location"
+													? "Case owner location (already selected)"
+													: "Case owner location",
 											defaultLocationUuid === undefined ||
 												(hasLocation && criterion.kind !== "location"),
 										],
 										[
 											"closed-parent",
-											"Closed parent",
+											hasClosedParent && criterion.kind !== "closed-parent"
+												? "Closed parent (already selected)"
+												: "Closed parent",
 											hasClosedParent && criterion.kind !== "closed-parent",
 										],
 									]}
@@ -2079,7 +2120,11 @@ function ConditionsEditor({
 										["match-property", "Case property"],
 										[
 											"location",
-											"Case owner location",
+											defaultLocationUuid === undefined
+												? `Case owner location (${locationChoicesAvailable ? "add a place first" : "places unavailable"})`
+												: hasLocation && criterion.kind !== "location"
+													? "Case owner location (already selected)"
+													: "Case owner location",
 											defaultLocationUuid === undefined ||
 												(hasLocation && criterion.kind !== "location"),
 										],
@@ -2112,7 +2157,7 @@ function ConditionsEditor({
 								)}
 								<Labeled
 									label="Property"
-									hint="Use the Nova name; setup guidance translates standard names for HQ. Case status is not representable here."
+									hint="Use this app's property name; the setup guide translates standard names for HQ. Case status isn't available here."
 								>
 									<Input
 										value={criterion.property}
@@ -2150,19 +2195,19 @@ function ConditionsEditor({
 												: ([
 														[
 															"date-days-before",
-															"Current date < property date + offset",
+															"Before the property date plus the offset",
 														],
 														[
 															"date-days-lte",
-															"Current date ≤ property date + offset",
+															"On or before the property date plus the offset",
 														],
 														[
 															"date-days-gt",
-															"Current date > property date + offset",
+															"After the property date plus the offset",
 														],
 														[
 															"date-days",
-															"Current date ≥ property date + offset",
+															"On or after the property date plus the offset",
 														],
 													] as const)),
 										]}
@@ -2272,8 +2317,8 @@ function ConditionsEditor({
 					variant="outline"
 					onClick={() => add("match-property")}
 				>
-					<Icon icon={tablerPlus} />
-					Property condition
+					<Icon icon={tablerPlus} aria-hidden="true" />
+					Add property condition
 				</Button>
 				{automation.kind === "case-update" && (
 					<Button
@@ -2282,8 +2327,10 @@ function ConditionsEditor({
 						disabled={hasClosedParent}
 						onClick={() => add("closed-parent")}
 					>
-						<Icon icon={tablerPlus} />
-						Closed parent
+						<Icon icon={tablerPlus} aria-hidden="true" />
+						{hasClosedParent
+							? "Closed parent already added"
+							: "Add closed parent"}
 					</Button>
 				)}
 				<Button
@@ -2296,8 +2343,14 @@ function ConditionsEditor({
 					}
 					onClick={() => add("location")}
 				>
-					<Icon icon={tablerPlus} />
-					Location condition
+					<Icon icon={tablerPlus} aria-hidden="true" />
+					{hasLocation
+						? "Location condition already added"
+						: !locationChoicesAvailable
+							? "Places unavailable"
+							: liveLocations.length === 0
+								? "Add a place before adding a location condition"
+								: "Add location condition"}
 				</Button>
 			</div>
 		</Section>
@@ -2315,7 +2368,7 @@ function SetupOnlyEditor({
 	return (
 		<Section
 			title="HQ-only conditions"
-			description="Choose the exact HQ-only condition family and preserve its setup note. Nova names it as omitted from the current-match count and generates the required access guidance."
+			description="Choose the exact condition type and add the setup details. The case count leaves it out, and the guide includes its access requirements."
 		>
 			{automation.setupOnlyCriteria.map((criterion, index) => (
 				<ValidationFieldset
@@ -2334,7 +2387,7 @@ function SetupOnlyEditor({
 								})
 							}
 							options={[
-								["ucr-filter", "UCR filter"],
+								["ucr-filter", "User-configurable report (UCR) filter"],
 								["registered-custom", "Registered custom criterion"],
 							]}
 						/>
@@ -2360,7 +2413,7 @@ function SetupOnlyEditor({
 						/>
 					</Labeled>
 					<RemoveButton
-						label="Remove"
+						label={`Remove HQ-only condition ${index + 1}`}
 						buttonRef={rowFocus.removeButtonRef(criterion.uuid)}
 						onClick={() =>
 							rowFocus.removeAt(index, () =>
@@ -2386,8 +2439,8 @@ function SetupOnlyEditor({
 					})
 				}
 			>
-				<Icon icon={tablerPlus} />
-				HQ-only condition
+				<Icon icon={tablerPlus} aria-hidden="true" />
+				Add HQ-only condition
 			</Button>
 		</Section>
 	);
@@ -2444,7 +2497,7 @@ function CaseUpdateEditor({
 						</Labeled>
 						<Labeled
 							label="Property"
-							hint="Use the Nova name; setup guidance translates supported standard targets for HQ."
+							hint="Use this app's property name; the setup guide translates supported standard targets for HQ."
 						>
 							<Input
 								value={update.target.property}
@@ -2520,7 +2573,7 @@ function CaseUpdateEditor({
 								</Labeled>
 								<Labeled
 									label="Source property"
-									hint="Use the Nova name; setup guidance translates standard names for HQ."
+									hint="Use this app's property name; the setup guide translates standard names for HQ."
 								>
 									<Input
 										value={update.value.source.property}
@@ -2567,8 +2620,8 @@ function CaseUpdateEditor({
 					})
 				}
 			>
-				<Icon icon={tablerPlus} />
-				Property change
+				<Icon icon={tablerPlus} aria-hidden="true" />
+				Add property change
 			</Button>
 		</Section>
 	);
@@ -2722,21 +2775,14 @@ function UserFilterValuesEditor({
 	caseType: CaseType | undefined;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
-	const addRef = useRef<HTMLButtonElement>(null);
+	const valueFocus = useRemovedRowFocus(filter.values.length);
 	const valueKeys = useRef(
 		filter.values.map((_, index) => `${filter.uuid}-initial-${index}`),
 	);
-	const [focusAdd, setFocusAdd] = useState(false);
 	const customProperties =
 		caseType?.properties.filter(
 			(property) => !CASE_SCALAR_PROPERTY_NAMES.has(property.name),
 		) ?? [];
-
-	useLayoutEffect(() => {
-		if (!focusAdd) return;
-		addRef.current?.focus();
-		setFocusAdd(false);
-	}, [focusAdd]);
 
 	const rows = filter.values.map((value, valueIndex) => ({
 		key:
@@ -2754,8 +2800,8 @@ function UserFilterValuesEditor({
 				Literal values stay exact: an empty value matches missing or empty
 				worker data, and spaces are not trimmed. Insert a case property
 				explicitly when the accepted value should come from the matching case.
-				Every triggering case must contain that property because HQ raises an
-				error when it is missing.
+				Every triggering case must contain that property because HQ can't run
+				the filter when it is missing.
 			</p>
 			{rows.map(({ key, value, valueIndex }) => (
 				<div
@@ -2784,7 +2830,9 @@ function UserFilterValuesEditor({
 								["literal", "Exact literal"],
 								[
 									"case-property",
-									"Value from this case",
+									customProperties.length === 0
+										? "Value from this case (add a custom case property first)"
+										: "Value from this case",
 									customProperties.length === 0,
 								],
 							]}
@@ -2817,7 +2865,7 @@ function UserFilterValuesEditor({
 					) : (
 						<Labeled
 							label="Case property"
-							hint="Required on every triggering case; HQ raises an error when this property is missing"
+							hint="Required on every triggering case; HQ can't run the filter when this property is missing"
 						>
 							<Choice
 								value={value.property}
@@ -2842,8 +2890,9 @@ function UserFilterValuesEditor({
 					<RemoveButton
 						label="Remove value"
 						disabled={filter.values.length === 1}
+						buttonRef={valueFocus.register(valueIndex)}
 						onClick={() => {
-							setFocusAdd(true);
+							valueFocus.onRemoved(valueIndex);
 							valueKeys.current.splice(valueIndex, 1);
 							onEdit((draft) => {
 								if (draft.kind === "conditional-alert")
@@ -2857,7 +2906,7 @@ function UserFilterValuesEditor({
 				</div>
 			))}
 			<Button
-				ref={addRef}
+				ref={valueFocus.addRef}
 				type="button"
 				variant="outline"
 				onClick={() => {
@@ -2872,7 +2921,7 @@ function UserFilterValuesEditor({
 				}}
 			>
 				<Icon icon={tablerPlus} aria-hidden="true" />
-				Accepted value
+				Add accepted value
 			</Button>
 		</div>
 	);
@@ -3002,7 +3051,7 @@ function AlertEditor({
 								{"property" in recipient && (
 									<Labeled
 										label="Case property"
-										hint="Use the Nova name; setup guidance translates standard names for HQ."
+										hint="Use this app's property name; the setup guide translates standard names for HQ."
 									>
 										<Input
 											value={recipient.property}
@@ -3072,17 +3121,21 @@ function AlertEditor({
 											options={automationLocationOptions(
 												locations,
 												recipient.locationUuid,
-											).map(([id, label, unavailable]) => [
-												id,
-												label,
-												unavailable ||
-													automation.recipients.some(
-														(candidate) =>
-															candidate.uuid !== recipient.uuid &&
-															candidate.kind === "location" &&
-															candidate.locationUuid === id,
-													),
-											])}
+											).map(([id, label, unavailable]) => {
+												const alreadySelected = automation.recipients.some(
+													(candidate) =>
+														candidate.uuid !== recipient.uuid &&
+														candidate.kind === "location" &&
+														candidate.locationUuid === id,
+												);
+												return [
+													id,
+													alreadySelected
+														? `${label} (already selected)`
+														: label,
+													unavailable || alreadySelected,
+												];
+											})}
 										/>
 									</Labeled>
 								)}
@@ -3124,8 +3177,10 @@ function AlertEditor({
 							})
 						}
 					>
-						<Icon icon={tablerPlus} />
-						Recipient
+						<Icon icon={tablerPlus} aria-hidden="true" />
+						{addRecipientKind === undefined
+							? "No more recipients available"
+							: "Add recipient"}
 					</Button>
 				</ValidationGroup>
 			</Section>
@@ -3138,9 +3193,9 @@ function AlertEditor({
 			<Section title="Recipient filters and schedule controls">
 				<p className="text-[12px] leading-relaxed text-nova-text-muted">
 					HQ applies recipient filters only to contacts that resolve to user
-					accounts. Nova does not combine filters with case, parent/child-case,
-					case-email, case-group, or registered custom recipients because they
-					would bypass the filter or have an unknown runtime type.
+					accounts. Filters work only with recipients known to be user accounts.
+					Other recipient types can bypass the filter, so choose compatible
+					recipients before adding filters.
 				</p>
 				{hasLocationRecipient && (
 					<Toggle
@@ -3175,10 +3230,10 @@ function AlertEditor({
 					/>
 				</Labeled>
 				{hasLocationRecipient && automation.includeDescendantLocations && (
-					<div>
-						<p className="mb-2 text-[12px] font-medium text-nova-text-secondary">
+					<fieldset>
+						<legend className="mb-2 text-[12px] font-medium text-nova-text-secondary">
 							Location levels for broadcast recipients
-						</p>
+						</legend>
 						<div className="grid gap-2 @md:grid-cols-2">
 							{levels.map((level) => (
 								<Toggle
@@ -3198,7 +3253,7 @@ function AlertEditor({
 								/>
 							))}
 						</div>
-					</div>
+					</fieldset>
 				)}
 				<Toggle
 					checked={automation.useUserCaseForFilter}
@@ -3232,7 +3287,13 @@ function AlertEditor({
 								}
 								options={userProperties.map((property) => [
 									property.uuid,
-									`${property.label} (${property.slug})`,
+									automation.userDataFilters.some(
+										(candidate) =>
+											candidate.uuid !== filter.uuid &&
+											candidate.userPropertyUuid === property.uuid,
+									)
+										? `${property.label} (${property.slug}, already selected)`
+										: `${property.label} (${property.slug})`,
 									automation.userDataFilters.some(
 										(candidate) =>
 											candidate.uuid !== filter.uuid &&
@@ -3280,8 +3341,12 @@ function AlertEditor({
 						})
 					}
 				>
-					<Icon icon={tablerPlus} />
-					Recipient filter
+					<Icon icon={tablerPlus} aria-hidden="true" />
+					{nextFilterProperty === undefined
+						? "Every worker information field already has a filter"
+						: !recipientsSupportUserDataFilters
+							? "Choose compatible recipients before adding a filter"
+							: "Add recipient filter"}
 				</Button>
 				<Labeled
 					label="Restart when this case property changes"
@@ -3307,7 +3372,7 @@ function AlertEditor({
 				</Labeled>
 				<Labeled
 					label="Stop after the date in this case property"
-					hint="Use the Nova name; setup guidance translates standard date names for HQ"
+					hint="Use this app's property name; the setup guide translates standard date names for HQ"
 					path={["stopDateCaseProperty"]}
 				>
 					<Input
@@ -3671,7 +3736,7 @@ function ScheduleEditor({
 						<Labeled
 							label="Start date property"
 							path={["schedule", "start", "property"]}
-							hint="Use the Nova name; setup guidance translates standard date names for HQ"
+							hint="Use this app's property name; the setup guide translates standard date names for HQ"
 						>
 							<Input
 								value={schedule.start.property}
@@ -3878,8 +3943,10 @@ function ScheduleEditor({
 						})
 					}
 				>
-					<Icon icon={tablerPlus} />
-					Schedule event
+					<Icon icon={tablerPlus} aria-hidden="true" />
+					{fixedDayChoicesExhausted
+						? "Every available day already has an event"
+						: "Add schedule event"}
 				</Button>
 			</ValidationGroup>
 		</Section>
@@ -3930,22 +3997,32 @@ function EventEditor({
 	const [editingTime, setEditingTime] = useState(false);
 	const dayOptions: readonly ChoiceOption[] =
 		timedSetupForm === "monthly"
-			? MONTHLY_EVENT_DAYS.map((day) => [
-					String(day),
-					monthlyDayLabel(day),
-					eventDays.some(
+			? MONTHLY_EVENT_DAYS.map((day) => {
+					const alreadySelected = eventDays.some(
 						(sibling) => sibling.uuid !== event.uuid && sibling.day === day,
-					),
-				])
-			: timedSetupForm === "weekly"
-				? WEEKDAY_NAMES.map((_, day) => [
+					);
+					return [
 						String(day),
-						WEEKDAY_NAMES[((startDayOfWeek ?? 0) + day) % 7] ??
-							"Unknown weekday",
-						eventDays.some(
+						alreadySelected
+							? `${monthlyDayLabel(day)} (already selected)`
+							: monthlyDayLabel(day),
+						alreadySelected,
+					];
+				})
+			: timedSetupForm === "weekly"
+				? WEEKDAY_NAMES.map((_, day) => {
+						const label =
+							WEEKDAY_NAMES[((startDayOfWeek ?? 0) + day) % 7] ??
+							"Unknown weekday";
+						const alreadySelected = eventDays.some(
 							(sibling) => sibling.uuid !== event.uuid && sibling.day === day,
-						),
-					])
+						);
+						return [
+							String(day),
+							alreadySelected ? `${label} (already selected)` : label,
+							alreadySelected,
+						];
+					})
 				: Array.from(
 						{
 							length: Math.max(
@@ -4086,7 +4163,7 @@ function EventEditor({
 						{timed.timing.kind === "case-property-time" ? (
 							<Labeled
 								label="Time property"
-								hint="After trimming, the value must begin with H:MM or HH:MM and be entirely parseable as a time. AM/PM and seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM"
+								hint="After trimming, the value must start with H:MM or HH:MM and contain a complete time. AM, PM, and seconds are accepted. Blank or unrecognized values use 12:00 PM"
 							>
 								<Input
 									value={timed.timing.property}
@@ -4299,8 +4376,8 @@ function EventEditor({
 						]}
 						hint={
 							"expirationHours" in content
-								? "Comma separated; their total must be shorter than the survey expiration"
-								: "Comma separated; leave blank for none"
+								? "Separate minutes with commas. Their total must be shorter than the survey expiration"
+								: "Separate minutes with commas, or leave blank for none"
 						}
 						onChange={(intervals) =>
 							updateContent((item) => {

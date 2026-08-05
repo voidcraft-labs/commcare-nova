@@ -111,7 +111,7 @@ export function EntryRow({
 					width="15"
 					height="15"
 					aria-hidden="true"
-					className="shrink-0 text-nova-text-muted transition-transform duration-150 group-data-[panel-open]:rotate-90 motion-reduce:transition-none"
+					className="shrink-0 translate-y-px text-nova-text-muted transition-transform duration-150 group-data-[panel-open]:rotate-90 motion-reduce:transition-none"
 				/>
 				<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
 					{summary}

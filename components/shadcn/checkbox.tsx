@@ -15,7 +15,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
 			// The `after:` inset stretches the pointer target to the 44px floor
 			// around the 16px visual box.
 			className={cn(
-				"nova-focusable peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-input bg-nova-deep transition-colors outline-none group-has-disabled/field:opacity-(--disabled-opacity) after:absolute after:-inset-x-3.5 after:-inset-y-3.5 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-checked:border-transparent data-checked:bg-nova-action data-checked:text-nova-action-ink not-disabled:data-checked:hover:bg-nova-action-hover",
+				"nova-focusable peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-input bg-nova-deep transition-colors outline-none group-has-disabled/field:opacity-(--disabled-opacity) after:absolute after:-inset-x-3.5 after:-inset-y-3.5 data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-checked:border-transparent data-checked:bg-nova-action data-checked:text-nova-action-ink not-data-disabled:data-checked:hover:bg-nova-action-hover",
 				className,
 			)}
 			{...props}
