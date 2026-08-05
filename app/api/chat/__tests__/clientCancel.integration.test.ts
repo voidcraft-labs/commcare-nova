@@ -149,6 +149,9 @@ const WAIT_APP = "app-serialize-wait-snapshot";
 const WAIT_THREAD = "thread-serialize-wait-snapshot";
 const MOVED_PROJECT = "project-after-serialize-wait";
 const REPLACEMENT_NONCE = "00000000-0000-4000-8000-000000000099";
+const PAUSED_BUILD_APP = "app-paused-build-mode";
+const PAUSED_BUILD_RUN = "run-paused-build-mode";
+const PAUSED_BUILD_THREAD = "thread-paused-build-mode";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -950,5 +953,145 @@ describe("free-continuation resume admission", () => {
 		expect(completeAndSettleRunMock).not.toHaveBeenCalled();
 		expect(failAppMock).not.toHaveBeenCalled();
 		expect(clearRunLockMock).not.toHaveBeenCalled();
+	}, 30_000);
+});
+
+describe("server-derived build-vs-edit mode", () => {
+	/** Seed a PAUSED mid-build app (status `generating`, `awaiting_input`, a
+	 *  build-shaped holder) plus the thread its answer round belongs to, and
+	 *  point the snapshot mock at the persisted row. The regression fixture: a
+	 *  `/build/new` tab whose phase derivation drifted to Ready answers with
+	 *  `appReady: true`, and only the app row knows better. */
+	async function seedPausedBuild(): Promise<void> {
+		await seedCanonicalApp({
+			id: PAUSED_BUILD_APP,
+			name: "Paused build app",
+			overrides: {
+				status: "generating",
+				awaiting_input: true,
+				run_id: PAUSED_BUILD_RUN,
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: USER,
+				res_run_id: PAUSED_BUILD_RUN,
+			},
+		});
+		await appDb
+			.insertInto("threads")
+			.values({
+				thread_id: PAUSED_BUILD_THREAD,
+				app_id: PAUSED_BUILD_APP,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "build",
+				summary: "Paused build answer",
+				run_id: PAUSED_BUILD_RUN,
+				active_stream_id: null,
+				active_holder_nonce: null,
+				messages: JSON.stringify([]),
+			})
+			.execute();
+		const { loadApp } = await import("@/lib/db/apps");
+		const app = await loadApp(PAUSED_BUILD_APP);
+		if (!app) throw new Error("paused-build fixture app was not persisted");
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
+			app,
+			projectId: PROJECT,
+			role: "editor",
+			canEdit: true,
+			baseSeq: app.mutation_seq,
+			actorUserId: USER,
+		});
+	}
+
+	it("resumes a paused build's answer as a BUILD even when the client claims appReady", async () => {
+		await seedPausedBuild();
+		/* Bail on `released` so the test pins only the admission decision: the
+		 * mode argument is the whole regression (the client's `appReady: true`
+		 * used to resume this as an `edit` against the build holder, and every
+		 * answer bounced as superseded). */
+		reacquireLeaseMock.mockResolvedValueOnce({ outcome: "released" });
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: PAUSED_BUILD_APP,
+					appReady: true,
+					threadId: PAUSED_BUILD_THREAD,
+					runId: PAUSED_BUILD_RUN,
+					holderNonce: REPLACEMENT_NONCE,
+					messages: [
+						{
+							id: "paused-build-user",
+							role: "user",
+							parts: [{ type: "text", text: "Build a nutrition app." }],
+						},
+						{
+							id: "paused-build-answer",
+							role: "assistant",
+							parts: [{ type: "text", text: "Questions answered." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const wire = await response.text();
+		expect(reacquireLeaseMock).toHaveBeenCalledWith(
+			PAUSED_BUILD_APP,
+			PAUSED_BUILD_RUN,
+			REPLACEMENT_NONCE,
+			"build",
+			USER,
+			PROJECT,
+		);
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+		expect(wire).toContain('"type":"run_released"');
+	}, 30_000);
+
+	it("claims a chargeable turn on a non-complete app as a BUILD at the build rate", async () => {
+		await seedPausedBuild();
+		/* Reject the claim with an infrastructure error so the request stops at
+		 * the claim boundary; the assertion is the claim's mode + cost, which
+		 * used to follow the client's `appReady: true` (edit, 5 credits). */
+		claimAndReserveRunMock.mockRejectedValueOnce(
+			new Error("claim interception: arguments are the assertion"),
+		);
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: PAUSED_BUILD_APP,
+					appReady: true,
+					threadId: "thread-paused-build-chargeable",
+					messages: [
+						{
+							id: "paused-build-new-instruction",
+							role: "user",
+							parts: [{ type: "text", text: "Start over with two modules." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(503);
+		expect(claimAndReserveRunMock).toHaveBeenCalledWith(
+			PAUSED_BUILD_APP,
+			"build",
+			expect.any(String),
+			USER,
+			100,
+			PROJECT,
+			expect.any(String),
+		);
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
 	}, 30_000);
 });

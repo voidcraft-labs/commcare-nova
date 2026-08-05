@@ -394,26 +394,31 @@ function createChatInstance(
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	appGeneratingRef: { current: boolean },
+	autoResendHaltRef: { current: boolean },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
 	},
 	projectToast: ProjectToastEmitter,
 	ownerScopeEpoch: number,
 ): Chat<NovaUIMessage> {
+	/* A fresh Chat instance starts unhalted: the latch guards runs of THIS
+	 * instance, not whatever a previously open thread ended on. */
+	autoResendHaltRef.current = false;
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
 	 * authorization read. We send only the `appId`; `hasData` still feeds the
 	 * `appReady` phase derivation below.
 	 *
-	 * `appReady` gates whether the server strips generation tools (editing
-	 * mode) vs exposes them (build mode). We use the derived phase as the
-	 * single source of truth: Ready or Completed both imply "app is usable,
-	 * this is an edit-mode request." Generating / Idle / Loading all mean
-	 * "don't strip tools." This handles the askQuestions-auto-resend during an
-	 * initial build correctly: the buffer still carries the build's
-	 * stage-tagged events and `runStartedWithData` captured the pre-creation
-	 * `/build/new` state, so phase stays Generating → appReady=false even after
-	 * the canonical starter receipt hydrates → the build tools remain available. */
+	 * `appReady` here is ADVISORY: the route derives the authoritative
+	 * build-vs-edit mode (charge, claim, resume, prompt) from the app row's
+	 * own status and only compares this field against it for telemetry. It is
+	 * still computed honestly because the SAME derivation drives this tab's
+	 * chrome and cost chip, and a value that tracks the server keeps that
+	 * telemetry quiet. The phase alone is NOT a sufficient read for an
+	 * unfinished build: `endRun` clears the events buffer on EVERY stream
+	 * close, an askQuestions pause included, so a paused build's answer send
+	 * derives phase Ready off the committed modules. `unfinishedBuild` below
+	 * is what actually keeps such sends reading as build-mode. */
 	const requestFields = () => {
 		const doc = docStoreRef.current?.getState();
 		const session = sessionStoreRef.current;
@@ -498,22 +503,36 @@ function createChatInstance(
 			 * the headers: the transport sends exactly what this returns, and a
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
-			prepareSendMessagesRequest: ({ api, messages, trigger }) => ({
-				api,
-				headers: { "content-type": "application/json" },
-				body: {
-					messages,
-					...requestFields(),
-					/* `regenerate()` fires in exactly one place: the instance-death
-					 * re-drive, so the trigger doubles as the wire flag. The route
-					 * treats a re-drive's claim conflict as "someone else already
-					 * re-drove this" and closes clean instead of queueing a
-					 * duplicate run. */
-					...(trigger === "regenerate-message" ? { redrive: true } : {}),
-				},
-			}),
+			prepareSendMessagesRequest: ({ api, messages, trigger }) => {
+				/* Every outbound request is a fresh attempt: release the
+				 * fatal-error halt so its own outcome decides the next one. */
+				autoResendHaltRef.current = false;
+				return {
+					api,
+					headers: { "content-type": "application/json" },
+					body: {
+						messages,
+						...requestFields(),
+						/* `regenerate()` fires in exactly one place: the instance-death
+						 * re-drive, so the trigger doubles as the wire flag. The route
+						 * treats a re-drive's claim conflict as "someone else already
+						 * re-drove this" and closes clean instead of queueing a
+						 * duplicate run. */
+						...(trigger === "regenerate-message" ? { redrive: true } : {}),
+					},
+				};
+			},
 		}),
 		sendAutomaticallyWhen: (args) => {
+			/* A run that ended in a FATAL generation error halts the answered-
+			 * askQuestions auto-resend until the user acts (answers again, sends
+			 * a message, or reloads). The route's graceful bails (superseded /
+			 * released resumes and their kin) stream that error and close CLEAN,
+			 * so without this latch the SDK's post-request evaluation still sees
+			 * an answered round as the last message and immediately re-sends: one
+			 * rejection became an unattended ~1/s retry loop measured at 6,369
+			 * POSTs before the tab closed. */
+			if (autoResendHaltRef.current) return false;
 			const owner = sessionStoreRef.current?.getState();
 			return (
 				chatGenerationCanWrite(
@@ -540,6 +559,20 @@ function createChatInstance(
 				type: string;
 				data: Record<string, unknown>;
 			};
+			/* Arm the auto-resend halt the moment a run reports a FATAL error
+			 * (the same envelope the dispatcher toasts). It must be read off the
+			 * stream here, not inferred later: the bail stream closes cleanly, so
+			 * by the time the SDK evaluates `sendAutomaticallyWhen` the failed
+			 * response has left no message behind to tell this round apart from
+			 * one that was never tried. */
+			if (type === "data-conversation-event") {
+				const payload = (data as { payload?: unknown }).payload as
+					| { type?: string; error?: { fatal?: boolean } }
+					| undefined;
+				if (payload?.type === "error" && payload.error?.fatal === true) {
+					autoResendHaltRef.current = true;
+				}
+			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
 				/* Set the reconciler's active run id BEFORE any frame can arrive,
@@ -612,6 +645,14 @@ function createChatInstance(
 					);
 					return;
 				}
+				/* This tab now owns an UNFINISHED build. The RSC page only seeds
+				 * this ref for tabs that LOADED a generating app; a `/build/new`
+				 * tab must latch it at creation or its later sends read as
+				 * edit-mode the moment the phase derivation loses the run (an
+				 * askQuestions pause clears the events buffer, and the committed
+				 * starter modules make the doc read Ready). `data-done` below is
+				 * the matching release. */
+				appGeneratingRef.current = true;
 				installCreatedApp(
 					activation,
 					docApi,
@@ -701,6 +742,12 @@ export function ChatContainer({
 	 *  `requestFields` to keep sends in build mode until a run completes. */
 	const appGeneratingRef = useRef(!!appGenerating);
 	appGeneratingRef.current = !!appGenerating;
+	/** Set while a run's FATAL error blocks the answered-askQuestions
+	 *  auto-resend; armed by the Chat instance's stream handler, released by a
+	 *  fresh user answer (`handleToolOutput`), any outbound request, or a new
+	 *  Chat instance. Lives on the component so the answer path can release
+	 *  what the factory's closures armed. */
+	const autoResendHaltRef = useRef(false);
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	const holderNonceRef = useRef<string | undefined>(
 		initialThread?.holder_nonce,
@@ -817,6 +864,7 @@ export function ChatContainer({
 				reconcilerCtxRef,
 				ownUserIdRef,
 				appGeneratingRef,
+				autoResendHaltRef,
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
@@ -845,6 +893,7 @@ export function ChatContainer({
 			reconcilerCtxRef,
 			ownUserIdRef,
 			appGeneratingRef,
+			autoResendHaltRef,
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
@@ -1484,6 +1533,11 @@ export function ChatContainer({
 				session.scopeEpoch !== scopeEpoch
 			)
 				return;
+			/* A fresh answer is the user asking to try again: release the
+			 * fatal-error halt BEFORE the SDK's post-output auto-resend
+			 * evaluation runs, so re-answering a failed round works without a
+			 * reload while the halt still stops unattended loops. */
+			autoResendHaltRef.current = false;
 			addToolOutput(params);
 		},
 		[addToolOutput, scopeEpoch],

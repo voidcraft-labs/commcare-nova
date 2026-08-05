@@ -29,6 +29,30 @@ import {
 	streamText,
 } from "ai";
 import type { ZodType } from "zod";
+import { log } from "@/lib/logger";
+
+/**
+ * Record the shape of a structured generation that yielded no parseable
+ * object. Every call runs the provider stateless (`store: false`), so there is
+ * no dashboard record to consult afterward: the finish reason, token usage,
+ * response id, and how much text actually came back are captured here or lost.
+ * They discriminate the failure modes cleanly — a zero-length text on a `stop`
+ * finish is the model returning nothing at all, which needs a very different
+ * follow-up from a 128k truncation or fenced/malformed JSON (whose opening
+ * bytes `textHead` shows).
+ */
+function logUnparseableStructuredOutput(err: unknown): void {
+	if (!NoObjectGeneratedError.isInstance(err)) return;
+	log.error("[subGeneration] structured output was unparseable", err, {
+		finishReason: err.finishReason,
+		responseId: err.response?.id,
+		modelId: err.response?.modelId,
+		inputTokens: err.usage?.inputTokens,
+		outputTokens: err.usage?.outputTokens,
+		textLength: err.text?.length ?? 0,
+		textHead: err.text?.slice(0, 200),
+	});
+}
 
 /** The provider-options shape `generateObject` accepts (e.g. a provider's
  *  reasoning depth). `ai` declares this internally but doesn't export the
@@ -125,6 +149,7 @@ export async function generateObjectWith<T>(opts: {
 		// caller can meter spent tokens and detect truncation. Any other error (a
 		// real network/auth/server failure) propagates.
 		if (NoObjectGeneratedError.isInstance(err)) {
+			logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,
@@ -244,7 +269,10 @@ export async function streamObjectWith<T>(opts: {
 		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
 		const object = await result.output.then(
 			(o) => o as T,
-			() => null,
+			(err: unknown) => {
+				logUnparseableStructuredOutput(err);
+				return null;
+			},
 		);
 		return { object, usage, warnings, finishReason };
 	} catch (err) {
@@ -255,6 +283,7 @@ export async function streamObjectWith<T>(opts: {
 		// (which fails the suite). The original error is what the caller classifies.
 		for (const p of pending) void Promise.resolve(p).catch(() => {});
 		if (NoObjectGeneratedError.isInstance(err)) {
+			logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,

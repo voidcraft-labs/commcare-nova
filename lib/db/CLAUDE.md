@@ -426,7 +426,10 @@ with an explicit allowance (its value is credit policy, seeded in code).
 
 ## Pricing + the charge signal
 
-Build = 100 credits, edit = 5 (`chargeAmount(appReady)`). `isChargeableTurn`
+Build = 100 credits, edit = 5 (`chargeAmount(appReady)`), with `appReady`
+derived SERVER-SIDE from the app row's status (only a `complete` app charges
+the edit rate; the client's own `appReady` claim feeds nothing but the
+advisory pre-flight balance read). `isChargeableTurn`
 decides charge vs. free continuation off the **last message's role**: a fresh
 instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
 ends with the SA's `assistant` (free). It MUST read the **raw

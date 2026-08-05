@@ -60,7 +60,7 @@ import {
 	CommitReauthError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD, chargeAmount } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
@@ -207,13 +207,19 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array and the raw `body.appReady`. The last message's ROLE is the charge
-	 * signal (a fresh instruction ends with `user`; an answered-askQuestions
-	 * auto-resend ends with `assistant` and rides free), so any future
-	 * transform of the history the SA receives must not feed back into this
-	 * read. (`validateChatMessages` only validates + types the array; it does
-	 * not reorder or trim, so `messages` here is still the raw history.) */
-	const { chargeable, cost } = creditGateDecision({
+	 * array. The last message's ROLE is the charge signal (a fresh instruction
+	 * ends with `user`; an answered-askQuestions auto-resend ends with
+	 * `assistant` and rides free), so any future transform of the history the
+	 * SA receives must not feed back into this read. (`validateChatMessages`
+	 * only validates + types the array; it does not reorder or trim, so
+	 * `messages` here is still the raw history.)
+	 *
+	 * `preflightCost` uses the CLIENT's claimed `appReady` and feeds only the
+	 * advisory fast-fail balance read below. The authoritative charge is
+	 * recomputed from the app row's own status once the app is created/loaded
+	 * (`appReady` / `cost` below), so a client that misreports its mode cannot
+	 * change what a run costs or which mode it claims. */
+	const { chargeable, cost: preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		appReady: !!body.appReady,
 	});
@@ -260,7 +266,7 @@ export async function POST(req: Request) {
 
 		if (chargeable) {
 			const balance = await getCurrentCreditBalance(userId);
-			if (balance < cost) {
+			if (balance < preflightCost) {
 				return Response.json(
 					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
 					{ status: 429 },
@@ -279,7 +285,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { runId, appReady } = parsed.data;
+	const { runId } = parsed.data;
 	/* A turn without a thread id starts a fresh server-minted thread (see the
 	 * schema): the conversation persists either way. */
 	const threadId = parsed.data.threadId ?? crypto.randomUUID();
@@ -425,6 +431,20 @@ export async function POST(req: Request) {
 	 * answers and be REAPED, freeing the app for another run. Done inside `execute`
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
+	/* Build-vs-edit, derived SERVER-SIDE from the app row and nothing else: a
+	 * new build and any app not at `complete` (a `generating` build, a paused
+	 * askQuestions round, a reaped build being re-driven) run as BUILD; only a
+	 * `complete` app runs as EDIT. This one value drives the charge, the claim
+	 * mode, the resume mode, the SA prompt/effort, and the lease heartbeat, so
+	 * they cannot disagree. The client still sends its own `appReady` for its
+	 * UI, but it is advisory here: trusting it once let a paused build's answer
+	 * resume as an EDIT against the BUILD holder, which rejected every answer
+	 * as superseded (the storm behind the `paused_timeout` reap this fixes). */
+	let appReady = false;
+	/* The authoritative charge for a chargeable POST, set in both admission
+	 * branches below once `appReady` is known; `preflightCost` above remains
+	 * the advisory fast-fail figure. */
+	let cost = 0;
 	if (!appId) {
 		const expectedProjectId = parsed.data.expectedProjectId;
 		if (expectedProjectId === undefined) {
@@ -495,6 +515,9 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+		/* A brand-new app is a BUILD by definition: `appReady` stays false and
+		 * the charge is the build rate, whatever the client claimed. */
+		cost = chargeable ? chargeAmount(false) : 0;
 		/* Reserve the new build's credits: one transaction over the app row the
 		 * create just wrote (the row itself is the claim: `createApp` writes it
 		 * `generating` BEFORE this, so a second concurrent new build sees it in
@@ -592,6 +615,25 @@ export async function POST(req: Request) {
 			}
 			throw err;
 		}
+		/* The authoritative mode read: only a `complete` app is EDIT-shaped. A
+		 * `generating` app (live or paused mid-build) and an `error` app (a
+		 * reaped build awaiting re-drive; a failed edit never flips its app to
+		 * `error`) both continue as BUILDS, so a paused build's answer resumes
+		 * against the build holder and a re-drive re-claims at the build rate. */
+		appReady = loadedApp.status === "complete";
+		cost = chargeable ? chargeAmount(appReady) : 0;
+		if (!!parsed.data.appReady !== appReady) {
+			/* Not an error: the request proceeds on the derived mode. The warn is
+			 * the visibility into clients whose own phase read disagrees (the bug
+			 * this derivation retired: a `/build/new` tab answering a paused
+			 * build's questions as an edit) and into stale pre-fix tabs. */
+			log.warn("[chat] client appReady disagrees with app status", {
+				appId,
+				clientAppReady: !!parsed.data.appReady,
+				derivedAppReady: appReady,
+				appStatus: loadedApp.status,
+			});
+		}
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
 			 * AND reserves its credits in ONE transaction: a BUILD-mode
@@ -609,7 +651,7 @@ export async function POST(req: Request) {
 			 * claim+reserve sequence into `execute` behind a poll-wait
 			 * (`waitForClaim`), so a second collaborator's request serializes
 			 * behind the holder instead of bouncing. */
-			claimMode = parsed.data.appReady ? "edit" : "build";
+			claimMode = appReady ? "edit" : "build";
 			try {
 				claimedRun = await claimAndReserveRun(
 					appId,
@@ -697,7 +739,7 @@ export async function POST(req: Request) {
 	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
 	 * The run-shape fields are seeded from what this POST already knows
-	 * (`appReady` from the request, the
+	 * (`appReady` derived from the app row's status, the
 	 * authorization read's module count) and re-written via
 	 * `usage.configureRun()` inside the execute block at their authoritative
 	 * moment. The seed must be REAL, not placeholder: `prompt_mode` /
@@ -1367,6 +1409,9 @@ export async function POST(req: Request) {
 				 * Authorization, Project-scope, and infrastructure failures all fail CLOSED:
 				 * the route emits one terminal error and never starts the SA. */
 				if (resumeMustCheckSupersede) {
+					/* The server-derived mode: a paused build resumes as a BUILD even
+					 * when the answering tab's own phase read drifted (the exact drift
+					 * that once resumed answers as edits and bounced every one). */
 					const resumeMode = appReady ? "edit" : "build";
 					let reacquire:
 						| ReacquireOutcome
@@ -1668,13 +1713,13 @@ export async function POST(req: Request) {
 				}
 
 				try {
-					/* Editing vs. build: determined by appReady alone. If the app
-					 * exists (builder phase Ready/Completed), the SA gets the editing
-					 * prompt + medium reasoning effort; a build gets the build prompt
-					 * at the xhigh ceiling. This holds for the entire edit session,
-					 * including follow-up requests after askQuestions rounds. appReady
-					 * is false during initial generation even after modules exist, so
-					 * a build's follow-up turns keep build mode mid-build. */
+					/* Editing vs. build: determined by the server-derived appReady
+					 * alone (the app row's status at admission). A `complete` app
+					 * gets the editing prompt + medium reasoning effort; everything
+					 * else, including a paused build's answered askQuestions round
+					 * and a reaped build's re-drive, gets the build prompt at the
+					 * xhigh ceiling, so a build's follow-up turns keep build mode
+					 * mid-build whatever the client's own phase read says. */
 					const editing = !!appReady;
 					const saModel = editing ? SA_EDIT_MODEL : SA_BUILD_MODEL;
 

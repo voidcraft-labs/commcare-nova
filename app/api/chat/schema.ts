@@ -56,9 +56,12 @@ export const chatRequestSchema = z.object({
 		.max(255)
 		.refine((value) => value.trim().length > 0)
 		.optional(),
-	/** True when the app has completed initial generation (builder phase is Ready
-	 *  or Completed). Prevents fresh-edit mode from activating mid-generation
-	 *  when modules exist but the build isn't finished yet. */
+	/** The client's own read of "the app has completed initial generation"
+	 *  (builder phase Ready or Completed). ADVISORY ONLY: the route derives the
+	 *  authoritative build-vs-edit mode from the app row's status (only
+	 *  `complete` is edit-shaped) and uses this field solely for the advisory
+	 *  pre-flight balance read and a disagreement warn. It stays on the wire so
+	 *  the server can see when a client's phase read has drifted. */
 	appReady: z.boolean().optional(),
 	/** True on the client's automatic re-drive of an instance-killed run (the
 	 *  loader detected a dead live-stream marker and the thread's last turn is
