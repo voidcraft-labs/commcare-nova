@@ -32,7 +32,8 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
-import { CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
+import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
+import { getCurrentPeriod } from "@/lib/db/period";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 
@@ -155,6 +156,11 @@ const PAUSED_BUILD_RUN = "run-paused-build-mode";
 const PAUSED_BUILD_THREAD = "thread-paused-build-mode";
 const ADOPT_APP = "app-serialize-wait-adopt";
 const ADOPT_THREAD = "thread-serialize-wait-adopt";
+const FASTFAIL_APP = "app-fastfail-build-rate";
+const DIRECT_ADOPT_APP = "app-direct-adopt-readmit";
+const DIRECT_ADOPT_THREAD = "thread-direct-adopt-readmit";
+const WAITFAIL_APP = "app-wait-adopt-summary";
+const WAITFAIL_THREAD = "thread-wait-adopt-summary";
 const MEMBER = "user-cancel-member";
 
 const PAUSED_USAGE = {
@@ -1250,5 +1256,253 @@ describe("server-derived build-vs-edit mode", () => {
 			res_user_id: USER,
 		});
 		expect(failAppMock).not.toHaveBeenCalled();
+	}, 30_000);
+
+	it("fast-fails an unaffordable build-mode turn at the derived rate instead of serialize-waiting", async () => {
+		/* The pre-flight only proved the 5-credit FLOOR (the app row wasn't
+		 * loaded yet). Once admission derives the 100-credit build rate, the
+		 * route must re-run the advisory read: without it this POST (balance
+		 * 50, app held by a live build) would open its stream and serialize-
+		 * wait out the whole hold, only for the in-transaction affordability
+		 * check to reject minutes later. */
+		await seedCanonicalApp({
+			id: FASTFAIL_APP,
+			name: "Unaffordable build app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build-live",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build-live",
+			},
+		});
+		const { loadApp } = await import("@/lib/db/apps");
+		const app = await loadApp(FASTFAIL_APP);
+		if (!app) throw new Error("fast-fail fixture app was not persisted");
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
+			app,
+			projectId: PROJECT,
+			role: "editor",
+			canEdit: true,
+			baseSeq: app.mutation_seq,
+			actorUserId: USER,
+		});
+		await appDb
+			.insertInto("credit_months")
+			.values({
+				user_id: USER,
+				period: getCurrentPeriod(),
+				allowance: 2000,
+				consumed: 1950,
+				bonus: 0,
+				updated_at: new Date().toISOString(),
+			})
+			.execute();
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: FASTFAIL_APP,
+					threadId: "thread-fastfail-build-rate",
+					messages: [
+						{
+							id: "fastfail-user",
+							role: "user",
+							parts: [{ type: "text", text: "Add another module." }],
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(429);
+		const body = (await response.json()) as { type: string };
+		expect(body.type).toBe("out_of_credits");
+		expect(claimAndReserveRunMock).not.toHaveBeenCalled();
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+	}, 30_000);
+
+	it("re-admits from a fresh snapshot when the direct-path claim rejects a stale mode", async () => {
+		/* The stale-snapshot direction the direct path can hit: the unlocked
+		 * admission read said `complete` (edit-shaped) but the locked row is
+		 * `error` (build-shaped: a reaped build awaiting re-drive, free to
+		 * claim). The flip PROVES the row changed, so the adoption must
+		 * re-read the authorized snapshot — the SA seeds its working doc from
+		 * it — rather than patching the mode alone and building against the
+		 * stale document. */
+		await seedCanonicalApp({
+			id: DIRECT_ADOPT_APP,
+			name: "Fresh build app",
+			overrides: { status: "error" },
+		});
+		const { loadApp } = await import("@/lib/db/apps");
+		const app = await loadApp(DIRECT_ADOPT_APP);
+		if (!app) throw new Error("direct-adopt fixture app was not persisted");
+		resolveAuthorizedAppSnapshotMock
+			.mockResolvedValueOnce({
+				app: {
+					...app,
+					status: "complete",
+					blueprint: { ...app.blueprint, appName: "Stale complete snapshot" },
+				},
+				projectId: PROJECT,
+				role: "editor",
+				canEdit: true,
+				baseSeq: app.mutation_seq,
+				actorUserId: USER,
+			})
+			.mockResolvedValue({
+				app,
+				projectId: PROJECT,
+				role: "editor",
+				canEdit: true,
+				baseSeq: app.mutation_seq,
+				actorUserId: USER,
+			});
+		createSolutionsArchitectMock.mockImplementation(() => ({
+			tools: {},
+			stream: async () => {
+				const feed = new ChunkFeed();
+				feed.push(
+					{ type: "start" },
+					{ type: "start-step" },
+					{ type: "finish-step" },
+					{ type: "finish" },
+				);
+				feed.end();
+				return feed.asAgentResult();
+			},
+		}));
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: DIRECT_ADOPT_APP,
+					appReady: true,
+					threadId: DIRECT_ADOPT_THREAD,
+					messages: [
+						{
+							id: "direct-adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Continue the build." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wire = await response.text();
+		expect(wire).not.toContain('"fatal":true');
+
+		/* The stale EDIT claim rejected against the locked build-shaped row and
+		 * the retry adopted BUILD at the build rate. */
+		const firstClaim = claimAndReserveRunMock.mock.calls[0];
+		expect(firstClaim?.[1]).toBe("edit");
+		expect(firstClaim?.[4]).toBe(CREDITS_PER_EDIT);
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("build");
+		expect(lastClaim?.[4]).toBe(CREDITS_PER_BUILD);
+
+		/* The adoption re-read the snapshot, and the SA seeded from the FRESH
+		 * document, not the stale pre-flip capture. */
+		expect(
+			resolveAuthorizedAppSnapshotMock.mock.calls.length,
+		).toBeGreaterThanOrEqual(2);
+		const saCall = createSolutionsArchitectMock.mock.calls[0];
+		expect(saCall?.[1]?.appName).toBe("Fresh build app");
+		expect(saCall?.[2]).toBe(false);
+	}, 30_000);
+
+	it("a wait-path adoption that fails before SA construction still flushes the ADOPTED mode to its run summary", async () => {
+		/* The accumulator was seeded with the PRE-WAIT mode (build). The poll
+		 * loop adopts EDIT mid-wait, wins, and then the post-win snapshot read
+		 * faults — a death BEFORE the SA-construction `configureRun` that used
+		 * to be the only mode correction. The flushed summary must describe
+		 * the mode the claim actually booked, or admin inspect reads a phantom
+		 * zero-module build failure. */
+		await seedCanonicalApp({
+			id: WAITFAIL_APP,
+			name: "Wait adopt summary app",
+			overrides: {
+				status: "generating",
+				run_id: "run-other-build-summary",
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: MEMBER,
+				res_run_id: "run-other-build-summary",
+			},
+		});
+		const { loadApp } = await import("@/lib/db/apps");
+		const app = await loadApp(WAITFAIL_APP);
+		if (!app) throw new Error("wait-adopt fixture app was not persisted");
+		resolveAuthorizedAppSnapshotMock
+			.mockResolvedValueOnce({
+				app,
+				projectId: PROJECT,
+				role: "editor",
+				canEdit: true,
+				baseSeq: app.mutation_seq,
+				actorUserId: USER,
+			})
+			.mockRejectedValue(new Error("post-win snapshot connection dropped"));
+
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					appId: WAITFAIL_APP,
+					threadId: WAITFAIL_THREAD,
+					messages: [
+						{
+							id: "wait-adopt-user",
+							role: "user",
+							parts: [{ type: "text", text: "Rename the app." }],
+						},
+					],
+				}),
+			}),
+		);
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		await pollFor(async () => {
+			const rows = await appDb
+				.selectFrom("events")
+				.select("event")
+				.where("app_id", "=", WAITFAIL_APP)
+				.execute();
+			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
+				? true
+				: undefined;
+		});
+		await appDb
+			.updateTable("apps")
+			.set({ status: "complete", awaiting_input: false, res_settled: true })
+			.where("id", "=", WAITFAIL_APP)
+			.execute();
+
+		const wire = await wirePromise;
+		expect(wire).toContain('"type":"internal"');
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+
+		/* The winning claim adopted edit; the flushed summary must say so. */
+		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
+		expect(lastClaim?.[1]).toBe("edit");
+		const summary = await appDb
+			.selectFrom("run_summaries")
+			.select(["prompt_mode", "app_ready"])
+			.where("app_id", "=", WAITFAIL_APP)
+			.executeTakeFirstOrThrow();
+		expect(summary).toEqual({ prompt_mode: "edit", app_ready: true });
 	}, 30_000);
 });

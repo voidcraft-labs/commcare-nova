@@ -642,6 +642,35 @@ export async function POST(req: Request) {
 				appStatus: loadedApp.status,
 			});
 		}
+		if (chargeable && cost > preflightCost) {
+			/* The gate upstream only proved the edit-rate FLOOR (the app row
+			 * wasn't loaded yet); this turn derived the BUILD rate. Re-run the
+			 * same advisory read at the authoritative amount: without it an
+			 * unaffordable build-mode turn sails past the floor, loses the claim
+			 * to a live holder, and serialize-waits out the whole hold only for
+			 * the in-transaction affordability check to reject what this read
+			 * can reject pre-stream. Advisory like the gate (the claim
+			 * transaction stays authoritative) and fails CLOSED the same way. */
+			try {
+				const balance = await getCurrentCreditBalance(userId);
+				if (balance < cost) {
+					return Response.json(
+						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+						{ status: 429 },
+					);
+				}
+			} catch (err) {
+				log.error("[chat] credit gate read failed", err);
+				return Response.json(
+					{
+						error:
+							"Unable to verify your credit balance. Please try again shortly.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+		}
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
 			 * AND reserves its credits in ONE transaction: a BUILD-mode
@@ -685,9 +714,36 @@ export async function POST(req: Request) {
 						break;
 					} catch (err) {
 						if (err instanceof ClaimModeStaleError && attempt < 2) {
-							appReady = err.statusMode === "edit";
+							/* The flip PROVES the app row changed since the unlocked
+							 * admission read, so re-admit from a fresh authorized
+							 * snapshot rather than patching the mode alone: the SA
+							 * seeds its working doc from `loadedApp`, and an adopted
+							 * EDIT run must edit the document the completed build
+							 * actually committed, not the mid-build capture. Mode +
+							 * rate re-derive from that same snapshot; a further flip
+							 * rejects again at the locked claim and consumes the next
+							 * bounded attempt. */
+							try {
+								const readmitted = await resolveAuthorizedAppSnapshot(
+									appId,
+									userId,
+									"edit",
+								);
+								loadedApp = readmitted.app;
+								projectId = readmitted.projectId;
+								projectRole = readmitted.role;
+							} catch (readmitErr) {
+								if (readmitErr instanceof AppAccessError) {
+									return Response.json(
+										{ error: "App not found", type: "not_found" },
+										{ status: 404 },
+									);
+								}
+								throw readmitErr;
+							}
+							appReady = loadedApp.status === "complete";
 							cost = chargeAmount(appReady);
-							claimMode = err.statusMode;
+							claimMode = appReady ? "edit" : "build";
 							continue;
 						}
 						if (err instanceof ClaimModeStaleError) {
@@ -1392,11 +1448,19 @@ export async function POST(req: Request) {
 					 * accumulator so the flush-time refund/settle targets the right
 					 * period (the seed left these unset for the wait path). A free
 					 * continuation never reaches here (it doesn't claim), so `chargeable`
-					 * is the didReserve signal. */
+					 * is the didReserve signal. The mode fields ride along because a
+					 * stale-mode adoption in the poll loop may have won under the OTHER
+					 * mode than the pre-wait seed pinned: a run that dies between this
+					 * win and the SA-construction `configureRun` still flushes a summary,
+					 * and it must describe the mode the claim actually booked. */
+					const wonEdit = claimedRun.mode === "edit";
 					usage.configureRun({
 						didReserve: chargeable,
 						...(chargeable ? { reservedAmount: cost } : {}),
 						...(reservation ? { chargePeriod: reservation.period } : {}),
+						promptMode: wonEdit ? "edit" : "build",
+						appReady: wonEdit,
+						model: wonEdit ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 					});
 					/* The context was built with the PRE-WAIT mode, and a stale-mode
 					 * adoption above may have won under the other one. Everything

@@ -60,9 +60,12 @@ function classifyUnparseableText(
  * documented job on an oversized document — an expected external condition,
  * so it logs as `warn` (Cloud-Logging-only); every other unparseable shape is
  * a model/parser defect and mirrors to Sentry as `error`.
+ *
+ * The parameter is `NoObjectGeneratedError`, not `unknown`, so a call site
+ * that failed to narrow is a compile error instead of a silent no-op — the
+ * exact observability gap this function exists to close.
  */
-function logUnparseableStructuredOutput(err: unknown): void {
-	if (!NoObjectGeneratedError.isInstance(err)) return;
+function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
 	const detail = {
 		finishReason: err.finishReason,
 		responseId: err.response?.id,
@@ -78,7 +81,22 @@ function logUnparseableStructuredOutput(err: unknown): void {
 			detail,
 		);
 	} else {
-		log.error("[subGeneration] structured output was unparseable", err, detail);
+		/* NEVER hand the raw error to the Sentry mirror: its cause chain
+		 * (JSONParseError / TypeValidationError) embeds the model's full raw
+		 * text in the cause MESSAGE, and Sentry's default linkedErrors
+		 * integration walks causes — the customer-document content this
+		 * function promises to keep out of logs would land in third-party
+		 * retention. A fresh cause-less error carries the grouping key;
+		 * `detail` already holds every safe fact. */
+		const sanitized = new Error(
+			`Structured output was unparseable (finishReason: ${detail.finishReason}, shape: ${detail.textShape})`,
+		);
+		sanitized.name = err.name;
+		log.error(
+			"[subGeneration] structured output was unparseable",
+			sanitized,
+			detail,
+		);
 	}
 }
 

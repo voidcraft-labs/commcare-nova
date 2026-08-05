@@ -428,8 +428,11 @@ with an explicit allowance (its value is credit policy, seeded in code).
 
 Build = 100 credits, edit = 5 (`chargeAmount(appReady)`), with `appReady`
 derived SERVER-SIDE from the app row's status (only a `complete` app charges
-the edit rate; the client's own `appReady` claim feeds nothing but the
-advisory pre-flight balance read). `isChargeableTurn`
+the edit rate; the client's own `appReady` claim feeds nothing but a
+disagreement warn — the advisory pre-flight balance read keys on `appId`
+PRESENCE: the exact build rate for a new build, the edit-rate floor for an
+existing app, then a second advisory read at the derived rate once the row is
+loaded so an unaffordable build-mode turn fails fast). `isChargeableTurn`
 decides charge vs. free continuation off the **last message's role**: a fresh
 instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
 ends with the SA's `assistant` (free). It MUST read the **raw
@@ -440,7 +443,7 @@ clarification round-trip.
 ## Claim and reserve are ONE transaction
 
 `claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId,
-holderNonce)`
+holderNonce, opts?)`
 (and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
 transaction: fresh Project `edit` authorization, then the busy check
 (`lease.live`, or a paused run of ANOTHER actor →
@@ -448,6 +451,13 @@ transaction: fresh Project `edit` authorization, then the busy check
 abandoned `askQuestions` round must not lock its own user out until the lease
 lapses; the leftover refund + claim writes below resolve it and its late
 answer bails via `reacquireLease`),
+then — when `opts.requireModeMatchesStatus` is set — a mode re-derivation off
+the LOCKED row's status (`complete` → edit, else build) that rejects a stale
+requested mode with `ClaimModeStaleError(statusMode)` carrying the row's own
+mode (the chat route always passes the flag: its mode was read off an
+unlocked snapshot, and on rejection it adopts the thrown mode + rate and
+retries bounded, so a claim can never book a mode the locked row no longer
+supports),
 the cross-app one-build-per-user scan (`GenerationInProgressError`), the
 unconditional refund of any leftover UNSETTLED marker (a superseded
 hard-killed run's stranded hold, refunded to ITS charged actor/period), the

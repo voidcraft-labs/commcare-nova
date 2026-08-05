@@ -29,6 +29,12 @@
  *                                manifest. Seq-less; the mutation cursor stays
  *                                exclusively on `mutation` frames.
  *   event: presence              the full presence roster snapshot.
+ *   event: app-status            the app row's run-lifecycle status
+ *                                (`generating | complete | error`). Emitted on
+ *                                connect and again when the reauthorization
+ *                                cadence observes a change — the channel that
+ *                                tells a tab not attached to a run's chat
+ *                                stream that a build finished. Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
@@ -44,6 +50,7 @@
 import { sql } from "kysely";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import type { AppStatusFrame } from "@/lib/collab/appStatusFrame";
 import { lookupManifestFrameSchema } from "@/lib/collab/lookupManifestFrame";
 import {
 	admitMutationFrame,
@@ -76,6 +83,7 @@ import {
 	runBeforeLookupManifestReadTestHook,
 	runBeforeMutationReadTestHook,
 } from "@/lib/db/streamReadTestHooks";
+import type { AppLifecycleStatus } from "@/lib/db/types";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
@@ -306,6 +314,18 @@ function openStream(args: {
 				function protocolFailureAndClose(reason: string): void {
 					send("protocol-failure", { reason });
 					teardown();
+				}
+
+				/* The last run-lifecycle status this connection announced. `null`
+				 * until the connect-time emit, so the first call always sends. The
+				 * value arrives already admitted through the closed vocabulary
+				 * (`parsePersistedAppLifecycleStatus` at the scope read), so the
+				 * frame is constructed typed rather than re-validated here. */
+				let announcedStatus: AppLifecycleStatus | null = null;
+				function sendAppStatus(status: AppLifecycleStatus): void {
+					if (closed || status === announcedStatus) return;
+					announcedStatus = status;
+					send("app-status", { status } satisfies AppStatusFrame);
 				}
 
 				/* SELECT every committed batch past the delivered cursor and emit it. The
@@ -569,6 +589,12 @@ function openStream(args: {
 					organizationPump.poke();
 					void emitRoster();
 
+					/* The connect-time status snapshot. The cadence below re-emits on
+					 * change; both go through the wire schema so a value the closed
+					 * vocabulary doesn't admit is dropped here rather than shipped to
+					 * every connected tab's pricing latch. */
+					sendAppStatus(scope.status);
+
 					/* Continuous revocation: re-run the session + scope check on a cadence and
 					 * close ONLY on a CONFIRMED denial: never on a transient backend blip.
 					 * The confirmed signals are:
@@ -623,6 +649,11 @@ function openStream(args: {
 								) {
 									reloadAndClose("authorization-changed");
 								}
+								/* Same tick, no extra read: announce a run-lifecycle change
+								 * (build finished, build failed, re-drive started) to tabs
+								 * that aren't attached to the run's own chat stream. No-op
+								 * when the reload above closed the connection. */
+								sendAppStatus(fresh.status);
 							} catch (err) {
 								if (err instanceof AppAccessError) {
 									revokeAndClose("access-revoked");

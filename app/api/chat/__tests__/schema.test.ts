@@ -19,4 +19,14 @@ describe("chatRequestSchema new-app scope", () => {
 				.success,
 		).toBe(false);
 	});
+
+	it("rejects an empty appId: presence is the existing-app classifier", () => {
+		/* The credit pre-flight keys on `appId !== undefined` while the
+		 * admission branch keys on truthiness. An empty string is the one value
+		 * the two reads would classify differently (edit-rate floor, then the
+		 * new-build branch minting an orphan app), so it must die at parse. */
+		expect(chatRequestSchema.safeParse({ appId: "" }).success).toBe(false);
+		expect(chatRequestSchema.safeParse({ appId: "app-1" }).success).toBe(true);
+		expect(chatRequestSchema.safeParse({}).success).toBe(true);
+	});
 });

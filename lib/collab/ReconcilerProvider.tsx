@@ -29,6 +29,7 @@
 import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { parseAppReadSnapshot } from "@/lib/collab/appReadSnapshot";
+import { parseAppStatusFrame } from "@/lib/collab/appStatusFrame";
 import { ReconcilerContext } from "@/lib/collab/context";
 import {
 	createLookupManifestBroker,
@@ -526,6 +527,25 @@ export function createReconcilerRuntime(
 		es.addEventListener("organization-revision", () => {
 			if (es !== eventSource) return;
 			for (const cb of [...organizationSubs]) cb();
+		});
+		es.addEventListener("app-status", (ev) => {
+			if (es !== eventSource) return;
+			const frame = parseAppStatusFrame((ev as MessageEvent).data);
+			if (frame === null) return; // malformed: leave the latch alone
+			/* Route the server's run-lifecycle read into the session store's
+			 * `buildUnfinished` latch — the release path for tabs that never see
+			 * the run's own chat stream (a second tab, a co-member watching a
+			 * teammate's build). Only `complete` is edit-shaped, exactly the
+			 * server's charge/claim rule: `generating` and `error` (an
+			 * interrupted build awaiting re-drive) both keep sends priced and
+			 * captured as builds. The own-stream releases (`data-done` /
+			 * `data-build-complete`) stay: they land instantly while this frame
+			 * rides a ~10 s cadence, and the actions are idempotent. */
+			if (frame.status === "complete") {
+				sessionStore.getState().markBuildFinished();
+			} else {
+				sessionStore.getState().markBuildUnfinished();
+			}
 		});
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;

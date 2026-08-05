@@ -620,7 +620,7 @@ beforeEach(async () => {
 		async (tx: Transaction<AppDatabase>, appId: string, userId: string) => {
 			const app = await tx
 				.selectFrom("apps")
-				.select("mutation_seq")
+				.select(["mutation_seq", "status"])
 				.where("id", "=", appId)
 				.executeTakeFirst();
 			if (!app) throw new MockAppAccessError("not_found");
@@ -629,6 +629,7 @@ beforeEach(async () => {
 				role: "editor",
 				canEdit: true,
 				baseSeq: Number(app.mutation_seq),
+				status: app.status,
 				actorUserId: userId,
 			};
 		},
@@ -851,6 +852,41 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					(frame.data as { projectRevision?: string }).projectRevision === "1",
 			),
 		).toBe(true);
+	});
+
+	it("announces the run-lifecycle status on connect and re-announces when the cadence sees it change", async () => {
+		const appId = await seedApp(0);
+		await appDb
+			.updateTable("apps")
+			.set({ status: "generating" })
+			.where("id", "=", appId)
+			.execute();
+
+		const { frames } = await collectUntil(appId, {
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "app-status" &&
+						(x.data as { status?: string }).status === "complete",
+				),
+			onOpen: async () => {
+				/* The connect-time scope already read `generating` (it resolved
+				 * before this callback runs), so this flip is only observable via
+				 * the reauthorization cadence — the exact channel that tells a
+				 * co-member's tab the build finished. */
+				await appDb
+					.updateTable("apps")
+					.set({ status: "complete" })
+					.where("id", "=", appId)
+					.execute();
+			},
+		});
+
+		const statusFrames = frames.filter((x) => x.event === "app-status");
+		expect(statusFrames[0]?.data).toEqual({ status: "generating" });
+		expect(statusFrames.at(-1)?.data).toEqual({ status: "complete" });
+		/* Seq-less: only mutation frames own Last-Event-ID. */
+		for (const frame of statusFrames) expect(frame.id).toBeUndefined();
 	});
 
 	it("emits an initial full lookup manifest without an SSE mutation id", async () => {
@@ -1287,6 +1323,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					role: "editor",
 					canEdit: true,
 					baseSeq: GENESIS_SEQ + 1,
+					status: "complete",
 					actorUserId: USER,
 				})
 				.mockResolvedValue({
@@ -1345,6 +1382,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				role: "editor",
 				canEdit: true,
 				baseSeq: GENESIS_SEQ + 2,
+				status: "complete",
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new MockAppAccessError("not_member"));
@@ -1491,6 +1529,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				role: "editor",
 				canEdit: true,
 				baseSeq: GENESIS_SEQ,
+				status: "complete",
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new MockAppAccessError("not_member"));
@@ -1531,6 +1570,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				role: "editor",
 				canEdit: true,
 				baseSeq: GENESIS_SEQ,
+				status: "complete",
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new Error("db blip"));

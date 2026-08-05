@@ -1218,6 +1218,22 @@ describe("reset", () => {
 		expect(s.focusHint).toBeUndefined();
 		expect(s.newFieldUuid).toBeUndefined();
 	});
+
+	it("preserves the buildUnfinished latch instead of re-seeding it from init", () => {
+		/* The latch is APP truth, not session state: re-seeding from the frozen
+		 * constructor init would resurrect a released latch (the app completed
+		 * its build, but a reset re-prices every edit as a build) and clear a
+		 * legitimately armed one. Both directions must survive a reset. */
+		const released = createBuilderSessionStore({ buildUnfinished: true });
+		released.getState().markBuildFinished();
+		released.getState().reset();
+		expect(released.getState().buildUnfinished).toBe(false);
+
+		const latched = createBuilderSessionStore();
+		latched.getState().markBuildUnfinished();
+		latched.getState().reset();
+		expect(latched.getState().buildUnfinished).toBe(true);
+	});
 });
 
 // ── Events buffer + run lifecycle ────────────────────────────────────────

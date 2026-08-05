@@ -218,9 +218,8 @@ type LoadedThreadDoc = ThreadDoc & { resume_interrupted?: boolean };
 /** Authority carried by a server-loaded thread. Every activation must adopt
  * both values together; an omitted nonce is itself authoritative and clears a
  * capability retained from an older activation. `buildUnfinished` is the
- * session store's live latch (callers pass `liveBuildUnfinished()`, or the
- * equal mount-time prop where the store isn't up yet): a resumed/re-driven
- * run on an unfinished build must capture as a build. */
+ * session store's live latch (every caller passes `liveBuildUnfinished()`):
+ * a resumed/re-driven run on an unfinished build must capture as a build. */
 export function authoritativeThreadActivationOptions(
 	thread: Pick<
 		LoadedThreadDoc,
@@ -718,11 +717,13 @@ export function ChatContainer({
 	const ownUserIdRef = useRef(currentUserId);
 	ownUserIdRef.current = currentUserId;
 	/** The LIVE unfinished-build signal, read at decision time. It lives in
-	 *  the session store (seeded by the page's `initialBuildUnfinished`,
-	 *  latched by `data-app-id`, released by `data-done`) — a component ref
-	 *  synced from the `appGenerating` prop cannot carry it, because the prop
-	 *  is frozen at page load (`/build/new` promotes via the History API, no
-	 *  RSC re-render) and a per-render sync would clobber every latch. */
+	 *  the session store: seeded by the page's `initialBuildUnfinished`,
+	 *  latched by `data-app-id`, released by `data-done` /
+	 *  `data-build-complete` or by a remote `app-status: complete` frame. A
+	 *  component ref synced from the `appGenerating` prop cannot carry it:
+	 *  the prop is frozen at page load (`/build/new` promotes via the History
+	 *  API, no RSC re-render) and a per-render sync would clobber every
+	 *  latch. */
 	const liveBuildUnfinished = useCallback(
 		() => sessionStoreRef.current?.getState().buildUnfinished ?? false,
 		[],
@@ -761,10 +762,15 @@ export function ChatContainer({
 	/** One-shot: the next `beginRun` belongs to a reconnected (live resume) or
 	 *  RE-DRIVEN (instance death) BUILD run, so its build-vs-edit capture must
 	 *  preserve "started as a build" even though canonical genesis means
-	 *  committed modules are already in the loaded doc: mirrors openThread's
-	 *  `(live || redrive) && appGenerating`. Without the redrive arm, a
-	 *  re-driven build would capture `runStartedWithData: true` off the
-	 *  committed doc and render edit-mode chrome for the whole run. */
+	 *  committed modules are already in the loaded doc. Without the redrive
+	 *  arm, a re-driven build would capture `runStartedWithData: true` off the
+	 *  committed doc and render edit-mode chrome for the whole run. This
+	 *  mount-time seed computes `(live || redrive) && unfinished-build` from
+	 *  the page-frozen `appGenerating` prop, which equals the session store's
+	 *  latch seed and is safe exactly here: no run can have moved the latch
+	 *  before first render. Every later re-seed instead adopts
+	 *  `opts.buildResume` inside `activateThread` (below), which callers
+	 *  build via `authoritativeThreadActivationOptions` on the LIVE latch. */
 	const pendingBuildResumeRef = useRef(
 		(initialThread?.active_stream_id != null ||
 			initialThread?.resume_interrupted === true) &&

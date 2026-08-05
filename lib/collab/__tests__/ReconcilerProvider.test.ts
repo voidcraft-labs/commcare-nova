@@ -732,3 +732,49 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		runtime.suspend();
 	});
 });
+
+describe("app-status frame → buildUnfinished latch", () => {
+	it("routes the server's lifecycle read into the latch and ignores garbage", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		/* A tab that opened a generating app: latch seeded true, and — the gap
+		 * this frame closes — never attached to the run's chat stream, so no
+		 * `data-done` will ever release it. */
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+			buildUnfinished: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		/* Malformed / out-of-vocabulary frames must not move a pricing signal. */
+		stream.emit("app-status", "not json");
+		stream.emit("app-status", JSON.stringify({ status: "deleted" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(true);
+
+		/* The teammate's build finished: only `complete` releases. */
+		stream.emit("app-status", JSON.stringify({ status: "complete" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(false);
+
+		/* A re-drive flipped the row back: `generating` and `error` re-latch,
+		 * mirroring the server's only-`complete`-is-edit rule. */
+		stream.emit("app-status", JSON.stringify({ status: "generating" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(true);
+		stream.emit("app-status", JSON.stringify({ status: "complete" }));
+		stream.emit("app-status", JSON.stringify({ status: "error" }));
+		expect(sessionStore.getState().buildUnfinished).toBe(true);
+
+		runtime.suspend();
+	});
+});

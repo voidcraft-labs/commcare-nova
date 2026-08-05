@@ -23,7 +23,11 @@ import {
 	projectRoleFor,
 	projectRoleForInTransaction,
 } from "./projectMembership";
-import type { AppDoc } from "./types";
+import {
+	type AppDoc,
+	type AppLifecycleStatus,
+	parsePersistedAppLifecycleStatus,
+} from "./types";
 
 export type AppAccessReason = "not_found" | "not_member" | "insufficient_role";
 
@@ -63,6 +67,11 @@ export interface ProjectAccess {
 export interface TransactionalAppScope extends ProjectAccess {
 	readonly canEdit: boolean;
 	readonly baseSeq: number;
+	/** The locked app row's run-lifecycle status. The SSE relay projects it to
+	 *  connected tabs as `app-status` frames (connect + its reauthorization
+	 *  cadence), which is how a tab not attached to a run's chat stream learns
+	 *  a build finished. */
+	readonly status: AppLifecycleStatus;
 }
 
 /**
@@ -143,7 +152,7 @@ export async function resolveAppScopeInTransaction(
 ): Promise<TransactionalAppScope> {
 	const app = await tx
 		.selectFrom("apps")
-		.select(["project_id", "mutation_seq", "deleted_at"])
+		.select(["project_id", "mutation_seq", "deleted_at", "status"])
 		.where("id", "=", appId)
 		.forShare()
 		.executeTakeFirst();
@@ -161,6 +170,7 @@ export async function resolveAppScopeInTransaction(
 			app.mutation_seq,
 			`apps.mutation_seq for app ${appId}`,
 		),
+		status: parsePersistedAppLifecycleStatus(app.status),
 		actorUserId: userId,
 	};
 }

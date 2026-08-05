@@ -10,10 +10,10 @@ import {
  * chargeable new generation and, if so, the amount its ADVISORY pre-flight
  * balance read should require.
  *
- * Pure on purpose: it lifts the two policy reads (`isChargeableTurn` +
- * `chargeAmount`) out of the route so they can be unit-tested without standing
- * up the whole handler, and so the route reads as a single destructure at the
- * top of the gate.
+ * Pure on purpose: it lifts the charge-signal read (`isChargeableTurn`) and
+ * the floor selection out of the route so they can be unit-tested without
+ * standing up the whole handler, and so the route reads as a single
+ * destructure at the top of the gate.
  *
  * `preflightCost` is deliberately NOT the authoritative charge. The real
  * amount depends on the app row's status, which isn't loaded yet at the
@@ -25,7 +25,9 @@ import {
  * amount (the edit rate), a floor that can never falsely reject an affordable
  * turn whatever mode the app row turns out to be in. Feeding a client-claimed
  * mode in here instead would let a stale tab's guess 429 a user who can
- * afford their edit.
+ * afford their edit. (Once the row IS loaded, the route re-runs the same
+ * advisory read at the derived rate, so an unaffordable build-mode turn still
+ * fails fast instead of serialize-waiting into the transactional rejection.)
  *
  * CRITICAL: `rawMessages` must be the array straight off `body.messages`.
  * The last message's ROLE is the charge signal (a fresh instruction ends with

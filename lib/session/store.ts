@@ -135,15 +135,18 @@ export interface BuilderSessionState {
 	/** This session's app has a BUILD that never completed. Seeded true when
 	 *  the page loads a `generating` app or an interrupted build admitted for
 	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
-	 *  lands; released only by `markBuildFinished()`, called from
-	 *  `ChatContainer`'s stream `onData` on `data-done` and its doc-less
-	 *  sibling `data-build-complete` (a conversational build turn completes
-	 *  the app without a doc to reconcile). App-level, not run-level, on
-	 *  purpose: it survives stream closes and the events-buffer clear, which
-	 *  the phase derivation cannot (an askQuestions pause clears the buffer
-	 *  while the committed modules make the doc read Ready).
-	 *  `deriveChatAppReady` keys on it so a mid-build tab's sends and its
-	 *  cost chip both read as build-mode. */
+	 *  lands; released by `markBuildFinished()` from two channels: this tab's
+	 *  own stream `onData` (`data-done`, or the doc-less `data-build-complete`
+	 *  a conversational build turn emits instead), and the reconciler's
+	 *  `app-status` SSE frame when the server observes `complete` — the path
+	 *  for tabs never attached to the run's stream (a second tab, a co-member
+	 *  watching a teammate's build; the frame's `generating`/`error` arms
+	 *  re-latch, mirroring the server's only-`complete`-is-edit rule).
+	 *  App-level, not run-level, on purpose: it survives stream closes and
+	 *  the events-buffer clear, which the phase derivation cannot (an
+	 *  askQuestions pause clears the buffer while the committed modules make
+	 *  the doc read Ready). `deriveChatAppReady` keys on it so a mid-build
+	 *  tab's sends and its cost chip both read as build-mode. */
 	buildUnfinished: boolean;
 
 	/** Generic loading flag for async operations outside of agent writes
@@ -1239,11 +1242,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					for (const abort of stagedUploadAborts.values()) abort();
 					stagedUploadAborts.clear();
 					set({
-						/* Generation lifecycle */
+						/* Generation lifecycle. `buildUnfinished` is deliberately NOT
+						 * re-seeded here: it tracks a fact about the APP (its build never
+						 * completed), not this session, and the constructor-time `init`
+						 * snapshot goes stale the moment a run releases the latch —
+						 * re-seeding would resurrect it and re-price edits as builds.
+						 * Same reasoning as `resetProjectScope` leaving it alone; the
+						 * app-status stream keeps it converged with the server. */
 						events: [],
 						runStartedWithData: false,
 						runCompletedAt: undefined,
-						buildUnfinished: init?.buildUnfinished ?? false,
 						loading: false,
 
 						/* App identity */
