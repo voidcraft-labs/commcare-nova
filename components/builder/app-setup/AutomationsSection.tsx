@@ -1723,41 +1723,27 @@ function ConditionsEditor({
 		(criterion) => criterion.kind === "location",
 	);
 	const add = (kind: "match-property" | "closed-parent" | "location") => {
-		if (kind === "closed-parent" && hasClosedParent) return;
-		if (
-			kind === "location" &&
-			(hasLocation || defaultLocationUuid === undefined)
-		)
+		if (kind === "location") {
+			const locationUuid = defaultLocationUuid;
+			if (hasLocation || locationUuid === undefined) return;
+			onEdit((draft) => {
+				if (draft.kind !== "case-update" && draft.kind !== "conditional-alert")
+					return;
+				draft.criteria.push({
+					uuid: uuid(),
+					kind,
+					locationUuid,
+					includeDescendants: true,
+				});
+			});
 			return;
+		}
+		if (kind === "closed-parent" && hasClosedParent) return;
 		onEdit((draft) => {
 			if (draft.kind === "case-update") {
 				draft.criteria.push(
 					kind === "closed-parent"
 						? { uuid: uuid(), kind }
-						: kind === "location"
-							? {
-									uuid: uuid(),
-									kind,
-									locationUuid: defaultLocationUuid as Uuid,
-									includeDescendants: true,
-								}
-							: {
-									uuid: uuid(),
-									kind,
-									scope: "case",
-									property: "case_name",
-									matchType: "has-value",
-								},
-				);
-			} else if (kind !== "closed-parent") {
-				draft.criteria.push(
-					kind === "location"
-						? {
-								uuid: uuid(),
-								kind,
-								locationUuid: defaultLocationUuid as Uuid,
-								includeDescendants: true,
-							}
 						: {
 								uuid: uuid(),
 								kind,
@@ -1766,6 +1752,14 @@ function ConditionsEditor({
 								matchType: "has-value",
 							},
 				);
+			} else if (kind !== "closed-parent") {
+				draft.criteria.push({
+					uuid: uuid(),
+					kind,
+					scope: "case",
+					property: "case_name",
+					matchType: "has-value",
+				});
 			}
 		});
 	};
@@ -1791,11 +1785,22 @@ function ConditionsEditor({
 								<Choice
 									value={criterion.kind}
 									onChange={(kind) => {
-										if (
-											kind === "location" &&
-											defaultLocationUuid === undefined
-										)
+										if (kind === "location") {
+											const locationUuid = defaultLocationUuid;
+											if (locationUuid === undefined) return;
+											onEdit((draft) => {
+												if (draft.kind !== "case-update") return;
+												const current = draft.criteria[index];
+												if (current === undefined) return;
+												draft.criteria[index] = {
+													uuid: current.uuid,
+													kind,
+													locationUuid,
+													includeDescendants: true,
+												};
+											});
 											return;
+										}
 										onEdit((draft) => {
 											if (draft.kind !== "case-update") return;
 											const current = draft.criteria[index];
@@ -1809,17 +1814,10 @@ function ConditionsEditor({
 															property: "case_name",
 															matchType: "has-value",
 														}
-													: kind === "location"
-														? {
-																uuid: current.uuid,
-																kind,
-																locationUuid: defaultLocationUuid as Uuid,
-																includeDescendants: true,
-															}
-														: {
-																uuid: current.uuid,
-																kind: "closed-parent",
-															};
+													: {
+															uuid: current.uuid,
+															kind: "closed-parent",
+														};
 										});
 									}}
 									options={[
@@ -1840,30 +1838,33 @@ function ConditionsEditor({
 								<Choice
 									value={criterion.kind}
 									onChange={(kind) => {
-										if (
-											kind === "location" &&
-											defaultLocationUuid === undefined
-										)
+										if (kind === "location") {
+											const locationUuid = defaultLocationUuid;
+											if (locationUuid === undefined) return;
+											onEdit((draft) => {
+												if (draft.kind !== "conditional-alert") return;
+												const current = draft.criteria[index];
+												if (current === undefined) return;
+												draft.criteria[index] = {
+													uuid: current.uuid,
+													kind,
+													locationUuid,
+													includeDescendants: true,
+												};
+											});
 											return;
+										}
 										onEdit((draft) => {
 											if (draft.kind !== "conditional-alert") return;
 											const current = draft.criteria[index];
 											if (current === undefined) return;
-											draft.criteria[index] =
-												kind === "location"
-													? {
-															uuid: current.uuid,
-															kind,
-															locationUuid: defaultLocationUuid as Uuid,
-															includeDescendants: true,
-														}
-													: {
-															uuid: current.uuid,
-															kind: "match-property",
-															scope: "case",
-															property: "case_name",
-															matchType: "has-value",
-														};
+											draft.criteria[index] = {
+												uuid: current.uuid,
+												kind: "match-property",
+												scope: "case",
+												property: "case_name",
+												matchType: "has-value",
+											};
 										});
 									}}
 									options={[
