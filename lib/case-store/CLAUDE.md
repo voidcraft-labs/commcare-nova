@@ -67,6 +67,20 @@ Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer 
 
 **Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
 
+Historical ordinary extension edges follow the same scan-then-migrate rule.
+Before automations, ordinary parent writes always persisted `child`; advanced
+case-operation links already persisted their authored relationship and may own
+the same `parent` identifier, so a catalog-wide rewrite is forbidden.
+`scan-case-parent-relationships.ts` classifies each current extension edge from
+same-Project topology, durable ordinary-child receipts, later operation
+touches, and ancestry mutations. The paired writer requires traffic cutover,
+takes the app then relationship locks, reclassifies, and compare-and-sets only
+`repairable-ordinary` rows. Unknown, operation-touched, catalog-changed, and
+noncanonical rows remain loud refusals. Generic `CaseStore.update` likewise
+requires an explicit relationship for every non-null parent assignment and can
+repair a same-parent stale edge; it never preserves an old value or guesses
+from the current catalog.
+
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
 ## Creation stamps — every insert path sets `opened_on` + `modified_on`
@@ -137,7 +151,11 @@ only whitespace as blank while non-string JSON scalars have a value, including
 through case-update parent/host relations; a missing relation has no value.
 Alert regex uses
 HQ's beginning-anchored behavior and evaluates stored strings only; it never
-casts a number or boolean to text. Closed-parent is fixed to the standard
+casts a number or boolean to text. PostgreSQL evaluation runs under C collation;
+the admitted pattern is lowered to absolute-start ARE syntax, unescaped dots
+outside classes exclude LF, and `$` accepts absolute end or exactly one final
+LF. PostgreSQL's newline-sensitive modes are not used because they would also
+change negated-class behavior that Python leaves alone. Closed-parent is fixed to the standard
 depth-one `parent` child index accepted by HQ's setup form. A location clause
 is one exact owner-id set derived before the query from the selected place,
 its requested descendants, and personas whose primary place is in that set;

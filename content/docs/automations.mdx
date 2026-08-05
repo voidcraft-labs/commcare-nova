@@ -124,7 +124,11 @@ parent/host property references, a closed-parent condition, or server-modified
 age. It accepts the same one location-condition payload that the runtime
 executes, with the same current visible-picker limitation described above.
 Regex patterns must be nonempty and remain
-inside Nova's shared HQ/Postgres subset.
+inside Nova's shared HQ/Postgres subset. That subset excludes pattern newlines,
+lookarounds, shorthand character escapes, database collation classes, malformed
+or lower-less repetition bounds, and bounds above 255. Preview preserves HQ's
+default behavior for dots and a final newline rather than applying PostgreSQL's
+different newline mode.
 
 The setup guide gives both `/a/<domain>/messaging/conditional/` and
 **Messaging → Conditional Alerts**. Conditional

@@ -2014,6 +2014,7 @@ describe("readCaseData", () => {
 		await store.update({
 			appId: APP_ID,
 			caseId: ALICE_CASE_ID,
+			parentRelationship: "child",
 			patch: { parent_case_id: BOB_CASE_ID },
 		});
 

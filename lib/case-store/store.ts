@@ -127,6 +127,32 @@ export interface CaseUpdate {
 	readonly properties?: JsonObject | string;
 }
 
+type CaseUpdateWithoutParent = Omit<CaseUpdate, "parent_case_id"> & {
+	readonly parent_case_id?: undefined | null;
+};
+
+/**
+ * A parent assignment is valid by construction only when it carries the edge
+ * relationship that the caller derived from its authoritative source. Ordinary
+ * form actions use the committed case-type declaration; advanced case-operation
+ * links bypass this API and persist their authored relationship directly.
+ */
+export type CaseUpdateArgs = {
+	readonly appId: string;
+	readonly caseId: string;
+} & (
+	| {
+			readonly patch: Omit<CaseUpdate, "parent_case_id"> & {
+				readonly parent_case_id: string;
+			};
+			readonly parentRelationship: "child" | "extension";
+	  }
+	| {
+			readonly patch: CaseUpdateWithoutParent;
+			readonly parentRelationship?: never;
+	  }
+);
+
 /**
  * One sort key for a case-list query. The expression slot is a
  * `ValueExpression` (not a bare property name) so authors can sort
@@ -874,11 +900,7 @@ export interface CaseStore extends SchemaCaseStore {
 	 * re-derives `case_indices` if `parent_case_id` changed. Throws
 	 * `CaseNotFoundError` when the bound Project cannot see the row.
 	 */
-	update(args: {
-		appId: string;
-		caseId: string;
-		patch: CaseUpdate;
-	}): Promise<void>;
+	update(args: CaseUpdateArgs): Promise<void>;
 
 	/**
 	 * Close a case row. Atomically stamps `closed_on = now()` and the

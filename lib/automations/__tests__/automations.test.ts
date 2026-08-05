@@ -1732,6 +1732,15 @@ describe("automation domain and projections", () => {
 		expect(isPortableAutomationRegex("\\d+")).toBe(false);
 		expect(isPortableAutomationRegex("[]")).toBe(false);
 		expect(isPortableAutomationRegex("[^]")).toBe(false);
+		expect(isPortableAutomationRegex("a{255}")).toBe(true);
+		expect(isPortableAutomationRegex("a{1,255}")).toBe(true);
+		expect(isPortableAutomationRegex("a{1,}")).toBe(true);
+		expect(isPortableAutomationRegex("a{256}")).toBe(false);
+		expect(isPortableAutomationRegex("a{255,256}")).toBe(false);
+		expect(isPortableAutomationRegex("a{,3}")).toBe(false);
+		expect(isPortableAutomationRegex("a{1")).toBe(false);
+		expect(isPortableAutomationRegex("[[.a.]]")).toBe(false);
+		expect(isPortableAutomationRegex("[[=a=]]")).toBe(false);
 	});
 
 	it("enforces upstream string bounds and persistable JSON integers", () => {

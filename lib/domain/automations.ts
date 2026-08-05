@@ -65,7 +65,7 @@ function isCanonicalHqCasePropertyValue(value: string): boolean {
  * silently mean something else on one surface.
  */
 export function isPortableAutomationRegex(pattern: string): boolean {
-	if (/\r|\n|\[\[:/.test(pattern)) return false;
+	if (/\r|\n|\[\[(?:[:.=])/.test(pattern)) return false;
 	let escaped = false;
 	let inClass = false;
 	let classHasContent = false;
@@ -96,6 +96,23 @@ export function isPortableAutomationRegex(pattern: string): boolean {
 		if (!inClass && character === "(" && pattern[index + 1] === "?") {
 			return false;
 		}
+		if (!inClass && character === "{") {
+			const close = pattern.indexOf("}", index + 1);
+			if (close === -1) return false;
+			const bounds = pattern.slice(index + 1, close);
+			const match = /^(\d+)(?:,(\d*))?$/.exec(bounds);
+			if (match === null) return false;
+			const lower = Number(match[1]);
+			const upper =
+				match[2] === undefined || match[2] === "" ? lower : Number(match[2]);
+			// PostgreSQL ARE caps repetition bounds at 255. Canonicalize the
+			// shared subset to explicit lower bounds; Python's `{,n}` extension
+			// otherwise becomes literal text in PostgreSQL.
+			if (lower > 255 || upper > 255 || lower > upper) return false;
+			index = close;
+			continue;
+		}
+		if (!inClass && character === "}") return false;
 	}
 	if (escaped || inClass) return false;
 	try {

@@ -103,6 +103,15 @@ JOB_TEMPLATE_CONTRACTS = {
         max_retries=0,
         timeout="3000s",
     ),
+    "commcare-nova-case-parent-relationship-repair": JobTemplateContract(
+        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("case-parent-relationship-repair.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=0,
+        timeout="3000s",
+    ),
 }
 
 
@@ -579,6 +588,22 @@ def _effective_execution_args(
                 and APP_ID_RE.fullmatch(requested[-1]) is not None
             ):
                 return requested
+
+    if short_name == "commcare-nova-case-parent-relationship-repair":
+        prefix = (
+            "case-parent-relationship-repair.cjs",
+            "--execute",
+            "--confirm-old-revision-drained",
+        )
+        if requested == prefix:
+            return requested
+        if (
+            requested[: len(prefix)] == prefix
+            and len(requested) == len(prefix) + 2
+            and requested[-2] == "--app"
+            and APP_ID_RE.fullmatch(requested[-1]) is not None
+        ):
+            return requested
 
     fail(
         f"Cloud Run Job override args are not an allowed checked-in operation: "
@@ -1348,6 +1373,22 @@ def _policy_self_test() -> None:
         "projects/p/locations/r/jobs/commcare-nova-case-type-schema-retirement",
         ("schema-drift.cjs", "--execute", "--app", "app_123"),
     ) == ("schema-drift.cjs", "--execute", "--app", "app_123")
+    assert _effective_execution_args(
+        "projects/p/locations/r/jobs/commcare-nova-case-parent-relationship-repair",
+        (
+            "case-parent-relationship-repair.cjs",
+            "--execute",
+            "--confirm-old-revision-drained",
+            "--app",
+            "app_123",
+        ),
+    ) == (
+        "case-parent-relationship-repair.cjs",
+        "--execute",
+        "--confirm-old-revision-drained",
+        "--app",
+        "app_123",
+    )
     _expect_policy_failure(
         lambda: _effective_execution_args(job_name, ("arbitrary.cjs",)),
         "arbitrary Job override args",

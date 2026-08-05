@@ -864,6 +864,7 @@ function AutomationEditor({
 									<OptionalNumber
 										label="Only cases last changed on the server at least this many days ago"
 										value={state.automation.serverModifiedBoundaryDays}
+										path={["serverModifiedBoundaryDays"]}
 										onChange={(value) =>
 											edit((draft) => {
 												if (draft.kind !== "case-update") return;
@@ -1091,6 +1092,44 @@ function ValidationFieldset({
 					id={errorId}
 					role="none"
 					className="mt-2 text-[12px] leading-relaxed text-nova-red"
+				>
+					{error}
+				</p>
+			)}
+		</fieldset>
+	);
+}
+
+function ValidationGroup({
+	path,
+	label,
+	children,
+}: {
+	path: readonly PropertyKey[];
+	label: string;
+	children: ReactNode;
+}) {
+	const issue = useContext(AutomationValidationContext);
+	const error =
+		issue !== undefined &&
+		issue.path.length === path.length &&
+		pathStartsWith(issue.path, path)
+			? issue.message
+			: undefined;
+	const errorId = useId();
+	return (
+		<fieldset
+			aria-invalid={error === undefined ? undefined : true}
+			aria-describedby={error === undefined ? undefined : errorId}
+			className="flex flex-col gap-3 border-0 p-0"
+		>
+			<legend className="sr-only">{label}</legend>
+			{children}
+			{error !== undefined && (
+				<p
+					id={errorId}
+					role="none"
+					className="text-[12px] leading-relaxed text-nova-red"
 				>
 					{error}
 				</p>
@@ -1582,10 +1621,12 @@ function Toggle({
 function OptionalNumber({
 	label,
 	value,
+	path,
 	onChange,
 }: {
 	label: string;
 	value: number | undefined;
+	path: readonly PropertyKey[];
 	onChange: (value: number | undefined) => void;
 }) {
 	return (
@@ -1596,13 +1637,14 @@ function OptionalNumber({
 				label={label}
 			/>
 			{value !== undefined && (
-				<Input
-					type="number"
-					min={0}
-					value={value}
-					aria-label="Days"
-					onChange={(event) => onChange(Number(event.target.value))}
-				/>
+				<Labeled label="Days" path={path}>
+					<Input
+						type="number"
+						min={0}
+						value={value}
+						onChange={(event) => onChange(Number(event.target.value))}
+					/>
+				</Labeled>
 			)}
 		</div>
 	);
@@ -2661,183 +2703,186 @@ function AlertEditor({
 	return (
 		<div className="flex flex-col gap-6">
 			<Section title="Recipients">
-				{automation.recipients.map((recipient, index) => (
-					<ValidationFieldset
-						key={recipient.uuid}
-						path={["recipients", index]}
-						label={`Recipient ${index + 1}`}
-						className="rounded-lg border border-nova-border bg-black/10 p-3"
-					>
-						<div className="grid gap-3 @md:grid-cols-2">
-							<Labeled label={`Recipient ${index + 1}`}>
-								<Choice
-									value={recipient.kind}
-									onChange={(kind) => {
-										const peers = automation.recipients.filter(
-											(candidate) => candidate.uuid !== recipient.uuid,
-										);
-										const replacement = recipientFor(
-											kind as AutomationRecipient["kind"],
-											locations,
-											peers,
-										);
-										if (replacement)
-											onEdit((draft) => {
-												if (draft.kind === "conditional-alert") {
-													replacement.uuid = recipient.uuid;
-													draft.recipients[index] =
-														replacement as WritableDraft<AutomationRecipient>;
-													clearLocationSettingsWithoutRecipient(draft);
-												}
-											});
-									}}
-									options={RECIPIENT_KINDS.map(([kind, label]) => {
-										const connectBlocked =
-											usesConnect && !automationRecipientSupportsConnect(kind);
-										const unavailable = !recipientKindAvailable(
-											kind,
-											automation.recipients,
-											locations,
-											usesConnect,
-											recipient.uuid,
-										);
-										return [
-											kind,
-											kind === "location" && locations.length === 0
-												? "Location (add a place first)"
-												: connectBlocked
-													? `${label} (not available for Connect)`
-													: unavailable
-														? `${label} (already selected)`
-														: label,
-											unavailable,
-										] as const;
-									})}
-								/>
-							</Labeled>
-							{"property" in recipient && (
-								<Labeled
-									label="Case property"
-									hint="Use the Nova name; setup guidance translates standard names for HQ."
-								>
-									<Input
-										value={recipient.property}
-										onChange={(event) =>
-											onEdit((draft) => {
-												if (draft.kind === "conditional-alert") {
-													const item = draft.recipients[index];
-													if (item && "property" in item)
-														item.property = event.target.value;
-												}
-											})
-										}
-									/>
-								</Labeled>
-							)}
-							{"hqId" in recipient && (
-								<Labeled label="CommCare HQ ID">
-									<Input
-										value={recipient.hqId}
-										placeholder="Enter the CommCare HQ ID"
-										onChange={(event) =>
-											onEdit((draft) => {
-												if (draft.kind === "conditional-alert") {
-													const item = draft.recipients[index];
-													if (item && "hqId" in item)
-														item.hqId = event.target.value;
-												}
-											})
-										}
-									/>
-								</Labeled>
-							)}
-							{"registeredId" in recipient && (
-								<Labeled
-									label="Registered ID"
-									hint="Choose the exact handler registered in the target CommCare HQ project"
-								>
-									<Input
-										value={recipient.registeredId}
-										placeholder="Enter the registered recipient ID"
-										onChange={(event) =>
-											onEdit((draft) => {
-												if (draft.kind === "conditional-alert") {
-													const item = draft.recipients[index];
-													if (item && "registeredId" in item)
-														item.registeredId = event.target.value;
-												}
-											})
-										}
-									/>
-								</Labeled>
-							)}
-							{recipient.kind === "location" && (
-								<Labeled label="Location">
+				<ValidationGroup path={["recipients"]} label="Recipients">
+					{automation.recipients.map((recipient, index) => (
+						<ValidationFieldset
+							key={recipient.uuid}
+							path={["recipients", index]}
+							label={`Recipient ${index + 1}`}
+							className="rounded-lg border border-nova-border bg-black/10 p-3"
+						>
+							<div className="grid gap-3 @md:grid-cols-2">
+								<Labeled label={`Recipient ${index + 1}`}>
 									<Choice
-										value={recipient.locationUuid}
-										onChange={(value) =>
-											onEdit((draft) => {
-												if (draft.kind === "conditional-alert") {
-													const item = draft.recipients[index];
-													if (item?.kind === "location")
-														item.locationUuid = asUuid(value);
-												}
-											})
-										}
-										options={locations.map((location) => [
-											location.id,
-											location.name,
-											automation.recipients.some(
-												(candidate) =>
-													candidate.uuid !== recipient.uuid &&
-													candidate.kind === "location" &&
-													candidate.locationUuid === location.id,
-											),
-										])}
+										value={recipient.kind}
+										onChange={(kind) => {
+											const peers = automation.recipients.filter(
+												(candidate) => candidate.uuid !== recipient.uuid,
+											);
+											const replacement = recipientFor(
+												kind as AutomationRecipient["kind"],
+												locations,
+												peers,
+											);
+											if (replacement)
+												onEdit((draft) => {
+													if (draft.kind === "conditional-alert") {
+														replacement.uuid = recipient.uuid;
+														draft.recipients[index] =
+															replacement as WritableDraft<AutomationRecipient>;
+														clearLocationSettingsWithoutRecipient(draft);
+													}
+												});
+										}}
+										options={RECIPIENT_KINDS.map(([kind, label]) => {
+											const connectBlocked =
+												usesConnect &&
+												!automationRecipientSupportsConnect(kind);
+											const unavailable = !recipientKindAvailable(
+												kind,
+												automation.recipients,
+												locations,
+												usesConnect,
+												recipient.uuid,
+											);
+											return [
+												kind,
+												kind === "location" && locations.length === 0
+													? "Location (add a place first)"
+													: connectBlocked
+														? `${label} (not available for Connect)`
+														: unavailable
+															? `${label} (already selected)`
+															: label,
+												unavailable,
+											] as const;
+										})}
 									/>
 								</Labeled>
-							)}
-						</div>
-						<RemoveButton
-							label="Remove recipient"
-							buttonRef={recipientFocus.removeButtonRef(recipient.uuid)}
-							onClick={() =>
-								recipientFocus.removeAt(index, () =>
-									onEdit((draft) => {
-										if (draft.kind === "conditional-alert") {
-											draft.recipients.splice(index, 1);
-											clearLocationSettingsWithoutRecipient(draft);
-										}
-									}),
-								)
-							}
-						/>
-					</ValidationFieldset>
-				))}
-				<Button
-					ref={recipientFocus.addRef}
-					type="button"
-					variant="outline"
-					disabled={addRecipientKind === undefined}
-					onClick={() =>
-						onEdit((draft) => {
-							if (
-								draft.kind === "conditional-alert" &&
-								addRecipientKind !== undefined
-							) {
-								const recipient = recipientFor(
-									addRecipientKind,
-									locations,
-									draft.recipients,
-								);
-								if (recipient !== undefined) draft.recipients.push(recipient);
-							}
-						})
-					}
-				>
-					<Icon icon={tablerPlus} />
-					Recipient
-				</Button>
+								{"property" in recipient && (
+									<Labeled
+										label="Case property"
+										hint="Use the Nova name; setup guidance translates standard names for HQ."
+									>
+										<Input
+											value={recipient.property}
+											onChange={(event) =>
+												onEdit((draft) => {
+													if (draft.kind === "conditional-alert") {
+														const item = draft.recipients[index];
+														if (item && "property" in item)
+															item.property = event.target.value;
+													}
+												})
+											}
+										/>
+									</Labeled>
+								)}
+								{"hqId" in recipient && (
+									<Labeled label="CommCare HQ ID">
+										<Input
+											value={recipient.hqId}
+											placeholder="Enter the CommCare HQ ID"
+											onChange={(event) =>
+												onEdit((draft) => {
+													if (draft.kind === "conditional-alert") {
+														const item = draft.recipients[index];
+														if (item && "hqId" in item)
+															item.hqId = event.target.value;
+													}
+												})
+											}
+										/>
+									</Labeled>
+								)}
+								{"registeredId" in recipient && (
+									<Labeled
+										label="Registered ID"
+										hint="Choose the exact handler registered in the target CommCare HQ project"
+									>
+										<Input
+											value={recipient.registeredId}
+											placeholder="Enter the registered recipient ID"
+											onChange={(event) =>
+												onEdit((draft) => {
+													if (draft.kind === "conditional-alert") {
+														const item = draft.recipients[index];
+														if (item && "registeredId" in item)
+															item.registeredId = event.target.value;
+													}
+												})
+											}
+										/>
+									</Labeled>
+								)}
+								{recipient.kind === "location" && (
+									<Labeled label="Location">
+										<Choice
+											value={recipient.locationUuid}
+											onChange={(value) =>
+												onEdit((draft) => {
+													if (draft.kind === "conditional-alert") {
+														const item = draft.recipients[index];
+														if (item?.kind === "location")
+															item.locationUuid = asUuid(value);
+													}
+												})
+											}
+											options={locations.map((location) => [
+												location.id,
+												location.name,
+												automation.recipients.some(
+													(candidate) =>
+														candidate.uuid !== recipient.uuid &&
+														candidate.kind === "location" &&
+														candidate.locationUuid === location.id,
+												),
+											])}
+										/>
+									</Labeled>
+								)}
+							</div>
+							<RemoveButton
+								label="Remove recipient"
+								buttonRef={recipientFocus.removeButtonRef(recipient.uuid)}
+								onClick={() =>
+									recipientFocus.removeAt(index, () =>
+										onEdit((draft) => {
+											if (draft.kind === "conditional-alert") {
+												draft.recipients.splice(index, 1);
+												clearLocationSettingsWithoutRecipient(draft);
+											}
+										}),
+									)
+								}
+							/>
+						</ValidationFieldset>
+					))}
+					<Button
+						ref={recipientFocus.addRef}
+						type="button"
+						variant="outline"
+						disabled={addRecipientKind === undefined}
+						onClick={() =>
+							onEdit((draft) => {
+								if (
+									draft.kind === "conditional-alert" &&
+									addRecipientKind !== undefined
+								) {
+									const recipient = recipientFor(
+										addRecipientKind,
+										locations,
+										draft.recipients,
+									);
+									if (recipient !== undefined) draft.recipients.push(recipient);
+								}
+							})
+						}
+					>
+						<Icon icon={tablerPlus} />
+						Recipient
+					</Button>
+				</ValidationGroup>
 			</Section>
 			<ScheduleEditor
 				automation={automation}
@@ -2863,6 +2908,7 @@ function AlertEditor({
 				<Labeled
 					label="Default language code"
 					hint="Leave empty for Project Default. Any code must already be configured in the target HQ project"
+					path={["defaultLanguageCode"]}
 				>
 					<Input
 						value={automation.defaultLanguageCode ?? ""}
@@ -2985,6 +3031,7 @@ function AlertEditor({
 				</Button>
 				<Labeled
 					label="Restart when this case property changes"
+					path={["resetCaseProperty"]}
 					hint={
 						resetAllowed
 							? "HQ reads only custom case data here; standard properties are not available"
@@ -3007,6 +3054,7 @@ function AlertEditor({
 				<Labeled
 					label="Stop after the date in this case property"
 					hint="Use the Nova name; setup guidance translates standard date names for HQ"
+					path={["stopDateCaseProperty"]}
 				>
 					<Input
 						value={automation.stopDateCaseProperty ?? ""}
@@ -3447,137 +3495,139 @@ function ScheduleEditor({
 					</Labeled>
 				</div>
 			)}
-			{schedule.events.map((event, index) => (
-				<ValidationFieldset
-					key={event.uuid}
-					path={["schedule", "events", index]}
-					label={`Schedule event ${index + 1}`}
-				>
-					<EventEditor
-						event={event}
-						automationCaseType={automation.caseType}
-						caseTypes={caseTypes}
-						index={index}
-						eventDays={schedule.events.map((item) => ({
-							uuid: item.uuid,
-							day: "day" in item ? item.day : 0,
-						}))}
-						scheduleKind={schedule.kind}
-						timedSetupForm={timedSetupForm}
-						startDayOfWeek={
-							schedule.kind === "timed" ? schedule.startDayOfWeek : undefined
-						}
-						repeatEvery={
-							schedule.kind === "timed" ? schedule.repeatEvery : undefined
-						}
-						repeatIsDerived={
-							schedule.kind === "timed" && schedule.totalIterations === 1
-						}
-						forms={forms}
-						removeButtonRef={eventFocus.removeButtonRef(event.uuid)}
-						onRemove={() => removeEvent(index)}
-						onEdit={onEdit}
-					/>
-				</ValidationFieldset>
-			))}
-			<Button
-				ref={eventFocus.addRef}
-				type="button"
-				variant="outline"
-				disabled={fixedDayChoicesExhausted}
-				onClick={() =>
-					onEdit((draft) => {
-						if (draft.kind !== "conditional-alert") return;
-						if (draft.schedule.kind === "immediate")
-							draft.schedule.events.push({
-								uuid: uuid(),
-								minutesToWait: draft.schedule.events.length === 0 ? 0 : 5,
-								content: cloneEditableValue(
-									draft.schedule.events[0]?.content ?? {
-										kind: "sms",
-										message: automationMessageText("Message"),
-									},
-								),
-							});
-						else {
-							const first = draft.schedule.events[0];
-							const previous = draft.schedule.events.at(-1);
-							const setupForm = automationTimedScheduleSetupForm(
-								draft.schedule,
-							);
-							let day = setupForm === "monthly" ? 1 : 0;
-							let timing: AutomationTimedEvent["timing"] = cloneEditableValue(
-								previous?.timing ?? { kind: "specific-time", time: "09:00" },
-							);
-							if (setupForm === "monthly") {
-								const used = new Set(
-									draft.schedule.events.map((event) => event.day),
+			<ValidationGroup path={["schedule", "events"]} label="Schedule events">
+				{schedule.events.map((event, index) => (
+					<ValidationFieldset
+						key={event.uuid}
+						path={["schedule", "events", index]}
+						label={`Schedule event ${index + 1}`}
+					>
+						<EventEditor
+							event={event}
+							automationCaseType={automation.caseType}
+							caseTypes={caseTypes}
+							index={index}
+							eventDays={schedule.events.map((item) => ({
+								uuid: item.uuid,
+								day: "day" in item ? item.day : 0,
+							}))}
+							scheduleKind={schedule.kind}
+							timedSetupForm={timedSetupForm}
+							startDayOfWeek={
+								schedule.kind === "timed" ? schedule.startDayOfWeek : undefined
+							}
+							repeatEvery={
+								schedule.kind === "timed" ? schedule.repeatEvery : undefined
+							}
+							repeatIsDerived={
+								schedule.kind === "timed" && schedule.totalIterations === 1
+							}
+							forms={forms}
+							removeButtonRef={eventFocus.removeButtonRef(event.uuid)}
+							onRemove={() => removeEvent(index)}
+							onEdit={onEdit}
+						/>
+					</ValidationFieldset>
+				))}
+				<Button
+					ref={eventFocus.addRef}
+					type="button"
+					variant="outline"
+					disabled={fixedDayChoicesExhausted}
+					onClick={() =>
+						onEdit((draft) => {
+							if (draft.kind !== "conditional-alert") return;
+							if (draft.schedule.kind === "immediate")
+								draft.schedule.events.push({
+									uuid: uuid(),
+									minutesToWait: draft.schedule.events.length === 0 ? 0 : 5,
+									content: cloneEditableValue(
+										draft.schedule.events[0]?.content ?? {
+											kind: "sms",
+											message: automationMessageText("Message"),
+										},
+									),
+								});
+							else {
+								const first = draft.schedule.events[0];
+								const previous = draft.schedule.events.at(-1);
+								const setupForm = automationTimedScheduleSetupForm(
+									draft.schedule,
 								);
-								const available = MONTHLY_EVENT_DAYS.find(
-									(candidate) => !used.has(candidate),
+								let day = setupForm === "monthly" ? 1 : 0;
+								let timing: AutomationTimedEvent["timing"] = cloneEditableValue(
+									previous?.timing ?? { kind: "specific-time", time: "09:00" },
 								);
-								if (available === undefined) return;
-								day = available;
-							} else if (setupForm === "weekly") {
-								const used = new Set(
-									draft.schedule.events.map((event) => event.day),
-								);
-								const available = Array.from(
-									{ length: WEEKDAY_NAMES.length },
-									(_, index) => index,
-								).find((candidate) => !used.has(candidate));
-								if (available === undefined) return;
-								day = available;
-							} else if (previous !== undefined) {
-								if (previous.timing.kind === "case-property-time") {
-									day = previous.day;
-								} else {
-									const [hours = 0, minutes = 0] = previous.timing.time
-										.split(":")
-										.map(Number);
-									const nextMinute =
-										previous.day * 1_440 +
-										hours * 60 +
-										minutes +
-										(previous.timing.kind === "random-window"
-											? Math.max(5, previous.timing.windowMinutes)
-											: 5);
-									day = Math.floor(nextMinute / 1_440);
-									const minuteOfDay = nextMinute % 1_440;
-									const time = `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`;
-									timing =
-										previous.timing.kind === "random-window"
-											? {
-													...cloneEditableValue(previous.timing),
-													time,
-												}
-											: { kind: "specific-time", time };
-									if (day >= draft.schedule.repeatEvery) {
-										draft.schedule.repeatEvery = day + 1;
+								if (setupForm === "monthly") {
+									const used = new Set(
+										draft.schedule.events.map((event) => event.day),
+									);
+									const available = MONTHLY_EVENT_DAYS.find(
+										(candidate) => !used.has(candidate),
+									);
+									if (available === undefined) return;
+									day = available;
+								} else if (setupForm === "weekly") {
+									const used = new Set(
+										draft.schedule.events.map((event) => event.day),
+									);
+									const available = Array.from(
+										{ length: WEEKDAY_NAMES.length },
+										(_, index) => index,
+									).find((candidate) => !used.has(candidate));
+									if (available === undefined) return;
+									day = available;
+								} else if (previous !== undefined) {
+									if (previous.timing.kind === "case-property-time") {
+										day = previous.day;
+									} else {
+										const [hours = 0, minutes = 0] = previous.timing.time
+											.split(":")
+											.map(Number);
+										const nextMinute =
+											previous.day * 1_440 +
+											hours * 60 +
+											minutes +
+											(previous.timing.kind === "random-window"
+												? Math.max(5, previous.timing.windowMinutes)
+												: 5);
+										day = Math.floor(nextMinute / 1_440);
+										const minuteOfDay = nextMinute % 1_440;
+										const time = `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`;
+										timing =
+											previous.timing.kind === "random-window"
+												? {
+														...cloneEditableValue(previous.timing),
+														time,
+													}
+												: { kind: "specific-time", time };
+										if (day >= draft.schedule.repeatEvery) {
+											draft.schedule.repeatEvery = day + 1;
+										}
 									}
 								}
+								draft.schedule.events.push({
+									uuid: uuid(),
+									day,
+									timing,
+									content: cloneEditableValue(
+										first?.content ?? {
+											kind: "sms",
+											message: automationMessageText("Message"),
+										},
+									),
+								});
+								draft.schedule.events.sort((left, right) =>
+									timedEventComparator(setupForm, left, right),
+								);
 							}
-							draft.schedule.events.push({
-								uuid: uuid(),
-								day,
-								timing,
-								content: cloneEditableValue(
-									first?.content ?? {
-										kind: "sms",
-										message: automationMessageText("Message"),
-									},
-								),
-							});
-							draft.schedule.events.sort((left, right) =>
-								timedEventComparator(setupForm, left, right),
-							);
-						}
-					})
-				}
-			>
-				<Icon icon={tablerPlus} />
-				Schedule event
-			</Button>
+						})
+					}
+				>
+					<Icon icon={tablerPlus} />
+					Schedule event
+				</Button>
+			</ValidationGroup>
 		</Section>
 	);
 }

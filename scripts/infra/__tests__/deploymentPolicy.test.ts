@@ -33,6 +33,10 @@ const deployPolicy = readFileSync(
 	"utf8",
 );
 const schemaDriftScanner = readFileSync("scripts/scan-schema-drift.ts", "utf8");
+const caseParentScanner = readFileSync(
+	"scripts/scan-case-parent-relationships.ts",
+	"utf8",
+);
 
 function stepOffset(id: string): number {
 	const offset = cloudBuild.indexOf(`  - id: ${id}\n`);
@@ -87,7 +91,7 @@ describe("durable deployment policy", () => {
 	test("pins one image and the final runtime platform limits", () => {
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
 		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
-		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(8);
+		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(9);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
@@ -200,12 +204,14 @@ describe("durable deployment policy", () => {
 			"scripts/audit-canonical-identity-foundation.ts",
 			"scripts/infra/apply-media-bucket-policy.ts",
 			"scripts/migrate-case-type-schema-retirement.ts",
+			"scripts/migrate-case-parent-relationships.ts",
 			"scripts/migrate-schema-drift.ts",
 		]);
 		for (const entrypoint of esbuildEntrypoints) {
 			expect(dockerignore).toContain(`!${entrypoint}`);
 		}
 		for (const helper of [
+			"caseParentRelationshipRepair.ts",
 			"caseTypeSchemaRetirement.ts",
 			"loadPersistedBlueprint.ts",
 			"main.ts",
@@ -224,6 +230,39 @@ describe("durable deployment policy", () => {
 		expect(cleanupEntrypoint).not.toContain("probeCaptureStorageAuthority");
 		expect(dockerfile).toContain(
 			"npx esbuild scripts/migrate.ts \\\n      --bundle --platform=node --target=node24 --format=cjs \\\n      --conditions=react-server",
+		);
+	});
+
+	test("packages the ordinary extension-edge repair as a dormant immutable Job", () => {
+		expect(dockerfile).toContain(
+			"scripts/migrate-case-parent-relationships.ts",
+		);
+		expect(dockerfile).toContain("case-parent-relationship-repair.cjs");
+		expect(cloudBuild).toContain(
+			"gcloud run jobs deploy commcare-nova-case-parent-relationship-repair",
+		);
+		expect(cloudBuild).toContain("--args=case-parent-relationship-repair.cjs");
+		expect(cloudBuild).not.toContain(
+			"--args=case-parent-relationship-repair.cjs,--execute",
+		);
+		expect(cloudBuild).toContain(
+			"NOVA_CASE_PARENT_RELATIONSHIP_PRODUCTION_JOB=true",
+		);
+		expect(cloudBuild).not.toContain(
+			"gcloud run jobs execute commcare-nova-case-parent-relationship-repair",
+		);
+		expect(
+			cloudBuild.indexOf("- id: case-parent-relationship-repair-job"),
+		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
+		expect(caseParentScanner).toContain('.setAccessMode("read only")');
+		expect(caseParentScanner).toContain(
+			"loadPersistedBlueprintReadOnly(tx, app.id)",
+		);
+		expect(caseParentScanner).toContain(
+			"--job=commcare-nova-case-parent-relationship-repair",
+		);
+		expect(caseParentScanner).toContain(
+			"scripts/scan-case-parent-relationships.ts --prod",
 		);
 	});
 
@@ -302,7 +341,7 @@ describe("durable deployment policy", () => {
 		expect(packageJson).toContain(
 			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
 		);
-		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(4);
+		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(5);
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);

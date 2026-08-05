@@ -227,9 +227,51 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 			},
 		]);
 
+		const untypedUpdate = store.update.bind(store) as (args: {
+			appId: string;
+			caseId: string;
+			patch: { parent_case_id: string };
+		}) => Promise<void>;
+		await expect(
+			untypedUpdate({
+				appId: APP_ID,
+				caseId: AUTHORED_ID,
+				patch: { parent_case_id: AUTHORED_SECOND_PARENT_ID },
+			}),
+		).rejects.toThrow("requires parentRelationship");
+		expect(
+			(
+				await sql<{ ancestor_id: string }>`
+					SELECT ancestor_id FROM public.case_indices
+					WHERE case_id = ${AUTHORED_ID}
+				`.execute(dbHandle.db)
+			).rows,
+		).toEqual([{ ancestor_id: AUTHORED_PARENT_ID }]);
+
+		await sql`
+			UPDATE public.case_indices
+			SET relationship = 'child'
+			WHERE case_id = ${AUTHORED_ID}
+		`.execute(dbHandle.db);
 		await store.update({
 			appId: APP_ID,
 			caseId: AUTHORED_ID,
+			parentRelationship: "extension",
+			patch: { parent_case_id: AUTHORED_PARENT_ID },
+		});
+		expect(
+			(
+				await sql<{ relationship: string }>`
+					SELECT relationship FROM public.case_indices
+					WHERE case_id = ${AUTHORED_ID}
+				`.execute(dbHandle.db)
+			).rows,
+		).toEqual([{ relationship: "extension" }]);
+
+		await store.update({
+			appId: APP_ID,
+			caseId: AUTHORED_ID,
+			parentRelationship: "extension",
 			patch: { parent_case_id: AUTHORED_SECOND_PARENT_ID },
 		});
 		const reparented = await sql<{

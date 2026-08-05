@@ -456,5 +456,20 @@ describe("automation HQ property-slot compatibility", () => {
 				details: expect.objectContaining({ path: "resetCaseProperty" }),
 			}),
 		]);
+
+		alert.resetCaseProperty = "unknown_property";
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "resetCaseProperty" }),
+			}),
+		]);
+
+		delete alert.resetCaseProperty;
+		alert.stopDateCaseProperty = "alarm_time";
+		expect(validateOne(alert)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ path: "stopDateCaseProperty" }),
+			}),
+		]);
 	});
 });

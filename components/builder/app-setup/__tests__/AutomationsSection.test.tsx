@@ -313,6 +313,19 @@ async function chooseFromChoice(
 	await settleBaseUiTransitions();
 }
 
+function expectLocalizedRefusal(control: HTMLElement): void {
+	const alert = screen.getByRole("alert");
+	expect(screen.getAllByRole("alert")).toHaveLength(1);
+	expect(control.getAttribute("aria-invalid")).toBe("true");
+	const describedBy = control.getAttribute("aria-describedby");
+	expect(describedBy).not.toBeNull();
+	expect(
+		(describedBy ?? "")
+			.split(/\s+/)
+			.map((id) => document.getElementById(id)?.textContent),
+	).toContain(alert.textContent);
+}
+
 beforeEach(() => {
 	Object.defineProperty(navigator, "clipboard", {
 		configurable: true,
@@ -444,6 +457,107 @@ describe("AutomationsSection", () => {
 		expect(describedBy).not.toBeNull();
 		expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
 			"Give every automation a distinct name.",
+		);
+	});
+
+	it("localizes server-age and language refusals on their exact inputs", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		fireEvent.click(
+			screen.getByText(
+				"Only cases last changed on the server at least this many days ago",
+			),
+		);
+		const days = screen.getByRole("spinbutton", { name: "Days" });
+		fireEvent.change(days, { target: { value: "1.5" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(days);
+
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		const language = screen.getByRole("textbox", {
+			name: "Default language code",
+		});
+		fireEvent.change(language, { target: { value: " en " } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(language);
+	});
+
+	it("localizes commit-gate property refusals on their exact inputs", async () => {
+		mocks.automations = [monthlyAlert()];
+		mocks.replaceAutomation.mockImplementationOnce(() => ({
+			ok: false,
+			messages: ["Choose a declared custom property for restart."],
+			findings: [
+				{
+					code: "AUTOMATION_INVALID",
+					scope: "app",
+					message: "The restart property does not exist.",
+					location: {},
+					details: {
+						automationUuid: monthlyAlert().uuid,
+						path: "resetCaseProperty",
+					},
+				},
+			],
+		}));
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: /Monthly alert/ }));
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Edit automation" }));
+		await settleBaseUiTransitions();
+		const reset = screen.getByRole("textbox", {
+			name: "Restart when this case property changes",
+		});
+		fireEvent.change(reset, { target: { value: "unknown_property" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(reset);
+
+		mocks.replaceAutomation.mockImplementationOnce(() => ({
+			ok: false,
+			messages: ["Choose a date property for the stop date."],
+			findings: [
+				{
+					code: "AUTOMATION_INVALID",
+					scope: "app",
+					message: "The stop property is not a date.",
+					location: {},
+					details: {
+						automationUuid: monthlyAlert().uuid,
+						path: "stopDateCaseProperty",
+					},
+				},
+			],
+		}));
+		const stop = screen.getByRole("textbox", {
+			name: "Stop after the date in this case property",
+		});
+		fireEvent.change(reset, { target: { value: "" } });
+		fireEvent.change(stop, { target: { value: "status" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(stop);
+	});
+
+	it("keeps empty recipient and schedule-event refusals on their groups", async () => {
+		render(<AutomationsSection />);
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(screen.getByRole("button", { name: "Remove recipient" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(screen.getByRole("group", { name: "Recipients" }));
+
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+		await settleBaseUiTransitions();
+		await chooseChoice("Automation type", "Conditional alert");
+		fireEvent.click(screen.getByRole("button", { name: "Remove event" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+		expectLocalizedRefusal(
+			screen.getByRole("group", { name: "Schedule events" }),
 		);
 	});
 

@@ -118,6 +118,10 @@ RUN npx esbuild scripts/cleanup-form-attachments.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=case-type-schema-retirement.cjs && \
+    npx esbuild scripts/migrate-case-parent-relationships.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-parent-relationship-repair.cjs && \
     npx esbuild scripts/migrate-schema-drift.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
@@ -174,6 +178,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cle
 COPY --from=builder --chown=nextjs:nodejs /app/canonical-identity-audit.cjs ./canonical-identity-audit.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-bucket-policy.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/case-type-schema-retirement.cjs ./case-type-schema-retirement.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/case-parent-relationship-repair.cjs ./case-parent-relationship-repair.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/schema-drift.cjs ./schema-drift.cjs
 
 USER nextjs

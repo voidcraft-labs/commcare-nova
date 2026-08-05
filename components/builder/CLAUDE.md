@@ -227,7 +227,11 @@ container for every `@md` layout; App setup's outer container does not cross the
 portal boundary. Gate findings stay in persistent footer chrome while the body
 scrolls, and the responsible control or repeated-row fieldset carries
 `aria-invalid` plus its described error; the footer remains the sole alert so a
-refusal is announced once. Comma-separated reminder intervals keep their
+refusal is announced once. Exact top-level paths include server-modified days,
+default language, restart property, and stop-date property. Empty recipient
+and schedule-event arrays retain named group fieldsets after their last row
+disappears, so those collection-level refusals also have a stable local anchor
+without duplicating descendant-row errors. Comma-separated reminder intervals keep their
 in-progress text locally while focused, report invalid text into that same
 refusal path, and project only positive whole-minute lists into the canonical
 automation; blur or Enter canonicalizes a valid list. Removal uses an explicit

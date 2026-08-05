@@ -44,6 +44,13 @@ state. HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` flag is deliberately not
 modeled: it is one domain-wide switch that evaluates every active update rule
 for the saved case type, not a property of an individual rule.
 
+The portable regex subset rejects newline-bearing patterns, lookarounds and
+other `(?...)` extensions, shorthand escapes, PostgreSQL collating/equivalence
+classes, malformed or lower-less bounds, and repetition bounds above 255. This
+is the complete Python/PostgreSQL intersection Nova admits; the case-store
+lowering then preserves Python `re.match` newline behavior for `.` and `$`
+instead of relying on PostgreSQL's materially different newline modes.
+
 Standard case metadata remains Nova vocabulary in storage. The derived HQ
 automation projection maps `case_type`/`case_name`/`date_opened`/`last_modified`
 to `type`/`name`/`opened_on`/`modified_on` for model-field readers and templates,

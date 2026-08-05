@@ -116,6 +116,7 @@ import type {
 	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
+	CaseUpdateArgs,
 	ConversionImpact,
 	CountArgs,
 	GenerateSampleDataArgs,
@@ -272,6 +273,53 @@ function automationRelationIndexFilter(args: {
 			${sql.ref(`${args.firstHostAlias}.ancestor_id`)} asc
 		limit 1
 	)`;
+}
+
+/**
+ * Lower the admitted shared regex subset to PostgreSQL ARE while preserving
+ * Python `re.match`'s default newline behavior. PostgreSQL's default `.` also
+ * consumes newlines, while its newline-sensitive modes change negated classes
+ * and anchor semantics that Python leaves alone. Rewrite only the two tokens
+ * whose defaults differ instead: `.` excludes LF, and `$` also succeeds just
+ * before one final LF. Escaped tokens and tokens inside character classes stay
+ * literal. The domain validator has already admitted the authored pattern.
+ */
+function postgresAutomationRegex(pattern: string): string {
+	let escaped = false;
+	let inClass = false;
+	let lowered = "";
+	for (const character of pattern) {
+		if (escaped) {
+			lowered += character;
+			escaped = false;
+			continue;
+		}
+		if (character === "\\") {
+			lowered += character;
+			escaped = true;
+			continue;
+		}
+		if (character === "[" && !inClass) {
+			inClass = true;
+			lowered += character;
+			continue;
+		}
+		if (character === "]" && inClass) {
+			inClass = false;
+			lowered += character;
+			continue;
+		}
+		if (!inClass && character === ".") {
+			lowered += "[^\\x0A]";
+			continue;
+		}
+		if (!inClass && character === "$") {
+			lowered += "(?=\\x0A?\\Z)";
+			continue;
+		}
+		lowered += character;
+	}
+	return `(?cs)\\A(?:${lowered})`;
 }
 
 /** HQ's day-offset criteria compare calendar dates, not instants. Dynamic
@@ -902,12 +950,12 @@ export class PostgresCaseStore implements CaseStore {
 						const matches =
 							scalar === undefined
 								? sql<boolean>`jsonb_typeof(c.properties -> ${criterion.property}) = 'string'
-									and (c.properties ->> ${criterion.property}) ~ ${`^(?:${criterion.pattern})`}`
-								: sql<boolean>`coalesce(${sql.ref(`c.${scalar.column}`)}, '') ~ ${`^(?:${criterion.pattern})`}`;
+									and ((c.properties ->> ${criterion.property}) collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`
+								: sql<boolean>`(coalesce(${sql.ref(`c.${scalar.column}`)}, '') collate "C") ~ ${postgresAutomationRegex(criterion.pattern)}`;
 						return (
 							// HQ's REGEX uses Python `re.match`, anchored at the
-							// beginning, and only tests actual strings. PostgreSQL `~`
-							// searches, so add the anchor and keep JSON typing explicit.
+							// beginning, and only tests actual strings. The lowering adds
+							// that anchor and preserves Python's newline semantics.
 							matches
 						);
 					}),
@@ -1348,11 +1396,16 @@ export class PostgresCaseStore implements CaseStore {
 		return { caseIds };
 	}
 
-	async update(args: {
-		appId: string;
-		caseId: string;
-		patch: CaseUpdate;
-	}): Promise<void> {
+	async update(args: CaseUpdateArgs): Promise<void> {
+		if (
+			args.patch.parent_case_id !== undefined &&
+			args.patch.parent_case_id !== null &&
+			args.parentRelationship === undefined
+		) {
+			throw new TypeError(
+				"A non-null parent_case_id update requires parentRelationship.",
+			);
+		}
 		await this.db.transaction().execute(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
@@ -1363,7 +1416,12 @@ export class PostgresCaseStore implements CaseStore {
 	/** Validated update core for `update` and atomic parked-value replace. */
 	private async updateInTransaction(
 		trx: Transaction<Database>,
-		args: { appId: string; caseId: string; patch: CaseUpdate },
+		args: {
+			appId: string;
+			caseId: string;
+			patch: CaseUpdate;
+			parentRelationship?: CaseIndicesTable["relationship"];
+		},
 	): Promise<void> {
 		// Discover the immutable type without a row lock, then acquire its schema
 		// lock before re-reading the case `FOR UPDATE`. This preserves the global
@@ -1457,11 +1515,22 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.project_id", "=", this.requireProjectId())
 			.execute();
 
-		if (
-			args.patch.parent_case_id !== undefined &&
-			args.patch.parent_case_id !== existing.parent_case_id
-		) {
-			await this.rebuildParentEdge(trx, args.caseId, args.patch.parent_case_id);
+		if (args.patch.parent_case_id === null) {
+			await this.rebuildParentEdge(trx, {
+				caseId: args.caseId,
+				newParent: null,
+			});
+		} else if (args.patch.parent_case_id !== undefined) {
+			if (args.parentRelationship === undefined) {
+				throw new TypeError(
+					"A non-null parent_case_id update requires parentRelationship.",
+				);
+			}
+			await this.rebuildParentEdge(trx, {
+				caseId: args.caseId,
+				newParent: args.patch.parent_case_id,
+				relationship: args.parentRelationship,
+			});
 		}
 	}
 
@@ -3976,33 +4045,35 @@ export class PostgresCaseStore implements CaseStore {
 	 *
 	 * The DELETE is broad — every `'parent'` edge for the case —
 	 * so leftover edges from any prior shape don't accumulate. The
-	 * INSERT skips when `newParent` is null (clearing the edge). A surviving
-	 * link keeps the prior child/extension relationship; changing only the
-	 * referenced case must not silently turn an extension host into a child.
+	 * INSERT skips when `newParent` is null (clearing the edge). A non-null
+	 * assignment requires its authoritative relationship explicitly; preserving
+	 * the prior row would retain historical mistakes, while consulting the case
+	 * catalog would corrupt deliberately authored advanced-operation links.
 	 */
 	private async rebuildParentEdge(
 		trx: Transaction<Database>,
-		caseId: string,
-		newParent: string | null,
+		args:
+			| {
+					readonly caseId: string;
+					readonly newParent: string;
+					readonly relationship: CaseIndicesTable["relationship"];
+			  }
+			| {
+					readonly caseId: string;
+					readonly newParent: null;
+			  },
 	): Promise<void> {
-		const prior = await trx
-			.selectFrom("case_indices")
-			.select("relationship")
-			.where("case_indices.case_id", "=", caseId)
-			.where("case_indices.identifier", "=", "parent")
-			.orderBy("case_indices.ancestor_id", "asc")
-			.executeTakeFirst();
 		await trx
 			.deleteFrom("case_indices")
-			.where("case_indices.case_id", "=", caseId)
+			.where("case_indices.case_id", "=", args.caseId)
 			.where("case_indices.identifier", "=", "parent")
 			.execute();
-		if (newParent !== null) {
+		if (args.newParent !== null) {
 			const edge: Insertable<CaseIndicesTable> = {
-				case_id: caseId,
-				ancestor_id: newParent,
+				case_id: args.caseId,
+				ancestor_id: args.newParent,
 				identifier: "parent",
-				relationship: prior?.relationship ?? "child",
+				relationship: args.relationship,
 				depth: 1,
 			};
 			await trx.insertInto("case_indices").values(edge).execute();

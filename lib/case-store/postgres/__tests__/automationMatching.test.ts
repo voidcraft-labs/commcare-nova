@@ -332,6 +332,67 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(0);
 	});
 
+	it("matches Python re.match newline semantics for portable regex tokens", async () => {
+		const rows = [
+			["01890f45-0000-7000-8000-000000000130", "Dot newline", "p\nb"],
+			["01890f45-0000-7000-8000-000000000131", "Dot character", "pxb"],
+			["01890f45-0000-7000-8000-000000000132", "Dot CR", "p\rb"],
+			["01890f45-0000-7000-8000-000000000133", "Negated class newline", "q\nz"],
+			["01890f45-0000-7000-8000-000000000134", "Final newline", "e\n"],
+			["01890f45-0000-7000-8000-000000000135", "Double final newline", "e\n\n"],
+			["01890f45-0000-7000-8000-000000000136", "CRLF", "r\r\n"],
+			["01890f45-0000-7000-8000-000000000137", "Escaped dot", "A.\n"],
+			["01890f45-0000-7000-8000-000000000138", "Class dollar", "$\n"],
+			["01890f45-0000-7000-8000-000000000139", "Alternation", "XB"],
+			["01890f45-0000-7000-8000-000000000140", "Case sensitive", "ABC"],
+			["01890f45-0000-7000-8000-000000000141", "Empty", ""],
+			["01890f45-0000-7000-8000-000000000142", "Only newline", "\n"],
+		] as const;
+		for (const [caseId, caseName, code] of rows) {
+			await h.pool.query(
+				`INSERT INTO cases
+				 (case_id, app_id, project_id, owner_id, case_type, case_name,
+				  status, closed_on, properties)
+				 VALUES ($1, $2, $3, 'facility-a', 'visit', $4, 'open', null, $5::jsonb)`,
+				[caseId, APP_ID, PROJECT_ID, caseName, JSON.stringify({ code })],
+			);
+		}
+		const caseStore = store();
+		const count = (pattern: string) =>
+			caseStore.count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				predicate: eq(prop("visit", "status"), literal("open")),
+				automationCriteria: {
+					operator: "all" as const,
+					dates: [],
+					comparisons: [],
+					regexes: [{ property: "code", pattern }],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		// Python's default dot excludes LF but consumes CR.
+		await expect(count("p.b")).resolves.toBe(2);
+		// Python `$` succeeds just before one final LF, not before two.
+		await expect(count("e$")).resolves.toBe(1);
+		await expect(count("r.$")).resolves.toBe(1);
+		// Unlike PostgreSQL's newline-sensitive modes, Python negated classes
+		// still consume LF; the token lowering must preserve that behavior.
+		await expect(count("q[^x]z")).resolves.toBe(1);
+		await expect(count("A\\.$")).resolves.toBe(1);
+		await expect(count("[$.]$")).resolves.toBe(1);
+		// The absolute start applies to every alternative, and matching is case
+		// sensitive under the pinned C collation.
+		await expect(count("Y|B")).resolves.toBe(0);
+		await expect(count("abc")).resolves.toBe(0);
+		// A bare end anchor matches the empty string and one final LF.
+		await expect(count("$")).resolves.toBe(2);
+	});
+
 	it("matches parent and host blankness with HQ missing-relation semantics", async () => {
 		await insertExtensionFixtures();
 		const caseStore = store();
