@@ -192,7 +192,7 @@ equal**. Parent reads follow the `parent` index even when it is an extension;
 host reads follow the first extension regardless of its identifier, preferring
 the canonical `parent` extension when several exist. A missing parent/host
 relation does not satisfy either comparison;
-surrounding whitespace is blank for **has value / has no value**; and regular
+HQ's full Unicode whitespace set is blank for **has value / has no value**; and regular
 expressions test strings only rather than coercing numbers or booleans to text.
 Date conditions use those same parent/host rules. HQ and Preview both discard a
 datetime's time of day and explicit offset before adding the signed day offset,

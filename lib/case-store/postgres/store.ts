@@ -49,6 +49,7 @@ import {
 	type Insertable,
 	type InsertObject,
 	type Kysely,
+	type RawBuilder,
 	type Selectable,
 	sql,
 	type Transaction,
@@ -273,6 +274,49 @@ function automationRelationIndexFilter(args: {
 			${sql.ref(`${args.firstHostAlias}.ancestor_id`)} asc
 		limit 1
 	)`;
+}
+
+/** Python's `str.strip()` whitespace repertoire, which HQ uses for
+ * HAS_VALUE / HAS_NO_VALUE. PostgreSQL's locale-dependent `[[:space:]]`
+ * disagrees for characters including NBSP, OGHAM SPACE MARK, FIGURE SPACE,
+ * NARROW NO-BREAK SPACE, and the U+001C..U+001F separators. An explicit trim
+ * set keeps Preview independent of the database locale and Python-equivalent. */
+const PYTHON_STRIP_WHITESPACE = String.fromCodePoint(
+	0x0009,
+	0x000a,
+	0x000b,
+	0x000c,
+	0x000d,
+	0x001c,
+	0x001d,
+	0x001e,
+	0x001f,
+	0x0020,
+	0x0085,
+	0x00a0,
+	0x1680,
+	0x2000,
+	0x2001,
+	0x2002,
+	0x2003,
+	0x2004,
+	0x2005,
+	0x2006,
+	0x2007,
+	0x2008,
+	0x2009,
+	0x200a,
+	0x2028,
+	0x2029,
+	0x202f,
+	0x205f,
+	0x3000,
+);
+
+function automationStringHasValue(
+	value: RawBuilder<string | null>,
+): RawBuilder<boolean> {
+	return sql<boolean>`btrim(coalesce(${value}, ''), ${PYTHON_STRIP_WHITESPACE}) <> ''`;
 }
 
 /**
@@ -964,11 +1008,19 @@ export class PostgresCaseStore implements CaseStore {
 							criterion.property,
 						);
 						if (criterion.scope !== "case") {
-							const nonblank =
+							const relatedHasPropertyValue =
 								scalar === undefined
-									? sql<boolean>`coalesce(automation_related.properties ->> ${criterion.property}, '') ~ ${"[^[:space:]]"}`
+									? automationStringHasValue(
+											sql<
+												string | null
+											>`automation_related.properties ->> ${criterion.property}`,
+										)
 									: scalar.blankable
-										? sql<boolean>`coalesce(${sql.ref(`automation_related.${scalar.column}`)}, '') ~ ${"[^[:space:]]"}`
+										? automationStringHasValue(
+												sql<
+													string | null
+												>`${sql.ref(`automation_related.${scalar.column}`)}`,
+											)
 										: sql<boolean>`${sql.ref(`automation_related.${scalar.column}`)} is not null`;
 							const relatedHasValue = sql<boolean>`exists (
 								select 1
@@ -985,19 +1037,25 @@ export class PostgresCaseStore implements CaseStore {
 										firstHostAlias: "automation_blankness_first_host",
 									})}
 									and automation_related_index.depth = 1
-									and ${nonblank}
+									and ${relatedHasPropertyValue}
 							)`;
 							return criterion.hasValue
 								? relatedHasValue
 								: sql<boolean>`not (${relatedHasValue})`;
 						}
-						const blank =
+						const hasValue =
 							scalar === undefined
-								? sql<boolean>`coalesce(c.properties ->> ${criterion.property}, '') !~ ${"[^[:space:]]"}`
+								? automationStringHasValue(
+										sql<string | null>`c.properties ->> ${criterion.property}`,
+									)
 								: scalar.blankable
-									? sql<boolean>`coalesce(${sql.ref(`c.${scalar.column}`)}, '') !~ ${"[^[:space:]]"}`
-									: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is null`;
-						return criterion.hasValue ? sql<boolean>`not (${blank})` : blank;
+									? automationStringHasValue(
+											sql<string | null>`${sql.ref(`c.${scalar.column}`)}`,
+										)
+									: sql<boolean>`${sql.ref(`c.${scalar.column}`)} is not null`;
+						return criterion.hasValue
+							? hasValue
+							: sql<boolean>`not (${hasValue})`;
 					}),
 					...group.closedParents.map(
 						(criterion) => sql<boolean>`exists (

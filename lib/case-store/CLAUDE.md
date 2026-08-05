@@ -146,9 +146,11 @@ extension regardless of identifier. Nova chooses that host deterministically:
 the canonical `parent` extension first, then identifier and target order.
 Missing relations do not match either comparison,
 while a missing property on an existing related case matches does-not-equal as
-HQ does. **Has value / has no value** treats a string containing
-only whitespace as blank while non-string JSON scalars have a value, including
-through case-update parent/host relations; a missing relation has no value.
+HQ does. **Has value / has no value** treats a string containing only Python
+`str.strip()` whitespace as blank while non-string JSON scalars have a value,
+including through case-update parent/host relations; a missing relation has no
+value. The SQL uses that explicit Unicode trim repertoire rather than
+PostgreSQL's locale-dependent POSIX whitespace class.
 Alert regex uses
 HQ's beginning-anchored behavior and evaluates stored strings only; it never
 casts a number or boolean to text. PostgreSQL evaluation runs under C collation;

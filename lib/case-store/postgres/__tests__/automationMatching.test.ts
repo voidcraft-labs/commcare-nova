@@ -18,6 +18,37 @@ const CANONICAL_EXTENSION_ID = "01890f45-0000-7000-8000-000000000121";
 const CUSTOM_EXTENSION_ID = "01890f45-0000-7000-8000-000000000122";
 const MULTI_EXTENSION_ID = "01890f45-0000-7000-8000-000000000123";
 const CHILD_IDENTIFIER_HOST_ID = "01890f45-0000-7000-8000-000000000124";
+const PYTHON_STRIP_WHITESPACE_FIXTURE = String.fromCodePoint(
+	0x0009,
+	0x000a,
+	0x000b,
+	0x000c,
+	0x000d,
+	0x001c,
+	0x001d,
+	0x001e,
+	0x001f,
+	0x0020,
+	0x0085,
+	0x00a0,
+	0x1680,
+	0x2000,
+	0x2001,
+	0x2002,
+	0x2003,
+	0x2004,
+	0x2005,
+	0x2006,
+	0x2007,
+	0x2008,
+	0x2009,
+	0x200a,
+	0x2028,
+	0x2029,
+	0x202f,
+	0x205f,
+	0x3000,
+);
 
 const h = setupPerTestDatabase({ databaseNamePrefix: "automation_match_" });
 
@@ -276,6 +307,22 @@ describe("automation criteria SQL", () => {
 	});
 
 	it("matches HQ whitespace blankness and runs regex only on strings", async () => {
+		await h.pool.query(
+			`INSERT INTO cases
+			 (case_id, app_id, project_id, owner_id, case_type, case_name,
+			  status, closed_on, properties)
+			 VALUES
+			 ('01890f45-0000-7000-8000-000000000125', $1, $2, 'facility-a',
+			  'visit', 'Unicode whitespace code', 'open', null, $3::jsonb),
+			 ('01890f45-0000-7000-8000-000000000126', $1, $2, 'facility-a',
+			  'visit', 'Unicode text code', 'open', null, $4::jsonb)`,
+			[
+				APP_ID,
+				PROJECT_ID,
+				JSON.stringify({ code: PYTHON_STRIP_WHITESPACE_FIXTURE }),
+				JSON.stringify({ code: `${PYTHON_STRIP_WHITESPACE_FIXTURE}x` }),
+			],
+		);
 		const caseStore = store();
 		const base = {
 			appId: APP_ID,
@@ -299,7 +346,7 @@ describe("automation criteria SQL", () => {
 					locationOwnerSets: [],
 				},
 			}),
-		).resolves.toBe(1);
+		).resolves.toBe(2);
 		await expect(
 			caseStore.count({
 				...base,
@@ -315,7 +362,7 @@ describe("automation criteria SQL", () => {
 					locationOwnerSets: [],
 				},
 			}),
-		).resolves.toBe(3);
+		).resolves.toBe(4);
 		await expect(
 			caseStore.count({
 				...base,
@@ -420,6 +467,42 @@ describe("automation criteria SQL", () => {
 		await expect(count("parent", false)).resolves.toBe(3);
 		await expect(count("host", true)).resolves.toBe(4);
 		await expect(count("host", false)).resolves.toBe(3);
+
+		await h.pool.query(
+			`UPDATE cases
+			 SET properties = jsonb_build_object('marker', $1::text)
+			 WHERE case_id = ANY($2::text[])`,
+			[PYTHON_STRIP_WHITESPACE_FIXTURE, [PARENT_ID, CUSTOM_HOST_ID]],
+		);
+		const countNamed = (
+			caseName: string,
+			scope: "parent" | "host",
+			hasValue: boolean,
+		) =>
+			caseStore.count({
+				...base,
+				predicate: eq(prop("visit", "case_name"), literal(caseName)),
+				automationCriteria: {
+					operator: "all" as const,
+					dates: [],
+					comparisons: [],
+					regexes: [],
+					blankness: [{ property: "marker", hasValue, scope }],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			});
+
+		await expect(
+			countNamed("Canonical extension", "parent", true),
+		).resolves.toBe(0);
+		await expect(
+			countNamed("Canonical extension", "parent", false),
+		).resolves.toBe(1);
+		await expect(countNamed("Custom extension", "host", true)).resolves.toBe(0);
+		await expect(countNamed("Custom extension", "host", false)).resolves.toBe(
+			1,
+		);
 	});
 
 	it("compares only stored strings without coercion and requires a related case", async () => {
