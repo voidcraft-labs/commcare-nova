@@ -509,3 +509,15 @@ to notice, since both halves look right alone. `lib/deployment/previewSpace.ts`
 is the one resolver, kept out of the publish lifecycle module so a case-data
 action does not import the expander and the HQ client to ask one question of
 one table.
+
+**The client copy updates on every own-tab path that can change it.** The
+builder page resolves it server-side on load, the publish response carries
+the server's fresh answer whether the publish landed or was refused, and
+every Check status returns `previewProjectSpace` beside the refreshed record
+(`RefreshedDeploymentView`); the publish dialog applies all three to
+`DeploymentTargetProvider`. The named boundary: a CO-MEMBER's publish in
+another session reaches an open tab's client identity only on its next page
+load, because deployments have no realtime channel yet — the server-side
+resolvers are always fresh, so the exposure is limited to the client form
+engine until reload. Do not paper over that with a client-asserted value;
+extending the realtime stream is the honest fix if the window ever matters.

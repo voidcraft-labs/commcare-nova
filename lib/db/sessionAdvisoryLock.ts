@@ -14,18 +14,24 @@ import { type AppDatabase, getAppPool } from "@/lib/db/pg";
  *
  * Transaction advisory locks (`pg_advisory_xact_lock`) release at COMMIT, so
  * they cannot protect a body that commits partway through or that waits on
- * another system in between. That is the shape of both callers here: media
- * publication holds its identity across GCS bytes plus committed metadata,
- * and a CommCare HQ publish holds its target across preflight, a network
- * import that mints a remote app, and the write that records it. Neither can
- * pretend Postgres and the other system share a transaction.
+ * another system in between. That is the shape of media publication, the
+ * caller here: it holds its content identity across GCS bytes plus committed
+ * metadata, and cannot pretend Postgres and GCS share a transaction.
  *
  * So this checks out ONE session, takes session-scoped advisory locks on it,
  * and holds them until the body ends. The body also receives a Kysely handle
  * pinned to that same session, so a caller that needs its SQL on the locked
- * connection has it without a second checkout — callers that only need mutual
+ * connection has it without a second checkout; callers that only need mutual
  * exclusion can ignore it and use the ordinary pool, because the lock excludes
  * other LOCK HOLDERS regardless of which connection their statements run on.
+ *
+ * The held session is the cost, and it prices the whole pattern: a body
+ * pins one pooled connection for its full duration, so this fits work
+ * measured in the time a GCS write takes and does NOT fit work that waits
+ * on a slow third party. The deployment lifecycle deliberately does not
+ * use it for exactly that reason: a publish spends minutes talking to
+ * CommCare HQ, and holds no lock at all; its writes fold against the
+ * fresh row per transaction instead (`lib/deployment/store.ts`).
  *
  * Identities are sorted before acquisition so every caller takes them in the
  * same order and an A-then-B body cannot deadlock against a B-then-A one. A
@@ -36,9 +42,10 @@ import { type AppDatabase, getAppPool } from "@/lib/db/pg";
 // Keep one pooled connection available for unrelated request work. Every lock
 // body may reuse its checked-out session for SQL, so two concurrent holders
 // consume two of the current pool slots rather than two locks plus two
-// additional connections. This counter is process-wide ON PURPOSE: media and
-// deployment share the pool, so separate per-feature counters would each
-// believe they had the whole budget and together oversubscribe it.
+// additional connections. This counter is process-wide ON PURPOSE so that a
+// second feature adopting this lock shares the budget: separate per-feature
+// counters would each believe they had the whole budget and together
+// oversubscribe it.
 const MAX_LOCAL_SESSION_LOCKS = Math.max(1, POOL_MAX_PER_INSTANCE - 1);
 let localSessionLocks = 0;
 const localSessionLockWaiters: Array<() => void> = [];

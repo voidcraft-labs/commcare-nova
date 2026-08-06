@@ -7,7 +7,7 @@
 // record point at right now", and every surface that renders or projects a
 // deployment needs it. Living beside the persistence layer made them
 // unreachable from a unit test without mocking Postgres, which two test
-// files had already worked around by re-implementing them — a copy of a
+// files had already worked around by re-implementing them: a copy of a
 // rule is a rule that can drift.
 
 import type {

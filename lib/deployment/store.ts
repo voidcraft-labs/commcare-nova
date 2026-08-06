@@ -11,10 +11,15 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
-import { withSessionAdvisoryLocks } from "@/lib/db/sessionAdvisoryLock";
 import { deploymentNotFound } from "./errors";
-import { clearObservationOutcomes } from "./stateMachine";
 import {
+	applyAttemptOutcome,
+	applyObservation,
+	applyPhaseOutcome,
+	clearObservationOutcomes,
+} from "./stateMachine";
+import {
+	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,
 	type DeploymentRecord,
@@ -227,6 +232,21 @@ async function loadResources(
 	return byDeployment;
 }
 
+/** The one row query both list readers share, so they cannot drift. */
+async function readDeploymentRowsForApp(
+	scope: DeploymentScope,
+): Promise<Selectable<AppDeploymentsTable>[]> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	return db
+		.selectFrom("app_deployments")
+		.selectAll()
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.orderBy("updated_at", "desc")
+		.execute();
+}
+
 /**
  * Every deployment of one app, newest activity first.
  *
@@ -237,15 +257,8 @@ async function loadResources(
 export async function readDeploymentsForApp(
 	scope: DeploymentScope,
 ): Promise<readonly DeploymentWithResources[]> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const rows = await readDeploymentRowsForApp(scope);
 	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("app_deployments")
-		.selectAll()
-		.where("app_id", "=", scope.appId)
-		.where("project_id", "=", scope.projectId)
-		.orderBy("updated_at", "desc")
-		.execute();
 	const resources = await loadResources(
 		db,
 		rows.map((row) => row.id),
@@ -257,26 +270,43 @@ export async function readDeploymentsForApp(
 }
 
 /**
- * Just the deployment rows, without their ownership ledger.
+ * Just the columns Preview's project-space rule reads, without the
+ * ownership ledger or the phase history.
  *
- * Preview asks only "which project space, and how far along", which is three
- * columns on this table — so loading every resource mapping for every
- * deployment to answer it was a join nothing read. Every preview case-data
- * action pays this, so it stays a single narrow read.
+ * Preview asks only "which project space, and how far along". Every
+ * preview case-data action pays this read, so it selects exactly the
+ * three columns that answer it.
  */
-export async function readDeploymentRecordsForApp(
+export async function readDeploymentPreviewRecords(
 	scope: DeploymentScope,
-): Promise<readonly DeploymentRecord[]> {
+): Promise<
+	readonly Pick<DeploymentRecord, "state" | "resumePhase" | "domain">[]
+> {
 	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("app_deployments")
-		.selectAll()
+		.select(["state", "resume_phase", "domain"])
 		.where("app_id", "=", scope.appId)
 		.where("project_id", "=", scope.projectId)
-		.orderBy("updated_at", "desc")
 		.execute();
-	return rows.map(toDeploymentRecord);
+	return rows.map((row) => {
+		const state = deploymentStateSchema.safeParse(row.state);
+		const resumePhase =
+			row.resume_phase === null
+				? null
+				: deploymentPhaseSchema.safeParse(row.resume_phase);
+		if (!state.success || (resumePhase !== null && !resumePhase.success)) {
+			throw new Error(
+				`A deployment of app ${scope.appId} is stored in a state Nova does not know.`,
+			);
+		}
+		return {
+			state: state.data,
+			resumePhase: resumePhase === null ? null : resumePhase.data,
+			domain: row.domain,
+		};
+	});
 }
 
 /** One deployment by target, or `null` when the app has never had one. */
@@ -320,132 +350,119 @@ async function loadWithinTransaction(
 }
 
 /**
- * Get the deployment for a target, creating it in `preflight` if this is
- * the first time the app has been pointed at that project space.
+ * Every write below is one transaction over the FRESH row.
  *
- * Creation is the honest starting state, not a placeholder: `preflight`
- * means "prerequisites are being checked and nothing has been sent", which
- * is exactly true of a record that has just come into existence.
+ * There is deliberately no cross-transaction lock around a publish or a
+ * refresh, because both spend seconds to minutes talking to CommCare HQ
+ * and a lock that spans that time has to hold a database session across
+ * it: a pooled connection pinned idle while HQ thinks. Instead, each
+ * write locks the app row, takes the deployment row `FOR UPDATE`, applies
+ * the pure state-machine fold to what the row says NOW, and commits. A
+ * fold computed against a snapshot another writer has since replaced can
+ * therefore never land: the fold happens after the lock, not before it.
+ *
+ * What keeps interleaved network work honest is that every fold states
+ * its precondition against the fresh row instead of assuming one:
+ * `applyAttemptOutcome` changes nothing once the target displays as
+ * reached, and an observation is applied only while the mapping it
+ * observed is still the active one (`applyDeploymentObservation`).
  */
-/**
- * Serialize everything that acts on ONE app's deployment to ONE project
- * space.
- *
- * Publishing and observing both span several transactions with network
- * calls in between, so neither can be protected by a transaction lock.
- * Without this, two publishes both reached `importApp`, CommCare HQ minted
- * two apps, and whichever recorded second lost: the record named the older
- * app while the author released the newer one, and Nova reported the live
- * app as an abandoned leftover forever. A refresh interleaved the same way
- * wrote observations about the app a publish had just replaced.
- *
- * The app row lock cannot do this job. It is taken `FOR SHARE`, which does
- * not conflict with itself, and it is released at each transaction's commit
- * while these operations are still running.
- *
- * The identity is the deployment key, so two different targets of the same
- * app still publish concurrently.
- */
-export async function withDeploymentTargetLock<T>(
+async function withDeploymentRow<T>(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	body: () => Promise<T>,
+	options: { readonly ensure: boolean },
+	body: (
+		tx: Transaction<AppDatabase>,
+		row: Selectable<AppDeploymentsTable>,
+	) => Promise<T>,
 ): Promise<T> {
-	return withSessionAdvisoryLocks(
-		[
-			`nova-deployment:${scope.projectId}:${scope.appId}:${target.server}:${target.domain}`,
-		],
-		"Deployment",
-		// The body's own statements may use the ordinary pool: this lock
-		// excludes other HOLDERS, not other connections, and every operation
-		// that touches a deployment target takes it.
-		async () => body(),
-	);
-}
-
-export async function ensureDeployment(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-): Promise<DeploymentWithResources> {
 	return withAppTx(async (tx) => {
 		await lockAppForDeploymentWrite(tx, scope, "edit");
-		const id = await ensureDeploymentInTransaction(tx, scope, target);
-		return loadWithinTransaction(tx, id);
-	});
-}
-
-/** The upsert itself, so a caller already holding the lock can compose it. */
-async function ensureDeploymentInTransaction(
-	tx: Transaction<AppDatabase>,
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-): Promise<string> {
-	await tx
-		.insertInto("app_deployments")
-		.values({
-			app_id: scope.appId,
-			project_id: scope.projectId,
-			server: target.server,
-			domain: target.domain,
-			state: "preflight",
-			resume_phase: null,
-			phases: JSON.stringify(NO_DEPLOYMENT_PHASE_OUTCOMES),
-			created_by: scope.actorUserId,
-		})
-		.onConflict((conflict) =>
-			conflict
-				.columns(["app_id", "project_id", "server", "domain"])
-				.doNothing(),
-		)
-		.execute();
-	const row = await tx
-		.selectFrom("app_deployments")
-		.select("id")
-		.where("app_id", "=", scope.appId)
-		.where("project_id", "=", scope.projectId)
-		.where("server", "=", target.server)
-		.where("domain", "=", target.domain)
-		.executeTakeFirst();
-	if (row === undefined) {
-		throw new Error(
-			"The deployment disappeared immediately after its locked upsert.",
-		);
-	}
-	return row.id;
-}
-
-/**
- * Write the deployment's new state and phase history in one place.
- *
- * The caller folds outcomes through the pure state machine and hands the
- * result here, so the transition rules live in exactly one module and this
- * one only persists. `lastObservedAt` moves only when an observation
- * actually reached CommCare HQ.
- */
-export async function saveDeploymentProgress(
-	scope: DeploymentScope,
-	deploymentId: string,
-	next: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">,
-	options: { readonly observed?: boolean } = {},
-): Promise<DeploymentWithResources> {
-	return withAppTx(async (tx) => {
-		await lockAppForDeploymentWrite(tx, scope, "edit");
-		const updated = await tx
-			.updateTable("app_deployments")
-			.set({
-				state: next.state,
-				resume_phase: next.resumePhase,
-				phases: JSON.stringify(next.phases),
-				updated_at: new Date(),
-				...(options.observed === true ? { last_observed_at: new Date() } : {}),
-			})
-			.where("id", "=", deploymentId)
+		if (options.ensure) {
+			/* Creation is the honest starting state, not a placeholder:
+			 * `preflight` means "prerequisites are being checked and nothing
+			 * has been sent", which is exactly true of a record that has just
+			 * come into existence. */
+			await tx
+				.insertInto("app_deployments")
+				.values({
+					app_id: scope.appId,
+					project_id: scope.projectId,
+					server: target.server,
+					domain: target.domain,
+					state: "preflight",
+					resume_phase: null,
+					phases: JSON.stringify(NO_DEPLOYMENT_PHASE_OUTCOMES),
+					created_by: scope.actorUserId,
+				})
+				.onConflict((conflict) =>
+					conflict
+						.columns(["app_id", "project_id", "server", "domain"])
+						.doNothing(),
+				)
+				.execute();
+		}
+		const row = await tx
+			.selectFrom("app_deployments")
+			.selectAll()
 			.where("app_id", "=", scope.appId)
 			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.forUpdate()
 			.executeTakeFirst();
-		if (Number(updated.numUpdatedRows ?? 0) === 0) throw deploymentNotFound();
-		return loadWithinTransaction(tx, deploymentId);
+		if (row === undefined) throw deploymentNotFound();
+		return body(tx, row);
 	});
+}
+
+function progressUpdate(
+	next: Pick<DeploymentRecord, "state" | "resumePhase">,
+	phases: DeploymentPhaseOutcomes,
+	now: Date,
+) {
+	return {
+		state: next.state,
+		resume_phase: next.resumePhase,
+		phases: JSON.stringify(phases),
+		updated_at: now,
+	};
+}
+
+/**
+ * Fold one publish-attempt outcome into the target's record.
+ *
+ * The fold is `applyAttemptOutcome`, applied to the row as it stands
+ * inside the transaction: a refused attempt against a target that already
+ * holds the app changes nothing (the refusal is the ATTEMPT's to report),
+ * and in that case nothing is written. `ensure` creates the record first,
+ * for the one caller allowed to bring it into existence: a publish whose
+ * preflight just proved the target reachable.
+ */
+export async function foldDeploymentAttempt(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	phase: "preflight" | "upload",
+	outcome: DeploymentPhaseOutcome,
+	options: { readonly ensure?: boolean } = {},
+): Promise<DeploymentWithResources> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: options.ensure === true },
+		async (tx, row) => {
+			const record = toDeploymentRecord(row);
+			const next = applyAttemptOutcome(record, phase, outcome);
+			if (next !== record) {
+				await tx
+					.updateTable("app_deployments")
+					.set(progressUpdate(next, next.phases, new Date()))
+					.where("id", "=", row.id)
+					.execute();
+			}
+			return loadWithinTransaction(tx, row.id);
+		},
+	);
 }
 
 export interface RecordRemoteResourceInput {
@@ -455,149 +472,174 @@ export interface RecordRemoteResourceInput {
 	readonly ownership: DeploymentResourceOwnership;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
-	/**
-	 * Phase history to persist alongside the mapping, so the state change
-	 * and the ownership change land in one transaction. A publish that
-	 * recorded the remote app but not the `uploaded` state would leave a
-	 * deployment claiming nothing happened while an app sat on HQ.
-	 */
-	readonly progress: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">;
+	/** When the resource landed on the target. */
+	readonly uploadedAt: string;
 }
 
 /**
  * Point a deployment at a remote resource, superseding whatever it named
- * before.
+ * before, and fold the successful upload into the record: one
+ * transaction, so a publish that recorded the remote app but not the
+ * `uploaded` state cannot exist.
  *
  * The previous mapping is retained with `superseded_at` set rather than
  * deleted. CommCare HQ has no atomic app update, so a second publish makes
  * a second app there and leaves the first one in place; the contract is to
  * REPORT what was left behind, which is impossible if the row is thrown
- * away. Its observation history is cleared in the same write because those
- * answers described the previous remote resource, not this one.
+ * away. The record's observation history is cleared in the same write
+ * because those answers described the previous remote resource, not this
+ * one.
  */
 export async function recordRemoteResource(
 	scope: DeploymentScope,
-	deploymentId: string,
+	target: DeploymentTargetKey,
 	input: RecordRemoteResourceInput,
 ): Promise<DeploymentWithResources> {
-	return withAppTx(async (tx) => {
-		await lockAppForDeploymentWrite(tx, scope, "edit");
-		const deployment = await tx
-			.selectFrom("app_deployments")
-			.select(["id"])
-			.where("id", "=", deploymentId)
-			.where("app_id", "=", scope.appId)
-			.where("project_id", "=", scope.projectId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (deployment === undefined) throw deploymentNotFound();
-		return writeRemoteResourceInTransaction(tx, deploymentId, input);
-	});
-}
-
-/**
- * The mapping write itself. The caller holds the app lock and has already
- * proven the deployment belongs to the scope.
- */
-async function writeRemoteResourceInTransaction(
-	tx: Transaction<AppDatabase>,
-	deploymentId: string,
-	input: RecordRemoteResourceInput,
-): Promise<DeploymentWithResources> {
-	const now = new Date();
-	await tx
-		.updateTable("app_deployment_resources")
-		.set({ superseded_at: now })
-		.where("deployment_id", "=", deploymentId)
-		.where("kind", "=", input.kind)
-		.where("nova_resource_id", "=", input.novaResourceId)
-		.where("superseded_at", "is", null)
-		// Re-pointing at the same remote id is not a supersession: it is
-		// the same resource, so the row is updated below instead of being
-		// filed as something left behind.
-		.where("remote_id", "!=", input.remoteId)
-		.execute();
-
-	await tx
-		.insertInto("app_deployment_resources")
-		.values({
-			deployment_id: deploymentId,
-			kind: input.kind,
-			nova_resource_id: input.novaResourceId,
-			remote_id: input.remoteId,
-			ownership: input.ownership,
-			pushed_revision: input.pushedRevision,
-			pushed_at: input.pushedRevision === null ? null : now,
-		})
-		.onConflict((conflict) =>
-			conflict
-				.columns(["deployment_id", "kind", "nova_resource_id"])
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const now = new Date();
+			await tx
+				.updateTable("app_deployment_resources")
+				.set({ superseded_at: now })
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", input.kind)
+				.where("nova_resource_id", "=", input.novaResourceId)
 				.where("superseded_at", "is", null)
-				.doUpdateSet({
+				// Re-pointing at the same remote id is not a supersession: it is
+				// the same resource, so the row is updated below instead of being
+				// filed as something left behind.
+				.where("remote_id", "!=", input.remoteId)
+				.execute();
+
+			await tx
+				.insertInto("app_deployment_resources")
+				.values({
+					deployment_id: row.id,
+					kind: input.kind,
+					nova_resource_id: input.novaResourceId,
 					remote_id: input.remoteId,
 					ownership: input.ownership,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
-				}),
-		)
-		.execute();
+				})
+				.onConflict((conflict) =>
+					conflict
+						.columns(["deployment_id", "kind", "nova_resource_id"])
+						.where("superseded_at", "is", null)
+						.doUpdateSet({
+							remote_id: input.remoteId,
+							ownership: input.ownership,
+							pushed_revision: input.pushedRevision,
+							pushed_at: input.pushedRevision === null ? null : now,
+						}),
+				)
+				.execute();
 
-	await tx
-		.updateTable("app_deployments")
-		.set({
-			state: input.progress.state,
-			resume_phase: input.progress.resumePhase,
-			phases: JSON.stringify(clearObservationOutcomes(input.progress.phases)),
-			updated_at: now,
-		})
-		.where("id", "=", deploymentId)
-		.execute();
+			const record = toDeploymentRecord(row);
+			const progress = applyPhaseOutcome(record, "upload", {
+				status: "succeeded",
+				at: input.uploadedAt,
+			});
+			await tx
+				.updateTable("app_deployments")
+				.set(
+					progressUpdate(
+						progress,
+						clearObservationOutcomes(progress.phases),
+						now,
+					),
+				)
+				.where("id", "=", row.id)
+				.execute();
 
-	return loadWithinTransaction(tx, deploymentId);
+			return loadWithinTransaction(tx, row.id);
+		},
+	);
+}
+
+export interface ApplyObservationInput {
+	/** The CommCare HQ app the observation asked about. */
+	readonly observedRemoteId: string;
+	/** In phase order, ready for the state machine to fold. */
+	readonly outcomes: readonly (readonly [
+		DeploymentPhase,
+		DeploymentPhaseOutcome,
+	])[];
+	/** CommCare HQ's own version of the app, when it answered. */
+	readonly remoteRevision: number | null;
 }
 
 /**
- * Record what CommCare HQ says its own version of a resource is.
+ * Fold what an observation heard into the record, but only while the
+ * mapping it observed is still the active one.
  *
- * Separate from the pushed revision on purpose: one is what Nova sent, the
- * other is what the target holds, and collapsing them would make a
- * hand-edited remote app look like Nova's own work.
+ * Observation reads the record, spends seconds asking CommCare HQ about
+ * the app it names, then comes back here. If a publish landed in that
+ * window, the answers describe the app the publish just REPLACED, and
+ * writing them would overwrite the fresh record with facts about the
+ * superseded one. So the write re-reads the active mapping under the row
+ * lock and discards a stale observation, returning the fresh view either
+ * way; `applied` says which happened.
  */
-export async function recordRemoteRevision(
+export async function applyDeploymentObservation(
 	scope: DeploymentScope,
-	deploymentId: string,
-	input: {
-		readonly kind: DeploymentResourceKind;
-		readonly novaResourceId: string;
-		readonly remoteRevision: number | null;
-	},
-): Promise<void> {
-	await withAppTx(async (tx) => {
-		await lockAppForDeploymentWrite(tx, scope, "edit");
-		/* Prove the deployment belongs to this scope, as its two siblings
-		 * do. The one caller passes an id from a scoped read, but a module
-		 * whose whole tenancy story is "the store proves it" cannot have an
-		 * exception that relies on its callers. */
-		const deployment = await tx
-			.selectFrom("app_deployments")
-			.select("id")
-			.where("id", "=", deploymentId)
-			.where("app_id", "=", scope.appId)
-			.where("project_id", "=", scope.projectId)
-			.executeTakeFirst();
-		if (deployment === undefined) throw deploymentNotFound();
-		await tx
-			.updateTable("app_deployment_resources")
-			.set({
-				remote_revision: input.remoteRevision,
-				remote_observed_at: new Date(),
-			})
-			.where("deployment_id", "=", deploymentId)
-			.where("kind", "=", input.kind)
-			.where("nova_resource_id", "=", input.novaResourceId)
-			.where("superseded_at", "is", null)
-			.execute();
-	});
+	target: DeploymentTargetKey,
+	input: ApplyObservationInput,
+): Promise<{
+	readonly view: DeploymentWithResources;
+	readonly applied: boolean;
+}> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const now = new Date();
+			const active = await tx
+				.selectFrom("app_deployment_resources")
+				.select(["remote_id"])
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("nova_resource_id", "=", scope.appId)
+				.where("superseded_at", "is", null)
+				.executeTakeFirst();
+			if (active === undefined || active.remote_id !== input.observedRemoteId) {
+				return {
+					view: await loadWithinTransaction(tx, row.id),
+					applied: false,
+				};
+			}
+			const record = toDeploymentRecord(row);
+			const next = applyObservation(record, input.outcomes);
+			await tx
+				.updateTable("app_deployments")
+				.set({
+					...progressUpdate(next, next.phases, now),
+					last_observed_at: now,
+				})
+				.where("id", "=", row.id)
+				.execute();
+			if (input.remoteRevision !== null) {
+				/* What CommCare HQ says its own version is, kept separate from the
+				 * pushed revision on purpose: one is what Nova sent, the other is
+				 * what the target holds, and collapsing them would make a
+				 * hand-edited remote app look like Nova's own work. */
+				await tx
+					.updateTable("app_deployment_resources")
+					.set({
+						remote_revision: input.remoteRevision,
+						remote_observed_at: now,
+					})
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", "app")
+					.where("nova_resource_id", "=", scope.appId)
+					.where("superseded_at", "is", null)
+					.execute();
+			}
+			return { view: await loadWithinTransaction(tx, row.id), applied: true };
+		},
+	);
 }
-
-export type { DeploymentPhaseOutcome, DeploymentPhaseOutcomes };

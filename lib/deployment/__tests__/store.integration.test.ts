@@ -2,34 +2,36 @@
  * The deployment store against real Postgres.
  *
  * What this proves that a mocked test cannot: the migration's constraints
- * actually hold. The partial unique index makes "two live mappings for one
- * Nova resource" unrepresentable, and the CHECK pairs `incomplete` with a
- * resume phase. Deployments moving with their app is proved next door, in
+ * actually hold, and the fold-in-transaction writes really do decide
+ * against the FRESH row. The partial unique index makes "two live mappings
+ * for one Nova resource" unrepresentable, the CHECK pairs `incomplete`
+ * with a resume phase, and a stale observation is discarded once a publish
+ * has superseded the mapping it asked about. Deployments moving with their
+ * app is proved next door, in
  * `lib/db/__tests__/projectMove.integration.test.ts`.
  */
 
 import { sql } from "kysely";
-import { Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { __setAppPoolForTests } from "@/lib/db/pg";
 import { activeRemoteApp } from "../resources";
-import { applyPhaseOutcome } from "../stateMachine";
 import {
+	applyDeploymentObservation,
 	type DeploymentScope,
-	ensureDeployment,
+	foldDeploymentAttempt,
 	readDeployment,
+	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
 	recordRemoteResource,
-	recordRemoteRevision,
-	saveDeploymentProgress,
-	withDeploymentTargetLock,
 } from "../store";
 
 const h = setupAppStateTestDb("deployments_");
 
 const AT = "2026-08-06T00:00:00.000Z";
-const TARGET = { server: "production" as const, domain: "acme" };
+const TARGET: { server: "production" | "india"; domain: string } = {
+	server: "production",
+	domain: "acme",
+};
 
 async function seed(
 	appId = "app-1",
@@ -45,57 +47,105 @@ async function seed(
 	return { appId, projectId, role: "owner", actorUserId: "u1" };
 }
 
+function preflightPassed() {
+	return { status: "succeeded" as const, at: AT };
+}
+
+async function create(scope: DeploymentScope, target = TARGET) {
+	return foldDeploymentAttempt(scope, target, "preflight", preflightPassed(), {
+		ensure: true,
+	});
+}
+
+async function publish(scope: DeploymentScope, remoteId: string, seq: number) {
+	await create(scope);
+	return recordRemoteResource(scope, TARGET, {
+		kind: "app",
+		novaResourceId: scope.appId,
+		remoteId,
+		ownership: "nova-created",
+		pushedRevision: seq,
+		uploadedAt: AT,
+	});
+}
+
 describe("creating a deployment", () => {
-	it("starts in preflight and is idempotent per target", async () => {
+	it("starts by folding the passed preflight, and is idempotent per target", async () => {
 		const scope = await seed();
 
-		const first = await ensureDeployment(scope, TARGET);
-		const second = await ensureDeployment(scope, TARGET);
+		const first = await create(scope);
+		const second = await create(scope);
 
 		expect(first.deployment.state).toBe("preflight");
 		expect(first.deployment.resumePhase).toBeNull();
+		expect(first.deployment.phases.preflight?.status).toBe("succeeded");
 		expect(second.deployment.id).toBe(first.deployment.id);
 		expect(await readDeploymentsForApp(scope)).toHaveLength(1);
 	});
 
 	it("keeps one deployment per project space, not per publish", async () => {
 		const scope = await seed();
-		await ensureDeployment(scope, TARGET);
-		await ensureDeployment(scope, { server: "production", domain: "other" });
-		await ensureDeployment(scope, { server: "india", domain: "acme" });
+		await create(scope);
+		await create(scope, { server: "production", domain: "other" });
+		await create(scope, { server: "india", domain: "acme" });
 
 		expect(await readDeploymentsForApp(scope)).toHaveLength(3);
 	});
+
+	it("refuses to fold against a record that does not exist", async () => {
+		const scope = await seed();
+		await expect(
+			foldDeploymentAttempt(scope, TARGET, "preflight", preflightPassed()),
+		).rejects.toThrow(/isn't available/);
+	});
 });
 
-describe("phase progress", () => {
-	it("stores a refusal with the phase a retry resumes at", async () => {
+describe("attempt folds", () => {
+	it("moves an unreached record to incomplete with the phase a retry resumes at", async () => {
 		const scope = await seed();
-		const created = await ensureDeployment(scope, TARGET);
+		await create(scope);
 
-		const refused = applyPhaseOutcome(created.deployment, "release", {
+		const refused = await foldDeploymentAttempt(scope, TARGET, "upload", {
 			status: "failed",
 			at: AT,
 			failure: {
-				code: "build_not_installable",
-				message: "Nova couldn't reach CommCare HQ.",
+				code: "hq_rejected_upload",
+				message: "CommCare HQ refused the app.",
 				details: [],
 			},
 		});
-		const saved = await saveDeploymentProgress(
-			scope,
-			created.deployment.id,
-			refused,
-		);
 
-		expect(saved.deployment.state).toBe("incomplete");
-		expect(saved.deployment.resumePhase).toBe("release");
-		expect(saved.deployment.phases.release?.status).toBe("failed");
+		expect(refused.deployment.state).toBe("incomplete");
+		expect(refused.deployment.resumePhase).toBe("upload");
+		expect(refused.deployment.phases.upload?.status).toBe("failed");
+	});
+
+	it("writes NOTHING when the attempt is refused against a reached record", async () => {
+		const scope = await seed();
+		const live = await publish(scope, "hq-1", 7);
+
+		const after = await foldDeploymentAttempt(scope, TARGET, "preflight", {
+			status: "failed",
+			at: "2026-08-07T00:00:00.000Z",
+			failure: {
+				code: "hq_not_connected",
+				message: "The caller's key expired.",
+				details: [],
+			},
+		});
+
+		// The record still describes the target: same state, same phases,
+		// no stale attempt failure for a later reader to misattribute.
+		expect(after.deployment.state).toBe("uploaded");
+		expect(after.deployment.phases.preflight).toEqual(
+			live.deployment.phases.preflight,
+		);
+		expect(after.deployment.updatedAt).toBe(live.deployment.updatedAt);
 	});
 
 	it("refuses a state and resume phase that disagree", async () => {
 		const scope = await seed();
-		const created = await ensureDeployment(scope, TARGET);
+		const created = await create(scope);
 
 		// The CHECK constraint, not application code, is what makes
 		// "refused with nowhere to retry from" unrepresentable.
@@ -108,50 +158,10 @@ describe("phase progress", () => {
 				.execute(),
 		).rejects.toThrow();
 	});
-
-	it("moves last_observed_at only when an observation reached CommCare HQ", async () => {
-		const scope = await seed();
-		const created = await ensureDeployment(scope, TARGET);
-
-		const quiet = await saveDeploymentProgress(scope, created.deployment.id, {
-			state: "uploaded",
-			resumePhase: null,
-			phases: created.deployment.phases,
-		});
-		expect(quiet.deployment.lastObservedAt).toBeNull();
-
-		const observed = await saveDeploymentProgress(
-			scope,
-			created.deployment.id,
-			{ state: "built", resumePhase: null, phases: created.deployment.phases },
-			{ observed: true },
-		);
-		expect(observed.deployment.lastObservedAt).not.toBeNull();
-	});
 });
 
 describe("ownership mappings", () => {
-	async function publish(
-		scope: DeploymentScope,
-		remoteId: string,
-		seq: number,
-	) {
-		const deployment = await ensureDeployment(scope, TARGET);
-		return recordRemoteResource(scope, deployment.deployment.id, {
-			kind: "app",
-			novaResourceId: scope.appId,
-			remoteId,
-			ownership: "nova-created",
-			pushedRevision: seq,
-			progress: {
-				state: "uploaded",
-				resumePhase: null,
-				phases: deployment.deployment.phases,
-			},
-		});
-	}
-
-	it("records the remote app and the revision it was built from", async () => {
+	it("records the remote app and the revision it was built from, atomically with the uploaded state", async () => {
 		const scope = await seed();
 		const view = await publish(scope, "hq-1", 7);
 
@@ -162,6 +172,7 @@ describe("ownership mappings", () => {
 			pushedRevision: 7,
 		});
 		expect(view.deployment.state).toBe("uploaded");
+		expect(view.deployment.phases.upload?.status).toBe("succeeded");
 	});
 
 	it("supersedes rather than deletes, so what was left behind stays nameable", async () => {
@@ -199,41 +210,95 @@ describe("ownership mappings", () => {
 
 	it("clears observations that described the previous remote app", async () => {
 		const scope = await seed();
-		const first = await publish(scope, "hq-1", 7);
-		await saveDeploymentProgress(
-			scope,
-			first.deployment.id,
-			applyPhaseOutcome(first.deployment, "build", {
-				status: "succeeded",
-				at: AT,
-			}),
-		);
+		await publish(scope, "hq-1", 7);
+		await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			outcomes: [
+				["upload", { status: "succeeded", at: AT }],
+				["build", { status: "succeeded", at: AT }],
+			],
+			remoteRevision: 2,
+		});
 
 		const second = await publish(scope, "hq-2", 9);
 		expect(second.deployment.phases.build).toBeNull();
+		expect(second.deployment.state).toBe("uploaded");
 	});
+});
 
-	it("keeps what Nova pushed and what CommCare HQ holds as separate facts", async () => {
+describe("observation writes", () => {
+	it("folds outcomes, stamps last_observed_at, and records the remote revision", async () => {
 		const scope = await seed();
-		const view = await publish(scope, "hq-1", 7);
-		await recordRemoteRevision(scope, view.deployment.id, {
-			kind: "app",
-			novaResourceId: scope.appId,
+		await publish(scope, "hq-1", 7);
+
+		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			outcomes: [
+				["upload", { status: "succeeded", at: AT }],
+				["build", { status: "succeeded", at: AT }],
+				["release", { status: "pending", at: AT, reason: "Not released." }],
+			],
 			remoteRevision: 3,
 		});
 
-		const reread = await readDeployment(scope, TARGET);
-		expect(activeRemoteApp(reread as never)).toMatchObject({
+		expect(applied).toBe(true);
+		expect(view.deployment.state).toBe("built");
+		expect(view.deployment.lastObservedAt).not.toBeNull();
+		expect(activeRemoteApp(view)).toMatchObject({
 			pushedRevision: 7,
 			remoteRevision: 3,
 		});
+	});
+
+	it("discards an observation once a publish superseded the app it asked about", async () => {
+		/* The interleaving the old cross-transaction lock existed for:
+		 * Check status reads the record, spends seconds asking CommCare HQ
+		 * about hq-1, and a publish lands hq-2 in between. The answers
+		 * describe the app the publish just replaced, so the guarded write
+		 * throws them away instead of overwriting the fresh record. */
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+		await publish(scope, "hq-2", 9);
+
+		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			outcomes: [
+				["upload", { status: "succeeded", at: AT }],
+				["build", { status: "succeeded", at: AT }],
+				["release", { status: "succeeded", at: AT }],
+				["probe", { status: "succeeded", at: AT }],
+			],
+			remoteRevision: 12,
+		});
+
+		expect(applied).toBe(false);
+		expect(view.deployment.state).toBe("uploaded");
+		expect(view.deployment.lastObservedAt).toBeNull();
+		expect(activeRemoteApp(view)?.remoteRevision).toBeNull();
+	});
+});
+
+describe("reads", () => {
+	it("serves Preview's rule from the three columns it consumes", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+
+		const records = await readDeploymentPreviewRecords(scope);
+		expect(records).toEqual([
+			{ state: "uploaded", resumePhase: null, domain: "acme" },
+		]);
+	});
+
+	it("answers null for a target the app never reached", async () => {
+		const scope = await seed();
+		await expect(readDeployment(scope, TARGET)).resolves.toBeNull();
 	});
 });
 
 describe("tenancy", () => {
 	it("hides a deployment from a Project the caller is not in", async () => {
 		const scope = await seed();
-		await ensureDeployment(scope, TARGET);
+		await create(scope);
 
 		await expect(
 			readDeploymentsForApp({ ...scope, projectId: "other-project" }),
@@ -242,125 +307,19 @@ describe("tenancy", () => {
 
 	it("refuses a write once the caller loses membership", async () => {
 		const scope = await seed();
-		const created = await ensureDeployment(scope, TARGET);
+		await create(scope);
 		await sql`DELETE FROM auth_member WHERE "userId" = 'u1'`.execute(h.db());
 
 		await expect(
-			saveDeploymentProgress(scope, created.deployment.id, {
-				state: "uploaded",
-				resumePhase: null,
-				phases: created.deployment.phases,
+			foldDeploymentAttempt(scope, TARGET, "upload", {
+				status: "failed",
+				at: AT,
+				failure: {
+					code: "hq_rejected_upload",
+					message: "refused",
+					details: [],
+				},
 			}),
 		).rejects.toThrow();
-	});
-});
-
-describe("serializing one app's publishes to one project space", () => {
-	/* The reason this needs REAL Postgres: the guarantee is a session
-	 * advisory lock held across several transactions, and a mocked store
-	 * proves nothing about it. Publishing spans preflight, the import that
-	 * mints a CommCare HQ app, and the write that records it — so two
-	 * publishes overlapping meant TWO apps on the project space and a record
-	 * naming whichever committed last.
-	 *
-	 * These run on their OWN pool. The harness pool is `max: 1`, which would
-	 * serialize the two holders at connection checkout and let every
-	 * assertion below pass with the advisory lock deleted — a test proving
-	 * the pool size, not the lock. With room for both to connect, ordering
-	 * can only come from the lock itself. */
-	let lockPool: Pool | undefined;
-
-	beforeEach(() => {
-		lockPool = new Pool({ connectionString: h.uri(), max: 4 });
-		__setAppPoolForTests(lockPool);
-	});
-
-	afterEach(async () => {
-		__setAppPoolForTests(null);
-		await lockPool?.end();
-		lockPool = undefined;
-	});
-
-	/** Resolves once `body` is known to be running inside the lock. */
-	function heldLock(scope: DeploymentScope, target: typeof TARGET) {
-		let release!: () => void;
-		let entered!: () => void;
-		const inside = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const hasEntered = new Promise<void>((resolve) => {
-			entered = resolve;
-		});
-		const done = withDeploymentTargetLock(scope, target, async () => {
-			entered();
-			await inside;
-		});
-		return { done, hasEntered, release };
-	}
-
-	it("makes a second holder wait for the first, with connections to spare", async () => {
-		const scope = await seed();
-		const first = heldLock(scope, TARGET);
-		await first.hasEntered;
-
-		let secondRan = false;
-		const second = withDeploymentTargetLock(scope, TARGET, async () => {
-			secondRan = true;
-		});
-		// Long enough that a missing lock would let it through: the pool has
-		// three free connections and nothing else is contending.
-		await new Promise((resolve) => setTimeout(resolve, 250));
-		expect(secondRan).toBe(false);
-
-		first.release();
-		await Promise.all([first.done, second]);
-		expect(secondRan).toBe(true);
-	});
-
-	it("lets two DIFFERENT project spaces of one app publish at once", async () => {
-		const scope = await seed();
-		const acme = heldLock(scope, TARGET);
-		await acme.hasEntered;
-
-		// A different target must not queue behind `acme`.
-		await expect(
-			withDeploymentTargetLock(
-				scope,
-				{ server: "production", domain: "other-space" },
-				async () => "ran",
-			),
-		).resolves.toBe("ran");
-
-		acme.release();
-		await acme.done;
-	});
-
-	it("lets two different APPS publish to the same project space at once", async () => {
-		const first = await seed("app-1");
-		const second = await seed("app-2", "proj-1");
-		const held = heldLock(first, TARGET);
-		await held.hasEntered;
-
-		await expect(
-			withDeploymentTargetLock(second, TARGET, async () => "ran"),
-		).resolves.toBe("ran");
-
-		held.release();
-		await held.done;
-	});
-
-	it("releases the lock when the body throws, so the next publish is not wedged", async () => {
-		const scope = await seed();
-
-		await expect(
-			withDeploymentTargetLock(scope, TARGET, async () => {
-				throw new Error("CommCare HQ refused the upload");
-			}),
-		).rejects.toThrow(/refused the upload/);
-
-		// A leaked lock would hang here instead of resolving.
-		await expect(
-			withDeploymentTargetLock(scope, TARGET, async () => "ok"),
-		).resolves.toBe("ok");
 	});
 });

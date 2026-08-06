@@ -9,7 +9,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
-import { ensureDeployment } from "@/lib/deployment/store";
+import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -533,7 +533,7 @@ describe("atomic Project move", () => {
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 
-		const deployment = await ensureDeployment(
+		const deployment = await foldDeploymentAttempt(
 			{
 				appId,
 				projectId: SOURCE,
@@ -541,6 +541,9 @@ describe("atomic Project move", () => {
 				actorUserId: ACTOR,
 			},
 			{ server: "production", domain: "acme" },
+			"preflight",
+			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
+			{ ensure: true },
 		);
 
 		await prepareMove(appId);

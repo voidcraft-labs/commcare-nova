@@ -1,10 +1,10 @@
 /**
- * `nova.get_deployment` and `nova.refresh_deployment` — the read and
+ * `nova.get_deployment` and `nova.refresh_deployment`: the read and
  * re-check operations around `upload_app_to_hq`.
  *
  * **These are kept off the Solutions Architect, and that is deliberate.**
  * The SA speaks domain vocabulary and does not own CommCare deployment
- * concerns — the same standing decision that keeps
+ * concerns, the same standing decision that keeps
  * `get_app_hq_feature_flags` off that surface. A deployment is not
  * authored vocabulary: it is durable state about somebody else's server,
  * and an agent designing an app has no business reasoning about it. That

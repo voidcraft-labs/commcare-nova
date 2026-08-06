@@ -65,14 +65,28 @@ released on CommCare HQ, a `runnable` deployment is not runnable any more;
 `applyPhaseOutcome` settles a `pending` answer on that phase's own ENTRY
 state, which is what produces the walk back.
 
-**Not reaching CommCare HQ writes nothing at all.** `observeDeployment`
-answers `unavailable` rather than a phase failure when the question did not
-get through — a network blip, a redirecting project space, a key without
-the Access APIs permission — and `refreshDeployment` hands that to the
-caller instead of persisting it. Otherwise one bad minute would walk a
-`runnable` deployment down and tell every member of the Project their app
-is refused while it is still released and in use. A 404 from
-`current_app_version` IS an answer (the app is gone) and is recorded.
+**Not reaching CommCare HQ at all writes nothing at all.** When the
+versions read (the pass's first question) gets no answer,
+`observeDeployment` returns `unavailable` rather than a phase failure, and
+`refreshDeployment` hands that to the caller instead of persisting it.
+Otherwise one bad minute would walk a `runnable` deployment down and tell
+every member of the Project their app is refused while it is still
+released and in use. A 404 from `current_app_version` IS an answer (the
+app is gone) and is recorded; conversely, ANY answered pass confirms the
+upload rung, which is what heals a `remote_app_missing` record after the
+app is restored through CommCare HQ's own undo.
+
+**A later read failing keeps the rungs the pass already confirmed.** The
+builds list needs the Access APIs permission and the profile probe can be
+permanently unreachable on a project space with a `redirect_url`, so
+discarding the whole pass over either one would strand such deployments at
+`uploaded` forever while CommCare HQ confirmed built and released on every
+click. Instead the confirmed rungs fold and the probe records a `pending`
+outcome whose reason is chosen by STATUS: 401/403 names the permission,
+anything else says CommCare HQ did not answer and to check again. The
+resting state for a deployment whose probe cannot be made is therefore
+`released` with the reason printed beside the last rung, which is exactly
+what Nova can honestly confirm.
 
 **Nor does a check the CALLER could not make.** A missing CommCare HQ
 connection, or a key that no longer reaches the project space, belongs to
@@ -85,30 +99,42 @@ silent no-op is indistinguishable from a check that found nothing new, and
 somebody would press Check status forever waiting for a rung Nova was never
 going to ask about.
 
-**A refused ATTEMPT never rewrites what the target holds.** The state
+**A refused ATTEMPT writes nothing on a reached target.** The state
 describes the project space, not the publish. An expired API key blocking
-preflight against an already-released deployment records the failure and
-leaves the state alone (`applyAttemptOutcome`), because the app really is
-still released there. That guard reads `deploymentDisplaysAsReached`, NOT
-the strict predicate — the strict one answers `false` at every rung while a
-deployment is `incomplete`, so it would hand the worst case the worst
-answer: an app uploaded, built and released on CommCare HQ whose probe
-failed would be walked back to `preflight` by an expired key, losing its
-resume phase and becoming unobservable, leaving a second publish (and a
-duplicate app) as the only way forward. For the same reason
-`deploymentIsObservable` stops
-`refreshDeployment` observing a deployment refused at `preflight` or
-`upload`: it may still hold an earlier publish's mapping, so observing
-would fold three green outcomes over the refusal and destroy the phase a
-retry resumes from. Every LATER refusal is observable, because asking
-CommCare HQ again is exactly how a failed build, release, or probe is
-retried.
+preflight against an already-released deployment changes NOTHING durable:
+`applyAttemptOutcome` returns the record unchanged, by reference, and the
+store skips the write. The refusal is reported on the attempt itself
+(`PublishOutcome.refusal`), never persisted into the phase history — the
+failure usually belongs to the person who clicked (their key, their
+draft), and a persisted one lingered, so a stale upload rejection from
+last week ended up explaining today's unrelated refusal on every surface
+that scanned the phases for "the" failure. The guard reads
+`deploymentDisplaysAsReached`, NOT the strict predicate — the strict one
+answers `false` at every rung while a deployment is `incomplete`, so it
+would hand the worst case the worst answer: an app uploaded, built and
+released on CommCare HQ whose probe failed would be walked back to
+`preflight` by an expired key, losing its resume phase, leaving a second
+publish (and a duplicate app) as the only way forward.
+
+For a related reason `deploymentIsObservable` stops `refreshDeployment`
+observing a deployment refused at `preflight` or `upload`: it may still
+hold an earlier publish's mapping, so observing would fold green outcomes
+over the refusal and destroy the phase a retry resumes from. The one
+`upload` exception is `remote_app_missing`, which observation itself
+wrote about the CURRENT mapping — re-asking re-confirms the deletion or
+notices the app restored, and every LATER refusal is observable, because
+asking CommCare HQ again is exactly how a failed build, release, or probe
+is retried.
 
 `deploymentDisplaysAsReached` is the display-only counterpart to
 `deploymentHasReached`, and the split is deliberate: the strict predicate
-gates decisions and answers `false` for everything while refused, while the
-display one fills the rungs up to the resume state, because a failed probe
-did not undo the upload.
+gates decisions and answers `false` for everything while refused, while
+the display one fills exactly the rungs whose producing phase succeeded
+BEFORE the failed one, because a failed probe did not undo the upload.
+The comparison is by PHASE, not by state: preflight's entry and success
+states are both `preflight`, so a state comparison cannot tell "about to
+be checked" from "checked and passed" and drew the first rung green for
+the very check that failed.
 
 `built` means a build of what the project space currently holds, not
 merely that some build exists. An older build with newer changes above it
@@ -160,15 +186,52 @@ is. The browser route and MCP's `upload_app_to_hq` both go through it. A
 second path would be a second lifecycle, and the two would drift on the
 first bug fix.
 
-A refused publish answers **200 with the record**, not a 4xx: the request
-succeeded, the record is the answer, and it names where to retry from.
+A refused publish answers **200 with the refusal and whatever record the
+target has**, not a 4xx: the request succeeded and the answer names where
+to retry from. A refused FIRST publish carries `deployment: null` — there
+is nothing on that project space to remember, and a record row is never
+deleted, so creating one would list a typo'd slug in the dialog forever.
 
 **Success is read from `PublishOutcome.landed`, never from the record's
-state.** They answer different questions. `landed` is "did the app reach
-the project space on this call"; the state is "what does the project space
-hold". Those diverge exactly when a publish is refused against an app that
-is already released there, where the record stays `runnable` because it
-still is. Both callers read `landed`.
+state, and the refusal from `PublishOutcome.refusal`, never from the
+record's phases.** The record answers "what does the project space hold";
+`landed` answers "did the app reach it on this call"; `refusal` answers
+"why not, this time". Those diverge exactly when a publish is refused
+against an app that is already released there, where the record stays
+`runnable` because it still is — and carries no failure at all, because
+the refusal was the attempt's. `onUploadStarted` fires once, after every
+blocking preflight edge passes and before the import goes out, so a
+caller that reports progress can never announce an upload for an app that
+was never sent (the MCP tool also allocates its LogWriter there, so a
+refused upload records no phantom run).
+
+## No lock spans the CommCare HQ round trips
+
+Publishing and observing both spend seconds to minutes talking to
+CommCare HQ. An earlier design serialized each target with a
+session-scoped advisory lock held across that time, which pinned a pooled
+Postgres connection per publish — two concurrent media-bearing publishes
+held 2 of an instance's 3 connections idle for minutes and starved every
+other request on the instance.
+
+So there is no cross-transaction lock at all. Every store write is one
+short transaction that locks the app row, takes the deployment row
+`FOR UPDATE`, applies the pure state-machine fold to the FRESH row, and
+commits (`store.ts::withDeploymentRow`). Interleavings stay honest
+because each fold states its precondition against that fresh row:
+
+- `foldDeploymentAttempt` applies `applyAttemptOutcome`, which changes
+  nothing once the target displays as reached — so an attempt outcome
+  computed while another publish landed cannot rewrite the fresh record.
+- `recordRemoteResource` supersedes and folds in one transaction; two
+  interleaved publishes each record their own app and the ledger files
+  whichever recorded first as superseded — the same answer, and the same
+  two HQ apps, that two sequential publishes produce.
+- `applyDeploymentObservation` folds only while the mapping the
+  observation asked about is still the ACTIVE one, so a refresh that
+  spent five seconds asking about the app a publish just replaced
+  discards its answers instead of overwriting the fresh record. It also
+  records the remote revision in that same transaction.
 
 ## The setup artifact regenerates, always
 
@@ -198,7 +261,22 @@ project space, because CommCare HQ has no atomic app update — so the one
 button that advances a deployment would cost a duplicate every time. The
 read authorizes as a `view` and refresh as an `edit`, which is also why
 `DeploymentStatus` takes `canRefresh`: offering a viewer a button that
-would be refused is worse than not offering it.
+would be refused is worse than not offering it. The same reasoning hides
+Check status entirely on a record checking cannot answer — one that is
+not observable, or has no active mapping — since its every press could
+only error.
+
+**The dialog keeps ONE copy of each record.** The open-time read seeds a
+store keyed by target; a publish response and every Check status upsert
+into that same store. The landed hero looks its record up there rather
+than holding its own copy, so a record can never render twice with
+disagreeing contents, and a fresh deployment survives the status resets
+that switching the destination select causes. Refreshes return
+`previewProjectSpace` beside the record and the dialog applies it, so the
+client identity's `commcare_project` follows every own-tab path that can
+change it — a co-member's publish in ANOTHER tab still reaches an open
+preview only on the next page load, which is a known boundary
+(`lib/preview/CLAUDE.md`).
 
 The App setup workspace's Publishing section stays not-built-yet; it
 belongs to the app-setup-UI unit.

@@ -26,16 +26,19 @@ import { useCallback, useId, useState, useTransition } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
-	DEPLOYMENT_PHASES,
 	DEPLOYMENT_PROGRESS_STATES,
+	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	type DeploymentPhase,
 	type DeploymentProgressState,
 	deploymentDisplaysAsReached,
+	deploymentIsObservable,
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
+	type RefreshedDeploymentView,
 	refreshDeploymentAction,
 } from "@/lib/deployment/actions";
+import { activeRemoteApp } from "@/lib/deployment/resources";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /** What each rung means, in the author's words. */
@@ -65,17 +68,6 @@ const RESUME_SENTENCE: Readonly<Record<DeploymentPhase, string>> = {
 		"Nothing before this needs doing again. Choose Check status to try again.",
 };
 
-/** Which phase's report explains a rung that has not been reached. */
-const PHASE_FOR_STATE: Readonly<
-	Record<DeploymentProgressState, DeploymentPhase>
-> = {
-	preflight: "preflight",
-	uploaded: "upload",
-	built: "build",
-	released: "release",
-	runnable: "probe",
-};
-
 export function DeploymentStatus({
 	appId,
 	view,
@@ -91,7 +83,7 @@ export function DeploymentStatus({
 	 */
 	canRefresh?: boolean;
 	/** Lets the surrounding dialog keep the record it is holding current. */
-	onUpdated: (next: DeploymentView) => void;
+	onUpdated: (next: RefreshedDeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
 	const sessionApi = useBuilderSessionApi();
@@ -129,24 +121,23 @@ export function DeploymentStatus({
 	}, [appId, record.server, record.domain, onUpdated, sessionApi]);
 
 	const refused = record.state === "incomplete";
-	/* A failed phase is worth showing even when the deployment is NOT
-	 * refused. `applyAttemptOutcome` deliberately records a failed preflight
-	 * or upload while leaving a live deployment's state alone — the app on
-	 * the project space really is still there — but gating the report on
-	 * `incomplete` meant an expired key was written down and never shown, so
-	 * somebody saw a healthy ladder and no hint that their key had stopped
-	 * working. Fall back to the most recent recorded failure. */
+	/* The record carries a failure exactly when the deployment is refused:
+	 * the phase a retry resumes at holds it. A refused ATTEMPT against a
+	 * live deployment deliberately writes nothing durable here, and its
+	 * failure reaches the screen through the publish response instead, so
+	 * there is no stale failure to scan for. */
 	const failure =
-		(record.resumePhase !== null &&
+		refused &&
+		record.resumePhase !== null &&
 		record.phases[record.resumePhase]?.status === "failed"
 			? record.phases[record.resumePhase]
-			: null) ??
-		(refused
-			? null
-			: ([...DEPLOYMENT_PHASES]
-					.reverse()
-					.map((phase) => record.phases[phase])
-					.find((outcome) => outcome?.status === "failed") ?? null));
+			: null;
+	/* Check status only where checking can answer. A record refused before
+	 * its app reached CommCare HQ has nothing there to ask about, and a
+	 * record with no active mapping has nothing to name: offering the one
+	 * button whose every press errors is worse than not offering it. */
+	const observable =
+		deploymentIsObservable(record) && activeRemoteApp(view.deployment) !== null;
 
 	return (
 		<section aria-labelledby={headingId} className="mt-5">
@@ -157,7 +148,7 @@ export function DeploymentStatus({
 				>
 					{record.domain}
 				</h3>
-				{canRefresh ? (
+				{canRefresh && observable ? (
 					<Button
 						variant="ghost"
 						onClick={handleRefresh}
@@ -181,7 +172,8 @@ export function DeploymentStatus({
 			<ol className="mt-3 flex flex-col gap-1.5">
 				{DEPLOYMENT_PROGRESS_STATES.map((state) => {
 					const reached = deploymentDisplaysAsReached(record, state);
-					const outcome = record.phases[PHASE_FOR_STATE[state]];
+					const outcome =
+						record.phases[DEPLOYMENT_STATE_PRODUCING_PHASE[state]];
 					const note = outcome?.status === "pending" ? outcome.reason : null;
 					return (
 						<li

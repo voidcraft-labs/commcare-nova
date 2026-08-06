@@ -158,6 +158,34 @@ describe("what Check status may answer", () => {
 		expect(deploymentIsObservable(record({ state: "uploaded" }))).toBe(true);
 		expect(deploymentIsObservable(record({ state: "runnable" }))).toBe(true);
 	});
+
+	it("still observes an app CommCare HQ reported missing, so it can heal", () => {
+		/* `remote_app_missing` was written BY observation, about the CURRENT
+		 * mapping — not by a publish that never landed. Re-asking is exactly
+		 * right: it re-confirms the deletion, or notices the app coming back
+		 * through CommCare HQ's own undo, at which point the answered
+		 * versions read folds the upload rung back to succeeded. */
+		expect(
+			deploymentIsObservable(
+				record({
+					state: "incomplete",
+					resumePhase: "upload",
+					phases: {
+						...NO_DEPLOYMENT_PHASE_OUTCOMES,
+						upload: {
+							status: "failed",
+							at: AT,
+							failure: {
+								code: "remote_app_missing",
+								message: "gone",
+								details: [],
+							},
+						},
+					},
+				}),
+			),
+		).toBe(true);
+	});
 });
 
 describe("what a person sees on a refused deployment", () => {
@@ -189,23 +217,46 @@ describe("what a person sees on a refused deployment", () => {
 		);
 	});
 
+	it("never fills the Checked rung for the very check that failed", () => {
+		/* The preflight phase's entry state and success state are both
+		 * `preflight`, so a state comparison cannot tell "about to be
+		 * checked" from "checked and passed" — and drew a green tick above
+		 * an amber box explaining that the check is what stopped the
+		 * publish. The phase comparison can. */
+		const refusedAtPreflight = record({
+			state: "incomplete",
+			resumePhase: "preflight",
+		});
+		expect(deploymentDisplaysAsReached(refusedAtPreflight, "preflight")).toBe(
+			false,
+		);
+		expect(deploymentDisplaysAsReached(refusedAtPreflight, "uploaded")).toBe(
+			false,
+		);
+	});
+
 	it("never lets the display predicate soften a DECISION", () => {
 		// The strict predicate is what gates phases, and it still answers
 		// false for everything while the deployment is refused.
 		expect(deploymentHasReached(refusedAtProbe, "uploaded")).toBe(false);
 	});
 
-	it("keeps an attempt's failure from rewriting what the target holds", () => {
-		// A refused publish attempt against an app that is already live must
-		// not report the live app as having reached nothing.
+	it("keeps an attempt's failure from touching what the target holds", () => {
+		/* A refused publish attempt against an app that is already live must
+		 * not report the live app as having reached nothing — and it must not
+		 * write the failure into the durable phase history either. The
+		 * failure belongs to the ATTEMPT (often to the person whose key
+		 * expired), and once persisted it lingered, so a stale rejection from
+		 * one attempt ended up explaining a later, unrelated refusal. The
+		 * same record coming back BY REFERENCE is the store's signal to write
+		 * nothing at all. */
 		const live = record({ state: "runnable" });
 		const refusedAttempt = applyAttemptOutcome(live, "preflight", {
 			status: "failed",
 			at: AT,
 			failure: { code: "hq_not_connected", message: "no key", details: [] },
 		});
-		expect(refusedAttempt.state).toBe("runnable");
-		expect(refusedAttempt.phases.preflight?.status).toBe("failed");
+		expect(refusedAttempt).toBe(live);
 	});
 
 	it("does not walk a live deployment back to preflight on a clean check", () => {
@@ -241,9 +292,7 @@ describe("what a person sees on a refused deployment", () => {
 			at: AT,
 			failure: { code: "hq_not_connected", message: "no key", details: [] },
 		});
-		expect(after.state).toBe("incomplete");
-		expect(after.resumePhase).toBe("probe");
-		expect(after.phases.preflight?.status).toBe("failed");
+		expect(after).toBe(probeRefused);
 	});
 
 	it("keeps a live deployment live when a RE-UPLOAD is rejected", () => {
@@ -258,9 +307,7 @@ describe("what a person sees on a refused deployment", () => {
 			at: AT,
 			failure: { code: "hq_rejected_upload", message: "500", details: [] },
 		});
-		expect(after.state).toBe("runnable");
-		expect(after.resumePhase).toBeNull();
-		expect(after.phases.upload?.status).toBe("failed");
+		expect(after).toBe(live);
 		expect(deploymentIsObservable(after)).toBe(true);
 	});
 

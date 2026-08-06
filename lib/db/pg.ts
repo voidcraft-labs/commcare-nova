@@ -482,11 +482,10 @@ export interface AppDeploymentsTable {
 /**
  * What Nova calls a resource, and what CommCare HQ calls the same thing.
  *
- * The ownership ledger: Nova repoints or updates only what it created or
- * was explicitly told to adopt, and never infers either from a name. A row
- * whose `superseded_at` is set names a resource a later publish left
- * behind on the target project space, kept precisely so the author can be
- * told it is still there.
+ * The ownership ledger: Nova repoints or updates only what it created, and
+ * never infers ownership from a name. A row whose `superseded_at` is set
+ * names a resource a later publish left behind on the target project
+ * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
 	id: DefaultedUuidV7Column<string>;

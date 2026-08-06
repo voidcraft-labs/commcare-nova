@@ -118,7 +118,14 @@ export async function POST(req: NextRequest) {
 			{
 				success: succeeded,
 				preview_project_space: await previewProjectSpaceFor(scope),
+				/* Null when the app has never reached this target: a refused
+				 * first publish leaves nothing durable behind, and the refusal
+				 * below is the whole answer. */
 				deployment: outcome.deployment,
+				/* Why THIS attempt stopped, when it did. The record cannot
+				 * carry it: a refusal against an already-live deployment
+				 * deliberately writes nothing durable. */
+				refusal: outcome.refusal,
 				preflight: outcome.checks,
 				setup_artifact: outcome.artifact,
 				warnings: outcome.warnings,

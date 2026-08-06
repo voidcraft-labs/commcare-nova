@@ -81,6 +81,20 @@ describe("reaching CommCare HQ", () => {
 		const result = await observeDeployment(INPUT);
 		expect(result.kind).toBe("unavailable");
 	});
+
+	it("confirms the upload rung on every answered pass", async () => {
+		/* Answering the versions read at all proves the app is there — which
+		 * is also what heals a deployment CommCare HQ once reported missing,
+		 * after its app is restored through HQ's own undo. */
+		vi.mocked(readAppVersions).mockResolvedValue({
+			currentVersion: 1,
+			latestBuildVersion: null,
+			latestReleasedVersion: null,
+		} as never);
+
+		const result = checked(await observeDeployment(INPUT));
+		expect(outcomeFor(result.outcomes, "upload")?.status).toBe("succeeded");
+	});
 });
 
 describe("build", () => {
@@ -199,9 +213,14 @@ describe("probe", () => {
 		).toBe("build_not_installable");
 	});
 
-	it("writes nothing on a redirect, rather than calling the build broken", async () => {
-		// A project space carrying a `redirect_url` answers 302 to every
-		// download. Calling that a broken build accuses a healthy deployment.
+	it("keeps the confirmed rungs on a redirect, rather than calling the build broken", async () => {
+		/* A project space carrying a `redirect_url` answers 302 to every
+		 * download. Calling that a broken build would accuse a healthy
+		 * deployment — and discarding the whole pass over it stranded such a
+		 * project space at `uploaded` forever, because its probe request
+		 * would never succeed however many times someone checked. The
+		 * version and release CommCare HQ confirmed seconds earlier stand,
+		 * and the probe says why it is unconfirmed. */
 		vi.mocked(listAppBuilds).mockResolvedValue([
 			{ id: "build-live", version: 2, isReleased: true },
 		] as never);
@@ -210,9 +229,16 @@ describe("probe", () => {
 			reason: "unavailable",
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
-		expect(result.kind).toBe("unavailable");
+		expect(outcomeFor(result.outcomes, "build")?.status).toBe("succeeded");
+		expect(outcomeFor(result.outcomes, "release")?.status).toBe("succeeded");
+		const probe = outcomeFor(result.outcomes, "probe");
+		expect(probe).toMatchObject({
+			status: "pending",
+			reason: expect.stringMatching(/didn't answer/i),
+		});
+		expect(result.releasedBuildId).toBe("build-live");
 	});
 
 	it("keeps the build and release it already confirmed when only the build list is unreadable", async () => {
@@ -236,6 +262,28 @@ describe("probe", () => {
 			reason: expect.stringMatching(/Access APIs permission/i),
 		});
 		expect(probeBuildProfile).not.toHaveBeenCalled();
+	});
+
+	it("blames a build-list blip on CommCare HQ, not on the account's permissions", async () => {
+		/* A 5xx from the build-list read is CommCare HQ being unwell, not a
+		 * missing permission. Telling somebody to go ask their administrator
+		 * for a permission they already hold sends them on an errand that
+		 * cannot help. */
+		vi.mocked(listAppBuilds).mockResolvedValue({
+			success: false,
+			status: 500,
+		} as never);
+
+		const result = checked(await observeDeployment(INPUT));
+
+		const probe = outcomeFor(result.outcomes, "probe");
+		expect(probe).toMatchObject({
+			status: "pending",
+			reason: expect.stringMatching(/didn't answer/i),
+		});
+		expect((probe as unknown as { reason: string }).reason).not.toMatch(
+			/permission/i,
+		);
 	});
 
 	it("waits rather than guessing when the released build is not listed yet", async () => {

@@ -18,7 +18,7 @@ import {
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
-import type { DeploymentPhaseOutcome } from "./types";
+import type { DeploymentFailure } from "./types";
 
 /**
  * The dependency graph Nova checks before anything externally visible
@@ -64,22 +64,38 @@ export interface PreflightCheck {
 	readonly items: readonly string[];
 }
 
-export interface PreflightResult {
-	readonly checks: readonly PreflightCheck[];
-	/** The phase outcome the state machine folds in. */
-	readonly outcome: DeploymentPhaseOutcome;
-	/**
-	 * Present only when every blocking check passed. Carries the exact
-	 * prepared generation the upload must consume, so the bytes that were
-	 * validated are the bytes that go out.
-	 */
-	readonly ready: {
-		readonly creds: CommCareCredentials;
-		readonly domain: string;
-		readonly prepared: PreparedExportBoundary;
-	} | null;
-	readonly featureFlags: HqFeatureFlagReport | null;
-}
+/**
+ * The two shapes a preflight run resolves to, discriminated on `ready` so
+ * a refusal PROVES its failed outcome: the caller that reports "why this
+ * attempt stopped" reads the failure straight off the type instead of
+ * re-checking a status the control flow already decided.
+ */
+export type PreflightResult =
+	| {
+			readonly checks: readonly PreflightCheck[];
+			/** The phase outcome the state machine folds in. */
+			readonly outcome: { readonly status: "succeeded"; readonly at: string };
+			/**
+			 * The exact prepared generation the upload must consume, so the
+			 * bytes that were validated are the bytes that go out.
+			 */
+			readonly ready: {
+				readonly creds: CommCareCredentials;
+				readonly domain: string;
+				readonly prepared: PreparedExportBoundary;
+			};
+			readonly featureFlags: HqFeatureFlagReport | null;
+	  }
+	| {
+			readonly checks: readonly PreflightCheck[];
+			readonly outcome: {
+				readonly status: "failed";
+				readonly at: string;
+				readonly failure: DeploymentFailure;
+			};
+			readonly ready: null;
+			readonly featureFlags: null;
+	  };
 
 export interface PreflightInput {
 	readonly doc: BlueprintDoc;
@@ -99,7 +115,11 @@ function blockedOutcome(
 	code: "hq_not_connected" | "domain_not_authorized" | "app_not_ready",
 	message: string,
 	details: readonly string[] = [],
-): DeploymentPhaseOutcome {
+): {
+	readonly status: "failed";
+	readonly at: string;
+	readonly failure: DeploymentFailure;
+} {
 	return { status: "failed", at: now, failure: { code, message, details } };
 }
 
@@ -204,6 +224,29 @@ export async function runDeploymentPreflight(
 	}
 	const { creds } = credResult;
 	const domain = credResult.domain.name;
+	/* The caller resolved the target server from the stored key moments
+	 * ago, but the key can change between that read and this one: another
+	 * tab saving a key for a different CommCare installation. The import
+	 * would then land on the server the NEW key belongs to while the
+	 * durable record named the old one, and every later check would read
+	 * the wrong installation. The two reads have to agree before anything
+	 * is sent. */
+	if (creds.server !== input.server) {
+		const detail = `Your CommCare HQ connection changed while this publish was being prepared: it now points at the ${COMMCARE_SERVERS[creds.server].label} CommCare server, and this publish targeted ${COMMCARE_SERVERS[input.server].label}. Close the publish dialog and try again.`;
+		checks.push({
+			id: "hq-connection",
+			title: "CommCare HQ connection",
+			status: "blocked",
+			detail,
+			items: [],
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(input.now, "hq_not_connected", detail),
+			ready: null,
+			featureFlags: null,
+		};
+	}
 	checks.push({
 		id: "hq-connection",
 		title: "CommCare HQ connection",

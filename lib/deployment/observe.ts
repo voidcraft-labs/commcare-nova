@@ -94,7 +94,7 @@ export async function observeDeployment(input: {
 		/* The app is GONE, so this is the UPLOAD that stopped being true,
 		 * not a build that failed. Filing it under `build` left the resume
 		 * state at `uploaded`, and every surface went on reporting the app
-		 * as sitting on the project space — with a working "Open in
+		 * as sitting on the project space, with a working "Open in
 		 * CommCare HQ" link to a page that 404s, and instructions to go
 		 * make a build of something that no longer exists. */
 		return {
@@ -114,7 +114,13 @@ export async function observeDeployment(input: {
 		};
 	}
 
-	const outcomes: (readonly [DeploymentPhase, DeploymentPhaseOutcome])[] = [];
+	/* Answering the versions read at all proves the app is THERE, so the
+	 * upload rung is confirmed on every answered pass. This is also what
+	 * heals a deployment that was walked to `remote_app_missing` and then
+	 * had its app restored through CommCare HQ's own undo. */
+	const outcomes: (readonly [DeploymentPhase, DeploymentPhaseOutcome])[] = [
+		["upload", { status: "succeeded", at: now }],
+	];
 
 	// ── Build ───────────────────────────────────────────────────────
 	// "Built" means a build of what the project space currently holds,
@@ -186,16 +192,21 @@ export async function observeDeployment(input: {
 	if ("success" in builds) {
 		/* Only the PROBE could not run. CommCare HQ already answered for
 		 * the build and the release on this same pass, and throwing those
-		 * away to report the whole check unavailable stranded any account
-		 * whose role lacks the Access APIs permission at `uploaded`
+		 * away to report the whole check unavailable would strand any
+		 * account whose role lacks the Access APIs permission at `uploaded`
 		 * forever: the one read it cannot do would erase the two it can.
 		 * So the confirmed rungs stand and the probe says why it is
-		 * unconfirmed. */
+		 * unconfirmed. The WHY has to come from the status, because
+		 * telling somebody to go ask for a permission they already hold,
+		 * over a five-minute CommCare HQ blip, sends them on an errand
+		 * that cannot help. */
 		outcomes.push([
 			"probe",
 			pending(
 				now,
-				"Nova can't confirm the released build installs on a device, because reading this app's builds needs the Access APIs permission on your CommCare HQ account. Everything above is confirmed.",
+				builds.status === 401 || builds.status === 403
+					? "Nova can't confirm the released build installs on a device, because reading this app's builds needs the Access APIs permission on your CommCare HQ account. Everything above is confirmed."
+					: "Nova can't confirm the released build installs on a device, because CommCare HQ didn't answer the request that lists this app's builds. Everything above is confirmed. Check again in a moment.",
 			),
 		]);
 		return {
@@ -229,12 +240,24 @@ export async function observeDeployment(input: {
 	if (!profile.ok) {
 		// A redirecting project space, or CommCare HQ being unwell, is not
 		// a verdict on the build. Saying "this build is broken" there would
-		// accuse a healthy deployment of something it is not doing.
+		// accuse a healthy deployment of something it is not doing. It is
+		// not a verdict on the whole pass either: the version and release
+		// were confirmed seconds ago, and discarding them would strand a
+		// deployment whose profile request never succeeds (a project space
+		// with a redirect answers 302 to every one) at `uploaded` forever.
 		if (profile.reason === "unavailable") {
+			outcomes.push([
+				"probe",
+				pending(
+					now,
+					"Nova can't confirm the released build installs on a device, because CommCare HQ didn't answer that request. Everything above is confirmed. Check again in a moment.",
+				),
+			]);
 			return {
-				kind: "unavailable",
-				message:
-					"Nova couldn't check whether the released build is ready to install. CommCare HQ didn't answer that request. Try again in a moment.",
+				kind: "checked",
+				outcomes,
+				remoteRevision: versions.currentVersion,
+				releasedBuildId: released.id,
 			};
 		}
 		outcomes.push([

@@ -32,11 +32,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * import ordering, media, and the boundary gate still exercises the real
  * path rather than a stand-in for it. */
 vi.mock("@/lib/organization/service", () => ({
-	readOrganizationAuthoringSnapshot: vi.fn(async () => ({
-		blueprint: {},
-		blueprintSeq: 1,
-		organization: { revision: "1", locations: [] },
-	})),
+	readOrganization: vi.fn(async () => ({ revision: "1", locations: [] })),
 }));
 vi.mock("@/lib/deployment/store", () => {
 	const record = (over: Record<string, unknown> = {}) => ({
@@ -61,22 +57,19 @@ vi.mock("@/lib/deployment/store", () => {
 		...over,
 	});
 	return {
-		ensureDeployment: vi.fn(async () => ({
-			deployment: record(),
-			active: [],
-			superseded: [],
-		})),
-		saveDeploymentProgress: vi.fn(
+		readDeployment: vi.fn(async () => null),
+		foldDeploymentAttempt: vi.fn(
 			async (
 				_scope: unknown,
-				_id: string,
-				next: { state: string; resumePhase: string | null; phases: unknown },
+				_target: unknown,
+				phase: "preflight" | "upload",
+				outcome: { status: string },
 			) => ({
-				deployment: record({
-					state: next.state,
-					resumePhase: next.resumePhase,
-					phases: next.phases,
-				}),
+				deployment: record(
+					outcome.status === "failed"
+						? { state: "incomplete", resumePhase: phase }
+						: {},
+				),
 				active: [],
 				superseded: [],
 			}),
@@ -84,15 +77,14 @@ vi.mock("@/lib/deployment/store", () => {
 		recordRemoteResource: vi.fn(
 			async (
 				_scope: unknown,
-				_id: string,
+				_target: unknown,
 				input: {
 					remoteId: string;
 					ownership: string;
 					pushedRevision: number | null;
-					progress: { state: string };
 				},
 			) => ({
-				deployment: record({ state: input.progress.state }),
+				deployment: record({ state: "uploaded" }),
 				active: [
 					{
 						deploymentId: "dep-1",
@@ -110,15 +102,7 @@ vi.mock("@/lib/deployment/store", () => {
 				superseded: [],
 			}),
 		),
-		recordRemoteRevision: vi.fn(),
-		readDeployment: vi.fn(),
-		readDeploymentsForApp: vi.fn(async () => []),
-		/* Runs the body. Mutual exclusion is proved against real Postgres in
-		 * `lib/deployment/__tests__/store.integration.test.ts`. */
-		withDeploymentTargetLock: vi.fn(
-			async (_scope: unknown, _target: unknown, body: () => Promise<unknown>) =>
-				body(),
-		),
+		applyDeploymentObservation: vi.fn(),
 	};
 });
 
@@ -895,12 +879,14 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		expect(payload.app_id).toBe("a1");
 		expect(payload.message).toMatch(/media file is missing/i);
 
-		/* The boundary gate now runs inside the shared publish lifecycle,
-		 * which sits after the call is initialized, so a writer IS
-		 * allocated. That is the better trade: the run log records that a
-		 * publish was attempted and refused, which is real history. What
-		 * still holds, and is what this asserts, is that nothing reaches
+		/* The boundary gate runs inside the shared publish lifecycle, but
+		 * the call collaborators are allocated in its upload-started hook,
+		 * which a refused publish never reaches. An invalid app therefore
+		 * still allocates no LogWriter and records no phantom run — a
+		 * client retrying an invalid app in a loop must not fill admin
+		 * inspect with uploads that never happened — and nothing reaches
 		 * CommCare HQ. */
+		expect(LogWriterMock.instances).toHaveLength(0);
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();

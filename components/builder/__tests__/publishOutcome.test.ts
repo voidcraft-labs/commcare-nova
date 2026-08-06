@@ -37,21 +37,30 @@ const ARTIFACT = {
 	hqAppId: "hq-1",
 	sections: [],
 };
+const REFUSAL = {
+	phase: "preflight" as const,
+	failure: {
+		code: "hq_not_connected" as const,
+		message: "CommCare HQ isn't connected yet.",
+		details: [],
+	},
+};
 
 describe("a publish that landed", () => {
-	it("carries the record and says the app got there", () => {
+	it("carries the record, the url, and what Preview may name", () => {
 		const outcome = publishOutcome(true, {
 			success: true,
 			url: "https://hq/app",
 			warnings: ["media still processing"],
 			deployment: VIEW as never,
 			setup_artifact: ARTIFACT as never,
+			preview_project_space: "acme",
 		});
 		expect(outcome).toMatchObject({
-			kind: "record",
-			landed: true,
+			kind: "landed",
 			appUrl: "https://hq/app",
 			warnings: ["media still processing"],
+			previewProjectSpace: "acme",
 		});
 	});
 
@@ -63,37 +72,72 @@ describe("a publish that landed", () => {
 			success: true,
 			url: "https://hq/a",
 		});
-		expect(outcome).toMatchObject({ kind: "record", landed: true });
-		expect((outcome as { deployment?: unknown }).deployment).toBeUndefined();
+		expect(outcome).toMatchObject({ kind: "landed", deployment: null });
 	});
 });
 
 describe("a publish that was refused", () => {
-	it("is shown as a record, not as a failure box", () => {
+	it("carries the refusal beside whatever record the target has", () => {
 		const outcome = publishOutcome(true, {
 			success: false,
+			refusal: REFUSAL,
 			deployment: {
 				...VIEW,
-				deployment: { ...RECORD, state: "incomplete", resumePhase: "probe" },
+				deployment: { ...RECORD, state: "runnable" },
 			} as never,
 			setup_artifact: ARTIFACT as never,
+			preview_project_space: "acme",
 		});
-		expect(outcome.kind).toBe("record");
-		expect((outcome as { landed: boolean }).landed).toBe(false);
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: {
+				message: "CommCare HQ isn't connected yet.",
+				items: [],
+			},
+			previewProjectSpace: "acme",
+		});
+		expect(outcome.kind === "refused" && outcome.deployment).not.toBeNull();
 	});
 
-	it("never tells Preview the app is on that project space", () => {
+	it("carries the boundary findings so the author sees what to fix", () => {
 		const outcome = publishOutcome(true, {
 			success: false,
-			deployment: VIEW as never,
-			setup_artifact: ARTIFACT as never,
+			refusal: {
+				phase: "preflight",
+				failure: {
+					code: "app_not_ready",
+					message: "This app isn't ready to publish yet.",
+					details: ["Give the module a case list column."],
+				},
+			},
+			preview_project_space: null,
 		});
-		expect((outcome as { landed: boolean }).landed).toBe(false);
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: {
+				message: "This app isn't ready to publish yet.",
+				items: ["Give the module a case list column."],
+			},
+		});
+	});
+
+	it("carries no record for a target the app never reached", () => {
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: REFUSAL,
+			deployment: null,
+			setup_artifact: ARTIFACT as never,
+			preview_project_space: null,
+		});
+		expect(outcome.kind).toBe("refused");
+		expect(
+			outcome.kind === "refused" ? outcome.deployment : "wrong",
+		).toBeNull();
 	});
 });
 
 describe("nothing to show", () => {
-	it("falls to a failure when a refusal arrived without a record", () => {
+	it("falls to a failure when a refusal arrived without a refusal report", () => {
 		expect(publishOutcome(true, { success: false }).kind).toBe("failure");
 	});
 
@@ -130,52 +174,5 @@ describe("nothing to show", () => {
 			kind: "failure",
 			blockedDetail: undefined,
 		});
-	});
-});
-
-describe("a refusal the record cannot explain", () => {
-	it("carries the blocked check when the target was already live", () => {
-		// The publish was blocked at preflight against an app that is
-		// already released, so the record stays green and has no failure of
-		// its own. Without this, the screen would say "Nova couldn't finish
-		// publishing" over five ticks and no reason.
-		const outcome = publishOutcome(true, {
-			success: false,
-			deployment: {
-				...VIEW,
-				deployment: { ...RECORD, state: "runnable" },
-			} as never,
-			setup_artifact: ARTIFACT as never,
-			preflight: [
-				{ title: "Feature flags", status: "passed", detail: "fine" },
-				{
-					title: "App readiness",
-					status: "blocked",
-					detail: "This app isn't ready to publish yet.",
-					items: ["Give the module a case list column."],
-				},
-			],
-		});
-
-		expect(outcome).toMatchObject({
-			kind: "record",
-			landed: false,
-			blocked: {
-				detail: "This app isn't ready to publish yet.",
-				items: ["Give the module a case list column."],
-			},
-		});
-	});
-
-	it("carries nothing to explain when the publish landed", () => {
-		const outcome = publishOutcome(true, {
-			success: true,
-			deployment: VIEW as never,
-			setup_artifact: ARTIFACT as never,
-			preflight: [
-				{ title: "Feature flags", status: "attention", detail: "flags" },
-			],
-		});
-		expect((outcome as { blocked?: unknown }).blocked).toBeUndefined();
 	});
 });

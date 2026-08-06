@@ -55,7 +55,7 @@ export function resolvePreviewDeploymentTarget(
  * one.
  *
  * `null` means the key is ABSENT from the session block, which is exactly
- * what CommCare does for a value it has not got — never an empty string,
+ * what CommCare does for a value it has not got; never an empty string,
  * because a declared-but-blank property and a missing one behave
  * differently under a `= ''` comparison.
  */

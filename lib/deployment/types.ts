@@ -62,7 +62,7 @@ export type DeploymentProgressState =
  * (`views/releases.py::save_copy`) and releasing one
  * (`views/releases.py::release_build`) both go through
  * `require_can_edit_apps`, which is `require_permission(HqPermissions.edit_apps)`
- * with `login_and_domain_required` — a browser session and nothing else.
+ * with `login_and_domain_required`: a browser session and nothing else.
  * So a person makes the build and releases it in CommCare HQ, and Nova
  * reports what it can see.
  */
@@ -95,6 +95,21 @@ export const DEPLOYMENT_PHASE_SUCCESS_STATE: Readonly<
 	build: "built",
 	release: "released",
 	probe: "runnable",
+};
+
+/**
+ * The phase whose success PRODUCES each progress state: the inverse of
+ * `DEPLOYMENT_PHASE_SUCCESS_STATE`. The ladder and the display predicate
+ * both need it, and each keeping its own copy is how the two would drift.
+ */
+export const DEPLOYMENT_STATE_PRODUCING_PHASE: Readonly<
+	Record<DeploymentProgressState, DeploymentPhase>
+> = {
+	preflight: "preflight",
+	uploaded: "upload",
+	built: "build",
+	released: "release",
+	runnable: "probe",
 };
 
 /**
@@ -152,6 +167,22 @@ export type DeploymentPhaseOutcomes = Readonly<
 	Record<DeploymentPhase, DeploymentPhaseOutcome | null>
 >;
 
+/**
+ * Why THIS publish attempt did not land.
+ *
+ * Deliberately separate from the record: the record describes the TARGET,
+ * and an attempt a person's own expired key refused says nothing about
+ * what the project space holds. Reading "which failure stopped me just
+ * now" out of the durable phase history is how a stale failure from last
+ * week ends up explaining today's refusal, so the attempt carries its own
+ * answer instead.
+ */
+export interface DeploymentAttemptRefusal {
+	/** The phase this attempt stopped in. Publishing drives only these two. */
+	readonly phase: "preflight" | "upload";
+	readonly failure: DeploymentFailure;
+}
+
 /** Every phase, never run. */
 export const NO_DEPLOYMENT_PHASE_OUTCOMES: DeploymentPhaseOutcomes = {
 	preflight: null,
@@ -165,7 +196,7 @@ export const NO_DEPLOYMENT_PHASE_OUTCOMES: DeploymentPhaseOutcomes = {
  * How Nova came to hold a remote resource.
  *
  * `nova-created` is the only way: Nova made it, so Nova may keep pointing
- * at it. There is deliberately no arm for "matched by name" — Nova never
+ * at it. There is deliberately no arm for "matched by name": Nova never
  * infers ownership from a name, because two project spaces can hold two
  * unrelated apps called "Household Survey" and picking one would silently
  * attach a deployment to somebody else's work.
@@ -195,7 +226,7 @@ export type DeploymentResourceKind = (typeof DEPLOYMENT_RESOURCE_KINDS)[number];
  *
  * A superseded mapping is kept rather than deleted. CommCare HQ has no
  * atomic app update, so publishing again makes a NEW app there and leaves
- * the previous one in place — the author needs to be told that it is still
+ * the previous one in place. The author needs to be told that it is still
  * sitting on their project space, which is only possible if Nova remembers
  * it.
  */
@@ -221,7 +252,7 @@ export interface DeploymentResource {
  * The key is `(app, Project, server, domain)`. The Project is part of it
  * because the same app moved to another Project is a different tenant's
  * publication, and the server is part of it because CommCare HQ runs three
- * independent deployments whose account databases do not share anything —
+ * independent deployments whose account databases do not share anything:
  * a key issued by the US server authenticates nowhere else.
  */
 export interface DeploymentRecord {

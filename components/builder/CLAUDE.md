@@ -104,8 +104,15 @@ screen.
 The dialog **opens** on those records, above the publish form, not only after a
 publish creates one — the record outlives the request, and without this the only
 way to reach Check status would be publishing again, which puts a second app on
-the project space. A viewer sees the ladder without the button
-(`canRefresh`), because checking writes what it observed.
+the project space. The dialog keeps ONE copy per target: the open-time read
+seeds a store, and the publish response and every Check status upsert into it,
+so the landed hero and the list can never show the same project space with
+disagreeing contents, and a fresh deployment survives the status resets a
+destination-select change causes. A refusal renders the ATTEMPT's own failure
+(`refusal` on the response) beside the shared record; the record itself
+carries a failure only while genuinely `incomplete`. A viewer sees the ladder
+without the button (`canRefresh`), because checking writes what it observed;
+the button is also withheld when the record is one checking cannot answer.
 
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The

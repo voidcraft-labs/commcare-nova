@@ -922,8 +922,12 @@ export async function loadFilterPreviewAction(args: {
 	try {
 		// Session-first matches every other action in this file. An
 		// unauthenticated request short-circuits before the parse
-		// work runs.
-		const identity = await resolvePreviewIdentity();
+		// work runs. The session is read ONCE and the identity rebuilt
+		// from it below once the project space is known, so the two
+		// resolutions cannot disagree about who is asking.
+		const session = await getSession();
+		if (session === null) return { kind: "unauthenticated" };
+		const identity = previewAsMe(session.user);
 		if (!identity) return { kind: "unauthenticated" };
 
 		// Wire-boundary parse. `caseListConfig` comes first because its
@@ -970,9 +974,14 @@ export async function loadFilterPreviewAction(args: {
 			role: accessRole,
 			actorUserId: identity.actorUserId,
 		});
-		const boundIdentity =
-			(await resolvePreviewIdentity(undefined, undefined, projectSpace)) ??
-			identity;
+		/* The SAME session user, re-projected with the project space now
+		 * that it is known. Rebuilding from the held session rather than
+		 * re-resolving means there is no second read to fail and no
+		 * fallback to an unthreaded identity — a fallback would compile
+		 * `#user/commcare_project` as absent and show the author a row set
+		 * the running app never shows, with no sign anything degraded. */
+		const boundIdentity = previewAsMe(session.user, undefined, projectSpace);
+		if (!boundIdentity) return { kind: "unauthenticated" };
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(parsedConfig.data),

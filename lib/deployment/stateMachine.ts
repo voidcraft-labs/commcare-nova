@@ -20,7 +20,9 @@
 import {
 	DEPLOYMENT_PHASE_ENTRY_STATE,
 	DEPLOYMENT_PHASE_SUCCESS_STATE,
+	DEPLOYMENT_PHASES,
 	DEPLOYMENT_PROGRESS_STATES,
+	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,
@@ -153,36 +155,55 @@ export function applyObservation(
  * Observation answers questions about a build on CommCare HQ, so it needs
  * the app to have got there. A deployment refused at `preflight` or
  * `upload` may still hold an EARLIER publish's mapping, and observing it
- * would fold three succeeded outcomes over the refusal and turn the record
- * green — destroying the phase a retry resumes from, from a button sitting
+ * would fold succeeded outcomes over the refusal and turn the record
+ * green, destroying the phase a retry resumes from, from a button sitting
  * next to the refusal.
  *
- * Every other refusal IS observable, and that is the point of Check
+ * One `upload` refusal is the exception: `remote_app_missing` was WRITTEN
+ * BY observation, about the current mapping, when CommCare HQ answered
+ * that the app is gone. Asking again is exactly right, both to re-confirm
+ * and to notice the app coming back after CommCare HQ's own undo.
+ *
+ * Every later refusal is observable, and that is the point of Check
  * status: a probe that failed is retried by asking CommCare HQ again.
  */
 export function deploymentIsObservable(
-	record: Pick<DeploymentRecord, "state" | "resumePhase">,
+	record: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">,
 ): boolean {
 	if (record.state !== "incomplete") {
 		return deploymentHasReached(record, "uploaded");
 	}
-	return record.resumePhase !== "preflight" && record.resumePhase !== "upload";
+	if (record.resumePhase === "preflight") return false;
+	if (record.resumePhase === "upload") {
+		const upload = record.phases.upload;
+		return (
+			upload?.status === "failed" &&
+			upload.failure.code === "remote_app_missing"
+		);
+	}
+	return true;
 }
 
 /**
- * Fold a preflight result without rewriting what the target already holds.
+ * Fold a publish attempt's result without rewriting what the target
+ * already holds.
  *
  * A deployment's state describes the PROJECT SPACE, not the attempt. If an
  * app is already released on `acme` and somebody clicks Publish with an
- * expired API key, the app on `acme` is still released — only this attempt
+ * expired API key, the app on `acme` is still released; only this attempt
  * failed. Recording it as `incomplete` would make Nova report a live app
  * as having reached nothing, and a plain success would walk a `runnable`
  * deployment back to `preflight`.
  *
- * So the phase writes its own outcome always, and moves the state only
- * while the deployment has not yet put anything on the project space. The
- * caller still gets the blocking check to show, which is what makes the
- * refusal actionable.
+ * So while the deployment already has something on the project space, a
+ * refused attempt changes NOTHING here: the same record is returned, by
+ * reference, and the caller reports the refusal on the attempt itself
+ * (`DeploymentAttemptRefusal`). Persisting it into the durable phase
+ * history was tried first and produced exactly the confusion it reads
+ * like: the failure often belongs to the person who clicked (their key,
+ * their permissions) rather than to the target every Project member
+ * shares, and once written it lingered, so a stale upload rejection from
+ * last week ended up explaining today's unrelated refusal.
  *
  * Both phases a person can DRIVE come through here, and for the same
  * reason: CommCare HQ rejecting a re-upload says nothing about the app
@@ -191,12 +212,12 @@ export function deploymentIsObservable(
  *
  * "Has put something there" is the DISPLAY predicate, not the strict one.
  * A deployment refused at the probe is `incomplete`, which the strict
- * predicate answers `false` for at every rung — so reading it here would
+ * predicate answers `false` for at every rung, so reading it here would
  * hand the worst case the worst answer: an app that is uploaded, built and
- * released on CommCare HQ would be walked back to `preflight` by an expired
- * key, losing the phase its retry resumes from and making the record
- * unobservable, so the only way back would be a second publish and a
- * duplicate app on the project space. What matters is whether the app is
+ * released on CommCare HQ would be walked back to `preflight` by an
+ * expired key, losing the phase its retry resumes from and making the
+ * record unobservable, so the only way back would be a second publish and
+ * a duplicate app on the project space. What matters is whether the app is
  * THERE, and after a probe failure it is.
  */
 export function applyAttemptOutcome(
@@ -205,11 +226,7 @@ export function applyAttemptOutcome(
 	outcome: DeploymentPhaseOutcome,
 ): DeploymentRecord {
 	if (deploymentDisplaysAsReached(record, "uploaded")) {
-		return {
-			...record,
-			phases: { ...record.phases, [phase]: outcome },
-			updatedAt: outcome.at,
-		};
+		return record;
 	}
 	return applyPhaseOutcome(record, phase, outcome);
 }
@@ -226,8 +243,11 @@ export function applyAttemptOutcome(
  * But a probe that failed did not undo the upload, the build, or the
  * release. Drawing all five rungs empty would tell an author their app is
  * nowhere, which is both untrue and the opposite of what the refusal says
- * next. So a refused deployment shows everything up to the state its retry
- * resumes from, and nothing beyond it.
+ * next. So a refused deployment shows exactly the rungs whose producing
+ * phase ran and succeeded BEFORE the phase that failed. Comparing phases
+ * rather than states is load-bearing at the first rung: the preflight
+ * phase's entry state and success state are both `preflight`, so a
+ * state comparison drew "Checked" filled for the very check that failed.
  */
 export function deploymentDisplaysAsReached(
 	record: Pick<DeploymentRecord, "state" | "resumePhase">,
@@ -236,12 +256,12 @@ export function deploymentDisplaysAsReached(
 	if (record.state !== "incomplete") {
 		return deploymentHasReached(record, target);
 	}
-	const resume = deploymentResumeState(record);
-	if (resume === null) return false;
-	const reached = deploymentProgressIndex(resume);
-	const wanted = deploymentProgressIndex(target);
-	if (reached === null || wanted === null) return false;
-	return wanted <= reached;
+	if (record.resumePhase === null) return false;
+	const failedAt = DEPLOYMENT_PHASES.indexOf(record.resumePhase);
+	const wanted = DEPLOYMENT_PHASES.indexOf(
+		DEPLOYMENT_STATE_PRODUCING_PHASE[target],
+	);
+	return wanted < failedAt;
 }
 
 /**

@@ -6,11 +6,8 @@ import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import { DeploymentError } from "./errors";
-import {
-	artifactLocations,
-	refreshDeployment,
-	setupArtifactFor,
-} from "./service";
+import { previewProjectSpaceFor } from "./previewSpace";
+import { refreshDeployment, setupArtifactFor } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import { type DeploymentScope, readDeploymentsForApp } from "./store";
 import {
@@ -37,6 +34,21 @@ import {
 export interface DeploymentView {
 	readonly deployment: DeploymentWithResources;
 	readonly artifact: SetupArtifact;
+}
+
+/**
+ * A refresh's answer: the updated record, and what Preview may now name
+ * for `commcare_project`.
+ *
+ * The project space rides along because a refresh can CHANGE it: an
+ * observation that finds the app gone walks the deployment back below
+ * `uploaded`, at which point the server-side identity resolvers stop
+ * naming that space. A client that kept its old value would make one
+ * expression answer two ways depending on which side evaluated it, so the
+ * same response that changes the record hands the client the new answer.
+ */
+export interface RefreshedDeploymentView extends DeploymentView {
+	readonly previewProjectSpace: string | null;
 }
 
 export type DeploymentActionResult<T> =
@@ -121,27 +133,36 @@ function unavailable(): DeploymentActionResult<never> {
 	};
 }
 
-/** The committed blueprint the artifact is derived from. */
-async function committedDoc(scope: DeploymentScope) {
+/**
+ * The committed blueprint plus the app's places, from ONE snapshot read.
+ *
+ * The authoring snapshot already carries the locations beside the
+ * blueprint, and the artifact needs both: reading them, throwing the
+ * locations away, and re-running the same authorized transaction to read
+ * them again was this module's most expensive no-op.
+ */
+async function committedDocWithLocations(scope: DeploymentScope) {
 	const snapshot = await readOrganizationAuthoringSnapshot({
 		appId: scope.appId,
 		projectId: scope.projectId,
 		role: scope.role,
 		actorUserId: scope.actorUserId,
 	});
-	return snapshot.blueprint;
+	return {
+		doc: snapshot.blueprint,
+		locations: snapshot.organization.locations,
+	};
 }
 
 /**
  * Ask CommCare HQ again what has happened to a published app.
  *
  * Read-only against the target, and the only way a deployment moves past
- * `uploaded` — because Nova cannot make a build or release one with an
- * API key.
+ * `uploaded`: Nova cannot make a build or release one with an API key.
  */
 export async function refreshDeploymentAction(
 	input: unknown,
-): Promise<DeploymentActionResult<DeploymentView>> {
+): Promise<DeploymentActionResult<RefreshedDeploymentView>> {
 	const parsed = deploymentTargetSchema.safeParse(input);
 	if (!parsed.success) {
 		return {
@@ -153,14 +174,21 @@ export async function refreshDeploymentAction(
 	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const doc = await committedDoc(resolved.scope);
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
 		const refreshed = await refreshDeployment(
 			resolved.scope,
 			{ server: parsed.data.server, domain: parsed.data.domain },
 			doc,
+			locations,
 		);
 		if (refreshed === null) return notFound();
-		return { success: true, data: refreshed };
+		return {
+			success: true,
+			data: {
+				...refreshed,
+				previewProjectSpace: await previewProjectSpaceFor(resolved.scope),
+			},
+		};
 	} catch (error) {
 		return failure(error, "refresh", resolved.scope);
 	}
@@ -172,7 +200,7 @@ export async function refreshDeploymentAction(
  * The publish dialog opens on this rather than on a blank form, because
  * the record outlives the publish that made it: somebody who published
  * yesterday, made the build on CommCare HQ, and came back today needs
- * Check status — and without this the only route to it would be
+ * Check status, and without this the only route to it would be
  * publishing again, which mints a SECOND app on the project space and
  * supersedes the first. A read authorizes as a view; reading a target
  * changes nothing on it.
@@ -196,8 +224,7 @@ export async function readDeploymentsAction(
 		/* Read the document and its places ONCE. They belong to the app, not
 		 * to any one project space, so building three artifacts must not cost
 		 * three reads of the same rows. */
-		const doc = await committedDoc(resolved.scope);
-		const locations = await artifactLocations(resolved.scope);
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
 		return {
 			success: true,
 			data: await Promise.all(

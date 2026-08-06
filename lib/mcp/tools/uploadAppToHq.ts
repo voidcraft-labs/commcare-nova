@@ -1,58 +1,58 @@
 /**
- * `nova.upload_app_to_hq` — upload an owned app's blueprint to CommCare
+ * `nova.upload_app_to_hq`: upload an owned app's blueprint to CommCare
  * HQ as a new app in a project space the user's API key can reach.
  *
  * Scope: `nova.hq.write` (per-tool, in addition to the route-layer
  * `nova.read` + `nova.write` floor). HQ access is orthogonal to
- * Nova-internal read/write — see `lib/mcp/scopes.ts` for the full
+ * Nova-internal read/write; see `lib/mcp/scopes.ts` for the full
  * enforcement model.
  *
  * HQ has no atomic update API, so every call produces a brand-new app
- * in the target project — the returned `hq_app_id` is always fresh.
+ * in the target project: the returned `hq_app_id` is always fresh.
  *
  * The upload is media-ON and two-phase: import the media-bearing HQ JSON
  * first (forms carry `jr://file/commcare/...` itext references), then
  * upload each asset's bytes against the new app so HQ maps them by path.
  * A media failure leaves the created app intact and surfaces as a
- * warning — it never fails the upload.
+ * warning; it never fails the upload.
  *
- * Target space — the optional `domain` argument:
+ * Target space (the optional `domain` argument):
  *   An HQ API key can reach several project spaces (an unscoped key reaches
  *   every space its owner belongs to). Omitting `domain` works only when the
- *   key reaches exactly one space — that sole space is used. A multi-space key
+ *   key reaches exactly one space: that sole space is used. A multi-space key
  *   must pass `domain` explicitly: there is no stored default, so a multi-space
- *   key with no `domain` is `domain_ambiguous` (see below) — the tool refuses
+ *   key with no `domain` is `domain_ambiguous` (see below); the tool refuses
  *   to guess. Use `get_hq_connection` to list the reachable spaces
  *   (`available_domains`) and ask the user which one.
  *
- * Actionable `error_type` values, in the order their gates fire — each
+ * Actionable `error_type` values, in the order their gates fire, each
  * producing a distinct envelope so MCP clients can branch cleanly:
  *
- *   1. `scope_missing`          — the access token lacks `nova.hq.write`.
+ *   1. `scope_missing`:           the access token lacks `nova.hq.write`.
  *                                 Pre-gate 0; cuts off ownership probing
  *                                 before any app-state read.
- *   2. `hq_not_configured`      — the user has not stored CommCare HQ
+ *   2. `hq_not_configured`:       the user has not stored CommCare HQ
  *                                 credentials in Settings.
- *   3. `domain_not_authorized`  — `domain` was supplied but the key can't
+ *   3. `domain_not_authorized`:   `domain` was supplied but the key can't
  *                                 reach it; the message names the reachable
  *                                 set.
- *   4. `domain_ambiguous`       — multi-space key with no `domain` supplied;
+ *   4. `domain_ambiguous`:        multi-space key with no `domain` supplied;
  *                                 the tool names the spaces and asks the
  *                                 caller to choose rather than guessing.
- *   5. `invalid_input`          — the zero-tolerance boundary gate found
+ *   5. `invalid_input`:           the zero-tolerance boundary gate found
  *                                 validator issues (a soundness error,
  *                                 unfinished completeness work, or a stale
  *                                 media reference). Fires after domain
  *                                 resolution, before the HQ network call;
  *                                 the message carries each rule's
  *                                 actionable text.
- *   6. `hq_upload_failed`       — `importApp` returned a non-success
+ *   6. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx). A thrown transport fault
  *                                 goes through the shared MCP classifier.
  *
  * (`not_found` from the ownership pre-gate is also possible but not
- * actionable — it collapses cross-tenant probes to the same shape as
+ * actionable: it collapses cross-tenant probes to the same shape as
  * a missing app.)
  *
  * The closed server catalog (`lib/commcare/servers.ts`, resolved through
@@ -61,7 +61,7 @@
  * save/refresh and re-checked here against the reachable set), so it
  * cannot smuggle path components into the URL `importApp` constructs.
  *
- * Pre-gate ordering — scope → ownership → settings/domain — is defensive:
+ * Pre-gate ordering (scope → ownership → settings/domain) is defensive:
  * each gate leaks strictly less information than the one after it, so
  * the earliest-applicable rejection always closes more probe channels
  * than it opens.
@@ -89,7 +89,7 @@ import { describeDeployment } from "./deploymentProjection";
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
  * `satisfies Record<UploadErrorType, UploadErrorType>` forces every
- * variant an upload gate can emit to appear as a key — adding a new
+ * variant an upload gate can emit to appear as a key: adding a new
  * variant to the union without a matching entry here is a compile
  * error, so the wire taxonomy cannot silently drift.
  *
@@ -106,7 +106,7 @@ export const UPLOAD_ERROR_TAGS = {
 	hq_upload_failed: "hq_upload_failed",
 	/** Supplied `domain` is outside the key's reachable set. */
 	domain_not_authorized: "domain_not_authorized",
-	/** Multi-space key with no `domain` supplied — caller must choose. */
+	/** Multi-space key with no `domain` supplied; caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
@@ -185,7 +185,7 @@ export function registerUploadAppToHq(
 			try {
 				/* Pre-gate 0: scope. Runs BEFORE ownership so a token without
 				 * `nova.hq.write` cannot probe whether an app id exists or
-				 * is owned by the caller — scope failure leaks nothing about
+				 * is owned by the caller: scope failure leaks nothing about
 				 * the user's data, ownership failure does (collapsed at the
 				 * wire to `not_found`, but still a probe channel that's
 				 * cheaper to cut off entirely). Throws `McpScopeError`;
@@ -194,7 +194,7 @@ export function registerUploadAppToHq(
 
 				/* Pre-gate 1: ownership + blueprint load in one
 				 * read. `loadAppBlueprint` throws `McpAccessError` on
-				 * cross-tenant probe or vanished row — both collapse to
+				 * cross-tenant probe or vanished row; both collapse to
 				 * `not_found` on the wire so a probing client cannot
 				 * surface settings-level failure reasons for an app the
 				 * caller doesn't own. */
@@ -204,7 +204,7 @@ export function registerUploadAppToHq(
 					"edit",
 				);
 
-				/* Gate 2 — credentials + target-space resolution in one read.
+				/* Gate 2: credentials + target-space resolution in one read.
 				 * The optional `domain` arg picks the target (required for a
 				 * multi-space key); the decrypted key is only attached when a
 				 * target resolves. The three failure shapes map 1:1 to distinct
@@ -247,27 +247,24 @@ export function registerUploadAppToHq(
 					now: new Date(),
 				});
 
-				/* `initMcpCall` packages the per-call collaborators
-				 * (LogWriter, progress emitter, McpContext) and binds them
-				 * to the derived `runId`. */
-				const { mcpCtx, logWriter, progress } = initMcpCall(
-					server,
-					ctx,
-					appId,
-					access.projectId,
-					access.role,
-					runId,
-					extra,
-				);
+				/* The per-call collaborators (LogWriter, progress emitter,
+				 * McpContext) are allocated INSIDE the publish's own
+				 * upload-started hook, which fires only after every blocking
+				 * preflight edge has passed. A refused upload therefore never
+				 * announces "Uploading" for an app that was never sent, and
+				 * never allocates a log writer or records a phantom run:
+				 * a client retrying an invalid app in a loop must not fill
+				 * admin inspect with uploads that never happened. Held in a
+				 * ref object because the hook assigns it from inside the
+				 * publish call, where a plain `let` stays narrowed to null. */
+				const call: { current: ReturnType<typeof initMcpCall> | null } = {
+					current: null,
+				};
 
 				try {
-					progress.notify("upload_started", `Uploading to ${targetDomain}`, {
-						app_id: appId,
-					});
-
 					/* The one publish lifecycle, shared with the browser's
 					 * publish dialog. It preflights the dependency graph, sends
-					 * the app, and records the durable deployment — so an MCP
+					 * the app, and records the durable deployment, so an MCP
 					 * upload and a browser upload produce the same record and
 					 * cannot drift apart.
 					 *
@@ -286,80 +283,72 @@ export function registerUploadAppToHq(
 						appName: args.app_name?.trim() || app.app_name,
 						server: target.server,
 						domain: targetDomain,
+						onUploadStarted: () => {
+							call.current = initMcpCall(
+								server,
+								ctx,
+								appId,
+								access.projectId,
+								access.role,
+								runId,
+								extra,
+							);
+							call.current.progress.notify(
+								"upload_started",
+								`Uploading to ${targetDomain}`,
+								{ app_id: appId },
+							);
+						},
 					});
 
-					const record = outcome.deployment.deployment;
-					const remote = activeRemoteApp(outcome.deployment);
-
-					/* A preflight refusal keeps its established wire shape. The
-					 * boundary gate's findings are `invalid_input` because that
-					 * is what a client branches on to know the APP is what needs
-					 * fixing, not the connection or the target.
-					 *
-					 * Branch on whether THIS attempt got the app there, not on
+					/* Branch on whether THIS attempt got the app there, not on
 					 * the record's state: a blocked preflight against an app
 					 * that is already released leaves the record released,
 					 * because it still is, and reading success off that would
-					 * report a publish that never happened as a success. */
+					 * report a publish that never happened as a success. The
+					 * refusal is the attempt's own report, never read back out
+					 * of the record's phase history, where an earlier attempt's
+					 * failure would shadow this one's. */
 					if (!outcome.landed) {
-						/* Read the phases THIS attempt ran, newest first. Publishing
-						 * drives preflight then upload and nothing else, so one of
-						 * those two is what stopped it. `resumePhase` is the wrong
-						 * source: it describes where a RETRY resumes on the target,
-						 * so a preflight refusal against a deployment already
-						 * refused at, say, the probe would report that older
-						 * phase's failure — and its empty `details` would win over
-						 * the real findings through the `??` below. */
-						const attempted = (["upload", "preflight"] as const)
-							.map((phase) => record.phases[phase])
-							.find((entry) => entry?.status === "failed");
-						const detail =
-							attempted?.status === "failed" ? attempted.failure : null;
-						const blocked = outcome.checks.find(
-							(check) => check.status === "blocked",
-						);
-						if (
-							detail?.code === "app_not_ready" ||
-							blocked?.id === "app-readiness"
-						) {
+						const failure = outcome.refusal.failure;
+						/* The boundary gate's findings are `invalid_input`
+						 * because that is what a client branches on to know the
+						 * APP is what needs fixing, not the connection or the
+						 * target. */
+						if (failure.code === "app_not_ready") {
 							throw new McpInvalidInputError(
-								`This app isn't ready to upload. Fix these first: ${(
-									detail?.details ?? blocked?.items ?? []
-								).join(" ")}`,
+								`This app isn't ready to upload. Fix these first: ${
+									failure.details.length > 0
+										? failure.details.join(" ")
+										: failure.message
+								}`,
 							);
 						}
-						if (detail?.code === "hq_not_connected") {
+						if (failure.code === "hq_not_connected") {
 							return makeGateError(
 								UPLOAD_ERROR_TAGS.hq_not_configured,
-								detail.message,
+								failure.message,
 								appId,
 							);
 						}
-						if (detail?.code === "domain_not_authorized") {
+						if (failure.code === "domain_not_authorized") {
 							return makeGateError(
 								UPLOAD_ERROR_TAGS.domain_not_authorized,
-								detail.message,
-								appId,
-							);
-						}
-						if (blocked?.id === "hq-connection") {
-							return makeGateError(
-								UPLOAD_ERROR_TAGS.hq_not_configured,
-								blocked.detail,
+								failure.message,
 								appId,
 							);
 						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
-							detail?.message ??
-								blocked?.detail ??
-								"CommCare HQ did not accept the app, and Nova recorded where to retry from.",
+							failure.message,
 							appId,
 						);
 					}
 
+					const record = outcome.deployment.deployment;
+					const remote = activeRemoteApp(outcome.deployment);
 					const hqAppId = remote?.remoteId ?? null;
-					progress.notify(
+					call.current?.progress.notify(
 						"upload_complete",
 						`Uploaded. HQ app id ${hqAppId ?? "unknown"}`,
 						{ app_id: appId, hq_app_id: hqAppId },
@@ -381,7 +370,7 @@ export function registerUploadAppToHq(
 					 * `tool-result` conversation event. `toolCallId` is a fresh
 					 * uuid (not `runId`) to preserve the `tool-call` ↔
 					 * `tool-result` pairing contract in `lib/log/types.ts`. */
-					mcpCtx.recordConversation({
+					call.current?.mcpCtx.recordConversation({
 						type: "tool-result",
 						toolCallId: crypto.randomUUID(),
 						toolName: "upload_app_to_hq",
@@ -402,13 +391,14 @@ export function registerUploadAppToHq(
 					 * once every inflight log batch has acknowledged.
 					 * A missed flush silently drops any events that hadn't
 					 * triggered the batch-size flush threshold yet. */
-					await logWriter.flush();
+					const opened = call.current;
+					if (opened !== null) await opened.logWriter.flush();
 				}
 			} catch (err) {
 				/* Ownership failures, missing-blueprint races, and any
 				 * throw from `importApp` (network fault, etc.) all land
 				 * here. `toMcpErrorResult` classifies via the shared
-				 * taxonomy. Gate 2-3 failures never reach this block —
+				 * taxonomy. Gate 2-3 failures never reach this block:
 				 * they return structured envelopes directly. */
 				return toMcpErrorResult(err, {
 					appId,

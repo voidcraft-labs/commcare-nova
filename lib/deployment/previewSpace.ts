@@ -5,14 +5,14 @@ import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
 } from "./previewTarget";
-import { type DeploymentScope, readDeploymentRecordsForApp } from "./store";
+import { type DeploymentScope, readDeploymentPreviewRecords } from "./store";
 
 /**
  * The project space Preview may honestly name for an app.
  *
  * Its own module rather than a member of `service.ts`, because every
- * preview surface that resolves an identity calls it — the builder page,
- * the authorized action context, the form submission — and none of them
+ * preview surface that resolves an identity calls it (the builder page,
+ * the authorized action context, the form submission), and none of them
  * should drag the publish lifecycle's expander, media bundler, and HQ
  * client into their import graph to ask one question of one table.
  *
@@ -24,7 +24,7 @@ export async function previewProjectSpaceFor(
 	scope: DeploymentScope,
 ): Promise<string | null> {
 	try {
-		const deployments = await readDeploymentRecordsForApp(scope);
+		const deployments = await readDeploymentPreviewRecords(scope);
 		return previewProjectSpace(resolvePreviewDeploymentTarget(deployments));
 	} catch (error) {
 		log.warn("[deployment] preview project space unavailable", {

@@ -161,6 +161,31 @@ async function logAndReturnError(
 }
 
 /**
+ * The warn-level sibling, for the observation reads whose refusals are
+ * ANSWERS rather than faults: a deleted app's 404, a key without the
+ * Access APIs permission, a build with no profile. Each one is handled as
+ * a first-class outcome by `lib/deployment/observe.ts` and recurs by
+ * design on every Check status, so filing it at error level would stream
+ * a Sentry event per click for a state nobody can action from Nova's
+ * side. `log.warn` stays Cloud-Logging-only, which is the repo's line for
+ * expected-but-worth-recording conditions.
+ */
+async function warnAndReturnError(
+	context: string,
+	res: Response,
+): Promise<CommCareApiError> {
+	let body = "";
+	try {
+		body = await res.text();
+	} catch {}
+	log.warn(`[commcare] ${context}`, {
+		status: res.status,
+		body: body.substring(0, 200),
+	});
+	return { success: false, status: res.status };
+}
+
+/**
  * List all project spaces (domains) the authenticated user has access to.
  *
  * CommCare HQ's `/api/user_domains/v1/` endpoint correctly scopes results
@@ -818,10 +843,13 @@ export async function readAppVersions(
 			headers: { Authorization: authHeader(creds), Accept: "application/json" },
 		});
 	} catch (err) {
-		log.error("[commcare] current_version request failed", err, { domain });
+		log.warn("[commcare] current_version request failed", {
+			domain,
+			error: err instanceof Error ? err.message : String(err),
+		});
 		return { success: false, status: 503 };
 	}
-	if (!res.ok) return logAndReturnError("current_version failed", res);
+	if (!res.ok) return warnAndReturnError("current_version failed", res);
 	let data: {
 		currentVersion?: unknown;
 		latestBuild?: unknown;
@@ -869,12 +897,13 @@ export async function listAppBuilds(
 			headers: { Authorization: authHeader(creds), Accept: "application/json" },
 		});
 	} catch (err) {
-		log.error("[commcare] application resource request failed", err, {
+		log.warn("[commcare] application resource request failed", {
 			domain,
+			error: err instanceof Error ? err.message : String(err),
 		});
 		return { success: false, status: 503 };
 	}
-	if (!res.ok) return logAndReturnError("application resource failed", res);
+	if (!res.ok) return warnAndReturnError("application resource failed", res);
 	let data: { versions?: unknown };
 	try {
 		data = (await res.json()) as typeof data;
@@ -952,7 +981,10 @@ export async function probeBuildProfile(
 			redirect: "manual",
 		});
 	} catch (err) {
-		log.error("[commcare] build profile probe failed", err, { domain });
+		log.warn("[commcare] build profile probe failed", {
+			domain,
+			error: err instanceof Error ? err.message : String(err),
+		});
 		return { ok: false, reason: "unavailable" };
 	}
 	if (res.status >= 300 && res.status < 400) {
@@ -966,7 +998,7 @@ export async function probeBuildProfile(
 		return { ok: false, reason: "unavailable" };
 	}
 	if (!res.ok) {
-		await logAndReturnError("build profile probe failed", res);
+		await warnAndReturnError("build profile probe failed", res);
 		/* Only a 404 is a verdict on the BUILD: CommCare HQ served the
 		 * request and had no profile for it. Every other refusal is Nova
 		 * failing to ask — a 401 or 403 is the key's permissions, a 429 is

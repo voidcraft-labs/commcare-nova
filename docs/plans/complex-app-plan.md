@@ -1494,13 +1494,19 @@ The lifecycle is `preflight → uploaded → built → released → runnable`, p
 terminal refusal `incomplete`, which carries the phase a retry resumes at and
 withholds both `released` and `runnable`. Every phase is independently
 retryable, and a retry never re-imports the app because the mapping already
-holds the remote id. A refused ATTEMPT never rewrites what the target holds:
-preflight failing against an already-released deployment records the failure
-without reporting the live app as having reached nothing, and an observation
-that could not reach HQ at all writes nothing rather than demoting a healthy
-deployment. Observation may move
-a deployment BACKWARD, because a build that stops being released on HQ makes a
-`runnable` deployment not runnable.
+holds the remote id. A refused ATTEMPT never touches what the target holds:
+preflight failing against an already-released deployment writes nothing durable
+— the refusal is reported on the attempt itself (`PublishOutcome.refusal`),
+because the failure belongs to the caller's key or draft rather than to the app
+every Project member shares — and an observation that could not reach HQ at all
+writes nothing rather than demoting a healthy deployment. A later read failing
+mid-pass keeps the rungs that pass already confirmed. Observation may move a
+deployment BACKWARD, because a build that stops being released on HQ makes a
+`runnable` deployment not runnable; an answered pass also re-confirms the
+upload, which is what heals a deployment whose HQ app was deleted and then
+restored. No lock spans the HQ round trips: every record write is one short
+transaction folding against the freshly locked row, and an observation applies
+only while the mapping it asked about is still the active one.
 
 **Nova drives the first two states and observes the last three, because HQ
 draws that line.** `app_import_api.py::import_app_api` passes
@@ -1570,9 +1576,9 @@ client-only value would make one expression answer two ways.
 
 `publishAppToHq` is the one lifecycle the browser route and MCP's
 `upload_app_to_hq` both use; a refused publish answers 200 carrying the
-record rather than a status that would throw it away, and both callers read
-whether THIS attempt landed rather than inferring it from a state that
-describes the target. Deployments
+attempt's refusal plus whatever record the target has (none, when the app
+never reached it), and both callers read whether THIS attempt landed rather
+than inferring it from a state that describes the target. Deployments
 are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
 `refresh_deployment`) and deliberately NOT from the Solutions
 Architect, the same standing decision that keeps `get_app_hq_feature_flags` off

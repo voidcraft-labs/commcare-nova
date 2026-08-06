@@ -25,26 +25,19 @@ import { observeDeployment } from "./observe";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
 import { activeRemoteApp } from "./resources";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
+import { deploymentIsObservable } from "./stateMachine";
 import {
-	applyAttemptOutcome,
-	applyObservation,
-	applyPhaseOutcome,
-	deploymentIsObservable,
-} from "./stateMachine";
-import {
+	applyDeploymentObservation,
 	type DeploymentScope,
 	type DeploymentTargetKey,
-	ensureDeployment,
+	foldDeploymentAttempt,
 	readDeployment,
 	recordRemoteResource,
-	recordRemoteRevision,
-	saveDeploymentProgress,
-	withDeploymentTargetLock,
 } from "./store";
-import {
-	type DeploymentPhaseOutcome,
-	type DeploymentWithResources,
-	NO_DEPLOYMENT_PHASE_OUTCOMES,
+import type {
+	DeploymentAttemptRefusal,
+	DeploymentFailure,
+	DeploymentWithResources,
 } from "./types";
 
 /**
@@ -54,22 +47,19 @@ import {
  * come through here, so there is exactly one place that decides what a
  * publish is: preflight the dependency graph, send the app, record what
  * CommCare HQ gave back, and hand the caller the durable record. Nothing
- * publishes beside this — a second path would be a second lifecycle, and
+ * publishes beside this: a second path would be a second lifecycle, and
  * the two would drift on the first bug fix.
+ *
+ * There is deliberately no lock held across the HQ round trips. Every
+ * record write is one short transaction that folds against the fresh row
+ * (`lib/deployment/store.ts`), so two interleaved publishes each record
+ * their own app and the ledger files whichever landed first as
+ * superseded (the same answer two sequential publishes produce), and a
+ * refresh that observed an app a publish just replaced discards its
+ * answers instead of overwriting the fresh record.
  */
 
-export interface PublishOutcome {
-	/**
-	 * Whether the app reached the project space on THIS call.
-	 *
-	 * Not derivable from the record's state, and that is the point. The
-	 * state describes the target: a deployment already released on `acme`
-	 * stays released when a later publish is blocked at preflight, so
-	 * reading success off it would report a publish that never happened as
-	 * a success. This answers only "did this attempt get there".
-	 */
-	readonly landed: boolean;
-	readonly deployment: DeploymentWithResources;
+interface PublishOutcomeShared {
 	readonly checks: readonly PreflightCheck[];
 	readonly artifact: SetupArtifact;
 	/** Non-fatal things that happened after the app itself landed. */
@@ -79,6 +69,36 @@ export interface PublishOutcome {
 	readonly hqAppUrl: string | null;
 }
 
+/**
+ * What one publish call amounted to, discriminated on `landed`.
+ *
+ * `landed` answers "did the app reach the project space on THIS call",
+ * which is deliberately not derivable from the record's state: the state
+ * describes the target, and a deployment already released on `acme` stays
+ * released when a later publish is blocked at preflight, so reading
+ * success off it would report a publish that never happened as a success.
+ *
+ * A landed publish always carries the record it created or advanced. A
+ * refused one carries the ATTEMPT's own refusal, never scavenged from the
+ * record's phase history: the failure (an expired key, a finding in the
+ * current draft) belongs to the attempt, not to the app the project space
+ * still holds. Its `deployment` is `null` when the app has never
+ * reached the target at all: nothing on that project space exists to
+ * remember, and a record row is never deleted by any code path, so
+ * creating one would leave a typo'd slug in the publish dialog forever.
+ */
+export type PublishOutcome =
+	| (PublishOutcomeShared & {
+			readonly landed: true;
+			readonly refusal: null;
+			readonly deployment: DeploymentWithResources;
+	  })
+	| (PublishOutcomeShared & {
+			readonly landed: false;
+			readonly refusal: DeploymentAttemptRefusal;
+			readonly deployment: DeploymentWithResources | null;
+	  });
+
 export interface PublishInput {
 	readonly scope: DeploymentScope;
 	readonly doc: BlueprintDoc;
@@ -86,6 +106,13 @@ export interface PublishInput {
 	readonly appName: string;
 	readonly server: CommCareServer;
 	readonly domain: string;
+	/**
+	 * Called once, after every blocking preflight edge has passed and just
+	 * before the app is sent. A caller that reports progress hooks in here
+	 * so a refused publish never announces an upload that was never going
+	 * to happen.
+	 */
+	readonly onUploadStarted?: () => void;
 }
 
 function hqAppUrlFor(
@@ -123,7 +150,7 @@ export async function setupArtifactFor(
  * The places an artifact names, read once.
  *
  * Exposed so a caller building artifacts for SEVERAL deployments of one app
- * reads them once rather than once per project space — the places are the
+ * reads them once rather than once per project space: the places are the
  * app's, not the target's, so the second read could only return the same
  * rows.
  *
@@ -136,11 +163,9 @@ export async function artifactLocations(
 	scope: DeploymentScope,
 ): Promise<readonly StoredLocation[]> {
 	try {
-		/* `readOrganization` returns exactly the locations this wants.
-		 * `readOrganizationAuthoringSnapshot` also hydrates the whole
-		 * blueprint, which is a large read to throw away when the caller
-		 * already holds the document — and `readDeploymentsAction` did
-		 * exactly that, hydrating it twice per dialog open. */
+		/* `readOrganization` returns exactly the locations this wants without
+		 * hydrating the whole blueprint beside them. Callers that already
+		 * hold an organization snapshot pass its locations instead. */
 		const snapshot = await readOrganization({
 			appId: scope.appId,
 			projectId: scope.projectId,
@@ -164,44 +189,6 @@ export async function artifactLocations(
  * edges pass, which is the dependency-graph contract: nothing is sent
  * until the connection and the app itself are proved.
  */
-/**
- * The record a refused FIRST publish reports, which is never persisted.
- *
- * Nothing reached the project space, so nothing about it is durable — but
- * the caller still has to be told what happened, and every consumer reads
- * the same record shape. This is that answer, shaped like a deployment and
- * deliberately not one: it carries no id anything can later resolve.
- */
-function unsavedDeploymentFor(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	outcome: DeploymentPhaseOutcome,
-	now: string,
-): DeploymentWithResources {
-	return {
-		deployment: applyAttemptOutcome(
-			{
-				id: "",
-				appId: scope.appId,
-				projectId: scope.projectId,
-				server: target.server,
-				domain: target.domain,
-				state: "preflight",
-				resumePhase: null,
-				phases: NO_DEPLOYMENT_PHASE_OUTCOMES,
-				createdBy: scope.actorUserId,
-				createdAt: now,
-				updatedAt: now,
-				lastObservedAt: null,
-			},
-			"preflight",
-			outcome,
-		),
-		active: [],
-		superseded: [],
-	};
-}
-
 export async function publishAppToHq(
 	input: PublishInput,
 ): Promise<PublishOutcome> {
@@ -209,26 +196,6 @@ export async function publishAppToHq(
 		server: input.server,
 		domain: input.domain,
 	};
-	/* Held across preflight, the import that mints the CommCare HQ app, and
-	 * the write that records it. Two publishes of one app to one project
-	 * space must not both reach `importApp`. */
-	return withDeploymentTargetLock(input.scope, target, () =>
-		publishWithinTargetLock(input, target),
-	);
-}
-
-async function publishWithinTargetLock(
-	input: PublishInput,
-	target: DeploymentTargetKey,
-): Promise<PublishOutcome> {
-	/* Read what is already there rather than creating a row. A durable
-	 * record must not exist for a project space the app never reached: it is
-	 * never deleted by any code path, so a typo'd slug or a key that cannot
-	 * reach the target would otherwise leave the publish dialog listing that
-	 * project space forever. The row is created below, once preflight has
-	 * proved the caller can actually reach it. */
-	const existing = (await readDeployment(input.scope, target)) ?? null;
-	let deployment = existing;
 	const now = new Date().toISOString();
 
 	const preflight = await runDeploymentPreflight({
@@ -245,47 +212,65 @@ async function publishWithinTargetLock(
 	});
 
 	if (preflight.ready === null) {
-		/* A refusal against a target this app has never reached leaves
-		 * NOTHING behind — there is nothing on that project space to
-		 * remember, and the caller still gets the blocking checks that say
-		 * what to fix. An existing record does record the attempt, because
-		 * its app really is over there. */
-		const refused =
-			deployment === null
-				? unsavedDeploymentFor(input.scope, target, preflight.outcome, now)
-				: await saveDeploymentProgress(
+		/* The refusal is the attempt's to report. A target this app has
+		 * never reached keeps NOTHING durable; a target it has reached
+		 * keeps its record, folded only when the refusal is genuinely
+		 * about the target (a publish that never completed) rather than
+		 * about the attempt (a key or draft problem against a live app). */
+		const refusal: DeploymentAttemptRefusal = {
+			phase: "preflight",
+			failure: preflight.outcome.failure,
+		};
+		const existing = await readDeployment(input.scope, target);
+		const deployment =
+			existing === null
+				? null
+				: await foldDeploymentAttempt(
 						input.scope,
-						deployment.deployment.id,
-						applyAttemptOutcome(
-							deployment.deployment,
-							"preflight",
-							preflight.outcome,
-						),
+						target,
+						"preflight",
+						preflight.outcome,
 					);
 		return {
 			landed: false,
-			deployment: refused,
+			refusal,
+			deployment,
 			checks: preflight.checks,
-			artifact: await setupArtifactFor(input.scope, refused, input.doc),
+			artifact: buildSetupArtifact({
+				doc: input.doc,
+				server: input.server,
+				domain: input.domain,
+				hqAppId:
+					deployment === null
+						? null
+						: (activeRemoteApp(deployment)?.remoteId ?? null),
+				locations: await artifactLocations(input.scope),
+			}),
 			warnings: [],
 			featureFlags: preflight.featureFlags,
-			hqAppUrl: hqAppUrlFor(
-				input.server,
-				input.domain,
-				activeRemoteApp(refused)?.remoteId ?? null,
-			),
+			hqAppUrl:
+				deployment === null
+					? null
+					: hqAppUrlFor(
+							input.server,
+							input.domain,
+							activeRemoteApp(deployment)?.remoteId ?? null,
+						),
 		};
 	}
 
-	// Reachability is proved, so the record may exist now.
-	deployment = await ensureDeployment(input.scope, target);
-	deployment = await saveDeploymentProgress(
+	// Reachability is proved, so the record may exist now: creation and the
+	// passed preflight land in one transaction.
+	let deployment = await foldDeploymentAttempt(
 		input.scope,
-		deployment.deployment.id,
-		applyAttemptOutcome(deployment.deployment, "preflight", preflight.outcome),
+		target,
+		"preflight",
+		preflight.outcome,
+		{ ensure: true },
 	);
 
 	const { creds, domain, prepared } = preflight.ready;
+	input.onUploadStarted?.();
 
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
@@ -293,28 +278,23 @@ async function publishWithinTargetLock(
 	const hqJson = expandDoc(prepared.doc, { assets: prepared.assets });
 	const result = await importApp(creds, domain, input.appName, hqJson);
 	if (!result.success) {
-		const uploadFailedAt = new Date().toISOString();
 		/* CommCare HQ refusing THIS upload says nothing about the app
-		 * already on the project space. Folding it unconditionally walked a
-		 * released, worker-facing deployment back to "reached nothing", lost
-		 * the phase a retry resumes from, and left publishing again — and a
-		 * duplicate app — as the only way forward. */
-		const failed = applyAttemptOutcome(deployment.deployment, "upload", {
+		 * already on the project space; the fold leaves a reached record
+		 * alone and moves an unreached one to `incomplete` at `upload`,
+		 * which is exactly what a retry resumes from. */
+		const failure: DeploymentFailure = {
+			code: "hq_rejected_upload",
+			message: importRejectionMessage(result.status),
+			details: [],
+		};
+		deployment = await foldDeploymentAttempt(input.scope, target, "upload", {
 			status: "failed",
-			at: uploadFailedAt,
-			failure: {
-				code: "hq_rejected_upload",
-				message: importRejectionMessage(result.status),
-				details: [],
-			},
+			at: new Date().toISOString(),
+			failure,
 		});
-		deployment = await saveDeploymentProgress(
-			input.scope,
-			deployment.deployment.id,
-			failed,
-		);
 		return {
 			landed: false,
+			refusal: { phase: "upload", failure },
 			deployment,
 			checks: preflight.checks,
 			artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -329,21 +309,14 @@ async function publishWithinTargetLock(
 	// publish that recorded neither would leave an app sitting on the
 	// project space that Nova has no memory of, and no way to name when
 	// the next publish supersedes it.
-	deployment = await recordRemoteResource(
-		input.scope,
-		deployment.deployment.id,
-		{
-			kind: "app",
-			novaResourceId: input.scope.appId,
-			remoteId: result.appId,
-			ownership: "nova-created",
-			pushedRevision: input.compiledAtSeq,
-			progress: applyPhaseOutcome(deployment.deployment, "upload", {
-				status: "succeeded",
-				at: new Date().toISOString(),
-			}),
-		},
-	);
+	deployment = await recordRemoteResource(input.scope, target, {
+		kind: "app",
+		novaResourceId: input.scope.appId,
+		remoteId: result.appId,
+		ownership: "nova-created",
+		pushedRevision: input.compiledAtSeq,
+		uploadedAt: new Date().toISOString(),
+	});
 
 	log.info("[deployment] app imported", {
 		domain,
@@ -374,6 +347,7 @@ async function publishWithinTargetLock(
 
 	return {
 		landed: true,
+		refusal: null,
 		deployment,
 		checks: preflight.checks,
 		artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -469,32 +443,22 @@ function assertCredentialsMatchServer(
 /**
  * Ask CommCare HQ what has happened to a published app since last time.
  *
- * Reads only. It is the same call whether the deployment is waiting for a
- * build, waiting for a release, or already runnable, because the answer
- * is whatever CommCare HQ currently says — including an answer that walks
- * the deployment backward when a build stops being released.
+ * Reads only against the target. It is the same call whether the
+ * deployment is waiting for a build, waiting for a release, or already
+ * runnable, because the answer is whatever CommCare HQ currently says,
+ * including an answer that walks the deployment backward when a build
+ * stops being released.
+ *
+ * The record write at the end applies only while the mapping the
+ * observation asked about is still the active one, so a publish landing
+ * while CommCare HQ was being asked wins and the stale answers are
+ * discarded (`applyDeploymentObservation`).
  */
 export async function refreshDeployment(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	doc: BlueprintDoc,
-): Promise<{
-	readonly deployment: DeploymentWithResources;
-	readonly artifact: SetupArtifact;
-} | null> {
-	/* The SAME lock publishing takes. Observing reads the record, spends
-	 * several seconds asking CommCare HQ about the app it names, then writes
-	 * what it heard — so without this a publish landing in that window was
-	 * overwritten by answers describing the app it had just replaced. */
-	return withDeploymentTargetLock(scope, target, () =>
-		refreshWithinTargetLock(scope, target, doc),
-	);
-}
-
-async function refreshWithinTargetLock(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	doc: BlueprintDoc,
+	locations?: readonly StoredLocation[],
 ): Promise<{
 	readonly deployment: DeploymentWithResources;
 	readonly artifact: SetupArtifact;
@@ -508,7 +472,7 @@ async function refreshWithinTargetLock(
 	 * later refusal is exactly what Check status is for.
 	 *
 	 * Said out loud rather than returned unchanged, because a silent no-op
-	 * is indistinguishable from a check that found nothing new — the author
+	 * is indistinguishable from a check that found nothing new: the author
 	 * would press Check status forever waiting for a rung Nova was never
 	 * going to ask about. */
 	if (remote === null) {
@@ -531,7 +495,7 @@ async function refreshWithinTargetLock(
 	const now = new Date().toISOString();
 	/* Whose problem this is decides who hears about it. A missing key, or
 	 * one that no longer reaches the project space, belongs to the person
-	 * who clicked — not to the deployment. Writing it as a phase failure
+	 * who clicked, not to the deployment. Writing it as a phase failure
 	 * would knock a live app down to `incomplete` for every member of the
 	 * Project because one editor never connected CommCare HQ. So it is
 	 * raised to the caller and nothing is written. */
@@ -561,22 +525,13 @@ async function refreshWithinTargetLock(
 	if (observation.kind === "unavailable") {
 		throw new DeploymentError("invalid", observation.message);
 	}
-	const folded = applyObservation(existing.deployment, observation.outcomes);
-	const saved = await saveDeploymentProgress(
-		scope,
-		existing.deployment.id,
-		folded,
-		{ observed: true },
-	);
-	if (observation.remoteRevision !== null) {
-		await recordRemoteRevision(scope, existing.deployment.id, {
-			kind: "app",
-			novaResourceId: scope.appId,
-			remoteRevision: observation.remoteRevision,
-		});
-	}
+	const { view } = await applyDeploymentObservation(scope, target, {
+		observedRemoteId: remote.remoteId,
+		outcomes: observation.outcomes,
+		remoteRevision: observation.remoteRevision,
+	});
 	return {
-		deployment: saved,
-		artifact: await setupArtifactFor(scope, saved, doc),
+		deployment: view,
+		artifact: await setupArtifactFor(scope, view, doc, locations),
 	};
 }
