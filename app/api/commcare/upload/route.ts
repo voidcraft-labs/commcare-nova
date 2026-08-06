@@ -31,7 +31,6 @@ import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { publishAppToHq } from "@/lib/deployment/service";
-import { isDeploymentServer } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 
@@ -68,17 +67,14 @@ export async function POST(req: NextRequest) {
 
 		/* Which CommCare deployment the stored key belongs to. A key only
 		 * authenticates against the server that issued it, so the server is
-		 * part of the deployment's identity rather than a display detail. */
+		 * part of the deployment's identity rather than a display detail.
+		 * The settings read validates the stored server against the closed
+		 * catalog itself, collapsing an unrecognized one to not-configured,
+		 * so a configured result always names a real installation. */
 		const settings = await getCommCareSettings(session.user.id);
 		if (!settings.configured) {
 			throw new ApiError(
 				"CommCare HQ is not configured. Add your API key in Settings.",
-				400,
-			);
-		}
-		if (!isDeploymentServer(settings.server)) {
-			throw new ApiError(
-				"Your CommCare HQ connection names a server Nova doesn't know. Reconnect it in Settings.",
 				400,
 			);
 		}

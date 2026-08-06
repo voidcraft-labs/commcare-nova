@@ -3,9 +3,13 @@
  *
  * A tiny context rather than a slice of the session store, because this is
  * durable server state and the session store is explicitly ephemeral UI
- * state. It is seeded from the server on page load and replaced when a
- * publish in this tab creates or moves a deployment, so `commcare_project`
- * becomes real the moment the app actually lands on a project space.
+ * state. Three paths keep it current, all carrying the SERVER's resolution
+ * (only the server sees every deployment, so only it can apply the
+ * ambiguity rule): the page seeds it at render, the publish dialog applies
+ * each publish and Check status response, and the shared realtime stream's
+ * `preview-project-space` frame converges every OTHER tab — a co-member's
+ * publish, a second tab of your own — the moment a deployment write
+ * commits anywhere.
  *
  * `null` means Nova has nothing honest to say: either the app is on no
  * project space yet, or it is on several and picking one would be a guess.
@@ -18,9 +22,11 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useMemo,
 	useState,
 } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 
 interface DeploymentTargetValue {
 	readonly projectSpace: string | null;
@@ -40,6 +46,14 @@ export function DeploymentTargetProvider({
 	children: ReactNode;
 }) {
 	const [projectSpace, setProjectSpace] = useState(initialProjectSpace);
+	/* Nullable by design: replay mode mounts no reconciler, and `/build/new`
+	 * has no deployments to hear about. The server-rendered seed and the
+	 * dialog's own responses still apply there. */
+	const reconciler = useReconcilerContext();
+	useEffect(
+		() => reconciler?.subscribePreviewProjectSpace(setProjectSpace),
+		[reconciler],
+	);
 	const value = useMemo(
 		() => ({ projectSpace, setProjectSpace }),
 		[projectSpace],
@@ -56,7 +70,8 @@ export function useDeploymentProjectSpace(): string | null {
 	return useContext(DeploymentTargetContext).projectSpace;
 }
 
-/** Update it after a publish lands, without waiting for a page reload. */
+/** Apply a publish or refresh response's answer without waiting for the
+ * stream frame to arrive back. */
 export function useSetDeploymentProjectSpace(): (
 	domain: string | null,
 ) => void {

@@ -273,10 +273,11 @@ than holding its own copy, so a record can never render twice with
 disagreeing contents, and a fresh deployment survives the status resets
 that switching the destination select causes. Refreshes return
 `previewProjectSpace` beside the record and the dialog applies it, so the
-client identity's `commcare_project` follows every own-tab path that can
-change it — a co-member's publish in ANOTHER tab still reaches an open
-preview only on the next page load, which is a known boundary
-(`lib/preview/CLAUDE.md`).
+own tab updates without waiting for the stream; every OTHER open tab
+converges through the app stream's deployment lane — each store write
+pokes it (`notifyAppDeployments`, in the write's own transaction), and the
+relay re-resolves and emits the `preview-project-space` frame
+(`lib/preview/CLAUDE.md` § `commcare_project`).
 
 The App setup workspace's Publishing section stays not-built-yet; it
 belongs to the app-setup-UI unit.

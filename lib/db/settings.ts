@@ -25,7 +25,7 @@ import {
 	discoverAccessibleDomains,
 } from "@/lib/commcare/client";
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
-import type { CommCareServer } from "@/lib/commcare/servers";
+import { type CommCareServer, isCommCareServer } from "@/lib/commcare/servers";
 import { resolveUploadDomain } from "./domainResolution";
 import { getAppDb } from "./pg";
 
@@ -106,7 +106,13 @@ export async function getCommCareSettings(
 	const availableDomains = data.approved_domains ?? [];
 	if (
 		!data.commcare_username ||
+		/* The catalog check, not a bare cast: a stored server outside the
+		 * closed set is the same corruption class as a missing one, and
+		 * every consumer downstream (the deployment key, the base-URL
+		 * derivation, the migration's CHECK constraint) would otherwise
+		 * meet it as an opaque failure instead of the reconnect UX. */
 		!data.commcare_server ||
+		!isCommCareServer(data.commcare_server) ||
 		availableDomains.length === 0
 	) {
 		return { configured: false };
@@ -115,7 +121,7 @@ export async function getCommCareSettings(
 	return {
 		configured: true,
 		username: data.commcare_username,
-		server: data.commcare_server as CommCareServer,
+		server: data.commcare_server,
 		availableDomains,
 	};
 }
@@ -149,7 +155,12 @@ export async function resolveUploadTarget(
 	const availableDomains = data?.approved_domains ?? [];
 	if (
 		!data?.commcare_username ||
+		/* Same catalog check `getCommCareSettings` makes: a stored server
+		 * outside the closed set collapses to the reconnect UX here, so no
+		 * caller can carry an unrecognized installation into a deployment
+		 * key or a base URL. */
 		!data.commcare_server ||
+		!isCommCareServer(data.commcare_server) ||
 		availableDomains.length === 0
 	) {
 		return { ok: false, error: "not_configured" };
@@ -163,7 +174,7 @@ export async function resolveUploadTarget(
 	return {
 		ok: true,
 		username: data.commcare_username,
-		server: data.commcare_server as CommCareServer,
+		server: data.commcare_server,
 		domain: resolved.domain,
 		encryptedApiKey: data.commcare_api_key,
 	};
@@ -268,7 +279,8 @@ export async function refreshApprovedDomains(
 	if (
 		!data?.commcare_username ||
 		!data.commcare_api_key ||
-		!data.commcare_server
+		!data.commcare_server ||
+		!isCommCareServer(data.commcare_server)
 	) {
 		return { ok: true, settings: { configured: false } };
 	}
@@ -278,7 +290,7 @@ export async function refreshApprovedDomains(
 		await discoverAccessibleDomains({
 			username: data.commcare_username,
 			apiKey,
-			server: data.commcare_server as CommCareServer,
+			server: data.commcare_server,
 		});
 	if (!Array.isArray(accessible))
 		return { ok: false, kind: "hq_error", status: accessible.status };

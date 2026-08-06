@@ -8,6 +8,7 @@ import {
 	type AppDeploymentResourcesTable,
 	type AppDeploymentsTable,
 	getAppDb,
+	notifyAppDeployments,
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
@@ -459,6 +460,9 @@ export async function foldDeploymentAttempt(
 					.set(progressUpdate(next, next.phases, new Date()))
 					.where("id", "=", row.id)
 					.execute();
+				/* Delivered on commit, so connected tabs re-resolve what
+				 * Preview may name only once the fold is visible. */
+				await notifyAppDeployments(tx, scope.appId);
 			}
 			return loadWithinTransaction(tx, row.id);
 		},
@@ -554,6 +558,7 @@ export async function recordRemoteResource(
 				)
 				.where("id", "=", row.id)
 				.execute();
+			await notifyAppDeployments(tx, scope.appId);
 
 			return loadWithinTransaction(tx, row.id);
 		},
@@ -622,6 +627,7 @@ export async function applyDeploymentObservation(
 				})
 				.where("id", "=", row.id)
 				.execute();
+			await notifyAppDeployments(tx, scope.appId);
 			if (input.remoteRevision !== null) {
 				/* What CommCare HQ says its own version is, kept separate from the
 				 * pushed revision on purpose: one is what Nova sent, the other is

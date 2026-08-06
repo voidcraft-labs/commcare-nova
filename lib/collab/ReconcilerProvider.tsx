@@ -45,6 +45,7 @@ import {
 	parsePresenceFrame,
 	presenceFrameSchema,
 } from "@/lib/collab/presenceTypes";
+import { parsePreviewProjectSpaceFrame } from "@/lib/collab/previewProjectSpaceFrame";
 import {
 	createProjectScopeResetRegistry,
 	type ProjectScopeResetRegistry,
@@ -114,6 +115,13 @@ export interface ReconcilerRuntime {
 	suspend: () => void;
 	readonly presenceSubs: Set<(roster: PresenceFrame) => void>;
 	readonly organizationSubs: Set<() => void>;
+	/** Subscribe to server-resolved preview-project-space announcements. The
+	 *  retained latest value replays immediately, so mount order never loses
+	 *  the connect-time frame; frames are authoritative whole values, so
+	 *  there is no ordering to reconcile. */
+	readonly subscribePreviewProjectSpace: (
+		cb: (projectSpace: string | null) => void,
+	) => () => void;
 	readonly lookupManifestBroker: LookupManifestBroker;
 	readonly projectScopeResetRegistry: ProjectScopeResetRegistry;
 }
@@ -142,6 +150,21 @@ export function createReconcilerRuntime(
 	const projectScopeId = `builder-project-scope-${++nextProjectScopeId}`;
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
 	const organizationSubs = new Set<() => void>();
+	const previewProjectSpaceSubs = new Set<(space: string | null) => void>();
+	/** `undefined` until the first frame: a subscriber keeps its
+	 *  server-rendered seed until the stream has said anything. */
+	let previewProjectSpaceLatest: string | null | undefined;
+	function subscribePreviewProjectSpace(
+		cb: (projectSpace: string | null) => void,
+	): () => void {
+		previewProjectSpaceSubs.add(cb);
+		if (previewProjectSpaceLatest !== undefined) cb(previewProjectSpaceLatest);
+		return () => previewProjectSpaceSubs.delete(cb);
+	}
+	function publishPreviewProjectSpace(projectSpace: string | null): void {
+		previewProjectSpaceLatest = projectSpace;
+		for (const cb of [...previewProjectSpaceSubs]) cb(projectSpace);
+	}
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
 	let presenceMayBeRetained = false;
@@ -551,6 +574,14 @@ export function createReconcilerRuntime(
 			} else {
 				sessionStore.getState().markBuildUnfinished();
 			}
+		});
+		es.addEventListener("preview-project-space", (ev) => {
+			if (es !== eventSource) return;
+			const frame = parsePreviewProjectSpaceFrame((ev as MessageEvent).data);
+			if (frame === null) return; // malformed: leave the retained value alone
+			/* Frames carry the server's whole current answer, so the latest one
+			 * simply wins; there is no cursor and no ordering to reconcile. */
+			publishPreviewProjectSpace(frame.projectSpace);
 		});
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
@@ -966,6 +997,7 @@ export function createReconcilerRuntime(
 		suspend,
 		presenceSubs,
 		organizationSubs,
+		subscribePreviewProjectSpace,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
 	};
@@ -1032,6 +1064,9 @@ export function ReconcilerProvider({
 							runtime.organizationSubs.add(cb);
 							return () => runtime.organizationSubs.delete(cb);
 						},
+						subscribePreviewProjectSpace: (
+							cb: (projectSpace: string | null) => void,
+						) => runtime.subscribePreviewProjectSpace(cb),
 						subscribeLookupManifest: (
 							cb: (manifest: LookupManifest | null) => void,
 						) => runtime.lookupManifestBroker.subscribe(cb),

@@ -20,6 +20,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
 import { DeploymentError } from "@/lib/deployment/errors";
 import {
 	artifactLocations,
@@ -209,19 +210,40 @@ describe("refresh_deployment", () => {
 		const { server, capture } = makeFakeServer();
 		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
 		const parsed = parse(
-			await capture()({ app_id: "a1", server: "production", domain: " acme " }),
+			await capture()({ app_id: "a1", server: "production", domain: "acme" }),
 		);
 
 		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "edit");
-		/* The domain is trimmed before it reaches the lifecycle: a stray
-		 * space would otherwise miss the record and read as "never
-		 * published there". */
 		expect(refreshDeployment).toHaveBeenCalledWith(
 			expect.objectContaining({ appId: "a1", projectId: "p1" }),
 			{ server: "production", domain: "acme" },
 			expect.anything(),
 		);
 		expect(parsed).toMatchObject({ app_id: "a1", state: "released" });
+	});
+
+	it("registers the browser boundary's own wire shapes as its inputs", async () => {
+		/* The trim and cap live in the REGISTERED schema, which the real MCP
+		 * server runs before the handler: a stray space would otherwise miss
+		 * the record and read as "never published there", and a whitespace-only
+		 * domain would sail through where the Server Action refuses it. The
+		 * fake harness calls the handler raw, so the contract is proved on the
+		 * registered config itself. */
+		const { server, registeredConfig } = makeFakeServer();
+		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
+		const shape = (
+			registeredConfig() as {
+				inputSchema: {
+					app_id: z.ZodType<string>;
+					domain: z.ZodType<string>;
+				};
+			}
+		).inputSchema;
+
+		expect(shape.app_id.parse(" a1 ")).toBe("a1");
+		expect(shape.domain.parse(" acme ")).toBe("acme");
+		expect(() => shape.domain.parse("   ")).toThrow();
+		expect(() => shape.domain.parse("x".repeat(256))).toThrow();
 	});
 
 	it("names the project space when the app was never published there", async () => {

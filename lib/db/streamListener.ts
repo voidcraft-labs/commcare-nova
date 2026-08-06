@@ -37,12 +37,15 @@ import {
 /** One open stream's callbacks. A poke re-queries; the args are advisory.
  *  `onStatusPoke` is the run-lifecycle-status lane of the app channel
  *  (`statusChanged` marker payloads): re-read the app row's status and
- *  re-announce it. Optional so headless subscribers without a status surface
- *  can omit it. */
+ *  re-announce it. `onDeploymentPoke` is the deployment lane
+ *  (`deploymentChanged` marker payloads): re-resolve what Preview may name
+ *  for `commcare_project` and re-announce it. Both optional so headless
+ *  subscribers without those surfaces can omit them. */
 interface Subscriber {
 	readonly onMutationPoke: (seq: number) => void;
 	readonly onPresencePoke: () => void;
 	readonly onStatusPoke?: () => void;
+	readonly onDeploymentPoke?: () => void;
 }
 
 /** appId → the streams currently open for it in this process. */
@@ -219,9 +222,11 @@ function dispatchCatchUpAll(): void {
 		for (const sub of set) {
 			safeCall(() => sub.onMutationPoke(0));
 			safeCall(() => sub.onPresencePoke());
-			/* A completion notify can land in a listener-connection gap; the
-			 * catch-up re-announce converges the status like every other lane. */
+			/* A completion or deployment notify can land in a
+			 * listener-connection gap; the catch-up re-announce converges
+			 * those lanes like every other. */
 			safeCall(() => sub.onStatusPoke?.());
+			safeCall(() => sub.onDeploymentPoke?.());
 		}
 	}
 	for (const set of chatSubscribers.values()) {
@@ -244,6 +249,7 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 		projectId?: unknown;
 		revision?: unknown;
 		statusChanged?: unknown;
+		deploymentChanged?: unknown;
 	};
 	try {
 		parsed = JSON.parse(msg.payload);
@@ -297,6 +303,10 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 	if (msg.channel === APP_STREAM_CHANNEL) {
 		if (parsed.statusChanged === true) {
 			dispatch(appId, (sub) => sub.onStatusPoke?.());
+			return;
+		}
+		if (parsed.deploymentChanged === true) {
+			dispatch(appId, (sub) => sub.onDeploymentPoke?.());
 			return;
 		}
 		const seq = typeof parsed.seq === "number" ? parsed.seq : 0;
@@ -415,10 +425,16 @@ export function subscribeAppStream(
 	onMutationPoke: (seq: number) => void,
 	onPresencePoke: () => void,
 	onStatusPoke?: () => void,
+	onDeploymentPoke?: () => void,
 ): () => void {
 	// A new subscriber intends the listener alive — re-arm after a prior teardown.
 	torndown = false;
-	const sub: Subscriber = { onMutationPoke, onPresencePoke, onStatusPoke };
+	const sub: Subscriber = {
+		onMutationPoke,
+		onPresencePoke,
+		onStatusPoke,
+		onDeploymentPoke,
+	};
 	let set = subscribers.get(appId);
 	if (set === undefined) {
 		set = new Set();

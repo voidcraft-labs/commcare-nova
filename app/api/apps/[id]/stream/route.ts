@@ -38,6 +38,13 @@
  *                                other change — the channel that tells a tab
  *                                not attached to a run's chat stream that a
  *                                build finished. Seq-less.
+ *   event: preview-project-space the project space Preview may name for
+ *                                `commcare_project`, server-resolved (the
+ *                                ambiguity rule needs every deployment, which
+ *                                only the server sees). Emitted on connect and
+ *                                on the notify every deployment write sends,
+ *                                so a co-member's publish or Check status
+ *                                reaches every open tab. Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
@@ -87,6 +94,7 @@ import {
 	runBeforeMutationReadTestHook,
 } from "@/lib/db/streamReadTestHooks";
 import type { AppLifecycleStatus } from "@/lib/db/types";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
@@ -251,6 +259,9 @@ function openStream(args: {
 				> | null = null;
 				let statusPump: ReturnType<typeof createCoalescedStreamPump> | null =
 					null;
+				let deploymentPump: ReturnType<
+					typeof createCoalescedStreamPump
+				> | null = null;
 				let unsubscribeApp: (() => void) | null = null;
 				let unsubscribeOrganization: (() => void) | null = null;
 				let unsubscribeLookup: (() => void) | null = null;
@@ -284,6 +295,7 @@ function openStream(args: {
 					lookupPump?.close();
 					organizationPump?.close();
 					statusPump?.close();
+					deploymentPump?.close();
 					unsubscribeApp?.();
 					unsubscribeOrganization?.();
 					unsubscribeLookup?.();
@@ -583,6 +595,43 @@ function openStream(args: {
 							});
 						},
 					});
+					/* Deployment lane: every deployment write pokes this, and the
+					 * lane re-resolves what Preview may name for
+					 * `commcare_project` and announces it on change — the path a
+					 * co-member's publish or Check status takes into every open
+					 * tab. The scope re-read keeps the emit authorized against
+					 * the CURRENT Project, same as the status lane; the resolver
+					 * applies the ambiguity rule the server alone can. `null`
+					 * versus "not yet announced" are distinct here, so the
+					 * connect-time emit still fires for an app on no project
+					 * space. */
+					let announcedProjectSpace: string | null | undefined;
+					deploymentPump = createCoalescedStreamPump({
+						async run() {
+							if (closed) return;
+							const fresh = await reauthorizeStreamScope(appId, userId);
+							if (closed) return;
+							const projectSpace = await previewProjectSpaceFor({
+								appId,
+								projectId: fresh.projectId,
+								role: fresh.role,
+								actorUserId: userId,
+							});
+							if (closed || projectSpace === announcedProjectSpace) return;
+							announcedProjectSpace = projectSpace;
+							send("preview-project-space", { projectSpace });
+						},
+						onError(err) {
+							if (err instanceof AppAccessError) {
+								revokeAndClose("access-revoked");
+								return;
+							}
+							log.warn("[stream] deployment pump error (will retry)", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
 
 					/* If the cursor fell below the retention window, the client is too far
 					 * behind to replay economically. The log is PERMANENT so the entries DO
@@ -608,6 +657,9 @@ function openStream(args: {
 						() => {
 							statusPump?.poke();
 						},
+						() => {
+							deploymentPump?.poke();
+						},
 					);
 					runAfterAppStreamSubscribeTestHook();
 					unsubscribeOrganization = subscribeAppOrganization(appId, () => {
@@ -622,6 +674,9 @@ function openStream(args: {
 					mutationPump.poke();
 					lookupPump.poke();
 					organizationPump.poke();
+					/* The connect-time resolution: converges a tab whose SSR
+					 * predates a publish that landed before the stream opened. */
+					deploymentPump.poke();
 					void emitRoster();
 
 					/* The connect-time status snapshot. The completion notify (the

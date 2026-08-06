@@ -755,6 +755,23 @@ export async function notifyAppStatus(
 	);
 }
 
+/** Poke the stream channel's DEPLOYMENT lane from INSIDE the transaction
+ * that writes a deployment record. Same channel as the mutation poke (one
+ * LISTEN covers both), distinguished by the `deploymentChanged` marker so
+ * the relay re-resolves what Preview may name for `commcare_project`
+ * instead of re-reading the mutation log. This is how a co-member's open
+ * tab learns a publish landed (or an observation walked a deployment back)
+ * without a page load: the server-side identity resolvers always read the
+ * table fresh, so the browser's copy is the one that needs the poke. */
+export async function notifyAppDeployments(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${APP_STREAM_CHANNEL}, ${JSON.stringify({ appId, deploymentChanged: true })})`.execute(
+		tx,
+	);
+}
+
 /** Poke lookup subscribers from INSIDE the mutation transaction. Revisions
  * stay strings so JSON never rounds a signed-int64 value. */
 export async function notifyLookupProject(

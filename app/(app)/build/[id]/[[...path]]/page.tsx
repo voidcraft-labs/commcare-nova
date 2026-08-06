@@ -143,6 +143,22 @@ export default async function BuilderPage({
 	 * live build resumes, and that resume rides the hydrated thread, landing
 	 * without it would show a half-built app with an empty chat and no sign a
 	 * build is running, so the degraded path keeps the old redirect. */
+	/* Which project space Preview may say a worker signed into. Resolved
+	 * server-side so `commcare_project` is right on the first render rather
+	 * than appearing a beat later, and `null` whenever there is no honest
+	 * answer (no deployment yet, or several). Started BEFORE the thread
+	 * hydration and awaited after it, because the two reads share no data
+	 * and a serial await would put one more round trip on every builder
+	 * cold load's critical path. Its own error handling lives inside
+	 * `previewProjectSpaceFor`, which degrades to `null`, so this promise
+	 * cannot reject while it waits. */
+	const previewProjectSpacePromise = previewProjectSpaceFor({
+		appId: id,
+		projectId: initialAccess.projectId,
+		role: initialAccess.role,
+		actorUserId: session.user.id,
+	});
+
 	let threads: LoadedThreadMeta[] = [];
 	let initialThread: LoadedThread | null = null;
 	try {
@@ -171,17 +187,7 @@ export default async function BuilderPage({
 	if (app.status === "error" && !buildInterrupted) redirect("/");
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
-
-	/* Which project space Preview may say a worker signed into. Resolved
-	 * server-side so `commcare_project` is right on the first render rather
-	 * than appearing a beat later, and `null` whenever there is no honest
-	 * answer — no deployment yet, or several. */
-	const previewProjectSpace = await previewProjectSpaceFor({
-		appId: id,
-		projectId: initialAccess.projectId,
-		role: initialAccess.role,
-		actorUserId: session.user.id,
-	});
+	const previewProjectSpace = await previewProjectSpacePromise;
 
 	return (
 		<BuilderProvider

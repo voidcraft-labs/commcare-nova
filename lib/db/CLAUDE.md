@@ -135,6 +135,11 @@ pokes the same channel with a `statusChanged` marker so connected builder
 streams re-read and re-announce the app status the moment a build commits
 `complete` (the one status transition that changes a tab's pricing; every
 other transition stays on the stream route's reauthorization cadence);
+every deployment write pokes it with a `deploymentChanged` marker
+(`notifyAppDeployments`, called by `lib/deployment/store.ts` inside each
+record-writing transaction) so connected streams re-resolve what Preview
+may name for `commcare_project` and announce it as a
+`preview-project-space` frame;
 presence reauthorizes against
 the app row + exact membership and writes/sweeps/deletes + pokes
 `nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
@@ -142,7 +147,7 @@ poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
 pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
 endpoint SELECT durable state from their cursor/scope, so a missed notification
 degrades to the next poke/catch-up, never to lost data. `streamListener.ts`
-owns ONE dedicated client per instance outside the pool and LISTENs on all four
+owns ONE dedicated client per instance outside the pool and LISTENs on all five
 channels. Replacement waits for bounded closure of the old client before a new
 one is constructed, preserving the exact connection budget in
 `lib/case-store/postgres/connection.ts`.

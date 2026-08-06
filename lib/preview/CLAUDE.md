@@ -510,14 +510,16 @@ is the one resolver, kept out of the publish lifecycle module so a case-data
 action does not import the expander and the HQ client to ask one question of
 one table.
 
-**The client copy updates on every own-tab path that can change it.** The
-builder page resolves it server-side on load, the publish response carries
-the server's fresh answer whether the publish landed or was refused, and
-every Check status returns `previewProjectSpace` beside the refreshed record
-(`RefreshedDeploymentView`); the publish dialog applies all three to
-`DeploymentTargetProvider`. The named boundary: a CO-MEMBER's publish in
-another session reaches an open tab's client identity only on its next page
-load, because deployments have no realtime channel yet — the server-side
-resolvers are always fresh, so the exposure is limited to the client form
-engine until reload. Do not paper over that with a client-asserted value;
-extending the realtime stream is the honest fix if the window ever matters.
+**The client copy follows every path that can change it, own-tab and
+cross-tab alike.** The builder page resolves it server-side on load, the
+publish response carries the server's fresh answer whether the publish
+landed or was refused, and every Check status returns `previewProjectSpace`
+beside the refreshed record (`RefreshedDeploymentView`); the publish dialog
+applies all three to `DeploymentTargetProvider`. Every OTHER tab — a
+co-member's open builder, a second tab of your own — converges through the
+shared realtime stream: each deployment write pokes the app channel's
+deployment lane in its own transaction, the relay re-resolves the rule and
+emits a `preview-project-space` frame, and `DeploymentTargetProvider`
+subscribes through the reconciler's `subscribePreviewProjectSpace` seam.
+Every value on every path is the SERVER's resolution; a client-asserted one
+would bypass the ambiguity rule only the server can apply.

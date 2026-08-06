@@ -810,3 +810,69 @@ describe("app-status frame → buildUnfinished latch", () => {
 		runtime.suspend();
 	});
 });
+
+describe("preview-project-space frame → subscriber fan-out", () => {
+	it("fans frames out, replays the latest to a late subscriber, and ignores garbage", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		const seen: Array<string | null> = [];
+		runtime.subscribePreviewProjectSpace((space) => seen.push(space));
+
+		/* Malformed frames must not move what an expression evaluates to:
+		 * garbage, an empty-string space (the resolver never names one — an
+		 * empty `commcare_project` is a value no worker can hold), and an
+		 * unknown key all drop. */
+		stream.emit("preview-project-space", "not json");
+		stream.emit("preview-project-space", JSON.stringify({ projectSpace: "" }));
+		stream.emit("preview-project-space", JSON.stringify({ other: "x" }));
+		expect(seen).toEqual([]);
+
+		stream.emit(
+			"preview-project-space",
+			JSON.stringify({ projectSpace: "acme" }),
+		);
+		expect(seen).toEqual(["acme"]);
+		/* An observation walked the deployment back: `null` is a real answer
+		 * (Preview names nothing), delivered like any other. */
+		stream.emit(
+			"preview-project-space",
+			JSON.stringify({ projectSpace: null }),
+		);
+		expect(seen).toEqual(["acme", null]);
+
+		/* A subscriber arriving after those frames still receives the retained
+		 * answer immediately, so mount order can never lose the connect-time
+		 * resolution — and an unsubscribed one hears nothing more. */
+		const late: Array<string | null> = [];
+		const unsubscribe = runtime.subscribePreviewProjectSpace((space) =>
+			late.push(space),
+		);
+		expect(late).toEqual([null]);
+		unsubscribe();
+		stream.emit(
+			"preview-project-space",
+			JSON.stringify({ projectSpace: "beta" }),
+		);
+		expect(late).toEqual([null]);
+		expect(seen).toEqual(["acme", null, "beta"]);
+
+		runtime.suspend();
+	});
+});
