@@ -41,6 +41,7 @@ export interface PublishResponseBody {
 		readonly title: string;
 		readonly status: string;
 		readonly detail: string;
+		readonly items?: readonly string[];
 	}[];
 	readonly error?: string;
 }
@@ -55,6 +56,17 @@ export type PublishOutcome =
 			readonly warnings: string[];
 			/** What Preview may name, per the server's ambiguity rule. */
 			readonly previewProjectSpace: string | null;
+			/**
+			 * Why this attempt did not get there, when it did not.
+			 *
+			 * Needed separately from the record: a publish blocked against an
+			 * app that is ALREADY live leaves the record untouched and green,
+			 * so the record carries no failure to explain the refusal. This
+			 * is the blocked preflight edge, which does.
+			 */
+			readonly blocked:
+				| { readonly detail: string; readonly items: readonly string[] }
+				| undefined;
 	  }
 	| {
 			readonly kind: "failure";
@@ -80,6 +92,9 @@ export function publishOutcome(
 				?.detail,
 		};
 	}
+	const blockedCheck = body.preflight?.find(
+		(check) => check.status === "blocked",
+	);
 	return {
 		kind: "record",
 		landed,
@@ -87,5 +102,9 @@ export function publishOutcome(
 		appUrl: body.url ?? "",
 		warnings: body.warnings ?? [],
 		previewProjectSpace: body.preview_project_space ?? null,
+		blocked:
+			landed || blockedCheck === undefined
+				? undefined
+				: { detail: blockedCheck.detail, items: blockedCheck.items ?? [] },
 	};
 }

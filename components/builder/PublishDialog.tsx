@@ -129,6 +129,9 @@ type PublishStatus =
 			 * the publish was refused, which is still a record worth showing
 			 * — it names the phase a retry resumes at. */
 			landed: boolean;
+			/* Why it did not, when the record cannot say: a publish blocked
+			 * against an app that is already live leaves the record green. */
+			blocked?: { detail: string; items: readonly string[] };
 	  }
 	| {
 			type: "download-success";
@@ -400,6 +403,7 @@ export function PublishDialog({
 				featureFlagReport: data.feature_flag_requirements,
 				deployment: outcome.deployment,
 				landed: outcome.landed,
+				blocked: outcome.blocked,
 			});
 		} catch (error) {
 			if (
@@ -550,6 +554,7 @@ export function PublishDialog({
 												: "Nova couldn't finish publishing"
 										}
 										tone={status.landed ? "done" : "refused"}
+										blocked={status.blocked}
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
@@ -949,6 +954,7 @@ function PublishSuccess({
 	featureFlagReport,
 	mode,
 	tone = "done",
+	blocked,
 	children,
 }: {
 	title: string;
@@ -958,6 +964,8 @@ function PublishSuccess({
 	/** A refused publish reaches this screen too, and must not be
 	 *  celebrated: it shows the same record, without the tick. */
 	tone?: "done" | "refused";
+	/** What stopped it, when the record itself cannot say. */
+	blocked?: { detail: string; items: readonly string[] };
 	children?: ReactNode;
 }) {
 	return (
@@ -978,6 +986,25 @@ function PublishSuccess({
 				</motion.div>
 				<h3 className="text-sm font-semibold text-nova-text">{title}</h3>
 			</div>
+
+			{blocked && (
+				/* The record is not always able to explain a refusal: a publish
+				   blocked against an app that is already live leaves it
+				   untouched and green. */
+				<div
+					role="alert"
+					className="mt-3 rounded-lg border border-nova-amber/40 bg-nova-amber/10 px-3 py-2.5 text-xs leading-relaxed"
+				>
+					<p className="text-nova-text">{blocked.detail}</p>
+					{blocked.items.length > 0 && (
+						<ul className="mt-2 flex list-disc flex-col gap-1 pl-4 text-nova-text-secondary">
+							{blocked.items.map((item) => (
+								<li key={item}>{item}</li>
+							))}
+						</ul>
+					)}
+				</div>
+			)}
 
 			{warnings.length > 0 && (
 				<div className="mt-3 space-y-1 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5">

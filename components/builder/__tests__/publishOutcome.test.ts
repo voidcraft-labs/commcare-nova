@@ -132,3 +132,50 @@ describe("nothing to show", () => {
 		});
 	});
 });
+
+describe("a refusal the record cannot explain", () => {
+	it("carries the blocked check when the target was already live", () => {
+		// The publish was blocked at preflight against an app that is
+		// already released, so the record stays green and has no failure of
+		// its own. Without this, the screen would say "Nova couldn't finish
+		// publishing" over five ticks and no reason.
+		const outcome = publishOutcome(true, {
+			success: false,
+			deployment: {
+				...VIEW,
+				deployment: { ...RECORD, state: "runnable" },
+			} as never,
+			setup_artifact: ARTIFACT as never,
+			preflight: [
+				{ title: "Feature flags", status: "passed", detail: "fine" },
+				{
+					title: "App readiness",
+					status: "blocked",
+					detail: "This app isn't ready to publish yet.",
+					items: ["Give the module a case list column."],
+				},
+			],
+		});
+
+		expect(outcome).toMatchObject({
+			kind: "record",
+			landed: false,
+			blocked: {
+				detail: "This app isn't ready to publish yet.",
+				items: ["Give the module a case list column."],
+			},
+		});
+	});
+
+	it("carries nothing to explain when the publish landed", () => {
+		const outcome = publishOutcome(true, {
+			success: true,
+			deployment: VIEW as never,
+			setup_artifact: ARTIFACT as never,
+			preflight: [
+				{ title: "Feature flags", status: "attention", detail: "flags" },
+			],
+		});
+		expect((outcome as { blocked?: unknown }).blocked).toBeUndefined();
+	});
+});
