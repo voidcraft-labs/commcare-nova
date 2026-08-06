@@ -503,7 +503,7 @@ describe("PublishDialog", () => {
 			new Response(
 				JSON.stringify({
 					success: true,
-					appUrl: "https://hq.example/app",
+					url: "https://hq.example/app",
 					warnings: [],
 					feature_flag_requirements: uploadReport,
 				}),
@@ -517,7 +517,7 @@ describe("PublishDialog", () => {
 		await screen.findByText("Feature flags aren't enabled");
 		expect(screen.getByRole("alert")).toBeTruthy();
 		expect(
-			screen.getByText("App uploaded successfully").closest('[role="status"]'),
+			screen.getByText("Your app is on CommCare HQ").closest('[role="status"]'),
 		).not.toBeNull();
 		expect(
 			screen.getByText(/isn't enabled for the “project-space” project space/i),

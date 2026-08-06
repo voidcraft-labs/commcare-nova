@@ -2167,6 +2167,18 @@ export async function commitAppProjectMoveInTransaction(
 		appId: args.appId,
 		toProjectId: args.toProjectId,
 	});
+	/* Deployments move with the app, exactly as case rows do. They carry the
+	 * same deferred `(project_id, app_id)` tenant key, so this is not
+	 * optional bookkeeping: leaving them behind fails the constraint at
+	 * commit and the whole move rolls back. What the destination Project
+	 * inherits is the honest record of where this app has been published —
+	 * whether its members' own API keys reach those project spaces is a
+	 * separate question their next publish answers. */
+	await tx
+		.updateTable("app_deployments")
+		.set({ project_id: args.toProjectId })
+		.where("app_id", "=", args.appId)
+		.execute();
 	await tx.deleteFrom("presence").where("app_id", "=", args.appId).execute();
 	const seq = nextPersistedSequence(
 		fresh.mutation_seq,
