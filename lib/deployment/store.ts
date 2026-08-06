@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Selectable, sql, type Transaction } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -11,19 +11,21 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
-import { DeploymentError, deploymentNotFound } from "./errors";
+import { deploymentNotFound } from "./errors";
 import { clearObservationOutcomes } from "./stateMachine";
 import {
-	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,
 	type DeploymentRecord,
 	type DeploymentResource,
 	type DeploymentResourceKind,
 	type DeploymentResourceOwnership,
-	type DeploymentState,
 	type DeploymentWithResources,
 	deploymentPhaseOutcomesSchema,
+	deploymentPhaseSchema,
+	deploymentResourceKindSchema,
+	deploymentResourceOwnershipSchema,
+	deploymentStateSchema,
 	isDeploymentServer,
 	NO_DEPLOYMENT_PHASE_OUTCOMES,
 } from "./types";
@@ -131,14 +133,29 @@ function toDeploymentRecord(
 			`Deployment ${row.id} stored phase outcomes Nova could not read back: ${phases.error.issues[0]?.message ?? "unknown shape"}`,
 		);
 	}
+	const state = deploymentStateSchema.safeParse(row.state);
+	if (!state.success) {
+		throw new Error(
+			`Deployment ${row.id} is stored in state "${row.state}", which Nova does not know.`,
+		);
+	}
+	const resumePhase =
+		row.resume_phase === null
+			? null
+			: deploymentPhaseSchema.safeParse(row.resume_phase);
+	if (resumePhase !== null && !resumePhase.success) {
+		throw new Error(
+			`Deployment ${row.id} resumes at phase "${row.resume_phase}", which Nova does not know.`,
+		);
+	}
 	return {
 		id: row.id,
 		appId: row.app_id,
 		projectId: row.project_id,
 		server: row.server,
 		domain: row.domain,
-		state: row.state as DeploymentState,
-		resumePhase: row.resume_phase as DeploymentPhase | null,
+		state: state.data,
+		resumePhase: resumePhase === null ? null : resumePhase.data,
 		phases: phases.data,
 		createdBy: row.created_by,
 		createdAt: row.created_at.toISOString(),
@@ -150,14 +167,24 @@ function toDeploymentRecord(
 function toDeploymentResource(
 	row: Selectable<AppDeploymentResourcesTable>,
 ): DeploymentResource {
+	const kind = deploymentResourceKindSchema.safeParse(row.kind);
+	if (!kind.success) {
+		throw new Error(
+			`A deployment names a "${row.kind}" resource, which Nova does not know.`,
+		);
+	}
+	const ownership = deploymentResourceOwnershipSchema.safeParse(row.ownership);
+	if (!ownership.success) {
+		throw new Error(
+			`A deployment records "${row.ownership}" ownership, which Nova does not know.`,
+		);
+	}
 	return {
 		deploymentId: row.deployment_id,
-		kind: row.kind as DeploymentResourceKind,
+		kind: kind.data,
 		novaResourceId: row.nova_resource_id,
 		remoteId: row.remote_id,
-		ownership: row.ownership as DeploymentResourceOwnership,
-		adoptedAt: isoOrNull(row.adopted_at),
-		adoptedBy: row.adopted_by,
+		ownership: ownership.data,
 		pushedRevision: numberOrNull(row.pushed_revision),
 		pushedAt: isoOrNull(row.pushed_at),
 		remoteRevision: numberOrNull(row.remote_revision),
@@ -375,14 +402,6 @@ export interface RecordRemoteResourceInput {
 	 * deployment claiming nothing happened while an app sat on HQ.
 	 */
 	readonly progress: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">;
-	/**
-	 * Prove no other app in this Project already owns `remoteId`, inside
-	 * the same transaction that writes it.
-	 *
-	 * Adoption sets this. A publish does not: it names an id CommCare HQ
-	 * has just minted, which nothing else can be holding.
-	 */
-	readonly requireUnclaimed?: boolean;
 }
 
 /**
@@ -412,38 +431,7 @@ export async function recordRemoteResource(
 			.forUpdate()
 			.executeTakeFirst();
 		if (deployment === undefined) throw deploymentNotFound();
-		return writeRemoteResourceInTransaction(tx, scope, deploymentId, input);
-	});
-}
-
-/**
- * Create the deployment and claim the remote resource in ONE transaction.
- *
- * Adoption is the one caller that needs both, and doing them as two
- * transactions leaves wreckage: the deployment commits, the claim then
- * finds the CommCare HQ app already owned by another Nova app, and a
- * `preflight` record survives naming a project space this app was never
- * published to — visible in `get_deployment` and the builder ever after.
- * Sharing the transaction makes the refusal leave nothing behind.
- */
-export async function adoptRemoteResource(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	input: Omit<RecordRemoteResourceInput, "progress"> & {
-		/** Given the deployment as it exists now, the progress to persist. */
-		readonly progress: (
-			deployment: DeploymentRecord,
-		) => Pick<DeploymentRecord, "state" | "resumePhase" | "phases">;
-	},
-): Promise<DeploymentWithResources> {
-	return withAppTx(async (tx) => {
-		await lockAppForDeploymentWrite(tx, scope, "edit");
-		const deploymentId = await ensureDeploymentInTransaction(tx, scope, target);
-		const existing = await loadWithinTransaction(tx, deploymentId);
-		return writeRemoteResourceInTransaction(tx, scope, deploymentId, {
-			...input,
-			progress: input.progress(existing.deployment),
-		});
+		return writeRemoteResourceInTransaction(tx, deploymentId, input);
 	});
 }
 
@@ -453,19 +441,9 @@ export async function adoptRemoteResource(
  */
 async function writeRemoteResourceInTransaction(
 	tx: Transaction<AppDatabase>,
-	scope: DeploymentScope,
 	deploymentId: string,
 	input: RecordRemoteResourceInput,
 ): Promise<DeploymentWithResources> {
-	if (input.requireUnclaimed === true) {
-		await assertRemoteAppUnclaimedInTransaction(
-			tx,
-			scope,
-			deploymentId,
-			input.remoteId,
-		);
-	}
-
 	const now = new Date();
 	await tx
 		.updateTable("app_deployment_resources")
@@ -488,8 +466,6 @@ async function writeRemoteResourceInTransaction(
 			nova_resource_id: input.novaResourceId,
 			remote_id: input.remoteId,
 			ownership: input.ownership,
-			adopted_at: input.ownership === "adopted" ? now : null,
-			adopted_by: input.ownership === "adopted" ? scope.actorUserId : null,
 			pushed_revision: input.pushedRevision,
 			pushed_at: input.pushedRevision === null ? null : now,
 		})
@@ -497,14 +473,9 @@ async function writeRemoteResourceInTransaction(
 			conflict
 				.columns(["deployment_id", "kind", "nova_resource_id"])
 				.where("superseded_at", "is", null)
-				/* Ownership travels with the write. Adopting an id this
-				 * deployment already created must record WHO adopted it and
-				 * WHEN, or the row keeps claiming Nova made it. */
 				.doUpdateSet({
 					remote_id: input.remoteId,
 					ownership: input.ownership,
-					adopted_at: input.ownership === "adopted" ? now : null,
-					adopted_by: input.ownership === "adopted" ? scope.actorUserId : null,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
 				}),
@@ -567,58 +538,6 @@ export async function recordRemoteRevision(
 			.where("superseded_at", "is", null)
 			.execute();
 	});
-}
-
-/**
- * Refuse to adopt a remote app another deployment of this Project already
- * owns.
- *
- * Adoption is explicit, but explicit is not the same as unchecked: two
- * Nova apps both claiming the same CommCare HQ app would each believe they
- * may repoint it, and whichever published second would silently take it
- * over.
- *
- * **This runs inside the writing transaction, behind a lock on the remote
- * id itself.** Running it on its own connection was a time-of-check gap,
- * and moving it into the transaction alone does not close one: two
- * adoptions of the same CommCare HQ app come from two DIFFERENT Nova apps,
- * so they lock two different `apps` rows and `FOR SHARE` does not conflict
- * with `FOR SHARE` anyway. What serializes them is an advisory lock keyed
- * on the thing being contended, which is the remote id within its Project.
- */
-async function assertRemoteAppUnclaimedInTransaction(
-	tx: Transaction<AppDatabase>,
-	scope: DeploymentScope,
-	deploymentId: string,
-	remoteId: string,
-): Promise<void> {
-	/* Serialize every claim on this exact CommCare HQ app within this
-	 * Project, whichever Nova app is claiming it. Transaction-scoped, so it
-	 * releases with the write it guards. */
-	const scopeKey = `nova-hq-app-claim:${scope.projectId}:${remoteId}`;
-	await sql`select pg_advisory_xact_lock(hashtextextended(${scopeKey}, 0::bigint))`.execute(
-		tx,
-	);
-	const clash = await tx
-		.selectFrom("app_deployment_resources")
-		.innerJoin(
-			"app_deployments",
-			"app_deployments.id",
-			"app_deployment_resources.deployment_id",
-		)
-		.select(["app_deployments.app_id as app_id", "app_deployments.domain"])
-		.where("app_deployments.project_id", "=", scope.projectId)
-		.where("app_deployment_resources.kind", "=", "app")
-		.where("app_deployment_resources.remote_id", "=", remoteId)
-		.where("app_deployment_resources.superseded_at", "is", null)
-		.where("app_deployment_resources.deployment_id", "!=", deploymentId)
-		.executeTakeFirst();
-	if (clash !== undefined) {
-		throw new DeploymentError(
-			"already_mapped",
-			`Another app in this project already publishes to the CommCare HQ app "${remoteId}" on ${clash.domain}. Two apps cannot share one CommCare HQ app, because each would believe it may replace the other's work.`,
-		);
-	}
 }
 
 export type { DeploymentPhaseOutcome, DeploymentPhaseOutcomes };

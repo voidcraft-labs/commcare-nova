@@ -57,14 +57,16 @@ vi.mock("@/lib/organization/service", () => ({
 		organization: { revision: "1", locations: [] },
 	})),
 }));
+/* Exactly the store surface `service.ts` imports — no more, no less. A
+ * mock naming something the module never imports proves nothing, and one
+ * missing a name the module DOES import fails as `undefined is not a
+ * function` deep inside the code under test rather than at the mock. */
 vi.mock("../store", () => ({
 	ensureDeployment: vi.fn(),
-	saveDeploymentProgress: vi.fn(),
+	readDeployment: vi.fn(),
 	recordRemoteResource: vi.fn(),
 	recordRemoteRevision: vi.fn(),
-	readDeployment: vi.fn(),
-	readDeploymentsForApp: vi.fn(async () => []),
-	assertRemoteAppUnclaimed: vi.fn(),
+	saveDeploymentProgress: vi.fn(),
 }));
 
 const SCOPE = {
@@ -167,8 +169,6 @@ beforeEach(() => {
 						novaResourceId: SCOPE.appId,
 						remoteId: input.remoteId,
 						ownership: input.ownership,
-						adoptedAt: null,
-						adoptedBy: null,
 						pushedRevision: input.pushedRevision,
 						pushedAt: null,
 						remoteRevision: null,
@@ -388,8 +388,6 @@ describe("refreshDeployment", () => {
 					novaResourceId: SCOPE.appId,
 					remoteId: "hq-1",
 					ownership: "nova-created" as const,
-					adoptedAt: null,
-					adoptedBy: null,
 					pushedRevision: 3,
 					pushedAt: "2026-08-06T00:00:00.000Z",
 					remoteRevision: null,

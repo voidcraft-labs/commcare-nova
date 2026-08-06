@@ -36,6 +36,5 @@ export {
 	type DeploymentResourceOwnership,
 	type DeploymentState,
 	type DeploymentWithResources,
-	hqAppIdSchema,
 	isDeploymentServer,
 } from "./types";

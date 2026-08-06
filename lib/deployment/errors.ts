@@ -25,13 +25,7 @@ export type DeploymentErrorCode =
 	 */
 	| "hq_not_connected"
 	/** The caller's key cannot reach this project space. */
-	| "domain_not_authorized"
-	/**
-	 * The remote resource is already mapped to a different Nova resource, or
-	 * to this one under different ownership. Its own code because the
-	 * recovery is specific: look at what already owns it, do not overwrite.
-	 */
-	| "already_mapped";
+	| "domain_not_authorized";
 
 export class DeploymentError extends Error {
 	readonly name = "DeploymentError";

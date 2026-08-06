@@ -129,8 +129,8 @@ type PublishStatus =
 			 * the app actually stands rather than implying it is live. */
 			deployment?: DeploymentView;
 			/* Whether the app actually reached the project space. False when
-			 * the publish was refused, which is still a record worth showing
-			 * — it names the phase a retry resumes at. */
+			 * the publish was refused, which is still a record worth showing:
+			 * it names the phase a retry resumes at. */
 			landed: boolean;
 			/* Why it did not, when the record cannot say: a publish blocked
 			 * against an app that is already live leaves the record green. */
@@ -270,14 +270,26 @@ export function PublishDialog({
 		if (!open || !canUploadToHq) return;
 		let live = true;
 		setExisting({ type: "loading" });
-		void readDeploymentsAction(getAppId()).then((result) => {
-			if (!live) return;
-			setExisting(
-				result.success
-					? { type: "ready", views: result.data }
-					: { type: "error", message: result.message },
-			);
-		});
+		/* A rejected Server Action must land in this dialog's own error slot.
+		 * Without the catch it is an unhandled rejection and the panel sits
+		 * on "loading" forever, which reads as "you have published nowhere". */
+		void readDeploymentsAction(getAppId())
+			.then((result) => {
+				if (!live) return;
+				setExisting(
+					result.success
+						? { type: "ready", views: result.data }
+						: { type: "error", message: result.message },
+				);
+			})
+			.catch(() => {
+				if (!live) return;
+				setExisting({
+					type: "error",
+					message:
+						"Nova couldn't load where this app has been published. Close and reopen to try again.",
+				});
+			});
 		return () => {
 			live = false;
 		};
@@ -594,14 +606,15 @@ export function PublishDialog({
 
 						<div className="mt-5 border-t border-nova-border pt-5">
 							{target === "hq" ? (
-								status.type === "upload-success" ? (
+								/* Only a publish that LANDED replaces the form. A refusal
+								   keeps it mounted, because what has to change to make the
+								   retry different is in it: the project space and the app
+								   name. Swapping to a result screen and offering "Try
+								   again" would re-send the exact request that just failed. */
+								status.type === "upload-success" && status.landed ? (
 									<PublishSuccess
-										title={
-											status.landed
-												? "Your app is on CommCare HQ"
-												: "Nova couldn't finish publishing"
-										}
-										tone={status.landed ? "done" : "refused"}
+										title="Your app is on CommCare HQ"
+										tone="done"
 										blocked={status.blocked}
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
@@ -631,6 +644,31 @@ export function PublishDialog({
 									/>
 								) : (
 									<>
+										{status.type === "upload-success" ? (
+											<PublishSuccess
+												title="Nova couldn't finish publishing"
+												tone="refused"
+												blocked={status.blocked}
+												warnings={status.warnings}
+												featureFlagReport={status.featureFlagReport}
+												mode="upload"
+											>
+												{status.deployment !== undefined ? (
+													<DeploymentStatus
+														appId={getAppId()}
+														view={status.deployment}
+														canRefresh={canEdit}
+														onUpdated={(next) =>
+															setStatus((current) =>
+																current.type === "upload-success"
+																	? { ...current, deployment: next }
+																	: current,
+															)
+														}
+													/>
+												) : null}
+											</PublishSuccess>
+										) : null}
 										{/* Before the form, because "you already published this
 										    to acme, and here is what is left to do there" is what
 										    somebody reopening this dialog came for. */}
@@ -696,13 +734,13 @@ export function PublishDialog({
 
 				<DialogFooter
 					className={`border-t border-nova-border px-5 py-4 ${
-						target === "hq" && status.type === "upload-success"
+						target === "hq" && status.type === "upload-success" && status.landed
 							? "justify-between"
 							: ""
 					}`}
 				>
 					{target === "hq" ? (
-						status.type === "upload-success" ? (
+						status.type === "upload-success" && status.landed ? (
 							<>
 								{status.appUrl ? (
 									<a
@@ -717,32 +755,9 @@ export function PublishDialog({
 								) : (
 									<span />
 								)}
-								{status.landed ? (
-									<Button type="button" variant="outline" onClick={handleClose}>
-										Done
-									</Button>
-								) : (
-									/* A refusal reaches this screen too, and its whole
-									   point is that the author fixes something and tries
-									   again. Leaving only Done would make them close and
-									   reopen the dialog to do the thing it just asked for. */
-									<div className="flex items-center gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											onClick={handleClose}
-										>
-											Close
-										</Button>
-										<Button
-											type="button"
-											onClick={handleUpload}
-											disabled={!canUpload}
-										>
-											Try again
-										</Button>
-									</div>
-								)}
+								<Button type="button" variant="outline" onClick={handleClose}>
+									Done
+								</Button>
 							</>
 						) : notConfigured ? (
 							<DialogClose render={<Button variant="outline" />}>

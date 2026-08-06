@@ -700,7 +700,6 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL, the deployment's state, the app's required [feature flags](../feature-flags.mdx) checked against that space, and the setup steps the project space still needs by hand. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. |
-| `adopt_hq_app` | Tell Commcare Nova that an app already on CommCare HQ is this app's publication, so it can report that app's state. Needs the exact HQ app id from the app's URL. Nothing is uploaded and nothing on CommCare HQ changes. |
 
 <Callout type="info">
 HQ has no atomic update API, so every upload creates a new app on HQ. Your Commcare Nova copy doesn't change. The deployment record names the app each earlier upload left behind, under `left_behind`, so you can archive or delete it on HQ.

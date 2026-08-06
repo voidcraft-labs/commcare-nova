@@ -136,10 +136,12 @@ target's configuration edit the app.
 ## Ownership, and why superseded rows are kept
 
 `app_deployment_resources` is the ledger. Nova repoints or updates only
-what it created (`nova-created`) or was explicitly told to adopt
-(`adopted`). **There is no third arm for "matched by name"** — two project
+what it created (`nova-created`), which is the only ownership there is.
+**There is deliberately no arm for "matched by name"** — two project
 spaces can hold unrelated apps called "Household Survey", and picking one
-would silently attach a deployment to somebody else's work.
+would silently attach a deployment to somebody else's work. Nova pushes to
+CommCare HQ and never reads an app back, so it could not verify such a
+guess even if it made one.
 
 CommCare HQ has no atomic app update, so publishing again creates a NEW
 app there and leaves the previous one in place. The old mapping is kept
@@ -183,8 +185,7 @@ capability flag.
 ## Surfaces
 
 Builder (the publish dialog) and MCP (`get_deployment`,
-`refresh_deployment`, `adopt_hq_app`). **Deliberately not the Solutions
-Architect** — the same standing decision that keeps
+`refresh_deployment`). **Deliberately not the Solutions Architect** — the same standing decision that keeps
 `get_app_hq_feature_flags` off that surface. A deployment is durable state
 about somebody else's server, not authored vocabulary an agent designing
 an app should reason about.

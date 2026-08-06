@@ -10,10 +10,10 @@
 //     installations whose account databases share nothing.
 //
 //   * `app_deployment_resources` is the ownership ledger. Nova may only
-//     repoint or update something it demonstrably created or was
-//     explicitly told to adopt, so the pair (what Nova calls it, what
-//     CommCare HQ calls it) has to be durable rather than re-derived from
-//     a name. Nothing here is ever matched by name.
+//     repoint or update something it demonstrably created, so the pair
+//     (what Nova calls it, what CommCare HQ calls it) has to be durable
+//     rather than re-derived from a name. Nothing here is ever matched by
+//     name.
 //
 // A superseded mapping is kept, not deleted. CommCare HQ has no atomic app
 // update, so publishing again creates a NEW app there and leaves the
@@ -42,7 +42,7 @@ const STATES =
 const PHASES = "'preflight', 'upload', 'build', 'release', 'probe'";
 const SERVERS = "'production', 'india', 'eu'";
 const RESOURCE_KINDS = "'app'";
-const OWNERSHIPS = "'nova-created', 'adopted'";
+const OWNERSHIPS = "'nova-created'";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
@@ -86,23 +86,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			nova_resource_id text NOT NULL CHECK (btrim(nova_resource_id) <> ''),
 			remote_id text NOT NULL CHECK (btrim(remote_id) <> ''),
 			ownership text NOT NULL CHECK (ownership IN (${sql.raw(OWNERSHIPS)})),
-			adopted_at timestamptz(3),
-			adopted_by text,
 			pushed_revision bigint CHECK (pushed_revision >= 0),
 			pushed_at timestamptz(3),
 			remote_revision bigint CHECK (remote_revision >= 0),
 			remote_observed_at timestamptz(3),
 			superseded_at timestamptz(3),
-			created_at timestamptz(3) NOT NULL DEFAULT now(),
-			-- Adoption is an event with an actor and a moment, so an adopted
-			-- mapping always carries both and a Nova-created one carries
-			-- neither. This is what makes "who attached this to our project
-			-- space, and when" answerable from the row itself.
-			CONSTRAINT app_deployment_resources_adoption_is_attributed
-				CHECK (
-					(ownership = 'adopted')
-					= (adopted_at IS NOT NULL AND btrim(coalesce(adopted_by, '')) <> '')
-				)
+			created_at timestamptz(3) NOT NULL DEFAULT now()
 		)
 	`.execute(db);
 

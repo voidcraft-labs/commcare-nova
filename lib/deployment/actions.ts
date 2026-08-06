@@ -1,6 +1,5 @@
 "use server";
 
-import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { log } from "@/lib/logger";
@@ -14,7 +13,11 @@ import {
 } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import { type DeploymentScope, readDeploymentsForApp } from "./store";
-import { type DeploymentWithResources, deploymentServerSchema } from "./types";
+import {
+	type DeploymentWithResources,
+	deploymentAppIdSchema,
+	deploymentTargetSchema,
+} from "./types";
 
 /**
  * The browser's refresh surface for deployments.
@@ -24,10 +27,6 @@ import { type DeploymentWithResources, deploymentServerSchema } from "./types";
  * consumes. What is here is what a publish cannot answer: where the app
  * already stands when the dialog opens, and what CommCare HQ has done
  * since. Both outlive the request that created the record.
- *
- * Adoption is deliberately MCP-only (`adopt_hq_app`). It is the recovery
- * path for an app somebody imported by hand, and it needs the exact
- * CommCare HQ app id, which is not something the publish dialog asks for.
  *
  * Every argument is plain JSON on purpose. A `Map`, `Set`, or `File` in a
  * Server Action argument makes React encode the call as multipart, which
@@ -52,15 +51,8 @@ export type DeploymentActionResult<T> =
 			readonly message: string;
 	  };
 
-const appIdSchema = z.string().trim().min(1).max(255);
-
-const targetInputSchema = z
-	.object({
-		appId: appIdSchema,
-		server: deploymentServerSchema,
-		domain: z.string().trim().min(1).max(255),
-	})
-	.strict();
+/* The wire shapes live with the vocabulary they validate, so the browser
+ * and MCP cannot drift into accepting different things. */
 
 /**
  * The capability is the caller's to state, because the two operations
@@ -150,7 +142,7 @@ async function committedDoc(scope: DeploymentScope) {
 export async function refreshDeploymentAction(
 	input: unknown,
 ): Promise<DeploymentActionResult<DeploymentView>> {
-	const parsed = targetInputSchema.safeParse(input);
+	const parsed = deploymentTargetSchema.safeParse(input);
 	if (!parsed.success) {
 		return {
 			success: false,
@@ -188,7 +180,7 @@ export async function refreshDeploymentAction(
 export async function readDeploymentsAction(
 	input: unknown,
 ): Promise<DeploymentActionResult<readonly DeploymentView[]>> {
-	const parsed = appIdSchema.safeParse(input);
+	const parsed = deploymentAppIdSchema.safeParse(input);
 	if (!parsed.success) {
 		return {
 			success: false,

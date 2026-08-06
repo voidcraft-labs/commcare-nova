@@ -100,8 +100,6 @@ vi.mock("@/lib/deployment/store", () => {
 						novaResourceId: "app-1",
 						remoteId: input.remoteId,
 						ownership: input.ownership,
-						adoptedAt: null,
-						adoptedBy: null,
 						pushedRevision: input.pushedRevision,
 						pushedAt: null,
 						remoteRevision: null,

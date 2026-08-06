@@ -35,6 +35,7 @@ import {
 	type DeploymentView,
 	refreshDeploymentAction,
 } from "@/lib/deployment/actions";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /** What each rung means, in the author's words. */
 const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
@@ -84,7 +85,7 @@ export function DeploymentStatus({
 	view: DeploymentView;
 	/**
 	 * Whether this viewer may ask CommCare HQ again. Checking WRITES what
-	 * it observes, so a viewer cannot — and offering them a button that
+	 * it observes, so a viewer cannot. Offering them a button that
 	 * would be refused is worse than not offering it.
 	 */
 	canRefresh?: boolean;
@@ -92,25 +93,39 @@ export function DeploymentStatus({
 	onUpdated: (next: DeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
+	const sessionApi = useBuilderSessionApi();
 	const [pending, startTransition] = useTransition();
 	const [refreshError, setRefreshError] = useState<string | null>(null);
 	const headingId = useId();
 
 	const handleRefresh = useCallback(() => {
+		/* Checking WRITES what it saw, so it is a Project write and re-reads
+		 * live capability rather than trusting the prop this rendered with.
+		 * A role can change under an open dialog. */
+		if (!sessionApi.getState().canEdit) return;
 		setRefreshError(null);
 		startTransition(async () => {
-			const result = await refreshDeploymentAction({
-				appId,
-				server: record.server,
-				domain: record.domain,
-			});
-			if (result.success) {
-				onUpdated(result.data);
-				return;
+			/* A rejected async transition is re-thrown during render, which
+			 * would take the whole builder page down over one failed check.
+			 * The failure belongs in this component's own error slot. */
+			try {
+				const result = await refreshDeploymentAction({
+					appId,
+					server: record.server,
+					domain: record.domain,
+				});
+				if (result.success) {
+					onUpdated(result.data);
+					return;
+				}
+				setRefreshError(result.message);
+			} catch {
+				setRefreshError(
+					"Nova couldn't reach the server to check on this deployment. Try again in a moment.",
+				);
 			}
-			setRefreshError(result.message);
 		});
-	}, [appId, record.server, record.domain, onUpdated]);
+	}, [appId, record.server, record.domain, onUpdated, sessionApi]);
 
 	const refused = record.state === "incomplete";
 	const failure =

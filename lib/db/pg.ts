@@ -495,12 +495,6 @@ export interface AppDeploymentResourcesTable {
 	nova_resource_id: string;
 	remote_id: string;
 	ownership: string;
-	adopted_at: ColumnType<
-		Date | null,
-		Date | string | null | undefined,
-		Date | string | null
-	>;
-	adopted_by: string | null;
 	pushed_revision: ColumnType<
 		string | number | null,
 		number | null | undefined,

@@ -276,7 +276,7 @@ describe("organization levels", () => {
 		 * "Tick Has Users" for a level that holds workers would be busywork;
 		 * "leave it unticked" for one that does not is simply wrong. */
 		const detail = JSON.stringify(section().steps);
-		expect(detail).toContain("Untick “Has Users” — it arrives ticked");
+		expect(detail).toContain("Untick “Has Users”; it arrives ticked");
 		expect(detail).not.toMatch(/leave “has users” unticked/i);
 		expect(detail).not.toMatch(/tick “has users”\./i);
 	});
@@ -338,16 +338,26 @@ describe("organization levels", () => {
 		expect(caveats).toMatch(/abandons the ENTIRE save/i);
 	});
 
-	it("says a missing page is a permission answer, not a wrong address", () => {
-		/* All three gates raise a bare `Http404`:
+	it("does not claim all three ways in are refused alike, because two answers exist", () => {
+		/* `locations/views.py::LocationTypesView.dispatch` stacks three
+		 * gates, and they do NOT answer the same way. Two raise `Http404`:
 		 * `permissions.py::locations_access_required` via
-		 * `requires_privilege_raise404(privileges.LOCATIONS)`,
-		 * `::can_edit_location_types` (which checks `edit_apps`, NOT
-		 * `edit_locations`), and `::require_can_edit_locations`. Nobody gets
-		 * an upgrade prompt. */
+		 * `requires_privilege_raise404(privileges.LOCATIONS)`, and
+		 * `::can_edit_location_types`, whose `user_can_edit_location_types`
+		 * checks `edit_apps` and raises a bare `Http404`. The third,
+		 * `::require_can_edit_locations`, goes through
+		 * `users/decorators.py::require_permission_raw`, whose non-ajax
+		 * denial is `PermissionDenied` — a 403. Decorators run top down, so
+		 * the `edit_apps` 404 fires first and the 403 is only reachable with
+		 * `edit_apps` but not `edit_locations`. Saying "all three answer
+		 * with a page-not-found" sends somebody looking for a missing
+		 * feature when their account is one permission short. */
 		const caveats = section().caveats.join(" ");
 		expect(caveats).toMatch(/page-not-found/i);
+		expect(caveats).toMatch(/permission-denied/i);
 		expect(caveats).toContain("edit apps");
+		expect(caveats).toContain("edit locations");
+		expect(caveats).not.toMatch(/answers all three the same way/i);
 	});
 
 	it("does not claim the location API can read these settings back", () => {

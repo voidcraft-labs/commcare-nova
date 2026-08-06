@@ -22,7 +22,7 @@
 // `locations/views.py::LocationTypesView`), automations have no REST
 // resource at all, and building and releasing sit behind
 // `require_can_edit_apps`. When a push driver ships for one of these, its
-// section becomes a record of what Nova did rather than an instruction —
+// section becomes a record of what Nova did rather than an instruction:
 // the same artifact, one section rewritten, not a second document.
 
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
@@ -109,7 +109,7 @@ function hqBase(server: CommCareServer): string {
  *
  * The labels here are the ones actually on that page
  * (`locations/templates/locations/location_types.html`), not Nova's
- * vocabulary and not the model field names — an instruction naming a
+ * vocabulary and not the model field names. An instruction naming a
  * control the reader cannot find is not an instruction.
  */
 function levelCaseFlowSteps(
@@ -131,12 +131,12 @@ function levelCaseFlowSteps(
 	// `has_users_setting` to true ("new loc types default to true"), then
 	// posts `has_users` on every save whether or not the column is on the
 	// page. So the work is in unticking it, and a hidden column means the
-	// level is saved allowing workers — which is why the no-workers arm
+	// level is saved allowing workers, which is why the no-workers arm
 	// cannot say "nothing to do".
 	steps.push(
 		flow.workers === "assigned"
-			? "Leave “Has Users” ticked — it arrives ticked. If you cannot see that column, nothing to do: CommCare HQ allows workers here anyway."
-			: "Untick “Has Users” — it arrives ticked. If you cannot see that column, this project space does not have the restore-file location toggle, and CommCare HQ will allow workers to be assigned here even though your app does not put any here.",
+			? "Leave “Has Users” ticked; it arrives ticked. If you cannot see that column, nothing to do: CommCare HQ allows workers here anyway."
+			: "Untick “Has Users”; it arrives ticked. If you cannot see that column, this project space does not have the restore-file location toggle, and CommCare HQ will allow workers to be assigned here even though your app does not put any here.",
 	);
 	if (flow.workers === "none") {
 		steps.push(
@@ -174,7 +174,7 @@ function levelAddressBookSteps(
 	// `locations/sql_templates/get_location_fixture_ids.sql`, whose own
 	// header comment then lists the combinations it calls ambiguous or
 	// logically inconsistent. Nova's closed union is what keeps those
-	// unauthorable — most sharply `include_only` together with
+	// unauthorable, most sharply `include_only` together with
 	// `expand_from_root`, which yields NO locations at all (the include-only
 	// arm matches on `loc_id = loc.id`, and `expand_from_root` sets `loc_id`
 	// to NULL), and which a person filling this page in by hand can reach.
@@ -214,7 +214,7 @@ function levelAddressBookSteps(
 				 * `NOT EXISTS (… include_only …)`, so "Level to expand from" is
 				 * ignored outright. Both are settings a reader would believe had
 				 * taken effect. */
-				"Leave “Level to expand to” and “Level to expand from” unset. CommCare HQ ignores “Include only” when the first is set, and ignores the second when “Include only” is set — either way one of them silently does nothing.",
+				"Leave “Level to expand to” and “Level to expand from” unset. CommCare HQ ignores “Include only” when the first is set, and ignores the second when “Include only” is set. Either way one of them silently does nothing.",
 				...alsoTop(book.alsoIncludeTopDownToLevelUuid),
 			];
 		case "shared-branch":
@@ -239,7 +239,7 @@ function organizationSection(
 	const levelName = (uuid: string): string =>
 		ownRecordValue(byUuid, uuid)?.name ?? "the level with that id";
 
-	// Parents before children, so the page can be filled top down —
+	// Parents before children, so the page can be filled top down:
 	// CommCare HQ needs a parent level to exist before anything names it.
 	const ordered: OrganizationLevel[] = [];
 	const remaining = [...levels];
@@ -272,6 +272,14 @@ function organizationSection(
 		);
 	});
 
+	/* The three gates on this page answer differently, and the caveat below
+	 * says which is which. `locations/views.py::LocationTypesView.dispatch`
+	 * runs `can_edit_location_types` before `require_can_edit_locations`:
+	 * the first checks `edit_apps` and raises a bare `Http404`, the second
+	 * lands in `users/decorators.py::require_permission_raw`, whose non-ajax
+	 * denial is `PermissionDenied`, a 403 and not a 404. The paid-feature gate
+	 * inside `locations_access_required` uses `requires_privilege_raise404`,
+	 * so it reads as a 404 too. */
 	return {
 		id: "organization",
 		title: "Organization levels",
@@ -286,9 +294,9 @@ function organizationSection(
 		],
 		caveats: [
 			"Two levels cannot share a Type Code. CommCare HQ checks that as you type and refuses to save a duplicate.",
-			"This page is the only way to define levels. CommCare HQ's location API cannot write them, and reads back only the name, code, parent, and two of the settings below — so Nova can neither create these for you nor check that you got them right.",
-			"Saving this page replaces the whole list. A level you leave out is removed — and if that level still has places in it, CommCare HQ abandons the ENTIRE save with only a warning at the top of the page, so none of your other changes land either. Add to what is there rather than starting over.",
-			"If this page is not there at all, it is one of three things: the project does not have the paid Locations feature (ask support@dimagi.com), or your CommCare HQ account lacks the “edit apps” or “edit locations” permission. CommCare HQ answers all three the same way — a plain page-not-found — so a missing page is not a wrong address.",
+			"This page is the only way to define levels. CommCare HQ's location API cannot write them, and reads back only the name, code, parent, and two of the settings below, so Nova can neither create these for you nor check that you got them right.",
+			"Saving this page replaces the whole list. A level you leave out is removed, and if that level still has places in it, CommCare HQ abandons the ENTIRE save with only a warning at the top of the page, so none of your other changes land either. Add to what is there rather than starting over.",
+			"If you cannot open this page, what CommCare HQ says tells you which thing to fix. A page-not-found means either the project space does not have the paid Locations feature (ask support@dimagi.com), or your account lacks the “edit apps” permission. A permission-denied means you have “edit apps” but not “edit locations”. Either way the address is right, so ask whoever administers the project space rather than hunting for the page.",
 		],
 	};
 }

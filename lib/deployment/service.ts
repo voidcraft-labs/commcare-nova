@@ -4,7 +4,6 @@ import {
 	type CommCareCredentials,
 	importApp,
 	probeHqFeatureFlags,
-	readAppVersions,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -29,12 +28,10 @@ import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import {
 	applyObservation,
 	applyPhaseOutcome,
-	applyPhaseOutcomes,
 	applyPreflightOutcome,
 	deploymentIsObservable,
 } from "./stateMachine";
 import {
-	adoptRemoteResource,
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	ensureDeployment,
@@ -478,72 +475,4 @@ export async function refreshDeployment(
 		deployment: saved,
 		artifact: await setupArtifactFor(scope, saved, doc),
 	};
-}
-
-/**
- * Point a deployment at an app that is already on CommCare HQ.
- *
- * Adoption is the only way a mapping comes into existence without Nova
- * having created the thing, and it is always explicit: the caller names
- * the exact CommCare HQ app id. Nova never matches by name, and never
- * adopts one another app in the same Project already publishes to.
- */
-export async function adoptRemoteApp(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	remoteId: string,
-): Promise<DeploymentWithResources> {
-	const credResult = await getCredentialsForUpload(
-		scope.actorUserId,
-		target.domain,
-	);
-	/* Each cause gets its own sentence. Collapsing them into one
-	 * not-found would tell somebody their app moved Projects when the
-	 * real answer is that they have not connected CommCare HQ. */
-	if (!credResult.ok) {
-		throw new DeploymentError(
-			credResult.error === "not_configured"
-				? "hq_not_connected"
-				: "domain_not_authorized",
-			credResult.error === "not_configured"
-				? "CommCare HQ isn't connected on your account. Add your API key in Settings, then connect this app to its CommCare HQ app."
-				: `Your API key can't reach “${target.domain}”. Ask a CommCare HQ administrator to add you to that project space.`,
-		);
-	}
-
-	assertCredentialsMatchServer(credResult.creds, target);
-
-	// Prove it is really there before recording ownership of it. An
-	// adopted mapping that names nothing would report "uploaded" for an
-	// app that does not exist.
-	const versions = await readAppVersions(
-		credResult.creds,
-		credResult.domain.name,
-		remoteId,
-	);
-	if ("success" in versions) {
-		throw new DeploymentError(
-			"invalid",
-			versions.status === 404
-				? `CommCare HQ has no app "${remoteId}" on “${target.domain}”. Check the id in the app's URL there, and that it is the app itself rather than one of its versions.`
-				: `Nova couldn't reach CommCare HQ to confirm the app "${remoteId}" exists on “${target.domain}”. Try again in a moment.`,
-		);
-	}
-
-	/* One transaction for both writes. A clash on the claim must leave no
-	 * deployment behind naming a project space this app never reached. */
-	const now = new Date().toISOString();
-	return adoptRemoteResource(scope, target, {
-		kind: "app",
-		novaResourceId: scope.appId,
-		remoteId,
-		ownership: "adopted",
-		pushedRevision: null,
-		requireUnclaimed: true,
-		progress: (deployment) =>
-			applyPhaseOutcomes(deployment, [
-				["preflight", { status: "succeeded", at: now }],
-				["upload", { status: "succeeded", at: now }],
-			]),
-	});
 }

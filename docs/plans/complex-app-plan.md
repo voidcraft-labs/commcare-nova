@@ -1484,10 +1484,10 @@ server, and `lib/commcare/client.ts` resolves its base URL from the selected one
 app, keyed by app, Project, server, and domain — the server belongs to the key
 because HQ's US, India, and EU installations share no account database, so a key
 issued by one authenticates nowhere else. An `app_deployment_resources` row is
-the ownership ledger: Nova repoints or updates only what it created or was
-explicitly told to adopt, and never infers either from a name, because two
-project spaces can hold unrelated apps sharing a name and picking one would
-attach a deployment to somebody else's work. `lib/deployment/CLAUDE.md` owns the
+the ownership ledger: Nova repoints or updates only what it created, and never
+infers ownership from a name, because two project spaces can hold unrelated apps
+sharing a name and picking one would attach a deployment to somebody else's
+work. `lib/deployment/CLAUDE.md` owns the
 detail.
 
 The lifecycle is `preflight → uploaded → built → released → runnable`, plus the
@@ -1574,7 +1574,7 @@ record rather than a status that would throw it away, and both callers read
 whether THIS attempt landed rather than inferring it from a state that
 describes the target. Deployments
 are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
-`refresh_deployment`, `adopt_hq_app`) and deliberately NOT from the Solutions
+`refresh_deployment`) and deliberately NOT from the Solutions
 Architect, the same standing decision that keeps `get_app_hq_feature_flags` off
 that surface. Deployments carry `app_id` and `project_id` but not the composite tenant key
 case rows use, because the auth-app tenancy migration keeps an exact catalog of

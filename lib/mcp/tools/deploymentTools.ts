@@ -1,35 +1,34 @@
 /**
- * `nova.get_deployment`, `nova.refresh_deployment`, and
- * `nova.adopt_hq_app` — the read, re-check, and attach operations around
- * `upload_app_to_hq`.
+ * `nova.get_deployment` and `nova.refresh_deployment` — the read and
+ * re-check operations around `upload_app_to_hq`.
  *
- * **These are MCP-only, and that is deliberate.** Nova's internal
- * Solutions Architect speaks domain vocabulary and does not own CommCare
- * deployment concerns — the same standing decision that keeps
- * `get_app_hq_feature_flags` off the SA surface. A deployment is not
+ * **These are kept off the Solutions Architect, and that is deliberate.**
+ * The SA speaks domain vocabulary and does not own CommCare deployment
+ * concerns — the same standing decision that keeps
+ * `get_app_hq_feature_flags` off that surface. A deployment is not
  * authored vocabulary: it is durable state about somebody else's server,
- * and an agent designing an app has no business reasoning about it.
+ * and an agent designing an app has no business reasoning about it. That
+ * says nothing about the builder, which reaches the same operations
+ * through `lib/deployment/actions.ts`.
  *
  * Scopes follow the existing split. Reading a deployment needs
- * `nova.hq.read`; adopting one needs `nova.hq.write`, because attaching a
- * Nova app to a CommCare HQ app decides what a later publish may replace.
- * Refreshing is read-only against CommCare HQ but WRITES Nova's own
- * record, so it takes `nova.hq.write` and `edit` on the app. A read-scoped
- * token must not be able to knock a `runnable` deployment to `incomplete`
- * during an HQ blip, which is durable state every Project member sees.
+ * `nova.hq.read`. Refreshing is read-only against CommCare HQ but WRITES
+ * Nova's own record, so it takes `nova.hq.write` and `edit` on the app. A
+ * read-scoped token must not be able to knock a `runnable` deployment to
+ * `incomplete` during an HQ blip, which is durable state every Project
+ * member sees.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
-	adoptRemoteApp,
 	artifactLocations,
 	refreshDeployment,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
 import { readDeploymentsForApp } from "@/lib/deployment/store";
-import { deploymentServerSchema, hqAppIdSchema } from "@/lib/deployment/types";
+import { deploymentServerSchema } from "@/lib/deployment/types";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -152,60 +151,6 @@ export function registerRefreshDeployment(
 					app_id: args.app_id,
 					...describeDeployment(refreshed.deployment),
 					setup_artifact: refreshed.artifact,
-				});
-			} catch (err) {
-				return toMcpErrorResult(err, {
-					appId: args.app_id,
-					userId: ctx.userId,
-				});
-			}
-		},
-	);
-}
-
-/** Attach a deployment to an app that is already on CommCare HQ. */
-export function registerAdoptHqApp(server: McpServer, ctx: ToolContext): void {
-	server.registerTool(
-		"adopt_hq_app",
-		{
-			description:
-				"Tell Nova that an app already on CommCare HQ is this Nova app's publication, so it can report its build and release state. Requires the exact CommCare HQ app id. Nova never matches by name, because two project spaces can hold unrelated apps with the same name. Use this when somebody imported the app file by hand instead of publishing from Nova. It does not upload anything and does not change the app on CommCare HQ.",
-			inputSchema: {
-				app_id: z.string().describe("The Nova app id."),
-				server: deploymentServerSchema.describe(
-					"Which CommCare deployment the project space is on.",
-				),
-				domain: z
-					.string()
-					.describe("The project space (domain slug) the app is on."),
-				hq_app_id: hqAppIdSchema.describe(
-					"The exact CommCare HQ app id, from the app's URL on CommCare HQ.",
-				),
-			},
-		},
-		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			try {
-				assertScope(ctx, SCOPES.hqWrite, "adopt_hq_app");
-				const { doc, access } = await loadAppBlueprint(
-					args.app_id,
-					ctx.userId,
-					"edit",
-				);
-				const scope = {
-					appId: args.app_id,
-					projectId: access.projectId,
-					role: access.role,
-					actorUserId: ctx.userId,
-				};
-				const deployment = await adoptRemoteApp(
-					scope,
-					{ server: args.server, domain: args.domain.trim() },
-					args.hq_app_id,
-				);
-				return jsonResult({
-					app_id: args.app_id,
-					...describeDeployment(deployment),
-					setup_artifact: await setupArtifactFor(scope, deployment, doc),
 				});
 			} catch (err) {
 				return toMcpErrorResult(err, {

@@ -7,7 +7,7 @@
  * publish in this tab creates or moves a deployment, so `commcare_project`
  * becomes real the moment the app actually lands on a project space.
  *
- * `null` means Nova has nothing honest to say — either the app is on no
+ * `null` means Nova has nothing honest to say: either the app is on no
  * project space yet, or it is on several and picking one would be a guess.
  * Preview then omits the key entirely, which is what CommCare does for a
  * value it has not got.

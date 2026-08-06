@@ -1,5 +1,5 @@
 /**
- * `get_deployment`, `refresh_deployment`, and `adopt_hq_app` unit tests.
+ * `get_deployment` and `refresh_deployment` unit tests.
  *
  * What these lock is the PUBLIC contract three different clients branch on
  * — the wire shape, the scope each tool demands, and the error tag every
@@ -22,7 +22,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeploymentError } from "@/lib/deployment/errors";
 import {
-	adoptRemoteApp,
 	artifactLocations,
 	refreshDeployment,
 	setupArtifactFor,
@@ -36,7 +35,6 @@ import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { loadAppBlueprint } from "../loadApp";
 import { SCOPES } from "../scopes";
 import {
-	registerAdoptHqApp,
 	registerGetDeployment,
 	registerRefreshDeployment,
 } from "../tools/deploymentTools";
@@ -44,7 +42,6 @@ import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
 vi.mock("@/lib/deployment/service", () => ({
-	adoptRemoteApp: vi.fn(),
 	artifactLocations: vi.fn(async () => []),
 	refreshDeployment: vi.fn(),
 	setupArtifactFor: vi.fn(async () => ({ domain: "acme", sections: [] })),
@@ -100,7 +97,6 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(readDeploymentsForApp).mockReset();
 	vi.mocked(refreshDeployment).mockReset();
-	vi.mocked(adoptRemoteApp).mockReset();
 	vi.mocked(setupArtifactFor).mockClear();
 	vi.mocked(artifactLocations).mockClear();
 	vi.mocked(loadAppBlueprint).mockResolvedValue({
@@ -265,89 +261,5 @@ describe("refresh_deployment", () => {
 		expect(
 			(out as { content: Array<{ text: string }> }).content[0]?.text,
 		).toContain("couldn't reach CommCare HQ");
-	});
-});
-
-describe("adopt_hq_app", () => {
-	it("needs the HQ write scope and edit access, and answers with the attached record", async () => {
-		vi.mocked(adoptRemoteApp).mockResolvedValueOnce(
-			withResources({ state: "uploaded" }),
-		);
-
-		const { server, capture } = makeFakeServer();
-		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
-		const parsed = parse(
-			await capture()({
-				app_id: "a1",
-				server: "production",
-				domain: "acme",
-				hq_app_id: "abc123",
-			}),
-		);
-
-		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "edit");
-		expect(adoptRemoteApp).toHaveBeenCalledWith(
-			expect.objectContaining({ appId: "a1" }),
-			{ server: "production", domain: "acme" },
-			"abc123",
-		);
-		expect(parsed).toMatchObject({ app_id: "a1", state: "uploaded" });
-	});
-
-	it("refuses a read-scoped caller", async () => {
-		const { server, capture } = makeFakeServer();
-		registerAdoptHqApp(server, ctx([SCOPES.hqRead]));
-		const out = await capture()({
-			app_id: "a1",
-			server: "production",
-			domain: "acme",
-			hq_app_id: "abc123",
-		});
-
-		expect(isError(out)).toBe(true);
-		expect(adoptRemoteApp).not.toHaveBeenCalled();
-	});
-
-	it("surfaces an already-claimed CommCare HQ app as its own tag, not as not-found", async () => {
-		vi.mocked(adoptRemoteApp).mockRejectedValueOnce(
-			new DeploymentError(
-				"already_mapped",
-				"Another Nova app in this project is already connected to that CommCare HQ app.",
-			),
-		);
-
-		const { server, capture } = makeFakeServer();
-		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
-		const out = await capture()({
-			app_id: "a1",
-			server: "production",
-			domain: "acme",
-			hq_app_id: "abc123",
-		});
-
-		expect(isError(out)).toBe(true);
-		const text = (out as { content: Array<{ text: string }> }).content[0]?.text;
-		expect(text).toContain("already_mapped");
-		expect(text).toContain("already connected");
-	});
-
-	it("collapses a deployment the caller cannot see into not-found", async () => {
-		vi.mocked(adoptRemoteApp).mockRejectedValueOnce(
-			new DeploymentError("not_found", "That deployment isn't available."),
-		);
-
-		const { server, capture } = makeFakeServer();
-		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
-		const out = await capture()({
-			app_id: "a1",
-			server: "production",
-			domain: "acme",
-			hq_app_id: "abc123",
-		});
-
-		expect(isError(out)).toBe(true);
-		expect(
-			(out as { content: Array<{ text: string }> }).content[0]?.text,
-		).toContain("not_found");
 	});
 });

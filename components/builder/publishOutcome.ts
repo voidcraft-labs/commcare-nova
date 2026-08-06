@@ -32,7 +32,7 @@ export interface PublishResponseBody {
 	 * What Preview may honestly name for `commcare_project` now.
 	 *
 	 * Resolved by the server, which is the only side that can see whether
-	 * this app is live on more than one project space — and therefore the
+	 * this app is live on more than one project space, and therefore the
 	 * only side that can apply the ambiguity rule. `null` means Preview
 	 * names nothing.
 	 */

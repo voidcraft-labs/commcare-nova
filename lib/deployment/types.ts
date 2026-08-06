@@ -164,17 +164,13 @@ export const NO_DEPLOYMENT_PHASE_OUTCOMES: DeploymentPhaseOutcomes = {
 /**
  * How Nova came to hold a remote resource.
  *
- * `nova-created` means Nova made it and may keep pointing at it.
- * `adopted` means a person explicitly told Nova which existing CommCare HQ
- * resource this is. There is deliberately no third arm for "matched by
- * name": Nova never infers ownership from a name, because two project
- * spaces can hold two unrelated apps called "Household Survey" and picking
- * one would silently attach a deployment to somebody else's work.
+ * `nova-created` is the only way: Nova made it, so Nova may keep pointing
+ * at it. There is deliberately no arm for "matched by name" — Nova never
+ * infers ownership from a name, because two project spaces can hold two
+ * unrelated apps called "Household Survey" and picking one would silently
+ * attach a deployment to somebody else's work.
  */
-export const DEPLOYMENT_RESOURCE_OWNERSHIPS = [
-	"nova-created",
-	"adopted",
-] as const;
+export const DEPLOYMENT_RESOURCE_OWNERSHIPS = ["nova-created"] as const;
 export type DeploymentResourceOwnership =
 	(typeof DEPLOYMENT_RESOURCE_OWNERSHIPS)[number];
 
@@ -209,8 +205,6 @@ export interface DeploymentResource {
 	readonly novaResourceId: string;
 	readonly remoteId: string;
 	readonly ownership: DeploymentResourceOwnership;
-	readonly adoptedAt: string | null;
-	readonly adoptedBy: string | null;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	readonly pushedAt: string | null;
@@ -272,6 +266,10 @@ export interface DeploymentWithResources {
 export const deploymentStateSchema = z.enum(DEPLOYMENT_STATES);
 export const deploymentPhaseSchema = z.enum(DEPLOYMENT_PHASES);
 export const deploymentServerSchema = z.enum(COMMCARE_SERVER_IDS);
+export const deploymentResourceKindSchema = z.enum(DEPLOYMENT_RESOURCE_KINDS);
+export const deploymentResourceOwnershipSchema = z.enum(
+	DEPLOYMENT_RESOURCE_OWNERSHIPS,
+);
 
 export const deploymentFailureSchema = z
 	.object({
@@ -318,26 +316,13 @@ export const deploymentPhaseOutcomesSchema = z
 	})
 	.strict();
 
-/**
- * A CommCare HQ app id as it appears in a URL.
- *
- * CommCare HQ routes app ids through `[\w-]+` and stores a 32-character
- * hex uuid, so this admits the routable character set and bounds the
- * length rather than assuming a shape CommCare HQ does not enforce.
- */
-export const hqAppIdSchema = z
-	.string()
-	.trim()
-	.min(1)
-	.max(128)
-	.regex(
-		/^[\w-]+$/,
-		"A CommCare HQ app id contains only letters, numbers, underscores, and hyphens",
-	);
+/** An app id as a caller states it, before it is authorized. */
+export const deploymentAppIdSchema = z.string().trim().min(1).max(255);
 
+/** The (app, server, project space) triple every deployment call names. */
 export const deploymentTargetSchema = z
 	.object({
-		appId: z.string().trim().min(1).max(255),
+		appId: deploymentAppIdSchema,
 		server: deploymentServerSchema,
 		domain: z.string().trim().min(1).max(255),
 	})
