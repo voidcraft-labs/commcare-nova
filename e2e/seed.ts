@@ -45,7 +45,7 @@ import {
 	createApp,
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
+import { persistResponseSnapshot, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
@@ -227,10 +227,12 @@ async function seedSettledThread(args: {
 	if (releaseOutcome !== "owned") {
 		throw new Error(`e2e/seed.ts: thread seed lost holder (${releaseOutcome})`);
 	}
-	await appendThreadResponse({
+	await persistResponseSnapshot({
 		appId: args.appId,
 		threadId: args.threadId,
 		streamId,
+		expectedProjectId: args.projectId,
+		clearMarker: true,
 		responseMessage: {
 			id: `${args.prefix}-assistant-final`,
 			role: "assistant",
@@ -836,10 +838,12 @@ async function main(): Promise<void> {
 				`e2e/seed.ts: scroll question thread lost holder (${releaseOutcome})`,
 			);
 		}
-		await appendThreadResponse({
+		await persistResponseSnapshot({
 			appId: scrollAppId,
 			threadId: scrollQuestionThreadId,
 			streamId,
+			expectedProjectId: seedProjectId,
+			clearMarker: true,
 			responseMessage: {
 				id: "smoke-scroll-q-assistant-final",
 				role: "assistant",

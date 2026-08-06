@@ -66,7 +66,7 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { createApp } = await import("@/lib/db/apps");
-const { appendThreadResponse, upsertThreadTurn } = await import(
+const { persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
 
@@ -269,6 +269,98 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		expect(received).toEqual(FULL);
 	});
 
+	it("rewinds a cold thread resume to the open step, and the replay folds into a seeded transcript without duplication", async () => {
+		/* The barrier-persistence resume shape: every completed step is already
+		 * in the thread transcript the client hydrated, so a cold reconnect
+		 * with `initialStartIndex: -1` (the ChatContainer config) must replay
+		 * ONLY the open step — and folding that replay into a message seeded
+		 * from the barrier transcript must not duplicate the completed step's
+		 * parts (the SDK's resume fold starts with empty active-part maps, so
+		 * the boundary where all parts are closed is the one safe entry). */
+		const { appId } = await createApp(USER, "project-1", "run-3");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-3",
+			runId: "run-3",
+			streamId: "stream-midrun",
+			holderNonce: await holderNonceFor(appId),
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: "project-1",
+		});
+		/* Step 1 complete (its barrier persisted it), step 2 open at the end;
+		 * terminal so the route closes instead of tailing. */
+		await appendStreamChunks({
+			streamId: "stream-midrun",
+			appId,
+			runId: "run-3",
+			firstIndex: 0,
+			chunks: [
+				{ type: "start", messageId: "a1" },
+				{ type: "start-step" },
+				{ type: "text-start", id: "t1" },
+				{ type: "text-delta", id: "t1", delta: "Step one." },
+				{ type: "text-end", id: "t1" },
+				{ type: "finish-step" },
+				{ type: "start-step" },
+				{ type: "text-start", id: "t2" },
+				{ type: "text-delta", id: "t2", delta: "Step two" },
+				{ type: "text-end", id: "t2" },
+				{ type: "finish" },
+			],
+			terminal: true,
+		});
+
+		const requests: string[] = [];
+		const routedFetch: typeof fetch = async (input) => {
+			const url = new URL(String(input), "http://localhost");
+			requests.push(`GET ${url.pathname}${url.search}`);
+			const streamId = url.pathname.split("/")[3];
+			return GET(new Request(url), {
+				params: Promise.resolve({ streamId }),
+			});
+		};
+
+		const transport = new WorkflowChatTransport({
+			api: "/api/chat",
+			fetch: routedFetch,
+			initialStartIndex: -1,
+		});
+		const stream = await transport.reconnectToStream({
+			chatId: "thread-3",
+			metadata: undefined,
+			headers: undefined,
+			body: undefined,
+		});
+		expect(stream).not.toBeNull();
+		expect(requests).toEqual(["GET /api/chat/thread-3/stream?startIndex=-1"]);
+
+		/* The barrier-persisted transcript's trailing assistant message: what
+		 * the client's Chat seeds its resume fold with. */
+		const seeded = {
+			id: "a1",
+			role: "assistant" as const,
+			parts: [
+				{ type: "step-start" as const },
+				{ type: "text" as const, text: "Step one.", state: "done" as const },
+			],
+		};
+		const { readUIMessageStream } = await import("ai");
+		let folded: { parts: { type: string; text?: string }[] } | undefined;
+		for await (const snapshot of readUIMessageStream({
+			message: seeded,
+			stream: stream as ReadableStream<UIMessageChunk>,
+		})) {
+			folded = snapshot as typeof folded;
+		}
+
+		/* One "Step one." (from the seed), one "Step two" (from the replay) —
+		 * nothing duplicated, nothing lost. */
+		expect(
+			folded?.parts.map((p) => (p.type === "text" ? p.text : p.type)),
+		).toEqual(["step-start", "Step one.", "step-start", "Step two"]);
+	});
+
 	it("resolves a thread with nothing in flight to a clean, terminating no-op", async () => {
 		/* The transport THROWS on any non-OK reconnect response, so "nothing
 		 * to resume" must be a 200 that terminates on its first chunk, this
@@ -284,10 +376,12 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			messages: [{ id: "m1", role: "user", parts: [] }],
 			expectedProjectId: "project-1",
 		});
-		await appendThreadResponse({
+		await persistResponseSnapshot({
 			appId,
 			threadId: "thread-2",
 			streamId: "stream-idle",
+			expectedProjectId: "project-1",
+			clearMarker: true,
 			responseMessage: null,
 		});
 

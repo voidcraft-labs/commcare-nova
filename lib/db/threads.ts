@@ -2,26 +2,35 @@
  * Chat thread persistence — the durable conversation store.
  *
  * A thread is one conversation about an app; it spans many runs. The chat
- * route is the ONLY writer, and it writes server-authoritatively at two
- * moments:
+ * route is the ONLY writer, and it records the conversation AS THE RUN
+ * PRODUCES IT — each completed unit lands when it completes, and no
+ * end-of-run event is ever the thing the record depends on:
  *
  *   1. `upsertThreadTurn` — the instant a run has claimed the app. MERGES
  *      the full incoming `UIMessage[]` history (which already carries the new
  *      user turn and any answered askQuestions parts) into the stored
  *      transcript and marks the thread live (`active_stream_id` = this
- *      POST's durable chunk-log stream). A page refresh from this point on
- *      hydrates the user's turn and can reconnect to the stream by THREAD id.
- *   2. `appendThreadResponse` — at finalize. Merges the assistant message
- *      assembled from the chunk log and retires `active_stream_id` in the
- *      SAME write — guarded to THIS run's stream, so a newer claim that beat
- *      the finalize keeps its own marker and turns.
+ *      POST's chunk-log stream). A page refresh from this point on hydrates
+ *      the user's turn and can reconnect to the stream by THREAD id. A
+ *      RE-DRIVE claim also removes its dead predecessor's trailing partial
+ *      assistant message — the one shape a died run can leave behind.
+ *   2. `persistResponseSnapshot` — at every step barrier (the SDK fold's
+ *      `finish-step` callback) and once at stream end. Merges the assembled
+ *      assistant message as it grows — completed units only — and at stream
+ *      end retires `active_stream_id`, guarded to THIS run's stream, so a
+ *      newer claim that beat the final write keeps its own marker and turns.
+ *   3. `clawBackThreadResponse` — a FAILED turn's terminal write: the turn's
+ *      message reverts to its pre-run state and the marker clears, in one
+ *      transaction. A partial serves nobody (no API resumes a partial turn;
+ *      no surface renders one as history), so its removal is not an event.
  *
- * Both writers are row-locked read-modify-writes (`withAppTx` +
- * `FOR UPDATE`), and both MERGE by message id (`mergeTranscript`) rather
- * than rewrite — a stale client or a late finalize can add to a transcript,
- * never erase it. The loaders reconcile markers against actual app liveness
- * (`reconcileDeadMarkers`), so a run that died before finalize can't strand
- * a thread as perpetually "live".
+ * All writers are row-locked read-modify-writes (`withAppTx` +
+ * `FOR UPDATE`), and the merge writers MERGE by message id
+ * (`mergeTranscript`) rather than rewrite — a stale client or a late barrier
+ * can add to a transcript, never erase it (`clawBackThreadResponse` is the
+ * one deliberate, triple-guarded exception). The loaders reconcile markers
+ * against actual app liveness (`reconcileDeadMarkers`), so a run that died
+ * mid-turn can't strand a thread as perpetually "live".
  *
  * AUTHORIZATION IS THE CALLER'S JOB. Loaders take an `appId` the caller has
  * already resolved through `resolveAppScope` (Project membership); the
@@ -51,23 +60,34 @@ import {
 } from "./types";
 
 /**
- * Loader projections carry one DERIVED field beyond the stored shape:
- * `resume_interrupted` is true when the row holds a live-stream marker whose
- * app is NOT held by any live run (`reconcileDeadMarkers`) — the signature
- * of a run killed before finalize (instance death), as opposed to a run that
- * failed and finalized cleanly (its marker was retired with the failure).
+ * Loader projections carry DERIVED fields beyond the stored shape:
+ *
+ *  - `resume_interrupted` is true when the row holds a live-stream marker
+ *    whose app is NOT held by any live run (`reconcileDeadMarkers`) — the
+ *    signature of a run killed mid-turn (instance death), as opposed to a
+ *    run that failed and retired its marker through its own terminal write.
+ *  - `run_paused` (full loads only) is true when the app's current holder is
+ *    this thread's run AND it is parked awaiting input (an askQuestions
+ *    round). The recovery client keys on the ACTUAL pause posture, not
+ *    transcript shape: a barrier-persisted question round whose run died
+ *    before it could pause shows the card but is NOT paused — re-driving it
+ *    is correct recovery — while a genuinely paused round must never
+ *    re-drive.
  *
  * The loaders never clear the marker themselves: a read must not consume a
  * recovery signal another surface needs (the thread list, a heal refetch,
  * and the page load all read these rows, and only ONE of them re-drives).
  * The signal therefore stands, load after load, until an acting client's
  * RE-DRIVE claims the turn — its `upsertThreadTurn` overwrites the marker
- * with its own live stream and its finalize retires it — so a re-drive that
- * itself dies is simply detected again. The projection still strips
- * `active_stream_id`, so nothing ever tails the dead stream.
+ * with its own live stream and removes the dead run's trailing partial — so
+ * a re-drive that itself dies is simply detected again. The projection still
+ * strips `active_stream_id`, so nothing ever tails the dead stream.
  */
 export type LoadedThreadMeta = ThreadMeta & { resume_interrupted?: boolean };
-export type LoadedThread = ThreadDoc & { resume_interrupted?: boolean };
+export type LoadedThread = ThreadDoc & {
+	resume_interrupted?: boolean;
+	run_paused?: boolean;
+};
 
 /** First user text in the incoming history, truncated for the thread list. */
 const SUMMARY_MAX_LENGTH = 200;
@@ -85,8 +105,9 @@ function summarize(messages: UIMessage[]): string {
 }
 
 /** The minimal message shape the merge reasons over — id identity plus a
- *  parts count for the richer-version tiebreak. */
-type StoredMessage = { id?: string; parts?: unknown[] };
+ *  parts count for the richer-version tiebreak; `role` feeds only the
+ *  re-drive claim's dead-partial removal. */
+type StoredMessage = { id?: string; role?: string; parts?: unknown[] };
 
 export class ThreadAttachmentUnavailableError extends Error {
 	readonly name = "ThreadAttachmentUnavailableError";
@@ -182,6 +203,15 @@ export function mergeTranscript(
  * transcript into an existing same-app thread, but it never installs or
  * clears the successor's identity/stream marker; the merge commits and then a
  * {@link RunHolderLostError} stops the stale run.
+ *
+ * A RE-DRIVE claim (`redrive`) re-runs a turn whose run died mid-answer, and
+ * the dead run's barrier writes may have left a trailing PARTIAL assistant
+ * message on the stored transcript. The client's `regenerate()` trims that
+ * message from the history it sends, and the by-id merge union would keep the
+ * stored copy forever — so the re-drive claim removes it explicitly: only the
+ * TRAILING stored message, only an assistant one, and only when the incoming
+ * history no longer carries its id. The fresh run's response is the turn's
+ * only durable answer.
  */
 export async function upsertThreadTurn(args: {
 	appId: string;
@@ -194,6 +224,9 @@ export async function upsertThreadTurn(args: {
 	messages: UIMessage[];
 	/** Project captured by chat admission. */
 	expectedProjectId: string;
+	/** This claim re-runs a died turn — remove the dead run's trailing
+	 * partial before merging. Only the owning claim path honors it. */
+	redrive?: boolean;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	const result = await withAppTx(async (tx) => {
@@ -253,6 +286,8 @@ export async function upsertThreadTurn(args: {
 			return false;
 		}
 		if (!existing) {
+			/* Nothing stored yet — a redrive against a fresh thread has no dead
+			 * partial to remove; fall through to the plain insert. */
 			await admitExactThreadMediaProjection(tx, {
 				appId: args.appId,
 				projectId: app.project_id,
@@ -276,10 +311,18 @@ export async function upsertThreadTurn(args: {
 				.execute();
 			return true;
 		}
-		const merged = mergeTranscript(
-			(existing.messages ?? []) as StoredMessage[],
-			args.messages,
-		);
+		let stored = (existing.messages ?? []) as StoredMessage[];
+		if (args.redrive) {
+			const trailing = stored.at(-1);
+			if (
+				trailing?.id &&
+				trailing.role === "assistant" &&
+				!args.messages.some((m) => m.id === trailing.id)
+			) {
+				stored = stored.slice(0, -1);
+			}
+		}
+		const merged = mergeTranscript(stored, args.messages);
 		await admitExactThreadMediaProjection(tx, {
 			appId: args.appId,
 			projectId: app.project_id,
@@ -364,26 +407,41 @@ export async function mergeThreadTurnMessages(args: {
 }
 
 /**
- * Persist the run's assembled assistant message and retire this run's
- * live-stream marker — one row-locked read-modify-write.
+ * Merge the run's assembled assistant message into the stored transcript —
+ * the barrier write, one row-locked read-modify-write per completed step.
  *
- * The response merges by id (`mergeTranscript`): a continuation of an
- * answered askQuestions round REPLACES its trailing same-id message exactly
- * as the client merges it, and turns a newer claim persisted while this
- * finalize was still sealing (the app releases before finalize completes)
- * survive untouched. `streamId` guards the marker: it clears ONLY while it
- * still names THIS run's stream — a newer run's fresh marker is that run's
- * to clear, never this one's to clobber (a clobbered marker would make the
- * newer run's refresh-resume read as "nothing in flight").
+ * The chat route's server-side fold calls this from the SDK's own completion
+ * callbacks: per `finish-step` with `clearMarker: false` (the message grows,
+ * the run stays live), and once at stream end with `clearMarker: true` (the
+ * final state plus marker retirement in one write). Successive snapshots are
+ * cumulative, so `mergeTranscript`'s more-parts-wins converges even when a
+ * barrier write failed and the next one carries both steps.
  *
- * `responseMessage` null means the run produced nothing worth keeping (a
- * zero-step failure); the marker guard still applies.
+ * Split guards, deliberately asymmetric:
+ *  - The MERGE arm is Project-guarded: an app moved to another Project
+ *    mid-run stops contributing content there (the merge is skipped).
+ *  - The MARKER-CLEAR arm is guarded ONLY by `active_stream_id === streamId`
+ *    — never by Project — so a completed run's marker can't strand on the
+ *    destination after a move (a stranded marker reads as an instance death
+ *    and re-drives a finished turn). A newer run's fresh marker is that
+ *    run's to clear, never this one's to clobber.
+ *
+ * No media projection runs here: an assistant message carries no
+ * `metadata.attachments` (stripped defensively if one ever appears) and the
+ * by-id merge cannot alter stored user messages, so the app's projected
+ * attachment set is unchanged by construction. `responseMessage` null (or an
+ * empty-parts message, normalized to null) means there is nothing to merge;
+ * the marker arm still applies.
  */
-export async function appendThreadResponse(args: {
+export async function persistResponseSnapshot(args: {
 	appId: string;
 	threadId: string;
 	streamId: string;
+	/** Project captured by chat admission — guards the MERGE arm only. */
+	expectedProjectId: string;
 	responseMessage: UIMessage | null;
+	/** True only at stream end; barrier writes leave the run's marker live. */
+	clearMarker: boolean;
 	/** A paused askQuestions round keeps its generation for the answer POST;
 	 * every terminal/unpaused finish clears it with the exact stream marker. */
 	retainHolderNonce?: boolean;
@@ -405,21 +463,33 @@ export async function appendThreadResponse(args: {
 			.forUpdate()
 			.executeTakeFirst();
 		if (!row) return;
-		const clearMarker = row.active_stream_id === args.streamId;
-		if (!args.responseMessage && !clearMarker) return;
-		const merged = args.responseMessage
+		const clearMarker =
+			args.clearMarker && row.active_stream_id === args.streamId;
+		let responseMessage =
+			args.responseMessage && args.responseMessage.parts.length > 0
+				? args.responseMessage
+				: null;
+		if (responseMessage && app.project_id !== args.expectedProjectId) {
+			// The app moved Projects mid-run: only the marker arm may proceed.
+			responseMessage = null;
+		}
+		const metadata = responseMessage?.metadata as
+			| Record<string, unknown>
+			| undefined;
+		if (responseMessage && metadata && "attachments" in metadata) {
+			log.warn(
+				"[threads] assistant snapshot carried attachment metadata; stripped before merge",
+				{ appId: args.appId, threadId: args.threadId },
+			);
+			const { attachments: _dropped, ...rest } = metadata;
+			responseMessage = { ...responseMessage, metadata: rest } as UIMessage;
+		}
+		if (!responseMessage && !clearMarker) return;
+		const merged = responseMessage
 			? mergeTranscript((row.messages ?? []) as StoredMessage[], [
-					args.responseMessage,
+					responseMessage,
 				])
 			: undefined;
-		if (merged) {
-			await admitExactThreadMediaProjection(tx, {
-				appId: args.appId,
-				projectId: app.project_id,
-				candidateMessages: merged,
-				threadId: args.threadId,
-			});
-		}
 		await tx
 			.updateTable("threads")
 			.set({
@@ -429,6 +499,73 @@ export async function appendThreadResponse(args: {
 					? { active_holder_nonce: null }
 					: {}),
 				...(merged ? { messages: JSON.stringify(merged) } : {}),
+			})
+			.where("thread_id", "=", args.threadId)
+			.where("app_id", "=", args.appId)
+			.execute();
+	});
+}
+
+/**
+ * Revert a FAILED turn's message to its pre-run state and clear the run's
+ * marker — one transaction. The uniform turn-end rule: the record holds
+ * completed units only, and a failed turn's partial is not a unit anyone can
+ * use, so it comes back out.
+ *
+ * This is the one writer allowed to SHRINK a transcript, so it stacks three
+ * guards: the route calls it only under the failed/aborted directive, it
+ * touches only the exact message id the run's fold owns, and it acts only
+ * while `active_stream_id` still names this run's stream (a successor that
+ * claimed the thread owns everything — this write then does nothing at all).
+ * A misfire is bounded to that one message in that one thread.
+ *
+ * `revertTo` is the continuation case's pre-run seed (the raw incoming
+ * trailing assistant message of an answered askQuestions round): the message
+ * returns to exactly what the client sent. Absent, the run's message was
+ * fresh and is deleted outright. The holder nonce always clears — a failed
+ * run has no answer POST to keep it for.
+ */
+export async function clawBackThreadResponse(args: {
+	appId: string;
+	threadId: string;
+	streamId: string;
+	/** The message id the run's fold owns — the only id this write may touch. */
+	messageId: string;
+	/** Pre-run seed for a continuation; absent means delete the message. */
+	revertTo?: UIMessage;
+}): Promise<void> {
+	const now = new Date().toISOString();
+	await withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select("id")
+			.where("id", "=", args.appId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!app) return;
+		const row = await tx
+			.selectFrom("threads")
+			.select(["messages", "active_stream_id"])
+			.where("thread_id", "=", args.threadId)
+			.where("app_id", "=", args.appId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!row) return;
+		if (row.active_stream_id !== args.streamId) return;
+		const stored = (row.messages ?? []) as StoredMessage[];
+		const reverted = stored.flatMap((msg) => {
+			if (msg.id !== args.messageId) return [msg];
+			return args.revertTo && args.revertTo.id === args.messageId
+				? [args.revertTo as StoredMessage]
+				: [];
+		});
+		await tx
+			.updateTable("threads")
+			.set({
+				updated_at: now,
+				active_stream_id: null,
+				active_holder_nonce: null,
+				messages: JSON.stringify(reverted),
 			})
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
@@ -554,28 +691,44 @@ export async function loadThread(
 	const [reconciled] = await reconcileDeadMarkers(appId, [row]);
 	const { active_holder_nonce: storedHolderNonce, ...publicRow } = reconciled;
 	const doc = threadDocSchema.parse(publicRow);
-	/* A continuation nonce is projected only from fresh app authority and only
-	 * to the actor who owns this exact paused thread run. The operational nonce
-	 * is stored in its dedicated thread column, separate from public thread and
-	 * message/event payloads; a co-member who can view the same transcript
+	/* One fresh lease read powers two projections. `run_paused` reports the
+	 * app's ACTUAL awaiting-input posture for this thread's run (see
+	 * `LoadedThread`) and needs no actor. The continuation nonce is projected
+	 * only to the actor who owns the run — the paused round's answering
+	 * actor, or a LIVE run's holding actor (a rewound tail replay starts past
+	 * the chunk that carried the nonce marker, so the owner re-seeds it from
+	 * here at activation). A co-member who can view the same transcript
 	 * receives no nonce. */
 	let holderNonce: string | undefined;
-	if (actorUserId !== undefined) {
-		const app = await db
-			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
-			.where("id", "=", appId)
-			.executeTakeFirst();
-		if (app) {
-			const lease = runLeaseState(leaseView(app));
+	let runPaused = false;
+	const app = await db
+		.selectFrom("apps")
+		.select(LEASE_COLUMNS)
+		.where("id", "=", appId)
+		.executeTakeFirst();
+	if (app) {
+		const lease = runLeaseState(leaseView(app));
+		const identity = lease.holderIdentity;
+		const threadRunHoldsApp = identity?.runId === doc.run_id;
+		runPaused = lease.paused && threadRunHoldsApp;
+		if (
+			actorUserId !== undefined &&
+			identity &&
+			threadRunHoldsApp &&
+			identity.nonce !== null &&
+			storedHolderNonce === identity.nonce
+		) {
+			const holderActor =
+				lease.mode === "edit"
+					? app.lock_actor_user_id
+					: lease.mode === "build"
+						? (app.res_user_id ?? app.owner)
+						: null;
 			if (
-				lease.paused &&
-				lease.pausedBy(actorUserId) &&
-				lease.holderIdentity?.runId === doc.run_id &&
-				lease.holderIdentity.nonce !== null &&
-				storedHolderNonce === lease.holderIdentity.nonce
+				(lease.paused && lease.pausedBy(actorUserId)) ||
+				(lease.live && holderActor === actorUserId)
 			) {
-				holderNonce = lease.holderIdentity.nonce;
+				holderNonce = identity.nonce;
 			}
 		}
 	}
@@ -583,9 +736,11 @@ export async function loadThread(
 		holderNonce === undefined ? doc : { ...doc, holder_nonce: holderNonce };
 	// Transient, deliberately outside the stored-shape schema — see
 	// `LoadedThread`.
-	return reconciled.resume_interrupted
-		? { ...projected, resume_interrupted: true }
-		: projected;
+	return {
+		...projected,
+		...(reconciled.resume_interrupted ? { resume_interrupted: true } : {}),
+		...(runPaused ? { run_paused: true } : {}),
+	};
 }
 
 /**

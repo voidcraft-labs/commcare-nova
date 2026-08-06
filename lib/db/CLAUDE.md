@@ -350,55 +350,80 @@ never carry a stale generation's continuation authority into a new one.
 
 
 
-**`chat_stream_chunks` is the resumable-chat log — operational, not
+**`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
-appends every UI chunk a POST streams, in write order, batched; the reconnect
-endpoint (`app/api/chat/[streamId]/stream`, the server half of the AI SDK's
+appends every UI chunk a POST streams, in write order, batched — dropping ALL
+per-token `tool-input-delta` chunks at the door (nothing rendered or durable
+consumes partial tool JSON) and teeing the identical sequence into the
+route's barrier fold. The reconnect endpoint
+(`app/api/chat/[streamId]/stream`, the server half of the AI SDK's
 `WorkflowChatTransport` contract) replays from a client cursor and tails
 live, so a broken connection (network blip, Cloud Run's 60-min request cap)
-resumes instead of losing the run. Every stream is guaranteed to END: the
-writer seals a terminal row (synthesizing the `finish` chunk on error paths),
-and a run that died sealing nothing is closed by the endpoint's
-`appHeldLive`-based fallback. Rows prune past `CHAT_STREAM_RETENTION_MS`
-(opportunistically, on POST traffic) — conversation HISTORY lives in
-`threads` + the event log, never here.
+resumes instead of losing the run; a COLD resume (negative cursor) rewinds
+only to the start of the OPEN STEP — everything before the log's last
+`finish-step` is already in the barrier-persisted thread transcript. Every
+stream is guaranteed to END: the writer seals a terminal row (synthesizing
+the `finish` chunk on error paths), and a run that died sealing nothing is
+closed by the endpoint's `appHeldLive`-based fallback. Rows prune past
+`CHAT_STREAM_RETENTION_MS` (opportunistically, on POST traffic) —
+conversation HISTORY lives in `threads` + the event log, never here.
 
 **`threads` is the durable conversation store — one row per CONVERSATION,
-spanning runs.** `messages` holds the full `UIMessage[]` transcript,
-server-written by the chat route at exactly two moments (`lib/db/threads.ts`
-is the whole contract): `upsertThreadTurn` the instant a run claims the app
-(persists the incoming history + marks the thread live via
-`active_stream_id` — the page-refresh resume handle), and
-`appendThreadResponse` at finalize (the assistant message assembled from the
-chunk log by `assembleResponseMessage`). (A BAILED POST —
-serialize-wait gate/timeout, superseded resume — additionally merges its
-incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
-so an answered question round survives the refresh the bail recommends.)
+spanning runs, written AS THE RUN PRODUCES UNITS.** `messages` holds the full
+`UIMessage[]` transcript, server-written by the chat route
+(`lib/db/threads.ts` is the whole contract): `upsertThreadTurn` the instant a
+run claims the app (persists the incoming history + marks the thread live via
+`active_stream_id` — the page-refresh resume handle; a RE-DRIVE claim also
+removes its dead predecessor's trailing partial assistant message), then
+`persistResponseSnapshot` at every SDK step barrier (the route's server-side
+fold of the chunk sequence fires `onStepEnd` per completed step, and that
+callback — never any Nova chunk interpretation — merges the growing
+assistant message) and once at stream end (final state + marker retirement).
+A FAILED turn's terminal write is `clawBackThreadResponse`: the message
+reverts to its pre-run state and the marker clears in one transaction — the
+record holds completed-unit turns only, on every turn end, uniformly.
+Finalize is bookkeeping, never a durability event; there is no end-of-run
+transcript assembly. (A BAILED POST — serialize-wait gate/timeout,
+superseded resume — additionally merges its incoming messages via
+`mergeThreadTurnMessages`, identity/marker untouched, so an answered
+question round survives the refresh the bail recommends.)
 Every thread writer locks the app before its deterministic thread-row lock, so
 the Project move is a serial winner rather than a whole-history race.
-Writers MERGE by message id (`mergeTranscript` — union, richer version wins),
-never rewrite: a stale tab or a late finalize can add turns, not erase them,
-and an askQuestions continuation lands as ONE merged message. For a shared
+The merge writers MERGE by message id (`mergeTranscript` — union, richer
+version wins), never rewrite: a stale tab or a late barrier can add to a
+transcript, not erase it (the claw-back is the one deliberate,
+triple-guarded exception), and an askQuestions continuation lands as ONE
+merged message. For a shared
 message id, stored `metadata.attachments` is authoritative even when an incoming
 version wins the parts tiebreak; a stale source-Project history therefore cannot
-restore asset ids the move already remapped. Every thread writer derives the
-complete canonical post-merge attachment set together with the authored
-Blueprint media set, locks all referenced assets sorted `FOR SHARE`, validates
-same Project/readiness/kind, and replaces the app's exact reverse projection
-before the message write. Chat admission passes its expected
+restore asset ids the move already remapped. The history-bearing writers
+(turn upsert, bail merge) derive the complete canonical post-merge attachment
+set together with the authored Blueprint media set, lock all referenced
+assets sorted `FOR SHARE`, validate same Project/readiness/kind, and replace
+the app's exact reverse projection before the message write; the barrier
+write deliberately does NOT run that projection (an assistant snapshot
+carries no attachments — stripped defensively — and the by-id merge cannot
+alter stored user messages, so the projected set is unchanged by
+construction). Chat admission passes its expected
 Project to turn/upsert and bail-history writers, which stop if the app moved
-before they acquired the app lock. The finalize
+before they acquired the app lock; the barrier write's MERGE arm is
+Project-guarded the same way, while its MARKER arm never is — it
 retires the live marker ONLY while it still names its own run's stream (the
-app releases before finalize completes, so a newer claim may already own a
-fresh marker) — with one retry then a marker-only clear, because a marker
-stranded on a FINALIZED run reads as an instance death and would re-drive
-(re-charge) a completed turn. The loaders reconcile any marker against
+app releases before the final write completes, so a newer claim may already
+own a fresh marker), because a marker stranded on a completed run reads as
+an instance death and would re-drive (re-charge) a finished turn. The
+loaders reconcile any marker against
 actual app liveness (`appHeldLive`) REPORT-ONLY: a dead marker is stripped
 from the projection and stamped `resume_interrupted`, but the row is never
 written — the signal is LEVEL-TRIGGERED, standing load after load (any
 reader may run first: the thread list, a heal refetch, the page) until an
-acting client's RE-DRIVE retires the marker through its own claim +
-finalize. The re-drive re-runs the interrupted turn through the normal
+acting client's RE-DRIVE retires the marker through its own claim. A full
+load also projects `run_paused` (the app's holder is this thread's run and
+it is parked awaiting an askQuestions answer), because barrier-persisted
+transcripts make shape undecidable: the client re-drives on the
+interruption stamp unless the trailing ask round is answered (its answers
+live in the message a re-drive would trim) or genuinely paused. The
+re-drive re-runs the interrupted turn through the normal
 POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
 there means another session already re-drove, so the request closes clean
 instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)

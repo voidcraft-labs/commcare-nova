@@ -89,14 +89,11 @@ export default defineConfig({
 			//  - transportContract drives the REAL `WorkflowChatTransport`,
 			//    whose SSE parser calls
 			//    `response.body.pipeThrough(new TextDecoderStream())`;
-			//  - assembleResponseMessage drives the SDK's own
-			//    `readUIMessageStream`, whose processor pipes every chunk
-			//    stream through `TransformStream`s;
 			//  - clientCancel drives the REAL chat POST, whose returned
 			//    response IS `createUIMessageStreamResponse`'s pipe chain
 			//    (`JsonToSseTransformStream` → `TextEncoderStream`) — any
 			//    full-POST test flags those internals, cancelled or drained.
-			// All three suites still run in every normal `vitest run` / CI test
+			// Both suites still run in every normal `vitest run` / CI test
 			// job; only `--detect-async-leaks` skips them — and the exemption
 			// blinds the gate ONLY to the SDK's stream internals: the resume
 			// ROUTE's own async discipline (timers, LISTEN subscriptions,
@@ -108,7 +105,6 @@ export default defineConfig({
 			...(process.argv.includes("--detect-async-leaks")
 				? [
 						"**/transportContract.integration.test.ts",
-						"**/assembleResponseMessage.test.ts",
 						"**/clientCancel.integration.test.ts",
 					]
 				: []),

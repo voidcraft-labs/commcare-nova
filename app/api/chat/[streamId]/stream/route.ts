@@ -26,8 +26,16 @@
  *
  *  - the same SSE encoding the POST uses (`data: <UIMessageChunk JSON>`
  *    frames, `data: [DONE]` at the end),
- *  - a negative `startIndex` resolved from the stream's end, with the
- *    absolute tail position returned in `x-workflow-stream-tail-index`,
+ *  - a negative `startIndex` resolved server-side to the START OF THE OPEN
+ *    STEP — the chunk after the log's last `finish-step`, or 0 when none —
+ *    with `x-workflow-stream-tail-index` authored so the transport's
+ *    absolute counter lands exactly there (the header is opaque to the
+ *    client; the server owns the boundary). Every completed step is already
+ *    in the barrier-persisted thread transcript the client hydrated, and
+ *    all parts are closed at a `finish-step`, so this window replays into a
+ *    seeded fold with zero duplication and carries the open step's `data-*`
+ *    events (plus a trailing `data-done`, which sits after the last
+ *    barrier),
  *  - the stream to END once complete (the terminal chunk-log row, whose
  *    stream always closes with a `finish` chunk: the durable writer
  *    guarantees one), rather than tail forever.
@@ -54,11 +62,7 @@ import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { appHeldLive } from "@/lib/db/apps";
-import {
-	readStreamChunksFrom,
-	streamChunkMeta,
-	streamChunkTail,
-} from "@/lib/db/streamChunks";
+import { readStreamChunksFrom, streamChunkMeta } from "@/lib/db/streamChunks";
 import { subscribeChatStream } from "@/lib/db/streamListener";
 import {
 	loadHolderNonceForReplayMarker,
@@ -156,13 +160,29 @@ export async function GET(
 
 		const startIndex = parseStartIndex(req);
 		if (startIndex < 0) {
-			/* Resolve a from-the-end cursor against the current extent, and tell
-			 * the transport the absolute tail so its retries use absolute
-			 * positions (`x-workflow-stream-tail-index` = last chunk's index). */
-			const tail = await streamChunkTail(streamId);
-			const total = tail?.total ?? 0;
-			cursor = Math.max(0, total + startIndex);
-			tailHeader = String(total - 1);
+			/* Rewind to the start of the OPEN STEP: the chunk after the log's
+			 * last `finish-step`, or 0 when none has fired yet. Everything
+			 * before that boundary is already in the barrier-persisted thread
+			 * transcript the client hydrated, and the SDK's resume fold starts
+			 * with empty active-part maps, so the boundary is exactly where a
+			 * seeded replay applies cleanly — no duplicated parts, no orphaned
+			 * deltas. A mechanical type scan, backward from the end; chunk
+			 * CONTENT is never interpreted. */
+			const read = await readStreamChunksFrom(streamId, 0);
+			let boundary = 0;
+			for (let i = read.chunks.length - 1; i >= 0; i--) {
+				if ((read.chunks[i] as { type?: unknown }).type === "finish-step") {
+					boundary = i + 1;
+					break;
+				}
+			}
+			cursor = boundary;
+			/* Author the header so the transport's absolute counter lands on
+			 * the boundary: it computes `max(0, tailIndex + 1 + startIndex)`,
+			 * so `tailIndex = cursor - 1 - startIndex` steers any negative
+			 * cursor to the same place. The header is opaque to the client —
+			 * this arithmetic is the server's to own. */
+			tailHeader = String(cursor - 1 - startIndex);
 		} else {
 			cursor = startIndex;
 		}

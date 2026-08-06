@@ -23,6 +23,7 @@ describe("authoritative thread activation", () => {
 					run_id: "run-paused",
 					holder_nonce: "00000000-0000-4000-8000-000000000001",
 					active_stream_id: "stream-live",
+					messages: [],
 				},
 				true,
 			),
@@ -38,6 +39,7 @@ describe("authoritative thread activation", () => {
 				{
 					run_id: "run-terminal",
 					active_stream_id: null,
+					messages: [],
 				},
 				false,
 			),
@@ -48,11 +50,110 @@ describe("authoritative thread activation", () => {
 					run_id: "run-already-redriven",
 					active_stream_id: null,
 					resume_interrupted: true,
+					messages: [],
 				},
 				true,
 				{ allowRedrive: false },
 			),
 		).toMatchObject({ redrive: false, buildResume: false });
+	});
+
+	it("re-drives an interrupted turn whose transcript ends on a PARTIAL assistant message", () => {
+		/* Barrier persistence: a dead run leaves closed-state parts behind, so
+		 * the trigger is the server's interruption stamp, never trailing role. */
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-dead",
+					active_stream_id: null,
+					resume_interrupted: true,
+					messages: [
+						{
+							id: "m1",
+							role: "user" as const,
+							parts: [{ type: "text", text: "go" }],
+						},
+						{
+							id: "m2",
+							role: "assistant" as const,
+							parts: [{ type: "text", text: "half an answer" }],
+						},
+					],
+				},
+				true,
+			),
+		).toMatchObject({ redrive: true, buildResume: true });
+	});
+
+	it("never re-drives an ANSWERED trailing ask round (the answers live in that message)", () => {
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-dead",
+					active_stream_id: null,
+					resume_interrupted: true,
+					messages: [
+						{
+							id: "m1",
+							role: "user" as const,
+							parts: [{ type: "text", text: "go" }],
+						},
+						{
+							id: "m2",
+							role: "assistant" as const,
+							parts: [
+								{ type: "step-start" },
+								{
+									type: "tool-askQuestions",
+									state: "output-available",
+									toolCallId: "c1",
+								},
+							],
+						},
+					],
+				},
+				true,
+			),
+		).toMatchObject({ redrive: false });
+	});
+
+	it("blocks an unanswered ask round only while the run is GENUINELY paused", () => {
+		const askRound = {
+			run_id: "run-ask",
+			active_stream_id: null,
+			resume_interrupted: true,
+			messages: [
+				{
+					id: "m1",
+					role: "user" as const,
+					parts: [{ type: "text", text: "go" }],
+				},
+				{
+					id: "m2",
+					role: "assistant" as const,
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-askQuestions",
+							state: "input-available",
+							toolCallId: "c1",
+						},
+					],
+				},
+			],
+		};
+		/* Genuinely paused: the answer POST is the recovery path. */
+		expect(
+			authoritativeThreadActivationOptions(
+				{ ...askRound, run_paused: true },
+				true,
+			),
+		).toMatchObject({ redrive: false });
+		/* Died before it could pause: the card shows but nothing can answer
+		 * it — re-driving (and re-asking) is correct recovery. */
+		expect(authoritativeThreadActivationOptions(askRound, true)).toMatchObject({
+			redrive: true,
+		});
 	});
 });
 

@@ -18,6 +18,14 @@
  * and Project access are mocked; everything else: claim + reservation,
  * durable chunk log, thread persistence, run finalization: is the real
  * code against the real schema.
+ *
+ * The "barrier persistence" describe pins the record-as-produced contract on
+ * the same harness: each completed step lands in the thread at its own
+ * barrier (with its chunks durable in the log FIRST), a failed turn claws
+ * back to its pre-run state, a bailed POST leaves the owning run's thread
+ * alone, a completed run whose marker retirement cannot land strands exactly
+ * one phantom re-drive (the honesty bound), and the incident-shaped delta
+ * flood never reaches the log.
  */
 
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
@@ -54,6 +62,7 @@ const {
 	failAppMock,
 	refundReservationMock,
 	settleAndReleaseMock,
+	failClearMarkerWrites,
 } = vi.hoisted(() => ({
 	resolveOpenAIKeyMock: vi.fn(),
 	resolveActiveProjectIdMock: vi.fn(),
@@ -71,6 +80,11 @@ const {
 	failAppMock: vi.fn(),
 	refundReservationMock: vi.fn(),
 	settleAndReleaseMock: vi.fn(),
+	/* Fault injector for the stranded-marker honesty test: while `on`, every
+	 * marker-retiring thread write (`clearMarker: true`) fails — the fold's
+	 * terminal write AND finalize's fallback — leaving a completed run's
+	 * marker stranded. */
+	failClearMarkerWrites: { on: false },
 }));
 
 class MockAppAccessError extends Error {
@@ -137,6 +151,23 @@ vi.mock("@/lib/agent", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/agent")>()),
 	createSolutionsArchitect: createSolutionsArchitectMock,
 }));
+/* Real thread persistence, with one injectable fault: the honesty test flips
+ * `failClearMarkerWrites.on` so every marker-retiring write fails while the
+ * per-barrier writes keep landing. */
+vi.mock("@/lib/db/threads", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/db/threads")>();
+	return {
+		...actual,
+		persistResponseSnapshot: async (
+			args: Parameters<typeof actual.persistResponseSnapshot>[0],
+		) => {
+			if (failClearMarkerWrites.on && args.clearMarker) {
+				throw new Error("thread write connection dropped");
+			}
+			return actual.persistResponseSnapshot(args);
+		},
+	};
+});
 
 const { POST } = await import("../route");
 
@@ -592,6 +623,7 @@ beforeEach(async () => {
 		role: "editor",
 	});
 	projectRoleForInTransactionMock.mockResolvedValue("editor");
+	failClearMarkerWrites.on = false;
 });
 
 afterEach(async () => {
@@ -1550,5 +1582,348 @@ describe("server-derived build-vs-edit mode", () => {
 			.where("app_id", "=", WAITFAIL_APP)
 			.executeTakeFirstOrThrow();
 		expect(summary).toEqual({ prompt_mode: "edit", app_ready: true });
+	}, 30_000);
+});
+
+describe("barrier persistence", () => {
+	/** The thread row's marker + typed transcript, read raw. */
+	async function threadRow(threadId: string) {
+		const row = await appDb
+			.selectFrom("threads")
+			.select(["messages", "active_stream_id", "active_holder_nonce"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		return {
+			...row,
+			messages: row.messages as {
+				id: string;
+				role: string;
+				parts: { type: string; text?: string; state?: string }[];
+			}[],
+		};
+	}
+
+	it("persists each completed step at its barrier, with the step's chunks durable in the log first", async () => {
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		if (!streamId) throw new Error("no stream id");
+		const wirePromise = response.text();
+
+		/* Step 1 completes; the run stays OPEN. */
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "Working on module one." },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+		);
+
+		/* The barrier lands the completed step in the thread WHILE the run is
+		 * live — this mid-run row is also exactly what a process death at this
+		 * instant would leave behind: the partial transcript plus the live
+		 * marker the loaders would reconcile into `resume_interrupted`. */
+		const mid = await pollFor(async () => {
+			const row = await threadRow(THREAD);
+			return row.messages.some((m) => m.role === "assistant") ? row : undefined;
+		});
+		expect(mid.active_stream_id).toBe(streamId);
+		const midAssistant = mid.messages.find((m) => m.role === "assistant");
+		expect(
+			midAssistant?.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("Working on module one.");
+
+		/* Log-before-barrier ordering: a persisted barrier implies its
+		 * `finish-step` is already durable in the chunk log, so a rewound
+		 * replay can never re-deliver content the transcript already holds. */
+		const midLogged = (await chunkRows(streamId)).flatMap(
+			(row) => row.chunks as UIMessageChunk[],
+		);
+		expect(midLogged.some((c) => c.type === "finish-step")).toBe(true);
+
+		/* Step 2 + the natural end: the terminal write merges the final state
+		 * and retires the marker. */
+		feed.push(
+			{ type: "start-step" },
+			{ type: "text-start", id: "t2" },
+			{ type: "text-delta", id: "t2", delta: " Module two done." },
+			{ type: "text-end", id: "t2" },
+			{ type: "finish-step" },
+			{ type: "finish" },
+		);
+		feed.end();
+
+		const final = await pollFor(async () => {
+			const row = await threadRow(THREAD);
+			return row.active_stream_id === null ? row : undefined;
+		});
+		const assistants = final.messages.filter((m) => m.role === "assistant");
+		expect(assistants).toHaveLength(1);
+		expect(
+			assistants[0].parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("Working on module one. Module two done.");
+		await wirePromise;
+	}, 30_000);
+
+	it("claws a failed turn back to its pre-run state: the barrier-persisted partial is removed with the marker", async () => {
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		/* One completed step lands at its barrier... */
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "Half an answer" },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+		);
+		await pollFor(async () => {
+			const row = await threadRow(THREAD);
+			return row.messages.some((m) => m.role === "assistant") ? row : undefined;
+		});
+
+		/* ...then the generation dies with a FATAL stream error (classified
+		 * non-transient, so no in-route retry). The failure funnel must revert
+		 * the turn: a partial serves nobody, so the record returns to its
+		 * pre-run state — the user's message alone — with the marker cleared
+		 * in the same write. */
+		feed.push(
+			{ type: "error", errorText: "model exploded" } as UIMessageChunk,
+			{
+				type: "finish",
+			},
+		);
+		feed.end();
+
+		const app = await pollFor(async () => {
+			const row = await appDb
+				.selectFrom("apps")
+				.select(["status", "error_type"])
+				.where("owner", "=", USER)
+				.executeTakeFirstOrThrow();
+			return row.status === "error" ? row : undefined;
+		});
+		expect(app.status).toBe("error");
+
+		const thread = await pollFor(async () => {
+			const row = await threadRow(THREAD);
+			return row.active_stream_id === null ? row : undefined;
+		});
+		expect(thread.messages.map((m) => m.role)).toEqual(["user"]);
+		expect(thread.active_holder_nonce).toBeNull();
+		await wirePromise;
+	}, 30_000);
+
+	it("a bailed POST leaves the owning run's marker and transcript alone (merge-only)", async () => {
+		/* Another run owns this thread; this POST wins the serialize wait and
+		 * then bails on the snapshot read. Its fold directive is `skip`
+		 * (it never persisted the turn), so the owner's marker and message
+		 * survive, and no empty assistant shell appears — only the bailed
+		 * history merge the bail path has always done. */
+		await seedSerializeWaitEdit();
+		await appDb
+			.insertInto("threads")
+			.values({
+				thread_id: WAIT_THREAD,
+				app_id: WAIT_APP,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "edit",
+				summary: "Owned by another run",
+				run_id: "run-owner",
+				active_stream_id: "stream-owner",
+				active_holder_nonce: REPLACEMENT_NONCE,
+				messages: JSON.stringify([
+					{
+						id: "m-owner",
+						role: "user",
+						parts: [{ type: "text", text: "the owner's turn" }],
+					},
+				]),
+			})
+			.execute();
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
+			new MockAppAccessError("not_member"),
+		);
+
+		const response = await POST(waitingEditRequest());
+		expect(response.status).toBe(200);
+		await response.text();
+
+		const thread = await threadRow(WAIT_THREAD);
+		expect(thread.active_stream_id).toBe("stream-owner");
+		expect(thread.active_holder_nonce).toBe(REPLACEMENT_NONCE);
+		expect(thread.messages.map((m) => m.id)).toEqual([
+			"m-owner",
+			"waiting-edit-user",
+		]);
+		expect(thread.messages.every((m) => m.role === "user")).toBe(true);
+	}, 30_000);
+
+	it("honesty bound: a completed run whose marker retirement cannot land strands the marker for one phantom re-drive", async () => {
+		/* The residual window the redesign shrinks but cannot close: the run
+		 * completed, every unit is durable from its barriers, and only the
+		 * marker-retiring write (fold terminal write AND finalize's fallback)
+		 * fails. The marker strands, so the next load reads an instance death
+		 * and re-drives a finished turn — the accepted, tested cost of that
+		 * window. */
+		failClearMarkerWrites.on = true;
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		const wirePromise = response.text();
+
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "All done." },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+			{ type: "finish" },
+		);
+		feed.end();
+
+		/* The run itself completes fully — the failure is persistence-side. */
+		const app = await pollFor(async () => {
+			const row = await appDb
+				.selectFrom("apps")
+				.select(["id", "status"])
+				.where("owner", "=", USER)
+				.executeTakeFirstOrThrow();
+			return row.status === "complete" ? row : undefined;
+		});
+		await wirePromise;
+
+		/* The barrier-persisted transcript is intact; only the marker strands. */
+		const thread = await threadRow(THREAD);
+		const assistant = thread.messages.find((m) => m.role === "assistant");
+		expect(
+			assistant?.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("All done.");
+		expect(thread.active_stream_id).toBe(streamId);
+
+		/* The next load reconciles the stranded marker on the at-rest app into
+		 * the level-triggered re-drive signal. */
+		const { loadThread } = await import("@/lib/db/threads");
+		const loaded = await loadThread(app.id, THREAD);
+		expect(loaded?.resume_interrupted).toBe(true);
+	}, 30_000);
+
+	it("the incident shape at scale: per-token tool-input deltas never reach the log, and the transcript is complete at the last barrier", async () => {
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		if (!streamId) throw new Error("no stream id");
+		const wirePromise = response.text();
+
+		/* Three tool steps, each streaming thousands of per-token input
+		 * deltas — the incident stream's shape (24,419 of its 28,721 chunks
+		 * were deltas), scaled to keep the suite fast. */
+		feed.push({ type: "start" } as UIMessageChunk);
+		const DELTAS_PER_STEP = 4_000;
+		for (let step = 0; step < 3; step++) {
+			const callId = `call-${step}`;
+			feed.push({ type: "start-step" }, {
+				type: "tool-input-start",
+				toolCallId: callId,
+				toolName: "add_fields",
+			} as UIMessageChunk);
+			for (let i = 0; i < DELTAS_PER_STEP; i++) {
+				feed.push({
+					type: "tool-input-delta",
+					toolCallId: callId,
+					inputTextDelta: `{"i":${i}}`,
+				} as UIMessageChunk);
+			}
+			feed.push(
+				{
+					type: "tool-input-available",
+					toolCallId: callId,
+					toolName: "add_fields",
+					input: { step },
+				} as UIMessageChunk,
+				{
+					type: "tool-output-available",
+					toolCallId: callId,
+					output: { ok: true },
+				} as UIMessageChunk,
+				{ type: "finish-step" },
+			);
+		}
+		feed.push(
+			{ type: "start-step" },
+			{ type: "text-start", id: "t-final" },
+			{ type: "text-delta", id: "t-final", delta: "Built it." },
+			{ type: "text-end", id: "t-final" },
+			{ type: "finish-step" },
+			{ type: "finish" },
+		);
+		feed.end();
+
+		const thread = await pollFor(async () => {
+			const row = await threadRow(THREAD);
+			return row.active_stream_id === null ? row : undefined;
+		});
+		await wirePromise;
+
+		/* The log carries the run WITHOUT the deltas: a few dozen chunks, not
+		 * twelve thousand. */
+		const logged = (await chunkRows(streamId)).flatMap(
+			(row) => row.chunks as UIMessageChunk[],
+		);
+		expect(logged.some((c) => c.type === "tool-input-delta")).toBe(false);
+		expect(logged.length).toBeLessThan(50);
+
+		/* The transcript holds every completed unit: three completed tool
+		 * calls and the closing text, written barrier by barrier. */
+		const assistant = thread.messages.find((m) => m.role === "assistant");
+		const toolParts = (assistant?.parts ?? []).filter(
+			(p) => p.type === "tool-add_fields",
+		);
+		expect(toolParts).toHaveLength(3);
+		expect(toolParts.every((p) => p.state === "output-available")).toBe(true);
+		expect(
+			(assistant?.parts ?? [])
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("Built it.");
 	}, 30_000);
 });

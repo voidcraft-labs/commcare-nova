@@ -4,6 +4,7 @@ import {
 	createUIMessageStreamResponse,
 	type InferAgentUIMessage,
 	isTextUIPart,
+	type UIMessageStreamWriter,
 	validateUIMessages,
 } from "ai";
 import {
@@ -26,7 +27,6 @@ import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
-import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
@@ -71,8 +71,9 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
-	appendThreadResponse,
+	clawBackThreadResponse,
 	mergeThreadTurnMessages,
+	persistResponseSnapshot,
 	resolveThreadStream,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
@@ -436,7 +437,10 @@ export async function POST(req: Request) {
 	/* Build-vs-edit, derived SERVER-SIDE from the app row and nothing else: a
 	 * new build and any app not at `complete` (a `generating` build, a paused
 	 * askQuestions round, a reaped build being re-driven) run as BUILD; only a
-	 * `complete` app runs as EDIT. This one binding drives the charge, the
+	 * `complete` app runs as EDIT. A RE-DRIVE of a died turn on a `complete`
+	 * app is therefore edit-shaped too, deliberately: the one claim shape
+	 * that neither flips a committed app back to `generating` nor points the
+	 * creation prompt at an existing document. This one binding drives the charge, the
 	 * claim mode, the resume mode, the SA prompt/effort, and the lease
 	 * heartbeat. It first derives from the admission snapshot, and because a
 	 * serialize-wait can hold that read stale for minutes, every chargeable
@@ -887,22 +891,158 @@ export async function POST(req: Request) {
 	 * chunk log and flushing a zero-usage accumulator against a live run, which
 	 * refunds the charge, blinds the resume path, and no-ops the real finalize.
 	 * Post-settle cleanup lives in execute's own `finally`, which by
-	 * construction cannot run before the body settles. */
+	 * construction cannot run before the body settles.
+	 *
+	 * The BARRIER FOLD inside execute is the sanctioned home for those
+	 * callbacks: a second, server-internal `createUIMessageStream` that no
+	 * client ever holds. The route itself drains it, and only `finalizeRun`
+	 * (or the prelude-throw net) closes it, so its `onStepEnd`/`onFinish` are
+	 * driven by the run's true progress — never by a client's pull or cancel. */
 	const stream = createUIMessageStream({
 		execute: async ({ writer: rawWriter }) => {
+			/* Set once `upsertThreadTurn` persisted this POST's history onto the
+			 * thread row (which also marked it live via `active_stream_id`).
+			 * Gates every barrier write and the fold's terminal directive: a
+			 * POST that bailed before owning the run (serialize-wait timeout,
+			 * lost resume) wrote no thread state and must not touch the row the
+			 * true holder owns. Declared here — outside the main try — because
+			 * the fold callbacks below close over it. */
+			let threadPersisted = false;
+
+			/* ── The barrier fold: durable-transcript writes at SDK barriers ──
+			 *
+			 * The record of this turn is written AS THE RUN PRODUCES IT: the
+			 * SDK's own fold of the chunk sequence reports each completed step
+			 * through `onStepEnd`, and that callback — not any Nova
+			 * interpretation of chunks — is what lands in `threads`. Finalize
+			 * is bookkeeping; no end-of-run assembly exists.
+			 *
+			 * `foldOutcome` is the terminal directive `finalizeRun` sets before
+			 * closing the fold: `completed`/`paused` merge the final state and
+			 * retire the marker; `failed`/`aborted` CLAW BACK the turn's
+			 * message to its pre-run state (a partial serves nobody — the
+			 * record holds completed units only, on every turn end,
+			 * uniformly); `skip` (prelude throws, every bail path) touches
+			 * nothing, because those POSTs never owned the thread. `aborted`
+			 * is defined for uniformity — the route has no server-side stop
+			 * path today, so it is unreachable until one exists. */
+			let foldOutcome: "completed" | "paused" | "failed" | "aborted" | "skip" =
+				"skip";
+			/* True once the fold's own terminal write committed; finalize's
+			 * fallback marker-clear covers the run when it stayed false. */
+			let foldSettled = false;
+			/* The pre-run seed of a CONTINUATION turn (an answered askQuestions
+			 * round): the raw incoming trailing assistant message, exactly as
+			 * the client sent it — the fold grows it, and a claw-back restores
+			 * it. Raw, not the sanitized `validated` copy: the sanitizers strip
+			 * load-bearing reasoning `providerMetadata` that must survive in
+			 * the stored transcript. */
+			const trailingIncoming = messages.at(-1);
+			const foldSeed =
+				trailingIncoming?.role === "assistant" ? trailingIncoming : undefined;
+			let foldWriter!: UIMessageStreamWriter;
+			let releaseFold: () => void = () => {};
+			const foldClosed = new Promise<void>((resolve) => {
+				releaseFold = resolve;
+			});
+			const foldStream = createUIMessageStream({
+				/* Seeds the fold's message state from the trailing assistant
+				 * message (the SDK ignores a trailing user message), so a
+				 * continuation's snapshots grow the SAME message id the client
+				 * grows. */
+				originalMessages: messages,
+				/* The fold's producer is the tee in `DurableStreamWriter`; this
+				 * execute only parks the writer and holds the stream open until
+				 * finalize resolves `foldClosed`. */
+				execute: ({ writer: w }) => {
+					foldWriter = w;
+					return foldClosed;
+				},
+				onStepEnd: async ({ responseMessage }) => {
+					if (!threadPersisted || responseMessage.parts.length === 0) return;
+					/* Log-before-barrier ordering: the step's `finish-step` chunk
+					 * must be durable in the chunk log BEFORE its barrier commits,
+					 * so a persisted barrier N implies log ≥ step N and a rewound
+					 * replay can never re-deliver content the seeded transcript
+					 * already holds. */
+					await writer.flushNow();
+					await persistResponseSnapshot({
+						appId,
+						threadId,
+						streamId,
+						expectedProjectId: projectId,
+						responseMessage,
+						clearMarker: false,
+					});
+				},
+				onFinish: async ({ responseMessage }) => {
+					if (foldOutcome === "skip") return;
+					if (foldOutcome === "failed" || foldOutcome === "aborted") {
+						await clawBackThreadResponse({
+							appId,
+							threadId,
+							streamId,
+							messageId: responseMessage.id,
+							revertTo: foldSeed,
+						});
+						foldSettled = true;
+						return;
+					}
+					await persistResponseSnapshot({
+						appId,
+						threadId,
+						streamId,
+						expectedProjectId: projectId,
+						responseMessage,
+						clearMarker: true,
+						retainHolderNonce: foldOutcome === "paused",
+					});
+					foldSettled = true;
+				},
+				/* Barrier-write throws land here (the SDK catches `onStepEnd`):
+				 * logged and self-healing — snapshots are cumulative, so the
+				 * next barrier carries everything a failed one dropped, and the
+				 * finalize fallback covers a fold that never settled. */
+				onError: (error) => {
+					log.error("[chat] barrier fold error", error, { appId, streamId });
+					return error instanceof Error ? error.message : String(error);
+				},
+			});
+			/* The fold's callbacks fire as its stream is CONSUMED; the route is
+			 * its only consumer. Never awaited before finalize — the drain runs
+			 * for the life of the run and settles when finalize (or the
+			 * prelude-throw net) resolves `foldClosed`. */
+			const foldDrained = (async () => {
+				const reader = foldStream.getReader();
+				try {
+					for (;;) {
+						const { done } = await reader.read();
+						if (done) break;
+					}
+				} finally {
+					reader.releaseLock();
+				}
+			})().catch((err) => {
+				log.error("[chat] barrier fold drain failed", err, {
+					appId,
+					streamId,
+				});
+			});
+
 			/* The one write choke point: every chunk out of this request, SDK
 			 * parts forwarded from the SA stream AND the route's own `data-*`
 			 * events: rides this wrapper, which appends it to the durable chunk
-			 * log (resume replays it) and forwards it to the live response
-			 * (best-effort; a dead client stops forwarding, never logging).
-			 * Closed by `finalizeRun` so the terminal row is durable before the
-			 * response stream ends. */
+			 * log (resume replays it), forwards it to the live response
+			 * (best-effort; a dead client stops forwarding, never logging), and
+			 * tees it into the barrier fold above. Closed by `finalizeRun` so
+			 * the terminal row is durable before the response stream ends. */
 			const writer = new DurableStreamWriter({
 				streamId,
 				appId,
 				runId: effectiveRunId,
 				threadId,
 				inner: rawWriter,
+				fold: foldWriter,
 			});
 			try {
 				// Send runId to client so it can send it back on subsequent requests
@@ -958,18 +1098,14 @@ export async function POST(req: Request) {
 				let refundSignalled = false;
 				/* Finalize-once guard: see `finalizeRun`. */
 				let finalized = false;
-				/* Set once `upsertThreadTurn` persisted this POST's history onto the
-				 * thread row (which also marked it live via `active_stream_id`).
-				 * Gates the finalize-time response append + stream-marker clear:
-				 * a POST that bailed before owning the run (serialize-wait timeout,
-				 * lost resume) wrote no thread state and must not touch the row the
-				 * true holder owns. */
-				let threadPersisted = false;
 
 				/**
-				 * The single authoritative finalization: the charge-vs-refund credit
-				 * decision plus persistence: run exactly once on the run's TRUE terminal
-				 * state.
+				 * The single authoritative finalization: the fold's terminal
+				 * directive, then the charge-vs-refund credit decision — run exactly
+				 * once on the run's TRUE terminal state. Finalize is BOOKKEEPING:
+				 * the durable transcript was written unit-by-unit at the fold's
+				 * barriers, so nothing here is a durability event beyond the fold's
+				 * own final marker retirement.
 				 *
 				 * Driven by the agent drain completing (below), NOT by an SDK callback: a
 				 * model error surfaces as a UIMessage error chunk rather than a thrown
@@ -1014,6 +1150,60 @@ export async function POST(req: Request) {
 					 * from leaking. */
 					ctx.stopRunLeaseHeartbeat();
 					const paused = opts?.paused ?? false;
+
+					/* Retire the transcript FIRST, before any settle/flush work: set
+					 * the fold's terminal directive, close it, and wait for its final
+					 * write. Every completed unit is already durable from its own
+					 * barrier; this final write only merges the last state and
+					 * clears the marker (or claws back a failed turn), so the window
+					 * where a process death strands the marker on a finished run is
+					 * milliseconds of plain awaits — not the heavy assembly that once
+					 * sat here. A POST that never owned the thread
+					 * (`!threadPersisted`) skips; a failure or lost holder claws
+					 * back (the record keeps completed-unit turns only, and the
+					 * claw-back's stream guard makes it a no-op once a successor
+					 * owns the thread). */
+					foldOutcome = !threadPersisted
+						? "skip"
+						: failure !== undefined || opts?.heldApp === false
+							? "failed"
+							: paused
+								? "paused"
+								: "completed";
+					releaseFold();
+					await foldDrained;
+					if (foldOutcome !== "skip" && !foldSettled) {
+						/* The fold errored before its terminal write. The transcript
+						 * self-corrects (barriers already landed; the next turn's
+						 * upsert merges), but the MARKER must not survive a finalized
+						 * run: a stranded `active_stream_id` on an at-rest app reads
+						 * as an instance death on the next load, and the client
+						 * auto-RE-DRIVES (re-claims, RE-CHARGES) a turn that already
+						 * completed. Clear just the marker — the smallest write that
+						 * closes that hole; one retry, then the log line names the
+						 * consequence for the operator. */
+						let markerCleared = false;
+						for (let attempt = 0; attempt < 2 && !markerCleared; attempt++) {
+							try {
+								await persistResponseSnapshot({
+									appId,
+									threadId,
+									streamId,
+									expectedProjectId: projectId,
+									responseMessage: null,
+									clearMarker: true,
+									retainHolderNonce: paused,
+								});
+								markerCleared = true;
+							} catch (err) {
+								log.error(
+									"[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+									err,
+									{ appId, threadId, attempt },
+								);
+							}
+						}
+					}
 					/* Whether THIS POST owns the run holding the app. False only on the
 					 * serialize-with-wait early returns (a timed-out waiter, or a
 					 * post-claim gate bail that already released the claim): such a POST
@@ -1136,78 +1326,6 @@ export async function POST(req: Request) {
 					 * execute must not resolve (closing the response) before the terminal
 					 * row is durable. */
 					await writer.close();
-
-					/* Durable conversation history: append the assistant message this
-					 * run streamed and clear the thread's live-stream marker, in one
-					 * write. Assembled from the now-sealed chunk log (the single source
-					 * of truth for what streamed, including retry closures), so the
-					 * persisted message is byte-for-byte what a live client assembled.
-					 * AFTER `writer.close()`: the log must be fully flushed to read it
-					 * back. A paused (askQuestions) run appends its question round with
-					 * the tool part still `input-available`: exactly what a refreshed
-					 * page needs to re-render the interactive card. Best-effort: history
-					 * persistence must never take down run finalization (the failure is
-					 * error-logged; the thread converges on the next turn's upsert). */
-					if (threadPersisted) {
-						/* A history ending in an ASSISTANT message (an answered
-						 * askQuestions round) streams its response as a CONTINUATION of
-						 * that message: seed the assembly with it so the persisted
-						 * transcript keeps ONE merged message, exactly as the client
-						 * does. `streamId` scopes the marker clear to THIS run: the app
-						 * was released above, so a competing POST may already own a
-						 * fresh claim on this thread, its marker and turns must survive
-						 * this late write (the append merges; it never rewrites). */
-						const trailing = messages.at(-1);
-						const responseMessage = await assembleResponseMessage(
-							streamId,
-							trailing?.role === "assistant" ? trailing : undefined,
-						);
-						/* One retry, then a marker-only fallback. The response text is
-						 * best-effort history, but the MARKER must not survive a
-						 * finalized run: a stranded `active_stream_id` on an at-rest app
-						 * reads as an instance death on the next load, and the client
-						 * auto-RE-DRIVES (re-claims, RE-CHARGES) a turn that already
-						 * completed. The fallback clears just the marker (null response,
-						 * same `streamId` guard): the smallest write that closes that
-						 * hole; if even that fails, the log line names the consequence
-						 * for the operator. */
-						let appended = false;
-						for (let attempt = 0; attempt < 2 && !appended; attempt++) {
-							try {
-								await appendThreadResponse({
-									appId,
-									threadId,
-									streamId,
-									responseMessage,
-									retainHolderNonce: paused,
-								});
-								appended = true;
-							} catch (err) {
-								log.error("[chat] thread response append failed", err, {
-									appId,
-									threadId,
-									attempt,
-								});
-							}
-						}
-						if (!appended) {
-							try {
-								await appendThreadResponse({
-									appId,
-									threadId,
-									streamId,
-									responseMessage: null,
-									retainHolderNonce: paused,
-								});
-							} catch (err) {
-								log.error(
-									"[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
-									err,
-									{ appId, threadId },
-								);
-							}
-						}
-					}
 				};
 
 				/**
@@ -1675,6 +1793,12 @@ export async function POST(req: Request) {
 						threadType: appReady ? "edit" : "build",
 						messages,
 						expectedProjectId: projectId,
+						/* A re-drive claim removes its dead predecessor's trailing
+						 * partial assistant message — the death-case claw-back (the
+						 * client's regenerate() already trimmed it from this
+						 * history, and the by-id merge would otherwise keep the
+						 * stored copy forever). */
+						redrive: parsed.data.redrive === true,
 					});
 				} catch (err) {
 					if (err instanceof RunHolderLostError) {
@@ -2427,6 +2551,13 @@ export async function POST(req: Request) {
 				 * unterminated stream would leave a resuming client tailing a dead
 				 * run until the reconnect endpoint's liveness fallback. Idempotent. */
 				await writer.close().catch(() => {});
+				/* Close the barrier fold if `finalizeRun` never did (a prelude
+				 * throw): `foldOutcome` is still "skip", so the fold's terminal
+				 * write is a no-op — a POST that never owned the run must not
+				 * clear markers or append assistant shells to threads other runs
+				 * own. Idempotent after a finalize that already closed it. */
+				releaseFold();
+				await foldDrained;
 				/* Flush next: a prelude-throw edit's `flush()` refunds+SETTLES its
 				 * marker (zero-cost run), so the run-lock release below never leaves the
 				 * app lock-absent-while-unsettled: the same "clear the lock only once

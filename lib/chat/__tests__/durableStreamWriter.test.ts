@@ -10,6 +10,13 @@
  *     idempotent;
  *   - a persistently failing log marks the stream broken (bounded memory, the
  *     live response untouched) instead of throwing into the run.
+ *   - `tool-input-delta` chunks are dropped before ANY destination sees them,
+ *     without consuming a chunk index;
+ *   - the barrier-fold tee receives every surviving chunk and keeps receiving
+ *     after the client dies AND after the log breaks — barrier persistence
+ *     must not share their fate;
+ *   - `flushNow()` drains the append chain mid-stream, the ordering hook the
+ *     route's step barriers ride on.
  *
  * `appendStreamChunks` is mocked — the Postgres data layer has its own
  * integration coverage; this suite pins the writer's batching/ordering logic.
@@ -52,13 +59,17 @@ function makeInner(opts: { dead?: boolean } = {}) {
 	};
 }
 
-function makeWriter(inner: UIMessageStreamWriter) {
+function makeWriter(
+	inner: UIMessageStreamWriter,
+	fold?: UIMessageStreamWriter,
+) {
 	return new DurableStreamWriter({
 		streamId: "stream-1",
 		appId: "app-1",
 		runId: "run-1",
 		threadId: "thread-1",
 		inner,
+		fold,
 	});
 }
 
@@ -220,5 +231,118 @@ describe("DurableStreamWriter", () => {
 		expect(appendMock.mock.calls.length).toBe(2);
 		// The live response never noticed.
 		expect(written.length).toBeGreaterThanOrEqual(70);
+	});
+
+	it("drops tool-input-delta chunks before any destination, without consuming an index", async () => {
+		const fold = makeInner();
+		const { inner, written } = makeInner();
+		const writer = makeWriter(inner, fold.inner);
+
+		writer.write({
+			type: "tool-input-start",
+			toolCallId: "call-1",
+			toolName: "add_fields",
+		} as UIMessageChunk);
+		for (let i = 0; i < 5; i++) {
+			writer.write({
+				type: "tool-input-delta",
+				toolCallId: "call-1",
+				inputTextDelta: `{"part":${i}}`,
+			} as UIMessageChunk);
+		}
+		writer.write({
+			type: "tool-input-available",
+			toolCallId: "call-1",
+			toolName: "add_fields",
+			input: { fields: [] },
+		} as UIMessageChunk);
+		writer.write({ type: "finish" });
+		await writer.close();
+
+		// start, available, finish — the five deltas never existed anywhere.
+		const types = (seq: unknown[]) =>
+			seq.map((c) => (c as UIMessageChunk).type);
+		expect(types(written)).toEqual([
+			"tool-input-start",
+			"tool-input-available",
+			"finish",
+		]);
+		expect(types(appendedChunks())).toEqual(types(written));
+		expect(types(fold.written)).toEqual(types(written));
+		// Indices stayed contiguous: one row starting at 0 with 3 chunks.
+		const appends = appendMock.mock.calls.map(
+			(call) => call[0] as StreamChunkAppend,
+		);
+		expect(appends[0].firstIndex).toBe(0);
+		expect(appendedChunks()).toHaveLength(3);
+	});
+
+	it("keeps teeing to the fold after the client dies and the log breaks", async () => {
+		appendMock.mockRejectedValue(new Error("pg down"));
+		const fold = makeInner();
+		const { inner, kill } = makeInner();
+		const writer = makeWriter(inner, fold.inner);
+
+		// Cross the burst trigger so the log fails and marks itself broken…
+		for (let i = 0; i < 64; i++) writer.write(chunk(i));
+		await vi.waitFor(() => expect(appendMock).toHaveBeenCalledTimes(2));
+		// …then lose the client too.
+		kill();
+		writer.write(chunk(64));
+		writer.write(chunk(65));
+		await writer.close();
+
+		// The fold saw the entire sequence plus the synthetic finish.
+		expect(fold.written).toHaveLength(67);
+		expect(fold.written.at(-1)?.type).toBe("finish");
+	});
+
+	it("drops a throwing fold sink after one failure, leaving response and log intact", async () => {
+		const foldWrite = vi.fn(() => {
+			throw new Error("fold stream closed");
+		});
+		const { inner, written } = makeInner();
+		const writer = makeWriter(inner, {
+			write: foldWrite,
+			merge() {},
+			onError: undefined,
+		});
+
+		writer.write(chunk(0));
+		writer.write(chunk(1));
+		writer.write({ type: "finish" });
+		await writer.close();
+
+		// One attempt, then the fold is dead — never called again.
+		expect(foldWrite).toHaveBeenCalledTimes(1);
+		// The live response and the log carried the full sequence regardless.
+		expect(written).toHaveLength(3);
+		expect(appendedChunks()).toHaveLength(3);
+	});
+
+	it("flushNow drains the pending batch mid-stream without sealing the log", async () => {
+		const { inner } = makeInner();
+		const writer = makeWriter(inner);
+
+		writer.write(chunk(0));
+		writer.write(chunk(1));
+		// Below the burst trigger: nothing has flushed yet, only the timer is
+		// pending — flushNow must not wait for it.
+		expect(appendMock).not.toHaveBeenCalled();
+		await writer.flushNow();
+
+		expect(appendMock).toHaveBeenCalledTimes(1);
+		const row = appendMock.mock.calls[0][0] as StreamChunkAppend;
+		expect(row.chunks).toHaveLength(2);
+		expect(row.terminal).toBe(false);
+
+		// The stream is still open: later writes land at the next index.
+		writer.write(chunk(2));
+		await writer.close();
+		const appends = appendMock.mock.calls.map(
+			(call) => call[0] as StreamChunkAppend,
+		);
+		expect(appends[1].firstIndex).toBe(2);
+		expect(appends.at(-1)?.terminal).toBe(true);
 	});
 });
