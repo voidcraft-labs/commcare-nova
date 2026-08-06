@@ -4,6 +4,7 @@ import {
 	createUIMessageStreamResponse,
 	type InferAgentUIMessage,
 	isTextUIPart,
+	type UIMessage,
 	type UIMessageStreamWriter,
 	validateUIMessages,
 } from "ai";
@@ -958,6 +959,24 @@ export async function POST(req: Request) {
 			const trailingIncoming = messages.at(-1);
 			const foldSeed =
 				trailingIncoming?.role === "assistant" ? trailingIncoming : undefined;
+			/* The turn's response message id, minted HERE for a fresh turn (a
+			 * continuation reuses its seed's id — the SDK prefers the trailing
+			 * assistant id wherever this is offered). Passed to the SA stream as
+			 * `generateMessageId` so the `start` chunk carries it BEFORE the
+			 * choke-point tee: the chunk log, the barrier fold, and the live
+			 * client all then adopt ONE id. Without it, the SA-level `start` has
+			 * no id on fresh turns and the fold and the client-facing stream each
+			 * stamp their own generated id downstream of the tee — the durable
+			 * transcript and the client's rendered message then name the same
+			 * answer differently, which breaks every by-id contract downstream
+			 * (history admission, continuation seeding, the resume window). */
+			const responseMessageId = foldSeed?.id ?? crypto.randomUUID();
+			/* The final assembled message, latched at every barrier and at the
+			 * terminal callback, so finalize's fallback can retry the CONTENT
+			 * write — not just the marker clear — when the fold's own terminal
+			 * write failed. Null only when no barrier ever assembled anything
+			 * (a zero-step failure), where a marker clear IS the whole write. */
+			let foldFinalMessage: UIMessage | null = null;
 			let foldWriter!: UIMessageStreamWriter;
 			let releaseFold: () => void = () => {};
 			const foldClosed = new Promise<void>((resolve) => {
@@ -979,6 +998,7 @@ export async function POST(req: Request) {
 				onStepEnd: async ({ responseMessage }) => {
 					if (!threadPersisted || responseMessage.parts.length === 0) return;
 					foldMessageId = responseMessage.id;
+					foldFinalMessage = responseMessage;
 					/* Log-before-barrier ordering: the step's `finish-step` chunk
 					 * must be durable in the chunk log BEFORE its barrier commits,
 					 * so a persisted barrier N implies log ≥ step N and a resume
@@ -1002,6 +1022,7 @@ export async function POST(req: Request) {
 				onFinish: async ({ responseMessage }) => {
 					if (foldOutcome === "skip") return;
 					foldMessageId = responseMessage.id;
+					foldFinalMessage = responseMessage;
 					if (outcomeClawsBack(foldOutcome)) {
 						await clawBackThreadResponse({
 							appId,
@@ -1241,10 +1262,11 @@ export async function POST(req: Request) {
 						 *    load reads it as an interruption and the re-drive claim
 						 *    removes the partial — degraded recovery over permanent
 						 *    corruption.
-						 *  - `completed`/`paused` (or a zero-barrier failure, which
-						 *    persisted nothing): clear just the marker, so a
-						 *    finished run can't strand a marker that reads as an
-						 *    instance death and re-drives (re-charges) the turn. */
+						 *  - `completed`/`paused`: the FULL terminal write — the
+						 *    latched final message plus the marker clear — so the
+						 *    finished, already-charged answer gets the whole retry
+						 *    ladder, not just its marker. (A zero-barrier failure
+						 *    latched nothing; its marker clear IS the whole write.) */
 						const clawBack =
 							outcomeClawsBack(foldOutcome) && foldMessageId !== null;
 						const backoffMs = [0, 250, 1_000];
@@ -1267,7 +1289,7 @@ export async function POST(req: Request) {
 										threadId,
 										streamId,
 										expectedProjectId: projectId,
-										responseMessage: null,
+										responseMessage: foldFinalMessage,
 										clearMarker: true,
 										retainHolderNonce: paused,
 									});
@@ -1277,7 +1299,7 @@ export async function POST(req: Request) {
 								log.error(
 									clawBack
 										? "[chat] failed-turn claw-back retry failed; if none lands, the marker stays so the re-drive claim can remove the partial"
-										: "[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+										: "[chat] terminal transcript write failed; if none lands, the stranded marker reads as a finished run off the sealed log and the last barrier's snapshot stands as the answer",
 									err,
 									{ appId, threadId },
 								);
@@ -1402,10 +1424,13 @@ export async function POST(req: Request) {
 					 * toast, the clean build's `data-done`) precedes its path's
 					 * `finalizeRun` call, so the terminal row seals a complete stream. A
 					 * resuming client then always reaches the synthetic/real `finish`
-					 * instead of tailing a dead run until the liveness fallback. Awaited:
-					 * execute must not resolve (closing the response) before the terminal
-					 * row is durable. */
-					await writer.close();
+					 * instead of tailing a dead run until the liveness fallback. The
+					 * seal carries `foldOutcome`: the dead-marker reconciler reads it to
+					 * retire a finished run's stranded marker instead of re-driving it,
+					 * while an UNSEALED stream (process death, broken log) keeps reading
+					 * as a mid-turn interruption. Awaited: execute must not resolve
+					 * (closing the response) before the terminal row is durable. */
+					await writer.close(foldOutcome);
 				};
 
 				/**
@@ -2330,6 +2355,17 @@ export async function POST(req: Request) {
 						 * stream's end either way (the catch is a last-resort guard). */
 						for await (const chunk of result.toUIMessageStream({
 							originalMessages: validated,
+							/* One identity for the turn's answer: stamps
+							 * `responseMessageId` onto the `start` chunk HERE, upstream
+							 * of the choke-point tee, so the chunk log, the barrier
+							 * fold, and the live client all name the message the same
+							 * (a continuation still reuses its seed's id — the SDK
+							 * prefers the trailing assistant id over this). Without it,
+							 * the fold and the client-facing stream would each stamp
+							 * their own generated id downstream of the tee, splitting
+							 * the durable id from the rendered one. Stable across retry
+							 * attempts (their duplicate `start` is dropped below). */
+							generateMessageId: () => responseMessageId,
 							/* Stamp the producing model on the assistant message (rides the
 							 * `start` chunk into the client, the chunk log, and the thread
 							 * transcript). `sanitizeHistoricalReasoningParts` reads it on
@@ -2643,8 +2679,11 @@ export async function POST(req: Request) {
 				 * running.) */
 				/* Seal the chunk log FIRST if `finalizeRun` never did: an
 				 * unterminated stream would leave a resuming client tailing a dead
-				 * run until the reconnect endpoint's liveness fallback. Idempotent. */
-				await writer.close().catch(() => {});
+				 * run until the reconnect endpoint's liveness fallback. Idempotent.
+				 * `foldOutcome` here is still "skip" on the prelude-throw path — a
+				 * POST that never owned the thread seals an outcome no reconciler
+				 * consults (its stream never became a thread's marker). */
+				await writer.close(foldOutcome).catch(() => {});
 				/* Close the barrier fold if `finalizeRun` never did (a prelude
 				 * throw): `foldOutcome` is still "skip", so the fold's terminal
 				 * write is a no-op — a POST that never owned the run must not

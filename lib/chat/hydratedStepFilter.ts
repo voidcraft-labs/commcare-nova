@@ -9,19 +9,27 @@
  * (part-open chunks append unconditionally). The correct replay window is a
  * property of the CLIENT'S OWN STATE — which steps its hydrated transcript
  * already holds — so the window lives here, keyed on that state at the moment
- * of the reconnect, not on any server-side guess: a server-computed boundary
+ * of the replay, not on any server-side guess: a server-computed boundary
  * reads the log/row at GET time, and every step completed between the page's
  * RSC hydration and that GET would be silently skipped.
  *
- * Mechanics: the transcript's trailing assistant message carries one
- * `step-start` part per completed step (`countHydratedSteps`). The stream's
- * first chunk is `data-seed-steps`, the server's statement of how many of
- * those steps PRECEDE this stream (nonzero only for an answered-askQuestions
- * continuation, whose stream grows a message earlier streams started). The
- * filter drops step CONTENT until the replay passes
- * `hydratedSteps − seedOffset` `start-step` chunks, then passes everything —
- * so the first step the client doesn't have is the first step it renders,
- * with no gap and no duplication whatever completed in between.
+ * Mechanics — the window is keyed on MESSAGE IDENTITY, never position:
+ *  - The stream's first chunk is `data-seed-steps`, the server's statement of
+ *    how many of the message's steps PRECEDE this stream (nonzero only for an
+ *    answered-askQuestions continuation, whose stream grows a message earlier
+ *    streams started).
+ *  - The replay's `start` chunk carries the id of the message THIS stream
+ *    grows (the route mints it, so it is on the wire before the choke-point
+ *    tee). At that chunk the filter counts the `step-start` parts of the
+ *    client's own copy of THAT id — wherever it sits in the hydrated list, so
+ *    a locally appended trailing user message (a Project-move's retained
+ *    send) can't zero the count, and a stream growing a message the client
+ *    has never seen (a newer turn claimed between hydration and the GET)
+ *    correctly windows nothing.
+ *  - Step content then drops until the replay passes
+ *    `hydratedSteps − seedOffset` `start-step` chunks, and everything passes
+ *    from there — the first step the client doesn't have is the first step it
+ *    renders, with no gap and no duplication whatever completed in between.
  *
  * Three chunk classes always pass, mid-skip or not:
  *  - transient `data-*` chunks: session/event state (conversation events,
@@ -33,12 +41,14 @@
  *  - `message-metadata`: idempotent against the seeded message.
  *
  * A stream with NO `data-seed-steps` chunk (written by a pre-protocol server
- * during a deploy window) passes everything from its first `start-step`: such
- * a server also wrote no mid-run transcript, so a hydrated partial to
- * duplicate does not exist and the full replay is exactly correct.
+ * during a deploy window) passes everything from its `start`: such a server
+ * also wrote no mid-run transcript, so a hydrated partial to duplicate does
+ * not exist and the full replay is exactly correct. A `start` with no
+ * message id resolves to a zero count — replay everything — the same
+ * graceful arm.
  *
- * Everything here is mechanical chunk-TYPE filtering; chunk content is never
- * interpreted.
+ * Everything here is mechanical chunk-TYPE plus id-equality filtering; chunk
+ * content is never otherwise interpreted.
  */
 
 import type { UIMessageChunk } from "ai";
@@ -48,31 +58,41 @@ import type { UIMessageChunk } from "ai";
  *  it is never a message part and inert to every other consumer. */
 export const SEED_STEPS_CHUNK_TYPE = "data-seed-steps";
 
-/** Completed steps the client's transcript already holds: the trailing
- *  assistant message's `step-start` part count (a step's parts are closed by
- *  construction in a barrier-persisted transcript). A trailing user message
- *  means nothing of the in-flight turn is hydrated. */
-export function countHydratedSteps(messages: readonly unknown[]): number {
-	const last = messages[messages.length - 1] as
-		| { role?: unknown; parts?: unknown }
-		| undefined;
-	if (last?.role !== "assistant" || !Array.isArray(last.parts)) return 0;
-	return last.parts.filter(
-		(part) => (part as { type?: unknown }).type === "step-start",
-	).length;
+/** Completed steps of the client's own copy of the message `messageId`
+ *  names: its `step-start` part count (a step's parts are closed by
+ *  construction in a barrier-persisted transcript). Zero when the id is
+ *  absent or names a non-assistant message — nothing hydrated, so nothing to
+ *  skip. */
+export function countHydratedSteps(
+	messages: readonly unknown[],
+	messageId: string | undefined,
+): number {
+	if (messageId === undefined) return 0;
+	for (const message of messages) {
+		const m = message as { id?: unknown; role?: unknown; parts?: unknown };
+		if (m.id !== messageId) continue;
+		if (m.role !== "assistant" || !Array.isArray(m.parts)) return 0;
+		return m.parts.filter(
+			(part) => (part as { type?: unknown }).type === "step-start",
+		).length;
+	}
+	return 0;
 }
 
 /**
  * The stateful per-chunk pass/drop decision — see the module doc. Pure of
  * stream machinery so the windowing rules are directly testable;
  * `createHydratedStepSkipFilter` is its TransformStream wrapper.
+ * `getHydratedMessages` is read once, at the replay's `start` chunk — the
+ * moment the stream declares which message it grows.
  */
 export function createHydratedStepWindow(
-	hydratedSteps: number,
+	getHydratedMessages: () => readonly unknown[],
 ): (chunk: UIMessageChunk) => boolean {
-	let passing = hydratedSteps <= 0;
+	let passing = false;
 	let seedOffset = 0;
 	let sawSeedOffset = false;
+	let skipTarget: number | null = null;
 	let streamStepsSeen = 0;
 	return (chunk) => {
 		if (passing) return true;
@@ -83,9 +103,6 @@ export function createHydratedStepWindow(
 			if (typeof steps === "number" && Number.isFinite(steps)) {
 				sawSeedOffset = true;
 				seedOffset = steps;
-				/* The client's whole transcript predates this stream: nothing
-				 * to skip (the RSC-raced continuation attach lands here). */
-				if (hydratedSteps - seedOffset <= 0) passing = true;
 			}
 			return true;
 		}
@@ -103,36 +120,51 @@ export function createHydratedStepWindow(
 		) {
 			return true;
 		}
-		if (type === "start-step") {
+		if (type === "start") {
 			if (!sawSeedOffset) {
 				/* Pre-protocol stream (deploy window): no seed statement means
 				 * no barrier-persisted partial to collide with — replay all. */
 				passing = true;
 				return true;
 			}
+			const messageId = (chunk as { messageId?: unknown }).messageId;
+			skipTarget =
+				countHydratedSteps(
+					getHydratedMessages(),
+					typeof messageId === "string" ? messageId : undefined,
+				) - seedOffset;
+			if (skipTarget <= 0) passing = true;
+			return true;
+		}
+		if (type === "start-step") {
+			if (skipTarget === null) {
+				/* A step with no preceding `start` — not a shape the route
+				 * writes. Replay everything rather than guess a window. */
+				passing = true;
+				return true;
+			}
 			streamStepsSeen += 1;
-			if (streamStepsSeen > hydratedSteps - seedOffset) {
+			if (streamStepsSeen > skipTarget) {
 				passing = true;
 				return true;
 			}
 			return false;
 		}
 		/* Content of an already-hydrated step (part opens/deltas/closes,
-		 * `start`, `finish-step`, tool chunks): the seeded message holds it. */
+		 * `finish-step`, tool chunks): the seeded message holds it. */
 		return false;
 	};
 }
 
 /**
  * TransformStream dropping the replayed content of steps the client already
- * hydrated. `hydratedSteps` is captured at reconnect time; a
- * transport-internal retry mid-replay keeps the same filter instance, so the
- * window's progress spans the whole reconnect chain.
+ * hydrated. A transport-internal retry mid-replay keeps the same filter
+ * instance, so the window's progress spans the whole reconnect chain.
  */
 export function createHydratedStepSkipFilter(
-	hydratedSteps: number,
+	getHydratedMessages: () => readonly unknown[],
 ): TransformStream<UIMessageChunk, UIMessageChunk> {
-	const passes = createHydratedStepWindow(hydratedSteps);
+	const passes = createHydratedStepWindow(getHydratedMessages);
 	return new TransformStream<UIMessageChunk, UIMessageChunk>({
 		transform(chunk, controller) {
 			if (passes(chunk)) controller.enqueue(chunk);

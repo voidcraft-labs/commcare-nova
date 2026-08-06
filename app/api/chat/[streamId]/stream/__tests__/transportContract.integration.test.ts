@@ -274,7 +274,8 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * in the thread transcript the client hydrated, so `NovaChatTransport`
 		 * (the ChatContainer class) cold-resumes with a FULL replay
 		 * (`startIndex=0`) and drops the already-hydrated steps' content
-		 * client-side, windowed on its own messages at reconnect time — while
+		 * client-side, windowed on its own copy of the message the replay's
+		 * `start` chunk names — while
 		 * transient `data-*` chunks (events, receipts) pass through from chunk
 		 * 0, because they live nowhere but this log. Folding what's left into
 		 * a message seeded from the barrier transcript must not duplicate the
@@ -364,11 +365,12 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			received.push(value);
 		}
 
-		/* The transient receipts replayed from chunk 0; step 1's content — the
-		 * hydrated step — did not. */
+		/* The transient receipts and the identity-bearing `start` replayed from
+		 * chunk 0; step 1's content — the hydrated step — did not. */
 		expect(received.map((c) => c.type)).toEqual([
 			"data-seed-steps",
 			"data-run-id",
+			"start",
 			"start-step",
 			"text-start",
 			"text-delta",

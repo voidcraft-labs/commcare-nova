@@ -107,6 +107,8 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	private broken = false;
 	private sawFinish = false;
 	private closed = false;
+	/** The fold outcome `close()` was given — stamped on the terminal row. */
+	private terminalOutcome: string | undefined;
 
 	constructor(options: DurableStreamWriterOptions) {
 		this.streamId = options.streamId;
@@ -260,9 +262,19 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	 * paths), flush everything buffered, and mark the last row terminal. Runs
 	 * exactly once; the route awaits it at execute end so the terminal row is
 	 * durable before the response closes.
+	 *
+	 * `outcome` is the run's fold outcome, recorded ON the terminal row: the
+	 * seal is proof the run DRAINED (a died process never closes), and the
+	 * outcome says how it ended, so the dead-marker reconciler can retire a
+	 * finished turn's stranded marker instead of re-driving (re-charging) it,
+	 * while a failed turn's stranded marker still reads as an interruption. A
+	 * BROKEN log writes no terminal row at all — an unsealed stream reads as a
+	 * mid-turn death, which is the safe posture once the log stopped telling
+	 * the truth.
 	 */
-	async close(): Promise<void> {
+	async close(outcome?: string): Promise<void> {
 		if (this.closed) return;
+		this.terminalOutcome = outcome;
 		if (!this.sawFinish) this.write({ type: "finish" });
 		this.closed = true;
 		if (this.flushTimer !== null) {
@@ -304,6 +316,9 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 			firstIndex: this.flushedCount,
 			chunks: chunks as unknown[],
 			terminal,
+			...(terminal && this.terminalOutcome !== undefined
+				? { terminalOutcome: this.terminalOutcome }
+				: {}),
 		};
 		try {
 			await appendStreamChunks(append);

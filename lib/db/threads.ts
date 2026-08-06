@@ -17,12 +17,17 @@
  *   2. `persistResponseSnapshot` — at every step barrier (the SDK fold's
  *      `finish-step` callback) and once at stream end. Merges the assembled
  *      assistant message as it grows — completed units only — and at stream
- *      end retires `active_stream_id`, guarded to THIS run's stream, so a
- *      newer claim that beat the final write keeps its own marker and turns.
+ *      end retires `active_stream_id`, the marker clear guarded to THIS
+ *      run's stream, so a newer claim that beat the final write keeps its
+ *      own marker (a terminal write's finished ANSWER still merges — a
+ *      completed unit is the record's to keep — while mid-run barriers stop
+ *      once a successor owns the thread).
  *   3. `clawBackThreadResponse` — a FAILED turn's terminal write: the turn's
- *      message reverts to its pre-run state and the marker clears, in one
- *      transaction. A partial serves nobody (no API resumes a partial turn;
- *      no surface renders one as history), so its removal is not an event.
+ *      message reverts to its pre-run state, the marker clears, and the id
+ *      is TOMBSTONED (`clawed_back_ids`), in one transaction. A partial
+ *      serves nobody (no API resumes a partial turn; no surface renders one
+ *      as history), so its removal is not an event — and the tombstone keeps
+ *      a stale tab's next send from merging the partial right back.
  *
  * All writers are row-locked read-modify-writes (`withAppTx` +
  * `FOR UPDATE`), and the merge writers MERGE by message id
@@ -47,11 +52,12 @@ import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
 import { replaceExactMediaReferencesForApp } from "./apps";
 import { RunHolderLostError } from "./commitGuard";
-import { LEASE_COLUMNS, leaseView } from "./leaseView";
+import { LEASE_COLUMNS, type LeaseRow, leaseView } from "./leaseView";
 import { MediaReferenceProjectionError } from "./mediaAssets";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { exactRunHolderMatches } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
+import { CHAT_STREAM_RETENTION_MS, streamChunkTail } from "./streamChunks";
 import {
 	type ThreadDoc,
 	type ThreadMeta,
@@ -109,30 +115,76 @@ function summarize(messages: UIMessage[]): string {
  *  re-drive claim's dead-partial removal. */
 type StoredMessage = { id?: string; role?: string; parts?: unknown[] };
 
+/** Bound on the per-thread claw-back tombstone list. A thread accumulates one
+ *  entry per claw-back/trim and loses one per re-authored id, so the cap only
+ *  matters under pathological failure spam; oldest entries age out first. */
+const CLAWED_BACK_CAP = 32;
+
+/** Add an id to the tombstone list — deduped, oldest-out past the cap. */
+function withClawedBackId(ids: readonly string[], add: string): string[] {
+	if (ids.includes(add)) return [...ids];
+	const next = [...ids, add];
+	return next.length > CLAWED_BACK_CAP
+		? next.slice(next.length - CLAWED_BACK_CAP)
+		: next;
+}
+
 /**
- * Filter a client-sent history down to what a HISTORY writer may add: user
- * messages freely, assistant messages only when the store already knows the
- * id (the merge then upgrades part STATE, e.g. an answered askQuestions
- * round). An assistant message the store does not know is either a
- * clawed-back failed turn riding a stale client's next send — re-appending
- * it would durably resurrect exactly the partial the claw-back removed — or
- * fabricated assistant content, which no client is a source of: the server's
- * own fold writers (`persistResponseSnapshot`, `clawBackThreadResponse`) are
- * the only authors of assistant messages.
+ * Filter a client-sent history down to what a HISTORY writer may add. User
+ * messages pass freely. Assistant messages are refereed by the thread's
+ * claw-back TOMBSTONES (`clawed_back_ids` — the ids the server deliberately
+ * removed or reverted and has not re-authored since):
+ *
+ *  - An id the server clawed back and DELETED is refused outright: the one
+ *    real source of that message is the failed turn's partial riding a stale
+ *    client's send, and re-appending it would durably resurrect exactly what
+ *    the claw-back removed.
+ *  - An id the server clawed back and REVERTED (a continuation's seed) is
+ *    capped to the stored part count: within-part state still upgrades (an
+ *    answered askQuestions round), but the failed turn's appended partial
+ *    parts are sliced off before the merge — a message's parts are
+ *    append-only within a turn, so the stored-length prefix IS the seed.
+ *  - Every other assistant message merges by id as always, INCLUDING one the
+ *    store doesn't know: that is the self-heal for a turn whose persistence
+ *    writes all failed — the client's copy is the only surviving record, and
+ *    the very next send repairs the store from it.
  */
 function admissibleHistory(
 	stored: StoredMessage[],
 	incoming: UIMessage[],
+	clawedBackIds: readonly string[],
 	ctx: { appId: string; threadId: string },
 ): UIMessage[] {
-	const storedIds = new Set(stored.map((m) => m.id).filter(Boolean));
-	const admitted = incoming.filter(
-		(m) => m.role !== "assistant" || storedIds.has(m.id),
+	if (clawedBackIds.length === 0) return incoming;
+	const clawed = new Set(clawedBackIds);
+	const storedById = new Map(
+		stored.filter((m) => m.id).map((m) => [m.id, m] as const),
 	);
-	if (admitted.length !== incoming.length) {
+	let dropped = 0;
+	let capped = 0;
+	const admitted: UIMessage[] = [];
+	for (const message of incoming) {
+		if (message.role !== "assistant" || !clawed.has(message.id)) {
+			admitted.push(message);
+			continue;
+		}
+		const storedCopy = storedById.get(message.id);
+		if (!storedCopy) {
+			dropped += 1;
+			continue;
+		}
+		const cap = storedCopy.parts?.length ?? 0;
+		if (message.parts.length > cap) {
+			capped += 1;
+			admitted.push({ ...message, parts: message.parts.slice(0, cap) });
+		} else {
+			admitted.push(message);
+		}
+	}
+	if (dropped > 0 || capped > 0) {
 		log.info(
-			"[threads] dropped incoming assistant messages the stored transcript does not know (a clawed-back turn riding a later send)",
-			{ ...ctx, dropped: incoming.length - admitted.length },
+			"[threads] refused client copies of clawed-back assistant messages (a failed turn's partial riding a later send)",
+			{ ...ctx, dropped, capped },
 		);
 	}
 	return admitted;
@@ -267,11 +319,13 @@ export function mergeTranscript(
  * successor already finished). The fresh run's response is the turn's only
  * durable answer.
  *
- * Incoming history is ADMITTED, not trusted (`admissibleHistory`): assistant
- * messages the store doesn't know are dropped before the merge, because the
- * fold writers are the only legitimate authors of assistant content and the
- * one real source of such a message is a clawed-back failed turn riding a
- * stale client's next send.
+ * Incoming history is ADMITTED, not trusted (`admissibleHistory`): a client
+ * copy of a message the server clawed back is refused (deleted ids) or capped
+ * to its stored seed (reverted ids), so a stale tab cannot resurrect a failed
+ * turn's partial — while an id the store has simply lost merges freely, the
+ * self-heal for a turn whose persistence writes all failed. A FRESH thread
+ * admits no assistant messages at all: no server run has ever written to it,
+ * so no client-sent assistant content on it can be authentic.
  */
 export async function upsertThreadTurn(args: {
 	appId: string;
@@ -317,7 +371,7 @@ export async function upsertThreadTurn(args: {
 		}
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "messages", "active_stream_id"])
+			.select(["app_id", "messages", "active_stream_id", "clawed_back_ids"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
@@ -326,7 +380,7 @@ export async function upsertThreadTurn(args: {
 				const stored = (existing.messages ?? []) as StoredMessage[];
 				const merged = mergeTranscript(
 					stored,
-					admissibleHistory(stored, args.messages, {
+					admissibleHistory(stored, args.messages, existing.clawed_back_ids, {
 						appId: args.appId,
 						threadId: args.threadId,
 					}),
@@ -351,11 +405,26 @@ export async function upsertThreadTurn(args: {
 		}
 		if (!existing) {
 			/* Nothing stored yet — a redrive against a fresh thread has no dead
-			 * partial to remove; fall through to the plain insert. */
+			 * partial to remove; fall through to the plain insert. A fresh
+			 * thread admits NO assistant messages: no server run has ever
+			 * written to this thread id, so any assistant content in the
+			 * incoming history is a stale or forged client's — never the fold
+			 * writers', which are the only legitimate authors. */
+			const insertable = args.messages.filter((m) => m.role !== "assistant");
+			if (insertable.length !== args.messages.length) {
+				log.warn(
+					"[threads] dropped assistant messages from a fresh thread's incoming history (no run has ever written to this thread, so no client copy is authentic)",
+					{
+						appId: args.appId,
+						threadId: args.threadId,
+						dropped: args.messages.length - insertable.length,
+					},
+				);
+			}
 			await admitExactThreadMediaProjection(tx, {
 				appId: args.appId,
 				projectId: app.project_id,
-				candidateMessages: args.messages,
+				candidateMessages: insertable,
 				threadId: args.threadId,
 			});
 			await tx
@@ -366,23 +435,26 @@ export async function upsertThreadTurn(args: {
 					created_at: now,
 					updated_at: now,
 					thread_type: args.threadType,
-					summary: summarize(args.messages),
+					summary: summarize(insertable),
 					run_id: args.runId,
 					active_stream_id: args.streamId,
 					active_holder_nonce: args.holderNonce,
-					messages: JSON.stringify(args.messages),
+					messages: JSON.stringify(insertable),
 				})
 				.execute();
 			return true;
 		}
 		let stored = (existing.messages ?? []) as StoredMessage[];
+		let clawedBackIds = existing.clawed_back_ids ?? [];
 		/* The re-drive trim requires the row to STILL carry a marker: an
 		 * interrupted run's marker stands until recovery (the loaders never
 		 * clear it), so its absence proves the turn was NOT left interrupted —
 		 * a completed successor already retired it — and the client's
 		 * `redrive` flag alone must not let a stale tab delete that
 		 * successor's finished answer. (This claim won the app, so any marker
-		 * present belongs to a DEAD run, never a live one.) */
+		 * present belongs to a DEAD run, never a live one.) The trimmed id is
+		 * TOMBSTONED: a tab still holding the dead partial must not merge it
+		 * back on a later send. */
 		if (args.redrive && existing.active_stream_id !== null) {
 			const trailing = stored.at(-1);
 			if (
@@ -391,11 +463,12 @@ export async function upsertThreadTurn(args: {
 				!args.messages.some((m) => m.id === trailing.id)
 			) {
 				stored = stored.slice(0, -1);
+				clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
 			}
 		}
 		const merged = mergeTranscript(
 			stored,
-			admissibleHistory(stored, args.messages, {
+			admissibleHistory(stored, args.messages, clawedBackIds, {
 				appId: args.appId,
 				threadId: args.threadId,
 			}),
@@ -414,6 +487,7 @@ export async function upsertThreadTurn(args: {
 				active_stream_id: args.streamId,
 				active_holder_nonce: args.holderNonce,
 				messages: JSON.stringify(merged),
+				clawed_back_ids: JSON.stringify(clawedBackIds),
 			})
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
@@ -458,7 +532,7 @@ export async function mergeThreadTurnMessages(args: {
 		}
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "messages"])
+			.select(["app_id", "messages", "clawed_back_ids"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
@@ -466,7 +540,7 @@ export async function mergeThreadTurnMessages(args: {
 		const stored = (existing.messages ?? []) as StoredMessage[];
 		const merged = mergeTranscript(
 			stored,
-			admissibleHistory(stored, args.messages, {
+			admissibleHistory(stored, args.messages, existing.clawed_back_ids, {
 				appId: args.appId,
 				threadId: args.threadId,
 			}),
@@ -499,10 +573,17 @@ export async function mergeThreadTurnMessages(args: {
  * barrier write failed and the next one carries both steps.
  *
  * Split guards, deliberately asymmetric:
- *  - The MERGE arm requires the thread's live marker to still name THIS
- *    run's stream (a falsely-reaped run that keeps streaming must not
- *    deposit barrier snapshots into a thread its successor now owns — the
- *    successor's claim may have just REMOVED this run's partial) and is
+ *  - A BARRIER write's merge (`clearMarker: false`) requires the thread's
+ *    live marker to still name THIS run's stream: a falsely-reaped run that
+ *    keeps streaming must not deposit MID-RUN snapshots into a thread its
+ *    successor now owns — the successor's claim may have just REMOVED this
+ *    run's partial, and two live runs' barriers interleaving on one message
+ *    id would corrupt it.
+ *  - A TERMINAL write's merge (`clearMarker: true`) is NOT marker-guarded: a
+ *    completed answer is a finished unit and the record keeps finished
+ *    units, even when a successor claimed the thread mid-write (the false
+ *    reap the successor recovered from does not un-happen this run's real,
+ *    charged answer — the user may have watched it finish). Both merges stay
  *    Project-guarded (an app moved to another Project mid-run stops
  *    contributing content there).
  *  - The MARKER-CLEAR arm is guarded ONLY by `active_stream_id === streamId`
@@ -510,6 +591,10 @@ export async function mergeThreadTurnMessages(args: {
  *    destination after a move (a stranded marker reads as an instance death
  *    and re-drives a finished turn). A newer run's fresh marker is that
  *    run's to clear, never this one's to clobber.
+ *
+ * A merge that lands also CLEARS its message id's claw-back tombstone: this
+ * writer is the fold's own voice, so the id is re-authored server-side and
+ * client copies of it are ordinary history again.
  *
  * No media projection runs here: an assistant message carries no
  * `metadata.attachments` (stripped defensively if one ever appears) and the
@@ -542,7 +627,12 @@ export async function persistResponseSnapshot(args: {
 		if (!app) return;
 		const row = await tx
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "active_holder_nonce"])
+			.select([
+				"messages",
+				"active_stream_id",
+				"active_holder_nonce",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
 			.forUpdate()
@@ -554,12 +644,17 @@ export async function persistResponseSnapshot(args: {
 			args.responseMessage && args.responseMessage.parts.length > 0
 				? args.responseMessage
 				: null;
-		if (responseMessage && row.active_stream_id !== args.streamId) {
-			/* The thread's live marker no longer names this run's stream: a
-			 * successor claimed the turn (a falsely-reaped run's zombie
-			 * barriers land here), or the run's own terminal write already
-			 * retired it. Whatever this snapshot holds is not this thread's
-			 * present to keep. */
+		if (
+			responseMessage &&
+			!args.clearMarker &&
+			row.active_stream_id !== args.streamId
+		) {
+			/* A BARRIER snapshot whose thread marker no longer names this run's
+			 * stream: a successor claimed the turn (a falsely-reaped run's
+			 * zombie barriers land here), or the run's own terminal write
+			 * already retired it. A mid-run partial is not this thread's
+			 * present to keep — but a TERMINAL write's completed answer is,
+			 * so only barrier merges stop here. */
 			responseMessage = null;
 		}
 		if (responseMessage && app.project_id !== args.expectedProjectId) {
@@ -578,6 +673,14 @@ export async function persistResponseSnapshot(args: {
 					responseMessage,
 				])
 			: undefined;
+		/* A landed merge re-authors its id: client copies of it are ordinary
+		 * history again, so the claw-back tombstone (if any) comes off. */
+		const mergedId = responseMessage?.id;
+		const tombstones = row.clawed_back_ids ?? [];
+		const clearedTombstones =
+			mergedId !== undefined && tombstones.includes(mergedId)
+				? tombstones.filter((id) => id !== mergedId)
+				: undefined;
 		await tx
 			.updateTable("threads")
 			.set({
@@ -587,6 +690,9 @@ export async function persistResponseSnapshot(args: {
 					? { active_holder_nonce: null }
 					: {}),
 				...(merged ? { messages: JSON.stringify(merged) } : {}),
+				...(clearedTombstones
+					? { clawed_back_ids: JSON.stringify(clearedTombstones) }
+					: {}),
 			})
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
@@ -615,6 +721,12 @@ export async function persistResponseSnapshot(args: {
  * transcript verbatim) must not smuggle past the media projection. Absent,
  * the run's message was fresh and is deleted outright. The holder nonce
  * always clears — a failed run has no answer POST to keep it for.
+ *
+ * The clawed id is TOMBSTONED (`clawed_back_ids`): the tab that watched the
+ * failure still holds the partial under this id, and its next send would
+ * otherwise merge it right back (richer-version-wins cannot tell a failed
+ * turn's partial from a legitimate continuation). The tombstone stands until
+ * a fold snapshot re-authors the id.
  */
 export async function clawBackThreadResponse(args: {
 	appId: string;
@@ -636,7 +748,7 @@ export async function clawBackThreadResponse(args: {
 		if (!app) return;
 		const row = await tx
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id"])
+			.select(["messages", "active_stream_id", "clawed_back_ids"])
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
 			.forUpdate()
@@ -662,6 +774,9 @@ export async function clawBackThreadResponse(args: {
 				active_stream_id: null,
 				active_holder_nonce: null,
 				messages: JSON.stringify(reverted),
+				clawed_back_ids: JSON.stringify(
+					withClawedBackId(row.clawed_back_ids ?? [], args.messageId),
+				),
 			})
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
@@ -691,65 +806,97 @@ export async function clawBackThreadResponse(args: {
  * happens. Fails OPEN on a liveness read fault (a transient blip must not
  * hide a genuinely live run from the resume path).
  *
- * One refinement keeps a COMPLETED turn out of the re-drive: a dead marker on
- * a BUILD thread whose app reached `complete` under the same claim
- * (`apps.run_id` still names this thread's run — only `completeAndSettleRun`
- * or its false-reap self-heal flips a build to `complete` with that identity
- * intact) proves the run FINISHED and only its marker-clear write was lost.
- * The marker is stripped WITHOUT the interruption stamp, so the finished
- * answer is neither destroyed nor re-charged by an auto-re-drive. An EDIT
- * thread has no such completion breadcrumb (its app is `complete`
- * throughout), so a completed edit's stranded marker still reads as an
- * interruption — the route's terminal-write retries make that a
- * several-consecutive-failures event.
+ * The FINISHED-vs-DIED call reads the chunk log's SEAL: the stream writer's
+ * close — called only by finalize, which a dead process never reaches —
+ * stamps the run's fold outcome on the terminal row. A stranded marker whose
+ * stream is sealed `completed`/`paused` belongs to a FINISHED turn that only
+ * lost its marker-clear write (build or edit alike): it projects retired,
+ * with no interruption stamp, so the finished answer is neither destroyed
+ * nor re-charged by an auto-re-drive. A sealed `failed` stream is a failed
+ * turn whose claw-back never landed — the interruption stamp stands so the
+ * re-drive claim can remove the partial (the deliberate degraded-recovery
+ * path). An UNSEALED stream (rows but no terminal row, or no rows on a
+ * recent marker) is a mid-turn death — the interruption stamp is the whole
+ * point. A marker older than the chunk-log retention with NO rows left has
+ * outlived its evidence: it projects retired, because the destructive arm
+ * (auto-re-drive deletes the trailing answer and re-charges) must never run
+ * on guesswork.
  */
 async function reconcileDeadMarkers<
 	T extends {
 		thread_id: string;
 		active_stream_id: string | null;
-		thread_type: string;
-		run_id: string;
+		updated_at: string;
 	},
->(appId: string, rows: T[]): Promise<(T & { resume_interrupted?: boolean })[]> {
+>(
+	appId: string,
+	rows: T[],
+	/** The caller's own fresh lease read, when it has one (`loadThread` shares
+	 * a single snapshot between this reconcile and its `run_paused`/nonce
+	 * projection, so the two stamps can never disagree about one moment). */
+	preReadLease?: { row: LeaseRow | undefined },
+): Promise<(T & { resume_interrupted?: boolean })[]> {
 	const marked = rows.filter((row) => row.active_stream_id !== null);
 	if (marked.length === 0) return rows;
-	let app: { status: string; run_id: string | null } | undefined;
-	try {
-		const db = await getAppDb();
-		const row = await db
-			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
-			.where("id", "=", appId)
-			.executeTakeFirst();
-		if (row && runLeaseState(leaseView(row)).live) return rows;
-		app = row;
-	} catch {
-		return rows;
-	}
-	return rows.map((row) => {
-		if (row.active_stream_id === null) return row;
-		if (
-			row.thread_type === "build" &&
-			app?.status === "complete" &&
-			app.run_id === row.run_id
-		) {
-			log.warn(
-				"[threads] stranded marker on a completed build; projecting it retired instead of interrupted",
-				{ appId, threadId: row.thread_id, streamId: row.active_stream_id },
-			);
-			return { ...row, active_stream_id: null };
+	if (preReadLease) {
+		const row = preReadLease.row;
+		if (row && runLeaseState(leaseView(row)).live) {
+			return rows;
 		}
-		/* The event-log breadcrumb for an instance death: a run claimed this
-		 * thread's turn and never finalized. Fires on every read until a
-		 * re-drive retires the marker — bounded by page loads, and the
-		 * repetition is itself the "still unrecovered" signal. */
-		log.warn("[threads] detected a dead live-stream marker", {
-			appId,
-			threadId: row.thread_id,
-			streamId: row.active_stream_id,
-		});
-		return { ...row, active_stream_id: null, resume_interrupted: true };
-	});
+	} else {
+		try {
+			const db = await getAppDb();
+			const row = await db
+				.selectFrom("apps")
+				.select(LEASE_COLUMNS)
+				.where("id", "=", appId)
+				.executeTakeFirst();
+			if (row && runLeaseState(leaseView(row)).live) return rows;
+		} catch {
+			return rows;
+		}
+	}
+	return Promise.all(
+		rows.map(async (row) => {
+			if (row.active_stream_id === null) return row;
+			let tail: Awaited<ReturnType<typeof streamChunkTail>>;
+			try {
+				tail = await streamChunkTail(row.active_stream_id);
+			} catch {
+				/* Fail OPEN, like the lease read: a transient blip must not
+				 * stamp the destructive re-drive arm. The marker stays in the
+				 * projection; the reconnect endpoint's liveness fallback closes
+				 * any tail attempt, and the next load re-reads. */
+				return row;
+			}
+			const sealedFinished =
+				tail?.terminal === true &&
+				(tail.terminalOutcome === "completed" ||
+					tail.terminalOutcome === "paused");
+			const evidenceExpired =
+				tail === null &&
+				Date.now() - Date.parse(row.updated_at) >= CHAT_STREAM_RETENTION_MS;
+			if (sealedFinished || evidenceExpired) {
+				log.warn(
+					sealedFinished
+						? "[threads] stranded marker on a finished run (sealed stream); projecting it retired instead of interrupted"
+						: "[threads] stranded marker outlived its chunk-log evidence; projecting it retired instead of interrupted",
+					{ appId, threadId: row.thread_id, streamId: row.active_stream_id },
+				);
+				return { ...row, active_stream_id: null };
+			}
+			/* The event-log breadcrumb for an instance death: a run claimed this
+			 * thread's turn and never finalized. Fires on every read until a
+			 * re-drive retires the marker — bounded by page loads, and the
+			 * repetition is itself the "still unrecovered" signal. */
+			log.warn("[threads] detected a dead live-stream marker", {
+				appId,
+				threadId: row.thread_id,
+				streamId: row.active_stream_id,
+			});
+			return { ...row, active_stream_id: null, resume_interrupted: true };
+		}),
+	);
 }
 
 /**
@@ -817,24 +964,27 @@ export async function loadThread(
 		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
 	if (!row) return null;
-	const [reconciled] = await reconcileDeadMarkers(appId, [row]);
-	const { active_holder_nonce: storedHolderNonce, ...publicRow } = reconciled;
-	const doc = threadDocSchema.parse(publicRow);
-	/* One fresh lease read powers two projections. `run_paused` reports the
-	 * app's ACTUAL awaiting-input posture for this thread's run (see
-	 * `LoadedThread`) and needs no actor. The continuation nonce is projected
-	 * only to the actor who owns the run — the paused round's answering
-	 * actor, or a LIVE run's holding actor (a rewound tail replay starts past
-	 * the chunk that carried the nonce marker, so the owner re-seeds it from
-	 * here at activation). A co-member who can view the same transcript
-	 * receives no nonce. */
-	let holderNonce: string | undefined;
-	let runPaused = false;
+	/* ONE fresh lease read powers the dead-marker reconcile AND both
+	 * projections below, so `resume_interrupted` and `run_paused` always
+	 * derive from the same snapshot — a claim or pause landing between two
+	 * separate reads would otherwise hand the client stamps that never
+	 * coexisted. `run_paused` reports the app's ACTUAL awaiting-input posture
+	 * for this thread's run (see `LoadedThread`) and needs no actor. The
+	 * continuation nonce is projected only to the actor who owns the run —
+	 * the paused round's answering actor, or a LIVE run's holding actor (a
+	 * cold-resume replay redacts the chunk that carried the nonce marker for
+	 * every other viewer, so the owner re-seeds it from here at activation).
+	 * A co-member who can view the same transcript receives no nonce. */
 	const app = await db
 		.selectFrom("apps")
 		.select(LEASE_COLUMNS)
 		.where("id", "=", appId)
 		.executeTakeFirst();
+	const [reconciled] = await reconcileDeadMarkers(appId, [row], { row: app });
+	const { active_holder_nonce: storedHolderNonce, ...publicRow } = reconciled;
+	const doc = threadDocSchema.parse(publicRow);
+	let holderNonce: string | undefined;
+	let runPaused = false;
 	if (app) {
 		const lease = runLeaseState(leaseView(app));
 		const identity = lease.holderIdentity;

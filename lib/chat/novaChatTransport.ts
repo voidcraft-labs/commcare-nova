@@ -5,9 +5,10 @@
  * The subclass overrides exactly one path — the public `reconnectToStream`,
  * which only the cold resume calls (`useChat`'s `resumeStream` on a page that
  * hydrated the barrier-persisted transcript). Its full-log replay pipes
- * through the hydrated-step skip filter, with the step count read at CALL
- * time from the live Chat state, so the window is always the client's own
- * truth at the moment of the reconnect.
+ * through the hydrated-step skip filter, which reads the live Chat state at
+ * the replay's `start` chunk — the moment the stream declares which message
+ * it grows — so the window is always the client's own truth about that exact
+ * message.
  *
  * The transport's INTERNAL recovery — a POST whose response broke before the
  * `finish` chunk — deliberately does not pass through here: that client built
@@ -25,10 +26,7 @@ import type {
 } from "@ai-sdk/workflow";
 import { WorkflowChatTransport } from "@ai-sdk/workflow";
 import type { ChatRequestOptions, UIMessage, UIMessageChunk } from "ai";
-import {
-	countHydratedSteps,
-	createHydratedStepSkipFilter,
-} from "./hydratedStepFilter";
+import { createHydratedStepSkipFilter } from "./hydratedStepFilter";
 
 export class NovaChatTransport<
 	UI_MESSAGE extends UIMessage,
@@ -37,7 +35,7 @@ export class NovaChatTransport<
 
 	constructor(
 		options: WorkflowChatTransportOptions<UI_MESSAGE>,
-		/** The Chat's CURRENT messages — read per reconnect, never captured:
+		/** The Chat's CURRENT messages — read per replay, never captured:
 		 *  the filter must window on what the client holds at that moment. */
 		hydratedMessages: () => readonly unknown[],
 	) {
@@ -51,7 +49,7 @@ export class NovaChatTransport<
 		const stream = await super.reconnectToStream(options);
 		if (!stream) return stream;
 		return stream.pipeThrough(
-			createHydratedStepSkipFilter(countHydratedSteps(this.hydratedMessages())),
+			createHydratedStepSkipFilter(this.hydratedMessages),
 		);
 	}
 }

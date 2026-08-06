@@ -83,32 +83,43 @@ type ProjectToastEmitter = (
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/** The transcript's trailing askQuestions posture, read off the LAST step of
- *  a trailing assistant message: `answered` (every ask has its output — the
- *  auto-resend shape, whose answers live in that trailing message),
- *  `awaiting-input` (the interactive card is up, unanswered), or `none`.
- *  Accepts both live `UIMessage[]` and the loose stored thread shape; parts
- *  are inspected structurally by wire type only. */
-function trailingAskPosture(
+/** The one structural read of "the trailing assistant message's parts",
+ *  shared by every trailing-shape decision below so the extraction cannot
+ *  drift between them. Accepts both live `UIMessage[]` and the loose stored
+ *  thread shape; null when the transcript doesn't end on an assistant
+ *  message. */
+function trailingAssistantParts(
 	messages: readonly unknown[],
-): "answered" | "awaiting-input" | "none" {
+): readonly unknown[] | null {
 	const last = messages[messages.length - 1] as
 		| { role?: unknown; parts?: unknown }
 		| undefined;
-	if (last?.role !== "assistant" || !Array.isArray(last.parts)) return "none";
+	if (last?.role !== "assistant" || !Array.isArray(last.parts)) return null;
+	return last.parts;
+}
+
+/** The askQuestions wire vocabulary, spelled once for every scanner. */
+const isAskPart = (p: unknown): boolean =>
+	(p as { type?: unknown }).type === "tool-askQuestions";
+const isAnsweredAskPart = (p: unknown): boolean =>
+	(p as { state?: unknown }).state === "output-available";
+
+/** The transcript's trailing askQuestions posture, read off the LAST step of
+ *  a trailing assistant message: `answered` (every ask has its output, the
+ *  auto-resend shape, whose answers live in that trailing message),
+ *  `awaiting-input` (the interactive card is up, unanswered), or `none`. */
+function trailingAskPosture(
+	messages: readonly unknown[],
+): "answered" | "awaiting-input" | "none" {
+	const parts = trailingAssistantParts(messages);
+	if (!parts) return "none";
 	let lastStepIdx = -1;
-	last.parts.forEach((p, i) => {
+	parts.forEach((p, i) => {
 		if ((p as { type?: unknown }).type === "step-start") lastStepIdx = i;
 	});
-	const askParts = last.parts
-		.slice(lastStepIdx + 1)
-		.filter((p) => (p as { type?: unknown }).type === "tool-askQuestions");
+	const askParts = parts.slice(lastStepIdx + 1).filter(isAskPart);
 	if (askParts.length === 0) return "none";
-	return askParts.every(
-		(p) => (p as { state?: unknown }).state === "output-available",
-	)
-		? "answered"
-		: "awaiting-input";
+	return askParts.every(isAnsweredAskPart) ? "answered" : "awaiting-input";
 }
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -195,7 +206,7 @@ export function mergeRetainedUserTextSuffix(
  * live view already rendered: for a shared assistant message id, keep the
  * LOCAL copy when it holds MORE parts than the stored one (the fold's
  * terminal write can fail after the resume delivered the full answer, leaving
- * the row at its last barrier — wholesale adoption would visibly truncate an
+ * the row at its last barrier; wholesale adoption would visibly truncate an
  * answer the user just watched finish, and the next send's history would
  * carry the truncation forward). Stored order and membership stay
  * authoritative; local-only messages are NOT appended (a clawed-back failed
@@ -251,7 +262,7 @@ export function chatCallbackCanPublish(
  *  no live run holds (a run killed mid-turn); level-triggered server-side (it
  *  stands until a re-drive's run retires the marker), consumed once per
  *  activation here. `run_paused`: the app's current holder is this thread's
- *  run AND it is parked awaiting an askQuestions answer — the ACTUAL pause
+ *  run AND it is parked awaiting an askQuestions answer: the ACTUAL pause
  *  posture, which transcript shape alone cannot reveal. */
 type LoadedThreadDoc = ThreadDoc & {
 	resume_interrupted?: boolean;
@@ -262,19 +273,19 @@ type LoadedThreadDoc = ThreadDoc & {
  *  persistence means a dead run's transcript can end on a PARTIAL assistant
  *  message, so the trigger is the server's interruption stamp, refined by the
  *  askQuestions parts of the WHOLE trailing assistant message (not just its
- *  last step — a died continuation can have completed steps AFTER the
+ *  last step: a died continuation can have completed steps AFTER the
  *  answered round, and slicing to the last step would misread that message
  *  as ask-free):
  *
  *   - ANY answered ask part blocks the auto-re-drive: `regenerate()` trims
  *     the entire trailing assistant message, and that message is where the
- *     user's answers live — re-driving would destroy them and re-ask. The
+ *     user's answers live, so re-driving would destroy them and re-ask. The
  *     user recovers by sending a new message (matching what the old
  *     trailing-role guard did for this same death).
  *   - An UNANSWERED round blocks only while the run is GENUINELY paused
  *     (`run_paused`): a paused round resumes through the answer POST. A
  *     question round whose run died BEFORE it could pause shows the same
- *     card but is not paused — re-driving it (and re-asking) is correct
+ *     card but is not paused, so re-driving it (and re-asking) is correct
  *     recovery.
  */
 export function shouldAutoRedrive(
@@ -284,20 +295,10 @@ export function shouldAutoRedrive(
 	>,
 ): boolean {
 	if (thread.resume_interrupted !== true) return false;
-	const last = thread.messages[thread.messages.length - 1] as
-		| { role?: unknown; parts?: unknown }
-		| undefined;
-	if (last?.role !== "assistant" || !Array.isArray(last.parts)) return true;
-	const askParts = last.parts.filter(
-		(p) => (p as { type?: unknown }).type === "tool-askQuestions",
-	);
-	if (
-		askParts.some(
-			(p) => (p as { state?: unknown }).state === "output-available",
-		)
-	) {
-		return false;
-	}
+	const parts = trailingAssistantParts(thread.messages);
+	if (!parts) return true;
+	const askParts = parts.filter(isAskPart);
+	if (askParts.some(isAnsweredAskPart)) return false;
 	return !(askParts.length > 0 && thread.run_paused === true);
 }
 
@@ -534,7 +535,7 @@ function createChatInstance(
 
 	/* The filter's step count must be the Chat's LIVE state at each reconnect
 	 * (a heal can re-activate with fresher hydration than `init.messages`),
-	 * but the transport is constructed before the Chat exists — so it reads
+	 * but the transport is constructed before the Chat exists, so it reads
 	 * through this box, re-pointed at the instance below. */
 	let hydratedMessages: () => readonly unknown[] = () => init.messages;
 	const transport = new NovaChatTransport<NovaUIMessage>(
@@ -603,8 +604,8 @@ function createChatInstance(
 		 * The Nova subclass covers barrier persistence's one wrinkle: a COLD
 		 * resume (page refresh onto a live run) hydrated the completed steps
 		 * from the thread row, so its full replay is windowed CLIENT-side
-		 * against this Chat's own messages at reconnect time
-		 * (`lib/chat/hydratedStepFilter`) — no duplicated parts, no
+		 * against this Chat's own copy of the message the replay's `start`
+		 * chunk names (`lib/chat/hydratedStepFilter`): no duplicated parts, no
 		 * server-guessed boundary to race the hydration, and every transient
 		 * `data-*` chunk (events, receipts) still replays. The send path's own
 		 * broken-POST recovery is deliberately untouched: that client built
@@ -1259,7 +1260,7 @@ export function ChatContainer({
 	 * deploy kill, an OOM: the reaper already refunded it). Re-run the turn
 	 * through the normal POST/claim/charge machinery so, from the user's
 	 * side, the response simply arrives. `regenerate()` trims a trailing
-	 * assistant message from the SENT history — under barrier persistence
+	 * assistant message from the SENT history. Under barrier persistence
 	 * that is the dead run's PARTIAL, which the re-drive's claim also removes
 	 * from the stored record (a partial is never the turn's answer; the
 	 * fresh run's response is). The shapes that must NOT be trimmed never
@@ -1278,9 +1279,9 @@ export function ChatContainer({
 
 	/* The post-resume heal: ONE authoritative refetch per activation, fired
 	 * whenever a resume or re-drive closes. Under barrier persistence the
-	 * transcript's shape can't decide whether healing is needed — every
+	 * transcript's shape can't decide whether healing is needed (every
 	 * persisted part is in a closed state, so a dead run's partial answer is
-	 * indistinguishable from a finished one by looking — so the close itself
+	 * indistinguishable from a finished one by looking), so the close itself
 	 * is the trigger and the refetched server stamps
 	 * (`resume_interrupted` / `run_paused` / a live marker) drive what
 	 * happens next. This is also the bound on a barrier write that lagged or
@@ -1314,13 +1315,20 @@ export function ChatContainer({
 			 * right now: the shape a lost re-drive race leaves behind (this
 			 * send bailed clean while the winner streams). Attach to it: swap in
 			 * the fetched transcript and resume the winner's stream by thread
-			 * id, exactly as a page load over a live run would. */
+			 * id, exactly as a page load over a live run would. Adoption keeps a
+			 * richer LOCAL assistant copy here too: the stored row can lag an
+			 * answer this client already rendered in full (a lost terminal
+			 * write), and the winner's stream replays its own turn, never the
+			 * older one's missing tail. */
 			if (thread.active_stream_id != null) {
 				setChat(
 					activateThread(
 						{
 							threadId: thread.thread_id,
-							messages: thread.messages as NovaUIMessage[],
+							messages: adoptTranscriptKeepingRicherLocal(
+								thread.messages as NovaUIMessage[],
+								messagesRef.current,
+							),
 						},
 						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
 					),

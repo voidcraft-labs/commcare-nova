@@ -121,7 +121,7 @@ describe("authoritative thread activation", () => {
 	it("never re-drives an answered round buried under a later completed step (a died continuation)", () => {
 		/* The continuation appended a completed step to the SAME message after
 		 * the answered round, then died. The ask parts are no longer in the
-		 * message's LAST step — but the user's answers still live in the
+		 * message's LAST step, but the user's answers still live in the
 		 * message a re-drive would trim, so the WHOLE message is scanned. */
 		expect(
 			authoritativeThreadActivationOptions(
@@ -189,7 +189,7 @@ describe("authoritative thread activation", () => {
 			),
 		).toMatchObject({ redrive: false });
 		/* Died before it could pause: the card shows but nothing can answer
-		 * it — re-driving (and re-asking) is correct recovery. */
+		 * it, so re-driving (and re-asking) is correct recovery. */
 		expect(authoritativeThreadActivationOptions(askRound, true)).toMatchObject({
 			redrive: true,
 		});

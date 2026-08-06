@@ -40,6 +40,7 @@ import type { MediaAssetId } from "@/lib/domain";
 import { RunHolderLostError } from "../commitGuard";
 import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { getAppDb } from "../pg";
+import { appendStreamChunks } from "../streamChunks";
 import {
 	clawBackThreadResponse,
 	listThreadMetas,
@@ -459,12 +460,11 @@ describe("upsertThreadTurn", () => {
 		expect(doc?.created_at).toBe(before?.created_at);
 	});
 
-	it("drops incoming assistant messages the store doesn't know — a clawed-back partial can't ride back in", async () => {
-		/* A failed run's claw-back removed its partial from the durable record,
-		 * but the tab that watched it stream still holds it in memory. Its next
-		 * send carries the partial mid-history; the claim must not durably
-		 * resurrect it — assistant content has exactly one set of authors (the
-		 * fold writers), and a claim admits only what the store already knows. */
+	it("refuses a clawed-back partial riding a later send (the tombstone)", async () => {
+		/* A failed run's claw-back removed its partial from the durable record
+		 * and tombstoned the id, but the tab that watched it stream still holds
+		 * it in memory. Its next send carries the partial mid-history; the
+		 * claim must not durably resurrect exactly what the claw-back removed. */
 		await upsertThreadTurn({
 			appId: APP,
 			threadId: T1,
@@ -473,6 +473,20 @@ describe("upsertThreadTurn", () => {
 			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "first ask")],
+		});
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			expectedProjectId: "project-test",
+			responseMessage: assistantMsg("m-clawed", "half an ans"),
+			clearMarker: false,
+		});
+		await clawBackThreadResponse({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			messageId: "m-clawed",
 		});
 
 		await upsertThreadTurn({
@@ -493,10 +507,194 @@ describe("upsertThreadTurn", () => {
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 	});
 
+	it("admits an assistant message the store lost (the self-heal), because it was never clawed back", async () => {
+		/* Every persistence write of a completed turn failed: the store never
+		 * learned the answer's id, and the live client is the only surviving
+		 * record. The next send's history repairs the store — an unknown id
+		 * with no tombstone is exactly that repair, never a resurrection. */
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-1",
+			streamId: "stream-1",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "first ask")],
+		});
+
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-2",
+			streamId: "stream-2",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [
+				userMsg("m1", "first ask"),
+				assistantMsg("m-lost", "the answer every write dropped"),
+				userMsg("m2", "next turn"),
+			],
+		});
+
+		const doc = await loadThread(APP, T1);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m-lost", "m2"]);
+	});
+
+	it("caps a tombstoned continuation to its stored seed while its answers still land", async () => {
+		/* A continuation failed mid-stream and clawed back to its 2-part seed.
+		 * The tab that watched the failure holds the same id with the seed PLUS
+		 * the failed turn's partial parts; its next send may upgrade part STATE
+		 * within the seed (the user's answers) but never re-grow the message. */
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-1",
+			streamId: "stream-1",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "ask")],
+		});
+		const seed = {
+			id: "m2",
+			role: "assistant",
+			parts: [
+				{ type: "text", text: "question round" },
+				{ type: "text", text: "ask card" },
+			],
+		} as UIMessage;
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			expectedProjectId: "project-test",
+			responseMessage: seed,
+			clearMarker: false,
+		});
+		await clawBackThreadResponse({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			messageId: "m2",
+			revertTo: seed,
+		});
+
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-2",
+			streamId: "stream-2",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [
+				userMsg("m1", "ask"),
+				{
+					id: "m2",
+					role: "assistant",
+					parts: [
+						{ type: "text", text: "question round" },
+						{ type: "text", text: "ask card ANSWERED" },
+						{ type: "text", text: "the failed turn's partial" },
+						{ type: "text", text: "more partial" },
+					],
+				} as UIMessage,
+			],
+		});
+
+		const doc = await loadThread(APP, T1);
+		const m2 = doc?.messages[1] as UIMessage | undefined;
+		expect(m2?.parts).toHaveLength(2);
+		expect(m2?.parts.map((p) => (p.type === "text" ? p.text : p.type))).toEqual(
+			["question round", "ask card ANSWERED"],
+		);
+	});
+
+	it("a fold snapshot re-authors a tombstoned id, clearing its tombstone", async () => {
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-1",
+			streamId: "stream-1",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "ask")],
+		});
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			expectedProjectId: "project-test",
+			responseMessage: assistantMsg("m2", "partial"),
+			clearMarker: false,
+		});
+		await clawBackThreadResponse({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			messageId: "m2",
+		});
+		const db = await getAppDb();
+		const tombstoned = await db
+			.selectFrom("threads")
+			.select("clawed_back_ids")
+			.where("thread_id", "=", T1)
+			.executeTakeFirstOrThrow();
+		expect(tombstoned.clawed_back_ids).toEqual(["m2"]);
+
+		/* A new run re-claims and its fold writes the SAME id (a continuation
+		 * retry): the id is server-authored again. */
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-2",
+			streamId: "stream-2",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "ask")],
+		});
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-2",
+			expectedProjectId: "project-test",
+			responseMessage: assistantMsg("m2", "the retried answer"),
+			clearMarker: true,
+		});
+		const cleared = await db
+			.selectFrom("threads")
+			.select("clawed_back_ids")
+			.where("thread_id", "=", T1)
+			.executeTakeFirstOrThrow();
+		expect(cleared.clawed_back_ids).toEqual([]);
+	});
+
+	it("a FRESH thread admits no assistant history at all", async () => {
+		/* No server run has ever written to a brand-new thread id, so any
+		 * assistant content in its incoming history is a stale or forged
+		 * client's — never the fold writers'. */
+		const written = await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-1",
+			streamId: "stream-1",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [
+				assistantMsg("m-forged", "Nova said something it never said"),
+				userMsg("m1", "build it"),
+			],
+		});
+		expect(written).toBe(true);
+
+		const doc = await loadThread(APP, T1);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
+		expect(doc?.summary).toBe("build it");
+	});
+
 	it("MERGES a stale client's history instead of erasing other sessions' turns", async () => {
-		/* Session A persisted a full exchange; session B (hydrated before it,
-		 * never re-fetched) sends its own turn on top of the OLD history. The
-		 * durable transcript must keep A's exchange AND gain B's turn. */
+		/* Session A persisted a full exchange (its answer landed through the
+		 * fold's snapshot writer, as in production); session B (hydrated before
+		 * it, never re-fetched) sends its own turn on top of the OLD history.
+		 * The durable transcript must keep A's exchange AND gain B's turn. */
 		await upsertThreadTurn({
 			appId: APP,
 			threadId: T1,
@@ -504,11 +702,15 @@ describe("upsertThreadTurn", () => {
 			streamId: "stream-a",
 			holderNonce: NONCE,
 			threadType: "build",
-			messages: [
-				userMsg("m1", "first ask"),
-				userMsg("m2", "session A's turn"),
-				assistantMsg("m3", "session A's answer"),
-			],
+			messages: [userMsg("m1", "first ask"), userMsg("m2", "session A's turn")],
+		});
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-a",
+			expectedProjectId: "project-test",
+			responseMessage: assistantMsg("m3", "session A's answer"),
+			clearMarker: true,
 		});
 
 		await upsertThreadTurn({
@@ -534,17 +736,22 @@ describe("upsertThreadTurn", () => {
 			streamId: "stream-a",
 			holderNonce: NONCE,
 			threadType: "build",
-			messages: [
-				userMsg("m1", "ask"),
-				{
-					id: "m2",
-					role: "assistant",
-					parts: [
-						{ type: "text", text: "question round" },
-						{ type: "text", text: "continuation answer" },
-					],
-				},
-			],
+			messages: [userMsg("m1", "ask")],
+		});
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-a",
+			expectedProjectId: "project-test",
+			responseMessage: {
+				id: "m2",
+				role: "assistant",
+				parts: [
+					{ type: "text", text: "question round" },
+					{ type: "text", text: "continuation answer" },
+				],
+			} as UIMessage,
+			clearMarker: true,
 		});
 
 		// A stale copy of m2 (one part) must not regress the stored two-part one.
@@ -827,13 +1034,15 @@ describe("persistResponseSnapshot", () => {
 		expect(stored?.metadata).toEqual({ model: "sol" });
 	});
 
-	it("refuses BOTH arms once a newer claim owns the thread (a zombie's late write deposits nothing)", async () => {
-		/* The app releases (or is falsely reaped) before this run's write
-		 * lands, and a competing POST claims + persists its turn first. The
-		 * old run's late write — a barrier snapshot or its terminal merge —
-		 * must deposit NOTHING: its content is not this thread's present to
-		 * keep (a re-drive's claim may have just REMOVED this very message),
-		 * and the new run's marker is not its to clear. */
+	it("refuses a zombie's BARRIER merge, lands its TERMINAL answer, and never touches the successor's marker", async () => {
+		/* The app is falsely reaped mid-run and a competing POST claims +
+		 * persists its turn. The old run keeps streaming: its mid-run BARRIER
+		 * snapshots must deposit NOTHING (a partial is not this thread's
+		 * present to keep, and two live runs' barriers interleaving on one id
+		 * would corrupt it) — but its TERMINAL merge is a finished, charged
+		 * answer the user may have watched complete, and the record keeps
+		 * finished units. The successor's marker is never the old run's to
+		 * clear either way. */
 		await upsertThreadTurn({
 			appId: APP,
 			threadId: T1,
@@ -852,12 +1061,22 @@ describe("persistResponseSnapshot", () => {
 			threadId: T1,
 			streamId: "stream-1", // the OLD run's stream — no longer the marker
 			expectedProjectId: "project-test",
-			responseMessage: assistantMsg("m2", "the old run's answer"),
+			responseMessage: assistantMsg("m2-partial", "a zombie barrier"),
+			clearMarker: false,
+		});
+		let doc = await loadThread(APP, T1);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m3"]);
+
+		await persistResponseSnapshot({
+			appId: APP,
+			threadId: T1,
+			streamId: "stream-1",
+			expectedProjectId: "project-test",
+			responseMessage: assistantMsg("m2", "the old run's finished answer"),
 			clearMarker: true,
 		});
-
-		const doc = await loadThread(APP, T1);
-		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m3"]);
+		doc = await loadThread(APP, T1);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m3", "m2"]);
 		// The newer run is still resumable — its marker survived.
 		expect(doc?.active_stream_id).toBe("stream-2");
 	});
@@ -1329,14 +1548,14 @@ describe("loaders", () => {
 			streamId: "s1",
 			holderNonce: NONCE,
 			threadType: "build",
-			messages: [userMsg("m1", "older"), assistantMsg("m2", "ok")],
+			messages: [userMsg("m1", "older")],
 		});
 		await persistResponseSnapshot({
 			appId: APP,
 			threadId: "t-old",
 			streamId: "s1",
 			expectedProjectId: "project-test",
-			responseMessage: null,
+			responseMessage: assistantMsg("m2", "ok"),
 			clearMarker: true,
 		});
 		await upsertThreadTurn({
@@ -1466,57 +1685,78 @@ describe("loaders", () => {
 		expect(doc?.resume_interrupted).toBe(true);
 	});
 
-	it("projects a stranded marker on a COMPLETED build retired — never as an interruption", async () => {
-		/* The app reached `complete` under the SAME claim the thread's run
-		 * made (`apps.run_id` matches): only the run's own completion writer
-		 * flips a build to `complete` with that identity intact, so the run
+	it("projects a stranded marker on a FINISHED run retired — build and edit alike (the sealed stream is the breadcrumb)", async () => {
+		/* The stream writer's close — reached only through finalize, which a
+		 * dead process never runs — sealed the chunk log with the run's fold
+		 * outcome. A stranded marker over a `completed` seal means the run
 		 * FINISHED and just its marker-clear write was lost. Stamping
 		 * `resume_interrupted` here would auto-re-drive a finished answer:
 		 * destroy it (the re-drive trims the trailing assistant) and
-		 * re-charge the turn. */
+		 * re-charge the turn. The breadcrumb is the SEAL, not the app's build
+		 * status, so a completed EDIT turn is protected identically. */
 		const doneApp = await h.seedApp({
 			id: "app-done-stranded",
 			status: "complete",
 			run_id: "run-done",
 		});
-		await (await getAppDb())
-			.insertInto("threads")
-			.values({
-				thread_id: "t-done-stranded",
-				app_id: doneApp,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "build",
-				summary: "finished, marker stranded",
-				run_id: "run-done",
-				active_stream_id: "stream-done",
-				active_holder_nonce: null,
-				messages: JSON.stringify([
-					userMsg("m1", "build me an app"),
-					assistantMsg("m2", "the finished answer"),
-				]),
-			})
-			.execute();
+		const db = await getAppDb();
+		const seedThread = (threadId: string, threadType: string) =>
+			db
+				.insertInto("threads")
+				.values({
+					thread_id: threadId,
+					app_id: doneApp,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString(),
+					thread_type: threadType,
+					summary: "finished, marker stranded",
+					run_id: "run-done",
+					active_stream_id: `stream-${threadId}`,
+					active_holder_nonce: null,
+					messages: JSON.stringify([
+						userMsg("m1", "build me an app"),
+						assistantMsg("m2", "the finished answer"),
+					]),
+				})
+				.execute();
+		await seedThread("t-done-build", "build");
+		await seedThread("t-done-edit", "edit");
+		for (const threadId of ["t-done-build", "t-done-edit"]) {
+			await appendStreamChunks({
+				streamId: `stream-${threadId}`,
+				appId: doneApp,
+				runId: "run-done",
+				firstIndex: 0,
+				chunks: [{ type: "finish" }],
+				terminal: true,
+				terminalOutcome: "completed",
+			});
+		}
 
-		const doc = await loadThread(doneApp, "t-done-stranded");
-		expect(doc?.active_stream_id).toBeNull();
-		expect(doc?.resume_interrupted).toBeUndefined();
+		for (const threadId of ["t-done-build", "t-done-edit"]) {
+			const doc = await loadThread(doneApp, threadId);
+			expect(doc?.active_stream_id).toBeNull();
+			expect(doc?.resume_interrupted).toBeUndefined();
+		}
 		const metas = await listThreadMetas(doneApp);
-		expect(metas[0]?.resume_interrupted).toBeUndefined();
+		for (const meta of metas) {
+			expect(meta.resume_interrupted).toBeUndefined();
+		}
 	});
 
-	it("the completed-build refinement never hides a real death (run mismatch, or an edit thread)", async () => {
-		/* Same stranded-marker shape, but the completion breadcrumb doesn't
-		 * belong to this thread's run — a LATER claim finished the build, or
-		 * the thread is an edit (whose app is `complete` throughout, proving
-		 * nothing). The interruption signal must stand. */
+	it("the sealed-stream refinement never hides a real death or an unlanded claw-back", async () => {
+		/* Three stranded-marker shapes that must all KEEP the interruption
+		 * signal: an unsealed stream (the run died mid-turn), a stream sealed
+		 * `failed` (the claw-back never landed — the re-drive claim is what
+		 * removes the partial), and a recent marker with no chunk rows at all
+		 * (the run died before its first flush). */
 		const doneApp = await h.seedApp({
 			id: "app-done-other-run",
 			status: "complete",
 			run_id: "run-later",
 		});
 		const db = await getAppDb();
-		const seedThread = (threadId: string, threadType: string, runId: string) =>
+		const seedThread = (threadId: string, threadType: string) =>
 			db
 				.insertInto("threads")
 				.values({
@@ -1526,21 +1766,74 @@ describe("loaders", () => {
 					updated_at: new Date().toISOString(),
 					thread_type: threadType,
 					summary: "died mid-turn",
-					run_id: runId,
+					run_id: "run-x",
 					active_stream_id: `stream-${threadId}`,
 					active_holder_nonce: null,
 					messages: JSON.stringify([userMsg("m1", "a killed turn")]),
 				})
 				.execute();
-		await seedThread("t-dead-build", "build", "run-earlier");
-		await seedThread("t-dead-edit", "edit", "run-later");
+		await seedThread("t-dead-unsealed", "build");
+		await seedThread("t-dead-failed", "edit");
+		await seedThread("t-dead-norows", "edit");
+		await appendStreamChunks({
+			streamId: "stream-t-dead-unsealed",
+			appId: doneApp,
+			runId: "run-x",
+			firstIndex: 0,
+			chunks: [{ type: "start" }],
+			terminal: false,
+		});
+		await appendStreamChunks({
+			streamId: "stream-t-dead-failed",
+			appId: doneApp,
+			runId: "run-x",
+			firstIndex: 0,
+			chunks: [{ type: "finish" }],
+			terminal: true,
+			terminalOutcome: "failed",
+		});
 
-		expect(
-			(await loadThread(doneApp, "t-dead-build"))?.resume_interrupted,
-		).toBe(true);
-		expect((await loadThread(doneApp, "t-dead-edit"))?.resume_interrupted).toBe(
-			true,
-		);
+		for (const threadId of [
+			"t-dead-unsealed",
+			"t-dead-failed",
+			"t-dead-norows",
+		]) {
+			expect((await loadThread(doneApp, threadId))?.resume_interrupted).toBe(
+				true,
+			);
+		}
+	});
+
+	it("a stranded marker that outlived its chunk-log evidence projects retired, never a guess at re-drive", async () => {
+		/* The chunk log prunes at its retention window; a marker older than
+		 * that has no seal left to read. The destructive arm (auto-re-drive
+		 * deletes the trailing answer and re-charges) must never run on
+		 * guesswork, so the projection retires the marker and the user
+		 * continues by typing. */
+		const doneApp = await h.seedApp({
+			id: "app-evidence-expired",
+			status: "complete",
+		});
+		const db = await getAppDb();
+		await db
+			.insertInto("threads")
+			.values({
+				thread_id: "t-ancient",
+				app_id: doneApp,
+				created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+				updated_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+				thread_type: "edit",
+				summary: "an old stranded marker",
+				run_id: "run-old",
+				active_stream_id: "stream-ancient",
+				active_holder_nonce: null,
+				messages: JSON.stringify([userMsg("m1", "long ago")]),
+			})
+			.execute();
+
+		const doc = await loadThread(doneApp, "t-ancient");
+		expect(doc?.active_stream_id).toBeNull();
+		expect(doc?.resume_interrupted).toBeUndefined();
 	});
 
 	it("mergeThreadTurnMessages merges history without touching identity, liveness, or foreign apps", async () => {
@@ -1548,8 +1841,8 @@ describe("loaders", () => {
 		 * resume ran nothing, but its history carries the user's ANSWERED
 		 * question round — the stored ask-round message with its answer
 		 * outputs added client-side. That richer state must land WITHOUT
-		 * claiming the thread, while an assistant message the store has never
-		 * seen is dropped (the fold writers are the only assistant authors). */
+		 * claiming the thread; an assistant id the store never learned lands
+		 * too (the self-heal — only a tombstoned id is refused). */
 		const app = await h.seedApp({ id: "app-bail", status: "generating" });
 		await upsertThreadTurn({
 			appId: app,
@@ -1594,13 +1887,14 @@ describe("loaders", () => {
 			.where("thread_id", "=", "t-bail")
 			.executeTakeFirstOrThrow();
 		/* The owning run's identity + marker survive the merge untouched; the
-		 * known message upgraded to its richer client state; the foreign
-		 * assistant message did not enter. */
+		 * known message upgraded to its richer client state; the unknown
+		 * assistant id landed as a self-heal. */
 		expect(row.run_id).toBe("run-owner");
 		expect(row.active_stream_id).toBe("stream-owner");
 		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([
 			"m1",
 			"m2",
+			"m-foreign",
 		]);
 		expect(
 			(row.messages as UIMessage[])[1]?.parts.map((p) =>
@@ -1624,6 +1918,7 @@ describe("loaders", () => {
 		expect((unchanged.messages as UIMessage[]).map((m) => m.id)).toEqual([
 			"m1",
 			"m2",
+			"m-foreign",
 		]);
 
 		/* Unknown thread id: update-only, never an insert (nothing ran, so

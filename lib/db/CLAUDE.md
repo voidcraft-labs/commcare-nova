@@ -334,9 +334,11 @@ real incoming transcript into an existing same-app thread, but the merge-only
 arm cannot replace or clear the successor's `run_id`, `active_stream_id`, or
 `active_holder_nonce`; it commits that merge and then throws
 `RunHolderLostError` so the route stops before publishing the stale capability.
-`loadThread` projects it only when fresh app authority says this exact run and
-nonce is paused by the requesting actor; co-members, unscoped loaders,
-mismatches, unpaused holders, and reaped holders receive no nonce. A paused
+`loadThread` projects it only to the actor who OWNS the run under fresh app
+authority: the paused round's answering actor, or a LIVE run's holding actor
+(the cold-resume replay redacts the nonce chunk for every viewer, so the owner
+re-seeds the capability from this projection at activation). Co-members,
+unscoped loaders, mismatches, and reaped holders receive no nonce. A paused
 finalize retains it for the answer POST; a terminal finalize clears it only
 when its stream id still owns the marker. The durable chunk log never stores
 the nonce itself: the POST writer records one inert chunk at the same index,
@@ -355,20 +357,31 @@ history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
 appends every UI chunk a POST streams, in write order, batched — dropping ALL
 per-token `tool-input-delta` chunks at the door (nothing rendered or durable
 consumes partial tool JSON) and teeing the identical sequence into the
-route's barrier fold. The reconnect endpoint
+route's barrier fold. The route also mints the turn's response MESSAGE ID and
+hands it to the SA stream (`generateMessageId`), so the `start` chunk carries
+one identity upstream of the tee — log, fold, live client, and durable
+transcript all name the answer the same. The reconnect endpoint
 (`app/api/chat/[streamId]/stream`, the server half of the AI SDK's
 `WorkflowChatTransport` contract) replays from a client cursor and tails
 live, so a broken connection (network blip, Cloud Run's 60-min request cap)
 resumes instead of losing the run; a COLD resume (page refresh onto a live
 run) replays the WHOLE log from chunk 0 and the CLIENT windows it against its
-own hydrated transcript (`lib/chat/hydratedStepFilter`, keyed on the stream's
-first chunk — the transient `data-seed-steps` offset): only the client knows
+own hydrated copy of the message the replay's `start` chunk NAMES
+(`lib/chat/hydratedStepFilter`; the stream's first chunk, the transient
+`data-seed-steps` offset, maps that message's step count onto this stream's):
+only the client knows
 which barrier-persisted steps it actually holds, so any server-picked
-boundary would race the page's RSC hydration, and the full replay is also
+boundary would race the page's RSC hydration — and keying on identity rather
+than trailing position means a locally appended user message can't zero the
+window, and a stream growing a message the client never hydrated (a newer
+turn claimed in between) windows nothing. The full replay is also
 what re-delivers the transient `data-*` chunks (events, receipts) that live
 nowhere else. Every
 stream is guaranteed to END: the writer seals a terminal row (synthesizing
-the `finish` chunk on error paths), and a run that died sealing nothing is
+the `finish` chunk on error paths) STAMPED with the run's fold outcome — the
+dead-marker reconciler's finished-vs-died breadcrumb, written only through
+finalize, which a dead process never reaches — and a run that died sealing
+nothing is
 closed by the endpoint's `appHeldLive`-based fallback. Rows prune past
 `CHAT_STREAM_RETENTION_MS` (opportunistically, on POST traffic) —
 conversation HISTORY lives in `threads` + the event log, never here.
@@ -392,15 +405,22 @@ reverts to its pre-run state and the marker clears in one transaction — the
 record holds completed-unit turns only, on every turn end, uniformly. "A
 failed TURN" means the turn's own stream failed: a post-drain bookkeeping
 fault (schema materialization, the settle) finalizes with `turnComplete`, so
-the finished, fully-streamed answer is never clawed back over it. If the
-claw-back write itself keeps failing, the marker deliberately STAYS (never a
-marker-only clear, which would leave the partial as durable history no
+the finished, fully-streamed answer is never clawed back over it. A
+completed/paused fold whose terminal write failed gets the full retry
+ladder WITH the latched final message, never a marker-only clear; a failed
+claw-back that keeps failing leaves the marker deliberately STANDING (a
+marker-only clear would leave the partial as durable history no
 writer may trim): the next load reads it as an interruption and the re-drive
 claim removes the partial. The history-bearing writers also ADMIT rather
-than trust incoming history: an assistant message the store doesn't know is
-dropped before the merge (the fold writers are the only authors of
-assistant content; the one real source of such a message is a clawed-back
-turn riding a stale client's next send).
+than trust incoming history, refereed by the thread's claw-back TOMBSTONES
+(`clawed_back_ids` — the assistant ids the server removed or reverted and
+has not re-authored; the claw-back and the re-drive trim write them, a
+landed fold snapshot clears its own id): a tombstoned id is refused
+(deleted) or capped to its stored seed (reverted — within-part state such
+as ask answers still upgrades), a FRESH thread admits no assistant
+messages at all (no run ever wrote to it), and every other assistant
+message merges by id — including one the store never learned, which is the
+self-heal for a turn whose persistence writes all failed.
 Finalize is bookkeeping, never a durability event; there is no end-of-run
 transcript assembly. (A BAILED POST — serialize-wait gate/timeout,
 superseded resume — additionally merges its incoming messages via
@@ -425,10 +445,13 @@ carries no attachments — stripped defensively — and the by-id merge cannot
 alter stored user messages, so the projected set is unchanged by
 construction). Chat admission passes its expected
 Project to turn/upsert and bail-history writers, which stop if the app moved
-before they acquired the app lock; the barrier write's MERGE arm is
+before they acquired the app lock; a BARRIER write's MERGE arm is
 stream-guarded (`active_stream_id` must still name this run's stream — a
-falsely-reaped zombie must not re-deposit the partial its successor's claim
-just removed) and Project-guarded the same way, while its MARKER arm is
+falsely-reaped zombie must not re-deposit the mid-run partial its
+successor's claim just removed), while a TERMINAL write's merge is not (a
+finished, charged answer is a completed unit the record keeps even when a
+successor claimed the thread mid-write); both merges are Project-guarded.
+The MARKER arm is
 guarded ONLY by the stream (the
 app releases before the final write completes, so a newer claim may already
 own a fresh marker), because a marker stranded on a completed run reads as
@@ -438,12 +461,17 @@ actual app liveness REPORT-ONLY: a dead marker is stripped
 from the projection and stamped `resume_interrupted`, but the row is never
 written — the signal is LEVEL-TRIGGERED, standing load after load (any
 reader may run first: the thread list, a heal refetch, the page) until an
-acting client's RE-DRIVE retires the marker through its own claim. One
-refinement: a dead marker on a BUILD thread whose app reached `complete`
-under the same claim (`apps.run_id` still matches) proves the run FINISHED
-and only its marker-clear write was lost, so it projects retired, not
-interrupted — a finished build is never destroyed and re-charged by a
-phantom re-drive. A full
+acting client's RE-DRIVE retires the marker through its own claim. The
+finished-vs-died call reads the chunk log's SEAL (the terminal row's stamped
+fold outcome, which only finalize writes): a stranded marker over a
+`completed`/`paused` seal proves the run FINISHED and only its marker-clear
+write was lost — build or edit alike — so it projects retired, never
+interrupted, and a finished answer is never destroyed and re-charged by a
+phantom re-drive; a `failed` seal or an unsealed stream keeps the
+interruption stamp (a mid-turn death, or a claw-back that never landed and
+needs the re-drive claim's trim), and a marker that outlived the pruned
+log's evidence projects retired, because the destructive arm never runs on
+guesswork. A full
 load also projects `run_paused` (the app's holder is this thread's run and
 it is parked awaiting an askQuestions answer), because barrier-persisted
 transcripts make shape undecidable: the client re-drives on the

@@ -100,7 +100,7 @@ describe("DurableStreamWriter", () => {
 		// 70 chunks crosses the 64-chunk burst trigger → at least two rows.
 		for (let i = 0; i < 70; i++) writer.write(chunk(i));
 		writer.write({ type: "finish" });
-		await writer.close();
+		await writer.close("completed");
 
 		const appends = appendMock.mock.calls.map(
 			(call) => call[0] as StreamChunkAppend,
@@ -114,9 +114,15 @@ describe("DurableStreamWriter", () => {
 		}
 		// 70 deltas + the explicit finish, nothing dropped or duplicated.
 		expect(expected).toBe(71);
-		// Exactly one terminal row, and it is the last.
+		// Exactly one terminal row, it is the last, and it carries the fold
+		// outcome (the dead-marker reconciler's finished-vs-died breadcrumb);
+		// non-terminal rows carry none.
 		expect(appends.filter((a) => a.terminal)).toHaveLength(1);
 		expect(appends.at(-1)?.terminal).toBe(true);
+		expect(appends.at(-1)?.terminalOutcome).toBe("completed");
+		expect(
+			appends.slice(0, -1).every((a) => a.terminalOutcome === undefined),
+		).toBe(true);
 		// The live response saw the same sequence.
 		expect(written).toHaveLength(71);
 	});
