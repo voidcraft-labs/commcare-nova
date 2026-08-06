@@ -52,7 +52,7 @@ export function registerGetDeployment(
 		"get_deployment",
 		{
 			description:
-				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one — CommCare HQ allows those only from a signed-in browser session — so `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. Reads only; call `refresh_deployment` to ask CommCare HQ again.",
+				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. Reads only; call `refresh_deployment` to ask CommCare HQ again.",
 			inputSchema: {
 				app_id: z
 					.string()
@@ -100,7 +100,7 @@ export function registerRefreshDeployment(
 		"refresh_deployment",
 		{
 			description:
-				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. Makes read-only calls: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
+				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes only Nova's own record, so it needs edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
 			inputSchema: {
 				app_id: z.string().describe("App id whose deployment to re-check."),
 				server: deploymentServerSchema.describe(
@@ -158,7 +158,7 @@ export function registerAdoptHqApp(server: McpServer, ctx: ToolContext): void {
 		"adopt_hq_app",
 		{
 			description:
-				"Tell Nova that an app already on CommCare HQ is this Nova app's publication, so it can report its build and release state. Requires the exact CommCare HQ app id — Nova never matches by name, because two project spaces can hold unrelated apps with the same name. Use this when somebody imported the app file by hand instead of publishing from Nova. It does not upload anything and does not change the app on CommCare HQ.",
+				"Tell Nova that an app already on CommCare HQ is this Nova app's publication, so it can report its build and release state. Requires the exact CommCare HQ app id. Nova never matches by name, because two project spaces can hold unrelated apps with the same name. Use this when somebody imported the app file by hand instead of publishing from Nova. It does not upload anything and does not change the app on CommCare HQ.",
 			inputSchema: {
 				app_id: z.string().describe("The Nova app id."),
 				server: deploymentServerSchema.describe(
