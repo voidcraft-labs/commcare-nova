@@ -441,6 +441,12 @@ export async function refreshDeployment(
 		hqAppId: remote.remoteId,
 		now,
 	});
+	/* Not reaching CommCare HQ writes nothing. A network blip must not walk
+	 * a `runnable` deployment down and tell every member of the Project
+	 * their app is refused while it is still released and in use. */
+	if (observation.kind === "unavailable") {
+		throw new DeploymentError("invalid", observation.message);
+	}
 	const folded = applyObservation(existing.deployment, observation.outcomes);
 	const saved = await saveDeploymentProgress(
 		scope,

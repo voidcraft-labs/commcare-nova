@@ -65,6 +65,15 @@ released on CommCare HQ, a `runnable` deployment is not runnable any more;
 `applyPhaseOutcome` settles a `pending` answer on that phase's own ENTRY
 state, which is what produces the walk back.
 
+**Not reaching CommCare HQ writes nothing at all.** `observeDeployment`
+answers `unavailable` rather than a phase failure when the question did not
+get through — a network blip, a redirecting project space, a key without
+the Access APIs permission — and `refreshDeployment` hands that to the
+caller instead of persisting it. Otherwise one bad minute would walk a
+`runnable` deployment down and tell every member of the Project their app
+is refused while it is still released and in use. A 404 from
+`current_app_version` IS an answer (the app is gone) and is recorded.
+
 **A refused ATTEMPT never rewrites what the target holds.** The state
 describes the project space, not the publish. An expired API key blocking
 preflight against an already-released deployment records the failure and

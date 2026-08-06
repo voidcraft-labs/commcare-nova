@@ -1494,7 +1494,9 @@ withholds both `released` and `runnable`. Every phase is independently
 retryable, and a retry never re-imports the app because the mapping already
 holds the remote id. A refused ATTEMPT never rewrites what the target holds:
 preflight failing against an already-released deployment records the failure
-without reporting the live app as having reached nothing. Observation may move
+without reporting the live app as having reached nothing, and an observation
+that could not reach HQ at all writes nothing rather than demoting a healthy
+deployment. Observation may move
 a deployment BACKWARD, because a build that stops being released on HQ makes a
 `runnable` deployment not runnable.
 

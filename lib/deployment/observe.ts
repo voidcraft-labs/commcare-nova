@@ -22,23 +22,33 @@ import type {
  *
  * A phase answers one of three ways. `succeeded` means the thing has
  * happened. `pending` means it has not happened YET, which is the normal
- * state of a freshly uploaded app and never a refusal. `failed` means Nova
- * asked and could not get a usable answer, which withholds `released` and
- * `runnable` until somebody retries.
+ * state of a freshly uploaded app and never a refusal. `failed` means
+ * CommCare HQ answered and the answer is bad.
+ *
+ * **Not reaching CommCare HQ is none of those.** A pass that cannot get an
+ * answer returns `unavailable` and writes nothing: a network blip must not
+ * walk a `runnable` deployment down to "On CommCare HQ" and tell every
+ * member of the Project their app is refused, when the app is still
+ * released and workers are still using it. "Nova could not check" is a
+ * fact about the check, and it belongs to the caller who asked.
  */
 
 /** Everything one observation pass produced. */
-export interface ObservationResult {
-	/** In phase order, ready for the state machine to fold. */
-	readonly outcomes: readonly (readonly [
-		DeploymentPhase,
-		DeploymentPhaseOutcome,
-	])[];
-	/** CommCare HQ's own version of the app, when it answered. */
-	readonly remoteRevision: number | null;
-	/** The released build a device would install, once one is probed. */
-	readonly releasedBuildId: string | null;
-}
+export type ObservationResult =
+	| {
+			readonly kind: "checked";
+			/** In phase order, ready for the state machine to fold. */
+			readonly outcomes: readonly (readonly [
+				DeploymentPhase,
+				DeploymentPhaseOutcome,
+			])[];
+			/** CommCare HQ's own version of the app, when it answered. */
+			readonly remoteRevision: number | null;
+			/** The released build a device would install, once one is probed. */
+			readonly releasedBuildId: string | null;
+	  }
+	/** CommCare HQ could not be asked. Nothing is written. */
+	| { readonly kind: "unavailable"; readonly message: string };
 
 function failed(
 	now: string,
@@ -70,22 +80,26 @@ export async function observeDeployment(input: {
 
 	const versions = await readAppVersions(creds, domain, hqAppId);
 	if ("success" in versions) {
-		// A 404 is CommCare HQ saying it has no such working app in this
-		// project space: it was deleted, or the id names a build rather
-		// than an app (`current_app_version` raises `Http404` on exactly
-		// that). Either way the mapping points at something that is not
-		// there, which is a different problem from a bad connection.
-		const missing = versions.status === 404;
+		// A 404 is an ANSWER: CommCare HQ has no such working app in this
+		// project space, so the mapping points at something that is not
+		// there. Anything else means the question did not get through, and
+		// that is not a verdict on the deployment.
+		if (versions.status !== 404) {
+			return {
+				kind: "unavailable",
+				message:
+					"Nova couldn't reach CommCare HQ to check on this app. What you see below is the last thing it saw. Try again in a moment.",
+			};
+		}
 		return {
+			kind: "checked",
 			outcomes: [
 				[
 					"build",
 					failed(
 						now,
-						missing ? "remote_app_missing" : "hq_unreachable",
-						missing
-							? `The app Nova published to “${domain}” isn't there any more. It may have been deleted on CommCare HQ. Publish again to create a new one.`
-							: "Nova couldn't reach CommCare HQ to check on this app. Try again in a moment.",
+						"remote_app_missing",
+						`The app Nova published to “${domain}” isn't there any more. It may have been deleted on CommCare HQ. Publish again to create a new one.`,
 					),
 				],
 			],
@@ -110,6 +124,7 @@ export async function observeDeployment(input: {
 			),
 		]);
 		return {
+			kind: "checked",
 			outcomes,
 			remoteRevision: versions.currentVersion,
 			releasedBuildId: null,
@@ -124,6 +139,7 @@ export async function observeDeployment(input: {
 			),
 		]);
 		return {
+			kind: "checked",
 			outcomes,
 			remoteRevision: versions.currentVersion,
 			releasedBuildId: null,
@@ -146,6 +162,7 @@ export async function observeDeployment(input: {
 			),
 		]);
 		return {
+			kind: "checked",
 			outcomes,
 			remoteRevision: versions.currentVersion,
 			releasedBuildId: null,
@@ -161,18 +178,13 @@ export async function observeDeployment(input: {
 	// not.
 	const builds = await listAppBuilds(creds, domain, hqAppId);
 	if ("success" in builds) {
-		outcomes.push([
-			"probe",
-			failed(
-				now,
-				"hq_unreachable",
-				"Nova couldn't read this app's builds from CommCare HQ, so it can't confirm the released one is ready to install. This read also needs the Access APIs permission on your CommCare HQ account.",
-			),
-		]);
+		// Also not a verdict: this read needs the Access APIs permission,
+		// so a key without it would otherwise mark every deployment
+		// refused forever.
 		return {
-			outcomes,
-			remoteRevision: versions.currentVersion,
-			releasedBuildId: null,
+			kind: "unavailable",
+			message:
+				"Nova couldn't read this app's builds from CommCare HQ, so it can't confirm the released one is ready to install. That read also needs the Access APIs permission on your CommCare HQ account.",
 		};
 	}
 	const released = builds.find(
@@ -188,6 +200,7 @@ export async function observeDeployment(input: {
 			),
 		]);
 		return {
+			kind: "checked",
 			outcomes,
 			remoteRevision: versions.currentVersion,
 			releasedBuildId: null,
@@ -199,21 +212,23 @@ export async function observeDeployment(input: {
 		// A redirecting project space, or CommCare HQ being unwell, is not
 		// a verdict on the build. Saying "this build is broken" there would
 		// accuse a healthy deployment of something it is not doing.
+		if (profile.reason === "unavailable") {
+			return {
+				kind: "unavailable",
+				message:
+					"Nova couldn't check whether the released build is ready to install. CommCare HQ didn't answer that request. Try again in a moment.",
+			};
+		}
 		outcomes.push([
 			"probe",
-			profile.reason === "unavailable"
-				? failed(
-						now,
-						"hq_unreachable",
-						"Nova couldn't check whether the released build is ready to install. CommCare HQ didn't answer that request. Try again in a moment.",
-					)
-				: failed(
-						now,
-						"build_not_installable",
-						"The released build didn't serve the file a device installs from, so Nova can't confirm workers can open it yet. Try releasing it again on CommCare HQ, then check back.",
-					),
+			failed(
+				now,
+				"build_not_installable",
+				"The released build didn't serve the file a device installs from, so Nova can't confirm workers can open it yet. Try releasing it again on CommCare HQ, then check back.",
+			),
 		]);
 		return {
+			kind: "checked",
 			outcomes,
 			remoteRevision: versions.currentVersion,
 			releasedBuildId: released.id,
@@ -222,6 +237,7 @@ export async function observeDeployment(input: {
 
 	outcomes.push(["probe", { status: "succeeded", at: now }]);
 	return {
+		kind: "checked",
 		outcomes,
 		remoteRevision: versions.currentVersion,
 		releasedBuildId: released.id,

@@ -32,6 +32,13 @@ const INPUT = {
 	now: "2026-08-06T00:00:00.000Z",
 };
 
+function checked(result: Awaited<ReturnType<typeof observeDeployment>>) {
+	if (result.kind !== "checked") {
+		throw new Error(`expected a checked result, got: ${result.message}`);
+	}
+	return result;
+}
+
 function outcomeFor(
 	outcomes: readonly (readonly [string, { status: string }])[],
 	phase: string,
@@ -51,22 +58,23 @@ describe("reaching CommCare HQ", () => {
 			status: 404,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		const build = outcomeFor(result.outcomes, "build");
 		expect(build?.status).toBe("failed");
 		expect(result.outcomes).toHaveLength(1);
 	});
 
-	it("treats any other failure as unreachable rather than missing", async () => {
+	it("writes nothing when CommCare HQ could not be asked", async () => {
+		// A blip must not walk a runnable deployment down and tell every
+		// member of the Project their app is refused.
 		vi.mocked(readAppVersions).mockResolvedValue({
 			success: false,
 			status: 503,
 		} as never);
 
 		const result = await observeDeployment(INPUT);
-		const build = outcomeFor(result.outcomes, "build");
-		expect(build).toMatchObject({ status: "failed" });
+		expect(result.kind).toBe("unavailable");
 	});
 });
 
@@ -78,7 +86,7 @@ describe("build", () => {
 			latestReleasedVersion: null,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		expect(outcomeFor(result.outcomes, "build")?.status).toBe("pending");
 		expect(result.remoteRevision).toBe(1);
@@ -92,7 +100,7 @@ describe("build", () => {
 			latestReleasedVersion: 2,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		const build = outcomeFor(result.outcomes, "build");
 		expect(build?.status).toBe("pending");
@@ -112,7 +120,7 @@ describe("release", () => {
 			latestReleasedVersion: null,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		expect(outcomeFor(result.outcomes, "build")?.status).toBe("succeeded");
 		expect(outcomeFor(result.outcomes, "release")?.status).toBe("pending");
@@ -126,7 +134,7 @@ describe("release", () => {
 			latestReleasedVersion: 3,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		const release = outcomeFor(result.outcomes, "release");
 		expect(release?.status).toBe("pending");
@@ -151,7 +159,7 @@ describe("probe", () => {
 			{ id: "build-live", version: 2, isReleased: true },
 		] as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		expect(probeBuildProfile).toHaveBeenCalledWith(
 			INPUT.creds,
@@ -177,7 +185,7 @@ describe("probe", () => {
 			reason: "not-installable",
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		const probe = outcomeFor(result.outcomes, "probe");
 		expect(probe?.status).toBe("failed");
@@ -186,7 +194,7 @@ describe("probe", () => {
 		).toBe("build_not_installable");
 	});
 
-	it("says it could not check, not that the build is broken, on a redirect", async () => {
+	it("writes nothing on a redirect, rather than calling the build broken", async () => {
 		// A project space carrying a `redirect_url` answers 302 to every
 		// download. Calling that a broken build accuses a healthy deployment.
 		vi.mocked(listAppBuilds).mockResolvedValue([
@@ -199,13 +207,12 @@ describe("probe", () => {
 
 		const result = await observeDeployment(INPUT);
 
-		const probe = outcomeFor(result.outcomes, "probe");
-		expect(
-			(probe as unknown as { failure: { code: string } }).failure.code,
-		).toBe("hq_unreachable");
+		expect(result.kind).toBe("unavailable");
 	});
 
-	it("says it could not check when the build list is unreadable", async () => {
+	it("writes nothing when the build list is unreadable", async () => {
+		// This read needs the Access APIs permission, so a key without it
+		// would otherwise mark every deployment refused forever.
 		vi.mocked(listAppBuilds).mockResolvedValue({
 			success: false,
 			status: 403,
@@ -213,8 +220,7 @@ describe("probe", () => {
 
 		const result = await observeDeployment(INPUT);
 
-		const probe = outcomeFor(result.outcomes, "probe");
-		expect(probe?.status).toBe("failed");
+		expect(result.kind).toBe("unavailable");
 		expect(probeBuildProfile).not.toHaveBeenCalled();
 	});
 
@@ -223,7 +229,7 @@ describe("probe", () => {
 			{ id: "build-old", version: 1, isReleased: false },
 		] as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
 		expect(outcomeFor(result.outcomes, "probe")?.status).toBe("pending");
 		expect(probeBuildProfile).not.toHaveBeenCalled();

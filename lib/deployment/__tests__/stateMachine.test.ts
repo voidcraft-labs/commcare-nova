@@ -53,7 +53,7 @@ const waiting = { status: "pending", at: AT, reason: "not yet" } as const;
 const broke = {
 	status: "failed",
 	at: AT,
-	failure: { code: "hq_unreachable", message: "no", details: [] },
+	failure: { code: "build_not_installable", message: "no", details: [] },
 } as const;
 
 describe("progress ordering", () => {

@@ -74,7 +74,7 @@ describe("phase progress", () => {
 			status: "failed",
 			at: AT,
 			failure: {
-				code: "hq_unreachable",
+				code: "build_not_installable",
 				message: "Nova couldn't reach CommCare HQ.",
 				details: [],
 			},

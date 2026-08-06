@@ -112,8 +112,6 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"app_not_ready",
 	/** CommCare HQ refused the upload. */
 	"hq_rejected_upload",
-	/** CommCare HQ could not be reached, or answered in a shape Nova could not read. */
-	"hq_unreachable",
 	/** The app Nova published is no longer on the target project space. */
 	"remote_app_missing",
 	/** The released build did not serve the profile a device installs from. */
