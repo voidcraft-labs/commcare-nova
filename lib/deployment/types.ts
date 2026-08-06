@@ -110,8 +110,6 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"domain_not_authorized",
 	/** The app itself has findings that must be fixed before it can go out. */
 	"app_not_ready",
-	/** A persona has no value for a worker property CommCare requires. */
-	"required_worker_data_missing",
 	/** CommCare HQ refused the upload. */
 	"hq_rejected_upload",
 	/** CommCare HQ could not be reached, or answered in a shape Nova could not read. */
