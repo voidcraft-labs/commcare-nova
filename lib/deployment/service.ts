@@ -23,6 +23,10 @@ import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import { deploymentNotFound } from "./errors";
 import { observeDeployment } from "./observe";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
+import {
+	previewProjectSpace,
+	resolvePreviewDeploymentTarget,
+} from "./previewTarget";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import { applyPhaseOutcome, applyPhaseOutcomes } from "./stateMachine";
 import {
@@ -32,6 +36,7 @@ import {
 	type DeploymentTargetKey,
 	ensureDeployment,
 	readDeployment,
+	readDeploymentsForApp,
 	recordRemoteResource,
 	recordRemoteRevision,
 	saveDeploymentProgress,
@@ -457,4 +462,30 @@ export async function adoptRemoteApp(
 			["upload", { status: "succeeded", at: now }],
 		]),
 	});
+}
+
+/**
+ * The project space Preview may honestly name for an app.
+ *
+ * Best effort by design: a deployment read that faults must not take the
+ * builder page down with it. Failing to `null` degrades to the existing,
+ * always-honest behavior of leaving `commcare_project` absent.
+ */
+export async function previewProjectSpaceFor(
+	scope: DeploymentScope,
+): Promise<string | null> {
+	try {
+		const deployments = await readDeploymentsForApp(scope);
+		return previewProjectSpace(
+			resolvePreviewDeploymentTarget(
+				deployments.map((view) => view.deployment),
+			),
+		);
+	} catch (error) {
+		log.warn("[deployment] preview project space unavailable", {
+			appId: scope.appId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
 }

@@ -18,6 +18,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useUserCollections } from "@/lib/doc/hooks/useUserCollections";
 import { ownRecordValue } from "@/lib/domain";
@@ -46,6 +47,9 @@ export function useSelectedPreviewIdentityState(
 	const { user } = useAuth();
 	const personaUuid = usePreviewPersonaUuid();
 	const collections = useUserCollections();
+	/* The project space a deployment put this app on, so `commcare_project`
+	 * reads the way it will on a device instead of staying absent forever. */
+	const projectSpace = useDeploymentProjectSpace();
 	const [authMounted, setAuthMounted] = useState(false);
 
 	useEffect(() => {
@@ -66,14 +70,15 @@ export function useSelectedPreviewIdentityState(
 			kind: "ready",
 			identity:
 				persona === undefined
-					? previewAsMe(sessionUser, collections)
-					: previewAsPersona(sessionUser, persona, collections),
+					? previewAsMe(sessionUser, collections, projectSpace)
+					: previewAsPersona(sessionUser, persona, collections, projectSpace),
 		};
 	}, [
 		authMounted,
 		collections,
 		options.useCachedSessionImmediately,
 		personaUuid,
+		projectSpace,
 		user,
 	]);
 }

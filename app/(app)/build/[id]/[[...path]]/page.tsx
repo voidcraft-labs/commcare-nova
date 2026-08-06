@@ -31,6 +31,7 @@
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -46,6 +47,7 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
+import { previewProjectSpaceFor } from "@/lib/deployment/service";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
 
@@ -83,7 +85,9 @@ export default async function BuilderPage({
 					baseSeq: 0,
 				}}
 			>
-				<BuilderLayout commcareSettings={commcareSettings} />
+				<DeploymentTargetProvider initialProjectSpace={null}>
+					<BuilderLayout commcareSettings={commcareSettings} />
+				</DeploymentTargetProvider>
 			</BuilderProvider>
 		);
 	}
@@ -171,6 +175,17 @@ export default async function BuilderPage({
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
 
+	/* Which project space Preview may say a worker signed into. Resolved
+	 * server-side so `commcare_project` is right on the first render rather
+	 * than appearing a beat later, and `null` whenever there is no honest
+	 * answer — no deployment yet, or several. */
+	const previewProjectSpace = await previewProjectSpaceFor({
+		appId: id,
+		projectId: initialAccess.projectId,
+		role: initialAccess.role,
+		actorUserId: session.user.id,
+	});
+
 	return (
 		<BuilderProvider
 			buildId={id}
@@ -184,14 +199,16 @@ export default async function BuilderPage({
 			initialBuildUnfinished={app.status === "generating" || buildInterrupted}
 			userId={session.user.id}
 		>
-			<BuilderLayout
-				isExistingApp
-				commcareSettings={commcareSettings}
-				threads={threads}
-				initialThread={initialThread}
-				appGenerating={app.status === "generating" || buildInterrupted}
-				currentUserId={session.user.id}
-			/>
+			<DeploymentTargetProvider initialProjectSpace={previewProjectSpace}>
+				<BuilderLayout
+					isExistingApp
+					commcareSettings={commcareSettings}
+					threads={threads}
+					initialThread={initialThread}
+					appGenerating={app.status === "generating" || buildInterrupted}
+					currentUserId={session.user.id}
+				/>
+			</DeploymentTargetProvider>
 		</BuilderProvider>
 	);
 }

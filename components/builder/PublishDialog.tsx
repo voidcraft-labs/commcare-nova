@@ -24,7 +24,16 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
+import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -49,6 +58,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
+import type { DeploymentView } from "@/lib/deployment/actions";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
@@ -110,6 +120,10 @@ type PublishStatus =
 			appUrl: string;
 			warnings: string[];
 			featureFlagReport?: HqFeatureFlagReport;
+			/* The durable record the publish created or advanced. A publish is
+			 * not a fire-and-forget POST any more, so the success screen shows
+			 * where the app actually stands rather than implying it is live. */
+			deployment?: DeploymentView;
 	  }
 	| {
 			type: "download-success";
@@ -138,6 +152,7 @@ export function PublishDialog({
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
+	const setProjectSpace = useSetDeploymentProjectSpace();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
 	const featureFlagControllerRef = useRef<AbortController | null>(null);
@@ -338,30 +353,46 @@ export function PublishDialog({
 			}
 			const data = (await response.json()) as {
 				success?: boolean;
-				appUrl?: string;
+				url?: string;
 				warnings?: string[];
 				feature_flag_requirements?: HqFeatureFlagReport;
+				deployment?: DeploymentView["deployment"];
+				setup_artifact?: DeploymentView["artifact"];
+				preflight?: { title: string; status: string; detail: string }[];
 				error?: string;
 			};
 			if (!isCurrent()) return;
 			if (!response.ok || !data.success) {
+				/* A refused publish still answers 200 with the record that says
+				 * where it stopped, so the blocked preflight edge is named here
+				 * rather than collapsing to a generic transport failure. */
+				const blocked = data.preflight?.find(
+					(check) => check.status === "blocked",
+				);
 				const failure = describeApiFailure(
 					data,
 					`Upload failed (HTTP ${response.status})`,
 				);
 				setStatus({
 					type: "error",
-					message: failure.message,
+					message: blocked?.detail ?? failure.message,
 					status: response.status,
 					details: failure.details,
 				});
 				return;
 			}
+			const deploymentView =
+				data.deployment !== undefined && data.setup_artifact !== undefined
+					? { deployment: data.deployment, artifact: data.setup_artifact }
+					: undefined;
+			/* Preview may now name the project space a worker signed into. */
+			if (deploymentView !== undefined) setProjectSpace(selectedDomain);
 			setStatus({
 				type: "upload-success",
-				appUrl: data.appUrl ?? "",
+				appUrl: data.url ?? "",
 				warnings: data.warnings ?? [],
 				featureFlagReport: data.feature_flag_requirements,
+				deployment: deploymentView,
 			});
 		} catch (error) {
 			if (
@@ -382,7 +413,7 @@ export function PublishDialog({
 				uploadControllerRef.current = null;
 			}
 		}
-	}, [selectedDomain, appName, getAppId, session]);
+	}, [selectedDomain, appName, getAppId, session, setProjectSpace]);
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
@@ -506,11 +537,28 @@ export function PublishDialog({
 							{target === "hq" ? (
 								status.type === "upload-success" ? (
 									<PublishSuccess
-										title="App uploaded successfully"
+										title="Your app is on CommCare HQ"
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
-									/>
+									>
+										{/* The app is THERE, which is not the same as ready
+										    for workers. The record says which, so the
+										    celebration never outruns the facts. */}
+										{status.deployment !== undefined ? (
+											<DeploymentStatus
+												appId={getAppId()}
+												view={status.deployment}
+												onUpdated={(next) =>
+													setStatus((current) =>
+														current.type === "upload-success"
+															? { ...current, deployment: next }
+															: current,
+													)
+												}
+											/>
+										) : null}
+									</PublishSuccess>
 								) : notConfigured ? (
 									<NotConfigured
 										isRefreshing={isRefreshingHqConnection}
@@ -888,11 +936,13 @@ function PublishSuccess({
 	warnings = [],
 	featureFlagReport,
 	mode,
+	children,
 }: {
 	title: string;
 	warnings?: string[];
 	featureFlagReport?: HqFeatureFlagReport;
 	mode: "upload" | "download";
+	children?: ReactNode;
 }) {
 	return (
 		<div className="py-1">
@@ -924,6 +974,8 @@ function PublishSuccess({
 			{featureFlagReport && (
 				<FeatureFlagNotice report={featureFlagReport} mode={mode} />
 			)}
+
+			{children}
 		</div>
 	);
 }

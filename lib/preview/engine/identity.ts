@@ -113,9 +113,11 @@ function splitName(name: string): { first: string; last: string } {
  * (`users/models.py::CouchUser.get_user_session_data`).
  *
  * Only the ones Nova can honestly know are emitted. `commcare_project` is
- * the HQ domain and stays ABSENT until a deployment target supplies one —
- * inventing a slug to make a condition pass is exactly the dishonesty the
- * preview contract forbids. First name, last name, and phone number are
+ * the HQ domain, so it appears exactly when a deployment has put this app
+ * on one project space and stays ABSENT otherwise — including when two
+ * project spaces hold it, where picking one would be a guess. Inventing a
+ * slug to make a condition pass is exactly the dishonesty the preview
+ * contract forbids. First name, last name, and phone number are
  * different: HQ writes all three keys unconditionally, so Preview preserves
  * their present-empty shape when Nova has no value. The location keys are absent while
  * nobody is assigned anywhere, which is what HQ does too:
@@ -135,7 +137,10 @@ function splitName(name: string): { first: string; last: string } {
  * leaving it absent here would make a condition on it fire on a device and
  * not in Preview.
  */
-function frameworkSessionKeys(displayName: string): Record<string, string> {
+function frameworkSessionKeys(
+	displayName: string,
+	projectSpace: string | null,
+): Record<string, string> {
 	const { first, last } = splitName(displayName);
 	return {
 		commcare_first_name: first,
@@ -144,6 +149,7 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
 		commcare_user_type: COMMCARE_MOBILE_WORKER_USER_TYPE,
 		commcare_profile: "",
 		user_type: COMMCARE_STANDARD_USER_TYPE,
+		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
 	};
 }
 
@@ -154,8 +160,13 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
  * block's `commcare_`-prefixed keys, which is the whole reason the two
  * projections exist separately.
  *
- * `commcare_project` is absent here for the same reason it is absent from
- * the session block. `language` and `last_device_id_used` are HQ account
+ * `commcare_project` is absent here even once a deployment supplies one,
+ * and that asymmetry is CommCare's rather than Nova's:
+ * `_get_user_case_fields` builds from `UserData.to_dict()`, which carries
+ * the declared schema, the worker's own values, and the profile slots —
+ * `commcare_project` is injected only by
+ * `users/models.py::CouchUser.get_user_session_data`, which the usercase
+ * never goes through. `language` and `last_device_id_used` are HQ account
  * settings Nova does not model, and HQ writes them as empty strings, so
  * they are emitted empty rather than invented.
  *
@@ -242,6 +253,7 @@ function projections(
 	},
 	authored: Record<string, string>,
 	doc: UserCollections,
+	projectSpace: string | null,
 ): Pick<ResolvedPreviewIdentity, "session" | "usercase"> {
 	const declared = declaredPropertySlots(doc);
 	const values = authoredBySlug(authored, doc);
@@ -256,7 +268,7 @@ function projections(
 			user: mergeOwnRecords(
 				declared,
 				values,
-				frameworkSessionKeys(worker.personName),
+				frameworkSessionKeys(worker.personName, projectSpace),
 			),
 			userPropertySlugs: recordFromEntries(
 				Object.values(userPropertiesOf(doc)).map(
@@ -282,6 +294,7 @@ function projections(
 export function previewAsMe(
 	user: PreviewSessionUser | null | undefined,
 	doc: UserCollections = {},
+	projectSpace: string | null = null,
 ): ResolvedPreviewIdentity | null {
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
@@ -301,6 +314,7 @@ export function previewAsMe(
 			},
 			{},
 			doc,
+			projectSpace,
 		),
 	};
 }
@@ -322,6 +336,7 @@ export function previewAsPersona(
 	user: PreviewSessionUser | null | undefined,
 	persona: Persona,
 	doc: UserCollections,
+	projectSpace: string | null = null,
 ): ResolvedPreviewIdentity | null {
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
@@ -335,6 +350,7 @@ export function previewAsPersona(
 		},
 		personaUserData(persona, doc),
 		doc,
+		projectSpace,
 	);
 	const locationIds = assignedLocationUuids(persona.locations);
 	const primary = locationIds[0];
