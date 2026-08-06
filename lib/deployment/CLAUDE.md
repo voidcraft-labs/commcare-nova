@@ -69,10 +69,13 @@ state, which is what produces the walk back.
 describes the project space, not the publish. An expired API key blocking
 preflight against an already-released deployment records the failure and
 leaves the state alone (`applyPreflightOutcome`), because the app really is
-still released there. For the same reason `refreshDeployment` refuses to
-observe a deployment refused at `preflight` or `upload`: it still holds an
-earlier publish's mapping, so observing would fold three green outcomes
-over the refusal and destroy the phase a retry resumes from.
+still released there. For the same reason `deploymentIsObservable` stops
+`refreshDeployment` observing a deployment refused at `preflight` or
+`upload`: it may still hold an earlier publish's mapping, so observing
+would fold three green outcomes over the refusal and destroy the phase a
+retry resumes from. Every LATER refusal is observable, because asking
+CommCare HQ again is exactly how a failed build, release, or probe is
+retried.
 
 `deploymentDisplaysAsReached` is the display-only counterpart to
 `deploymentHasReached`, and the split is deliberate: the strict predicate

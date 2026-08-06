@@ -17,6 +17,7 @@ import {
 	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
 	deploymentHasReached,
+	deploymentIsObservable,
 	deploymentProgressIndex,
 	deploymentResumeState,
 } from "../stateMachine";
@@ -127,6 +128,33 @@ describe("folding a phase outcome", () => {
 		const retried = applyPhaseOutcome(refused, "release", ok);
 		expect(retried.state).toBe("released");
 		expect(retried.resumePhase).toBeNull();
+	});
+});
+
+describe("what Check status may answer", () => {
+	it("refuses to observe a deployment refused before its app got there", () => {
+		// It may still hold an earlier publish's mapping, and observing that
+		// would fold three green outcomes over the refusal and erase the
+		// retry point, from a button sitting next to it.
+		for (const resumePhase of ["preflight", "upload"] as const) {
+			expect(
+				deploymentIsObservable(record({ state: "incomplete", resumePhase })),
+			).toBe(false);
+		}
+	});
+
+	it("observes every later refusal, which is what Check status is for", () => {
+		for (const resumePhase of ["build", "release", "probe"] as const) {
+			expect(
+				deploymentIsObservable(record({ state: "incomplete", resumePhase })),
+			).toBe(true);
+		}
+	});
+
+	it("needs the app to have reached the project space at all", () => {
+		expect(deploymentIsObservable(record({ state: "preflight" }))).toBe(false);
+		expect(deploymentIsObservable(record({ state: "uploaded" }))).toBe(true);
+		expect(deploymentIsObservable(record({ state: "runnable" }))).toBe(true);
 	});
 });
 

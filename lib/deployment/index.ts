@@ -16,6 +16,7 @@ export {
 	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
 	deploymentHasReached,
+	deploymentIsObservable,
 	deploymentProgressIndex,
 	deploymentResumeState,
 } from "./stateMachine";

@@ -32,7 +32,7 @@ import {
 	applyPhaseOutcome,
 	applyPhaseOutcomes,
 	applyPreflightOutcome,
-	deploymentCanRunPhase,
+	deploymentIsObservable,
 } from "./stateMachine";
 import {
 	activeRemoteApp,
@@ -366,16 +366,11 @@ export async function refreshDeployment(
 	const existing = await readDeployment(scope, target);
 	if (existing === null) return null;
 	const remote = activeRemoteApp(existing);
-	/* Nothing to observe, or nothing observation may answer.
-	 *
-	 * The second case is the one worth naming: a deployment refused at
-	 * `preflight` or `upload` still holds the mapping from an EARLIER
-	 * publish, so observing it would fold three succeeded outcomes over
-	 * the refusal and turn the record green — destroying the phase a retry
-	 * resumes from, from a button sitting next to the refusal. Observation
-	 * answers questions about a build; it cannot answer "did this publish
-	 * get there". */
-	if (remote === null || !deploymentCanRunPhase(existing.deployment, "build")) {
+	/* Nothing to observe, or nothing observation may answer. A deployment
+	 * refused before its app reached CommCare HQ may still hold an earlier
+	 * publish's mapping, and observing that would erase the refusal; every
+	 * later refusal is exactly what Check status is for. */
+	if (remote === null || !deploymentIsObservable(existing.deployment)) {
 		return {
 			deployment: existing,
 			artifact: await setupArtifactFor(scope, existing, doc),

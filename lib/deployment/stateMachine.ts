@@ -139,6 +139,28 @@ export function deploymentCanRunPhase(
 }
 
 /**
+ * Whether observation may say anything about this deployment.
+ *
+ * Observation answers questions about a build on CommCare HQ, so it needs
+ * the app to have got there. A deployment refused at `preflight` or
+ * `upload` may still hold an EARLIER publish's mapping, and observing it
+ * would fold three succeeded outcomes over the refusal and turn the record
+ * green — destroying the phase a retry resumes from, from a button sitting
+ * next to the refusal.
+ *
+ * Every other refusal IS observable, and that is the point of Check
+ * status: a probe that failed is retried by asking CommCare HQ again.
+ */
+export function deploymentIsObservable(
+	record: Pick<DeploymentRecord, "state" | "resumePhase">,
+): boolean {
+	if (record.state !== "incomplete") {
+		return deploymentHasReached(record, "uploaded");
+	}
+	return record.resumePhase !== "preflight" && record.resumePhase !== "upload";
+}
+
+/**
  * Fold a preflight result without rewriting what the target already holds.
  *
  * A deployment's state describes the PROJECT SPACE, not the attempt. If an
