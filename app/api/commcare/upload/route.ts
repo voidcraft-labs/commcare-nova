@@ -99,7 +99,12 @@ export async function POST(req: NextRequest) {
 			domain: body.domain.trim(),
 		});
 
-		const succeeded = outcome.deployment.deployment.state !== "incomplete";
+		/* Whether THIS publish got the app there, which is not the same as
+		 * where the deployment stands. A blocked preflight against an app
+		 * that is already released leaves the record released, because it
+		 * still is — reading success off the state would report a publish
+		 * that never happened as a success. */
+		const succeeded = outcome.landed;
 		/* What Preview may honestly name now. Resolved here rather than in
 		 * the browser because only the server can see whether this app is
 		 * live on more than one project space, which is exactly when

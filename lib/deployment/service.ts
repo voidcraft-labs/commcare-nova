@@ -59,6 +59,16 @@ import type { DeploymentWithResources } from "./types";
  */
 
 export interface PublishOutcome {
+	/**
+	 * Whether the app reached the project space on THIS call.
+	 *
+	 * Not derivable from the record's state, and that is the point. The
+	 * state describes the target: a deployment already released on `acme`
+	 * stays released when a later publish is blocked at preflight, so
+	 * reading success off it would report a publish that never happened as
+	 * a success. This answers only "did this attempt get there".
+	 */
+	readonly landed: boolean;
 	readonly deployment: DeploymentWithResources;
 	readonly checks: readonly PreflightCheck[];
 	readonly artifact: SetupArtifact;
@@ -170,6 +180,7 @@ export async function publishAppToHq(
 
 	if (preflight.ready === null) {
 		return {
+			landed: false,
 			deployment,
 			checks: preflight.checks,
 			artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -207,6 +218,7 @@ export async function publishAppToHq(
 			failed,
 		);
 		return {
+			landed: false,
 			deployment,
 			checks: preflight.checks,
 			artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -265,6 +277,7 @@ export async function publishAppToHq(
 	}
 
 	return {
+		landed: true,
 		deployment,
 		checks: preflight.checks,
 		artifact: await setupArtifactFor(input.scope, deployment, input.doc),

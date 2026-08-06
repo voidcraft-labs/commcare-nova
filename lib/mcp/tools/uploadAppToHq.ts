@@ -294,20 +294,31 @@ export function registerUploadAppToHq(
 					/* A preflight refusal keeps its established wire shape. The
 					 * boundary gate's findings are `invalid_input` because that
 					 * is what a client branches on to know the APP is what needs
-					 * fixing, not the connection or the target. */
-					if (record.state === "incomplete") {
-						const failure =
-							record.phases[record.resumePhase ?? "preflight"]?.status ===
-							"failed"
-								? record.phases[record.resumePhase ?? "preflight"]
-								: null;
+					 * fixing, not the connection or the target.
+					 *
+					 * Branch on whether THIS attempt got the app there, not on
+					 * the record's state: a blocked preflight against an app
+					 * that is already released leaves the record released,
+					 * because it still is, and reading success off that would
+					 * report a publish that never happened as a success. */
+					if (!outcome.landed) {
+						const outcomeForPhase =
+							record.phases[record.resumePhase ?? "preflight"];
 						const detail =
-							failure !== null && failure.status === "failed"
-								? failure.failure
+							outcomeForPhase?.status === "failed"
+								? outcomeForPhase.failure
 								: null;
-						if (detail?.code === "app_not_ready") {
+						const blocked = outcome.checks.find(
+							(check) => check.status === "blocked",
+						);
+						if (
+							detail?.code === "app_not_ready" ||
+							blocked?.id === "app-readiness"
+						) {
 							throw new McpInvalidInputError(
-								`This app isn't ready to upload. Fix these first: ${detail.details.join(" ")}`,
+								`This app isn't ready to upload. Fix these first: ${(
+									detail?.details ?? blocked?.items ?? []
+								).join(" ")}`,
 							);
 						}
 						if (detail?.code === "hq_not_connected") {
@@ -324,9 +335,17 @@ export function registerUploadAppToHq(
 								appId,
 							);
 						}
+						if (blocked?.id === "hq-connection") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_not_configured,
+								blocked.detail,
+								appId,
+							);
+						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
 							detail?.message ??
+								blocked?.detail ??
 								"CommCare HQ did not accept the app, and Nova recorded where to retry from.",
 							appId,
 						);

@@ -103,6 +103,7 @@ beforeEach(() => {
 		availableDomains: [{ name: DOMAIN, displayName: "Acme" }],
 	} as never);
 	vi.mocked(publishAppToHq).mockResolvedValue({
+		landed: true,
 		deployment: deploymentView("uploaded"),
 		checks: [],
 		artifact: {
@@ -220,8 +221,51 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.preview_project_space).toBeNull();
 	});
 
+	it("reads success from the attempt, not from what the target holds", async () => {
+		/* A blocked preflight against an app that is already released
+		 * leaves the record released, because it still is. Judging success
+		 * from that state would report a publish that never happened as a
+		 * success. */
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: false,
+			deployment: deploymentView("runnable"),
+			checks: [
+				{
+					id: "hq-connection",
+					title: "CommCare HQ connection",
+					status: "blocked",
+					detail: "CommCare HQ isn't connected yet.",
+					items: [],
+				},
+			],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			featureFlags: null,
+			hqAppUrl: null,
+		} as never);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as {
+			success: boolean;
+			deployment: { deployment: { state: string } };
+		};
+
+		expect(res.status).toBe(200);
+		expect(body.success).toBe(false);
+		// The target really is still runnable, and says so.
+		expect(body.deployment.deployment.state).toBe("runnable");
+	});
+
 	it("answers 200 with the incomplete record rather than throwing it away", async () => {
 		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: false,
 			deployment: deploymentView("incomplete", "preflight"),
 			checks: [
 				{

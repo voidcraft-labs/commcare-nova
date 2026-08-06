@@ -156,6 +156,7 @@ beforeEach(() => {
 				superseded: [],
 			}) as never,
 	);
+	vi.mocked(ensureDeployment).mockResolvedValue(view() as never);
 	vi.mocked(recordRemoteResource).mockImplementation(
 		async (_scope, _id, input) =>
 			({
@@ -279,6 +280,7 @@ describe("publishAppToHq — what a successful publish records", () => {
 
 	it("lands on uploaded, never on released or runnable", async () => {
 		const outcome = await publishAppToHq(publishInput());
+		expect(outcome.landed).toBe(true);
 		expect(outcome.deployment.deployment.state).toBe("uploaded");
 	});
 
@@ -329,6 +331,28 @@ describe("publishAppToHq — failures that are not refusals", () => {
 
 		expect(outcome.deployment.deployment.state).toBe("uploaded");
 		expect(outcome.warnings.join(" ")).toMatch(/media/i);
+	});
+
+	it("does not call a blocked preflight a success just because the target is live", async () => {
+		// The deployment is already released on this project space, so a
+		// blocked preflight leaves the record released — it still is. The
+		// ATTEMPT must not read as a success off that state.
+		vi.mocked(ensureDeployment).mockResolvedValue(
+			view({ state: "runnable" }) as never,
+		);
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
+			ok: false,
+			error: "not_configured",
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.deployment.deployment.state).toBe("runnable");
+		expect(outcome.checks.find((c) => c.id === "hq-connection")?.status).toBe(
+			"blocked",
+		);
+		expect(importApp).not.toHaveBeenCalled();
 	});
 
 	it("refuses when CommCare HQ rejects the import, and says where to retry", async () => {
