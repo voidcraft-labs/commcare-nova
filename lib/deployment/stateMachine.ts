@@ -180,6 +180,37 @@ export function endpointLinkIsDurable(
 }
 
 /**
+ * Which rungs a person should see filled.
+ *
+ * Deliberately different from `deploymentHasReached`, and the difference
+ * matters in both directions. That predicate is the strict one every
+ * DECISION uses: while a deployment is refused it answers `false` for
+ * everything, so nothing offers a durable link or runs a later phase off
+ * a state the deployment does not definitely hold.
+ *
+ * But a probe that failed did not undo the upload, the build, or the
+ * release. Drawing all five rungs empty would tell an author their app is
+ * nowhere, which is both untrue and the opposite of what the refusal says
+ * next ("nothing before this needs doing again"). So a refused deployment
+ * shows everything up to the state its retry resumes from, and nothing
+ * beyond it.
+ */
+export function deploymentDisplaysAsReached(
+	record: Pick<DeploymentRecord, "state" | "resumePhase">,
+	target: DeploymentProgressState,
+): boolean {
+	if (record.state !== "incomplete") {
+		return deploymentHasReached(record, target);
+	}
+	const resume = deploymentResumeState(record);
+	if (resume === null) return false;
+	const reached = deploymentProgressIndex(resume);
+	const wanted = deploymentProgressIndex(target);
+	if (reached === null || wanted === null) return false;
+	return wanted <= reached;
+}
+
+/**
  * Clear what a previous publish observed.
  *
  * CommCare HQ has no atomic app update, so publishing again produces a

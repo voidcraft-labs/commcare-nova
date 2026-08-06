@@ -121,9 +121,13 @@ type PublishStatus =
 			warnings: string[];
 			featureFlagReport?: HqFeatureFlagReport;
 			/* The durable record the publish created or advanced. A publish is
-			 * not a fire-and-forget POST any more, so the success screen shows
-			 * where the app actually stands rather than implying it is live. */
+			 * not a fire-and-forget POST any more, so this screen shows where
+			 * the app actually stands rather than implying it is live. */
 			deployment?: DeploymentView;
+			/* Whether the app actually reached the project space. False when
+			 * the publish was refused, which is still a record worth showing
+			 * — it names the phase a retry resumes at. */
+			landed: boolean;
 	  }
 	| {
 			type: "download-success";
@@ -362,10 +366,21 @@ export function PublishDialog({
 				error?: string;
 			};
 			if (!isCurrent()) return;
-			if (!response.ok || !data.success) {
-				/* A refused publish still answers 200 with the record that says
-				 * where it stopped, so the blocked preflight edge is named here
-				 * rather than collapsing to a generic transport failure. */
+			const deploymentView =
+				response.ok &&
+				data.deployment !== undefined &&
+				data.setup_artifact !== undefined
+					? { deployment: data.deployment, artifact: data.setup_artifact }
+					: undefined;
+
+			/* A REFUSED publish is not an error screen. The request succeeded
+			 * and answered with the durable record that says which phase
+			 * stopped and where a retry resumes, so showing a generic failure
+			 * box would throw away the one thing that makes the refusal
+			 * actionable. The error branch below is for the case where there
+			 * is genuinely no record: a transport fault, or a 4xx from the
+			 * route's own input and authorization checks. */
+			if (deploymentView === undefined) {
 				const blocked = data.preflight?.find(
 					(check) => check.status === "blocked",
 				);
@@ -381,18 +396,17 @@ export function PublishDialog({
 				});
 				return;
 			}
-			const deploymentView =
-				data.deployment !== undefined && data.setup_artifact !== undefined
-					? { deployment: data.deployment, artifact: data.setup_artifact }
-					: undefined;
-			/* Preview may now name the project space a worker signed into. */
-			if (deploymentView !== undefined) setProjectSpace(selectedDomain);
+
+			/* Preview may name the project space only once the app is really
+			 * on it. A refused publish did not put it there. */
+			if (data.success === true) setProjectSpace(selectedDomain);
 			setStatus({
 				type: "upload-success",
 				appUrl: data.url ?? "",
 				warnings: data.warnings ?? [],
 				featureFlagReport: data.feature_flag_requirements,
 				deployment: deploymentView,
+				landed: data.success === true,
 			});
 		} catch (error) {
 			if (
@@ -537,7 +551,12 @@ export function PublishDialog({
 							{target === "hq" ? (
 								status.type === "upload-success" ? (
 									<PublishSuccess
-										title="Your app is on CommCare HQ"
+										title={
+											status.landed
+												? "Your app is on CommCare HQ"
+												: "Nova couldn't finish publishing"
+										}
+										tone={status.landed ? "done" : "refused"}
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
@@ -936,12 +955,16 @@ function PublishSuccess({
 	warnings = [],
 	featureFlagReport,
 	mode,
+	tone = "done",
 	children,
 }: {
 	title: string;
 	warnings?: string[];
 	featureFlagReport?: HqFeatureFlagReport;
 	mode: "upload" | "download";
+	/** A refused publish reaches this screen too, and must not be
+	 *  celebrated: it shows the same record, without the tick. */
+	tone?: "done" | "refused";
 	children?: ReactNode;
 }) {
 	return (
@@ -951,9 +974,14 @@ function PublishSuccess({
 					initial={{ scale: 0 }}
 					animate={{ scale: 1 }}
 					transition={{ type: "spring", stiffness: 300, damping: 20 }}
-					className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-nova-emerald/15"
+					className={`mx-auto mb-3 flex size-12 items-center justify-center rounded-full ${
+						tone === "done" ? "bg-nova-emerald/15" : "bg-nova-amber/15"
+					}`}
 				>
-					<Icon icon={tablerCheck} className="size-6 text-nova-emerald" />
+					<Icon
+						icon={tone === "done" ? tablerCheck : tablerAlertCircle}
+						className={`size-6 ${tone === "done" ? "text-nova-emerald" : "text-nova-amber"}`}
+					/>
 				</motion.div>
 				<h3 className="text-sm font-semibold text-nova-text">{title}</h3>
 			</div>

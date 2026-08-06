@@ -16,6 +16,7 @@ export {
 } from "./setupArtifact";
 export {
 	deploymentCanRunPhase,
+	deploymentDisplaysAsReached,
 	deploymentHasReached,
 	deploymentProgressIndex,
 	deploymentResumeState,

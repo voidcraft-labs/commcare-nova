@@ -14,6 +14,7 @@ import {
 	applyPhaseOutcomes,
 	clearObservationOutcomes,
 	deploymentCanRunPhase,
+	deploymentDisplaysAsReached,
 	deploymentHasReached,
 	deploymentProgressIndex,
 	deploymentResumeState,
@@ -174,6 +175,44 @@ describe("which phases may run", () => {
 		expect(deploymentCanRunPhase(refused, "release")).toBe(true);
 		expect(deploymentCanRunPhase(refused, "build")).toBe(false);
 		expect(deploymentCanRunPhase(refused, "probe")).toBe(false);
+	});
+});
+
+describe("what a person sees on a refused deployment", () => {
+	// A probe that failed did not undo the upload, the build, or the
+	// release, and telling somebody their app is nowhere is both untrue
+	// and the opposite of what the refusal says to do next.
+	const refusedAtProbe = record({ state: "incomplete", resumePhase: "probe" });
+
+	it("shows everything up to where the retry resumes", () => {
+		expect(deploymentDisplaysAsReached(refusedAtProbe, "uploaded")).toBe(true);
+		expect(deploymentDisplaysAsReached(refusedAtProbe, "built")).toBe(true);
+		expect(deploymentDisplaysAsReached(refusedAtProbe, "released")).toBe(true);
+	});
+
+	it("shows nothing beyond it", () => {
+		expect(deploymentDisplaysAsReached(refusedAtProbe, "runnable")).toBe(false);
+	});
+
+	it("shows nothing at all when the publish itself was refused", () => {
+		const refusedAtUpload = record({
+			state: "incomplete",
+			resumePhase: "upload",
+		});
+		expect(deploymentDisplaysAsReached(refusedAtUpload, "uploaded")).toBe(
+			false,
+		);
+		expect(deploymentDisplaysAsReached(refusedAtUpload, "preflight")).toBe(
+			true,
+		);
+	});
+
+	it("never lets the display predicate soften a DECISION", () => {
+		// The strict predicate is what gates phases and durable links, and
+		// it still answers false for everything while refused.
+		expect(deploymentHasReached(refusedAtProbe, "uploaded")).toBe(false);
+		expect(endpointLinkIsDurable(refusedAtProbe)).toBe(false);
+		expect(deploymentCanRunPhase(refusedAtProbe, "release")).toBe(false);
 	});
 });
 

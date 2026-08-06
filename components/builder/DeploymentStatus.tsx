@@ -29,7 +29,7 @@ import {
 	DEPLOYMENT_PROGRESS_STATES,
 	type DeploymentPhase,
 	type DeploymentProgressState,
-	deploymentHasReached,
+	deploymentDisplaysAsReached,
 	deploymentResumeState,
 } from "@/lib/deployment";
 import {
@@ -127,7 +127,7 @@ export function DeploymentStatus({
 			    conveyed by fill alone. */}
 			<ol className="mt-3 flex flex-col gap-1.5">
 				{DEPLOYMENT_PROGRESS_STATES.map((state) => {
-					const reached = deploymentHasReached(record, state);
+					const reached = deploymentDisplaysAsReached(record, state);
 					const outcome = record.phases[PHASE_FOR_STATE[state]];
 					const note = outcome?.status === "pending" ? outcome.reason : null;
 					return (

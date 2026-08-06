@@ -215,7 +215,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_phone_number",
 		label: "Phone number",
 		description:
-			"The worker's phone number. It is set on their CommCare account; Preview carries the same key with an empty value.",
+			"The worker's phone number. It lives on their CommCare account on the project space you deploy to, so it arrives when you create workers there rather than from anything in this app. Preview carries the key with an empty value, exactly as CommCare does for a worker who has none.",
 		availability: "not-authorable",
 		readByRuntime: false,
 	},
