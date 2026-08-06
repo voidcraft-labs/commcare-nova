@@ -60,11 +60,26 @@ export type CommCareSettingsPublic =
 export type CredentialsForUploadResult =
 	| { ok: true; creds: CommCareCredentials; domain: CommCareDomain }
 	| { ok: false; error: "not_configured" }
+	| UploadTargetRefusal;
+
+/** Everything an upload target resolves to EXCEPT the key. */
+export type UploadTargetResult =
 	| {
-			ok: false;
-			error: "not_authorized" | "ambiguous";
-			available: CommCareDomain[];
-	  };
+			ok: true;
+			username: string;
+			server: CommCareServer;
+			domain: CommCareDomain;
+			/** Still encrypted. Decrypt at the point of use, never before. */
+			encryptedApiKey: string;
+	  }
+	| { ok: false; error: "not_configured" }
+	| UploadTargetRefusal;
+
+type UploadTargetRefusal = {
+	ok: false;
+	error: "not_authorized" | "ambiguous";
+	available: CommCareDomain[];
+};
 
 // ── Read operations ────────────────────────────────────────────────
 
@@ -116,10 +131,10 @@ export async function getCommCareSettings(
  * The API key is decrypted only after the target resolves, so an unauthorized
  * or ambiguous request never reaches KMS.
  */
-export async function getCredentialsForUpload(
+export async function resolveUploadTarget(
 	userId: string,
 	requested?: string,
-): Promise<CredentialsForUploadResult> {
+): Promise<UploadTargetResult> {
 	const db = await getAppDb();
 	const data = await db
 		.selectFrom("user_settings")
@@ -145,15 +160,38 @@ export async function getCredentialsForUpload(
 		return { ok: false, error: resolved.reason, available: resolved.available };
 	}
 
-	const apiKey = await decrypt(data.commcare_api_key);
+	return {
+		ok: true,
+		username: data.commcare_username,
+		server: data.commcare_server as CommCareServer,
+		domain: resolved.domain,
+		encryptedApiKey: data.commcare_api_key,
+	};
+}
+
+/**
+ * The same resolution, plus the decrypted key.
+ *
+ * Call this only where the key is about to be USED. A caller that just needs
+ * to know which project space it is publishing to wants `resolveUploadTarget`
+ * — decrypting a live credential for a caller with no use for it puts a
+ * second plaintext copy in memory for nothing, and every place a secret
+ * exists is a place it can escape.
+ */
+export async function getCredentialsForUpload(
+	userId: string,
+	requested?: string,
+): Promise<CredentialsForUploadResult> {
+	const target = await resolveUploadTarget(userId, requested);
+	if (!target.ok) return target;
 	return {
 		ok: true,
 		creds: {
-			username: data.commcare_username,
-			apiKey,
-			server: data.commcare_server as CommCareServer,
+			username: target.username,
+			apiKey: await decrypt(target.encryptedApiKey),
+			server: target.server,
 		},
-		domain: resolved.domain,
+		domain: target.domain,
 	};
 }
 

@@ -133,7 +133,10 @@ import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import {
+	getCredentialsForUpload,
+	resolveUploadTarget,
+} from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
@@ -156,8 +159,13 @@ import { makeFakeServer } from "./fakeServer";
  * to an empty surface — present as a no-op intercept rather than as
  * a stub for any specific function. */
 vi.mock("@/lib/db/apps", () => ({}));
+/* Both are mocked so a test can assert which one the tool reached for.
+ * `getCredentialsForUpload` decrypts; `resolveUploadTarget` does not, and
+ * the tool must use the second — it needs the project space and the server,
+ * never the key. */
 vi.mock("@/lib/db/settings", () => ({
 	getCredentialsForUpload: vi.fn(),
+	resolveUploadTarget: vi.fn(),
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
@@ -278,8 +286,20 @@ const FAKE_HQ_JSON = {
 } as unknown as HqApplication;
 
 /**
- * Canonical success result — mirrors the `{ ok: true, creds, domain }` shape
- * `getCredentialsForUpload` returns once a target space resolves.
+ * What `resolveUploadTarget` returns: which space, which server, and the key
+ * STILL ENCRYPTED. This is what the tool sees.
+ */
+const FIXTURE_TARGET = {
+	ok: true as const,
+	username: "alice@example.com",
+	server: "production" as const,
+	domain: { name: "acme-research", displayName: "ACME Research" },
+	encryptedApiKey: "ciphertext-xyz",
+};
+
+/**
+ * What `getCredentialsForUpload` returns: the same, plus a decrypted key.
+ * Only the publish lifecycle asks for this, at the point it sends the app.
  */
 const FIXTURE_CREDS = {
 	ok: true as const,
@@ -305,7 +325,7 @@ const toolCtx: ToolContext = {
 
 beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
-	vi.mocked(getCredentialsForUpload).mockReset();
+	vi.mocked(resolveUploadTarget).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
@@ -317,6 +337,7 @@ beforeEach(() => {
 	/* Default happy-path mocks — individual tests override via
 	 * `mockReturnValueOnce` / `mockResolvedValueOnce` where needed. The
 	 * defaults mean tests only have to pin the deviation they care about. */
+	vi.mocked(resolveUploadTarget).mockResolvedValue(FIXTURE_TARGET);
 	vi.mocked(getCredentialsForUpload).mockResolvedValue(FIXTURE_CREDS);
 	vi.mocked(loadAppBlueprint).mockResolvedValue(fixtureLoadedApp());
 	vi.mocked(expandDoc).mockReturnValue(FAKE_HQ_JSON);
@@ -387,7 +408,13 @@ describe("registerUploadAppToHq — happy path", () => {
 		/* No `domain` arg → the resolver is asked with `undefined` and resolves
 		 * the sole reachable space (the only no-arg success case); that resolved
 		 * domain is what reaches `importApp`. */
-		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", undefined);
+		expect(resolveUploadTarget).toHaveBeenCalledWith("u1", undefined);
+
+		/* The tool works out WHICH space with the non-decrypting resolver, and
+		 * the key is decrypted exactly once — by the publish lifecycle, at the
+		 * point it sends the app. Two decrypts meant a second plaintext copy
+		 * of a live production credential in memory that nothing ever used. */
+		expect(getCredentialsForUpload).toHaveBeenCalledTimes(1);
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_CREDS.creds,
 			"acme-research",
@@ -429,12 +456,12 @@ describe("registerUploadAppToHq — happy path", () => {
 	});
 
 	it("forwards an explicit `domain` arg to resolution and uploads to it", async () => {
-		/* Both the tool's own gate and the shared lifecycle resolve
-		 * credentials for the exact domain the gate picked, so this stands
-		 * for both calls rather than only the first. */
+		vi.mocked(resolveUploadTarget).mockResolvedValue({
+			...FIXTURE_TARGET,
+			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
+		});
 		vi.mocked(getCredentialsForUpload).mockResolvedValue({
-			ok: true,
-			creds: FIXTURE_CREDS.creds,
+			...FIXTURE_CREDS,
 			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
 		});
 		vi.mocked(importApp).mockResolvedValueOnce({
@@ -687,7 +714,7 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 
 describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
 	it("returns error_type 'hq_not_configured' when no creds exist", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "not_configured",
 		});
@@ -724,7 +751,7 @@ describe("registerUploadAppToHq — gate 2: domain not authorized", () => {
 			{ name: "acme-research", displayName: "ACME Research" },
 			{ name: "connect-ace-prod", displayName: "ACE Prod" },
 		];
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "not_authorized",
 			available: reachable,
@@ -764,7 +791,7 @@ describe("registerUploadAppToHq — gate 2: ambiguous multi-space key", () => {
 			{ name: "connect-ace-prod", displayName: "ACE Prod" },
 			{ name: "ace-crispr-connect", displayName: "CRISPR" },
 		];
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "ambiguous",
 			available: reachable,

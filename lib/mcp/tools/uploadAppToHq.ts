@@ -69,7 +69,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { resolveUploadTarget } from "@/lib/db/settings";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq } from "@/lib/deployment/service";
 import { initMcpCall } from "../context";
@@ -211,17 +211,17 @@ export function registerUploadAppToHq(
 				 * wire error types so a client can branch (configure, pick a
 				 * valid space, or disambiguate). */
 				const requested = args.domain?.trim() || undefined;
-				const credResult = await getCredentialsForUpload(ctx.userId, requested);
-				if (!credResult.ok) {
-					if (credResult.error === "not_configured") {
+				const target = await resolveUploadTarget(ctx.userId, requested);
+				if (!target.ok) {
+					if (target.error === "not_configured") {
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_not_configured,
 							"CommCare HQ is not configured. Add your HQ credentials in Settings before uploading.",
 							appId,
 						);
 					}
-					const reachable = credResult.available.map((d) => d.name).join(", ");
-					if (credResult.error === "not_authorized") {
+					const reachable = target.available.map((d) => d.name).join(", ");
+					if (target.error === "not_authorized") {
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.domain_not_authorized,
 							`Your stored CommCare HQ API key can't reach the "${requested}" project space. It reaches: ${reachable}. Pass one of those as \`domain\`, or update your key in Settings.`,
@@ -230,11 +230,11 @@ export function registerUploadAppToHq(
 					}
 					return makeGateError(
 						UPLOAD_ERROR_TAGS.domain_ambiguous,
-						`Your CommCare HQ API key reaches ${credResult.available.length} project spaces (${reachable}). Pass \`domain\` to choose which one to upload to.`,
+						`Your CommCare HQ API key reaches ${target.available.length} project spaces (${reachable}). Pass \`domain\` to choose which one to upload to.`,
 						appId,
 					);
 				}
-				const targetDomain = credResult.domain.name;
+				const targetDomain = target.domain.name;
 
 				/* Derive the run id from the app's own state (see
 				 * `lib/mcp/runId.ts`). The upload typically comes at the
@@ -284,7 +284,7 @@ export function registerUploadAppToHq(
 						doc,
 						compiledAtSeq: app.mutation_seq,
 						appName: args.app_name?.trim() || app.app_name,
-						server: credResult.creds.server,
+						server: target.server,
 						domain: targetDomain,
 					});
 
