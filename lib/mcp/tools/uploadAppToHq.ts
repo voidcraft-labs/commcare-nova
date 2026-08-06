@@ -302,12 +302,19 @@ export function registerUploadAppToHq(
 					 * because it still is, and reading success off that would
 					 * report a publish that never happened as a success. */
 					if (!outcome.landed) {
-						const outcomeForPhase =
-							record.phases[record.resumePhase ?? "preflight"];
+						/* Read the phases THIS attempt ran, newest first. Publishing
+						 * drives preflight then upload and nothing else, so one of
+						 * those two is what stopped it. `resumePhase` is the wrong
+						 * source: it describes where a RETRY resumes on the target,
+						 * so a preflight refusal against a deployment already
+						 * refused at, say, the probe would report that older
+						 * phase's failure — and its empty `details` would win over
+						 * the real findings through the `??` below. */
+						const attempted = (["upload", "preflight"] as const)
+							.map((phase) => record.phases[phase])
+							.find((entry) => entry?.status === "failed");
 						const detail =
-							outcomeForPhase?.status === "failed"
-								? outcomeForPhase.failure
-								: null;
+							attempted?.status === "failed" ? attempted.failure : null;
 						const blocked = outcome.checks.find(
 							(check) => check.status === "blocked",
 						);

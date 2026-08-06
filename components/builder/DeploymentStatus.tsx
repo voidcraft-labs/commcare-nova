@@ -26,6 +26,7 @@ import { useCallback, useId, useState, useTransition } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
+	DEPLOYMENT_PHASES,
 	DEPLOYMENT_PROGRESS_STATES,
 	type DeploymentPhase,
 	type DeploymentProgressState,
@@ -128,12 +129,24 @@ export function DeploymentStatus({
 	}, [appId, record.server, record.domain, onUpdated, sessionApi]);
 
 	const refused = record.state === "incomplete";
+	/* A failed phase is worth showing even when the deployment is NOT
+	 * refused. `applyAttemptOutcome` deliberately records a failed preflight
+	 * or upload while leaving a live deployment's state alone — the app on
+	 * the project space really is still there — but gating the report on
+	 * `incomplete` meant an expired key was written down and never shown, so
+	 * somebody saw a healthy ladder and no hint that their key had stopped
+	 * working. Fall back to the most recent recorded failure. */
 	const failure =
-		record.resumePhase === null
+		(record.resumePhase !== null &&
+		record.phases[record.resumePhase]?.status === "failed"
+			? record.phases[record.resumePhase]
+			: null) ??
+		(refused
 			? null
-			: record.phases[record.resumePhase]?.status === "failed"
-				? record.phases[record.resumePhase]
-				: null;
+			: ([...DEPLOYMENT_PHASES]
+					.reverse()
+					.map((phase) => record.phases[phase])
+					.find((outcome) => outcome?.status === "failed") ?? null));
 
 	return (
 		<section aria-labelledby={headingId} className="mt-5">
@@ -209,7 +222,7 @@ export function DeploymentStatus({
 				})}
 			</ol>
 
-			{refused && failure?.status === "failed" ? (
+			{failure?.status === "failed" ? (
 				/* Amber, the same tone the refusal hero above it uses. A phase
 				   that stopped is recoverable and says how; rose is reserved on
 				   this screen for a request that failed outright. */
