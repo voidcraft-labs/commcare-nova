@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeploymentError } from "@/lib/deployment/errors";
 import {
 	adoptRemoteApp,
+	artifactLocations,
 	refreshDeployment,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
@@ -44,6 +45,7 @@ import { makeFakeServer } from "./fakeServer";
 
 vi.mock("@/lib/deployment/service", () => ({
 	adoptRemoteApp: vi.fn(),
+	artifactLocations: vi.fn(async () => []),
 	refreshDeployment: vi.fn(),
 	setupArtifactFor: vi.fn(async () => ({ domain: "acme", sections: [] })),
 }));
@@ -100,6 +102,7 @@ beforeEach(() => {
 	vi.mocked(refreshDeployment).mockReset();
 	vi.mocked(adoptRemoteApp).mockReset();
 	vi.mocked(setupArtifactFor).mockClear();
+	vi.mocked(artifactLocations).mockClear();
 	vi.mocked(loadAppBlueprint).mockResolvedValue({
 		doc: {},
 		access: ACCESS,
@@ -148,7 +151,7 @@ describe("get_deployment", () => {
 		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "view");
 	});
 
-	it("skips the artifact entirely when the app has never been published", async () => {
+	it("skips the artifact and its place read when nothing has been published", async () => {
 		vi.mocked(readDeploymentsForApp).mockResolvedValueOnce([]);
 
 		const { server, capture } = makeFakeServer();
@@ -157,6 +160,24 @@ describe("get_deployment", () => {
 
 		expect(parsed.deployments).toEqual([]);
 		expect(setupArtifactFor).not.toHaveBeenCalled();
+		expect(artifactLocations).not.toHaveBeenCalled();
+	});
+
+	it("reads the app's places ONCE for every project space it reports", async () => {
+		/* The places belong to the app, not to any one target, so three
+		 * deployments must not cost three reads of the same rows. */
+		vi.mocked(readDeploymentsForApp).mockResolvedValueOnce([
+			withResources(),
+			withResources({ id: "d2", domain: "beta" }),
+			withResources({ id: "d3", domain: "gamma" }),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerGetDeployment(server, ctx([SCOPES.hqRead]));
+		await capture()({ app_id: "a1" });
+
+		expect(artifactLocations).toHaveBeenCalledTimes(1);
+		expect(setupArtifactFor).toHaveBeenCalledTimes(3);
 	});
 
 	it("refuses without the HQ read scope", async () => {

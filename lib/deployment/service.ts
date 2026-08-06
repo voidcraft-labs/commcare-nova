@@ -18,6 +18,7 @@ import { log } from "@/lib/logger";
 import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import type { StoredLocation } from "@/lib/organization/types";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import { DeploymentError } from "./errors";
@@ -105,10 +106,33 @@ export async function setupArtifactFor(
 	scope: DeploymentScope,
 	deployment: DeploymentWithResources,
 	doc: BlueprintDoc,
+	locations?: readonly StoredLocation[],
 ): Promise<SetupArtifact> {
-	let locations: Awaited<
-		ReturnType<typeof readOrganizationAuthoringSnapshot>
-	>["organization"]["locations"] = [];
+	return buildSetupArtifact({
+		doc,
+		server: deployment.deployment.server,
+		domain: deployment.deployment.domain,
+		hqAppId: activeRemoteApp(deployment)?.remoteId ?? null,
+		locations: locations ?? (await artifactLocations(scope)),
+	});
+}
+
+/**
+ * The places an artifact names, read once.
+ *
+ * Exposed so a caller building artifacts for SEVERAL deployments of one app
+ * reads them once rather than once per project space — the places are the
+ * app's, not the target's, so the second read could only return the same
+ * rows.
+ *
+ * Degrades to none rather than throwing: an unavailable organization read
+ * must not take the artifact down with it, because every other section is
+ * still exactly right and an automation that names a place falls back to
+ * naming its id.
+ */
+export async function artifactLocations(
+	scope: DeploymentScope,
+): Promise<readonly StoredLocation[]> {
 	try {
 		const snapshot = await readOrganizationAuthoringSnapshot({
 			appId: scope.appId,
@@ -116,23 +140,14 @@ export async function setupArtifactFor(
 			role: scope.role,
 			actorUserId: scope.actorUserId,
 		});
-		locations = snapshot.organization.locations;
+		return snapshot.organization.locations;
 	} catch (error) {
-		// An unavailable organization read must not take the artifact down
-		// with it: every other section is still exactly right, and an
-		// automation that names a place degrades to naming its id.
 		log.warn("[deployment] organization snapshot unavailable for artifact", {
 			appId: scope.appId,
 			error: error instanceof Error ? error.message : String(error),
 		});
+		return [];
 	}
-	return buildSetupArtifact({
-		doc,
-		server: deployment.deployment.server,
-		domain: deployment.deployment.domain,
-		hqAppId: activeRemoteApp(deployment)?.remoteId ?? null,
-		locations,
-	});
 }
 
 /**

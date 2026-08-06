@@ -7,7 +7,11 @@ import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import { DeploymentError } from "./errors";
-import { refreshDeployment, setupArtifactFor } from "./service";
+import {
+	artifactLocations,
+	refreshDeployment,
+	setupArtifactFor,
+} from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import { type DeploymentScope, readDeploymentsForApp } from "./store";
 import { type DeploymentWithResources, deploymentServerSchema } from "./types";
@@ -197,13 +201,22 @@ export async function readDeploymentsAction(
 	try {
 		const deployments = await readDeploymentsForApp(resolved.scope);
 		if (deployments.length === 0) return { success: true, data: [] };
+		/* Read the document and its places ONCE. They belong to the app, not
+		 * to any one project space, so building three artifacts must not cost
+		 * three reads of the same rows. */
 		const doc = await committedDoc(resolved.scope);
+		const locations = await artifactLocations(resolved.scope);
 		return {
 			success: true,
 			data: await Promise.all(
 				deployments.map(async (deployment) => ({
 					deployment,
-					artifact: await setupArtifactFor(resolved.scope, deployment, doc),
+					artifact: await setupArtifactFor(
+						resolved.scope,
+						deployment,
+						doc,
+						locations,
+					),
 				})),
 			),
 		};

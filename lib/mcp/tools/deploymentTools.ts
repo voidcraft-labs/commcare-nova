@@ -24,6 +24,7 @@ import { z } from "zod";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
 	adoptRemoteApp,
+	artifactLocations,
 	refreshDeployment,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
@@ -75,10 +76,19 @@ export function registerGetDeployment(
 					actorUserId: ctx.userId,
 				};
 				const deployments = await readDeploymentsForApp(scope);
+				/* One read of the app's places for all of them: they belong to
+				 * the app, not to any one project space. */
+				const locations =
+					deployments.length === 0 ? [] : await artifactLocations(scope);
 				const views = await Promise.all(
 					deployments.map(async (deployment) => ({
 						...describeDeployment(deployment),
-						setup_artifact: await setupArtifactFor(scope, deployment, doc),
+						setup_artifact: await setupArtifactFor(
+							scope,
+							deployment,
+							doc,
+							locations,
+						),
 					})),
 				);
 				return jsonResult({ app_id: args.app_id, deployments: views });
