@@ -93,7 +93,9 @@ describe("build", () => {
 
 		const build = outcomeFor(result.outcomes, "build");
 		expect(build?.status).toBe("pending");
-		expect((build as { reason: string }).reason).toMatch(/version 2 of 4/);
+		expect((build as unknown as { reason: string }).reason).toMatch(
+			/version 2 of 4/,
+		);
 		// A stale build must not be reported as released either.
 		expect(outcomeFor(result.outcomes, "release")).toBeUndefined();
 	});
@@ -125,7 +127,7 @@ describe("release", () => {
 
 		const release = outcomeFor(result.outcomes, "release");
 		expect(release?.status).toBe("pending");
-		expect((release as { reason: string }).reason).toMatch(
+		expect((release as unknown as { reason: string }).reason).toMatch(
 			/released version 3/,
 		);
 	});

@@ -243,7 +243,7 @@ describe("publishAppToHq — blocking edges", () => {
 					"MEDIA_ASSET_NOT_FOUND",
 					"field",
 					"That image is no longer in this project's media.",
-					{ scope: "field" },
+					{ fieldId: "photo" },
 				),
 			],
 		} as never);
