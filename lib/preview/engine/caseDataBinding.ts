@@ -953,11 +953,26 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const { store, scope } = await gatedCaseStoreWithScope(
-			args.appId,
-			identity,
-			"view",
-		);
+		const {
+			store,
+			scope,
+			projectId,
+			role: accessRole,
+		} = await gatedCaseStoreWithScope(args.appId, identity, "view");
+		/* The filter preview compiles the SAME `#user/...` references the
+		 * running app does, so it must bind the same project space. Left on
+		 * the unthreaded identity, `commcare_project` compiled to empty here
+		 * and to the real domain in the app, and an author would tune a
+		 * filter against an answer their app never gives. */
+		const projectSpace = await previewProjectSpaceFor({
+			appId: args.appId,
+			projectId,
+			role: accessRole,
+			actorUserId: identity.actorUserId,
+		});
+		const boundIdentity =
+			(await resolvePreviewIdentity(undefined, undefined, projectSpace)) ??
+			identity;
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(parsedConfig.data),
@@ -967,7 +982,7 @@ export async function loadFilterPreviewAction(args: {
 			args.excludedOwnerIdsExpression,
 		);
 		const searchSession: PreviewSearchSessionValues = {
-			...identity.session,
+			...boundIdentity.session,
 			// This action intentionally previews the parsed candidate document,
 			// so immutable worker references must resolve through that candidate's
 			// catalog. Authorization still belongs to the server-resolved member.

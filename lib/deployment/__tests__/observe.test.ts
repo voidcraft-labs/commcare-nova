@@ -231,10 +231,10 @@ describe("probe", () => {
 		expect(outcomeFor(result.outcomes, "build")?.status).toBe("succeeded");
 		expect(outcomeFor(result.outcomes, "release")?.status).toBe("succeeded");
 		const probe = outcomeFor(result.outcomes, "probe");
-		expect(probe?.status).toBe("pending");
-		expect(probe?.status === "pending" ? probe.reason : "").toMatch(
-			/Access APIs permission/i,
-		);
+		expect(probe).toMatchObject({
+			status: "pending",
+			reason: expect.stringMatching(/Access APIs permission/i),
+		});
 		expect(probeBuildProfile).not.toHaveBeenCalled();
 	});
 

@@ -31,7 +31,6 @@
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -85,9 +84,7 @@ export default async function BuilderPage({
 					baseSeq: 0,
 				}}
 			>
-				<DeploymentTargetProvider initialProjectSpace={null}>
-					<BuilderLayout commcareSettings={commcareSettings} />
-				</DeploymentTargetProvider>
+				<BuilderLayout commcareSettings={commcareSettings} />
 			</BuilderProvider>
 		);
 	}
@@ -197,18 +194,17 @@ export default async function BuilderPage({
 			 * value the `appGenerating` prop below carries for mount-time
 			 * thread-activation decisions. */
 			initialBuildUnfinished={app.status === "generating" || buildInterrupted}
+			initialProjectSpace={previewProjectSpace}
 			userId={session.user.id}
 		>
-			<DeploymentTargetProvider initialProjectSpace={previewProjectSpace}>
-				<BuilderLayout
-					isExistingApp
-					commcareSettings={commcareSettings}
-					threads={threads}
-					initialThread={initialThread}
-					appGenerating={app.status === "generating" || buildInterrupted}
-					currentUserId={session.user.id}
-				/>
-			</DeploymentTargetProvider>
+			<BuilderLayout
+				isExistingApp
+				commcareSettings={commcareSettings}
+				threads={threads}
+				initialThread={initialThread}
+				appGenerating={app.status === "generating" || buildInterrupted}
+				currentUserId={session.user.id}
+			/>
 		</BuilderProvider>
 	);
 }

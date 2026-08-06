@@ -1639,18 +1639,20 @@ export async function withSchemaHeal<T>(
 export async function resolvePreviewIdentity(
 	doc?: UserCollections,
 	personaUuid?: string,
+	projectSpace?: string | null,
 ): Promise<ResolvedPreviewIdentity | null> {
 	const session = await getSession();
 	if (!session) return null;
 	if (doc === undefined || personaUuid === undefined) {
-		return previewAsMe(session.user, doc);
+		return previewAsMe(session.user, doc, projectSpace);
 	}
 	// This low-level projection is used only when the caller already owns the
 	// document. App-facing selectors use `resolveAuthorizedPreviewContext`,
 	// whose stale-persona arm refuses rather than changing worker identities.
 	const persona = ownRecordValue(personasOf(doc), personaUuid);
-	if (persona === undefined) return previewAsMe(session.user, doc);
-	return previewAsPersona(session.user, persona, doc);
+	if (persona === undefined)
+		return previewAsMe(session.user, doc, projectSpace);
+	return previewAsPersona(session.user, persona, doc, projectSpace);
 }
 
 /**
@@ -1721,8 +1723,14 @@ export async function resolveAuthorizedPreviewContext(args: {
 		actorUserId: memberIdentity.actorUserId,
 	});
 
+	/* `memberIdentity` above proved the session exists, so every
+	 * `previewAsMe` here returns non-null for the same user; the earlier
+	 * `?? memberIdentity` fallbacks were unreachable and the no-blueprint
+	 * identity was rebuilt and discarded whenever one was loaded. */
 	let identity =
-		previewAsMe(session?.user, undefined, projectSpace) ?? memberIdentity;
+		blueprint === undefined
+			? (previewAsMe(session?.user, undefined, projectSpace) ?? memberIdentity)
+			: memberIdentity;
 	if (blueprint !== undefined) {
 		if (args.personaUuid === undefined) {
 			identity =
@@ -1783,7 +1791,12 @@ export async function gatedCaseStoreWithScope(
 	appId: string,
 	identity: ResolvedPreviewIdentity,
 	required: AppCapability,
-): Promise<{ store: CaseStore; scope: LookupScope }> {
+): Promise<{
+	store: CaseStore;
+	scope: LookupScope;
+	projectId: string;
+	role: string;
+}> {
 	// `actorUserId` — never `ownerId`. The owner may be a persona, which is
 	// authored blueprint content; keying membership on it would let an app
 	// choose whose data a request reads. The persona reaches the store only
@@ -1803,6 +1816,8 @@ export async function gatedCaseStoreWithScope(
 			{ appId },
 		),
 		scope: { projectId, actorId: identity.actorUserId, role },
+		projectId,
+		role,
 	};
 }
 

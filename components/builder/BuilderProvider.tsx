@@ -30,6 +30,7 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
+import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
@@ -75,6 +76,7 @@ export function BuilderProvider({
 	initialDoc,
 	initialAccess,
 	initialBuildUnfinished,
+	initialProjectSpace,
 	userId,
 }: {
 	buildId: string;
@@ -91,6 +93,9 @@ export function BuilderProvider({
 	 *  loaded a `generating` app or an interrupted build admitted for
 	 *  re-drive, so the tab's first send already reads as build-mode. */
 	initialBuildUnfinished?: boolean;
+	/** The CommCare HQ project space preview identity answers with, when the
+	 *  app has reached one. Mounted inside, above the form engine. */
+	initialProjectSpace?: string | null;
 	/** The session user id: the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
@@ -101,6 +106,7 @@ export function BuilderProvider({
 			initialDoc={initialDoc}
 			initialAccess={initialAccess}
 			initialBuildUnfinished={initialBuildUnfinished}
+			initialProjectSpace={initialProjectSpace}
 			userId={userId}
 		>
 			{children}
@@ -121,6 +127,7 @@ function BuilderProviderInner({
 	initialDoc,
 	initialAccess,
 	initialBuildUnfinished,
+	initialProjectSpace,
 	userId,
 }: {
 	buildId: string;
@@ -128,6 +135,8 @@ function BuilderProviderInner({
 	initialDoc?: PersistableDoc;
 	initialAccess?: InitialBuilderAccess;
 	initialBuildUnfinished?: boolean;
+	/** The CommCare HQ project space preview identity answers with. */
+	initialProjectSpace?: string | null;
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
@@ -161,14 +170,26 @@ function BuilderProviderInner({
 					 *  consumer falls back to an idle state without it, so a
 					 *  missing mount is a permanent spinner, not a crash. */}
 					<ProjectDataWorkspaceProvider>
-						<BuilderFormEngineProvider>
-							<SyncBridge />
-							<LocationRecoveryEffect />
-							<PreviewLookupDataProvider>
-								{initialDoc ? <LoadAppHydrator /> : null}
-								{children}
-							</PreviewLookupDataProvider>
-						</BuilderFormEngineProvider>
+						{/* ABOVE the engine provider, not below it. The engine
+						 *  provider calls `useSelectedPreviewIdentityState()` in its
+						 *  own body, so a deployment provider mounted among its
+						 *  CHILDREN is invisible to it: the identity the running app
+						 *  evaluates resolves through the context default and carries
+						 *  no `commcare_project`, while other surfaces on the same
+						 *  page resolve the real one. One page, one expression, two
+						 *  answers. */}
+						<DeploymentTargetProvider
+							initialProjectSpace={initialProjectSpace ?? null}
+						>
+							<BuilderFormEngineProvider>
+								<SyncBridge />
+								<LocationRecoveryEffect />
+								<PreviewLookupDataProvider>
+									{initialDoc ? <LoadAppHydrator /> : null}
+									{children}
+								</PreviewLookupDataProvider>
+							</BuilderFormEngineProvider>
+						</DeploymentTargetProvider>
 					</ProjectDataWorkspaceProvider>
 				</CaseListWorkspaceProvider>
 			</EditGuardProvider>
