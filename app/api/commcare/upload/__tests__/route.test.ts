@@ -37,6 +37,18 @@ vi.mock("@/lib/doc/fieldParent", () => ({
 const SESSION = { user: { id: "u1" } };
 const DOMAIN = "acme";
 
+/**
+ * Read the whole response.
+ *
+ * Every assertion goes through this rather than touching `res.status`
+ * alone: `NextResponse.json` holds a body stream, and a test that never
+ * consumes one leaves it open, which the async-leak detector fails the
+ * suite on.
+ */
+async function read(res: Response): Promise<{ status: number; body: unknown }> {
+	return { status: res.status, body: await res.json() };
+}
+
 /** `readJsonBody` caps the body before parsing, so it reads real bytes. */
 function req(body: unknown) {
 	const bytes = new TextEncoder().encode(JSON.stringify(body));
@@ -99,22 +111,29 @@ beforeEach(() => {
 
 describe("POST /api/commcare/upload — request shape", () => {
 	it("rejects a missing project space", async () => {
-		const res = await POST(req({ appName: "App", appId: "app-1" }));
-		expect(res.status).toBe(400);
+		const { status, body } = await read(
+			await POST(req({ appName: "App", appId: "app-1" })),
+		);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({ error: expect.stringMatching(/project/i) });
 		expect(publishAppToHq).not.toHaveBeenCalled();
 	});
 
 	it("rejects a project space that could smuggle a path segment", async () => {
-		const res = await POST(
-			req({ domain: "acme/../evil", appName: "App", appId: "app-1" }),
+		const { status } = await read(
+			await POST(
+				req({ domain: "acme/../evil", appName: "App", appId: "app-1" }),
+			),
 		);
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		expect(publishAppToHq).not.toHaveBeenCalled();
 	});
 
 	it("rejects a missing app name", async () => {
-		const res = await POST(req({ domain: DOMAIN, appId: "app-1" }));
-		expect(res.status).toBe(400);
+		const { status } = await read(
+			await POST(req({ domain: DOMAIN, appId: "app-1" })),
+		);
+		expect(status).toBe(400);
 		expect(publishAppToHq).not.toHaveBeenCalled();
 	});
 });
@@ -125,11 +144,12 @@ describe("POST /api/commcare/upload — target resolution", () => {
 			configured: false,
 		} as never);
 
-		const res = await POST(
-			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		const { status, body } = await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
 		);
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({ error: expect.stringMatching(/Settings/) });
 		expect(publishAppToHq).not.toHaveBeenCalled();
 	});
 
@@ -141,7 +161,9 @@ describe("POST /api/commcare/upload — target resolution", () => {
 			availableDomains: [{ name: DOMAIN, displayName: "Acme" }],
 		} as never);
 
-		await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }));
+		await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
+		);
 
 		expect(vi.mocked(publishAppToHq).mock.calls[0]?.[0]).toMatchObject({
 			server: "india",
@@ -150,7 +172,9 @@ describe("POST /api/commcare/upload — target resolution", () => {
 	});
 
 	it("requires edit, not view: publishing pushes the app out of the Project", async () => {
-		await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }));
+		await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
+		);
 		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "edit");
 	});
 });

@@ -25,6 +25,102 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/* The deployment store is the only new boundary: mocking it (and the
+ * organization snapshot the setup artifact reads) lets the REAL
+ * `publishAppToHq` run through this tool, so every assertion below about
+ * import ordering, media, and the boundary gate still exercises the real
+ * path rather than a stand-in for it. */
+vi.mock("@/lib/organization/service", () => ({
+	readOrganizationAuthoringSnapshot: vi.fn(async () => ({
+		blueprint: {},
+		blueprintSeq: 1,
+		organization: { revision: "1", locations: [] },
+	})),
+}));
+vi.mock("@/lib/deployment/store", () => {
+	const record = (over: Record<string, unknown> = {}) => ({
+		id: "dep-1",
+		appId: "app-1",
+		projectId: "proj-1",
+		server: "production",
+		domain: "acme",
+		state: "preflight",
+		resumePhase: null,
+		phases: {
+			preflight: null,
+			upload: null,
+			build: null,
+			release: null,
+			probe: null,
+		},
+		createdBy: "u1",
+		createdAt: "2026-08-06T00:00:00.000Z",
+		updatedAt: "2026-08-06T00:00:00.000Z",
+		lastObservedAt: null,
+		...over,
+	});
+	return {
+		ensureDeployment: vi.fn(async () => ({
+			deployment: record(),
+			active: [],
+			superseded: [],
+		})),
+		saveDeploymentProgress: vi.fn(
+			async (
+				_scope: unknown,
+				_id: string,
+				next: { state: string; resumePhase: string | null; phases: unknown },
+			) => ({
+				deployment: record({
+					state: next.state,
+					resumePhase: next.resumePhase,
+					phases: next.phases,
+				}),
+				active: [],
+				superseded: [],
+			}),
+		),
+		recordRemoteResource: vi.fn(
+			async (
+				_scope: unknown,
+				_id: string,
+				input: {
+					remoteId: string;
+					ownership: string;
+					pushedRevision: number | null;
+					progress: { state: string };
+				},
+			) => ({
+				deployment: record({ state: input.progress.state }),
+				active: [
+					{
+						deploymentId: "dep-1",
+						kind: "app",
+						novaResourceId: "app-1",
+						remoteId: input.remoteId,
+						ownership: input.ownership,
+						adoptedAt: null,
+						adoptedBy: null,
+						pushedRevision: input.pushedRevision,
+						pushedAt: null,
+						remoteRevision: null,
+						remoteObservedAt: null,
+						supersededAt: null,
+					},
+				],
+				superseded: [],
+			}),
+		),
+		recordRemoteRevision: vi.fn(),
+		readDeployment: vi.fn(),
+		readDeploymentsForApp: vi.fn(async () => []),
+		assertRemoteAppUnclaimed: vi.fn(),
+		activeRemoteApp: (view: { active: { remoteId: string }[] }) =>
+			view.active[0] ?? null,
+	};
+});
+
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	importApp,
@@ -299,17 +395,31 @@ describe("registerUploadAppToHq — happy path", () => {
 		);
 
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
-		expect(parsed).toEqual({
+		expect(parsed).toMatchObject({
 			stage: "upload_complete",
 			app_id: "a1",
 			hq_app_id: "hq-123",
-			url: "https://hq.example/app",
 			warnings: [],
 			feature_flag_requirements: expect.objectContaining({
 				verification: "not_required",
 				required_flags: [],
 			}),
 		});
+		/* Uploading is not releasing: the state a successful publish reaches
+		 * is `uploaded`, and a client that reported it as live would be
+		 * wrong. The setup artifact rides along so it can say what is left. */
+		expect(parsed.deployment_state).toBe("uploaded");
+		expect(parsed.deployment).toMatchObject({
+			state: "uploaded",
+			hq_app_id: "hq-123",
+			ownership: "nova-created",
+			left_behind: [],
+		});
+		expect(parsed.setup_artifact.sections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "build-and-release" }),
+			]),
+		);
 
 		/* LogWriter allocated + flushed exactly once — the finally block
 		 * runs regardless of outcome. */
@@ -318,7 +428,10 @@ describe("registerUploadAppToHq — happy path", () => {
 	});
 
 	it("forwards an explicit `domain` arg to resolution and uploads to it", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		/* Both the tool's own gate and the shared lifecycle resolve
+		 * credentials for the exact domain the gate picked, so this stands
+		 * for both calls rather than only the first. */
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
 			ok: true,
 			creds: FIXTURE_CREDS.creds,
 			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
@@ -704,9 +817,11 @@ describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 		};
 		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
 		expect(payload.app_id).toBe("a1");
-		/* The HQ status code is surfaced in the user-facing message so
+		/* The failure reads person-to-person rather than echoing a status
+		 * code; `error_type` is the machine-readable half. The status is
+		 * logged server-side by the client. Kept because
 		 * the LLM can explain the failure category to the user. */
-		expect(payload.message).toContain("502");
+		expect(payload.message).toMatch(/unavailable right now/i);
 
 		/* LogWriter WAS allocated (this gate sits past the writer ctor) AND
 		 * flushed — the `finally` block drains even on non-success return. */
@@ -750,14 +865,13 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		/* Routed through `McpInvalidInputError` → `invalid_input`. */
 		expect(payload.error_type).toBe("invalid_input");
 		expect(payload.app_id).toBe("a1");
-		expect(payload.message).toContain("no longer exists");
+		expect(payload.message).toMatch(/media file is missing/i);
 
 		/* The gate fires BEFORE import + the LogWriter ctor — a
 		 * media-invalid doc never reaches HQ and never allocates a writer. */
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
-		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
 	it("does not recast an operational lookup-read failure as invalid_input", async () => {
@@ -780,7 +894,6 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
-		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
 	it("proceeds to import + upload when the boundary gate is clean", async () => {

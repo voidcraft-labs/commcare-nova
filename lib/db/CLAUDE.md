@@ -10,11 +10,15 @@ from scratch on retry, so it stays pure of side effects), the table types
 LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
 **Deployments are app-state tables too.** `app_deployments` and
-`app_deployment_resources` are read-write and carry the same deferred
-`(project_id, app_id)` tenant key `cases` does, so
-`apps.ts::commitAppProjectMoveInTransaction` MUST re-tenant them in the same
-transaction — leaving them behind fails the constraint at commit and rolls the
-whole move back. A partial unique index on
+`app_deployment_resources` are read-write. `app_deployments` carries both
+`app_id` and `project_id` but deliberately NOT the composite
+`(project_id, app_id)` key `cases` uses: the auth-app tenancy migration keeps
+an exact catalog of everything referencing `apps.project_id` and blocks
+additions to it, so a second one would fail every deploy's migration job.
+Coherence is proved where the writes happen instead —
+`lib/deployment/store.ts::lockAppForDeploymentWrite` takes the app row and
+compares its Project first — and `apps.ts::commitAppProjectMoveInTransaction`
+re-tenants these rows in the same transaction that flips `apps.project_id`. A partial unique index on
 `(deployment_id, kind, nova_resource_id) WHERE superseded_at IS NULL` makes two
 live ownership mappings for one Nova resource unrepresentable; superseded rows
 are retained rather than deleted, because CommCare HQ has no atomic app update

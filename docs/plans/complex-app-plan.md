@@ -1556,8 +1556,11 @@ from `UserData.to_dict()` and the key is injected only by
 are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
 `refresh_deployment`, `adopt_hq_app`) and deliberately NOT from the Solutions
 Architect, the same standing decision that keeps `get_app_hq_feature_flags` off
-that surface. Deployments carry the same deferred `(project_id, app_id)` tenant
-key case rows do, so a Project move updates them in the same transaction.
+that surface. Deployments carry `app_id` and `project_id` but not the composite tenant key
+case rows use, because the auth-app tenancy migration keeps an exact catalog of
+everything referencing `apps.project_id` and blocks additions; coherence is
+proved under the app lock every write already takes, and a Project move
+re-tenants them in the same transaction.
 
 Publishing also reports the HQ feature flags required by the emitted app.
 Direct upload checks the selected project space after import and distinguishes

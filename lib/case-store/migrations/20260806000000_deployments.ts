@@ -20,9 +20,20 @@
 // previous one sitting on the project space; the author can only be told
 // about it if Nova still remembers it.
 //
-// Tenancy: `project_id` travels with `app_id` under the same deferred
-// composite foreign key `cases` uses, so a Project move may carry the
-// whole closure in one transaction while no mismatched row can commit.
+// Tenancy: `project_id` travels with `app_id`, and a Project move updates
+// both together (`lib/db/apps.ts::commitAppProjectMoveInTransaction`).
+//
+// It does NOT take the composite `(project_id, app_id)` foreign key `cases`
+// uses, and that is deliberate rather than an omission. The auth-app tenancy
+// migration keeps an exact catalog of everything referencing
+// `apps.project_id` and blocks any addition to it
+// (`lib/auth/migrations/20260728010000_apps_project_tenancy.ts`), so a second
+// composite key there would fail every deploy's migration job. The tenant
+// coherence that key would buy is instead proved where every write already
+// happens: `lib/deployment/store.ts::lockAppForDeploymentWrite` takes the app
+// row and compares its Project before any deployment row is touched, so a
+// mismatched row cannot be written through the store, and the move updates
+// these rows inside the same transaction that flips `apps.project_id`.
 
 import { type Kysely, sql } from "kysely";
 
@@ -37,7 +48,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
 		CREATE TABLE IF NOT EXISTS app_deployments (
 			id uuid PRIMARY KEY DEFAULT uuidv7(),
-			app_id text NOT NULL,
+			app_id text NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
 			project_id text NOT NULL CHECK (btrim(project_id) <> ''),
 			server text NOT NULL CHECK (server IN (${sql.raw(SERVERS)})),
 			domain text NOT NULL
@@ -55,11 +66,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			-- two cannot drift into "refused, but nowhere to retry from" or
 			-- "succeeded, but still pointing at a failure".
 			CONSTRAINT app_deployments_resume_phase_pairs_with_incomplete
-				CHECK ((state = 'incomplete') = (resume_phase IS NOT NULL)),
-			CONSTRAINT app_deployments_project_app_tenant_fk
-				FOREIGN KEY (project_id, app_id) REFERENCES apps(project_id, id)
-				ON UPDATE NO ACTION ON DELETE CASCADE
-				DEFERRABLE INITIALLY DEFERRED
+				CHECK ((state = 'incomplete') = (resume_phase IS NOT NULL))
 		)
 	`.execute(db);
 

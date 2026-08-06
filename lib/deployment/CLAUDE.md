@@ -134,7 +134,17 @@ Keyed by `(app, Project, server, domain)`. The server is part of the key
 because CommCare HQ's US, India, and EU installations share no account
 database, so a key issued by one authenticates nowhere else.
 
-Deployments carry the same deferred `(project_id, app_id)` tenant key case
-rows do, so a Project move MUST update them in the same transaction —
-`lib/db/apps.ts::commitAppProjectMoveInTransaction` does. Leaving them
-behind fails the constraint at commit and rolls the whole move back.
+`app_deployments` carries `app_id` and `project_id` but deliberately NOT the
+composite `(project_id, app_id)` foreign key `cases` uses: the auth-app tenancy
+migration (`lib/auth/migrations/20260728010000_apps_project_tenancy.ts`) keeps
+an exact catalog of everything referencing `apps.project_id` and blocks any
+addition to it, so a second composite key there would fail every deploy's
+migration job.
+
+What that key would have bought is proved where every write already happens:
+`lockAppForDeploymentWrite` takes the app row and compares its Project before
+touching a deployment row, so a mismatched row cannot be written through the
+store. A Project move re-tenants these rows in the same transaction that flips
+`apps.project_id` (`lib/db/apps.ts::commitAppProjectMoveInTransaction`), and
+`projectMove.integration.test.ts` asserts the row actually moved rather than
+that the move merely succeeded.

@@ -3,9 +3,9 @@
  *
  * What this proves that a mocked test cannot: the migration's constraints
  * actually hold. The partial unique index makes "two live mappings for one
- * Nova resource" unrepresentable, the CHECK pairs `incomplete` with a
- * resume phase, and the deferred tenant key makes deployments move with
- * their app rather than being left in the source Project.
+ * Nova resource" unrepresentable, and the CHECK pairs `incomplete` with a
+ * resume phase. Deployments moving with their app is proved next door, in
+ * `lib/db/__tests__/projectMove.integration.test.ts`.
  */
 
 import { sql } from "kysely";

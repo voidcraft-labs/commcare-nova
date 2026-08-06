@@ -1,8 +1,10 @@
 import "server-only";
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import { probeHqFeatureFlags } from "@/lib/commcare/client";
-import { requiredHqFeatureFlags } from "@/lib/commcare/featureFlags";
+import {
+	featureFlagReportForPrepublish,
+	requiredHqFeatureFlags,
+} from "@/lib/commcare/featureFlags";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -16,7 +18,6 @@ import {
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
-import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import type { DeploymentPhaseOutcome } from "./types";
 
 /**
@@ -248,43 +249,33 @@ export async function runDeploymentPreflight(
 		items: [],
 	});
 
-	// ── 3. Does the target carry the feature flags the app needs? ───
-	// Never a blocker, by standing product contract: a flag report is
-	// deployment information, and refusing to publish over one would let
-	// a target's configuration edit the app.
+	// ── 3. Which feature flags does the app need? ───────────────────
+	// Requirements only. Preflight deliberately does NOT probe the target:
+	// the authoritative check runs against the exact domain CommCare HQ
+	// accepted, AFTER the import, and probing here as well would pay for
+	// the same paginated round trip twice on the critical path while the
+	// answer could still change in between. The publish dialog and MCP's
+	// `get_app_hq_feature_flags` already offer a probe before publishing,
+	// for authors who want one first.
+	//
+	// Never a blocker either way, by standing product contract: a flag
+	// report is deployment information, and refusing to publish over one
+	// would let a target's configuration edit the app.
 	const requirements = requiredHqFeatureFlags(boundary.prepared.doc);
-	let featureFlags: HqFeatureFlagReport | null = null;
-	if (requirements.length === 0) {
-		checks.push({
-			id: "feature-flags",
-			title: "Feature flags",
-			status: "passed",
-			detail: "This app doesn't need any CommCare HQ feature flags.",
-			items: [],
-		});
-	} else {
-		const probes = await probeHqFeatureFlags(creds, domain, requirements);
-		featureFlags = featureFlagReportForUpload(domain, probes, "prepublish");
-		const missing = featureFlags.missing_flags.map((flag) => flag.label);
-		const unverified = featureFlags.unverified_flags.map((flag) => flag.label);
-		checks.push({
-			id: "feature-flags",
-			title: "Feature flags",
-			status:
-				missing.length > 0
-					? "attention"
-					: unverified.length > 0
-						? "unavailable"
-						: "passed",
-			detail:
-				missing.length > 0
-					? `Ask support@dimagi.com to enable these for “${domain}”. Publishing still works; the affected parts of the app won't until they're on.`
-					: unverified.length > 0
-						? "Nova couldn't check whether these are enabled. They're required, but not confirmed missing."
-						: "Every flag this app needs is enabled on the target.",
-			items: [...missing, ...unverified],
-		});
-	}
+	const featureFlags: HqFeatureFlagReport | null =
+		requirements.length === 0
+			? null
+			: featureFlagReportForPrepublish(boundary.prepared.doc);
+	checks.push({
+		id: "feature-flags",
+		title: "Feature flags",
+		status: requirements.length === 0 ? "passed" : "attention",
+		detail:
+			requirements.length === 0
+				? "This app doesn't need any CommCare HQ feature flags."
+				: `These have to be on for “${domain}”. Publishing works either way; the parts of the app that need them won't until they are. Nova checks the target after the app lands.`,
+		items: requirements.map((requirement) => requirement.label),
+	});
 
 	// ── 4. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: Nova creates no workers yet, so
