@@ -6,6 +6,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import {
+	adoptTranscriptKeepingRicherLocal,
 	authoritativeThreadActivationOptions,
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
@@ -23,6 +24,7 @@ describe("authoritative thread activation", () => {
 					run_id: "run-paused",
 					holder_nonce: "00000000-0000-4000-8000-000000000001",
 					active_stream_id: "stream-live",
+					messages: [],
 				},
 				true,
 			),
@@ -38,6 +40,7 @@ describe("authoritative thread activation", () => {
 				{
 					run_id: "run-terminal",
 					active_stream_id: null,
+					messages: [],
 				},
 				false,
 			),
@@ -48,11 +51,148 @@ describe("authoritative thread activation", () => {
 					run_id: "run-already-redriven",
 					active_stream_id: null,
 					resume_interrupted: true,
+					messages: [],
 				},
 				true,
 				{ allowRedrive: false },
 			),
 		).toMatchObject({ redrive: false, buildResume: false });
+	});
+
+	it("re-drives an interrupted turn whose transcript ends on a PARTIAL assistant message", () => {
+		/* Barrier persistence: a dead run leaves closed-state parts behind, so
+		 * the trigger is the server's interruption stamp, never trailing role. */
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-dead",
+					active_stream_id: null,
+					resume_interrupted: true,
+					messages: [
+						{
+							id: "m1",
+							role: "user" as const,
+							parts: [{ type: "text", text: "go" }],
+						},
+						{
+							id: "m2",
+							role: "assistant" as const,
+							parts: [{ type: "text", text: "half an answer" }],
+						},
+					],
+				},
+				true,
+			),
+		).toMatchObject({ redrive: true, buildResume: true });
+	});
+
+	it("never re-drives an ANSWERED trailing ask round (the answers live in that message)", () => {
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-dead",
+					active_stream_id: null,
+					resume_interrupted: true,
+					messages: [
+						{
+							id: "m1",
+							role: "user" as const,
+							parts: [{ type: "text", text: "go" }],
+						},
+						{
+							id: "m2",
+							role: "assistant" as const,
+							parts: [
+								{ type: "step-start" },
+								{
+									type: "tool-askQuestions",
+									state: "output-available",
+									toolCallId: "c1",
+								},
+							],
+						},
+					],
+				},
+				true,
+			),
+		).toMatchObject({ redrive: false });
+	});
+
+	it("never re-drives an answered round buried under a later completed step (a died continuation)", () => {
+		/* The continuation appended a completed step to the SAME message after
+		 * the answered round, then died. The ask parts are no longer in the
+		 * message's LAST step, but the user's answers still live in the
+		 * message a re-drive would trim, so the WHOLE message is scanned. */
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-dead",
+					active_stream_id: null,
+					resume_interrupted: true,
+					messages: [
+						{
+							id: "m1",
+							role: "user" as const,
+							parts: [{ type: "text", text: "go" }],
+						},
+						{
+							id: "m2",
+							role: "assistant" as const,
+							parts: [
+								{ type: "step-start" },
+								{
+									type: "tool-askQuestions",
+									state: "output-available",
+									toolCallId: "c1",
+								},
+								{ type: "step-start" },
+								{ type: "text", text: "a completed post-answer step" },
+							],
+						},
+					],
+				},
+				true,
+			),
+		).toMatchObject({ redrive: false });
+	});
+
+	it("blocks an unanswered ask round only while the run is GENUINELY paused", () => {
+		const askRound = {
+			run_id: "run-ask",
+			active_stream_id: null,
+			resume_interrupted: true,
+			messages: [
+				{
+					id: "m1",
+					role: "user" as const,
+					parts: [{ type: "text", text: "go" }],
+				},
+				{
+					id: "m2",
+					role: "assistant" as const,
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-askQuestions",
+							state: "input-available",
+							toolCallId: "c1",
+						},
+					],
+				},
+			],
+		};
+		/* Genuinely paused: the answer POST is the recovery path. */
+		expect(
+			authoritativeThreadActivationOptions(
+				{ ...askRound, run_paused: true },
+				true,
+			),
+		).toMatchObject({ redrive: false });
+		/* Died before it could pause: the card shows but nothing can answer
+		 * it, so re-driving (and re-asking) is correct recovery. */
+		expect(authoritativeThreadActivationOptions(askRound, true)).toMatchObject({
+			redrive: true,
+		});
 	});
 });
 
@@ -123,6 +263,56 @@ describe("new-app Project handoff", () => {
 		expect(
 			parseCreatedAppActivation({ ...receipt, unexpected: true }),
 		).toBeNull();
+	});
+});
+
+describe("adoptTranscriptKeepingRicherLocal", () => {
+	it("keeps the richer LOCAL assistant copy, drops local-only messages, and leaves user messages stored", () => {
+		const stored = [
+			{
+				id: "u1",
+				role: "user" as const,
+				parts: [{ type: "text" as const, text: "go" }],
+			},
+			{
+				id: "a1",
+				role: "assistant" as const,
+				parts: [{ type: "text" as const, text: "partial" }],
+			},
+		] as NovaUIMessage[];
+		const local = [
+			{
+				id: "u1",
+				role: "user" as const,
+				parts: [
+					{ type: "text" as const, text: "go" },
+					{ type: "text" as const, text: "phantom extra" },
+				],
+			},
+			{
+				id: "a1",
+				role: "assistant" as const,
+				parts: [
+					{ type: "text" as const, text: "partial" },
+					{ type: "text" as const, text: " plus the delivered tail" },
+				],
+			},
+			{
+				id: "a-clawed",
+				role: "assistant" as const,
+				parts: [{ type: "text" as const, text: "a clawed-back partial" }],
+			},
+		] as NovaUIMessage[];
+
+		const adopted = adoptTranscriptKeepingRicherLocal(stored, local);
+		expect(adopted.map((m) => m.id)).toEqual(["u1", "a1"]);
+		// Stored stays authoritative for user messages…
+		expect(adopted[0]?.parts).toHaveLength(1);
+		// …while a delivered answer the stored row lags is not truncated.
+		expect(adopted[1]?.parts.map((p) => (p as { text: string }).text)).toEqual([
+			"partial",
+			" plus the delivered tail",
+		]);
 	});
 });
 

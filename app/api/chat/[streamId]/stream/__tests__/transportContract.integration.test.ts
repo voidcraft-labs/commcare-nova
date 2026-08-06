@@ -66,7 +66,7 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { createApp } = await import("@/lib/db/apps");
-const { appendThreadResponse, upsertThreadTurn } = await import(
+const { persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
 
@@ -269,6 +269,137 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		expect(received).toEqual(FULL);
 	});
 
+	it("windows a cold thread resume client-side: the full replay folds into a seeded transcript without duplication, and transient data replays whole", async () => {
+		/* The barrier-persistence resume shape: every completed step is already
+		 * in the thread transcript the client hydrated, so `NovaChatTransport`
+		 * (the ChatContainer class) cold-resumes with a FULL replay
+		 * (`startIndex=0`) and drops the already-hydrated steps' content
+		 * client-side, windowed on its own copy of the message the replay's
+		 * `start` chunk names — while
+		 * transient `data-*` chunks (events, receipts) pass through from chunk
+		 * 0, because they live nowhere but this log. Folding what's left into
+		 * a message seeded from the barrier transcript must not duplicate the
+		 * completed step's parts. */
+		const { appId } = await createApp(USER, "project-1", "run-3");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-3",
+			runId: "run-3",
+			streamId: "stream-midrun",
+			holderNonce: await holderNonceFor(appId),
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: "project-1",
+		});
+		/* The log exactly as the chat POST writes it: the seed-steps statement
+		 * first, the run receipt, then step 1 complete (its barrier persisted
+		 * it) and step 2 open at the end; terminal so the route closes instead
+		 * of tailing. */
+		await appendStreamChunks({
+			streamId: "stream-midrun",
+			appId,
+			runId: "run-3",
+			firstIndex: 0,
+			chunks: [
+				{ type: "data-seed-steps", data: { steps: 0 }, transient: true },
+				{ type: "data-run-id", data: { runId: "run-3" }, transient: true },
+				{ type: "start", messageId: "a1" },
+				{ type: "start-step" },
+				{ type: "text-start", id: "t1" },
+				{ type: "text-delta", id: "t1", delta: "Step one." },
+				{ type: "text-end", id: "t1" },
+				{ type: "finish-step" },
+				{ type: "start-step" },
+				{ type: "text-start", id: "t2" },
+				{ type: "text-delta", id: "t2", delta: "Step two" },
+				{ type: "text-end", id: "t2" },
+				{ type: "finish" },
+			],
+			terminal: true,
+		});
+
+		/* The barrier-persisted transcript's trailing assistant message: what
+		 * the client's Chat seeds its resume fold with, and what the transport
+		 * windows the replay against. */
+		const seeded = {
+			id: "a1",
+			role: "assistant" as const,
+			parts: [
+				{ type: "step-start" as const },
+				{ type: "text" as const, text: "Step one.", state: "done" as const },
+			],
+		};
+
+		const requests: string[] = [];
+		const routedFetch: typeof fetch = async (input) => {
+			const url = new URL(String(input), "http://localhost");
+			requests.push(`GET ${url.pathname}${url.search}`);
+			const streamId = url.pathname.split("/")[3];
+			return GET(new Request(url), {
+				params: Promise.resolve({ streamId }),
+			});
+		};
+
+		const { NovaChatTransport } = await import("@/lib/chat/novaChatTransport");
+		const transport = new NovaChatTransport(
+			{
+				api: "/api/chat",
+				fetch: routedFetch,
+			},
+			() => [{ id: "m1", role: "user", parts: [] }, seeded],
+		);
+		const stream = await transport.reconnectToStream({
+			chatId: "thread-3",
+			metadata: undefined,
+			headers: undefined,
+			body: undefined,
+		});
+		expect(stream).not.toBeNull();
+		expect(requests).toEqual(["GET /api/chat/thread-3/stream?startIndex=0"]);
+
+		const received: UIMessageChunk[] = [];
+		const reader = (stream as ReadableStream<UIMessageChunk>).getReader();
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			received.push(value);
+		}
+
+		/* The transient receipts and the identity-bearing `start` replayed from
+		 * chunk 0; step 1's content — the hydrated step — did not. */
+		expect(received.map((c) => c.type)).toEqual([
+			"data-seed-steps",
+			"data-run-id",
+			"start",
+			"start-step",
+			"text-start",
+			"text-delta",
+			"text-end",
+			"finish",
+		]);
+
+		const { readUIMessageStream } = await import("ai");
+		let folded: { parts: { type: string; text?: string }[] } | undefined;
+		const refeed = new ReadableStream<UIMessageChunk>({
+			start(controller) {
+				for (const chunk of received) controller.enqueue(chunk);
+				controller.close();
+			},
+		});
+		for await (const snapshot of readUIMessageStream({
+			message: seeded,
+			stream: refeed,
+		})) {
+			folded = snapshot as typeof folded;
+		}
+
+		/* One "Step one." (from the seed), one "Step two" (from the replay) —
+		 * nothing duplicated, nothing lost. */
+		expect(
+			folded?.parts.map((p) => (p.type === "text" ? p.text : p.type)),
+		).toEqual(["step-start", "Step one.", "step-start", "Step two"]);
+	});
+
 	it("resolves a thread with nothing in flight to a clean, terminating no-op", async () => {
 		/* The transport THROWS on any non-OK reconnect response, so "nothing
 		 * to resume" must be a 200 that terminates on its first chunk, this
@@ -284,10 +415,12 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			messages: [{ id: "m1", role: "user", parts: [] }],
 			expectedProjectId: "project-1",
 		});
-		await appendThreadResponse({
+		await persistResponseSnapshot({
 			appId,
 			threadId: "thread-2",
 			streamId: "stream-idle",
+			expectedProjectId: "project-1",
+			clearMarker: true,
 			responseMessage: null,
 		});
 

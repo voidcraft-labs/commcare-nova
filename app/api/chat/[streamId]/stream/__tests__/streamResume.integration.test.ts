@@ -10,7 +10,8 @@
  *     ends the response with `data: [DONE]` + a close (never an open tail).
  *   - Negative `startIndex` resolves from the stream's end and the absolute
  *     tail rides back in `x-workflow-stream-tail-index` (the transport's
- *     retry math).
+ *     retry math; Nova's own cold resume replays from 0 and windows
+ *     client-side instead).
  *   - LIVE tail: chunks appended AFTER the stream opened arrive via the
  *     `nova_chat_stream` poke: end-to-end NOTIFY delivery.
  *   - The `DurableStreamWriter` → route round trip: what the chat POST's
@@ -96,7 +97,7 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { claimAndReserveRun, createApp } = await import("@/lib/db/apps");
-const { appendThreadResponse, upsertThreadTurn } = await import(
+const { persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
 
@@ -305,6 +306,9 @@ describe("replay", () => {
 	});
 
 	it("resolves a negative startIndex from the end and returns the tail header", async () => {
+		/* The transport's stock tail contract — Nova's own client cold-resumes
+		 * with `startIndex=0` and windows client-side, so this arm just stays
+		 * faithful to the third-party protocol. */
 		await seedRow("s3", 0, [delta(0), delta(1), delta(2)]);
 		await seedRow("s3", 3, [delta(3), { type: "finish" }], { terminal: true });
 
@@ -416,10 +420,12 @@ describe("live tail", () => {
 				.where("id", "=", appId)
 				.execute();
 		});
-		await appendThreadResponse({
+		await persistResponseSnapshot({
 			appId,
 			threadId: "thread-private",
 			streamId: "s-private",
+			expectedProjectId: PROJECT,
+			clearMarker: true,
 			responseMessage: null,
 			retainHolderNonce: true,
 		});
@@ -638,10 +644,12 @@ describe("thread resolution", () => {
 		/* Finalize cleared the marker: nothing to resume. The reply must be a
 		 * 200 that terminates on its first chunk: the transport ERRORS on any
 		 * non-OK response (it has no null arm on this class). */
-		await appendThreadResponse({
+		await persistResponseSnapshot({
 			appId,
 			threadId: "thread-idle",
 			streamId: "s15",
+			expectedProjectId: PROJECT,
+			clearMarker: true,
 			responseMessage: null,
 		});
 

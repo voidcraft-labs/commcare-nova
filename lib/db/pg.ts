@@ -189,6 +189,11 @@ export interface ThreadsTable {
 		string | null
 	>;
 	messages: JSONColumnType<unknown[]>;
+	/** Assistant message ids the server deliberately removed or reverted (a
+	 * failed turn's claw-back, a re-drive claim's dead-partial trim) and has
+	 * not re-authored since. The history-admission gate refuses a client copy
+	 * of these ids; a fold snapshot that re-authors one clears it. */
+	clawed_back_ids: JSONColumnType<string[], string | undefined, string>;
 }
 
 /**
@@ -206,6 +211,12 @@ export interface ChatStreamChunksTable {
 	run_id: string;
 	chunks: JSONColumnType<Record<string, unknown>[]>;
 	terminal: boolean;
+	/** The run's fold outcome, stamped on the terminal row by the writer's
+	 * close ("completed" | "paused" | "failed" | "aborted" | "skip"). Null on
+	 * non-terminal rows and on terminal rows sealed before this column
+	 * existed. The dead-marker reconciler reads it to tell a finished turn
+	 * whose marker-clear write was lost from a run that died mid-turn. */
+	terminal_outcome: string | null;
 	created_at: Timestamp;
 }
 

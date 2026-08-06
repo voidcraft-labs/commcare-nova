@@ -38,6 +38,10 @@ export interface StreamChunkAppend {
 	chunks: unknown[];
 	/** Marks the stream's LAST row; `chunks` may be empty on a pure marker. */
 	terminal: boolean;
+	/** The run's fold outcome, stamped on the terminal row only — the
+	 * dead-marker reconciler's breadcrumb for "this run drained, and how it
+	 * ended". Absent on non-terminal rows. */
+	terminalOutcome?: string;
 }
 
 /**
@@ -67,6 +71,10 @@ export async function appendStreamChunks(
 			first_index: append.firstIndex,
 			chunks: JSON.stringify(append.chunks),
 			terminal: append.terminal,
+			terminal_outcome:
+				append.terminal && append.terminalOutcome !== undefined
+					? append.terminalOutcome
+					: null,
 		})
 		.onConflict((oc) => oc.columns(["stream_id", "first_index"]).doNothing())
 		.execute();
@@ -133,11 +141,15 @@ export async function readStreamChunksFrom(
 	return { chunks, endIndex, terminal };
 }
 
-/** A stream's current extent — for resolving negative resume cursors. */
+/** A stream's current extent — for resolving negative resume cursors and for
+ *  the dead-marker reconciler's finished-vs-died read. */
 export interface StreamChunkTail {
 	/** Total chunks appended so far (the next `firstIndex`). */
 	total: number;
 	terminal: boolean;
+	/** The terminal row's recorded fold outcome; null while the stream is
+	 * live, and on terminal rows sealed before the column existed. */
+	terminalOutcome: string | null;
 }
 
 /** Read a stream's total chunk count + completion without loading chunks. */
@@ -150,13 +162,18 @@ export async function streamChunkTail(
 		.select([
 			sql<number>`first_index + jsonb_array_length(chunks)`.as("total"),
 			"terminal",
+			"terminal_outcome",
 		])
 		.where("stream_id", "=", streamId)
 		.orderBy("first_index", "desc")
 		.limit(1)
 		.executeTakeFirst();
 	if (row === undefined) return null;
-	return { total: row.total, terminal: row.terminal };
+	return {
+		total: row.total,
+		terminal: row.terminal,
+		terminalOutcome: row.terminal ? row.terminal_outcome : null,
+	};
 }
 
 /** The stream's owning app + run — the reconnect endpoint's auth anchor. */

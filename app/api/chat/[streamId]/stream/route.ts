@@ -26,8 +26,17 @@
  *
  *  - the same SSE encoding the POST uses (`data: <UIMessageChunk JSON>`
  *    frames, `data: [DONE]` at the end),
- *  - a negative `startIndex` resolved from the stream's end, with the
- *    absolute tail position returned in `x-workflow-stream-tail-index`,
+ *  - a negative `startIndex` resolved from the stream's end
+ *    (`x-workflow-stream-tail-index` = the last chunk's absolute index) —
+ *    the transport's stock tail contract, which Nova's own client does not
+ *    use: its cold resume replays the WHOLE log (`startIndex=0`) and the
+ *    client windows the replay against its own hydrated transcript
+ *    (`lib/chat/hydratedStepFilter`), because only the client knows which
+ *    barrier-persisted steps it actually holds — any server-picked
+ *    boundary races the page's RSC hydration and silently skips steps
+ *    completed in between. The full replay is also what re-delivers every
+ *    transient `data-*` chunk (conversation events, the run/app receipts),
+ *    which live nowhere but this log,
  *  - the stream to END once complete (the terminal chunk-log row, whose
  *    stream always closes with a `finish` chunk: the durable writer
  *    guarantees one), rather than tail forever.
@@ -158,7 +167,10 @@ export async function GET(
 		if (startIndex < 0) {
 			/* Resolve a from-the-end cursor against the current extent, and tell
 			 * the transport the absolute tail so its retries use absolute
-			 * positions (`x-workflow-stream-tail-index` = last chunk's index). */
+			 * positions (`x-workflow-stream-tail-index` = last chunk's index).
+			 * Nova's own client never sends a negative cursor — its cold resume
+			 * replays from 0 and windows CLIENT-side (see the module doc) — so
+			 * this arm only serves the transport's stock contract. */
 			const tail = await streamChunkTail(streamId);
 			const total = tail?.total ?? 0;
 			cursor = Math.max(0, total + startIndex);

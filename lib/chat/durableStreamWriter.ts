@@ -1,10 +1,13 @@
 /**
  * DurableStreamWriter — the chat route's one write choke point, wrapping the
- * live response writer so every ordinary UI message chunk is BOTH forwarded to
- * the open POST response (best-effort) and appended to the durable chunk log
- * (`lib/db/streamChunks`). The log is what makes the stream resumable: a
- * client whose connection broke replays from its cursor via
- * `app/api/chat/[streamId]/stream` instead of losing the run.
+ * live response writer so every ordinary UI message chunk is forwarded to the
+ * open POST response (best-effort), appended to the live-catch-up chunk log
+ * (`lib/db/streamChunks`), and teed into the route's barrier fold when one is
+ * attached. The log is what makes a LIVE stream resumable: a client whose
+ * connection broke replays from its cursor via
+ * `app/api/chat/[streamId]/stream` instead of losing the run. The fold is the
+ * SDK-side assembly of the same sequence, whose completion callbacks persist
+ * the durable transcript step by step.
  *
  * One chunk is deliberately split: `writePrivateHolderNonce` sends the real
  * run-holder capability only on the authenticated POST response and persists
@@ -16,10 +19,23 @@
  *
  * Semantics, in order of importance:
  *
+ *  - **Per-token tool-input JSON dies at the door.** `tool-input-delta`
+ *    chunks are dropped before any destination sees them: no rendered or
+ *    durable surface consumes partial tool input (tool parts show as pending
+ *    on `tool-input-start` and complete on `tool-input-available`), and the
+ *    deltas dominate chunk volume. Filtering once, here, keeps the response,
+ *    the log, and the fold on one identical sequence.
  *  - **Logging never stops when the client dies.** A throw out of the inner
  *    `write` means the browser is gone; forwarding stops (the route's
  *    "closed tab neither cancels nor finalizes" contract) but chunks keep
  *    flowing to the log so a reconnect sees the whole run.
+ *  - **The fold outlives everything else.** The tee ignores a dead client
+ *    and a broken log — the fold keeps assembling so the run's TERMINAL
+ *    transcript write always lands. (Mid-run barrier writes are the one
+ *    consumer that must NOT outrun a broken log — `flushNow` reports the
+ *    break so the route can hold them; see its doc.) A fold sink that
+ *    throws is dropped and logged once; the route's finalize fallback
+ *    still retires the run marker.
  *  - **Indices are assigned here, in write order.** The resume cursor is a
  *    count of chunks; the POST response and the log emit the same sequence,
  *    so a client that received N chunks resumes at `startIndex=N` with no gap
@@ -58,6 +74,14 @@ export interface DurableStreamWriterOptions {
 	runId: string;
 	threadId: string;
 	inner: UIMessageStreamWriter;
+	/**
+	 * The route's barrier fold: the writer of a server-internal SDK stream
+	 * that re-assembles the run so completion callbacks can persist the
+	 * transcript at each step barrier. Receives exactly the sequence the
+	 * response and log carry, and keeps receiving after the client dies or
+	 * the log breaks.
+	 */
+	fold?: UIMessageStreamWriter;
 }
 
 export class DurableStreamWriter implements UIMessageStreamWriter {
@@ -66,6 +90,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	private readonly runId: string;
 	private readonly threadId: string;
 	private readonly inner: UIMessageStreamWriter;
+	private readonly fold: UIMessageStreamWriter | null;
 
 	/** Chunks written but not yet appended; `buffer[0]` sits at `flushedCount`. */
 	private buffer: UIMessageChunk[] = [];
@@ -76,10 +101,14 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	private flushTimer: ReturnType<typeof setTimeout> | null = null;
 	/** The inner writer threw — the client is gone; stop forwarding. */
 	private forwardingDead = false;
+	/** The fold sink threw — barrier persistence for this run is over. */
+	private foldDead = false;
 	/** The log rejected twice — stop buffering; resumability is lost. */
 	private broken = false;
 	private sawFinish = false;
 	private closed = false;
+	/** The fold outcome `close()` was given — stamped on the terminal row. */
+	private terminalOutcome: string | undefined;
 
 	constructor(options: DurableStreamWriterOptions) {
 		this.streamId = options.streamId;
@@ -87,9 +116,14 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 		this.runId = options.runId;
 		this.threadId = options.threadId;
 		this.inner = options.inner;
+		this.fold = options.fold ?? null;
 	}
 
 	write(part: UIMessageChunk): void {
+		/* Per-token tool-input JSON is dropped whole: nothing downstream
+		 * consumes partial tool input, and every destination must see the same
+		 * sequence — see the module doc. */
+		if (part.type === "tool-input-delta") return;
 		/* Defense at the choke point: even if a future caller uses the generic
 		 * writer for this private part, never serialize the capability into the
 		 * view-scoped log. */
@@ -147,6 +181,20 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 				this.scheduleFlush();
 			}
 		}
+		/* The fold gets the live shape: the holder-nonce marker swap is
+		 * fold-invisible either way (both halves are transient data chunks,
+		 * which the SDK excludes from the assembled message). */
+		if (this.fold && !this.foldDead) {
+			try {
+				this.fold.write(livePart);
+			} catch (err) {
+				this.foldDead = true;
+				log.error("[durableStream] barrier fold write failed", err, {
+					streamId: this.streamId,
+					appId: this.appId,
+				});
+			}
+		}
 		if (!this.forwardingDead) {
 			try {
 				this.inner.write(livePart);
@@ -184,13 +232,49 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	}
 
 	/**
+	 * Drain the buffer and await the append chain, so everything written so
+	 * far is durably in the log. Barrier callers run this before persisting a
+	 * step's snapshot: with the step's `finish-step` in the log first, a
+	 * resume replay windowed against the persisted transcript can never
+	 * re-deliver content that transcript already holds.
+	 *
+	 * Returns whether the log actually holds everything written so far. A
+	 * BROKEN log (the append latch tripped) resolves `false` rather than
+	 * throwing: the caller must then SKIP its barrier write — a barrier that
+	 * outran a truncated log would invert the log ≥ transcript ordering the
+	 * resume protocol depends on, re-delivering already-persisted steps as
+	 * duplicates on the next replay. The run's terminal transcript write is
+	 * exempt (it never consults the log again), so losing the log costs
+	 * resumability and mid-run barriers, never the final record.
+	 */
+	async flushNow(): Promise<boolean> {
+		if (this.flushTimer !== null) {
+			clearTimeout(this.flushTimer);
+			this.flushTimer = null;
+		}
+		this.enqueueFlush(false);
+		await this.flushChain;
+		return !this.broken;
+	}
+
+	/**
 	 * Terminate the stream in the log: synthesize the missing `finish` (error
 	 * paths), flush everything buffered, and mark the last row terminal. Runs
 	 * exactly once; the route awaits it at execute end so the terminal row is
 	 * durable before the response closes.
+	 *
+	 * `outcome` is the run's fold outcome, recorded ON the terminal row: the
+	 * seal is proof the run DRAINED (a died process never closes), and the
+	 * outcome says how it ended, so the dead-marker reconciler can retire a
+	 * finished turn's stranded marker instead of re-driving (re-charging) it,
+	 * while a failed turn's stranded marker still reads as an interruption. A
+	 * BROKEN log writes no terminal row at all — an unsealed stream reads as a
+	 * mid-turn death, which is the safe posture once the log stopped telling
+	 * the truth.
 	 */
-	async close(): Promise<void> {
+	async close(outcome?: string): Promise<void> {
 		if (this.closed) return;
+		this.terminalOutcome = outcome;
 		if (!this.sawFinish) this.write({ type: "finish" });
 		this.closed = true;
 		if (this.flushTimer !== null) {
@@ -232,6 +316,9 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 			firstIndex: this.flushedCount,
 			chunks: chunks as unknown[],
 			terminal,
+			...(terminal && this.terminalOutcome !== undefined
+				? { terminalOutcome: this.terminalOutcome }
+				: {}),
 		};
 		try {
 			await appendStreamChunks(append);
