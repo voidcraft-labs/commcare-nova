@@ -148,23 +148,6 @@ export function applyObservation(
 }
 
 /**
- * Whether a phase may run against a deployment in this state.
- *
- * `preflight` and `upload` are always available: the first reads nothing
- * external and the second is the author's own deliberate publish. The
- * three observation phases need the deployment to have got far enough for
- * there to be anything to observe, or to be resuming at that exact phase.
- */
-export function deploymentCanRunPhase(
-	record: Pick<DeploymentRecord, "state" | "resumePhase">,
-	phase: DeploymentPhase,
-): boolean {
-	if (phase === "preflight" || phase === "upload") return true;
-	if (record.state === "incomplete") return record.resumePhase === phase;
-	return deploymentHasReached(record, DEPLOYMENT_PHASE_ENTRY_STATE[phase]);
-}
-
-/**
  * Whether observation may say anything about this deployment.
  *
  * Observation answers questions about a build on CommCare HQ, so it needs

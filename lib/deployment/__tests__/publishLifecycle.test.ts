@@ -67,6 +67,13 @@ vi.mock("../store", () => ({
 	recordRemoteResource: vi.fn(),
 	recordRemoteRevision: vi.fn(),
 	saveDeploymentProgress: vi.fn(),
+	/* Runs the body. The real one adds mutual exclusion against other
+	 * holders, which a single-threaded test cannot exercise; the SQL that
+	 * proves it is in `store.integration.test.ts`. */
+	withDeploymentTargetLock: vi.fn(
+		async (_scope: unknown, _target: unknown, body: () => Promise<unknown>) =>
+			body(),
+	),
 }));
 
 const SCOPE = {
@@ -332,11 +339,43 @@ describe("publishAppToHq — failures that are not refusals", () => {
 		expect(outcome.warnings.join(" ")).toMatch(/media/i);
 	});
 
+	it("leaves NO record behind when a first publish never reaches the project space", async () => {
+		/* Nothing is on that project space, and no code path anywhere deletes
+		 * a deployment — so writing the row before preflight proved the key
+		 * could reach the target left a typo'd slug listed in the publish
+		 * dialog permanently. */
+		vi.mocked(readDeployment).mockResolvedValue(null as never);
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
+			ok: false,
+			error: "not_configured",
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(ensureDeployment).not.toHaveBeenCalled();
+		expect(saveDeploymentProgress).not.toHaveBeenCalled();
+		// The caller is still told what happened, and what to fix.
+		expect(outcome.deployment.deployment.state).toBe("incomplete");
+		expect(outcome.deployment.deployment.resumePhase).toBe("preflight");
+		expect(outcome.checks.find((c) => c.id === "hq-connection")?.status).toBe(
+			"blocked",
+		);
+	});
+
+	it("creates the record once preflight proves the key reaches the target", async () => {
+		vi.mocked(readDeployment).mockResolvedValue(null as never);
+
+		await publishAppToHq(publishInput());
+
+		expect(ensureDeployment).toHaveBeenCalled();
+	});
+
 	it("does not call a blocked preflight a success just because the target is live", async () => {
 		// The deployment is already released on this project space, so a
 		// blocked preflight leaves the record released — it still is. The
 		// ATTEMPT must not read as a success off that state.
-		vi.mocked(ensureDeployment).mockResolvedValue(
+		vi.mocked(readDeployment).mockResolvedValue(
 			view({ state: "runnable" }) as never,
 		);
 		vi.mocked(getCredentialsForUpload).mockResolvedValue({

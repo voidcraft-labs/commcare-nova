@@ -9,8 +9,10 @@
  */
 
 import { sql } from "kysely";
-import { describe, expect, it } from "vitest";
+import { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { __setAppPoolForTests } from "@/lib/db/pg";
 import { activeRemoteApp } from "../resources";
 import { applyPhaseOutcome } from "../stateMachine";
 import {
@@ -21,6 +23,7 @@ import {
 	recordRemoteResource,
 	recordRemoteRevision,
 	saveDeploymentProgress,
+	withDeploymentTargetLock,
 } from "../store";
 
 const h = setupAppStateTestDb("deployments_");
@@ -249,5 +252,115 @@ describe("tenancy", () => {
 				phases: created.deployment.phases,
 			}),
 		).rejects.toThrow();
+	});
+});
+
+describe("serializing one app's publishes to one project space", () => {
+	/* The reason this needs REAL Postgres: the guarantee is a session
+	 * advisory lock held across several transactions, and a mocked store
+	 * proves nothing about it. Publishing spans preflight, the import that
+	 * mints a CommCare HQ app, and the write that records it — so two
+	 * publishes overlapping meant TWO apps on the project space and a record
+	 * naming whichever committed last.
+	 *
+	 * These run on their OWN pool. The harness pool is `max: 1`, which would
+	 * serialize the two holders at connection checkout and let every
+	 * assertion below pass with the advisory lock deleted — a test proving
+	 * the pool size, not the lock. With room for both to connect, ordering
+	 * can only come from the lock itself. */
+	let lockPool: Pool | undefined;
+
+	beforeEach(() => {
+		lockPool = new Pool({ connectionString: h.uri(), max: 4 });
+		__setAppPoolForTests(lockPool);
+	});
+
+	afterEach(async () => {
+		__setAppPoolForTests(null);
+		await lockPool?.end();
+		lockPool = undefined;
+	});
+
+	/** Resolves once `body` is known to be running inside the lock. */
+	function heldLock(scope: DeploymentScope, target: typeof TARGET) {
+		let release!: () => void;
+		let entered!: () => void;
+		const inside = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const hasEntered = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const done = withDeploymentTargetLock(scope, target, async () => {
+			entered();
+			await inside;
+		});
+		return { done, hasEntered, release };
+	}
+
+	it("makes a second holder wait for the first, with connections to spare", async () => {
+		const scope = await seed();
+		const first = heldLock(scope, TARGET);
+		await first.hasEntered;
+
+		let secondRan = false;
+		const second = withDeploymentTargetLock(scope, TARGET, async () => {
+			secondRan = true;
+		});
+		// Long enough that a missing lock would let it through: the pool has
+		// three free connections and nothing else is contending.
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		expect(secondRan).toBe(false);
+
+		first.release();
+		await Promise.all([first.done, second]);
+		expect(secondRan).toBe(true);
+	});
+
+	it("lets two DIFFERENT project spaces of one app publish at once", async () => {
+		const scope = await seed();
+		const acme = heldLock(scope, TARGET);
+		await acme.hasEntered;
+
+		// A different target must not queue behind `acme`.
+		await expect(
+			withDeploymentTargetLock(
+				scope,
+				{ server: "production", domain: "other-space" },
+				async () => "ran",
+			),
+		).resolves.toBe("ran");
+
+		acme.release();
+		await acme.done;
+	});
+
+	it("lets two different APPS publish to the same project space at once", async () => {
+		const first = await seed("app-1");
+		const second = await seed("app-2", "proj-1");
+		const held = heldLock(first, TARGET);
+		await held.hasEntered;
+
+		await expect(
+			withDeploymentTargetLock(second, TARGET, async () => "ran"),
+		).resolves.toBe("ran");
+
+		held.release();
+		await held.done;
+	});
+
+	it("releases the lock when the body throws, so the next publish is not wedged", async () => {
+		const scope = await seed();
+
+		await expect(
+			withDeploymentTargetLock(scope, TARGET, async () => {
+				throw new Error("CommCare HQ refused the upload");
+			}),
+		).rejects.toThrow(/refused the upload/);
+
+		// A leaked lock would hang here instead of resolving.
+		await expect(
+			withDeploymentTargetLock(scope, TARGET, async () => "ok"),
+		).resolves.toBe("ok");
 	});
 });

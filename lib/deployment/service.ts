@@ -16,7 +16,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
-import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
@@ -39,8 +39,13 @@ import {
 	recordRemoteResource,
 	recordRemoteRevision,
 	saveDeploymentProgress,
+	withDeploymentTargetLock,
 } from "./store";
-import type { DeploymentWithResources } from "./types";
+import {
+	type DeploymentPhaseOutcome,
+	type DeploymentWithResources,
+	NO_DEPLOYMENT_PHASE_OUTCOMES,
+} from "./types";
 
 /**
  * The one publish lifecycle.
@@ -131,13 +136,18 @@ export async function artifactLocations(
 	scope: DeploymentScope,
 ): Promise<readonly StoredLocation[]> {
 	try {
-		const snapshot = await readOrganizationAuthoringSnapshot({
+		/* `readOrganization` returns exactly the locations this wants.
+		 * `readOrganizationAuthoringSnapshot` also hydrates the whole
+		 * blueprint, which is a large read to throw away when the caller
+		 * already holds the document — and `readDeploymentsAction` did
+		 * exactly that, hydrating it twice per dialog open. */
+		const snapshot = await readOrganization({
 			appId: scope.appId,
 			projectId: scope.projectId,
 			role: scope.role,
 			actorUserId: scope.actorUserId,
 		});
-		return snapshot.organization.locations;
+		return snapshot.locations;
 	} catch (error) {
 		log.warn("[deployment] organization snapshot unavailable for artifact", {
 			appId: scope.appId,
@@ -154,6 +164,44 @@ export async function artifactLocations(
  * edges pass, which is the dependency-graph contract: nothing is sent
  * until the connection and the app itself are proved.
  */
+/**
+ * The record a refused FIRST publish reports, which is never persisted.
+ *
+ * Nothing reached the project space, so nothing about it is durable — but
+ * the caller still has to be told what happened, and every consumer reads
+ * the same record shape. This is that answer, shaped like a deployment and
+ * deliberately not one: it carries no id anything can later resolve.
+ */
+function unsavedDeploymentFor(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	outcome: DeploymentPhaseOutcome,
+	now: string,
+): DeploymentWithResources {
+	return {
+		deployment: applyAttemptOutcome(
+			{
+				id: "",
+				appId: scope.appId,
+				projectId: scope.projectId,
+				server: target.server,
+				domain: target.domain,
+				state: "preflight",
+				resumePhase: null,
+				phases: NO_DEPLOYMENT_PHASE_OUTCOMES,
+				createdBy: scope.actorUserId,
+				createdAt: now,
+				updatedAt: now,
+				lastObservedAt: null,
+			},
+			"preflight",
+			outcome,
+		),
+		active: [],
+		superseded: [],
+	};
+}
+
 export async function publishAppToHq(
 	input: PublishInput,
 ): Promise<PublishOutcome> {
@@ -161,7 +209,26 @@ export async function publishAppToHq(
 		server: input.server,
 		domain: input.domain,
 	};
-	let deployment = await ensureDeployment(input.scope, target);
+	/* Held across preflight, the import that mints the CommCare HQ app, and
+	 * the write that records it. Two publishes of one app to one project
+	 * space must not both reach `importApp`. */
+	return withDeploymentTargetLock(input.scope, target, () =>
+		publishWithinTargetLock(input, target),
+	);
+}
+
+async function publishWithinTargetLock(
+	input: PublishInput,
+	target: DeploymentTargetKey,
+): Promise<PublishOutcome> {
+	/* Read what is already there rather than creating a row. A durable
+	 * record must not exist for a project space the app never reached: it is
+	 * never deleted by any code path, so a typo'd slug or a key that cannot
+	 * reach the target would otherwise leave the publish dialog listing that
+	 * project space forever. The row is created below, once preflight has
+	 * proved the caller can actually reach it. */
+	const existing = (await readDeployment(input.scope, target)) ?? null;
+	let deployment = existing;
 	const now = new Date().toISOString();
 
 	const preflight = await runDeploymentPreflight({
@@ -177,32 +244,46 @@ export async function publishAppToHq(
 		now,
 	});
 
-	const afterPreflight = applyAttemptOutcome(
-		deployment.deployment,
-		"preflight",
-		preflight.outcome,
-	);
-	deployment = await saveDeploymentProgress(
-		input.scope,
-		deployment.deployment.id,
-		afterPreflight,
-	);
-
 	if (preflight.ready === null) {
+		/* A refusal against a target this app has never reached leaves
+		 * NOTHING behind — there is nothing on that project space to
+		 * remember, and the caller still gets the blocking checks that say
+		 * what to fix. An existing record does record the attempt, because
+		 * its app really is over there. */
+		const refused =
+			deployment === null
+				? unsavedDeploymentFor(input.scope, target, preflight.outcome, now)
+				: await saveDeploymentProgress(
+						input.scope,
+						deployment.deployment.id,
+						applyAttemptOutcome(
+							deployment.deployment,
+							"preflight",
+							preflight.outcome,
+						),
+					);
 		return {
 			landed: false,
-			deployment,
+			deployment: refused,
 			checks: preflight.checks,
-			artifact: await setupArtifactFor(input.scope, deployment, input.doc),
+			artifact: await setupArtifactFor(input.scope, refused, input.doc),
 			warnings: [],
 			featureFlags: preflight.featureFlags,
 			hqAppUrl: hqAppUrlFor(
 				input.server,
 				input.domain,
-				activeRemoteApp(deployment)?.remoteId ?? null,
+				activeRemoteApp(refused)?.remoteId ?? null,
 			),
 		};
 	}
+
+	// Reachability is proved, so the record may exist now.
+	deployment = await ensureDeployment(input.scope, target);
+	deployment = await saveDeploymentProgress(
+		input.scope,
+		deployment.deployment.id,
+		applyAttemptOutcome(deployment.deployment, "preflight", preflight.outcome),
+	);
 
 	const { creds, domain, prepared } = preflight.ready;
 
@@ -394,6 +475,23 @@ function assertCredentialsMatchServer(
  * the deployment backward when a build stops being released.
  */
 export async function refreshDeployment(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	doc: BlueprintDoc,
+): Promise<{
+	readonly deployment: DeploymentWithResources;
+	readonly artifact: SetupArtifact;
+} | null> {
+	/* The SAME lock publishing takes. Observing reads the record, spends
+	 * several seconds asking CommCare HQ about the app it names, then writes
+	 * what it heard — so without this a publish landing in that window was
+	 * overwritten by answers describing the app it had just replaced. */
+	return withDeploymentTargetLock(scope, target, () =>
+		refreshWithinTargetLock(scope, target, doc),
+	);
+}
+
+async function refreshWithinTargetLock(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	doc: BlueprintDoc,

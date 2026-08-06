@@ -13,7 +13,6 @@ export {
 	type SetupArtifactStep,
 } from "./setupArtifact";
 export {
-	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
 	deploymentHasReached,
 	deploymentIsObservable,

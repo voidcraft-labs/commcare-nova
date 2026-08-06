@@ -634,6 +634,31 @@ export function __setAppDbForTests(db: Kysely<AppDatabase> | null): void {
 	injectedForTests = db;
 }
 
+let injectedPoolForTests: unknown = null;
+
+/**
+ * Test-only seam for the POOL behind `getAppPool`. Separate from the handle
+ * above because a session advisory lock needs one checked-out connection it
+ * can hold statements on, which a Kysely wrapper cannot hand back.
+ */
+export function __setAppPoolForTests(pool: unknown): void {
+	injectedPoolForTests = pool;
+}
+
+/**
+ * The pool app-state work runs on, for the rare caller that needs a
+ * connection rather than a query interface — today only the session advisory
+ * lock, which must hold one session across several transactions.
+ */
+export async function getAppPool(): Promise<
+	Awaited<ReturnType<typeof getCaseStorePool>>
+> {
+	if (injectedPoolForTests !== null) {
+		return injectedPoolForTests as Awaited<ReturnType<typeof getCaseStorePool>>;
+	}
+	return getCaseStorePool();
+}
+
 /**
  * The `Kysely<AppDatabase>` handle for app-state reads/writes, on the shared
  * pool. A fresh wrapper each call (cheap — no connection opens until a query);

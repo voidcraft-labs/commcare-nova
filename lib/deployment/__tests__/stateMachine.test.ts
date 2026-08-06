@@ -14,7 +14,6 @@ import {
 	applyObservation,
 	applyPhaseOutcome,
 	clearObservationOutcomes,
-	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
 	deploymentHasReached,
 	deploymentIsObservable,
@@ -161,34 +160,6 @@ describe("what Check status may answer", () => {
 	});
 });
 
-describe("which phases may run", () => {
-	it("always allows preflight and upload — both are the author's own act", () => {
-		for (const state of ["preflight", "uploaded", "runnable"] as const) {
-			expect(deploymentCanRunPhase(record({ state }), "preflight")).toBe(true);
-			expect(deploymentCanRunPhase(record({ state }), "upload")).toBe(true);
-		}
-	});
-
-	it("withholds an observation phase until there is something to observe", () => {
-		expect(deploymentCanRunPhase(record({ state: "preflight" }), "build")).toBe(
-			false,
-		);
-		expect(deploymentCanRunPhase(record({ state: "uploaded" }), "build")).toBe(
-			true,
-		);
-		expect(deploymentCanRunPhase(record({ state: "uploaded" }), "probe")).toBe(
-			false,
-		);
-	});
-
-	it("allows only the exact resume phase while refused", () => {
-		const refused = record({ state: "incomplete", resumePhase: "release" });
-		expect(deploymentCanRunPhase(refused, "release")).toBe(true);
-		expect(deploymentCanRunPhase(refused, "build")).toBe(false);
-		expect(deploymentCanRunPhase(refused, "probe")).toBe(false);
-	});
-});
-
 describe("what a person sees on a refused deployment", () => {
 	// A probe that failed did not undo the upload, the build, or the
 	// release, and telling somebody their app is nowhere is both untrue
@@ -222,7 +193,6 @@ describe("what a person sees on a refused deployment", () => {
 		// The strict predicate is what gates phases, and it still answers
 		// false for everything while the deployment is refused.
 		expect(deploymentHasReached(refusedAtProbe, "uploaded")).toBe(false);
-		expect(deploymentCanRunPhase(refusedAtProbe, "release")).toBe(false);
 	});
 
 	it("keeps an attempt's failure from rewriting what the target holds", () => {

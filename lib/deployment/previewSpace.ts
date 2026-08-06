@@ -5,7 +5,7 @@ import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
 } from "./previewTarget";
-import { type DeploymentScope, readDeploymentsForApp } from "./store";
+import { type DeploymentScope, readDeploymentRecordsForApp } from "./store";
 
 /**
  * The project space Preview may honestly name for an app.
@@ -24,12 +24,8 @@ export async function previewProjectSpaceFor(
 	scope: DeploymentScope,
 ): Promise<string | null> {
 	try {
-		const deployments = await readDeploymentsForApp(scope);
-		return previewProjectSpace(
-			resolvePreviewDeploymentTarget(
-				deployments.map((view) => view.deployment),
-			),
-		);
+		const deployments = await readDeploymentRecordsForApp(scope);
+		return previewProjectSpace(resolvePreviewDeploymentTarget(deployments));
 	} catch (error) {
 		log.warn("[deployment] preview project space unavailable", {
 			appId: scope.appId,

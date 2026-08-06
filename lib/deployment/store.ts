@@ -11,6 +11,7 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { withSessionAdvisoryLocks } from "@/lib/db/sessionAdvisoryLock";
 import { deploymentNotFound } from "./errors";
 import { clearObservationOutcomes } from "./stateMachine";
 import {
@@ -255,6 +256,29 @@ export async function readDeploymentsForApp(
 	}));
 }
 
+/**
+ * Just the deployment rows, without their ownership ledger.
+ *
+ * Preview asks only "which project space, and how far along", which is three
+ * columns on this table — so loading every resource mapping for every
+ * deployment to answer it was a join nothing read. Every preview case-data
+ * action pays this, so it stays a single narrow read.
+ */
+export async function readDeploymentRecordsForApp(
+	scope: DeploymentScope,
+): Promise<readonly DeploymentRecord[]> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("app_deployments")
+		.selectAll()
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.orderBy("updated_at", "desc")
+		.execute();
+	return rows.map(toDeploymentRecord);
+}
+
 /** One deployment by target, or `null` when the app has never had one. */
 export async function readDeployment(
 	scope: DeploymentScope,
@@ -303,6 +327,42 @@ async function loadWithinTransaction(
  * means "prerequisites are being checked and nothing has been sent", which
  * is exactly true of a record that has just come into existence.
  */
+/**
+ * Serialize everything that acts on ONE app's deployment to ONE project
+ * space.
+ *
+ * Publishing and observing both span several transactions with network
+ * calls in between, so neither can be protected by a transaction lock.
+ * Without this, two publishes both reached `importApp`, CommCare HQ minted
+ * two apps, and whichever recorded second lost: the record named the older
+ * app while the author released the newer one, and Nova reported the live
+ * app as an abandoned leftover forever. A refresh interleaved the same way
+ * wrote observations about the app a publish had just replaced.
+ *
+ * The app row lock cannot do this job. It is taken `FOR SHARE`, which does
+ * not conflict with itself, and it is released at each transaction's commit
+ * while these operations are still running.
+ *
+ * The identity is the deployment key, so two different targets of the same
+ * app still publish concurrently.
+ */
+export async function withDeploymentTargetLock<T>(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	body: () => Promise<T>,
+): Promise<T> {
+	return withSessionAdvisoryLocks(
+		[
+			`nova-deployment:${scope.projectId}:${scope.appId}:${target.server}:${target.domain}`,
+		],
+		"Deployment",
+		// The body's own statements may use the ordinary pool: this lock
+		// excludes other HOLDERS, not other connections, and every operation
+		// that touches a deployment target takes it.
+		async () => body(),
+	);
+}
+
 export async function ensureDeployment(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,

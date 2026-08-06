@@ -113,7 +113,12 @@ vi.mock("@/lib/deployment/store", () => {
 		recordRemoteRevision: vi.fn(),
 		readDeployment: vi.fn(),
 		readDeploymentsForApp: vi.fn(async () => []),
-		assertRemoteAppUnclaimed: vi.fn(),
+		/* Runs the body. Mutual exclusion is proved against real Postgres in
+		 * `lib/deployment/__tests__/store.integration.test.ts`. */
+		withDeploymentTargetLock: vi.fn(
+			async (_scope: unknown, _target: unknown, body: () => Promise<unknown>) =>
+				body(),
+		),
 	};
 });
 
