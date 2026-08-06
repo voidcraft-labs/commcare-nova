@@ -52,7 +52,11 @@ beforeEach(() => {
 });
 
 describe("reaching CommCare HQ", () => {
-	it("names a deleted app as missing, not as a connection problem", async () => {
+	it("names a deleted app as the UPLOAD undone, so nothing claims it is still there", async () => {
+		/* Filing this under `build` left the resume state at `uploaded`,
+		 * because `build`'s entry state is `uploaded` — so every surface
+		 * went on reporting an app that no longer exists as sitting on the
+		 * project space, with a link to a page that 404s. */
 		vi.mocked(readAppVersions).mockResolvedValue({
 			success: false,
 			status: 404,
@@ -60,8 +64,9 @@ describe("reaching CommCare HQ", () => {
 
 		const result = checked(await observeDeployment(INPUT));
 
-		const build = outcomeFor(result.outcomes, "build");
-		expect(build?.status).toBe("failed");
+		const upload = outcomeFor(result.outcomes, "upload");
+		expect(upload?.status).toBe("failed");
+		expect(outcomeFor(result.outcomes, "build")).toBeUndefined();
 		expect(result.outcomes).toHaveLength(1);
 	});
 
@@ -210,17 +215,26 @@ describe("probe", () => {
 		expect(result.kind).toBe("unavailable");
 	});
 
-	it("writes nothing when the build list is unreadable", async () => {
-		// This read needs the Access APIs permission, so a key without it
-		// would otherwise mark every deployment refused forever.
+	it("keeps the build and release it already confirmed when only the build list is unreadable", async () => {
+		/* This read needs the Access APIs permission. Discarding the whole
+		 * pass because of it threw away answers CommCare HQ had ALREADY
+		 * given on the same call, so an account without that permission
+		 * could never move past `uploaded` no matter how many times it
+		 * checked. Only the probe is unconfirmed. */
 		vi.mocked(listAppBuilds).mockResolvedValue({
 			success: false,
 			status: 403,
 		} as never);
 
-		const result = await observeDeployment(INPUT);
+		const result = checked(await observeDeployment(INPUT));
 
-		expect(result.kind).toBe("unavailable");
+		expect(outcomeFor(result.outcomes, "build")?.status).toBe("succeeded");
+		expect(outcomeFor(result.outcomes, "release")?.status).toBe("succeeded");
+		const probe = outcomeFor(result.outcomes, "probe");
+		expect(probe?.status).toBe("pending");
+		expect(probe?.status === "pending" ? probe.reason : "").toMatch(
+			/Access APIs permission/i,
+		);
 		expect(probeBuildProfile).not.toHaveBeenCalled();
 	});
 

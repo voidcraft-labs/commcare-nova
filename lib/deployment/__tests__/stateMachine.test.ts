@@ -10,9 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	applyAttemptOutcome,
 	applyObservation,
 	applyPhaseOutcome,
-	applyPreflightOutcome,
 	clearObservationOutcomes,
 	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
@@ -229,7 +229,7 @@ describe("what a person sees on a refused deployment", () => {
 		// A refused publish attempt against an app that is already live must
 		// not report the live app as having reached nothing.
 		const live = record({ state: "runnable" });
-		const refusedAttempt = applyPreflightOutcome(live, {
+		const refusedAttempt = applyAttemptOutcome(live, "preflight", {
 			status: "failed",
 			at: AT,
 			failure: { code: "hq_not_connected", message: "no key", details: [] },
@@ -240,14 +240,14 @@ describe("what a person sees on a refused deployment", () => {
 
 	it("does not walk a live deployment back to preflight on a clean check", () => {
 		const live = record({ state: "runnable" });
-		expect(applyPreflightOutcome(live, ok).state).toBe("runnable");
+		expect(applyAttemptOutcome(live, "preflight", ok).state).toBe("runnable");
 	});
 
 	it("still moves a brand-new deployment through preflight", () => {
 		const fresh = record();
-		expect(applyPreflightOutcome(fresh, ok).state).toBe("preflight");
+		expect(applyAttemptOutcome(fresh, "preflight", ok).state).toBe("preflight");
 		expect(
-			applyPreflightOutcome(fresh, {
+			applyAttemptOutcome(fresh, "preflight", {
 				status: "failed",
 				at: AT,
 				failure: { code: "app_not_ready", message: "fix it", details: [] },
@@ -266,7 +266,7 @@ describe("what a person sees on a refused deployment", () => {
 			state: "incomplete",
 			resumePhase: "probe",
 		});
-		const after = applyPreflightOutcome(probeRefused, {
+		const after = applyAttemptOutcome(probeRefused, "preflight", {
 			status: "failed",
 			at: AT,
 			failure: { code: "hq_not_connected", message: "no key", details: [] },
@@ -276,13 +276,42 @@ describe("what a person sees on a refused deployment", () => {
 		expect(after.phases.preflight?.status).toBe("failed");
 	});
 
+	it("keeps a live deployment live when a RE-UPLOAD is rejected", () => {
+		/* The publish path's own failure, not preflight's. CommCare HQ
+		 * answering 500 to a second publish does not remove the app already
+		 * released on the project space, and reporting `incomplete` would
+		 * make Nova tell workers' administrators their live app is nowhere
+		 * — with publishing again, and a duplicate app, as the only exit. */
+		const live = record({ state: "runnable" });
+		const after = applyAttemptOutcome(live, "upload", {
+			status: "failed",
+			at: AT,
+			failure: { code: "hq_rejected_upload", message: "500", details: [] },
+		});
+		expect(after.state).toBe("runnable");
+		expect(after.resumePhase).toBeNull();
+		expect(after.phases.upload?.status).toBe("failed");
+		expect(deploymentIsObservable(after)).toBe(true);
+	});
+
+	it("still refuses a FIRST upload that CommCare HQ rejected", () => {
+		const fresh = record({ state: "preflight" });
+		const after = applyAttemptOutcome(fresh, "upload", {
+			status: "failed",
+			at: AT,
+			failure: { code: "hq_rejected_upload", message: "500", details: [] },
+		});
+		expect(after.state).toBe("incomplete");
+		expect(after.resumePhase).toBe("upload");
+	});
+
 	it("still rewrites a deployment refused BEFORE its app got there", () => {
 		// Nothing reached the project space, so there is nothing to protect.
 		const uploadRefused = record({
 			state: "incomplete",
 			resumePhase: "upload",
 		});
-		const after = applyPreflightOutcome(uploadRefused, {
+		const after = applyAttemptOutcome(uploadRefused, "preflight", {
 			status: "failed",
 			at: AT,
 			failure: { code: "app_not_ready", message: "fix it", details: [] },

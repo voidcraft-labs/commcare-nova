@@ -88,7 +88,7 @@ going to ask about.
 **A refused ATTEMPT never rewrites what the target holds.** The state
 describes the project space, not the publish. An expired API key blocking
 preflight against an already-released deployment records the failure and
-leaves the state alone (`applyPreflightOutcome`), because the app really is
+leaves the state alone (`applyAttemptOutcome`), because the app really is
 still released there. That guard reads `deploymentDisplaysAsReached`, NOT
 the strict predicate — the strict one answers `false` at every rung while a
 deployment is `incomplete`, so it would hand the worst case the worst

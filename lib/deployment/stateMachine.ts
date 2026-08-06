@@ -196,10 +196,15 @@ export function deploymentIsObservable(
  * as having reached nothing, and a plain success would walk a `runnable`
  * deployment back to `preflight`.
  *
- * So preflight writes its own outcome always, and moves the state only
+ * So the phase writes its own outcome always, and moves the state only
  * while the deployment has not yet put anything on the project space. The
  * caller still gets the blocking check to show, which is what makes the
  * refusal actionable.
+ *
+ * Both phases a person can DRIVE come through here, and for the same
+ * reason: CommCare HQ rejecting a re-upload says nothing about the app
+ * already sitting on the project space. Only the observation phases fold
+ * unconditionally, because those are answers ABOUT the target.
  *
  * "Has put something there" is the DISPLAY predicate, not the strict one.
  * A deployment refused at the probe is `incomplete`, which the strict
@@ -211,18 +216,19 @@ export function deploymentIsObservable(
  * duplicate app on the project space. What matters is whether the app is
  * THERE, and after a probe failure it is.
  */
-export function applyPreflightOutcome(
+export function applyAttemptOutcome(
 	record: DeploymentRecord,
+	phase: "preflight" | "upload",
 	outcome: DeploymentPhaseOutcome,
 ): DeploymentRecord {
 	if (deploymentDisplaysAsReached(record, "uploaded")) {
 		return {
 			...record,
-			phases: { ...record.phases, preflight: outcome },
+			phases: { ...record.phases, [phase]: outcome },
 			updatedAt: outcome.at,
 		};
 	}
-	return applyPhaseOutcome(record, "preflight", outcome);
+	return applyPhaseOutcome(record, phase, outcome);
 }
 
 /**

@@ -26,9 +26,9 @@ import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
 import { activeRemoteApp } from "./resources";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import {
+	applyAttemptOutcome,
 	applyObservation,
 	applyPhaseOutcome,
-	applyPreflightOutcome,
 	deploymentIsObservable,
 } from "./stateMachine";
 import {
@@ -177,8 +177,9 @@ export async function publishAppToHq(
 		now,
 	});
 
-	const afterPreflight = applyPreflightOutcome(
+	const afterPreflight = applyAttemptOutcome(
 		deployment.deployment,
+		"preflight",
 		preflight.outcome,
 	);
 	deployment = await saveDeploymentProgress(
@@ -212,7 +213,12 @@ export async function publishAppToHq(
 	const result = await importApp(creds, domain, input.appName, hqJson);
 	if (!result.success) {
 		const uploadFailedAt = new Date().toISOString();
-		const failed = applyPhaseOutcome(deployment.deployment, "upload", {
+		/* CommCare HQ refusing THIS upload says nothing about the app
+		 * already on the project space. Folding it unconditionally walked a
+		 * released, worker-facing deployment back to "reached nothing", lost
+		 * the phase a retry resumes from, and left publishing again — and a
+		 * duplicate app — as the only way forward. */
+		const failed = applyAttemptOutcome(deployment.deployment, "upload", {
 			status: "failed",
 			at: uploadFailedAt,
 			failure: {

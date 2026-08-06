@@ -967,10 +967,15 @@ export async function probeBuildProfile(
 	}
 	if (!res.ok) {
 		await logAndReturnError("build profile probe failed", res);
-		// A 5xx is CommCare HQ being unwell, not a verdict on the build.
+		/* Only a 404 is a verdict on the BUILD: CommCare HQ served the
+		 * request and had no profile for it. Every other refusal is Nova
+		 * failing to ask — a 401 or 403 is the key's permissions, a 429 is
+		 * rate limiting, a 5xx is CommCare HQ being unwell — and reporting
+		 * those as `not-installable` tells somebody their release is broken
+		 * when nothing was learned about it at all. */
 		return {
 			ok: false,
-			reason: res.status >= 500 ? "unavailable" : "not-installable",
+			reason: res.status === 404 ? "not-installable" : "unavailable",
 		};
 	}
 	// Drain the body so the connection is released; the bytes themselves

@@ -91,11 +91,17 @@ export async function observeDeployment(input: {
 					"Nova couldn't reach CommCare HQ to check on this app. What you see below is the last thing it saw. Try again in a moment.",
 			};
 		}
+		/* The app is GONE, so this is the UPLOAD that stopped being true,
+		 * not a build that failed. Filing it under `build` left the resume
+		 * state at `uploaded`, and every surface went on reporting the app
+		 * as sitting on the project space — with a working "Open in
+		 * CommCare HQ" link to a page that 404s, and instructions to go
+		 * make a build of something that no longer exists. */
 		return {
 			kind: "checked",
 			outcomes: [
 				[
-					"build",
+					"upload",
 					failed(
 						now,
 						"remote_app_missing",
@@ -178,13 +184,25 @@ export async function observeDeployment(input: {
 	// not.
 	const builds = await listAppBuilds(creds, domain, hqAppId);
 	if ("success" in builds) {
-		// Also not a verdict: this read needs the Access APIs permission,
-		// so a key without it would otherwise mark every deployment
-		// refused forever.
+		/* Only the PROBE could not run. CommCare HQ already answered for
+		 * the build and the release on this same pass, and throwing those
+		 * away to report the whole check unavailable stranded any account
+		 * whose role lacks the Access APIs permission at `uploaded`
+		 * forever: the one read it cannot do would erase the two it can.
+		 * So the confirmed rungs stand and the probe says why it is
+		 * unconfirmed. */
+		outcomes.push([
+			"probe",
+			pending(
+				now,
+				"Nova can't confirm the released build installs on a device, because reading this app's builds needs the Access APIs permission on your CommCare HQ account. Everything above is confirmed.",
+			),
+		]);
 		return {
-			kind: "unavailable",
-			message:
-				"Nova couldn't read this app's builds from CommCare HQ, so it can't confirm the released one is ready to install. That read also needs the Access APIs permission on your CommCare HQ account.",
+			kind: "checked",
+			outcomes,
+			remoteRevision: versions.currentVersion,
+			releasedBuildId: null,
 		};
 	}
 	const released = builds.find(
