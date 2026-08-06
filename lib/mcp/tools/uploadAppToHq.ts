@@ -69,23 +69,9 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-	importApp,
-	probeHqFeatureFlags,
-	uploadAppMediaBundle,
-} from "@/lib/commcare/client";
-import { expandDoc } from "@/lib/commcare/expander";
-import {
-	featureFlagReportForUpload,
-	requiredHqFeatureFlags,
-} from "@/lib/commcare/featureFlags";
-import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
-import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
-import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { log } from "@/lib/logger";
-import { assetWirePaths } from "@/lib/media/manifest";
-import { reportMediaAttach } from "@/lib/media/uploadOutcome";
+import { publishAppToHq } from "@/lib/deployment/service";
+import { activeRemoteApp } from "@/lib/deployment/store";
 import { initMcpCall } from "../context";
 import {
 	type HqToolErrorType,
@@ -98,6 +84,7 @@ import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId, timestampToMillis } from "../runId";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
+import { describeDeployment } from "./deploymentProjection";
 
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
@@ -247,34 +234,6 @@ export function registerUploadAppToHq(
 						appId,
 					);
 				}
-				/* Boundary gate — zero tolerance before the HQ network call.
-				 * Every validator finding (soundness, completeness, media-
-				 * state) rejects the upload as `McpInvalidInputError` so the
-				 * outer catch's `toMcpErrorResult` emits an `invalid_input`
-				 * envelope with each rule's actionable message — an invalid
-				 * app must never reach HQ, and a stale media reference would
-				 * otherwise surface as `expandDoc`'s opaque `requireAssetRef`
-				 * throw. Thrown before run-id derivation + `initMcpCall` so
-				 * an invalid doc never allocates a LogWriter. */
-				/* Resolve/validate media against the app's PROJECT (the sharing
-				 * boundary an app's media lives in), matching the web HQ-upload
-				 * path. A Project co-member uploads the project's media the same
-				 * way through MCP as through the browser. */
-				const boundary = await prepareExportBoundary({
-					mode: "hq-upload",
-					access,
-					doc,
-					compiledAtSeq: app.mutation_seq,
-				});
-				if (!boundary.ok) {
-					throw new McpInvalidInputError(
-						`This app isn't ready to upload. Fix these first: ${boundary.violations
-							.map(errorToString)
-							.join(" ")}`,
-					);
-				}
-				const prepared = boundary.prepared;
-
 				const targetDomain = credResult.domain.name;
 
 				/* Derive the run id from the app's own state (see
@@ -306,150 +265,110 @@ export function registerUploadAppToHq(
 						app_id: appId,
 					});
 
-					/* Media manifest, resolved once with bytes. The upload
-					 * path is media-ON: the expanded forms carry the
-					 * `jr://file/commcare/<hash><ext>` itext references and
-					 * the bytes follow via the multimedia upload below. One
-					 * resolution pass feeds both the expander (references +
-					 * `multimedia_map`) and the byte upload, so the
-					 * references emitted and the files sent come from the
-					 * same source. An empty manifest (media-free app) makes
-					 * the upload step a no-op. */
-					const manifest = prepared.assets;
+					/* The one publish lifecycle, shared with the browser's
+					 * publish dialog. It preflights the dependency graph, sends
+					 * the app, and records the durable deployment — so an MCP
+					 * upload and a browser upload produce the same record and
+					 * cannot drift apart.
+					 *
+					 * App name defaulting: `?.trim() || app.app_name` maps both
+					 * omitted and whitespace-only inputs to the blueprint's
+					 * denormalized name, which the schema keeps non-blank. */
+					const outcome = await publishAppToHq({
+						scope: {
+							appId,
+							projectId: access.projectId,
+							role: access.role,
+							actorUserId: ctx.userId,
+						},
+						doc,
+						compiledAtSeq: app.mutation_seq,
+						appName: args.app_name?.trim() || app.app_name,
+						server: credResult.creds.server,
+						domain: targetDomain,
+					});
 
-					/* Gate 3 — the only network call. The SSRF boundary
-					 * lives inside `importApp` via the closed server
-					 * catalog the credentials' `server` resolves through.
-					 * `expandDoc` materializes the media-ON
-					 * `HqApplication` JSON HQ's `/api/import_app/`
-					 * endpoint expects; the app id it returns goes in the
-					 * media upload URL. */
-					const hqJson = expandDoc(prepared.doc, { assets: manifest });
-					/* App name defaulting: `?.trim() || app.app_name` maps
-					 * both omitted and whitespace-only inputs to the
-					 * blueprint's denormalized name, which the schema keeps
-					 * non-blank. Mirrors the chat-surface behavior in
-					 * `app/api/commcare/upload/route.ts`. */
-					const appName = args.app_name?.trim() || app.app_name;
-					const result = await importApp(
-						credResult.creds,
-						targetDomain,
-						appName,
-						hqJson,
-					);
+					const record = outcome.deployment.deployment;
+					const remote = activeRemoteApp(outcome.deployment);
 
-					if (!result.success) {
+					/* A preflight refusal keeps its established wire shape. The
+					 * boundary gate's findings are `invalid_input` because that
+					 * is what a client branches on to know the APP is what needs
+					 * fixing, not the connection or the target. */
+					if (record.state === "incomplete") {
+						const failure =
+							record.phases[record.resumePhase ?? "preflight"]?.status ===
+							"failed"
+								? record.phases[record.resumePhase ?? "preflight"]
+								: null;
+						const detail =
+							failure !== null && failure.status === "failed"
+								? failure.failure
+								: null;
+						if (detail?.code === "app_not_ready") {
+							throw new McpInvalidInputError(
+								`This app isn't ready to upload. Fix these first: ${detail.details.join(" ")}`,
+							);
+						}
+						if (detail?.code === "hq_not_connected") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_not_configured,
+								detail.message,
+								appId,
+							);
+						}
+						if (detail?.code === "domain_not_authorized") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.domain_not_authorized,
+								detail.message,
+								appId,
+							);
+						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
-							`CommCare HQ rejected the upload (status ${result.status}).`,
+							detail?.message ??
+								"CommCare HQ did not accept the app, and Nova recorded where to retry from.",
 							appId,
 						);
 					}
 
-					/* The app now exists. Probe requirements against the exact accepted
-					 * domain while media processing runs. Every probe degrades to
-					 * `unavailable`; it cannot turn this success into an error. */
-					const featureFlagProbes = probeHqFeatureFlags(
-						credResult.creds,
-						targetDomain,
-						requiredHqFeatureFlags(prepared.doc),
-					);
-
-					/* App is created; ship its media as ONE bulk ZIP to HQ's
-					 * api-key-authed `upload_multimedia_api`, which unzips and
-					 * matches each entry to the app's `jr://` references (the
-					 * per-kind endpoints are session-only — see
-					 * `uploadAppMediaBundle`). A media failure never invalidates
-					 * the (already-created) app — it surfaces as a warning. A
-					 * media-free app skips the upload. */
-					const warnings = [...result.warnings];
-					if (manifest.size > 0) {
-						const mediaResult = await uploadAppMediaBundle(
-							credResult.creds,
-							targetDomain,
-							result.appId,
-							buildMediaBulkUploadZip(manifest),
-						);
-						if ("success" in mediaResult) {
-							warnings.push(
-								"Media upload could not be completed; the app was created but its media may not display.",
-							);
-							log.error(
-								"[mcp/upload_app_to_hq] media bundle upload failed",
-								undefined,
-								{
-									domain: targetDomain,
-									appId,
-									hqAppId: result.appId,
-									status: mediaResult.status,
-								},
-							);
-						} else if (mediaResult.timedOut) {
-							warnings.push(
-								"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
-							);
-						} else {
-							// Name the genuine failures by carrier, and separate the
-							// app-logo case (a logo-only image is unmatched by design).
-							// The shared reporter owns the warning copy + the
-							// error/warn log decision (identical to the chat route).
-							warnings.push(
-								...reportMediaAttach({
-									result: mediaResult,
-									assetWirePath: assetWirePaths(manifest),
-									doc: prepared.doc,
-									logPrefix: "[mcp/upload_app_to_hq]",
-									logContext: {
-										domain: targetDomain,
-										appId,
-										hqAppId: result.appId,
-									},
-								}),
-							);
-						}
-					}
-
+					const hqAppId = remote?.remoteId ?? null;
 					progress.notify(
 						"upload_complete",
-						`Uploaded. HQ app id ${result.appId}`,
-						{ app_id: appId, hq_app_id: result.appId },
-					);
-					const featureFlagReport = featureFlagReportForUpload(
-						targetDomain,
-						await featureFlagProbes,
+						`Uploaded. HQ app id ${hqAppId ?? "unknown"}`,
+						{ app_id: appId, hq_app_id: hqAppId },
 					);
 
+					const payload = {
+						stage: "upload_complete",
+						app_id: appId,
+						hq_app_id: hqAppId,
+						url: outcome.hqAppUrl,
+						warnings: outcome.warnings,
+						feature_flag_requirements: outcome.featureFlags,
+						deployment_state: record.state,
+						deployment: describeDeployment(outcome.deployment),
+						setup_artifact: outcome.artifact,
+					};
+
 					/* Record the upload success on the event log as a
-					 * `tool-result` conversation event. `toolCallId` is
-					 * a fresh uuid (not `runId`) to preserve the
-					 * `tool-call` ↔ `tool-result` pairing contract in
-					 * `lib/log/types.ts`. */
+					 * `tool-result` conversation event. `toolCallId` is a fresh
+					 * uuid (not `runId`) to preserve the `tool-call` ↔
+					 * `tool-result` pairing contract in `lib/log/types.ts`. */
 					mcpCtx.recordConversation({
 						type: "tool-result",
 						toolCallId: crypto.randomUUID(),
 						toolName: "upload_app_to_hq",
 						output: {
-							hq_app_id: result.appId,
-							url: result.appUrl,
-							warnings,
-							feature_flag_requirements: featureFlagReport,
+							hq_app_id: hqAppId,
+							url: outcome.hqAppUrl,
+							warnings: outcome.warnings,
+							feature_flag_requirements: outcome.featureFlags,
 						},
 					});
 
 					return {
-						content: [
-							{
-								type: "text",
-								text: JSON.stringify({
-									stage: "upload_complete",
-									app_id: appId,
-									hq_app_id: result.appId,
-									url: result.appUrl,
-									warnings,
-									feature_flag_requirements: featureFlagReport,
-								}),
-							},
-						],
+						content: [{ type: "text", text: JSON.stringify(payload) }],
 					};
 				} finally {
 					/* Drain the event-log buffer before returning OR
