@@ -320,6 +320,23 @@ describe("DurableStreamWriter", () => {
 		expect(appendedChunks()).toHaveLength(3);
 	});
 
+	it("flushNow reports a BROKEN log so barrier writes can hold instead of outrunning it", async () => {
+		/* A barrier that persisted a step the truncated log never recorded
+		 * inverts the log ≥ transcript ordering the resume replay depends on
+		 * — the next cold resume would re-deliver that step as duplicate
+		 * parts. `flushNow` resolving `false` is the barrier's signal to
+		 * skip; it must never resolve `true` over a tripped append latch. */
+		appendMock.mockRejectedValue(new Error("pg down"));
+		const { inner } = makeInner();
+		const writer = makeWriter(inner);
+
+		writer.write(chunk(0));
+		expect(await writer.flushNow()).toBe(false);
+		// And it stays broken: later flushes keep reporting the truncation.
+		writer.write(chunk(1));
+		expect(await writer.flushNow()).toBe(false);
+	});
+
 	it("flushNow drains the pending batch mid-stream without sealing the log", async () => {
 		const { inner } = makeInner();
 		const writer = makeWriter(inner);
@@ -329,7 +346,7 @@ describe("DurableStreamWriter", () => {
 		// Below the burst trigger: nothing has flushed yet, only the timer is
 		// pending — flushNow must not wait for it.
 		expect(appendMock).not.toHaveBeenCalled();
-		await writer.flushNow();
+		expect(await writer.flushNow()).toBe(true);
 
 		expect(appendMock).toHaveBeenCalledTimes(1);
 		const row = appendMock.mock.calls[0][0] as StreamChunkAppend;

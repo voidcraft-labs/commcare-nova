@@ -359,9 +359,14 @@ route's barrier fold. The reconnect endpoint
 (`app/api/chat/[streamId]/stream`, the server half of the AI SDK's
 `WorkflowChatTransport` contract) replays from a client cursor and tails
 live, so a broken connection (network blip, Cloud Run's 60-min request cap)
-resumes instead of losing the run; a COLD resume (negative cursor) rewinds
-only to the start of the OPEN STEP — everything before the log's last
-`finish-step` is already in the barrier-persisted thread transcript. Every
+resumes instead of losing the run; a COLD resume (page refresh onto a live
+run) replays the WHOLE log from chunk 0 and the CLIENT windows it against its
+own hydrated transcript (`lib/chat/hydratedStepFilter`, keyed on the stream's
+first chunk — the transient `data-seed-steps` offset): only the client knows
+which barrier-persisted steps it actually holds, so any server-picked
+boundary would race the page's RSC hydration, and the full replay is also
+what re-delivers the transient `data-*` chunks (events, receipts) that live
+nowhere else. Every
 stream is guaranteed to END: the writer seals a terminal row (synthesizing
 the `finish` chunk on error paths), and a run that died sealing nothing is
 closed by the endpoint's `appHeldLive`-based fallback. Rows prune past
@@ -374,14 +379,28 @@ spanning runs, written AS THE RUN PRODUCES UNITS.** `messages` holds the full
 (`lib/db/threads.ts` is the whole contract): `upsertThreadTurn` the instant a
 run claims the app (persists the incoming history + marks the thread live via
 `active_stream_id` — the page-refresh resume handle; a RE-DRIVE claim also
-removes its dead predecessor's trailing partial assistant message), then
+removes its dead predecessor's trailing partial assistant message, but ONLY
+while the row still carries a live-stream marker — the standing proof of an
+unrecovered interruption — so the client's `redrive` flag alone can never
+delete an answer a completed successor already finished), then
 `persistResponseSnapshot` at every SDK step barrier (the route's server-side
 fold of the chunk sequence fires `onStepEnd` per completed step, and that
 callback — never any Nova chunk interpretation — merges the growing
 assistant message) and once at stream end (final state + marker retirement).
 A FAILED turn's terminal write is `clawBackThreadResponse`: the message
 reverts to its pre-run state and the marker clears in one transaction — the
-record holds completed-unit turns only, on every turn end, uniformly.
+record holds completed-unit turns only, on every turn end, uniformly. "A
+failed TURN" means the turn's own stream failed: a post-drain bookkeeping
+fault (schema materialization, the settle) finalizes with `turnComplete`, so
+the finished, fully-streamed answer is never clawed back over it. If the
+claw-back write itself keeps failing, the marker deliberately STAYS (never a
+marker-only clear, which would leave the partial as durable history no
+writer may trim): the next load reads it as an interruption and the re-drive
+claim removes the partial. The history-bearing writers also ADMIT rather
+than trust incoming history: an assistant message the store doesn't know is
+dropped before the merge (the fold writers are the only authors of
+assistant content; the one real source of such a message is a clawed-back
+turn riding a stale client's next send).
 Finalize is bookkeeping, never a durability event; there is no end-of-run
 transcript assembly. (A BAILED POST — serialize-wait gate/timeout,
 superseded resume — additionally merges its incoming messages via
@@ -407,22 +426,31 @@ alter stored user messages, so the projected set is unchanged by
 construction). Chat admission passes its expected
 Project to turn/upsert and bail-history writers, which stop if the app moved
 before they acquired the app lock; the barrier write's MERGE arm is
-Project-guarded the same way, while its MARKER arm never is — it
-retires the live marker ONLY while it still names its own run's stream (the
+stream-guarded (`active_stream_id` must still name this run's stream — a
+falsely-reaped zombie must not re-deposit the partial its successor's claim
+just removed) and Project-guarded the same way, while its MARKER arm is
+guarded ONLY by the stream (the
 app releases before the final write completes, so a newer claim may already
 own a fresh marker), because a marker stranded on a completed run reads as
 an instance death and would re-drive (re-charge) a finished turn. The
 loaders reconcile any marker against
-actual app liveness (`appHeldLive`) REPORT-ONLY: a dead marker is stripped
+actual app liveness REPORT-ONLY: a dead marker is stripped
 from the projection and stamped `resume_interrupted`, but the row is never
 written — the signal is LEVEL-TRIGGERED, standing load after load (any
 reader may run first: the thread list, a heal refetch, the page) until an
-acting client's RE-DRIVE retires the marker through its own claim. A full
+acting client's RE-DRIVE retires the marker through its own claim. One
+refinement: a dead marker on a BUILD thread whose app reached `complete`
+under the same claim (`apps.run_id` still matches) proves the run FINISHED
+and only its marker-clear write was lost, so it projects retired, not
+interrupted — a finished build is never destroyed and re-charged by a
+phantom re-drive. A full
 load also projects `run_paused` (the app's holder is this thread's run and
 it is parked awaiting an askQuestions answer), because barrier-persisted
 transcripts make shape undecidable: the client re-drives on the
-interruption stamp unless the trailing ask round is answered (its answers
-live in the message a re-drive would trim) or genuinely paused. The
+interruption stamp unless the trailing assistant message holds ANY answered
+ask round (its answers live in the message a re-drive would trim — a died
+continuation can leave completed steps after the round, so the whole
+message is scanned, not its last step) or is genuinely paused. The
 re-drive re-runs the interrupted turn through the normal
 POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
 there means another session already re-drove, so the request closes clean

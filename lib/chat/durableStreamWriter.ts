@@ -30,10 +30,12 @@
  *    "closed tab neither cancels nor finalizes" contract) but chunks keep
  *    flowing to the log so a reconnect sees the whole run.
  *  - **The fold outlives everything else.** The tee ignores a dead client
- *    and a broken log — barrier persistence must keep working when
- *    forwarding or logging stops. A fold sink that throws is dropped and
- *    logged once; the route's finalize fallback still retires the run
- *    marker.
+ *    and a broken log — the fold keeps assembling so the run's TERMINAL
+ *    transcript write always lands. (Mid-run barrier writes are the one
+ *    consumer that must NOT outrun a broken log — `flushNow` reports the
+ *    break so the route can hold them; see its doc.) A fold sink that
+ *    throws is dropped and logged once; the route's finalize fallback
+ *    still retires the run marker.
  *  - **Indices are assigned here, in write order.** The resume cursor is a
  *    count of chunks; the POST response and the log emit the same sequence,
  *    so a client that received N chunks resumes at `startIndex=N` with no gap
@@ -231,16 +233,26 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	 * Drain the buffer and await the append chain, so everything written so
 	 * far is durably in the log. Barrier callers run this before persisting a
 	 * step's snapshot: with the step's `finish-step` in the log first, a
-	 * rewound replay can never re-deliver content the persisted transcript
-	 * already holds.
+	 * resume replay windowed against the persisted transcript can never
+	 * re-deliver content that transcript already holds.
+	 *
+	 * Returns whether the log actually holds everything written so far. A
+	 * BROKEN log (the append latch tripped) resolves `false` rather than
+	 * throwing: the caller must then SKIP its barrier write — a barrier that
+	 * outran a truncated log would invert the log ≥ transcript ordering the
+	 * resume protocol depends on, re-delivering already-persisted steps as
+	 * duplicates on the next replay. The run's terminal transcript write is
+	 * exempt (it never consults the log again), so losing the log costs
+	 * resumability and mid-run barriers, never the final record.
 	 */
-	async flushNow(): Promise<void> {
+	async flushNow(): Promise<boolean> {
 		if (this.flushTimer !== null) {
 			clearTimeout(this.flushTimer);
 			this.flushTimer = null;
 		}
 		this.enqueueFlush(false);
 		await this.flushChain;
+		return !this.broken;
 	}
 
 	/**

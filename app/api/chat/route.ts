@@ -28,6 +28,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
+import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
@@ -928,9 +929,26 @@ export async function POST(req: Request) {
 			 * path today, so it is unreachable until one exists. */
 			let foldOutcome: "completed" | "paused" | "failed" | "aborted" | "skip" =
 				"skip";
+			/* The one definition of which outcomes CLAW BACK, shared by the
+			 * fold's terminal callback and finalize's fallback so the two can
+			 * never disagree. (Also defeats assignment narrowing: the
+			 * derivation never produces "aborted" today — no server-side stop
+			 * path — but the rule is uniform, not derived from what currently
+			 * happens to be reachable.) */
+			const outcomeClawsBack = (
+				outcome: "completed" | "paused" | "failed" | "aborted" | "skip",
+			): boolean => outcome === "failed" || outcome === "aborted";
 			/* True once the fold's own terminal write committed; finalize's
-			 * fallback marker-clear covers the run when it stayed false. */
+			 * fallback covers the run when it stayed false. */
 			let foldSettled = false;
+			/* The message id the fold owns, latched at the first barrier (and at
+			 * the terminal callback): finalize's fallback needs it to RETRY a
+			 * failed turn's claw-back — without the id, the fallback could only
+			 * clear the marker and would leave the partial as durable history no
+			 * writer may ever trim. Null until a barrier fires; a zero-step
+			 * failure persisted nothing, so a marker clear alone is the complete
+			 * claw-back for it. */
+			let foldMessageId: string | null = null;
 			/* The pre-run seed of a CONTINUATION turn (an answered askQuestions
 			 * round): the raw incoming trailing assistant message, exactly as
 			 * the client sent it — the fold grows it, and a claw-back restores
@@ -960,12 +978,18 @@ export async function POST(req: Request) {
 				},
 				onStepEnd: async ({ responseMessage }) => {
 					if (!threadPersisted || responseMessage.parts.length === 0) return;
+					foldMessageId = responseMessage.id;
 					/* Log-before-barrier ordering: the step's `finish-step` chunk
 					 * must be durable in the chunk log BEFORE its barrier commits,
-					 * so a persisted barrier N implies log ≥ step N and a rewound
-					 * replay can never re-deliver content the seeded transcript
-					 * already holds. */
-					await writer.flushNow();
+					 * so a persisted barrier N implies log ≥ step N and a resume
+					 * replay windowed on the hydrated transcript can never
+					 * re-deliver content it already holds. A BROKEN log therefore
+					 * suspends barrier writes (resumability is already lost; a
+					 * barrier that outran the truncated log would come back as
+					 * duplicated parts on the next replay) — the fold's terminal
+					 * write still lands, so the final record never depends on the
+					 * log's health. */
+					if (!(await writer.flushNow())) return;
 					await persistResponseSnapshot({
 						appId,
 						threadId,
@@ -977,7 +1001,8 @@ export async function POST(req: Request) {
 				},
 				onFinish: async ({ responseMessage }) => {
 					if (foldOutcome === "skip") return;
-					if (foldOutcome === "failed" || foldOutcome === "aborted") {
+					foldMessageId = responseMessage.id;
+					if (outcomeClawsBack(foldOutcome)) {
 						await clawBackThreadResponse({
 							appId,
 							threadId,
@@ -1045,6 +1070,23 @@ export async function POST(req: Request) {
 				fold: foldWriter,
 			});
 			try {
+				/* First chunk of every stream: how many steps of the turn's message
+				 * PRECEDE this stream (the fold seed's `step-start` count — nonzero
+				 * only for an answered-askQuestions continuation, whose stream grows
+				 * a message earlier streams started). A cold resume replays this
+				 * stream from chunk 0 and the client's hydrated-step filter needs
+				 * this offset to map its transcript's step count onto THIS stream's
+				 * steps; the chunk is transient (never a message part) and inert to
+				 * every other consumer. */
+				writer.write({
+					type: SEED_STEPS_CHUNK_TYPE,
+					data: {
+						steps: foldSeed
+							? foldSeed.parts.filter((p) => p.type === "step-start").length
+							: 0,
+					},
+					transient: true,
+				});
 				// Send runId to client so it can send it back on subsequent requests
 				writer.write({
 					type: "data-run-id",
@@ -1136,6 +1178,14 @@ export async function POST(req: Request) {
 						paused?: boolean;
 						heldApp?: boolean;
 						failureSource?: string;
+						/** The TURN finished — its answer streamed to completion and
+						 * every unit it narrates committed — and `failure` is
+						 * post-drain BOOKKEEPING (schema materialization, the
+						 * settle). The transcript keeps the completed answer; only
+						 * the run's credit/status outcome is failed. Without this,
+						 * a transient settle fault would claw back a finished,
+						 * fully-delivered answer. */
+						turnComplete?: boolean;
 					},
 				): Promise<void> => {
 					if (finalized) return;
@@ -1162,10 +1212,14 @@ export async function POST(req: Request) {
 					 * (`!threadPersisted`) skips; a failure or lost holder claws
 					 * back (the record keeps completed-unit turns only, and the
 					 * claw-back's stream guard makes it a no-op once a successor
-					 * owns the thread). */
+					 * owns the thread) — UNLESS the turn itself completed
+					 * (`turnComplete`): a bookkeeping fault after a clean drain
+					 * must not delete the finished answer the user watched
+					 * stream. */
 					foldOutcome = !threadPersisted
 						? "skip"
-						: failure !== undefined || opts?.heldApp === false
+						: (failure !== undefined || opts?.heldApp === false) &&
+								opts?.turnComplete !== true
 							? "failed"
 							: paused
 								? "paused"
@@ -1173,33 +1227,59 @@ export async function POST(req: Request) {
 					releaseFold();
 					await foldDrained;
 					if (foldOutcome !== "skip" && !foldSettled) {
-						/* The fold errored before its terminal write. The transcript
-						 * self-corrects (barriers already landed; the next turn's
-						 * upsert merges), but the MARKER must not survive a finalized
-						 * run: a stranded `active_stream_id` on an at-rest app reads
-						 * as an instance death on the next load, and the client
-						 * auto-RE-DRIVES (re-claims, RE-CHARGES) a turn that already
-						 * completed. Clear just the marker — the smallest write that
-						 * closes that hole; one retry, then the log line names the
-						 * consequence for the operator. */
-						let markerCleared = false;
-						for (let attempt = 0; attempt < 2 && !markerCleared; attempt++) {
+						/* The fold errored before its terminal write committed. Retry
+						 * the SAME terminal write the directive called for — with
+						 * backoff, since the first failure was likely a transient DB
+						 * fault that outlives an immediate retry:
+						 *
+						 *  - `failed`/`aborted` with a persisted barrier: the
+						 *    claw-back (partial removal + marker clear, one
+						 *    transaction). A marker-only clear here would retire the
+						 *    recovery signal while leaving the failed turn's partial
+						 *    as durable history NO writer may ever trim. If every
+						 *    attempt fails, the marker deliberately STAYS: the next
+						 *    load reads it as an interruption and the re-drive claim
+						 *    removes the partial — degraded recovery over permanent
+						 *    corruption.
+						 *  - `completed`/`paused` (or a zero-barrier failure, which
+						 *    persisted nothing): clear just the marker, so a
+						 *    finished run can't strand a marker that reads as an
+						 *    instance death and re-drives (re-charges) the turn. */
+						const clawBack =
+							outcomeClawsBack(foldOutcome) && foldMessageId !== null;
+						const backoffMs = [0, 250, 1_000];
+						let terminalWritten = false;
+						for (const delay of backoffMs) {
+							if (terminalWritten) break;
+							if (delay > 0) await new Promise((r) => setTimeout(r, delay));
 							try {
-								await persistResponseSnapshot({
-									appId,
-									threadId,
-									streamId,
-									expectedProjectId: projectId,
-									responseMessage: null,
-									clearMarker: true,
-									retainHolderNonce: paused,
-								});
-								markerCleared = true;
+								if (clawBack && foldMessageId !== null) {
+									await clawBackThreadResponse({
+										appId,
+										threadId,
+										streamId,
+										messageId: foldMessageId,
+										revertTo: foldSeed,
+									});
+								} else {
+									await persistResponseSnapshot({
+										appId,
+										threadId,
+										streamId,
+										expectedProjectId: projectId,
+										responseMessage: null,
+										clearMarker: true,
+										retainHolderNonce: paused,
+									});
+								}
+								terminalWritten = true;
 							} catch (err) {
 								log.error(
-									"[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+									clawBack
+										? "[chat] failed-turn claw-back retry failed; if none lands, the marker stays so the re-drive claim can remove the partial"
+										: "[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
 									err,
-									{ appId, threadId, attempt },
+									{ appId, threadId },
 								);
 							}
 						}
@@ -1339,15 +1419,22 @@ export async function POST(req: Request) {
 				const failRun = async (
 					error: unknown,
 					source: string,
+					opts?: { turnComplete?: boolean },
 				): Promise<void> => {
 					const classified = classifyError(error);
 					if (error instanceof RunHolderLostError) {
 						ctx.latchRunHolderLost(error);
 						ctx.emitError(classified, source);
-						await finalizeRun(undefined, { heldApp: false });
+						await finalizeRun(undefined, {
+							heldApp: false,
+							turnComplete: opts?.turnComplete,
+						});
 						return;
 					}
-					await finalizeRun(classified, { failureSource: source });
+					await finalizeRun(classified, {
+						failureSource: source,
+						turnComplete: opts?.turnComplete,
+					});
 				};
 
 				/**
@@ -2511,7 +2598,14 @@ export async function POST(req: Request) {
 								ctx.emit("data-build-complete", {});
 							}
 						} catch (error) {
-							await failRun(error, "route:finalize");
+							/* `turnComplete`: the drain ended cleanly, so the answer the
+							 * user watched stream is done and every unit it narrates is
+							 * committed — this throw is finishing-move BOOKKEEPING
+							 * (schema materialization, the settle). The run still fails
+							 * (refund, `error` status, reaper backstops), but the
+							 * transcript keeps the completed answer instead of clawing
+							 * back a finished turn over a transient settle fault. */
+							await failRun(error, "route:finalize", { turnComplete: true });
 						}
 					}
 				} catch (error) {

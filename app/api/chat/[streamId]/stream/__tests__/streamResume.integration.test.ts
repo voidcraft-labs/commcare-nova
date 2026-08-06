@@ -8,10 +8,10 @@
  *   - Replay from a cursor: seeded chunk rows come back as `data:` frames in
  *     index order, mid-batch cursors slice within a row, and a terminal row
  *     ends the response with `data: [DONE]` + a close (never an open tail).
- *   - Negative `startIndex` resolves to the start of the OPEN STEP (the
- *     chunk after the log's last `finish-step`, or 0 when none), and
- *     `x-workflow-stream-tail-index` is authored so the transport's absolute
- *     counter lands exactly on that boundary.
+ *   - Negative `startIndex` resolves from the stream's end and the absolute
+ *     tail rides back in `x-workflow-stream-tail-index` (the transport's
+ *     retry math; Nova's own cold resume replays from 0 and windows
+ *     client-side instead).
  *   - LIVE tail: chunks appended AFTER the stream opened arrive via the
  *     `nova_chat_stream` poke: end-to-end NOTIFY delivery.
  *   - The `DurableStreamWriter` → route round trip: what the chat POST's
@@ -305,43 +305,21 @@ describe("replay", () => {
 		expect(ended).toBe(true);
 	});
 
-	it("resolves a negative startIndex to the start of the open step and steers the tail header there", async () => {
-		/* Two completed steps, then the stream's tail: the rewound replay
-		 * must begin at the chunk AFTER the last `finish-step` — everything
-		 * before it is already in the barrier-persisted transcript the
-		 * client hydrated. */
-		await seedRow("s3", 0, [delta(0), { type: "finish-step" }, delta(2)]);
-		await seedRow(
-			"s3",
-			3,
-			[{ type: "finish-step" }, delta(4), delta(5), { type: "finish" }],
-			{ terminal: true },
-		);
+	it("resolves a negative startIndex from the end and returns the tail header", async () => {
+		/* The transport's stock tail contract — Nova's own client cold-resumes
+		 * with `startIndex=0` and windows client-side, so this arm just stays
+		 * faithful to the third-party protocol. */
+		await seedRow("s3", 0, [delta(0), delta(1), delta(2)]);
+		await seedRow("s3", 3, [delta(3), { type: "finish" }], { terminal: true });
 
 		const { frames, response } = await collectUntil("s3", {
-			startIndex: -1,
+			startIndex: -2,
 		});
-		expect(frames).toEqual([delta(4), delta(5), { type: "finish" }, "[DONE]"]);
-		/* The transport computes `max(0, tail + 1 + startIndex)` for its
-		 * cursor; the server authors `tail = cursor - 1 - startIndex` so a
-		 * -1 client lands exactly on the boundary (chunk 4). */
+		expect(frames).toEqual([delta(3), { type: "finish" }, "[DONE]"]);
+		// 5 chunks total → tail index 4 (the transport computes
+		// `tail + 1 + startIndex` for its retry cursor).
 		expect(response.headers.get("x-workflow-stream-tail-index")).toBe("4");
 		expect(response.headers.get("x-workflow-run-id")).toBe("s3");
-	});
-
-	it("rewinds a negative startIndex to chunk 0 when no step has finished yet", async () => {
-		/* Early in step 1 nothing is barrier-persisted, so the whole stream
-		 * replays — and the header still steers the transport's counter to
-		 * the same boundary. */
-		await seedRow("s3b", 0, [delta(0), delta(1), { type: "finish" }], {
-			terminal: true,
-		});
-
-		const { frames, response } = await collectUntil("s3b", {
-			startIndex: -1,
-		});
-		expect(frames).toEqual([delta(0), delta(1), { type: "finish" }, "[DONE]"]);
-		expect(response.headers.get("x-workflow-stream-tail-index")).toBe("0");
 	});
 });
 

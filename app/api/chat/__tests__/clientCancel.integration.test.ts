@@ -22,10 +22,13 @@
  * The "barrier persistence" describe pins the record-as-produced contract on
  * the same harness: each completed step lands in the thread at its own
  * barrier (with its chunks durable in the log FIRST), a failed turn claws
- * back to its pre-run state, a bailed POST leaves the owning run's thread
- * alone, a completed run whose marker retirement cannot land strands exactly
- * one phantom re-drive (the honesty bound), and the incident-shaped delta
- * flood never reaches the log.
+ * back to its pre-run state (and keeps its marker when even the claw-back
+ * cannot land, so recovery can trim the partial), a bailed POST leaves the
+ * owning run's thread alone, a post-drain bookkeeping fault fails the run
+ * without deleting the finished answer, a completed BUILD whose marker
+ * retirement cannot land projects retired rather than interrupted (no
+ * phantom re-drive), and the incident-shaped delta flood never reaches the
+ * log.
  */
 
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
@@ -63,6 +66,7 @@ const {
 	refundReservationMock,
 	settleAndReleaseMock,
 	failClearMarkerWrites,
+	failClawBackWrites,
 } = vi.hoisted(() => ({
 	resolveOpenAIKeyMock: vi.fn(),
 	resolveActiveProjectIdMock: vi.fn(),
@@ -80,11 +84,15 @@ const {
 	failAppMock: vi.fn(),
 	refundReservationMock: vi.fn(),
 	settleAndReleaseMock: vi.fn(),
-	/* Fault injector for the stranded-marker honesty test: while `on`, every
+	/* Fault injector for the stranded-marker tests: while `on`, every
 	 * marker-retiring thread write (`clearMarker: true`) fails — the fold's
 	 * terminal write AND finalize's fallback — leaving a completed run's
 	 * marker stranded. */
 	failClearMarkerWrites: { on: false },
+	/* Its claw-back sibling: while `on`, every `clawBackThreadResponse` write
+	 * fails, so a failed turn's terminal write can never land and the
+	 * fallback's stranded-marker arm is what's under test. */
+	failClawBackWrites: { on: false },
 }));
 
 class MockAppAccessError extends Error {
@@ -165,6 +173,14 @@ vi.mock("@/lib/db/threads", async (importOriginal) => {
 				throw new Error("thread write connection dropped");
 			}
 			return actual.persistResponseSnapshot(args);
+		},
+		clawBackThreadResponse: async (
+			args: Parameters<typeof actual.clawBackThreadResponse>[0],
+		) => {
+			if (failClawBackWrites.on) {
+				throw new Error("thread write connection dropped");
+			}
+			return actual.clawBackThreadResponse(args);
 		},
 	};
 });
@@ -624,6 +640,7 @@ beforeEach(async () => {
 	});
 	projectRoleForInTransactionMock.mockResolvedValue("editor");
 	failClearMarkerWrites.on = false;
+	failClawBackWrites.on = false;
 });
 
 afterEach(async () => {
@@ -1588,11 +1605,20 @@ describe("server-derived build-vs-edit mode", () => {
 describe("barrier persistence", () => {
 	/** The thread row's marker + typed transcript, read raw. */
 	async function threadRow(threadId: string) {
+		const row = await threadRowMaybe(threadId);
+		if (!row) throw new Error(`thread row ${threadId} not found`);
+		return row;
+	}
+
+	/** Poll-safe row read: the claim's upsert races the first poll on a cold
+	 *  start, and a missing row must read as "not yet", never a throw. */
+	async function threadRowMaybe(threadId: string) {
 		const row = await appDb
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "active_holder_nonce"])
 			.where("thread_id", "=", threadId)
-			.executeTakeFirstOrThrow();
+			.executeTakeFirst();
+		if (!row) return undefined;
 		return {
 			...row,
 			messages: row.messages as {
@@ -1631,8 +1657,10 @@ describe("barrier persistence", () => {
 		 * instant would leave behind: the partial transcript plus the live
 		 * marker the loaders would reconcile into `resume_interrupted`. */
 		const mid = await pollFor(async () => {
-			const row = await threadRow(THREAD);
-			return row.messages.some((m) => m.role === "assistant") ? row : undefined;
+			const row = await threadRowMaybe(THREAD);
+			return row?.messages.some((m) => m.role === "assistant")
+				? row
+				: undefined;
 		});
 		expect(mid.active_stream_id).toBe(streamId);
 		const midAssistant = mid.messages.find((m) => m.role === "assistant");
@@ -1664,8 +1692,8 @@ describe("barrier persistence", () => {
 		feed.end();
 
 		const final = await pollFor(async () => {
-			const row = await threadRow(THREAD);
-			return row.active_stream_id === null ? row : undefined;
+			const row = await threadRowMaybe(THREAD);
+			return row?.active_stream_id === null ? row : undefined;
 		});
 		const assistants = final.messages.filter((m) => m.role === "assistant");
 		expect(assistants).toHaveLength(1);
@@ -1699,8 +1727,10 @@ describe("barrier persistence", () => {
 			{ type: "finish-step" },
 		);
 		await pollFor(async () => {
-			const row = await threadRow(THREAD);
-			return row.messages.some((m) => m.role === "assistant") ? row : undefined;
+			const row = await threadRowMaybe(THREAD);
+			return row?.messages.some((m) => m.role === "assistant")
+				? row
+				: undefined;
 		});
 
 		/* ...then the generation dies with a FATAL stream error (classified
@@ -1727,8 +1757,8 @@ describe("barrier persistence", () => {
 		expect(app.status).toBe("error");
 
 		const thread = await pollFor(async () => {
-			const row = await threadRow(THREAD);
-			return row.active_stream_id === null ? row : undefined;
+			const row = await threadRowMaybe(THREAD);
+			return row?.active_stream_id === null ? row : undefined;
 		});
 		expect(thread.messages.map((m) => m.role)).toEqual(["user"]);
 		expect(thread.active_holder_nonce).toBeNull();
@@ -1781,13 +1811,13 @@ describe("barrier persistence", () => {
 		expect(thread.messages.every((m) => m.role === "user")).toBe(true);
 	}, 30_000);
 
-	it("honesty bound: a completed run whose marker retirement cannot land strands the marker for one phantom re-drive", async () => {
-		/* The residual window the redesign shrinks but cannot close: the run
-		 * completed, every unit is durable from its barriers, and only the
-		 * marker-retiring write (fold terminal write AND finalize's fallback)
-		 * fails. The marker strands, so the next load reads an instance death
-		 * and re-drives a finished turn — the accepted, tested cost of that
-		 * window. */
+	it("a completed BUILD whose marker retirement cannot land projects RETIRED, not interrupted — no phantom re-drive", async () => {
+		/* Every marker-retiring write fails (fold terminal write AND all of
+		 * finalize's fallback retries), so the row keeps its marker — but the
+		 * app reached `complete` under this same claim, and that breadcrumb
+		 * proves the run FINISHED. The loaders must project the marker retired
+		 * rather than stamping `resume_interrupted`: an auto-re-drive here
+		 * would trim (destroy) the finished answer and re-charge the turn. */
 		failClearMarkerWrites.on = true;
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
@@ -1822,7 +1852,8 @@ describe("barrier persistence", () => {
 		});
 		await wirePromise;
 
-		/* The barrier-persisted transcript is intact; only the marker strands. */
+		/* The barrier-persisted transcript is intact; only the marker strands
+		 * on the ROW. */
 		const thread = await threadRow(THREAD);
 		const assistant = thread.messages.find((m) => m.role === "assistant");
 		expect(
@@ -1833,11 +1864,149 @@ describe("barrier persistence", () => {
 		).toBe("All done.");
 		expect(thread.active_stream_id).toBe(streamId);
 
-		/* The next load reconciles the stranded marker on the at-rest app into
-		 * the level-triggered re-drive signal. */
+		/* The projection retires it: no interruption stamp, no marker, and
+		 * therefore no auto-re-drive against the finished answer. */
+		const { loadThread } = await import("@/lib/db/threads");
+		const loaded = await loadThread(app.id, THREAD);
+		expect(loaded?.resume_interrupted).toBeUndefined();
+		expect(loaded?.active_stream_id).toBeNull();
+	}, 30_000);
+
+	it("a died mid-turn run still projects the interruption (the completed-build refinement never hides a real death)", async () => {
+		/* Same stranded-marker row shape, but the app never reached `complete`
+		 * under this claim — the run died mid-answer and was reaped to `error`.
+		 * The level-triggered re-drive signal must stand. */
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		const wirePromise = response.text();
+
+		/* One barrier lands, then the "process" dies: the feed ends with no
+		 * `finish`, which the harness surfaces as a stream error — the closest
+		 * in-process stand-in for an instance kill. The run finalizes FAILED
+		 * with the claw-back suppressed, leaving the marker + partial. */
+		failClawBackWrites.on = true;
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "Half an answer" },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+			{ type: "error", errorText: "instance died" } as UIMessageChunk,
+			{ type: "finish" },
+		);
+		feed.end();
+		await wirePromise;
+
+		const app = await appDb
+			.selectFrom("apps")
+			.select(["id", "status"])
+			.where("owner", "=", USER)
+			.executeTakeFirstOrThrow();
+		expect(app.status).toBe("error");
+
+		const thread = await threadRow(THREAD);
+		expect(thread.active_stream_id).toBe(streamId);
 		const { loadThread } = await import("@/lib/db/threads");
 		const loaded = await loadThread(app.id, THREAD);
 		expect(loaded?.resume_interrupted).toBe(true);
+	}, 30_000);
+
+	it("a post-drain bookkeeping fault fails the RUN but never claws back the finished answer", async () => {
+		/* The drain ends cleanly — the user watched the complete answer — and
+		 * then the settle throws. The run's credit/status outcome fails
+		 * (refund, `error`, reaper backstops), but the fold finalizes
+		 * `turnComplete`: the transcript keeps the answer and the marker
+		 * retires normally. Before this rule, the claw-back deleted a
+		 * finished, fully-delivered answer over a transient DB fault. */
+		completeAndSettleRunMock.mockImplementationOnce(async () => {
+			throw new Error("settle connection dropped");
+		});
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const wirePromise = response.text();
+
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "The whole answer." },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+			{ type: "finish" },
+		);
+		feed.end();
+		await wirePromise;
+
+		const app = await appDb
+			.selectFrom("apps")
+			.select(["status"])
+			.where("owner", "=", USER)
+			.executeTakeFirstOrThrow();
+		expect(app.status).toBe("error");
+
+		const thread = await pollFor(async () => {
+			const row = await threadRowMaybe(THREAD);
+			return row?.active_stream_id === null ? row : undefined;
+		});
+		const assistant = thread.messages.find((m) => m.role === "assistant");
+		expect(
+			assistant?.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("The whole answer.");
+		expect(thread.active_holder_nonce).toBeNull();
+	}, 30_000);
+
+	it("a failed turn whose claw-back cannot land keeps its marker so recovery can trim the partial", async () => {
+		/* The failed-directive fallback must RETRY the claw-back, never fall
+		 * back to a marker-only clear: retiring the marker while the partial
+		 * survives would leave the failed turn's half-answer as durable
+		 * history no writer may ever trim. With every claw-back failing, the
+		 * marker deliberately stays — the next load reads an interruption and
+		 * the re-drive claim removes the partial. */
+		failClawBackWrites.on = true;
+		const feed = new ChunkFeed();
+		createSolutionsArchitectMock.mockReturnValue({
+			tools: {},
+			stream: async () => feed.asAgentResult(),
+		});
+
+		const response = await POST(chatRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		const wirePromise = response.text();
+
+		feed.push(
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "Half an answer" },
+			{ type: "text-end", id: "t1" },
+			{ type: "finish-step" },
+			{ type: "error", errorText: "model exploded" } as UIMessageChunk,
+			{ type: "finish" },
+		);
+		feed.end();
+		await wirePromise;
+
+		const thread = await threadRow(THREAD);
+		expect(thread.active_stream_id).toBe(streamId);
+		expect(thread.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 	}, 30_000);
 
 	it("the incident shape at scale: per-token tool-input deltas never reach the log, and the transcript is complete at the last barrier", async () => {
@@ -1898,8 +2067,8 @@ describe("barrier persistence", () => {
 		feed.end();
 
 		const thread = await pollFor(async () => {
-			const row = await threadRow(THREAD);
-			return row.active_stream_id === null ? row : undefined;
+			const row = await threadRowMaybe(THREAD);
+			return row?.active_stream_id === null ? row : undefined;
 		});
 		await wirePromise;
 
@@ -1910,6 +2079,13 @@ describe("barrier persistence", () => {
 		);
 		expect(logged.some((c) => c.type === "tool-input-delta")).toBe(false);
 		expect(logged.length).toBeLessThan(50);
+
+		/* The stream's first chunk is the seed-steps statement the client's
+		 * cold-resume filter windows on: a fresh turn seeds zero steps. */
+		expect(logged[0]).toMatchObject({
+			type: "data-seed-steps",
+			data: { steps: 0 },
+		});
 
 		/* The transcript holds every completed unit: three completed tool
 		 * calls and the closing text, written barrier by barrier. */

@@ -31,7 +31,6 @@
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
-import { WorkflowChatTransport } from "@ai-sdk/workflow";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -44,6 +43,7 @@ import {
 	messageMetadataSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
+import { NovaChatTransport } from "@/lib/chat/novaChatTransport";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
@@ -191,6 +191,32 @@ export function mergeRetainedUserTextSuffix(
 	return [...authoritative, ...recovered];
 }
 
+/** Adopt a refetched authoritative transcript WITHOUT downgrading what the
+ * live view already rendered: for a shared assistant message id, keep the
+ * LOCAL copy when it holds MORE parts than the stored one (the fold's
+ * terminal write can fail after the resume delivered the full answer, leaving
+ * the row at its last barrier — wholesale adoption would visibly truncate an
+ * answer the user just watched finish, and the next send's history would
+ * carry the truncation forward). Stored order and membership stay
+ * authoritative; local-only messages are NOT appended (a clawed-back failed
+ * turn's partial must stay gone), and user messages are untouched (their
+ * stored attachment metadata is authoritative). */
+export function adoptTranscriptKeepingRicherLocal(
+	stored: NovaUIMessage[],
+	local: readonly NovaUIMessage[],
+): NovaUIMessage[] {
+	const localById = new Map(local.map((message) => [message.id, message]));
+	return stored.map((message) => {
+		if (message.role !== "assistant") return message;
+		const localCopy = localById.get(message.id);
+		return localCopy &&
+			localCopy.role === "assistant" &&
+			localCopy.parts.length > message.parts.length
+			? localCopy
+			: message;
+	});
+}
+
 export function chatGenerationCanWrite(
 	session:
 		| { accessPhase: string; canEdit: boolean; scopeEpoch: number }
@@ -235,13 +261,16 @@ type LoadedThreadDoc = ThreadDoc & {
 /** Whether a loaded thread's interrupted turn should auto-re-drive. Barrier
  *  persistence means a dead run's transcript can end on a PARTIAL assistant
  *  message, so the trigger is the server's interruption stamp, refined by the
- *  trailing askQuestions posture:
+ *  askQuestions parts of the WHOLE trailing assistant message (not just its
+ *  last step — a died continuation can have completed steps AFTER the
+ *  answered round, and slicing to the last step would misread that message
+ *  as ask-free):
  *
- *   - An ANSWERED trailing round never auto-re-drives: `regenerate()` trims
- *     the trailing assistant message, and that message is where the user's
- *     answers live — re-driving would destroy them and re-ask. The user
- *     recovers by sending a new message (matching what the old trailing-role
- *     guard did for this same death).
+ *   - ANY answered ask part blocks the auto-re-drive: `regenerate()` trims
+ *     the entire trailing assistant message, and that message is where the
+ *     user's answers live — re-driving would destroy them and re-ask. The
+ *     user recovers by sending a new message (matching what the old
+ *     trailing-role guard did for this same death).
  *   - An UNANSWERED round blocks only while the run is GENUINELY paused
  *     (`run_paused`): a paused round resumes through the answer POST. A
  *     question round whose run died BEFORE it could pause shows the same
@@ -255,9 +284,21 @@ export function shouldAutoRedrive(
 	>,
 ): boolean {
 	if (thread.resume_interrupted !== true) return false;
-	const posture = trailingAskPosture(thread.messages);
-	if (posture === "answered") return false;
-	return !(posture === "awaiting-input" && thread.run_paused === true);
+	const last = thread.messages[thread.messages.length - 1] as
+		| { role?: unknown; parts?: unknown }
+		| undefined;
+	if (last?.role !== "assistant" || !Array.isArray(last.parts)) return true;
+	const askParts = last.parts.filter(
+		(p) => (p as { type?: unknown }).type === "tool-askQuestions",
+	);
+	if (
+		askParts.some(
+			(p) => (p as { state?: unknown }).state === "output-available",
+		)
+	) {
+		return false;
+	}
+	return !(askParts.length > 0 && thread.run_paused === true);
 }
 
 /** Authority carried by a server-loaded thread. Every activation must adopt
@@ -491,47 +532,15 @@ function createChatInstance(
 		};
 	};
 
-	const instance = new Chat<NovaUIMessage>({
-		/* The thread id IS the chat id: the transport's cold reconnect
-		 * (`resumeStream` → `reconnectToStream({chatId})`) hits
-		 * `/api/chat/{chatId}/stream`, and the endpoint resolves a thread id
-		 * to its live stream, so a page refresh resumes with zero extra
-		 * wiring. */
-		id: init.threadId,
-		/* The hydrated transcript: history renders through the same
-		 * ChatMessage path as live turns, and every send carries the whole
-		 * conversation to the SA. */
-		messages: init.messages,
-		// Validates any message metadata the SDK parses on the client. Outbound
-		// attachment metadata rides `sendMessage`; INBOUND, the server stamps
-		// `{ model }` on every assistant message's start chunk, and that stamp is
-		// load-bearing: it round-trips through this transcript back to the route,
-		// where `sanitizeHistoricalReasoningParts` reads it to decide whether a
-		// paused round's model-bound encrypted reasoning is still replayable.
-		messageMetadataSchema,
-		/* WorkflowChatTransport (from @ai-sdk/workflow) instead of
-		 * DefaultChatTransport: when the POST's SSE ends WITHOUT a `finish`
-		 * chunk: a network blip, a mid-run deploy hiccup, Cloud Run's
-		 * 60-minute request cap: it reconnects to
-		 * `/api/chat/{x-workflow-run-id}/stream?startIndex=<chunks received>`
-		 * and resumes from the durable chunk log, instead of surfacing
-		 * "Generation failed" while the run keeps going server-side. Only the
-		 * transport is from the workflow package: the server side is Nova's
-		 * own Postgres-backed endpoint, no workflow runtime involved. */
-		transport: new WorkflowChatTransport<NovaUIMessage>({
+	/* The filter's step count must be the Chat's LIVE state at each reconnect
+	 * (a heal can re-activate with fresher hydration than `init.messages`),
+	 * but the transport is constructed before the Chat exists — so it reads
+	 * through this box, re-pointed at the instance below. */
+	let hydratedMessages: () => readonly unknown[] = () => init.messages;
+	const transport = new NovaChatTransport<NovaUIMessage>(
+		{
 			api: "/api/chat",
 			maxConsecutiveErrors: 5,
-			/* Cold reconnects rewind to the OPEN STEP, not chunk 0: every
-			 * completed step is already in the barrier-persisted transcript
-			 * this Chat hydrated, and a from-zero replay would push duplicate
-			 * text/reasoning parts into that seeded message. The negative
-			 * cursor activates the transport's tail mode (server-authored
-			 * `x-workflow-stream-tail-index` + its orphan filter), and the
-			 * server resolves it to the chunk after the log's last
-			 * `finish-step` — a boundary where the SDK's resume fold (whose
-			 * active-part maps start empty) applies the replay cleanly. Hot
-			 * reconnects mid-chain still use exact received-count cursors. */
-			initialStartIndex: -1,
 			/* Unlike DefaultChatTransport there is no `body` option: the
 			 * request is assembled here. The returned body REPLACES the default
 			 * wholesale, so `messages` must be included explicitly, and so do
@@ -559,7 +568,48 @@ function createChatInstance(
 					},
 				};
 			},
-		}),
+		},
+		() => hydratedMessages(),
+	);
+
+	const instance = new Chat<NovaUIMessage>({
+		/* The thread id IS the chat id: the transport's cold reconnect
+		 * (`resumeStream` → `reconnectToStream({chatId})`) hits
+		 * `/api/chat/{chatId}/stream`, and the endpoint resolves a thread id
+		 * to its live stream, so a page refresh resumes with zero extra
+		 * wiring. */
+		id: init.threadId,
+		/* The hydrated transcript: history renders through the same
+		 * ChatMessage path as live turns, and every send carries the whole
+		 * conversation to the SA. */
+		messages: init.messages,
+		// Validates any message metadata the SDK parses on the client. Outbound
+		// attachment metadata rides `sendMessage`; INBOUND, the server stamps
+		// `{ model }` on every assistant message's start chunk, and that stamp is
+		// load-bearing: it round-trips through this transcript back to the route,
+		// where `sanitizeHistoricalReasoningParts` reads it to decide whether a
+		// paused round's model-bound encrypted reasoning is still replayable.
+		messageMetadataSchema,
+		/* NovaChatTransport (WorkflowChatTransport under the hood) instead of
+		 * DefaultChatTransport: when the POST's SSE ends WITHOUT a `finish`
+		 * chunk: a network blip, a mid-run deploy hiccup, Cloud Run's
+		 * 60-minute request cap: it reconnects to
+		 * `/api/chat/{x-workflow-run-id}/stream?startIndex=<chunks received>`
+		 * and resumes from the durable chunk log, instead of surfacing
+		 * "Generation failed" while the run keeps going server-side. Only the
+		 * transport is from the workflow package: the server side is Nova's
+		 * own Postgres-backed endpoint, no workflow runtime involved.
+		 *
+		 * The Nova subclass covers barrier persistence's one wrinkle: a COLD
+		 * resume (page refresh onto a live run) hydrated the completed steps
+		 * from the thread row, so its full replay is windowed CLIENT-side
+		 * against this Chat's own messages at reconnect time
+		 * (`lib/chat/hydratedStepFilter`) — no duplicated parts, no
+		 * server-guessed boundary to race the hydration, and every transient
+		 * `data-*` chunk (events, receipts) still replays. The send path's own
+		 * broken-POST recovery is deliberately untouched: that client built
+		 * its message from the wire and needs exact-index replay. */
+		transport,
 		sendAutomaticallyWhen: (args) => {
 			/* Consecutive FATAL generation errors halt the answered-askQuestions
 			 * auto-resend until the user acts (answers again, sends a message,
@@ -723,6 +773,7 @@ function createChatInstance(
 			);
 		},
 	});
+	hydratedMessages = () => instance.messages;
 	chatOwnerEpochs.set(instance, ownerScopeEpoch);
 	return instance;
 }
@@ -1300,14 +1351,21 @@ export function ChatContainer({
 			}
 			/* Even a terminal/empty projection authoritatively clears run-holder
 			 * capability. Keep a local optimistic transcript when the server has no
-			 * messages, but re-own it through the same activation seam. */
+			 * messages, but re-own it through the same activation seam. With no
+			 * live stream left to re-deliver anything, adoption must not
+			 * DOWNGRADE the view: a shared assistant message keeps the richer
+			 * local copy (`adoptTranscriptKeepingRicherLocal`) when the stored
+			 * row lags what this client already rendered. */
 			setChat(
 				activateThread(
 					{
 						threadId: thread.thread_id,
 						messages:
 							thread.messages.length > 0
-								? (thread.messages as NovaUIMessage[])
+								? adoptTranscriptKeepingRicherLocal(
+										thread.messages as NovaUIMessage[],
+										messagesRef.current,
+									)
 								: messagesRef.current,
 					},
 					authoritativeThreadActivationOptions(thread, liveBuildUnfinished(), {

@@ -45,7 +45,7 @@ import { sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
-import { appHeldLive, replaceExactMediaReferencesForApp } from "./apps";
+import { replaceExactMediaReferencesForApp } from "./apps";
 import { RunHolderLostError } from "./commitGuard";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
 import { MediaReferenceProjectionError } from "./mediaAssets";
@@ -108,6 +108,57 @@ function summarize(messages: UIMessage[]): string {
  *  parts count for the richer-version tiebreak; `role` feeds only the
  *  re-drive claim's dead-partial removal. */
 type StoredMessage = { id?: string; role?: string; parts?: unknown[] };
+
+/**
+ * Filter a client-sent history down to what a HISTORY writer may add: user
+ * messages freely, assistant messages only when the store already knows the
+ * id (the merge then upgrades part STATE, e.g. an answered askQuestions
+ * round). An assistant message the store does not know is either a
+ * clawed-back failed turn riding a stale client's next send — re-appending
+ * it would durably resurrect exactly the partial the claw-back removed — or
+ * fabricated assistant content, which no client is a source of: the server's
+ * own fold writers (`persistResponseSnapshot`, `clawBackThreadResponse`) are
+ * the only authors of assistant messages.
+ */
+function admissibleHistory(
+	stored: StoredMessage[],
+	incoming: UIMessage[],
+	ctx: { appId: string; threadId: string },
+): UIMessage[] {
+	const storedIds = new Set(stored.map((m) => m.id).filter(Boolean));
+	const admitted = incoming.filter(
+		(m) => m.role !== "assistant" || storedIds.has(m.id),
+	);
+	if (admitted.length !== incoming.length) {
+		log.info(
+			"[threads] dropped incoming assistant messages the stored transcript does not know (a clawed-back turn riding a later send)",
+			{ ...ctx, dropped: incoming.length - admitted.length },
+		);
+	}
+	return admitted;
+}
+
+/**
+ * Defense at both assistant-message writers: an assistant message never
+ * legitimately carries `metadata.attachments` (attachments belong to user
+ * messages, whose stored metadata is authoritative), so any that appears —
+ * on a fold snapshot or on a claw-back's client-sent revert seed — is
+ * stripped before it can become a durable reference the media projection
+ * never admitted.
+ */
+function stripAssistantAttachmentMetadata(
+	message: UIMessage,
+	ctx: { appId: string; threadId: string },
+): UIMessage {
+	const metadata = message.metadata as Record<string, unknown> | undefined;
+	if (!metadata || !("attachments" in metadata)) return message;
+	log.warn(
+		"[threads] assistant message carried attachment metadata; stripped before the durable write",
+		ctx,
+	);
+	const { attachments: _dropped, ...rest } = metadata;
+	return { ...message, metadata: rest } as UIMessage;
+}
 
 export class ThreadAttachmentUnavailableError extends Error {
 	readonly name = "ThreadAttachmentUnavailableError";
@@ -209,9 +260,18 @@ export function mergeTranscript(
  * message on the stored transcript. The client's `regenerate()` trims that
  * message from the history it sends, and the by-id merge union would keep the
  * stored copy forever — so the re-drive claim removes it explicitly: only the
- * TRAILING stored message, only an assistant one, and only when the incoming
- * history no longer carries its id. The fresh run's response is the turn's
- * only durable answer.
+ * TRAILING stored message, only an assistant one, only when the incoming
+ * history no longer carries its id, and only while the row STILL holds a
+ * live-stream marker (the standing proof of an unrecovered interruption —
+ * without it, the client flag alone could delete an answer a completed
+ * successor already finished). The fresh run's response is the turn's only
+ * durable answer.
+ *
+ * Incoming history is ADMITTED, not trusted (`admissibleHistory`): assistant
+ * messages the store doesn't know are dropped before the merge, because the
+ * fold writers are the only legitimate authors of assistant content and the
+ * one real source of such a message is a clawed-back failed turn riding a
+ * stale client's next send.
  */
 export async function upsertThreadTurn(args: {
 	appId: string;
@@ -257,15 +317,19 @@ export async function upsertThreadTurn(args: {
 		}
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "messages"])
+			.select(["app_id", "messages", "active_stream_id"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
 		if (holderLost !== null) {
 			if (existing?.app_id === args.appId) {
+				const stored = (existing.messages ?? []) as StoredMessage[];
 				const merged = mergeTranscript(
-					(existing.messages ?? []) as StoredMessage[],
-					args.messages,
+					stored,
+					admissibleHistory(stored, args.messages, {
+						appId: args.appId,
+						threadId: args.threadId,
+					}),
 				);
 				await admitExactThreadMediaProjection(tx, {
 					appId: args.appId,
@@ -312,7 +376,14 @@ export async function upsertThreadTurn(args: {
 			return true;
 		}
 		let stored = (existing.messages ?? []) as StoredMessage[];
-		if (args.redrive) {
+		/* The re-drive trim requires the row to STILL carry a marker: an
+		 * interrupted run's marker stands until recovery (the loaders never
+		 * clear it), so its absence proves the turn was NOT left interrupted —
+		 * a completed successor already retired it — and the client's
+		 * `redrive` flag alone must not let a stale tab delete that
+		 * successor's finished answer. (This claim won the app, so any marker
+		 * present belongs to a DEAD run, never a live one.) */
+		if (args.redrive && existing.active_stream_id !== null) {
 			const trailing = stored.at(-1);
 			if (
 				trailing?.id &&
@@ -322,7 +393,13 @@ export async function upsertThreadTurn(args: {
 				stored = stored.slice(0, -1);
 			}
 		}
-		const merged = mergeTranscript(stored, args.messages);
+		const merged = mergeTranscript(
+			stored,
+			admissibleHistory(stored, args.messages, {
+				appId: args.appId,
+				threadId: args.threadId,
+			}),
+		);
 		await admitExactThreadMediaProjection(tx, {
 			appId: args.appId,
 			projectId: app.project_id,
@@ -386,9 +463,13 @@ export async function mergeThreadTurnMessages(args: {
 			.forUpdate()
 			.executeTakeFirst();
 		if (!existing || existing.app_id !== args.appId) return false;
+		const stored = (existing.messages ?? []) as StoredMessage[];
 		const merged = mergeTranscript(
-			(existing.messages ?? []) as StoredMessage[],
-			args.messages,
+			stored,
+			admissibleHistory(stored, args.messages, {
+				appId: args.appId,
+				threadId: args.threadId,
+			}),
 		);
 		await admitExactThreadMediaProjection(tx, {
 			appId: args.appId,
@@ -418,8 +499,12 @@ export async function mergeThreadTurnMessages(args: {
  * barrier write failed and the next one carries both steps.
  *
  * Split guards, deliberately asymmetric:
- *  - The MERGE arm is Project-guarded: an app moved to another Project
- *    mid-run stops contributing content there (the merge is skipped).
+ *  - The MERGE arm requires the thread's live marker to still name THIS
+ *    run's stream (a falsely-reaped run that keeps streaming must not
+ *    deposit barrier snapshots into a thread its successor now owns — the
+ *    successor's claim may have just REMOVED this run's partial) and is
+ *    Project-guarded (an app moved to another Project mid-run stops
+ *    contributing content there).
  *  - The MARKER-CLEAR arm is guarded ONLY by `active_stream_id === streamId`
  *    — never by Project — so a completed run's marker can't strand on the
  *    destination after a move (a stranded marker reads as an instance death
@@ -469,20 +554,23 @@ export async function persistResponseSnapshot(args: {
 			args.responseMessage && args.responseMessage.parts.length > 0
 				? args.responseMessage
 				: null;
+		if (responseMessage && row.active_stream_id !== args.streamId) {
+			/* The thread's live marker no longer names this run's stream: a
+			 * successor claimed the turn (a falsely-reaped run's zombie
+			 * barriers land here), or the run's own terminal write already
+			 * retired it. Whatever this snapshot holds is not this thread's
+			 * present to keep. */
+			responseMessage = null;
+		}
 		if (responseMessage && app.project_id !== args.expectedProjectId) {
 			// The app moved Projects mid-run: only the marker arm may proceed.
 			responseMessage = null;
 		}
-		const metadata = responseMessage?.metadata as
-			| Record<string, unknown>
-			| undefined;
-		if (responseMessage && metadata && "attachments" in metadata) {
-			log.warn(
-				"[threads] assistant snapshot carried attachment metadata; stripped before merge",
-				{ appId: args.appId, threadId: args.threadId },
-			);
-			const { attachments: _dropped, ...rest } = metadata;
-			responseMessage = { ...responseMessage, metadata: rest } as UIMessage;
+		if (responseMessage) {
+			responseMessage = stripAssistantAttachmentMetadata(responseMessage, {
+				appId: args.appId,
+				threadId: args.threadId,
+			});
 		}
 		if (!responseMessage && !clearMarker) return;
 		const merged = responseMessage
@@ -521,9 +609,12 @@ export async function persistResponseSnapshot(args: {
  *
  * `revertTo` is the continuation case's pre-run seed (the raw incoming
  * trailing assistant message of an answered askQuestions round): the message
- * returns to exactly what the client sent. Absent, the run's message was
- * fresh and is deleted outright. The holder nonce always clears — a failed
- * run has no answer POST to keep it for.
+ * returns to exactly what the client sent — minus any `metadata.attachments`,
+ * which no assistant message legitimately carries and which this one path
+ * (the only writer that puts a client-sent message into the durable
+ * transcript verbatim) must not smuggle past the media projection. Absent,
+ * the run's message was fresh and is deleted outright. The holder nonce
+ * always clears — a failed run has no answer POST to keep it for.
  */
 export async function clawBackThreadResponse(args: {
 	appId: string;
@@ -552,12 +643,17 @@ export async function clawBackThreadResponse(args: {
 			.executeTakeFirst();
 		if (!row) return;
 		if (row.active_stream_id !== args.streamId) return;
+		const revertTo =
+			args.revertTo && args.revertTo.id === args.messageId
+				? stripAssistantAttachmentMetadata(args.revertTo, {
+						appId: args.appId,
+						threadId: args.threadId,
+					})
+				: undefined;
 		const stored = (row.messages ?? []) as StoredMessage[];
 		const reverted = stored.flatMap((msg) => {
 			if (msg.id !== args.messageId) return [msg];
-			return args.revertTo && args.revertTo.id === args.messageId
-				? [args.revertTo as StoredMessage]
-				: [];
+			return revertTo ? [revertTo as StoredMessage] : [];
 		});
 		await tx
 			.updateTable("threads")
@@ -579,8 +675,8 @@ export async function clawBackThreadResponse(args: {
  * Reconcile loaded rows' live-stream markers against ACTUAL app liveness —
  * REPORT-ONLY. `active_stream_id` is cleared by finalize; a run whose
  * process died (instance kill, OOM) never finalizes, stranding the marker.
- * The app-level lease is the truth (`appHeldLive` — no live run means no
- * live stream), so a marker on an idle app reads as dead: stripped from the
+ * The app-level lease is the truth (no live run means no live stream), so a
+ * marker on an idle app reads as dead: stripped from the
  * returned PROJECTION (no perpetual LIVE badge, no phantom resume) and
  * stamped `resume_interrupted: true` for the re-drive.
  *
@@ -594,18 +690,55 @@ export async function clawBackThreadResponse(args: {
  * it), so the signal is level-triggered: it stands until recovery actually
  * happens. Fails OPEN on a liveness read fault (a transient blip must not
  * hide a genuinely live run from the resume path).
+ *
+ * One refinement keeps a COMPLETED turn out of the re-drive: a dead marker on
+ * a BUILD thread whose app reached `complete` under the same claim
+ * (`apps.run_id` still names this thread's run — only `completeAndSettleRun`
+ * or its false-reap self-heal flips a build to `complete` with that identity
+ * intact) proves the run FINISHED and only its marker-clear write was lost.
+ * The marker is stripped WITHOUT the interruption stamp, so the finished
+ * answer is neither destroyed nor re-charged by an auto-re-drive. An EDIT
+ * thread has no such completion breadcrumb (its app is `complete`
+ * throughout), so a completed edit's stranded marker still reads as an
+ * interruption — the route's terminal-write retries make that a
+ * several-consecutive-failures event.
  */
 async function reconcileDeadMarkers<
-	T extends { thread_id: string; active_stream_id: string | null },
+	T extends {
+		thread_id: string;
+		active_stream_id: string | null;
+		thread_type: string;
+		run_id: string;
+	},
 >(appId: string, rows: T[]): Promise<(T & { resume_interrupted?: boolean })[]> {
 	const marked = rows.filter((row) => row.active_stream_id !== null);
 	if (marked.length === 0) return rows;
+	let app: { status: string; run_id: string | null } | undefined;
 	try {
-		if (await appHeldLive(appId)) return rows;
+		const db = await getAppDb();
+		const row = await db
+			.selectFrom("apps")
+			.select(LEASE_COLUMNS)
+			.where("id", "=", appId)
+			.executeTakeFirst();
+		if (row && runLeaseState(leaseView(row)).live) return rows;
+		app = row;
 	} catch {
 		return rows;
 	}
-	for (const row of marked) {
+	return rows.map((row) => {
+		if (row.active_stream_id === null) return row;
+		if (
+			row.thread_type === "build" &&
+			app?.status === "complete" &&
+			app.run_id === row.run_id
+		) {
+			log.warn(
+				"[threads] stranded marker on a completed build; projecting it retired instead of interrupted",
+				{ appId, threadId: row.thread_id, streamId: row.active_stream_id },
+			);
+			return { ...row, active_stream_id: null };
+		}
 		/* The event-log breadcrumb for an instance death: a run claimed this
 		 * thread's turn and never finalized. Fires on every read until a
 		 * re-drive retires the marker — bounded by page loads, and the
@@ -615,12 +748,8 @@ async function reconcileDeadMarkers<
 			threadId: row.thread_id,
 			streamId: row.active_stream_id,
 		});
-	}
-	return rows.map((row) =>
-		row.active_stream_id === null
-			? row
-			: { ...row, active_stream_id: null, resume_interrupted: true },
-	);
+		return { ...row, active_stream_id: null, resume_interrupted: true };
+	});
 }
 
 /**
