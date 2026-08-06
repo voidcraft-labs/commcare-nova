@@ -710,6 +710,10 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Commc
 **Uploading is not the same as releasing.** HQ accepts an API key for putting an app on a project space, but making a version and releasing one are only possible from a signed-in browser session. So `upload_app_to_hq` reaches `uploaded`, and `built`, `released`, and `runnable` are states Commcare Nova OBSERVES after a person does those steps on HQ. Tell the user to open the app's Releases screen, choose Make new version, then star it; then call `refresh_deployment`. Never report an uploaded app as released, live, or ready for workers.
 </Callout>
 
+<Callout type="info">
+**A refresh that couldn't ask is not a verdict on the app.** `refresh_deployment` fails rather than answering with a stale record when Commcare Nova cannot reach HQ at all — no API key on the account, a key that no longer reaches that project space, HQ not answering, or an app that was never published there. Nothing on the project space changed, so the last state you saw is still the true one. Report the message, not a failed deployment.
+</Callout>
+
 <Callout type="warn">
 Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>
