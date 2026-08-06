@@ -18,8 +18,14 @@ export type DeploymentErrorCode =
 	| "not_found"
 	/** The input is not a legal deployment target or resource identity. */
 	| "invalid"
-	/** Someone else changed the deployment since the caller read it. */
-	| "conflict"
+	/**
+	 * No CommCare HQ connection on this account. Its own code so every
+	 * surface can emit the tag its clients already branch on, rather than
+	 * flattening it into a generic invalid input.
+	 */
+	| "hq_not_connected"
+	/** The caller's key cannot reach this project space. */
+	| "domain_not_authorized"
 	/**
 	 * The remote resource is already mapped to a different Nova resource, or
 	 * to this one under different ownership. Its own code because the

@@ -145,10 +145,29 @@ describe("session values are honest", () => {
 		expect(identity?.session.user).not.toHaveProperty("undeclared_thing");
 	});
 
-	it("leaves the project slug absent — there is no deployment target", () => {
+	it("leaves the SESSION project slug absent while no deployment names one", () => {
+		// `get_user_session_data` is the sole injector of the session copy,
+		// and Nova will not invent a slug to make a condition pass.
 		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
 		expect(identity?.session.user).not.toHaveProperty("commcare_project");
-		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+	});
+
+	it("always carries the USERCASE project slug, because HQ always writes it", () => {
+		// `sync_usercase.py::_get_user_case_fields` ends with an
+		// unconditional `fields.update({... 'commcare_project': domain})`, so
+		// the key is never missing on a device. Empty until Nova knows the
+		// project space, exactly like `language` and `phone_number`.
+		const without = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(without?.usercase.commcare_project).toBe("");
+
+		const withTarget = previewAsPersona(
+			FULL_USER,
+			ASHA_PERSONA,
+			DOC,
+			"rhi-bihar",
+		);
+		expect(withTarget?.usercase.commcare_project).toBe("rhi-bihar");
+		expect(withTarget?.session.user.commcare_project).toBe("rhi-bihar");
 	});
 
 	it("keeps HQ's unconditional profile keys present even when their values are empty", () => {
@@ -164,10 +183,10 @@ describe("session values are honest", () => {
 		expect(identity?.usercase.last_name).toBe("");
 		expect(identity?.usercase.email).toBe("");
 		expect(identity?.usercase.phone_number).toBe("");
-		// Target-dependent values remain genuinely absent rather than being
-		// confused with HQ's always-written profile slots.
+		// The session copy stays genuinely absent rather than joining HQ's
+		// always-written slots; the usercase copy IS one of them.
 		expect(identity?.session.user).not.toHaveProperty("commcare_project");
-		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+		expect(identity?.usercase.commcare_project).toBe("");
 	});
 
 	it("marks an ordinary worker standard, not demo — and never absent", () => {

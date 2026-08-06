@@ -45,7 +45,6 @@ export type DeploymentActionResult<T> =
 				| "unauthenticated"
 				| "not_found"
 				| "invalid_input"
-				| "conflict"
 				| "unavailable";
 			readonly message: string;
 	  };
@@ -173,8 +172,16 @@ function failure(
 	operation: string,
 	scope: DeploymentScope,
 ): DeploymentActionResult<never> {
+	/* An expected rejection already says what happened in the author's
+	 * words: a key on the wrong CommCare server, a project space it cannot
+	 * reach. Replacing that with "Nova couldn't check just now" would ask
+	 * somebody to retry a thing that will never work. */
+	if (error instanceof DeploymentError) {
+		return error.code === "not_found"
+			? notFound()
+			: { success: false, code: "invalid_input", message: error.message };
+	}
 	if (
-		error instanceof DeploymentError ||
 		error instanceof AppAccessError ||
 		(error instanceof OrganizationError && error.code === "not_found")
 	) {

@@ -282,10 +282,19 @@ export function toMcpErrorResult(
 		 * ordinary "you have not connected CommCare HQ" became a Sentry
 		 * issue and reached the client as an unrelated internal message.
 		 *
-		 * `already_mapped` keeps its own wire tag because the recovery is
-		 * specific: look at what already owns it rather than retrying. */
-		const errorType =
-			err.code === "already_mapped" ? "already_mapped" : "invalid_input";
+		 * The tags match what `upload_app_to_hq` already emits for the same
+		 * conditions, so a client branching on the documented taxonomy gets
+		 * the same answer whichever tool it called. */
+		const errorType: McpErrorType =
+			err.code === "already_mapped"
+				? "already_mapped"
+				: err.code === "hq_not_connected"
+					? "hq_not_configured"
+					: err.code === "domain_not_authorized"
+						? "domain_not_authorized"
+						: err.code === "not_found"
+							? "not_found"
+							: "invalid_input";
 		log.warn("[mcp] deployment rejected", {
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,

@@ -88,10 +88,12 @@ import { describeDeployment } from "./deploymentProjection";
 
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
- * `satisfies Record<HqToolErrorType, HqToolErrorType>` forces every
- * variant of `HqToolErrorType` to appear as a key — adding a new
+ * `satisfies Record<UploadErrorType, UploadErrorType>` forces every
+ * variant an upload gate can emit to appear as a key — adding a new
  * variant to the union without a matching entry here is a compile
- * error, so the wire taxonomy cannot silently drift.
+ * error, so the wire taxonomy cannot silently drift. `already_mapped`
+ * belongs to adoption rather than publishing, which is why the guard
+ * checks the narrower type.
  *
  * Exported as a frozen record so tests can reference the literals the
  * handler emits without hardcoding raw strings.

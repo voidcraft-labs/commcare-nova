@@ -1545,16 +1545,19 @@ and organization levels are session-only HTML forms
 (`users/views/mobile/custom_data_fields.py::UserFieldsView`,
 `locations/views.py::LocationTypesView`), automations have no REST resource, and
 building and releasing are the pages above. It also states that
-`models/applications.py::_create_app_from_doc` freezes `cloudcare_enabled` from
-the domain's Web Apps privilege AT IMPORT, so a project that gains Web Apps
-later must publish again.
+`models/applications.py::_create_app_from_doc` initializes `cloudcare_enabled`
+from the domain's Web Apps privilege at import, so an app published before the
+feature was on starts with it off. The remedy is the ordinary **Web App**
+setting (`commcare-app-settings.yml` id `cloudcare_enabled`, editable through
+`views/apps.py::edit_app_attr`), never a republish that would leave a duplicate
+app behind.
 
 Preview's `commcare_project` is supplied from that record: present when exactly
 one deployment has reached `uploaded`, absent when none has and when several
-have, since choosing between two real answers is a guess. It stays out of the
-usercase whatever the deployment says, because `_get_user_case_fields` builds
-from `UserData.to_dict()` and the key is injected only by
-`users/models.py::CouchUser.get_user_session_data`.
+have, since choosing between two real answers is a guess. The usercase carries it
+either way, because `callcenter/sync_usercase.py::_get_user_case_fields` writes
+it unconditionally; only the session block omits it, since
+`users/models.py::CouchUser.get_user_session_data` is the sole injector there.
 
 `publishAppToHq` is the one lifecycle the browser route and MCP's
 `upload_app_to_hq` both use; a refused publish answers 200 carrying the

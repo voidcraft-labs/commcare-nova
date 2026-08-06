@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Selectable, Transaction } from "kysely";
+import { type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -491,6 +491,18 @@ export async function recordRemoteRevision(
 ): Promise<void> {
 	await withAppTx(async (tx) => {
 		await lockAppForDeploymentWrite(tx, scope, "edit");
+		/* Prove the deployment belongs to this scope, as its two siblings
+		 * do. The one caller passes an id from a scoped read, but a module
+		 * whose whole tenancy story is "the store proves it" cannot have an
+		 * exception that relies on its callers. */
+		const deployment = await tx
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("id", "=", deploymentId)
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.executeTakeFirst();
+		if (deployment === undefined) throw deploymentNotFound();
 		await tx
 			.updateTable("app_deployment_resources")
 			.set({
@@ -540,12 +552,13 @@ export function activeRemoteApp(
  * may repoint it, and whichever published second would silently take it
  * over.
  *
- * **This runs inside the writing transaction**, not before it. A check on
- * its own connection is a time-of-check/time-of-use gap: two concurrent
- * adoptions of the same CommCare HQ app both pass it and both insert,
- * because they write different `deployment_id`s and so never collide on
- * the partial unique index. Holding the app row for the duration is what
- * actually makes it exclusive.
+ * **This runs inside the writing transaction, behind a lock on the remote
+ * id itself.** Running it on its own connection was a time-of-check gap,
+ * and moving it into the transaction alone does not close one: two
+ * adoptions of the same CommCare HQ app come from two DIFFERENT Nova apps,
+ * so they lock two different `apps` rows and `FOR SHARE` does not conflict
+ * with `FOR SHARE` anyway. What serializes them is an advisory lock keyed
+ * on the thing being contended, which is the remote id within its Project.
  */
 async function assertRemoteAppUnclaimedInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -553,6 +566,13 @@ async function assertRemoteAppUnclaimedInTransaction(
 	deploymentId: string,
 	remoteId: string,
 ): Promise<void> {
+	/* Serialize every claim on this exact CommCare HQ app within this
+	 * Project, whichever Nova app is claiming it. Transaction-scoped, so it
+	 * releases with the write it guards. */
+	const scopeKey = `nova-hq-app-claim:${scope.projectId}:${remoteId}`;
+	await sql`select pg_advisory_xact_lock(hashtextextended(${scopeKey}, 0::bigint))`.execute(
+		tx,
+	);
 	const clash = await tx
 		.selectFrom("app_deployment_resources")
 		.innerJoin(

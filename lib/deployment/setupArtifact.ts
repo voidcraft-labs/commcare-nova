@@ -382,10 +382,17 @@ function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
 				"check-listed",
 				"Open Web Apps on the project space and check the app is listed.",
 			),
+			step(
+				"enable-web-app",
+				"If it is not listed, open the app's Settings on CommCare HQ and tick “Web App”.",
+				[
+					"CommCare HQ sets that box when the app is created, from whether the project had Web Apps at that moment, so an app published before the feature was on starts with it off.",
+					"You do not need to publish again. It is an ordinary app setting you can change at any time.",
+				],
+			),
 		],
 		caveats: [
-			"CommCare HQ decides whether an app is available in Web Apps when the app is created, from whether the project had Web Apps at that moment. A project that gains Web Apps later does not retroactively enable an app published before it, so publish again once the feature is on.",
-			"Nova cannot read that setting back, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, this is the reason to check first.",
+			"Nova cannot read that setting back, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
 		],
 	};
 }

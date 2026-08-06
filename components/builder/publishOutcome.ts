@@ -70,7 +70,14 @@ export type PublishOutcome =
 	  }
 	| {
 			readonly kind: "failure";
-			/** The blocked preflight edge, when the response named one. */
+			/**
+			 * The blocked preflight edge, when the response named one.
+			 *
+			 * Present only on a 200 that carried checks but no record, which
+			 * a 4xx from the route's own input and authorization gates never
+			 * does. Left in because the shape is the route's to change, not
+			 * this decision's to assume.
+			 */
 			readonly blockedDetail: string | undefined;
 	  };
 

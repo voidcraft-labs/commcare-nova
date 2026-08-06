@@ -29,6 +29,7 @@ import {
 } from "./previewTarget";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import {
+	applyObservation,
 	applyPhaseOutcome,
 	applyPhaseOutcomes,
 	applyPreflightOutcome,
@@ -348,6 +349,29 @@ function importRejectionMessage(status: number): string {
 }
 
 /**
+ * Prove the caller's stored key belongs to the server this deployment
+ * targets.
+ *
+ * `getCredentialsForUpload` takes no server: it returns whichever
+ * installation the caller's own key is on. A Project co-member whose key
+ * is on India, refreshing a `production` deployment whose domain slug also
+ * exists there, would otherwise read the wrong installation and be told
+ * their app had been deleted. The server is part of the deployment's key
+ * precisely because a key issued by one authenticates nowhere else, so it
+ * has to be compared rather than assumed.
+ */
+function assertCredentialsMatchServer(
+	creds: CommCareCredentials,
+	target: DeploymentTargetKey,
+): void {
+	if (creds.server === target.server) return;
+	throw new DeploymentError(
+		"invalid",
+		`This deployment is on the ${COMMCARE_SERVERS[target.server].label} CommCare server, and your API key is on ${COMMCARE_SERVERS[creds.server].label}. Those are separate installations with separate accounts, so your key cannot see it. Add a key for ${COMMCARE_SERVERS[target.server].label} in Settings.`,
+	);
+}
+
+/**
  * Ask CommCare HQ what has happened to a published app since last time.
  *
  * Reads only. It is the same call whether the deployment is waiting for a
@@ -409,13 +433,15 @@ export async function refreshDeployment(
 		};
 	}
 
+	assertCredentialsMatchServer(credResult.creds, target);
+
 	const observation = await observeDeployment({
 		creds: credResult.creds,
 		domain: credResult.domain.name,
 		hqAppId: remote.remoteId,
 		now,
 	});
-	const folded = applyPhaseOutcomes(existing.deployment, observation.outcomes);
+	const folded = applyObservation(existing.deployment, observation.outcomes);
 	const saved = await saveDeploymentProgress(
 		scope,
 		existing.deployment.id,
@@ -457,12 +483,16 @@ export async function adoptRemoteApp(
 	 * real answer is that they have not connected CommCare HQ. */
 	if (!credResult.ok) {
 		throw new DeploymentError(
-			"invalid",
+			credResult.error === "not_configured"
+				? "hq_not_connected"
+				: "domain_not_authorized",
 			credResult.error === "not_configured"
 				? "CommCare HQ isn't connected on your account. Add your API key in Settings, then connect this app to its CommCare HQ app."
 				: `Your API key can't reach “${target.domain}”. Ask a CommCare HQ administrator to add you to that project space.`,
 		);
 	}
+
+	assertCredentialsMatchServer(credResult.creds, target);
 
 	// Prove it is really there before recording ownership of it. An
 	// adopted mapping that names nothing would report "uploaded" for an

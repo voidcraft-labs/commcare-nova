@@ -5,7 +5,7 @@
 // Pure, so both the server that resolves it and any surface that explains
 // it read the same rule.
 
-import { deploymentHasReached } from "./stateMachine";
+import { deploymentDisplaysAsReached } from "./stateMachine";
 import type { DeploymentRecord } from "./types";
 
 /** What Preview shows for `commcare_project`, and why. */
@@ -19,10 +19,13 @@ export type PreviewDeploymentTarget =
 /**
  * Resolve the one project space Preview can name.
  *
- * A deployment counts only once it has reached `uploaded`: before that the
- * app is not on that project space at all, so a worker could not have
- * signed into it. `incomplete` never counts, whatever it failed at,
- * because a refused deployment has reached nothing.
+ * A deployment counts once its app is genuinely on that project space, so
+ * a worker could have signed into it. That is `deploymentDisplaysAsReached`
+ * rather than the strict predicate, and the difference matters: a probe
+ * that failed did not undo the upload, and letting a transient "Nova could
+ * not check" withdraw `commcare_project` would change what expressions
+ * evaluate to for a reason that has nothing to do with the app. A
+ * deployment refused BEFORE its app got there still counts for nothing.
  *
  * Several qualifying deployments produce `ambiguous` rather than a pick.
  * The same refusal `resolveUploadDomain` makes for an upload target: with
@@ -30,10 +33,13 @@ export type PreviewDeploymentTarget =
  * `commcare_project` pass in Preview and fail for half the workers.
  */
 export function resolvePreviewDeploymentTarget(
-	deployments: readonly Pick<DeploymentRecord, "state" | "domain">[],
+	deployments: readonly Pick<
+		DeploymentRecord,
+		"state" | "resumePhase" | "domain"
+	>[],
 ): PreviewDeploymentTarget {
 	const live = deployments.filter((deployment) =>
-		deploymentHasReached(deployment, "uploaded"),
+		deploymentDisplaysAsReached(deployment, "uploaded"),
 	);
 	const domains = [...new Set(live.map((deployment) => deployment.domain))];
 	const only = domains[0];

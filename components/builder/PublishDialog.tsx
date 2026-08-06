@@ -366,6 +366,7 @@ export function PublishDialog({
 				feature_flag_requirements?: HqFeatureFlagReport;
 				deployment?: DeploymentView["deployment"];
 				setup_artifact?: DeploymentView["artifact"];
+				preview_project_space?: string | null;
 				preflight?: { title: string; status: string; detail: string }[];
 				error?: string;
 			};
@@ -643,9 +644,32 @@ export function PublishDialog({
 								) : (
 									<span />
 								)}
-								<Button type="button" variant="outline" onClick={handleClose}>
-									Done
-								</Button>
+								{status.landed ? (
+									<Button type="button" variant="outline" onClick={handleClose}>
+										Done
+									</Button>
+								) : (
+									/* A refusal reaches this screen too, and its whole
+									   point is that the author fixes something and tries
+									   again. Leaving only Done would make them close and
+									   reopen the dialog to do the thing it just asked for. */
+									<div className="flex items-center gap-2">
+										<Button
+											type="button"
+											variant="outline"
+											onClick={handleClose}
+										>
+											Close
+										</Button>
+										<Button
+											type="button"
+											onClick={handleUpload}
+											disabled={!canUpload}
+										>
+											Try again
+										</Button>
+									</div>
+								)}
 							</>
 						) : notConfigured ? (
 							<DialogClose render={<Button variant="outline" />}>

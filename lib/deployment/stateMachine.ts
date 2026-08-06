@@ -122,6 +122,32 @@ export function applyPhaseOutcomes(
 }
 
 /**
+ * Fold one observation pass.
+ *
+ * Every phase the pass did NOT reach is cleared, because an observation
+ * stops at the first thing that has not happened: un-releasing a build
+ * yields `[build ok, release pending]` and nothing about the probe, and
+ * keeping the previous `probe: succeeded` would ship "released: no,
+ * probed: yes" to anything reading the phase history.
+ */
+export function applyObservation(
+	record: DeploymentRecord,
+	outcomes: readonly (readonly [DeploymentPhase, DeploymentPhaseOutcome])[],
+): DeploymentRecord {
+	const observed = new Set(outcomes.map(([phase]) => phase));
+	const cleared: DeploymentPhaseOutcomes = {
+		...record.phases,
+		build: observed.has("build") ? record.phases.build : null,
+		release: observed.has("release") ? record.phases.release : null,
+		probe: observed.has("probe") ? record.phases.probe : null,
+	};
+	return outcomes.reduce(
+		(next, [phase, outcome]) => applyPhaseOutcome(next, phase, outcome),
+		{ ...record, phases: cleared },
+	);
+}
+
+/**
  * Whether a phase may run against a deployment in this state.
  *
  * `preflight` and `upload` are always available: the first reads nothing

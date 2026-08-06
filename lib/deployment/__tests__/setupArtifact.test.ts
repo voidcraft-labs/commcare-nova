@@ -113,16 +113,26 @@ describe("never claims a prerequisite was installed", () => {
 		expect(release?.caveats.join(" ")).toMatch(/not an API key/i);
 	});
 
-	it("warns that Web Apps availability is decided at import, not later", () => {
+	it("sends the reader to the Web App setting, not to a second publish", () => {
+		// `cloudcare_enabled` is initialized at import from the project's
+		// privilege, but it is an ordinary editable app setting after that
+		// (`commcare-app-settings.yml` id `cloudcare_enabled`, name "Web
+		// App"). Telling somebody to publish again would leave a duplicate
+		// app on their project space to achieve what a checkbox does.
 		const webApps = artifact().sections.find((s) => s.id === "web-apps");
-		expect(webApps?.caveats.join(" ")).toMatch(/when the app is created/i);
-		expect(webApps?.caveats.join(" ")).toMatch(/publish again/i);
+		const text = JSON.stringify(webApps);
+		expect(text).toContain("“Web App”");
+		expect(text).toMatch(/do not need to publish again/i);
+		expect(text).not.toMatch(/publish again once/i);
 	});
 });
 
 describe("preview target resolution", () => {
-	function deployment(state: string, domain: string) {
-		return { state, domain } as Pick<DeploymentRecord, "state" | "domain">;
+	function deployment(state: string, domain: string, resumePhase = null) {
+		return { state, domain, resumePhase } as unknown as Pick<
+			DeploymentRecord,
+			"state" | "resumePhase" | "domain"
+		>;
 	}
 
 	it("names a project space once one deployment reached uploaded", () => {
@@ -137,10 +147,23 @@ describe("preview target resolution", () => {
 		).toEqual({ kind: "none" });
 	});
 
-	it("never counts a refused deployment", () => {
+	it("never counts a deployment refused before its app got there", () => {
 		expect(
-			resolvePreviewDeploymentTarget([deployment("incomplete", "acme")]),
+			resolvePreviewDeploymentTarget([
+				deployment("incomplete", "acme", "upload" as never),
+			]),
 		).toEqual({ kind: "none" });
+	});
+
+	it("keeps naming the space when a LATER phase failed", () => {
+		// A probe that could not be checked did not undo the upload, and
+		// withdrawing `commcare_project` would change what expressions
+		// evaluate to for a reason that has nothing to do with the app.
+		expect(
+			resolvePreviewDeploymentTarget([
+				deployment("incomplete", "acme", "probe" as never),
+			]),
+		).toEqual({ kind: "known", domain: "acme" });
 	});
 
 	it("refuses to choose between two real answers", () => {

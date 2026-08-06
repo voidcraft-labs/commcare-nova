@@ -160,13 +160,16 @@ function frameworkSessionKeys(
  * block's `commcare_`-prefixed keys, which is the whole reason the two
  * projections exist separately.
  *
- * `commcare_project` is absent here even once a deployment supplies one,
- * and that asymmetry is CommCare's rather than Nova's:
- * `_get_user_case_fields` builds from `UserData.to_dict()`, which carries
- * the declared schema, the worker's own values, and the profile slots —
- * `commcare_project` is injected only by
- * `users/models.py::CouchUser.get_user_session_data`, which the usercase
- * never goes through. `language` and `last_device_id_used` are HQ account
+ * `commcare_project` IS here, unlike in the session block, because
+ * `_get_user_case_fields` ends with an unconditional
+ * `fields.update({... 'commcare_project': domain})` beside `name`,
+ * `username`, `language`, and the rest. HQ always writes it, so Preview
+ * always carries the key: the deployment's project space when one is
+ * known, and empty when it is not, exactly as it treats every other
+ * always-written key it cannot know. The session block is the one that
+ * omits it, because `get_user_session_data` injects it only there and
+ * Nova will not invent a slug to make a condition pass.
+ * `language` and `last_device_id_used` are HQ account
  * settings Nova does not model, and HQ writes them as empty strings, so
  * they are emitted empty rather than invented.
  *
@@ -179,12 +182,15 @@ function frameworkSessionKeys(
  * on the session side — the dict starts from `UserData.to_dict()`, which
  * always includes the slot, and it survives the valid-XML-name filter.
  */
-function usercaseBuiltIns(worker: {
-	id: string;
-	username: string;
-	personName: string;
-	email: string;
-}): Record<string, string> {
+function usercaseBuiltIns(
+	worker: {
+		id: string;
+		username: string;
+		personName: string;
+		email: string;
+	},
+	projectSpace: string | null,
+): Record<string, string> {
 	const { first, last } = splitName(worker.personName);
 	return {
 		name: worker.personName,
@@ -196,6 +202,7 @@ function usercaseBuiltIns(worker: {
 		language: "",
 		phone_number: "",
 		last_device_id_used: "",
+		commcare_project: projectSpace ?? "",
 		commcare_profile: "",
 		commcare_location_id: "",
 		commcare_location_ids: "",
@@ -276,7 +283,11 @@ function projections(
 				),
 			),
 		},
-		usercase: mergeOwnRecords(declared, values, usercaseBuiltIns(worker)),
+		usercase: mergeOwnRecords(
+			declared,
+			values,
+			usercaseBuiltIns(worker, projectSpace),
+		),
 	};
 }
 

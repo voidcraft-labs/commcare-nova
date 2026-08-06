@@ -479,9 +479,11 @@ condition on `commcare_project` pass here and fail for half the workers.
 server-side, and `DeploymentTargetProvider` carries it — durable server state,
 so deliberately not the ephemeral session store.
 
-It stays out of the USERCASE whatever the deployment says, and that asymmetry is
-CommCare's rather than Nova's:
-`callcenter/sync_usercase.py::_get_user_case_fields` builds from
-`UserData.to_dict()`, and `commcare_project` is injected only by
-`users/models.py::CouchUser.get_user_session_data`, which the usercase never
-goes through.
+The two projections treat it differently, and the asymmetry is CommCare's.
+`callcenter/sync_usercase.py::_get_user_case_fields` ends with an unconditional
+`fields.update({... 'commcare_project': domain})`, so the USERCASE always
+carries the key and Preview does too: the deployment's project space when one
+is known, empty when it is not, exactly as it treats `language` and
+`phone_number`. The SESSION block is the one that omits it, because
+`users/models.py::CouchUser.get_user_session_data` injects it only there, and
+Nova will not invent a slug to make a condition pass.

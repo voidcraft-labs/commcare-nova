@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	applyObservation,
 	applyPhaseOutcome,
-	applyPhaseOutcomes,
 	applyPreflightOutcome,
 	clearObservationOutcomes,
 	deploymentCanRunPhase,
@@ -110,13 +110,16 @@ describe("folding a phase outcome", () => {
 				probe: ok,
 			},
 		});
-		const next = applyPhaseOutcomes(runnable, [
+		const next = applyObservation(runnable, [
 			["build", ok],
 			["release", waiting],
 		]);
 		expect(next.state).toBe("built");
 		// And it is genuinely no longer runnable, not merely relabelled.
 		expect(deploymentHasReached(next, "runnable")).toBe(false);
+		// The probe answer described a release that no longer exists, so it
+		// must not survive as "released: no, probed: yes".
+		expect(next.phases.probe).toBeNull();
 	});
 
 	it("clears a refusal once the same phase succeeds on retry", () => {

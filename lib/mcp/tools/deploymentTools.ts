@@ -14,8 +14,9 @@
  * `nova.hq.read`; adopting one needs `nova.hq.write`, because attaching a
  * Nova app to a CommCare HQ app decides what a later publish may replace.
  * Refreshing is read-only against CommCare HQ but WRITES Nova's own
- * record, so it takes `nova.hq.read` for the remote reads and `edit` on
- * the app for the write.
+ * record, so it takes `nova.hq.write` and `edit` on the app. A read-scoped
+ * token must not be able to knock a `runnable` deployment to `incomplete`
+ * during an HQ blip, which is durable state every Project member sees.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -100,7 +101,7 @@ export function registerRefreshDeployment(
 		"refresh_deployment",
 		{
 			description:
-				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes only Nova's own record, so it needs edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
+				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
 			inputSchema: {
 				app_id: z.string().describe("App id whose deployment to re-check."),
 				server: deploymentServerSchema.describe(
@@ -113,7 +114,7 @@ export function registerRefreshDeployment(
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqRead, "refresh_deployment");
+				assertScope(ctx, SCOPES.hqWrite, "refresh_deployment");
 				/* Read-only against CommCare HQ, but it persists what it saw,
 				 * so the app capability is `edit` rather than `view`. */
 				const { doc, access } = await loadAppBlueprint(
