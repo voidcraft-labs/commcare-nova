@@ -38,6 +38,7 @@ import {
 	FormAttachmentWriteRejectedError,
 	loadAuthorizedFormSubmissionSnapshot,
 } from "@/lib/db/formAttachments";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -1099,9 +1100,23 @@ export async function submitFormAction(
 				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
 			);
 		}
+		/* Same project space the rest of Preview resolves, so a submission's
+		 * conditions read `commcare_project` exactly as the form engine did
+		 * when it showed them. The receipt digest covers only the actor,
+		 * owner, and persona, so this cannot disturb replay. */
+		const projectSpace = await previewProjectSpaceFor({
+			appId,
+			projectId: authorized.projectId,
+			role: authorized.role,
+			actorUserId: session.user.id,
+		});
 		let identity: ResolvedPreviewIdentity | null;
 		if (personaUuid === undefined) {
-			identity = previewAsMe(session.user, authorized.app.blueprint);
+			identity = previewAsMe(
+				session.user,
+				authorized.app.blueprint,
+				projectSpace,
+			);
 		} else {
 			const persona = ownRecordValue(
 				personasOf(authorized.app.blueprint),
@@ -1117,6 +1132,7 @@ export async function submitFormAction(
 				session.user,
 				persona,
 				authorized.app.blueprint,
+				projectSpace,
 			);
 		}
 		if (!identity) return { kind: "unauthenticated" };

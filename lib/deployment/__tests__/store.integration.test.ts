@@ -11,9 +11,10 @@
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { activeRemoteApp } from "../resources";
 import { applyPhaseOutcome } from "../stateMachine";
 import {
-	activeRemoteApp,
+	adoptRemoteResource,
 	type DeploymentScope,
 	ensureDeployment,
 	readDeployment,
@@ -231,10 +232,6 @@ describe("ownership mappings", () => {
 		const other = await seed("app-2");
 		await publish(scope, "hq-shared", 7);
 
-		// The check runs inside the writing transaction, so it is exclusive
-		// rather than a time-of-check gap two concurrent adoptions can walk
-		// through: they write different `deployment_id`s and so would never
-		// collide on the partial unique index.
 		const deployment = await ensureDeployment(other, TARGET);
 		await expect(
 			recordRemoteResource(other, deployment.deployment.id, {
@@ -251,6 +248,70 @@ describe("ownership mappings", () => {
 				},
 			}),
 		).rejects.toThrow(/cannot share one CommCare HQ app/i);
+	});
+
+	it("lets exactly one of two SIMULTANEOUS adoptions of the same app win", async () => {
+		/* The sequential case above would pass with the advisory lock
+		 * removed, because the second adoption sees the first's committed
+		 * row. This is the case the lock exists for: two DIFFERENT Nova apps
+		 * claim one CommCare HQ app at once, so they lock two different
+		 * `apps` rows, `FOR SHARE` does not conflict with `FOR SHARE`, and
+		 * they write two different `deployment_id`s — nothing else in the
+		 * schema would stop them both succeeding. */
+		const first = await seed("app-1");
+		const second = await seed("app-2");
+
+		const results = await Promise.allSettled(
+			[first, second].map((scope) =>
+				adoptRemoteResource(scope, TARGET, {
+					kind: "app",
+					novaResourceId: scope.appId,
+					remoteId: "hq-contended",
+					ownership: "adopted",
+					pushedRevision: null,
+					requireUnclaimed: true,
+					progress: (deployment) => ({
+						state: "uploaded",
+						resumePhase: null,
+						phases: deployment.phases,
+					}),
+				}),
+			),
+		);
+
+		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+		const rejected = results.find((r) => r.status === "rejected");
+		expect(String((rejected as PromiseRejectedResult).reason)).toMatch(
+			/cannot share one CommCare HQ app/i,
+		);
+	});
+
+	it("leaves no deployment behind when the claim is refused", async () => {
+		/* Adoption creates the deployment and claims the app in ONE
+		 * transaction. Two transactions would commit a `preflight` record
+		 * naming a project space this app never reached, and it would show
+		 * up in the builder and in `get_deployment` ever after. */
+		const owner = await seed("app-1");
+		const loser = await seed("app-2");
+		await publish(owner, "hq-owned", 1);
+
+		await expect(
+			adoptRemoteResource(loser, TARGET, {
+				kind: "app",
+				novaResourceId: loser.appId,
+				remoteId: "hq-owned",
+				ownership: "adopted",
+				pushedRevision: null,
+				requireUnclaimed: true,
+				progress: (deployment) => ({
+					state: "uploaded",
+					resumePhase: null,
+					phases: deployment.phases,
+				}),
+			}),
+		).rejects.toThrow(/cannot share one CommCare HQ app/i);
+
+		await expect(readDeploymentsForApp(loser)).resolves.toHaveLength(0);
 	});
 
 	it("records who adopted an id this deployment had created itself", async () => {

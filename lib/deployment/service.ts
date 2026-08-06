@@ -23,10 +23,7 @@ import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
-import {
-	previewProjectSpace,
-	resolvePreviewDeploymentTarget,
-} from "./previewTarget";
+import { activeRemoteApp } from "./resources";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import {
 	applyObservation,
@@ -36,12 +33,11 @@ import {
 	deploymentIsObservable,
 } from "./stateMachine";
 import {
-	activeRemoteApp,
+	adoptRemoteResource,
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	ensureDeployment,
 	readDeployment,
-	readDeploymentsForApp,
 	recordRemoteResource,
 	recordRemoteRevision,
 	saveDeploymentProgress,
@@ -393,12 +389,23 @@ export async function refreshDeployment(
 	/* Nothing to observe, or nothing observation may answer. A deployment
 	 * refused before its app reached CommCare HQ may still hold an earlier
 	 * publish's mapping, and observing that would erase the refusal; every
-	 * later refusal is exactly what Check status is for. */
-	if (remote === null || !deploymentIsObservable(existing.deployment)) {
-		return {
-			deployment: existing,
-			artifact: await setupArtifactFor(scope, existing, doc),
-		};
+	 * later refusal is exactly what Check status is for.
+	 *
+	 * Said out loud rather than returned unchanged, because a silent no-op
+	 * is indistinguishable from a check that found nothing new — the author
+	 * would press Check status forever waiting for a rung Nova was never
+	 * going to ask about. */
+	if (remote === null) {
+		throw new DeploymentError(
+			"invalid",
+			`This app hasn't reached “${target.domain}” yet, so there's nothing on CommCare HQ to check on. Publish it first.`,
+		);
+	}
+	if (!deploymentIsObservable(existing.deployment)) {
+		throw new DeploymentError(
+			"invalid",
+			"This publish stopped before the app reached CommCare HQ, so checking there would say nothing about it. Fix what stopped it and publish again.",
+		);
 	}
 
 	const credResult = await getCredentialsForUpload(
@@ -406,31 +413,22 @@ export async function refreshDeployment(
 		target.domain,
 	);
 	const now = new Date().toISOString();
+	/* Whose problem this is decides who hears about it. A missing key, or
+	 * one that no longer reaches the project space, belongs to the person
+	 * who clicked — not to the deployment. Writing it as a phase failure
+	 * would knock a live app down to `incomplete` for every member of the
+	 * Project because one editor never connected CommCare HQ. So it is
+	 * raised to the caller and nothing is written. */
 	if (!credResult.ok) {
-		const failed = applyPhaseOutcome(existing.deployment, "build", {
-			status: "failed",
-			at: now,
-			failure: {
-				code:
-					credResult.error === "not_configured"
-						? "hq_not_connected"
-						: "domain_not_authorized",
-				message:
-					credResult.error === "not_configured"
-						? "CommCare HQ isn't connected, so Nova can't check on this deployment. Add your API key in Settings."
-						: `Your API key can't reach “${target.domain}” any more, so Nova can't check on this deployment.`,
-				details: [],
-			},
-		});
-		const saved = await saveDeploymentProgress(
-			scope,
-			existing.deployment.id,
-			failed,
-		);
-		return {
-			deployment: saved,
-			artifact: await setupArtifactFor(scope, saved, doc),
-		};
+		throw credResult.error === "not_configured"
+			? new DeploymentError(
+					"hq_not_connected",
+					"CommCare HQ isn't connected on your account, so Nova can't check on this deployment. Add your API key in Settings, then try again.",
+				)
+			: new DeploymentError(
+					"domain_not_authorized",
+					`Your CommCare HQ API key can't reach “${target.domain}”, so Nova can't check on this deployment. What you see is the last thing Nova saw.`,
+				);
 	}
 
 	assertCredentialsMatchServer(credResult.creds, target);
@@ -517,44 +515,20 @@ export async function adoptRemoteApp(
 		);
 	}
 
-	const deployment = await ensureDeployment(scope, target);
+	/* One transaction for both writes. A clash on the claim must leave no
+	 * deployment behind naming a project space this app never reached. */
 	const now = new Date().toISOString();
-	return recordRemoteResource(scope, deployment.deployment.id, {
+	return adoptRemoteResource(scope, target, {
 		kind: "app",
 		novaResourceId: scope.appId,
 		remoteId,
 		ownership: "adopted",
 		pushedRevision: null,
 		requireUnclaimed: true,
-		progress: applyPhaseOutcomes(deployment.deployment, [
-			["preflight", { status: "succeeded", at: now }],
-			["upload", { status: "succeeded", at: now }],
-		]),
+		progress: (deployment) =>
+			applyPhaseOutcomes(deployment, [
+				["preflight", { status: "succeeded", at: now }],
+				["upload", { status: "succeeded", at: now }],
+			]),
 	});
-}
-
-/**
- * The project space Preview may honestly name for an app.
- *
- * Best effort by design: a deployment read that faults must not take the
- * builder page down with it. Failing to `null` degrades to the existing,
- * always-honest behavior of leaving `commcare_project` absent.
- */
-export async function previewProjectSpaceFor(
-	scope: DeploymentScope,
-): Promise<string | null> {
-	try {
-		const deployments = await readDeploymentsForApp(scope);
-		return previewProjectSpace(
-			resolvePreviewDeploymentTarget(
-				deployments.map((view) => view.deployment),
-			),
-		);
-	} catch (error) {
-		log.warn("[deployment] preview project space unavailable", {
-			appId: scope.appId,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return null;
-	}
 }

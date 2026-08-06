@@ -53,6 +53,7 @@ import {
 	materializeCaseStoreSchemas,
 } from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -1708,10 +1709,24 @@ export async function resolveAuthorizedPreviewContext(args: {
 		throw new Error("The app changed while Preview was loading it.");
 	}
 
-	let identity = memberIdentity;
+	/* The SAME project space the client form engine sees. This identity is
+	 * what binds `sessionUser` for the SQL compiler, so leaving it out here
+	 * while the browser's copy carries it would make one expression answer
+	 * two ways depending on which side evaluated it — the hardest kind of
+	 * difference to notice, because both halves look right alone. */
+	const projectSpace = await previewProjectSpaceFor({
+		appId: args.appId,
+		projectId: access.projectId,
+		role: access.role,
+		actorUserId: memberIdentity.actorUserId,
+	});
+
+	let identity =
+		previewAsMe(session?.user, undefined, projectSpace) ?? memberIdentity;
 	if (blueprint !== undefined) {
 		if (args.personaUuid === undefined) {
-			identity = previewAsMe(session?.user, blueprint) ?? memberIdentity;
+			identity =
+				previewAsMe(session?.user, blueprint, projectSpace) ?? memberIdentity;
 		} else {
 			const persona = ownRecordValue(personasOf(blueprint), args.personaUuid);
 			if (persona === undefined) {
@@ -1720,7 +1735,12 @@ export async function resolveAuthorizedPreviewContext(args: {
 					message: PERSONA_UNAVAILABLE_MESSAGE,
 				};
 			}
-			const resolved = previewAsPersona(session?.user, persona, blueprint);
+			const resolved = previewAsPersona(
+				session?.user,
+				persona,
+				blueprint,
+				projectSpace,
+			);
 			if (resolved === null) return { kind: "unauthenticated" };
 			identity = resolved;
 		}

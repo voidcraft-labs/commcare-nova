@@ -7,9 +7,9 @@ import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import { DeploymentError } from "./errors";
-import { refreshDeployment } from "./service";
+import { refreshDeployment, setupArtifactFor } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
-import type { DeploymentScope } from "./store";
+import { type DeploymentScope, readDeploymentsForApp } from "./store";
 import { type DeploymentWithResources, deploymentServerSchema } from "./types";
 
 /**
@@ -17,10 +17,9 @@ import { type DeploymentWithResources, deploymentServerSchema } from "./types";
  *
  * Publishing itself stays on `/api/commcare/upload`, because it is one
  * long request whose warnings and feature-flag report the dialog already
- * consumes. Reading a deployment needs no action either: a publish
- * answers with the record, and the builder page resolves the Preview
- * target server-side. So this file holds exactly one operation, the one
- * the dialog's Check status button needs.
+ * consumes. What is here is what a publish cannot answer: where the app
+ * already stands when the dialog opens, and what CommCare HQ has done
+ * since. Both outlive the request that created the record.
  *
  * Adoption is deliberately MCP-only (`adopt_hq_app`). It is the recovery
  * path for an app somebody imported by hand, and it needs the exact
@@ -60,16 +59,20 @@ const targetInputSchema = z
 	.strict();
 
 /**
- * Refreshing WRITES the observed state, so it authorizes as an edit.
+ * The capability is the caller's to state, because the two operations
+ * here genuinely differ. Refreshing WRITES the observed state, so it is an
+ * edit; reading changes nothing on the target, so a viewer may do it and
+ * see exactly where the app stands.
  *
- * Reading it as a view would let a viewer through the action and then
- * fail inside the store's `edit` check — and only for a deployment that
- * has actually been published, since refresh returns early otherwise. A
- * capability that depends on how far a deployment got is not a
- * capability.
+ * Refresh must not settle for `view` and let the store's `edit` check
+ * refuse it later: that check is only reached for a deployment far enough
+ * along to observe, so a viewer would be refused with two different
+ * messages depending on how far the app had got, and a capability that
+ * depends on that is not a capability.
  */
 async function resolveScope(
 	appId: string,
+	capability: "view" | "edit",
 ): Promise<
 	| { readonly ok: true; readonly scope: DeploymentScope }
 	| { readonly ok: false; readonly result: DeploymentActionResult<never> }
@@ -86,7 +89,7 @@ async function resolveScope(
 		};
 	}
 	try {
-		const access = await resolveAppScope(appId, session.user.id, "edit");
+		const access = await resolveAppScope(appId, session.user.id, capability);
 		return {
 			ok: true,
 			scope: {
@@ -151,7 +154,7 @@ export async function refreshDeploymentAction(
 			message: "That deployment request wasn't in a shape Nova understands.",
 		};
 	}
-	const resolved = await resolveScope(parsed.data.appId);
+	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
 	try {
 		const doc = await committedDoc(resolved.scope);
@@ -164,6 +167,48 @@ export async function refreshDeploymentAction(
 		return { success: true, data: refreshed };
 	} catch (error) {
 		return failure(error, "refresh", resolved.scope);
+	}
+}
+
+/**
+ * Where this app already stands on every project space it has reached.
+ *
+ * The publish dialog opens on this rather than on a blank form, because
+ * the record outlives the publish that made it: somebody who published
+ * yesterday, made the build on CommCare HQ, and came back today needs
+ * Check status — and without this the only route to it would be
+ * publishing again, which mints a SECOND app on the project space and
+ * supersedes the first. A read authorizes as a view; reading a target
+ * changes nothing on it.
+ */
+export async function readDeploymentsAction(
+	input: unknown,
+): Promise<DeploymentActionResult<readonly DeploymentView[]>> {
+	const parsed = appIdSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message: "That app request wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data, "view");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const deployments = await readDeploymentsForApp(resolved.scope);
+		if (deployments.length === 0) return { success: true, data: [] };
+		const doc = await committedDoc(resolved.scope);
+		return {
+			success: true,
+			data: await Promise.all(
+				deployments.map(async (deployment) => ({
+					deployment,
+					artifact: await setupArtifactFor(resolved.scope, deployment, doc),
+				})),
+			),
+		};
+	} catch (error) {
+		return failure(error, "read", resolved.scope);
 	}
 }
 

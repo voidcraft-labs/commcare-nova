@@ -116,8 +116,6 @@ vi.mock("@/lib/deployment/store", () => {
 		readDeployment: vi.fn(),
 		readDeploymentsForApp: vi.fn(async () => []),
 		assertRemoteAppUnclaimed: vi.fn(),
-		activeRemoteApp: (view: { active: { remoteId: string }[] }) =>
-			view.active[0] ?? null,
 	};
 });
 

@@ -29,6 +29,16 @@ const mocks = vi.hoisted(() => ({
 	},
 }));
 
+/* The dialog asks the server where the app already stands as soon as it
+ * opens. That is a Server Action reaching auth and Postgres, which has no
+ * business running in a component test — and left real it resolves after
+ * the test ends, which is exactly the escaped-update the setup file
+ * fails on. */
+vi.mock("@/lib/deployment/actions", () => ({
+	readDeploymentsAction: vi.fn(async () => ({ success: true, data: [] })),
+	refreshDeploymentAction: vi.fn(),
+}));
+
 vi.mock("@/lib/collab/context", () => ({
 	useReconcilerContext: () => null,
 }));

@@ -20,9 +20,10 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { publishAppToHq } from "../service";
+import { publishAppToHq, refreshDeployment } from "../service";
 import {
 	ensureDeployment,
+	readDeployment,
 	recordRemoteResource,
 	saveDeploymentProgress,
 } from "../store";
@@ -64,8 +65,6 @@ vi.mock("../store", () => ({
 	readDeployment: vi.fn(),
 	readDeploymentsForApp: vi.fn(async () => []),
 	assertRemoteAppUnclaimed: vi.fn(),
-	activeRemoteApp: (view: { active: { remoteId: string }[] }) =>
-		view.active[0] ?? null,
 }));
 
 const SCOPE = {
@@ -366,5 +365,119 @@ describe("publishAppToHq — failures that are not refusals", () => {
 		expect(outcome.deployment.deployment.state).toBe("incomplete");
 		expect(outcome.deployment.deployment.resumePhase).toBe("upload");
 		expect(recordRemoteResource).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * `refreshDeployment` — Check status.
+ *
+ * The rule these hold is one sentence: a check that could not be MADE is
+ * the caller's problem, never the deployment's. Persisting it would knock
+ * a live app to `incomplete` for every member of the Project because one
+ * editor's key expired, and the app would still be released and in use the
+ * whole time.
+ */
+describe("refreshDeployment", () => {
+	function published() {
+		return {
+			deployment: record({ state: "released" }),
+			active: [
+				{
+					deploymentId: "dep-1",
+					kind: "app" as const,
+					novaResourceId: SCOPE.appId,
+					remoteId: "hq-1",
+					ownership: "nova-created" as const,
+					adoptedAt: null,
+					adoptedBy: null,
+					pushedRevision: 3,
+					pushedAt: "2026-08-06T00:00:00.000Z",
+					remoteRevision: null,
+					remoteObservedAt: null,
+					supersededAt: null,
+				},
+			],
+			superseded: [],
+		};
+	}
+
+	beforeEach(() => {
+		vi.mocked(readDeployment).mockResolvedValue(published() as never);
+	});
+
+	it("answers null when the app has never been published to that space", async () => {
+		vi.mocked(readDeployment).mockResolvedValueOnce(null);
+		await expect(
+			refreshDeployment(
+				SCOPE,
+				{ server: "production", domain: "acme" },
+				validDoc() as never,
+			),
+		).resolves.toBeNull();
+	});
+
+	it("raises a missing CommCare HQ connection instead of recording a refusal", async () => {
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
+			ok: false,
+			error: "not_configured",
+		} as never);
+
+		await expect(
+			refreshDeployment(
+				SCOPE,
+				{ server: "production", domain: "acme" },
+				validDoc() as never,
+			),
+		).rejects.toMatchObject({ code: "hq_not_connected" });
+		expect(saveDeploymentProgress).not.toHaveBeenCalled();
+	});
+
+	it("raises a key that cannot reach the project space, and still writes nothing", async () => {
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
+			ok: false,
+			error: "domain_not_authorized",
+		} as never);
+
+		await expect(
+			refreshDeployment(
+				SCOPE,
+				{ server: "production", domain: "acme" },
+				validDoc() as never,
+			),
+		).rejects.toMatchObject({ code: "domain_not_authorized" });
+		expect(saveDeploymentProgress).not.toHaveBeenCalled();
+	});
+
+	it("says so plainly when the app is not on the project space at all", async () => {
+		vi.mocked(readDeployment).mockResolvedValueOnce(view() as never);
+
+		await expect(
+			refreshDeployment(
+				SCOPE,
+				{ server: "production", domain: "acme" },
+				validDoc() as never,
+			),
+		).rejects.toThrow(/hasn't reached/);
+		expect(getCredentialsForUpload).not.toHaveBeenCalled();
+	});
+
+	it("refuses to check a publish that stopped before the app got there", async () => {
+		/* This deployment holds an EARLIER publish's mapping. Observing it
+		 * would fold three succeeded outcomes over the refusal and turn the
+		 * record green from a button next to the refusal. */
+		const stalled = published();
+		vi.mocked(readDeployment).mockResolvedValueOnce({
+			...stalled,
+			deployment: record({ state: "incomplete", resumePhase: "upload" }),
+		} as never);
+
+		await expect(
+			refreshDeployment(
+				SCOPE,
+				{ server: "production", domain: "acme" },
+				validDoc() as never,
+			),
+		).rejects.toThrow(/stopped before the app reached CommCare HQ/);
+		expect(saveDeploymentProgress).not.toHaveBeenCalled();
 	});
 });

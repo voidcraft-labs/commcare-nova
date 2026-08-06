@@ -254,6 +254,42 @@ describe("what a person sees on a refused deployment", () => {
 			}).state,
 		).toBe("incomplete");
 	});
+
+	it("protects a deployment that is already REFUSED at a later phase", () => {
+		/* The case the strict predicate gets wrong, and the one that hurts
+		 * most: the app is uploaded, built and released on CommCare HQ and
+		 * only the probe failed. An expired key must not walk that back to
+		 * `preflight` — doing so loses the phase a retry resumes from and
+		 * makes the record unobservable, so the only way forward would be a
+		 * second publish and a duplicate app on the project space. */
+		const probeRefused = record({
+			state: "incomplete",
+			resumePhase: "probe",
+		});
+		const after = applyPreflightOutcome(probeRefused, {
+			status: "failed",
+			at: AT,
+			failure: { code: "hq_not_connected", message: "no key", details: [] },
+		});
+		expect(after.state).toBe("incomplete");
+		expect(after.resumePhase).toBe("probe");
+		expect(after.phases.preflight?.status).toBe("failed");
+	});
+
+	it("still rewrites a deployment refused BEFORE its app got there", () => {
+		// Nothing reached the project space, so there is nothing to protect.
+		const uploadRefused = record({
+			state: "incomplete",
+			resumePhase: "upload",
+		});
+		const after = applyPreflightOutcome(uploadRefused, {
+			status: "failed",
+			at: AT,
+			failure: { code: "app_not_ready", message: "fix it", details: [] },
+		});
+		expect(after.state).toBe("incomplete");
+		expect(after.resumePhase).toBe("preflight");
+	});
 });
 
 describe("republishing", () => {

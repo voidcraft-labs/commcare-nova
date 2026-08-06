@@ -59,7 +59,10 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
-import type { DeploymentView } from "@/lib/deployment/actions";
+import {
+	type DeploymentView,
+	readDeploymentsAction,
+} from "@/lib/deployment/actions";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
@@ -143,6 +146,13 @@ type PublishStatus =
 type FeatureFlagState =
 	| { type: "loading" }
 	| { type: "ready"; report: HqFeatureFlagReport }
+	| { type: "error"; message: string };
+
+/** The deployments this app already has, loaded when the dialog opens. */
+type ExistingDeployments =
+	| { type: "idle" }
+	| { type: "loading" }
+	| { type: "ready"; views: readonly DeploymentView[] }
 	| { type: "error"; message: string };
 
 export function PublishDialog({
@@ -247,6 +257,43 @@ export function PublishDialog({
 			return availableDomains.length === 1 ? availableDomains[0].name : "";
 		});
 	}, [open, availableDomains]);
+
+	/* Where the app already stands, loaded whenever this opens. The record
+	 * outlives the publish that created it: somebody who published, made
+	 * the build on CommCare HQ, and came back tomorrow needs Check status,
+	 * and without this the only way to reach it would be publishing again —
+	 * which puts a SECOND app on their project space. */
+	const [existing, setExisting] = useState<ExistingDeployments>({
+		type: "idle",
+	});
+	useEffect(() => {
+		if (!open || !canUploadToHq) return;
+		let live = true;
+		setExisting({ type: "loading" });
+		void readDeploymentsAction(getAppId()).then((result) => {
+			if (!live) return;
+			setExisting(
+				result.success
+					? { type: "ready", views: result.data }
+					: { type: "error", message: result.message },
+			);
+		});
+		return () => {
+			live = false;
+		};
+	}, [open, canUploadToHq, getAppId]);
+	const replaceExisting = useCallback((next: DeploymentView) => {
+		setExisting((current) => {
+			if (current.type !== "ready") return current;
+			const id = next.deployment.deployment.id;
+			return {
+				type: "ready",
+				views: current.views.map((view) =>
+					view.deployment.deployment.id === id ? next : view,
+				),
+			};
+		});
+	}, []);
 
 	const featureFlagDomain =
 		target === "hq"
@@ -583,16 +630,42 @@ export function PublishDialog({
 										onRefresh={onRefreshHqConnection}
 									/>
 								) : (
-									<UploadForm
-										availableDomains={availableDomains}
-										domainItems={domainItems}
-										isMultiSpace={isMultiSpace}
-										selectedDomain={selectedDomain}
-										onSelectedDomainChange={handleSelectedDomainChange}
-										appName={appName}
-										onAppNameChange={setAppName}
-										status={status}
-									/>
+									<>
+										{/* Before the form, because "you already published this
+										    to acme, and here is what is left to do there" is what
+										    somebody reopening this dialog came for. */}
+										{existing.type === "ready"
+											? existing.views.map((view) => (
+													<DeploymentStatus
+														key={view.deployment.deployment.id}
+														appId={getAppId()}
+														view={view}
+														canRefresh={canEdit}
+														onUpdated={replaceExisting}
+													/>
+												))
+											: null}
+										{existing.type === "error" ? (
+											<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+												{existing.message}
+											</p>
+										) : null}
+										{existing.type === "ready" && existing.views.length > 0 ? (
+											<h3 className="mt-6 font-display text-[15px] font-semibold text-nova-text">
+												Publish again
+											</h3>
+										) : null}
+										<UploadForm
+											availableDomains={availableDomains}
+											domainItems={domainItems}
+											isMultiSpace={isMultiSpace}
+											selectedDomain={selectedDomain}
+											onSelectedDomainChange={handleSelectedDomainChange}
+											appName={appName}
+											onAppNameChange={setAppName}
+											status={status}
+										/>
+									</>
 								)
 							) : downloadComplete && status.type === "download-success" ? (
 								<PublishSuccess

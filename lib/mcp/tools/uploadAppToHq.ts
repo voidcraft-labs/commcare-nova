@@ -70,8 +70,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq } from "@/lib/deployment/service";
-import { activeRemoteApp } from "@/lib/deployment/store";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,

@@ -152,13 +152,17 @@ describe("session values are honest", () => {
 		expect(identity?.session.user).not.toHaveProperty("commcare_project");
 	});
 
-	it("always carries the USERCASE project slug, because HQ always writes it", () => {
-		// `sync_usercase.py::_get_user_case_fields` ends with an
-		// unconditional `fields.update({... 'commcare_project': domain})`, so
-		// the key is never missing on a device. Empty until Nova knows the
-		// project space, exactly like `language` and `phone_number`.
+	it("carries the USERCASE project slug once Nova knows it, and omits it until then", () => {
+		/* `sync_usercase.py::_get_user_case_fields` ends with an
+		 * unconditional `fields.update({... 'commcare_project': domain})`, so
+		 * this IS a usercase property in a way it is not a session key. But
+		 * the domain is never empty on a device, so an empty string here is a
+		 * value no worker can hold: `#user/commcare_project = ''` would fire
+		 * in Preview and never in the field. Absent is the honest shape —
+		 * unlike `language`, which HQ genuinely writes as `''`. */
 		const without = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
-		expect(without?.usercase.commcare_project).toBe("");
+		expect(without?.usercase).not.toHaveProperty("commcare_project");
+		expect(without?.usercase.language).toBe("");
 
 		const withTarget = previewAsPersona(
 			FULL_USER,
@@ -168,6 +172,18 @@ describe("session values are honest", () => {
 		);
 		expect(withTarget?.usercase.commcare_project).toBe("rhi-bihar");
 		expect(withTarget?.session.user.commcare_project).toBe("rhi-bihar");
+	});
+
+	it("names the worker under `case_name`, never `name`", () => {
+		/* `_get_user_case_fields` does put `name` in its dict, but both
+		 * writers pop it back out into the case's name
+		 * (`create_usercase`: `case_name=fields.pop('name', None)`), so it
+		 * never lands as a case property. The device reads the casedb's own
+		 * `case_name` node. Emitting `name` would make `#user/name` work in
+		 * Preview and read blank in the field. */
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.usercase.case_name).toBe("Asha Kumar");
+		expect(identity?.usercase).not.toHaveProperty("name");
 	});
 
 	it("keeps HQ's unconditional profile keys present even when their values are empty", () => {
@@ -183,10 +199,11 @@ describe("session values are honest", () => {
 		expect(identity?.usercase.last_name).toBe("");
 		expect(identity?.usercase.email).toBe("");
 		expect(identity?.usercase.phone_number).toBe("");
-		// The session copy stays genuinely absent rather than joining HQ's
-		// always-written slots; the usercase copy IS one of them.
+		// Neither copy invents a project space. `commcare_profile` is the
+		// contrast: HQ really does write that slot empty for every worker.
 		expect(identity?.session.user).not.toHaveProperty("commcare_project");
-		expect(identity?.usercase.commcare_project).toBe("");
+		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+		expect(identity?.usercase.commcare_profile).toBe("");
 	});
 
 	it("marks an ordinary worker standard, not demo — and never absent", () => {

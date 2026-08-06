@@ -29,10 +29,8 @@ import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import {
-	previewProjectSpaceFor,
-	publishAppToHq,
-} from "@/lib/deployment/service";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { publishAppToHq } from "@/lib/deployment/service";
 import { isDeploymentServer } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";

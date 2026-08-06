@@ -282,39 +282,49 @@ export async function ensureDeployment(
 ): Promise<DeploymentWithResources> {
 	return withAppTx(async (tx) => {
 		await lockAppForDeploymentWrite(tx, scope, "edit");
-		await tx
-			.insertInto("app_deployments")
-			.values({
-				app_id: scope.appId,
-				project_id: scope.projectId,
-				server: target.server,
-				domain: target.domain,
-				state: "preflight",
-				resume_phase: null,
-				phases: JSON.stringify(NO_DEPLOYMENT_PHASE_OUTCOMES),
-				created_by: scope.actorUserId,
-			})
-			.onConflict((conflict) =>
-				conflict
-					.columns(["app_id", "project_id", "server", "domain"])
-					.doNothing(),
-			)
-			.execute();
-		const row = await tx
-			.selectFrom("app_deployments")
-			.select("id")
-			.where("app_id", "=", scope.appId)
-			.where("project_id", "=", scope.projectId)
-			.where("server", "=", target.server)
-			.where("domain", "=", target.domain)
-			.executeTakeFirst();
-		if (row === undefined) {
-			throw new Error(
-				"The deployment disappeared immediately after its locked upsert.",
-			);
-		}
-		return loadWithinTransaction(tx, row.id);
+		const id = await ensureDeploymentInTransaction(tx, scope, target);
+		return loadWithinTransaction(tx, id);
 	});
+}
+
+/** The upsert itself, so a caller already holding the lock can compose it. */
+async function ensureDeploymentInTransaction(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<string> {
+	await tx
+		.insertInto("app_deployments")
+		.values({
+			app_id: scope.appId,
+			project_id: scope.projectId,
+			server: target.server,
+			domain: target.domain,
+			state: "preflight",
+			resume_phase: null,
+			phases: JSON.stringify(NO_DEPLOYMENT_PHASE_OUTCOMES),
+			created_by: scope.actorUserId,
+		})
+		.onConflict((conflict) =>
+			conflict
+				.columns(["app_id", "project_id", "server", "domain"])
+				.doNothing(),
+		)
+		.execute();
+	const row = await tx
+		.selectFrom("app_deployments")
+		.select("id")
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.executeTakeFirst();
+	if (row === undefined) {
+		throw new Error(
+			"The deployment disappeared immediately after its locked upsert.",
+		);
+	}
+	return row.id;
 }
 
 /**
@@ -402,75 +412,117 @@ export async function recordRemoteResource(
 			.forUpdate()
 			.executeTakeFirst();
 		if (deployment === undefined) throw deploymentNotFound();
-
-		if (input.requireUnclaimed === true) {
-			await assertRemoteAppUnclaimedInTransaction(
-				tx,
-				scope,
-				deploymentId,
-				input.remoteId,
-			);
-		}
-
-		const now = new Date();
-		await tx
-			.updateTable("app_deployment_resources")
-			.set({ superseded_at: now })
-			.where("deployment_id", "=", deploymentId)
-			.where("kind", "=", input.kind)
-			.where("nova_resource_id", "=", input.novaResourceId)
-			.where("superseded_at", "is", null)
-			// Re-pointing at the same remote id is not a supersession: it is
-			// the same resource, so the row is updated below instead of being
-			// filed as something left behind.
-			.where("remote_id", "!=", input.remoteId)
-			.execute();
-
-		await tx
-			.insertInto("app_deployment_resources")
-			.values({
-				deployment_id: deploymentId,
-				kind: input.kind,
-				nova_resource_id: input.novaResourceId,
-				remote_id: input.remoteId,
-				ownership: input.ownership,
-				adopted_at: input.ownership === "adopted" ? now : null,
-				adopted_by: input.ownership === "adopted" ? scope.actorUserId : null,
-				pushed_revision: input.pushedRevision,
-				pushed_at: input.pushedRevision === null ? null : now,
-			})
-			.onConflict((conflict) =>
-				conflict
-					.columns(["deployment_id", "kind", "nova_resource_id"])
-					.where("superseded_at", "is", null)
-					/* Ownership travels with the write. Adopting an id this
-					 * deployment already created must record WHO adopted it and
-					 * WHEN, or the row keeps claiming Nova made it. */
-					.doUpdateSet({
-						remote_id: input.remoteId,
-						ownership: input.ownership,
-						adopted_at: input.ownership === "adopted" ? now : null,
-						adopted_by:
-							input.ownership === "adopted" ? scope.actorUserId : null,
-						pushed_revision: input.pushedRevision,
-						pushed_at: input.pushedRevision === null ? null : now,
-					}),
-			)
-			.execute();
-
-		await tx
-			.updateTable("app_deployments")
-			.set({
-				state: input.progress.state,
-				resume_phase: input.progress.resumePhase,
-				phases: JSON.stringify(clearObservationOutcomes(input.progress.phases)),
-				updated_at: now,
-			})
-			.where("id", "=", deploymentId)
-			.execute();
-
-		return loadWithinTransaction(tx, deploymentId);
+		return writeRemoteResourceInTransaction(tx, scope, deploymentId, input);
 	});
+}
+
+/**
+ * Create the deployment and claim the remote resource in ONE transaction.
+ *
+ * Adoption is the one caller that needs both, and doing them as two
+ * transactions leaves wreckage: the deployment commits, the claim then
+ * finds the CommCare HQ app already owned by another Nova app, and a
+ * `preflight` record survives naming a project space this app was never
+ * published to — visible in `get_deployment` and the builder ever after.
+ * Sharing the transaction makes the refusal leave nothing behind.
+ */
+export async function adoptRemoteResource(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: Omit<RecordRemoteResourceInput, "progress"> & {
+		/** Given the deployment as it exists now, the progress to persist. */
+		readonly progress: (
+			deployment: DeploymentRecord,
+		) => Pick<DeploymentRecord, "state" | "resumePhase" | "phases">;
+	},
+): Promise<DeploymentWithResources> {
+	return withAppTx(async (tx) => {
+		await lockAppForDeploymentWrite(tx, scope, "edit");
+		const deploymentId = await ensureDeploymentInTransaction(tx, scope, target);
+		const existing = await loadWithinTransaction(tx, deploymentId);
+		return writeRemoteResourceInTransaction(tx, scope, deploymentId, {
+			...input,
+			progress: input.progress(existing.deployment),
+		});
+	});
+}
+
+/**
+ * The mapping write itself. The caller holds the app lock and has already
+ * proven the deployment belongs to the scope.
+ */
+async function writeRemoteResourceInTransaction(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	deploymentId: string,
+	input: RecordRemoteResourceInput,
+): Promise<DeploymentWithResources> {
+	if (input.requireUnclaimed === true) {
+		await assertRemoteAppUnclaimedInTransaction(
+			tx,
+			scope,
+			deploymentId,
+			input.remoteId,
+		);
+	}
+
+	const now = new Date();
+	await tx
+		.updateTable("app_deployment_resources")
+		.set({ superseded_at: now })
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "=", input.kind)
+		.where("nova_resource_id", "=", input.novaResourceId)
+		.where("superseded_at", "is", null)
+		// Re-pointing at the same remote id is not a supersession: it is
+		// the same resource, so the row is updated below instead of being
+		// filed as something left behind.
+		.where("remote_id", "!=", input.remoteId)
+		.execute();
+
+	await tx
+		.insertInto("app_deployment_resources")
+		.values({
+			deployment_id: deploymentId,
+			kind: input.kind,
+			nova_resource_id: input.novaResourceId,
+			remote_id: input.remoteId,
+			ownership: input.ownership,
+			adopted_at: input.ownership === "adopted" ? now : null,
+			adopted_by: input.ownership === "adopted" ? scope.actorUserId : null,
+			pushed_revision: input.pushedRevision,
+			pushed_at: input.pushedRevision === null ? null : now,
+		})
+		.onConflict((conflict) =>
+			conflict
+				.columns(["deployment_id", "kind", "nova_resource_id"])
+				.where("superseded_at", "is", null)
+				/* Ownership travels with the write. Adopting an id this
+				 * deployment already created must record WHO adopted it and
+				 * WHEN, or the row keeps claiming Nova made it. */
+				.doUpdateSet({
+					remote_id: input.remoteId,
+					ownership: input.ownership,
+					adopted_at: input.ownership === "adopted" ? now : null,
+					adopted_by: input.ownership === "adopted" ? scope.actorUserId : null,
+					pushed_revision: input.pushedRevision,
+					pushed_at: input.pushedRevision === null ? null : now,
+				}),
+		)
+		.execute();
+
+	await tx
+		.updateTable("app_deployments")
+		.set({
+			state: input.progress.state,
+			resume_phase: input.progress.resumePhase,
+			phases: JSON.stringify(clearObservationOutcomes(input.progress.phases)),
+			updated_at: now,
+		})
+		.where("id", "=", deploymentId)
+		.execute();
+
+	return loadWithinTransaction(tx, deploymentId);
 }
 
 /**
@@ -515,32 +567,6 @@ export async function recordRemoteRevision(
 			.where("superseded_at", "is", null)
 			.execute();
 	});
-}
-
-/** The mapping currently in force for one Nova resource, if there is one. */
-export function activeResource(
-	deployment: DeploymentWithResources,
-	kind: DeploymentResourceKind,
-	novaResourceId: string,
-): DeploymentResource | null {
-	return (
-		deployment.active.find(
-			(resource) =>
-				resource.kind === kind && resource.novaResourceId === novaResourceId,
-		) ?? null
-	);
-}
-
-/**
- * The CommCare HQ app this deployment currently points at.
- *
- * The app's own Nova id is the resource id for the `app` kind, so this is
- * a lookup rather than a special case in the table.
- */
-export function activeRemoteApp(
-	deployment: DeploymentWithResources,
-): DeploymentResource | null {
-	return activeResource(deployment, "app", deployment.deployment.appId);
 }
 
 /**

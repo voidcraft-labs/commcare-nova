@@ -47,7 +47,7 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
-import { previewProjectSpaceFor } from "@/lib/deployment/service";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
 

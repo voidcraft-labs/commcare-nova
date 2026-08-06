@@ -19,10 +19,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import {
-	previewProjectSpaceFor,
-	publishAppToHq,
-} from "@/lib/deployment/service";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { publishAppToHq } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { POST } from "../route";
 
@@ -32,10 +30,10 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: class AppAccessError extends Error {},
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
-vi.mock("@/lib/deployment/service", () => ({
-	publishAppToHq: vi.fn(),
-	/* The route asks the server what Preview may name; only the server
-	 * can see whether the app is now live on more than one space. */
+vi.mock("@/lib/deployment/service", () => ({ publishAppToHq: vi.fn() }));
+/* The route asks the server what Preview may name; only the server can
+ * see whether the app is now live on more than one space. */
+vi.mock("@/lib/deployment/previewSpace", () => ({
 	previewProjectSpaceFor: vi.fn(async () => "acme"),
 }));
 vi.mock("@/lib/doc/fieldParent", () => ({

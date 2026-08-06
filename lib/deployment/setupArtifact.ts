@@ -124,11 +124,25 @@ function levelCaseFlowSteps(
 	// "Has Users" and "View Child Data to Level" sit behind a domain
 	// toggle, so the instruction has to say what to do when they are not
 	// on the page rather than sending somebody hunting.
+	//
+	// A new level arrives with "Has Users" TICKED: `locations/models.py`
+	// declares `has_users = BooleanField(default=True)` and
+	// `locations/js/location_types.js` seeds a new row's
+	// `has_users_setting` to true ("new loc types default to true"), then
+	// posts `has_users` on every save whether or not the column is on the
+	// page. So the work is in unticking it, and a hidden column means the
+	// level is saved allowing workers — which is why the no-workers arm
+	// cannot say "nothing to do".
 	steps.push(
 		flow.workers === "assigned"
-			? "Tick “Has Users”. If you cannot see that column, this project does not have the restore-file location toggle and workers can be assigned here anyway."
-			: "Leave “Has Users” unticked. If you cannot see that column, nothing to do.",
+			? "Leave “Has Users” ticked — it arrives ticked. If you cannot see that column, nothing to do: CommCare HQ allows workers here anyway."
+			: "Untick “Has Users” — it arrives ticked. If you cannot see that column, this project space does not have the restore-file location toggle, and CommCare HQ will allow workers to be assigned here even though your app does not put any here.",
 	);
+	if (flow.workers === "none") {
+		steps.push(
+			"CommCare HQ locks “Has Users” on once workers are already assigned to a place at this level. If it will not untick, move those workers first.",
+		);
+	}
 	if (flow.workers === "assigned") {
 		switch (flow.descendantCases.kind) {
 			case "none":
@@ -260,7 +274,7 @@ function organizationSection(
 			...steps,
 		],
 		caveats: [
-			"Organization level codes are permanent on CommCare HQ. The names can change later; the codes cannot, because they become part of how every place is addressed.",
+			"Two levels cannot share a Type Code. CommCare HQ checks that as you type and refuses to save a duplicate.",
 			"This page is the only way to define levels. CommCare HQ's location API can read them but not write them, so Nova cannot create them for you.",
 			"Saving this page replaces the whole list. A level you leave out is removed, so add to what is there rather than starting over.",
 			"Locations need the paid Locations feature on the project. Ask support@dimagi.com if the page is not available.",

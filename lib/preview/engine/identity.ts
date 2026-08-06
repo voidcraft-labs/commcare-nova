@@ -160,18 +160,27 @@ function frameworkSessionKeys(
  * block's `commcare_`-prefixed keys, which is the whole reason the two
  * projections exist separately.
  *
- * `commcare_project` IS here, unlike in the session block, because
- * `_get_user_case_fields` ends with an unconditional
- * `fields.update({... 'commcare_project': domain})` beside `name`,
- * `username`, `language`, and the rest. HQ always writes it, so Preview
- * always carries the key: the deployment's project space when one is
- * known, and empty when it is not, exactly as it treats every other
- * always-written key it cannot know. The session block is the one that
- * omits it, because `get_user_session_data` injects it only there and
- * Nova will not invent a slug to make a condition pass.
- * `language` and `last_device_id_used` are HQ account
- * settings Nova does not model, and HQ writes them as empty strings, so
- * they are emitted empty rather than invented.
+ * The worker's name is `case_name`, NOT `name`. `_get_user_case_fields`
+ * does put `name` in its dict, but both writers pop it straight back out
+ * into the case's name — `_UserCaseHelper.create_usercase` does
+ * `case_name=fields.pop('name', None)` and `::update_user_case` does
+ * `kwargs['case_name'] = fields.pop('name')` — so it never reaches the
+ * case's `<update>` as a property. What the device exposes is the casedb's
+ * own `case_name` node (`commcare-core .../CaseChildElement.java`), which
+ * is why HQ's `app_schemas/case_properties.py::get_usercase_properties`
+ * lists no `name` either. Emitting `name` here would make `#user/name`
+ * read the worker's name in Preview and blank on a device.
+ *
+ * `commcare_project` is written unconditionally by the same function —
+ * `_get_user_case_fields` ends with
+ * `fields.update({... 'commcare_project': domain})` — so it is a usercase
+ * property in a way it is not a session key. It still appears only when
+ * Nova knows the project space, because the domain is never empty on a
+ * device: emitting `""` would make `#user/commcare_project = ''` fire in
+ * Preview and never in the field, which is the opposite of what an absent
+ * key does. That is the split from `language` and `last_device_id_used`,
+ * which HQ genuinely writes empty (`user.language or ''`) and Preview
+ * therefore carries empty.
  *
  * The three location keys behave DIFFERENTLY here than in the session
  * block, and the difference is easy to get wrong: `_get_user_case_fields`
@@ -193,7 +202,7 @@ function usercaseBuiltIns(
 ): Record<string, string> {
 	const { first, last } = splitName(worker.personName);
 	return {
-		name: worker.personName,
+		case_name: worker.personName,
 		username: worker.username,
 		email: worker.email,
 		first_name: first,
@@ -202,11 +211,11 @@ function usercaseBuiltIns(
 		language: "",
 		phone_number: "",
 		last_device_id_used: "",
-		commcare_project: projectSpace ?? "",
 		commcare_profile: "",
 		commcare_location_id: "",
 		commcare_location_ids: "",
 		commcare_primary_case_sharing_id: "",
+		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
 	};
 }
 

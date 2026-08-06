@@ -268,6 +268,43 @@ describe("organization levels", () => {
 			.join(" ");
 		expect(detail).toMatch(/cannot see that column/i);
 	});
+
+	it("tells the reader to UNTICK Has Users, because it arrives ticked", () => {
+		/* `locations/models.py`: `has_users = BooleanField(default=True)`,
+		 * and `location_types.js` seeds a new row's `has_users_setting` to
+		 * true ("new loc types default to true") and posts it on every save.
+		 * "Tick Has Users" for a level that holds workers would be busywork;
+		 * "leave it unticked" for one that does not is simply wrong. */
+		const detail = JSON.stringify(section().steps);
+		expect(detail).toContain("Untick “Has Users” — it arrives ticked");
+		expect(detail).not.toMatch(/leave “has users” unticked/i);
+		expect(detail).not.toMatch(/tick “has users”\./i);
+	});
+
+	it("does not promise a hidden Has Users column means nothing to do", () => {
+		/* The column being absent does not make the setting absent: the JS
+		 * posts `has_users` whether or not it is rendered, so the level is
+		 * saved allowing workers. For a level that HOLDS workers that is
+		 * harmless and "nothing to do" is true; for one that does not, it is
+		 * exactly the wrong thing to say, and that is the arm asserted here
+		 * (“State”, whose `caseFlow.workers` is `none`). */
+		const noWorkers = section().steps.find((step) =>
+			step.text.includes("“State”"),
+		);
+		const detail = (noWorkers?.detail ?? []).join(" ");
+		expect(detail).not.toMatch(/nothing to do/i);
+		expect(detail).toContain("will allow workers to be assigned here");
+	});
+
+	it("does not claim a level's Type Code is permanent, because it is not", () => {
+		/* `location_types.html` renders Type Code as a plain editable input
+		 * with no `disable` binding, and `views.py::_mk_loctype` writes
+		 * `loc_type.code = unicode_slug(code)` on every save. Only
+		 * uniqueness is enforced. */
+		const caveats = section().caveats.join(" ");
+		expect(caveats).not.toMatch(/permanent|cannot change|codes cannot/i);
+		expect(caveats).toContain("Two levels cannot share a Type Code");
+	});
 });
 
 describe("worker information", () => {

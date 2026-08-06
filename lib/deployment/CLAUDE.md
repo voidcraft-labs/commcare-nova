@@ -74,11 +74,29 @@ caller instead of persisting it. Otherwise one bad minute would walk a
 is refused while it is still released and in use. A 404 from
 `current_app_version` IS an answer (the app is gone) and is recorded.
 
+**Nor does a check the CALLER could not make.** A missing CommCare HQ
+connection, or a key that no longer reaches the project space, belongs to
+the person who clicked — `refreshDeployment` raises it and writes nothing.
+Persisting it would knock a live app to `incomplete` for every member of
+the Project because one editor never connected their account. Refresh also
+SAYS SO when there is nothing to check (no app there yet, or a publish that
+stopped before it got there) rather than returning the record unchanged: a
+silent no-op is indistinguishable from a check that found nothing new, and
+somebody would press Check status forever waiting for a rung Nova was never
+going to ask about.
+
 **A refused ATTEMPT never rewrites what the target holds.** The state
 describes the project space, not the publish. An expired API key blocking
 preflight against an already-released deployment records the failure and
 leaves the state alone (`applyPreflightOutcome`), because the app really is
-still released there. For the same reason `deploymentIsObservable` stops
+still released there. That guard reads `deploymentDisplaysAsReached`, NOT
+the strict predicate — the strict one answers `false` at every rung while a
+deployment is `incomplete`, so it would hand the worst case the worst
+answer: an app uploaded, built and released on CommCare HQ whose probe
+failed would be walked back to `preflight` by an expired key, losing its
+resume phase and becoming unobservable, leaving a second publish (and a
+duplicate app) as the only way forward. For the same reason
+`deploymentIsObservable` stops
 `refreshDeployment` observing a deployment refused at `preflight` or
 `upload`: it may still hold an earlier publish's mapping, so observing
 would fold three green outcomes over the refusal and destroy the phase a
@@ -170,6 +188,16 @@ Architect** — the same standing decision that keeps
 `get_app_hq_feature_flags` off that surface. A deployment is durable state
 about somebody else's server, not authored vocabulary an agent designing
 an app should reason about.
+
+**The dialog opens on the record, not only after a publish creates one.**
+`readDeploymentsAction` loads every project space this app has reached when
+the dialog opens, above the publish form. Without it the only route to
+Check status would be publishing again — which puts a SECOND app on the
+project space, because CommCare HQ has no atomic app update — so the one
+button that advances a deployment would cost a duplicate every time. The
+read authorizes as a `view` and refresh as an `edit`, which is also why
+`DeploymentStatus` takes `canRefresh`: offering a viewer a button that
+would be refused is worse than not offering it.
 
 The App setup workspace's Publishing section stays not-built-yet; it
 belongs to the app-setup-UI unit.

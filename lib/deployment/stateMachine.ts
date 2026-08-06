@@ -200,12 +200,22 @@ export function deploymentIsObservable(
  * while the deployment has not yet put anything on the project space. The
  * caller still gets the blocking check to show, which is what makes the
  * refusal actionable.
+ *
+ * "Has put something there" is the DISPLAY predicate, not the strict one.
+ * A deployment refused at the probe is `incomplete`, which the strict
+ * predicate answers `false` for at every rung — so reading it here would
+ * hand the worst case the worst answer: an app that is uploaded, built and
+ * released on CommCare HQ would be walked back to `preflight` by an expired
+ * key, losing the phase its retry resumes from and making the record
+ * unobservable, so the only way back would be a second publish and a
+ * duplicate app on the project space. What matters is whether the app is
+ * THERE, and after a probe failure it is.
  */
 export function applyPreflightOutcome(
 	record: DeploymentRecord,
 	outcome: DeploymentPhaseOutcome,
 ): DeploymentRecord {
-	if (deploymentHasReached(record, "uploaded")) {
+	if (deploymentDisplaysAsReached(record, "uploaded")) {
 		return {
 			...record,
 			phases: { ...record.phases, preflight: outcome },

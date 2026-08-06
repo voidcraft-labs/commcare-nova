@@ -18,8 +18,8 @@
  *     author accumulate abandoned apps without ever being told.
  */
 
+import { activeRemoteApp } from "@/lib/deployment/resources";
 import { deploymentResumeState } from "@/lib/deployment/stateMachine";
-import { activeRemoteApp } from "@/lib/deployment/store";
 import type {
 	DeploymentPhase,
 	DeploymentWithResources,

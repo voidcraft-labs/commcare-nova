@@ -101,6 +101,12 @@ those rungs are watched rather than performed, and Check status is what advances
 them. CommCare HQ apps an earlier publish left behind are named on the same
 screen.
 
+The dialog **opens** on those records, above the publish form, not only after a
+publish creates one — the record outlives the request, and without this the only
+way to reach Check status would be publishing again, which puts a second app on
+the project space. A viewer sees the ladder without the button
+(`canRefresh`), because checking writes what it observed.
+
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
 selector's supporting line explains the current option; only its fields and

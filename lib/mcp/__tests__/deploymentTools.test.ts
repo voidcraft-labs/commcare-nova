@@ -1,0 +1,332 @@
+/**
+ * `get_deployment`, `refresh_deployment`, and `adopt_hq_app` unit tests.
+ *
+ * What these lock is the PUBLIC contract three different clients branch on
+ * — the wire shape, the scope each tool demands, and the error tag every
+ * refusal carries. `content/docs/mcp/tools.mdx` documents all three, so a
+ * silent change to any of them breaks somebody's integration without
+ * breaking a build.
+ *
+ * The scope split is the load-bearing one. Reading is `nova.hq.read`;
+ * refreshing takes `nova.hq.write` AND `edit` on the app, because it
+ * persists what it observed and a read-scoped token must not be able to
+ * knock a `runnable` deployment to `incomplete` for every member of a
+ * Project. Adoption takes both because it decides what a later publish may
+ * replace.
+ *
+ * The service boundary is mocked: these prove the tool layer, not the
+ * lifecycle, which `publishLifecycle.test.ts` and the store's integration
+ * suite own.
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DeploymentError } from "@/lib/deployment/errors";
+import {
+	adoptRemoteApp,
+	refreshDeployment,
+	setupArtifactFor,
+} from "@/lib/deployment/service";
+import { readDeploymentsForApp } from "@/lib/deployment/store";
+import type {
+	DeploymentRecord,
+	DeploymentWithResources,
+} from "@/lib/deployment/types";
+import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
+import { loadAppBlueprint } from "../loadApp";
+import { SCOPES } from "../scopes";
+import {
+	registerAdoptHqApp,
+	registerGetDeployment,
+	registerRefreshDeployment,
+} from "../tools/deploymentTools";
+import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
+
+vi.mock("@/lib/deployment/service", () => ({
+	adoptRemoteApp: vi.fn(),
+	refreshDeployment: vi.fn(),
+	setupArtifactFor: vi.fn(async () => ({ domain: "acme", sections: [] })),
+}));
+vi.mock("@/lib/deployment/store", () => ({
+	readDeploymentsForApp: vi.fn(),
+}));
+vi.mock("../loadApp", () => ({ loadAppBlueprint: vi.fn() }));
+
+const ACCESS = { projectId: "p1", role: "owner" };
+
+function record(over: Partial<DeploymentRecord> = {}): DeploymentRecord {
+	return {
+		id: "d1",
+		appId: "a1",
+		projectId: "p1",
+		server: "production",
+		domain: "acme",
+		state: "uploaded",
+		resumePhase: null,
+		phases: NO_DEPLOYMENT_PHASE_OUTCOMES,
+		createdBy: "u1",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+		lastObservedAt: null,
+		...over,
+	};
+}
+
+function withResources(
+	over: Partial<DeploymentRecord> = {},
+): DeploymentWithResources {
+	return { deployment: record(over), active: [], superseded: [] };
+}
+
+function ctx(scopes: string[]): ToolContext {
+	return { userId: "u1", scopes, authKind: "oauth" };
+}
+
+function parse(out: unknown): Record<string, unknown> {
+	const envelope = out as { content: Array<{ type: "text"; text: string }> };
+	return JSON.parse(envelope.content[0]?.text ?? "{}") as Record<
+		string,
+		unknown
+	>;
+}
+
+function isError(out: unknown): boolean {
+	return (out as { isError?: boolean }).isError === true;
+}
+
+beforeEach(() => {
+	vi.mocked(loadAppBlueprint).mockReset();
+	vi.mocked(readDeploymentsForApp).mockReset();
+	vi.mocked(refreshDeployment).mockReset();
+	vi.mocked(adoptRemoteApp).mockReset();
+	vi.mocked(setupArtifactFor).mockClear();
+	vi.mocked(loadAppBlueprint).mockResolvedValue({
+		doc: {},
+		access: ACCESS,
+	} as never);
+});
+
+describe("get_deployment", () => {
+	it("reports every project space with its state, retry point, and setup artifact", async () => {
+		vi.mocked(readDeploymentsForApp).mockResolvedValueOnce([
+			withResources({ state: "runnable" }),
+			withResources({
+				id: "d2",
+				domain: "beta",
+				state: "incomplete",
+				resumePhase: "release",
+			}),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerGetDeployment(server, ctx([SCOPES.hqRead]));
+		const parsed = parse(await capture()({ app_id: "a1" }));
+
+		expect(parsed.app_id).toBe("a1");
+		const deployments = parsed.deployments as Array<Record<string, unknown>>;
+		expect(deployments).toHaveLength(2);
+		expect(deployments[0]).toMatchObject({
+			domain: "acme",
+			state: "runnable",
+		});
+		expect(deployments[0]?.retry_from).toBeNull();
+		expect(deployments[1]).toMatchObject({
+			domain: "beta",
+			state: "incomplete",
+			retry_from: "release",
+		});
+		expect(deployments[0]).toHaveProperty("setup_artifact");
+	});
+
+	it("reads with the VIEW capability, so a viewer can see where the app stands", async () => {
+		vi.mocked(readDeploymentsForApp).mockResolvedValueOnce([]);
+
+		const { server, capture } = makeFakeServer();
+		registerGetDeployment(server, ctx([SCOPES.hqRead]));
+		await capture()({ app_id: "a1" });
+
+		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "view");
+	});
+
+	it("skips the artifact entirely when the app has never been published", async () => {
+		vi.mocked(readDeploymentsForApp).mockResolvedValueOnce([]);
+
+		const { server, capture } = makeFakeServer();
+		registerGetDeployment(server, ctx([SCOPES.hqRead]));
+		const parsed = parse(await capture()({ app_id: "a1" }));
+
+		expect(parsed.deployments).toEqual([]);
+		expect(setupArtifactFor).not.toHaveBeenCalled();
+	});
+
+	it("refuses without the HQ read scope", async () => {
+		const { server, capture } = makeFakeServer();
+		registerGetDeployment(server, ctx([SCOPES.read]));
+		const out = await capture()({ app_id: "a1" });
+
+		expect(isError(out)).toBe(true);
+		expect(readDeploymentsForApp).not.toHaveBeenCalled();
+	});
+});
+
+describe("refresh_deployment", () => {
+	it("needs the HQ WRITE scope, because it persists what it observed", async () => {
+		const { server, capture } = makeFakeServer();
+		registerRefreshDeployment(server, ctx([SCOPES.hqRead]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+		});
+
+		expect(isError(out)).toBe(true);
+		expect(refreshDeployment).not.toHaveBeenCalled();
+	});
+
+	it("authorizes the app as an edit and returns the updated record", async () => {
+		vi.mocked(refreshDeployment).mockResolvedValueOnce({
+			deployment: withResources({ state: "released" }),
+			artifact: { domain: "acme", sections: [] },
+		} as never);
+
+		const { server, capture } = makeFakeServer();
+		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
+		const parsed = parse(
+			await capture()({ app_id: "a1", server: "production", domain: " acme " }),
+		);
+
+		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "edit");
+		/* The domain is trimmed before it reaches the lifecycle: a stray
+		 * space would otherwise miss the record and read as "never
+		 * published there". */
+		expect(refreshDeployment).toHaveBeenCalledWith(
+			expect.objectContaining({ appId: "a1", projectId: "p1" }),
+			{ server: "production", domain: "acme" },
+			expect.anything(),
+		);
+		expect(parsed).toMatchObject({ app_id: "a1", state: "released" });
+	});
+
+	it("names the project space when the app was never published there", async () => {
+		vi.mocked(refreshDeployment).mockResolvedValueOnce(null);
+
+		const { server, capture } = makeFakeServer();
+		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+		});
+
+		expect(isError(out)).toBe(true);
+		const text = (out as { content: Array<{ text: string }> }).content[0]?.text;
+		expect(text).toContain("acme");
+		expect(text).toContain("get_deployment");
+	});
+
+	it("carries a could-not-check through as its own sentence, not a generic failure", async () => {
+		vi.mocked(refreshDeployment).mockRejectedValueOnce(
+			new DeploymentError(
+				"invalid",
+				"Nova couldn't reach CommCare HQ to check on this app.",
+			),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+		});
+
+		expect(isError(out)).toBe(true);
+		expect(
+			(out as { content: Array<{ text: string }> }).content[0]?.text,
+		).toContain("couldn't reach CommCare HQ");
+	});
+});
+
+describe("adopt_hq_app", () => {
+	it("needs the HQ write scope and edit access, and answers with the attached record", async () => {
+		vi.mocked(adoptRemoteApp).mockResolvedValueOnce(
+			withResources({ state: "uploaded" }),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
+		const parsed = parse(
+			await capture()({
+				app_id: "a1",
+				server: "production",
+				domain: "acme",
+				hq_app_id: "abc123",
+			}),
+		);
+
+		expect(loadAppBlueprint).toHaveBeenCalledWith("a1", "u1", "edit");
+		expect(adoptRemoteApp).toHaveBeenCalledWith(
+			expect.objectContaining({ appId: "a1" }),
+			{ server: "production", domain: "acme" },
+			"abc123",
+		);
+		expect(parsed).toMatchObject({ app_id: "a1", state: "uploaded" });
+	});
+
+	it("refuses a read-scoped caller", async () => {
+		const { server, capture } = makeFakeServer();
+		registerAdoptHqApp(server, ctx([SCOPES.hqRead]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+			hq_app_id: "abc123",
+		});
+
+		expect(isError(out)).toBe(true);
+		expect(adoptRemoteApp).not.toHaveBeenCalled();
+	});
+
+	it("surfaces an already-claimed CommCare HQ app as its own tag, not as not-found", async () => {
+		vi.mocked(adoptRemoteApp).mockRejectedValueOnce(
+			new DeploymentError(
+				"already_mapped",
+				"Another Nova app in this project is already connected to that CommCare HQ app.",
+			),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+			hq_app_id: "abc123",
+		});
+
+		expect(isError(out)).toBe(true);
+		const text = (out as { content: Array<{ text: string }> }).content[0]?.text;
+		expect(text).toContain("already_mapped");
+		expect(text).toContain("already connected");
+	});
+
+	it("collapses a deployment the caller cannot see into not-found", async () => {
+		vi.mocked(adoptRemoteApp).mockRejectedValueOnce(
+			new DeploymentError("not_found", "That deployment isn't available."),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerAdoptHqApp(server, ctx([SCOPES.hqWrite]));
+		const out = await capture()({
+			app_id: "a1",
+			server: "production",
+			domain: "acme",
+			hq_app_id: "abc123",
+		});
+
+		expect(isError(out)).toBe(true);
+		expect(
+			(out as { content: Array<{ text: string }> }).content[0]?.text,
+		).toContain("not_found");
+	});
+});

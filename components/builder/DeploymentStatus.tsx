@@ -77,10 +77,17 @@ const PHASE_FOR_STATE: Readonly<
 export function DeploymentStatus({
 	appId,
 	view,
+	canRefresh = true,
 	onUpdated,
 }: {
 	appId: string;
 	view: DeploymentView;
+	/**
+	 * Whether this viewer may ask CommCare HQ again. Checking WRITES what
+	 * it observes, so a viewer cannot — and offering them a button that
+	 * would be refused is worse than not offering it.
+	 */
+	canRefresh?: boolean;
 	/** Lets the surrounding dialog keep the record it is holding current. */
 	onUpdated: (next: DeploymentView) => void;
 }) {
@@ -122,21 +129,23 @@ export function DeploymentStatus({
 				>
 					{record.domain}
 				</h3>
-				<Button
-					variant="ghost"
-					onClick={handleRefresh}
-					disabled={pending}
-					aria-describedby={headingId}
-				>
-					<Icon
-						icon={pending ? tablerLoader2 : tablerRefresh}
-						width="16"
-						height="16"
-						className={pending ? "animate-spin" : undefined}
-						aria-hidden="true"
-					/>
-					{pending ? "Checking" : "Check status"}
-				</Button>
+				{canRefresh ? (
+					<Button
+						variant="ghost"
+						onClick={handleRefresh}
+						disabled={pending}
+						aria-describedby={headingId}
+					>
+						<Icon
+							icon={pending ? tablerLoader2 : tablerRefresh}
+							width="16"
+							height="16"
+							className={pending ? "animate-spin" : undefined}
+							aria-hidden="true"
+						/>
+						{pending ? "Checking" : "Check status"}
+					</Button>
+				) : null}
 			</div>
 
 			{/* The ladder. Each rung states its own condition, so nothing is
@@ -186,16 +195,19 @@ export function DeploymentStatus({
 			</ol>
 
 			{refused && failure?.status === "failed" ? (
+				/* Amber, the same tone the refusal hero above it uses. A phase
+				   that stopped is recoverable and says how; rose is reserved on
+				   this screen for a request that failed outright. */
 				<div
 					role="alert"
-					className="mt-3 rounded-lg border border-nova-rose/40 bg-nova-rose/10 p-3 text-[13px] leading-relaxed"
+					className="mt-3 rounded-lg border border-nova-amber/40 bg-nova-amber/10 p-3 text-[13px] leading-relaxed"
 				>
 					<p className="flex items-start gap-2 text-nova-text">
 						<Icon
 							icon={tablerAlertTriangle}
 							width="16"
 							height="16"
-							className="mt-0.5 shrink-0 text-nova-rose"
+							className="mt-0.5 shrink-0 text-nova-amber"
 							aria-hidden="true"
 						/>
 						<span>{failure.failure.message}</span>

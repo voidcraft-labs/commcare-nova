@@ -1108,7 +1108,9 @@ asymmetry is easy to state backwards: `get_user_session_data` writes all three
 or none, so the session block omits them while nobody is assigned anywhere,
 while `_get_user_case_fields` takes an explicit `else` branch to `''`, so the
 usercase always carries them. Preview values are otherwise honest:
-`commcare_project` is **absent** until a deployment target supplies a domain,
+`commcare_project` is **absent** in both projections until a deployment target
+supplies a domain, the worker's name rides as `case_name` rather than `name`
+(HQ pops `name` into the case's name and never writes it as a property),
 always-written HQ keys are present-and-empty rather than absent, `user_type`
 is `"standard"`, and a **declared** property with no value is
 present-and-empty while an undeclared key is genuinely absent — the split a
@@ -1556,10 +1558,15 @@ app behind.
 
 Preview's `commcare_project` is supplied from that record: present when exactly
 one deployment has reached `uploaded`, absent when none has and when several
-have, since choosing between two real answers is a guess. The usercase carries it
-either way, because `callcenter/sync_usercase.py::_get_user_case_fields` writes
-it unconditionally; only the session block omits it, since
-`users/models.py::CouchUser.get_user_session_data` is the sole injector there.
+have, since choosing between two real answers is a guess. It is a usercase
+property in a way it is not a session key —
+`callcenter/sync_usercase.py::_get_user_case_fields` writes it unconditionally,
+while `users/models.py::CouchUser.get_user_session_data` is the sole injector
+of the session copy — but NEITHER projection emits it empty, because the domain
+is never empty on a device and `= ''` would therefore fire in Preview and never
+in the field. Every identity resolver threads it, browser and server alike: the
+server-resolved identity binds `sessionUser` for the SQL compiler, so a
+client-only value would make one expression answer two ways.
 
 `publishAppToHq` is the one lifecycle the browser route and MCP's
 `upload_app_to_hq` both use; a refused publish answers 200 carrying the
