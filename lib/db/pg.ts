@@ -445,6 +445,85 @@ export interface AppLocationReferencesTable {
 }
 
 /**
+ * One app, published to one CommCare HQ project space.
+ *
+ * Keyed by `(app_id, project_id, server, domain)`: all four pick out a
+ * different publication, since the same app in another Project belongs to
+ * another tenant and CommCare HQ's US, India, and EU installations share
+ * no account database. `project_id` rides the same deferred composite
+ * tenant key `cases` uses, so a Project move carries deployments with the
+ * rest of the closure and no mismatched row can commit.
+ */
+export interface AppDeploymentsTable {
+	id: DefaultedUuidV7Column<string>;
+	app_id: string;
+	project_id: string;
+	server: string;
+	domain: string;
+	state: string;
+	resume_phase: string | null;
+	phases: JSONColumnType<Record<string, unknown>>;
+	created_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	last_observed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+/**
+ * What Nova calls a resource, and what CommCare HQ calls the same thing.
+ *
+ * The ownership ledger: Nova repoints or updates only what it created or
+ * was explicitly told to adopt, and never infers either from a name. A row
+ * whose `superseded_at` is set names a resource a later publish left
+ * behind on the target project space, kept precisely so the author can be
+ * told it is still there.
+ */
+export interface AppDeploymentResourcesTable {
+	id: DefaultedUuidV7Column<string>;
+	deployment_id: string;
+	kind: string;
+	nova_resource_id: string;
+	remote_id: string;
+	ownership: string;
+	adopted_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	adopted_by: string | null;
+	pushed_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	pushed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	remote_observed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	superseded_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	created_at: Timestamp;
+}
+
+/**
  * One file a worker attached to a form in the running preview.
  *
  * A submission-scoped lane, deliberately NOT `media_assets`: a captured
@@ -541,6 +620,8 @@ export interface AppDatabase {
 	app_organization_state: AppOrganizationStateTable;
 	app_locations: AppLocationsTable;
 	app_location_references: AppLocationReferencesTable;
+	app_deployments: AppDeploymentsTable;
+	app_deployment_resources: AppDeploymentResourcesTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

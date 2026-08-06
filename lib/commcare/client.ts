@@ -755,3 +755,194 @@ async function pollMediaBundleStatus(
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ── Reading what CommCare HQ has done with an app ──────────────────
+//
+// Nova imports an app and then watches. Building and releasing are not
+// things an API key can do: `views/releases.py::save_copy` and
+// `views/releases.py::release_build` both sit behind
+// `require_can_edit_apps`, which is
+// `require_permission(HqPermissions.edit_apps)` with the default
+// `login_and_domain_required` — a browser session and nothing else. The
+// three reads below are what an API key CAN see, and together they answer
+// "has somebody built it, released it, and can a device install it".
+
+/** What CommCare HQ currently holds of one app. */
+export interface HqAppVersions {
+	/** The working app's own version number. */
+	readonly currentVersion: number;
+	/** The newest build's version, or `null` when nothing has been built. */
+	readonly latestBuildVersion: number | null;
+	/** The newest RELEASED build's version, or `null` when none is released. */
+	readonly latestReleasedVersion: number | null;
+}
+
+/** One build CommCare HQ holds for an app. */
+export interface HqAppBuild {
+	readonly id: string;
+	readonly version: number;
+	readonly isReleased: boolean;
+	readonly builtOn: string | null;
+	readonly buildComment: string | null;
+}
+
+function finiteIntOrNull(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value)
+		? value
+		: null;
+}
+
+/**
+ * Read an app's current, latest-built, and latest-released versions.
+ *
+ * `GET /a/{domain}/apps/view/{app_id}/current_version/`, which carries
+ * `@login_or_api_key` (`views/releases.py::current_app_version`) and so is
+ * reachable with the stored key. It answers with version NUMBERS, not
+ * build ids; `listAppBuilds` is what supplies an id.
+ *
+ * A 404 here means CommCare HQ has no such working app in the domain —
+ * either it was deleted, or the id names a build rather than the app
+ * (`current_app_version` raises `Http404` on `NoResultFound` for exactly
+ * that case).
+ */
+export async function readAppVersions(
+	creds: CommCareCredentials,
+	domain: string,
+	hqAppId: string,
+): Promise<HqAppVersions | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds), Accept: "application/json" },
+		});
+	} catch (err) {
+		log.error("[commcare] current_version request failed", err, { domain });
+		return { success: false, status: 503 };
+	}
+	if (!res.ok) return logAndReturnError("current_version failed", res);
+	let data: {
+		currentVersion?: unknown;
+		latestBuild?: unknown;
+		latestReleasedBuild?: unknown;
+	};
+	try {
+		data = (await res.json()) as typeof data;
+	} catch {
+		return { success: false, status: 502 };
+	}
+	const currentVersion = finiteIntOrNull(data.currentVersion);
+	if (currentVersion === null) return { success: false, status: 502 };
+	return {
+		currentVersion,
+		latestBuildVersion: finiteIntOrNull(data.latestBuild),
+		latestReleasedVersion: finiteIntOrNull(data.latestReleasedBuild),
+	};
+}
+
+/**
+ * List an app's builds, with their ids and release flags.
+ *
+ * The tastypie Application resource
+ * (`corehq/apps/api/resources/v0_4.py::ApplicationResource.dehydrate_versions`)
+ * is read-only and authenticates through `LoginAndDomainAuthentication`,
+ * whose decorator map carries an `API_KEY` entry — so the stored key
+ * works, provided its account also holds CommCare HQ's `access_api`
+ * permission. A key without it gets a 401/403 here while the rest of the
+ * deployment still functions, which is why callers treat a failure as
+ * "could not check" rather than "not built".
+ *
+ * `versions` comes back empty for a build rather than a working app, so an
+ * empty list from a working app genuinely means nothing has been built.
+ */
+export async function listAppBuilds(
+	creds: CommCareCredentials,
+	domain: string,
+	hqAppId: string,
+): Promise<readonly HqAppBuild[] | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	const url = `${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(hqAppId)}/`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds), Accept: "application/json" },
+		});
+	} catch (err) {
+		log.error("[commcare] application resource request failed", err, {
+			domain,
+		});
+		return { success: false, status: 503 };
+	}
+	if (!res.ok) return logAndReturnError("application resource failed", res);
+	let data: { versions?: unknown };
+	try {
+		data = (await res.json()) as typeof data;
+	} catch {
+		return { success: false, status: 502 };
+	}
+	if (!Array.isArray(data.versions)) return { success: false, status: 502 };
+	const builds: HqAppBuild[] = [];
+	for (const entry of data.versions) {
+		if (typeof entry !== "object" || entry === null) continue;
+		const row = entry as Record<string, unknown>;
+		const id = typeof row.id === "string" ? row.id : null;
+		const version = finiteIntOrNull(row.version);
+		if (id === null || version === null) continue;
+		builds.push({
+			id,
+			version,
+			isReleased: row.is_released === true,
+			builtOn: typeof row.built_on === "string" ? row.built_on : null,
+			buildComment:
+				typeof row.build_comment === "string" ? row.build_comment : null,
+		});
+	}
+	return builds;
+}
+
+/**
+ * Ask CommCare HQ for the profile a device installs one BUILD from.
+ *
+ * This is the strongest honest proof that a released build can actually be
+ * run: it is the very first request a device makes, and a build whose
+ * files were never generated cannot answer it.
+ *
+ * **It must always name a build id, never the working app's id, and never
+ * carry `?latest=true`.** `views/download.py::download_odk_profile` calls
+ * `autogenerate_build(request.app, username)` whenever the app it resolved
+ * has no `copy_of` — so pointing this at a working app, or letting
+ * `?latest=true` fall back to one because nothing is released, would make
+ * CommCare HQ start building. A read that quietly mutates the target is
+ * not a probe. Naming a build id keeps `copy_of` set and the call
+ * side-effect free by construction.
+ *
+ * The endpoint carries no login decorator (devices install before they
+ * authenticate), so the key rides along only for consistency of logging on
+ * CommCare HQ's side.
+ */
+export async function probeBuildProfile(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+): Promise<{ readonly ok: true } | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/profile.ccpr`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds) },
+			redirect: "manual",
+		});
+	} catch (err) {
+		log.error("[commcare] build profile probe failed", err, { domain });
+		return { success: false, status: 503 };
+	}
+	if (!res.ok) return logAndReturnError("build profile probe failed", res);
+	// Drain the body so the connection is released; the bytes themselves
+	// are not what is being checked, only that CommCare HQ served them.
+	try {
+		await res.text();
+	} catch {}
+	return { ok: true };
+}
