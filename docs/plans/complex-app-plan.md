@@ -1558,7 +1558,9 @@ from `UserData.to_dict()` and the key is injected only by
 
 `publishAppToHq` is the one lifecycle the browser route and MCP's
 `upload_app_to_hq` both use; a refused publish answers 200 carrying the
-`incomplete` record rather than a status that would throw it away. Deployments
+record rather than a status that would throw it away, and both callers read
+whether THIS attempt landed rather than inferring it from a state that
+describes the target. Deployments
 are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
 `refresh_deployment`, `adopt_hq_app`) and deliberately NOT from the Solutions
 Architect, the same standing decision that keeps `get_app_hq_feature_flags` off

@@ -128,9 +128,15 @@ is. The browser route and MCP's `upload_app_to_hq` both go through it. A
 second path would be a second lifecycle, and the two would drift on the
 first bug fix.
 
-A refused publish answers **200 with the `incomplete` record**, not a 4xx:
-the request succeeded, the record is the answer, and it names where to
-retry from.
+A refused publish answers **200 with the record**, not a 4xx: the request
+succeeded, the record is the answer, and it names where to retry from.
+
+**Success is read from `PublishOutcome.landed`, never from the record's
+state.** They answer different questions. `landed` is "did the app reach
+the project space on this call"; the state is "what does the project space
+hold". Those diverge exactly when a publish is refused against an app that
+is already released there, where the record stays `runnable` because it
+still is. Both callers read `landed`.
 
 ## The setup artifact regenerates, always
 
