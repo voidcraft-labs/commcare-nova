@@ -122,33 +122,6 @@ export function applyPhaseOutcomes(
 }
 
 /**
- * The phase a plain "carry on" would run.
- *
- * A refused deployment resumes exactly where it stopped. A `runnable` one
- * has nothing left to do on its own — publishing again is a deliberate
- * act, never something Nova rolls into "next".
- */
-export function nextDeploymentPhase(
-	record: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">,
-): DeploymentPhase | null {
-	if (record.state === "incomplete") return record.resumePhase;
-	switch (record.state) {
-		case "preflight":
-			return record.phases.preflight?.status === "succeeded"
-				? "upload"
-				: "preflight";
-		case "uploaded":
-			return "build";
-		case "built":
-			return "release";
-		case "released":
-			return "probe";
-		case "runnable":
-			return null;
-	}
-}
-
-/**
  * Whether a phase may run against a deployment in this state.
  *
  * `preflight` and `upload` are always available: the first reads nothing
@@ -166,17 +139,32 @@ export function deploymentCanRunPhase(
 }
 
 /**
- * Whether a link into CommCare HQ may be presented as a durable place to
- * send workers.
+ * Fold a preflight result without rewriting what the target already holds.
  *
- * Only a probed, released deployment qualifies. Everything earlier is a
- * link to something that exists but is not yet what a worker would open,
- * and the surfaces say which.
+ * A deployment's state describes the PROJECT SPACE, not the attempt. If an
+ * app is already released on `acme` and somebody clicks Publish with an
+ * expired API key, the app on `acme` is still released — only this attempt
+ * failed. Recording it as `incomplete` would make Nova report a live app
+ * as having reached nothing, and a plain success would walk a `runnable`
+ * deployment back to `preflight`.
+ *
+ * So preflight writes its own outcome always, and moves the state only
+ * while the deployment has not yet put anything on the project space. The
+ * caller still gets the blocking check to show, which is what makes the
+ * refusal actionable.
  */
-export function endpointLinkIsDurable(
-	record: Pick<DeploymentRecord, "state">,
-): boolean {
-	return record.state === "runnable";
+export function applyPreflightOutcome(
+	record: DeploymentRecord,
+	outcome: DeploymentPhaseOutcome,
+): DeploymentRecord {
+	if (deploymentHasReached(record, "uploaded")) {
+		return {
+			...record,
+			phases: { ...record.phases, preflight: outcome },
+			updatedAt: outcome.at,
+		};
+	}
+	return applyPhaseOutcome(record, "preflight", outcome);
 }
 
 /**
@@ -185,15 +173,14 @@ export function endpointLinkIsDurable(
  * Deliberately different from `deploymentHasReached`, and the difference
  * matters in both directions. That predicate is the strict one every
  * DECISION uses: while a deployment is refused it answers `false` for
- * everything, so nothing offers a durable link or runs a later phase off
- * a state the deployment does not definitely hold.
+ * everything, so nothing runs a later phase off a state the deployment
+ * does not definitely hold.
  *
  * But a probe that failed did not undo the upload, the build, or the
  * release. Drawing all five rungs empty would tell an author their app is
  * nowhere, which is both untrue and the opposite of what the refusal says
- * next ("nothing before this needs doing again"). So a refused deployment
- * shows everything up to the state its retry resumes from, and nothing
- * beyond it.
+ * next. So a refused deployment shows everything up to the state its retry
+ * resumes from, and nothing beyond it.
  */
 export function deploymentDisplaysAsReached(
 	record: Pick<DeploymentRecord, "state" | "resumePhase">,

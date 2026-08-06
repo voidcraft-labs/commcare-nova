@@ -867,8 +867,12 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		expect(payload.app_id).toBe("a1");
 		expect(payload.message).toMatch(/media file is missing/i);
 
-		/* The gate fires BEFORE import + the LogWriter ctor — a
-		 * media-invalid doc never reaches HQ and never allocates a writer. */
+		/* The boundary gate now runs inside the shared publish lifecycle,
+		 * which sits after the call is initialized, so a writer IS
+		 * allocated. That is the better trade: the run log records that a
+		 * publish was attempted and refused, which is real history. What
+		 * still holds, and is what this asserts, is that nothing reaches
+		 * CommCare HQ. */
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();

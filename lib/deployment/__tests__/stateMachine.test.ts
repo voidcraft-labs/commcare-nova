@@ -12,14 +12,13 @@ import { describe, expect, it } from "vitest";
 import {
 	applyPhaseOutcome,
 	applyPhaseOutcomes,
+	applyPreflightOutcome,
 	clearObservationOutcomes,
 	deploymentCanRunPhase,
 	deploymentDisplaysAsReached,
 	deploymentHasReached,
 	deploymentProgressIndex,
 	deploymentResumeState,
-	endpointLinkIsDurable,
-	nextDeploymentPhase,
 } from "../stateMachine";
 import {
 	DEPLOYMENT_PHASES,
@@ -115,7 +114,8 @@ describe("folding a phase outcome", () => {
 			["release", waiting],
 		]);
 		expect(next.state).toBe("built");
-		expect(endpointLinkIsDurable(next)).toBe(false);
+		// And it is genuinely no longer runnable, not merely relabelled.
+		expect(deploymentHasReached(next, "runnable")).toBe(false);
 	});
 
 	it("clears a refusal once the same phase succeeds on retry", () => {
@@ -127,26 +127,6 @@ describe("folding a phase outcome", () => {
 		const retried = applyPhaseOutcome(refused, "release", ok);
 		expect(retried.state).toBe("released");
 		expect(retried.resumePhase).toBeNull();
-	});
-});
-
-describe("what runs next", () => {
-	it("resumes exactly where a refusal stopped", () => {
-		const refused = record({ state: "incomplete", resumePhase: "probe" });
-		expect(nextDeploymentPhase(refused)).toBe("probe");
-	});
-
-	it("moves from preflight to upload only once preflight passed", () => {
-		expect(nextDeploymentPhase(record())).toBe("preflight");
-		expect(
-			nextDeploymentPhase(
-				record({ phases: { ...NO_DEPLOYMENT_PHASE_OUTCOMES, preflight: ok } }),
-			),
-		).toBe("upload");
-	});
-
-	it("has nothing left to do on its own once runnable", () => {
-		expect(nextDeploymentPhase(record({ state: "runnable" }))).toBeNull();
 	});
 });
 
@@ -208,26 +188,40 @@ describe("what a person sees on a refused deployment", () => {
 	});
 
 	it("never lets the display predicate soften a DECISION", () => {
-		// The strict predicate is what gates phases and durable links, and
-		// it still answers false for everything while refused.
+		// The strict predicate is what gates phases, and it still answers
+		// false for everything while the deployment is refused.
 		expect(deploymentHasReached(refusedAtProbe, "uploaded")).toBe(false);
-		expect(endpointLinkIsDurable(refusedAtProbe)).toBe(false);
 		expect(deploymentCanRunPhase(refusedAtProbe, "release")).toBe(false);
 	});
-});
 
-describe("durable links", () => {
-	it("calls a link durable only once the released build was probed", () => {
-		for (const state of [
-			"preflight",
-			"uploaded",
-			"built",
-			"released",
-			"incomplete",
-		] as const) {
-			expect(endpointLinkIsDurable(record({ state }))).toBe(false);
-		}
-		expect(endpointLinkIsDurable(record({ state: "runnable" }))).toBe(true);
+	it("keeps an attempt's failure from rewriting what the target holds", () => {
+		// A refused publish attempt against an app that is already live must
+		// not report the live app as having reached nothing.
+		const live = record({ state: "runnable" });
+		const refusedAttempt = applyPreflightOutcome(live, {
+			status: "failed",
+			at: AT,
+			failure: { code: "hq_not_connected", message: "no key", details: [] },
+		});
+		expect(refusedAttempt.state).toBe("runnable");
+		expect(refusedAttempt.phases.preflight?.status).toBe("failed");
+	});
+
+	it("does not walk a live deployment back to preflight on a clean check", () => {
+		const live = record({ state: "runnable" });
+		expect(applyPreflightOutcome(live, ok).state).toBe("runnable");
+	});
+
+	it("still moves a brand-new deployment through preflight", () => {
+		const fresh = record();
+		expect(applyPreflightOutcome(fresh, ok).state).toBe("preflight");
+		expect(
+			applyPreflightOutcome(fresh, {
+				status: "failed",
+				at: AT,
+				failure: { code: "app_not_ready", message: "fix it", details: [] },
+			}).state,
+		).toBe("incomplete");
 	});
 });
 

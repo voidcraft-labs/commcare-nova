@@ -193,7 +193,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_project",
 		label: "Project space",
 		description:
-			"The CommCare project the worker signed into. It is whatever domain you deploy to, so it stays empty until this app has a deployment target.",
+			"The CommCare project the worker signed into. Preview fills it in once this app is published to one project space, and leaves it out entirely otherwise, including while it is published to several: naming one of two real answers would be a guess.",
 		availability: "needs-deployment-target",
 		readByRuntime: true,
 	},

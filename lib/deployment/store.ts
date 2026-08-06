@@ -365,6 +365,14 @@ export interface RecordRemoteResourceInput {
 	 * deployment claiming nothing happened while an app sat on HQ.
 	 */
 	readonly progress: Pick<DeploymentRecord, "state" | "resumePhase" | "phases">;
+	/**
+	 * Prove no other app in this Project already owns `remoteId`, inside
+	 * the same transaction that writes it.
+	 *
+	 * Adoption sets this. A publish does not: it names an id CommCare HQ
+	 * has just minted, which nothing else can be holding.
+	 */
+	readonly requireUnclaimed?: boolean;
 }
 
 /**
@@ -394,6 +402,15 @@ export async function recordRemoteResource(
 			.forUpdate()
 			.executeTakeFirst();
 		if (deployment === undefined) throw deploymentNotFound();
+
+		if (input.requireUnclaimed === true) {
+			await assertRemoteAppUnclaimedInTransaction(
+				tx,
+				scope,
+				deploymentId,
+				input.remoteId,
+			);
+		}
 
 		const now = new Date();
 		await tx
@@ -426,8 +443,15 @@ export async function recordRemoteResource(
 				conflict
 					.columns(["deployment_id", "kind", "nova_resource_id"])
 					.where("superseded_at", "is", null)
+					/* Ownership travels with the write. Adopting an id this
+					 * deployment already created must record WHO adopted it and
+					 * WHEN, or the row keeps claiming Nova made it. */
 					.doUpdateSet({
 						remote_id: input.remoteId,
+						ownership: input.ownership,
+						adopted_at: input.ownership === "adopted" ? now : null,
+						adopted_by:
+							input.ownership === "adopted" ? scope.actorUserId : null,
 						pushed_revision: input.pushedRevision,
 						pushed_at: input.pushedRevision === null ? null : now,
 					}),
@@ -515,33 +539,38 @@ export function activeRemoteApp(
  * Nova apps both claiming the same CommCare HQ app would each believe they
  * may repoint it, and whichever published second would silently take it
  * over.
+ *
+ * **This runs inside the writing transaction**, not before it. A check on
+ * its own connection is a time-of-check/time-of-use gap: two concurrent
+ * adoptions of the same CommCare HQ app both pass it and both insert,
+ * because they write different `deployment_id`s and so never collide on
+ * the partial unique index. Holding the app row for the duration is what
+ * actually makes it exclusive.
  */
-export async function assertRemoteAppUnclaimed(
+async function assertRemoteAppUnclaimedInTransaction(
+	tx: Transaction<AppDatabase>,
 	scope: DeploymentScope,
-	target: DeploymentTargetKey,
+	deploymentId: string,
 	remoteId: string,
 ): Promise<void> {
-	const db = await getAppDb();
-	const clash = await db
+	const clash = await tx
 		.selectFrom("app_deployment_resources")
 		.innerJoin(
 			"app_deployments",
 			"app_deployments.id",
 			"app_deployment_resources.deployment_id",
 		)
-		.select(["app_deployments.app_id as app_id"])
+		.select(["app_deployments.app_id as app_id", "app_deployments.domain"])
 		.where("app_deployments.project_id", "=", scope.projectId)
-		.where("app_deployments.server", "=", target.server)
-		.where("app_deployments.domain", "=", target.domain)
 		.where("app_deployment_resources.kind", "=", "app")
 		.where("app_deployment_resources.remote_id", "=", remoteId)
 		.where("app_deployment_resources.superseded_at", "is", null)
-		.where("app_deployments.app_id", "!=", scope.appId)
+		.where("app_deployment_resources.deployment_id", "!=", deploymentId)
 		.executeTakeFirst();
 	if (clash !== undefined) {
 		throw new DeploymentError(
 			"already_mapped",
-			`Another app in this project already publishes to the CommCare HQ app "${remoteId}" on ${target.domain}. Two apps cannot share one CommCare HQ app, because each would believe it may replace the other's work.`,
+			`Another app in this project already publishes to the CommCare HQ app "${remoteId}" on ${clash.domain}. Two apps cannot share one CommCare HQ app, because each would believe it may replace the other's work.`,
 		);
 	}
 }

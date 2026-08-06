@@ -8,10 +8,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import { resolvePreviewDeploymentTarget } from "../previewTarget";
-import { buildSetupArtifact, renderSetupArtifact } from "../setupArtifact";
+import { buildSetupArtifact } from "../setupArtifact";
 import type { DeploymentRecord } from "../types";
 
 function baseDoc() {
@@ -119,14 +120,6 @@ describe("never claims a prerequisite was installed", () => {
 	});
 });
 
-describe("rendering", () => {
-	it("produces plain text carrying the project space and its steps", () => {
-		const text = renderSetupArtifact(artifact());
-		expect(text).toContain("rhi-bihar");
-		expect(text).toContain("Make a version and release it");
-	});
-});
-
 describe("preview target resolution", () => {
 	function deployment(state: string, domain: string) {
 		return { state, domain } as Pick<DeploymentRecord, "state" | "domain">;
@@ -157,5 +150,141 @@ describe("preview target resolution", () => {
 				deployment("uploaded", "beta"),
 			]).kind,
 		).toBe("ambiguous");
+	});
+});
+
+/**
+ * The two document-derived sections, actually generated.
+ *
+ * These exist because the first version of the organization section named
+ * five controls that are not on CommCare HQ's page, and nothing caught it:
+ * the suite only asserted the section was OMITTED for an app with no
+ * levels. A section whose whole value is "followable instructions with the
+ * values filled in" has to be checked against the page it describes.
+ */
+describe("organization levels", () => {
+	const state = testUuid("11111111");
+	const district = testUuid("22222222");
+
+	function withLevels(): never {
+		const doc = baseDoc() as Record<string, unknown>;
+		doc.organizationLevels = {
+			[state]: {
+				uuid: state,
+				code: "state",
+				name: "State",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "whole-organization" },
+			},
+			[district]: {
+				uuid: district,
+				code: "district",
+				name: "District",
+				parentLevelUuid: state,
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "all" },
+				},
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		doc.organizationLevelOrder = [district, state];
+		return doc as never;
+	}
+
+	function section() {
+		const result = artifact({ doc: withLevels() });
+		const found = result.sections.find((s) => s.id === "organization");
+		if (found === undefined) throw new Error("organization section missing");
+		return found;
+	}
+
+	it("tells the reader to turn on Advanced mode first", () => {
+		// Six of the eight controls carry `visible: advanced_mode`, so every
+		// instruction below is unfollowable until this one is done.
+		expect(section().steps[0]?.text).toMatch(/advanced mode/i);
+	});
+
+	it("orders parents before children, because a child names its parent", () => {
+		const names = section()
+			.steps.map((s) => s.text)
+			.filter((text) => text.includes("Add a level"));
+		expect(names[0]).toContain("“State”");
+		expect(names[1]).toContain("“District”");
+		expect(names[1]).toContain("parent “State”");
+	});
+
+	it("names the controls CommCare HQ actually shows", () => {
+		const text = JSON.stringify(section().steps);
+		// From `locations/templates/locations/location_types.html`.
+		expect(text).toContain("Type Code");
+		expect(text).toContain("Owns Cases");
+		expect(text).toContain("Has Users");
+		expect(text).toContain("View Child Data");
+		expect(text).toContain("Level to expand from");
+		// Names Nova uses internally, and CommCare HQ does not show.
+		expect(text).not.toContain("Location has users");
+		expect(text).not.toContain("Location shares cases");
+		expect(text).not.toContain("organization level code");
+	});
+
+	it("never asks for an Expand from root checkbox, which does not exist", () => {
+		// `location_types.js` puts a synthetic *root* entry in the "Level to
+		// expand from" dropdown and derives `expand_from_root` from it.
+		const text = JSON.stringify(section().steps);
+		expect(text).not.toMatch(/tick “expand from root”/i);
+		expect(text).toContain("“Level to expand from” to “root”");
+	});
+
+	it("warns when a control sits behind a project toggle", () => {
+		// "Has Users" and "View Child Data to Level" are wrapped in
+		// `{% if request|toggle_enabled:"USH_RESTORE_FILE_LOCATION_CASE_SYNC_RESTRICTION" %}`.
+		const detail = section()
+			.steps.flatMap((s) => s.detail)
+			.join(" ");
+		expect(detail).toMatch(/cannot see that column/i);
+	});
+});
+
+describe("worker information", () => {
+	const block = testUuid("33333333");
+
+	function withProperty(required: boolean): never {
+		const doc = baseDoc() as Record<string, unknown>;
+		doc.userProperties = {
+			[block]: {
+				uuid: block,
+				slug: "block",
+				label: "Block",
+				...(required ? { required: true } : {}),
+				choices: ["North", "South"],
+			},
+		};
+		doc.userPropertyOrder = [block];
+		return doc as never;
+	}
+
+	function section(required: boolean) {
+		const result = artifact({ doc: withProperty(required) });
+		const found = result.sections.find((s) => s.id === "worker-data");
+		if (found === undefined) throw new Error("worker-data section missing");
+		return found;
+	}
+
+	it("names the column CommCare HQ shows, and carries the exact values", () => {
+		const first = section(false).steps[0];
+		expect(first?.text).toContain("“User Property” “block”");
+		expect(first?.text).toContain("“Block”");
+		expect(first?.detail.join(" ")).toContain("“North”, “South”");
+	});
+
+	it("says Mobile Workers for a required property, because Nova makes only those", () => {
+		expect(section(true).steps[0]?.detail.join(" ")).toMatch(
+			/Required for.*Mobile Workers/i,
+		);
+		expect(section(false).steps[0]?.detail.join(" ")).toMatch(
+			/Leave Required unticked/i,
+		);
 	});
 });

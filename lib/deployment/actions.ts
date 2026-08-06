@@ -7,24 +7,24 @@ import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import { DeploymentError } from "./errors";
-import { adoptRemoteApp, refreshDeployment, setupArtifactFor } from "./service";
+import { refreshDeployment } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import type { DeploymentScope } from "./store";
-import { readDeploymentsForApp } from "./store";
-import {
-	type DeploymentWithResources,
-	deploymentServerSchema,
-	hqAppIdSchema,
-} from "./types";
+import { type DeploymentWithResources, deploymentServerSchema } from "./types";
 
 /**
- * The browser's read and refresh surface for deployments.
+ * The browser's refresh surface for deployments.
  *
  * Publishing itself stays on `/api/commcare/upload`, because it is one
  * long request whose warnings and feature-flag report the dialog already
- * consumes. These are the operations around it: see what a target
- * currently holds, ask CommCare HQ again, and attach a deployment to an
- * app that is already there.
+ * consumes. Reading a deployment needs no action either: a publish
+ * answers with the record, and the builder page resolves the Preview
+ * target server-side. So this file holds exactly one operation, the one
+ * the dialog's Check status button needs.
+ *
+ * Adoption is deliberately MCP-only (`adopt_hq_app`). It is the recovery
+ * path for an app somebody imported by hand, and it needs the exact
+ * CommCare HQ app id, which is not something the publish dialog asks for.
  *
  * Every argument is plain JSON on purpose. A `Map`, `Set`, or `File` in a
  * Server Action argument makes React encode the call as multipart, which
@@ -52,8 +52,6 @@ export type DeploymentActionResult<T> =
 
 const appIdSchema = z.string().trim().min(1).max(255);
 
-const listInputSchema = z.object({ appId: appIdSchema }).strict();
-
 const targetInputSchema = z
 	.object({
 		appId: appIdSchema,
@@ -62,10 +60,15 @@ const targetInputSchema = z
 	})
 	.strict();
 
-const adoptInputSchema = targetInputSchema.extend({
-	hqAppId: hqAppIdSchema,
-});
-
+/**
+ * Refreshing WRITES the observed state, so it authorizes as an edit.
+ *
+ * Reading it as a view would let a viewer through the action and then
+ * fail inside the store's `edit` check — and only for a deployment that
+ * has actually been published, since refresh returns early otherwise. A
+ * capability that depends on how far a deployment got is not a
+ * capability.
+ */
 async function resolveScope(
 	appId: string,
 ): Promise<
@@ -79,12 +82,12 @@ async function resolveScope(
 			result: {
 				success: false,
 				code: "unauthenticated",
-				message: "Sign in to see where this app is published.",
+				message: "Sign in to check on this deployment.",
 			},
 		};
 	}
 	try {
-		const access = await resolveAppScope(appId, session.user.id, "view");
+		const access = await resolveAppScope(appId, session.user.id, "edit");
 		return {
 			ok: true,
 			scope: {
@@ -131,35 +134,6 @@ async function committedDoc(scope: DeploymentScope) {
 	return snapshot.blueprint;
 }
 
-/** Every project space this app has been published to. */
-export async function listDeploymentsAction(
-	input: unknown,
-): Promise<DeploymentActionResult<readonly DeploymentView[]>> {
-	const parsed = listInputSchema.safeParse(input);
-	if (!parsed.success) {
-		return {
-			success: false,
-			code: "invalid_input",
-			message: "That deployment request wasn't in a shape Nova understands.",
-		};
-	}
-	const resolved = await resolveScope(parsed.data.appId);
-	if (!resolved.ok) return resolved.result;
-	try {
-		const doc = await committedDoc(resolved.scope);
-		const deployments = await readDeploymentsForApp(resolved.scope);
-		const views = await Promise.all(
-			deployments.map(async (deployment) => ({
-				deployment,
-				artifact: await setupArtifactFor(resolved.scope, deployment, doc),
-			})),
-		);
-		return { success: true, data: views };
-	} catch (error) {
-		return failure(error, "list", resolved.scope);
-	}
-}
-
 /**
  * Ask CommCare HQ again what has happened to a published app.
  *
@@ -191,73 +165,6 @@ export async function refreshDeploymentAction(
 		return { success: true, data: refreshed };
 	} catch (error) {
 		return failure(error, "refresh", resolved.scope);
-	}
-}
-
-/**
- * Attach this app's deployment to an app that is already on CommCare HQ.
- *
- * Always explicit: the caller names the exact CommCare HQ app id. Nova
- * never matches by name, so an app called the same thing on the target is
- * never adopted by accident.
- */
-export async function adoptRemoteAppAction(
-	input: unknown,
-): Promise<DeploymentActionResult<DeploymentView>> {
-	const parsed = adoptInputSchema.safeParse(input);
-	if (!parsed.success) {
-		return {
-			success: false,
-			code: "invalid_input",
-			message:
-				parsed.error.issues[0]?.message ??
-				"That CommCare HQ app id wasn't in a shape Nova understands.",
-		};
-	}
-	const session = await getSession();
-	if (session === null) {
-		return {
-			success: false,
-			code: "unauthenticated",
-			message: "Sign in to connect this app to CommCare HQ.",
-		};
-	}
-	let scope: DeploymentScope;
-	try {
-		const access = await resolveAppScope(
-			parsed.data.appId,
-			session.user.id,
-			"edit",
-		);
-		scope = {
-			appId: parsed.data.appId,
-			projectId: access.projectId,
-			role: access.role,
-			actorUserId: session.user.id,
-		};
-	} catch (error) {
-		if (error instanceof AppAccessError) return notFound();
-		throw error;
-	}
-	try {
-		const deployment = await adoptRemoteApp(
-			scope,
-			{ server: parsed.data.server, domain: parsed.data.domain },
-			parsed.data.hqAppId,
-		);
-		const doc = await committedDoc(scope);
-		return {
-			success: true,
-			data: {
-				deployment,
-				artifact: await setupArtifactFor(scope, deployment, doc),
-			},
-		};
-	} catch (error) {
-		if (error instanceof DeploymentError && error.code === "already_mapped") {
-			return { success: false, code: "conflict", message: error.message };
-		}
-		return failure(error, "adopt", scope);
 	}
 }
 

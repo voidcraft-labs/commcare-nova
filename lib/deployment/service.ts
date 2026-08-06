@@ -20,7 +20,7 @@ import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
-import { deploymentNotFound } from "./errors";
+import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
 import {
@@ -28,10 +28,14 @@ import {
 	resolvePreviewDeploymentTarget,
 } from "./previewTarget";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
-import { applyPhaseOutcome, applyPhaseOutcomes } from "./stateMachine";
+import {
+	applyPhaseOutcome,
+	applyPhaseOutcomes,
+	applyPreflightOutcome,
+	deploymentCanRunPhase,
+} from "./stateMachine";
 import {
 	activeRemoteApp,
-	assertRemoteAppUnclaimed,
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	ensureDeployment,
@@ -154,9 +158,8 @@ export async function publishAppToHq(
 		now,
 	});
 
-	const afterPreflight = applyPhaseOutcome(
+	const afterPreflight = applyPreflightOutcome(
 		deployment.deployment,
-		"preflight",
 		preflight.outcome,
 	);
 	deployment = await saveDeploymentProgress(
@@ -350,7 +353,16 @@ export async function refreshDeployment(
 	const existing = await readDeployment(scope, target);
 	if (existing === null) return null;
 	const remote = activeRemoteApp(existing);
-	if (remote === null) {
+	/* Nothing to observe, or nothing observation may answer.
+	 *
+	 * The second case is the one worth naming: a deployment refused at
+	 * `preflight` or `upload` still holds the mapping from an EARLIER
+	 * publish, so observing it would fold three succeeded outcomes over
+	 * the refusal and turn the record green — destroying the phase a retry
+	 * resumes from, from a button sitting next to the refusal. Observation
+	 * answers questions about a build; it cannot answer "did this publish
+	 * get there". */
+	if (remote === null || !deploymentCanRunPhase(existing.deployment, "build")) {
 		return {
 			deployment: existing,
 			artifact: await setupArtifactFor(scope, existing, doc),
@@ -432,10 +444,17 @@ export async function adoptRemoteApp(
 		scope.actorUserId,
 		target.domain,
 	);
+	/* Each cause gets its own sentence. Collapsing them into one
+	 * not-found would tell somebody their app moved Projects when the
+	 * real answer is that they have not connected CommCare HQ. */
 	if (!credResult.ok) {
-		throw deploymentNotFound();
+		throw new DeploymentError(
+			"invalid",
+			credResult.error === "not_configured"
+				? "CommCare HQ isn't connected on your account. Add your API key in Settings, then connect this app to its CommCare HQ app."
+				: `Your API key can't reach “${target.domain}”. Ask a CommCare HQ administrator to add you to that project space.`,
+		);
 	}
-	await assertRemoteAppUnclaimed(scope, target, remoteId);
 
 	// Prove it is really there before recording ownership of it. An
 	// adopted mapping that names nothing would report "uploaded" for an
@@ -446,7 +465,12 @@ export async function adoptRemoteApp(
 		remoteId,
 	);
 	if ("success" in versions) {
-		throw deploymentNotFound();
+		throw new DeploymentError(
+			"invalid",
+			versions.status === 404
+				? `CommCare HQ has no app "${remoteId}" on “${target.domain}”. Check the id in the app's URL there, and that it is the app itself rather than one of its versions.`
+				: `Nova couldn't reach CommCare HQ to confirm the app "${remoteId}" exists on “${target.domain}”. Try again in a moment.`,
+		);
 	}
 
 	const deployment = await ensureDeployment(scope, target);
@@ -457,6 +481,7 @@ export async function adoptRemoteApp(
 		remoteId,
 		ownership: "adopted",
 		pushedRevision: null,
+		requireUnclaimed: true,
 		progress: applyPhaseOutcomes(deployment.deployment, [
 			["preflight", { status: "succeeded", at: now }],
 			["upload", { status: "succeeded", at: now }],

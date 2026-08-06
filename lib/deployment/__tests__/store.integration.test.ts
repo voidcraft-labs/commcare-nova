@@ -14,7 +14,6 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { applyPhaseOutcome } from "../stateMachine";
 import {
 	activeRemoteApp,
-	assertRemoteAppUnclaimed,
 	type DeploymentScope,
 	ensureDeployment,
 	readDeployment,
@@ -232,9 +231,54 @@ describe("ownership mappings", () => {
 		const other = await seed("app-2");
 		await publish(scope, "hq-shared", 7);
 
+		// The check runs inside the writing transaction, so it is exclusive
+		// rather than a time-of-check gap two concurrent adoptions can walk
+		// through: they write different `deployment_id`s and so would never
+		// collide on the partial unique index.
+		const deployment = await ensureDeployment(other, TARGET);
 		await expect(
-			assertRemoteAppUnclaimed(other, TARGET, "hq-shared"),
+			recordRemoteResource(other, deployment.deployment.id, {
+				kind: "app",
+				novaResourceId: other.appId,
+				remoteId: "hq-shared",
+				ownership: "adopted",
+				pushedRevision: null,
+				requireUnclaimed: true,
+				progress: {
+					state: "uploaded",
+					resumePhase: null,
+					phases: deployment.deployment.phases,
+				},
+			}),
 		).rejects.toThrow(/cannot share one CommCare HQ app/i);
+	});
+
+	it("records who adopted an id this deployment had created itself", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+		const deployment = await ensureDeployment(scope, TARGET);
+		const adopted = await recordRemoteResource(
+			scope,
+			deployment.deployment.id,
+			{
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: "hq-1",
+				ownership: "adopted",
+				pushedRevision: null,
+				requireUnclaimed: true,
+				progress: {
+					state: "uploaded",
+					resumePhase: null,
+					phases: deployment.deployment.phases,
+				},
+			},
+		);
+
+		const remote = activeRemoteApp(adopted);
+		expect(remote?.ownership).toBe("adopted");
+		expect(remote?.adoptedBy).toBe("u1");
+		expect(remote?.adoptedAt).not.toBeNull();
 	});
 });
 

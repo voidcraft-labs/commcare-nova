@@ -29,7 +29,10 @@ import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import { publishAppToHq } from "@/lib/deployment/service";
+import {
+	previewProjectSpaceFor,
+	publishAppToHq,
+} from "@/lib/deployment/service";
 import { isDeploymentServer } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
@@ -97,9 +100,21 @@ export async function POST(req: NextRequest) {
 		});
 
 		const succeeded = outcome.deployment.deployment.state !== "incomplete";
+		/* What Preview may honestly name now. Resolved here rather than in
+		 * the browser because only the server can see whether this app is
+		 * live on more than one project space, which is exactly when
+		 * `commcare_project` has two real answers and Nova must name
+		 * neither. */
+		const scope = {
+			appId: body.appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: session.user.id,
+		};
 		return NextResponse.json(
 			{
 				success: succeeded,
+				preview_project_space: await previewProjectSpaceFor(scope),
 				deployment: outcome.deployment,
 				preflight: outcome.checks,
 				setup_artifact: outcome.artifact,

@@ -30,7 +30,6 @@ import {
 	type DeploymentPhase,
 	type DeploymentProgressState,
 	deploymentDisplaysAsReached,
-	deploymentResumeState,
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
@@ -44,6 +43,24 @@ const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
 	built: "Version made",
 	released: "Released",
 	runnable: "Ready for workers",
+};
+
+/**
+ * How each resume point reads in a sentence.
+ *
+ * Separate from `STATE_LABELS` because those are column headings and these
+ * are mid-sentence clauses: lower-casing "On CommCare HQ" produced "carry
+ * on from on commcare hq", and "Checked" produced "carry on from checked".
+ */
+const RESUME_SENTENCE: Readonly<Record<DeploymentPhase, string>> = {
+	preflight: "Try publishing again once it is sorted.",
+	upload: "Try publishing again once it is sorted.",
+	build:
+		"Nothing before this needs doing again. Choose Check status once CommCare HQ has built it.",
+	release:
+		"Nothing before this needs doing again. Choose Check status once you have released it.",
+	probe:
+		"Nothing before this needs doing again. Choose Check status to try again.",
 };
 
 /** Which phase's report explains a rung that has not been reached. */
@@ -89,7 +106,6 @@ export function DeploymentStatus({
 	}, [appId, record.server, record.domain, onUpdated]);
 
 	const refused = record.state === "incomplete";
-	const resumeState = deploymentResumeState(record);
 	const failure =
 		record.resumePhase === null
 			? null
@@ -156,7 +172,7 @@ export function DeploymentStatus({
 									{STATE_LABELS[state]}
 								</span>
 								<span className="sr-only">
-									{reached ? " — done" : " — not yet"}
+									{reached ? ", done" : ", not yet"}
 								</span>
 								{note !== null && !reached ? (
 									<span className="mt-0.5 block text-nova-text-secondary">
@@ -191,10 +207,11 @@ export function DeploymentStatus({
 							))}
 						</ul>
 					) : null}
-					{resumeState !== null ? (
+					{record.resumePhase !== null ? (
 						<p className="mt-2 pl-9 text-nova-text-secondary">
-							Nothing before this needs doing again. Fix the above, then carry
-							on from {STATE_LABELS[resumeState].toLowerCase()}.
+							{failure.failure.code === "remote_app_missing"
+								? "Publishing again creates a new app on CommCare HQ, because the one Nova made is gone."
+								: RESUME_SENTENCE[record.resumePhase]}
 						</p>
 					) : null}
 				</div>
@@ -307,10 +324,21 @@ function SetupNote({ section }: { section: SetupArtifactSection }) {
 						</a>
 					) : null}
 					{section.steps.length > 0 ? (
-						<ol className="mt-2 flex list-decimal flex-col gap-1 pl-5 text-nova-text">
-							{section.steps.map((step) => (
-								<li key={step} className="whitespace-pre-wrap">
-									{step}
+						/* Sub-steps belong to the step above them, so they are a
+						   nested list rather than numbered siblings: two levels
+						   sharing a setting would otherwise read as two more
+						   instructions. */
+						<ol className="mt-2 flex list-decimal flex-col gap-2 pl-5 text-nova-text">
+							{section.steps.map((entry) => (
+								<li key={entry.id}>
+									{entry.text}
+									{entry.detail.length > 0 ? (
+										<ul className="mt-1 flex list-disc flex-col gap-1 pl-4 text-nova-text-secondary">
+											{entry.detail.map((line) => (
+												<li key={`${entry.id}:${line}`}>{line}</li>
+											))}
+										</ul>
+									) : null}
 								</li>
 							))}
 						</ol>

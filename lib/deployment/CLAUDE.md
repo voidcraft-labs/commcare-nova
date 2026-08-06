@@ -27,13 +27,27 @@ So Nova **drives** `preflight` and `upload`, and **observes** `build`,
 why the setup artifact's build-and-release section is a real instruction
 rather than a placeholder.
 
-**The probe must always name a BUILD id.** `download_odk_profile` calls
-`autogenerate_build(request.app, username)` whenever the app it resolved
-has no `copy_of`, so pointing it at the working app — or letting
-`?latest=true` fall back to one because nothing is released — makes
-CommCare HQ start building. A read that quietly mutates the target is not
-a probe. Naming a build id keeps `copy_of` set and the call side-effect
-free by construction.
+**The probe is a device install request, not a pure read.** Despite the
+URL, it does NOT reach `views/download.py::download_odk_profile`:
+`app_manager/urls.py` registers the catch-all
+`^download/(?P<app_id>[\w-]+)/(?P<path>.*)$` → `download_file` BEFORE the
+`download_urls` include, and its own comment says the order matters. So
+`download_file` handles it, and that view generates a build's files and
+calls `request.app.save()` when they are missing. That is CommCare HQ
+repairing a build on a device's behalf, exactly as it does for every real
+install, and it cannot change the version or what is released
+(`ApplicationBase::save` increments a version only when `copy_of` is
+unset, and a build has it set).
+
+**It must still always name a BUILD id.** With one, `download_file`'s
+`assert request.app.copy_of` holds and the request stays on that build.
+With the working app's id the assert fails, the except arm falls through
+to `resolve_path` → `download_odk_profile` → `autogenerate_build`, and
+CommCare HQ starts a whole new version. Never the working app id, and
+never `?latest=true`, which resolves to one whenever nothing is released.
+A 3xx is "could not check", never "not installable":
+`check_access_and_redirect` answers 302 for any domain carrying a
+`redirect_url`.
 
 ## The state machine
 
@@ -49,8 +63,22 @@ resource mapping already holds the remote id.
 **Observation may move a deployment backward.** If a build stops being
 released on CommCare HQ, a `runnable` deployment is not runnable any more;
 `applyPhaseOutcome` settles a `pending` answer on that phase's own ENTRY
-state, which is what produces the walk back. Anything else would leave a
-durable link on screen that no longer works.
+state, which is what produces the walk back.
+
+**A refused ATTEMPT never rewrites what the target holds.** The state
+describes the project space, not the publish. An expired API key blocking
+preflight against an already-released deployment records the failure and
+leaves the state alone (`applyPreflightOutcome`), because the app really is
+still released there. For the same reason `refreshDeployment` refuses to
+observe a deployment refused at `preflight` or `upload`: it still holds an
+earlier publish's mapping, so observing would fold three green outcomes
+over the refusal and destroy the phase a retry resumes from.
+
+`deploymentDisplaysAsReached` is the display-only counterpart to
+`deploymentHasReached`, and the split is deliberate: the strict predicate
+gates decisions and answers `false` for everything while refused, while the
+display one fills the rungs up to the resume state, because a failed probe
+did not undo the upload.
 
 `built` means a build of what the project space currently holds, not
 merely that some build exists. An older build with newer changes above it

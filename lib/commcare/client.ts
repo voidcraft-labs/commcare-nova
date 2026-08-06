@@ -904,29 +904,46 @@ export async function listAppBuilds(
 /**
  * Ask CommCare HQ for the profile a device installs one BUILD from.
  *
- * This is the strongest honest proof that a released build can actually be
- * run: it is the very first request a device makes, and a build whose
- * files were never generated cannot answer it.
+ * This is the strongest honest proof that a released build can be run: it
+ * is the first request a real device makes, so a 200 means a device would
+ * get one too.
  *
- * **It must always name a build id, never the working app's id, and never
- * carry `?latest=true`.** `views/download.py::download_odk_profile` calls
- * `autogenerate_build(request.app, username)` whenever the app it resolved
- * has no `copy_of` — so pointing this at a working app, or letting
- * `?latest=true` fall back to one because nothing is released, would make
- * CommCare HQ start building. A read that quietly mutates the target is
- * not a probe. Naming a build id keeps `copy_of` set and the call
- * side-effect free by construction.
+ * **It is a device install request, not a pure read, and the difference is
+ * worth stating plainly.** Despite the URL, this does NOT reach
+ * `views/download.py::download_odk_profile`: `urls.py` registers the
+ * catch-all `^download/(?P<app_id>[\w-]+)/(?P<path>.*)$` → `download_file`
+ * BEFORE the `download_urls` include (its own comment says "the order of
+ * these download urls is important"), so `download_file` handles it. That
+ * view generates a build's files and calls `request.app.save()` when they
+ * are missing, and patches in an ODK profile the same way on its
+ * `ResourceNotFound` arm. That is CommCare HQ repairing a build on a
+ * device's behalf, which happens for every real install too, and it cannot
+ * change the version or what is released: `ApplicationBase::save` only
+ * increments a version when `copy_of` is unset, and a build has it set.
  *
- * The endpoint carries no login decorator (devices install before they
- * authenticate), so the key rides along only for consistency of logging on
- * CommCare HQ's side.
+ * **It must still always name a BUILD id.** With one, `download_file`'s
+ * `assert request.app.copy_of` holds and the request stays on that build.
+ * With the working app's id the assert fails, the except arm falls through
+ * to `resolve_path` → `download_odk_profile` → `autogenerate_build`, and
+ * CommCare HQ starts building a NEW version. Never pass the working app id,
+ * and never `?latest=true`, which resolves to one whenever nothing is
+ * released.
+ *
+ * A redirect is "could not check", never "not installable":
+ * `decorators.py::check_access_and_redirect` answers 302 for any domain
+ * carrying a `redirect_url`, and `::safe_cached_download` 302s to the app
+ * page on an editing/case error. Reporting either as a broken build would
+ * accuse a healthy deployment.
  */
 export async function probeBuildProfile(
 	creds: CommCareCredentials,
 	domain: string,
 	buildId: string,
-): Promise<{ readonly ok: true } | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+): Promise<
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: "unavailable" | "not-installable" }
+> {
+	if (!isValidDomainSlug(domain)) return { ok: false, reason: "unavailable" };
 	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/profile.ccpr`;
 	let res: Response;
 	try {
@@ -936,9 +953,26 @@ export async function probeBuildProfile(
 		});
 	} catch (err) {
 		log.error("[commcare] build profile probe failed", err, { domain });
-		return { success: false, status: 503 };
+		return { ok: false, reason: "unavailable" };
 	}
-	if (!res.ok) return logAndReturnError("build profile probe failed", res);
+	if (res.status >= 300 && res.status < 400) {
+		log.warn("[commcare] build profile probe redirected", {
+			domain,
+			status: res.status,
+		});
+		try {
+			await res.body?.cancel();
+		} catch {}
+		return { ok: false, reason: "unavailable" };
+	}
+	if (!res.ok) {
+		await logAndReturnError("build profile probe failed", res);
+		// A 5xx is CommCare HQ being unwell, not a verdict on the build.
+		return {
+			ok: false,
+			reason: res.status >= 500 ? "unavailable" : "not-installable",
+		};
+	}
 	// Drain the body so the connection is released; the bytes themselves
 	// are not what is being checked, only that CommCare HQ served them.
 	try {

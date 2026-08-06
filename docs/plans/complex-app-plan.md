@@ -1492,9 +1492,11 @@ The lifecycle is `preflight → uploaded → built → released → runnable`, p
 terminal refusal `incomplete`, which carries the phase a retry resumes at and
 withholds both `released` and `runnable`. Every phase is independently
 retryable, and a retry never re-imports the app because the mapping already
-holds the remote id. Observation may move a deployment BACKWARD: a build that
-stops being released on HQ makes a `runnable` deployment not runnable, and an
-endpoint link is presented as durable only in `runnable`.
+holds the remote id. A refused ATTEMPT never rewrites what the target holds:
+preflight failing against an already-released deployment records the failure
+without reporting the live app as having reached nothing. Observation may move
+a deployment BACKWARD, because a build that stops being released on HQ makes a
+`runnable` deployment not runnable.
 
 **Nova drives the first two states and observes the last three, because HQ
 draws that line.** `app_import_api.py::import_app_api` passes
@@ -1506,17 +1508,21 @@ which is `require_permission(HqPermissions.edit_apps)` with the default
 key can make are `views/releases.py::current_app_version` (`@login_or_api_key`)
 for the version numbers, the read-only
 `api/resources/v0_4.py::ApplicationResource.dehydrate_versions` for build ids and
-release flags, and one build's `profile.ccpr` as the runnable proof. **That probe
-always names a build id and never `?latest=true`**, because
-`views/download.py::download_odk_profile` calls `autogenerate_build` whenever the
-app it resolved has no `copy_of` — a read that quietly starts a build is not a
-probe.
+release flags, and one build's `profile.ccpr` as the runnable proof. That last
+one is the device's own install request rather than a pure read: the catch-all
+`^download/<app_id>/<path>` route reaches `views/download.py::download_file`,
+not `::download_odk_profile`, and that view regenerates a build's files when
+they are missing — CommCare HQ repairing a build for a device, which cannot
+change the version or what is released. **It always names a build id and never
+`?latest=true`**, because on a working app `download_file` falls through to
+`download_odk_profile` and `autogenerate_build`, starting a whole new version.
 
 `built` means a build of what the project space currently holds rather than
 merely that some build exists, so an app edited on HQ after its last build is
 reported pending with the version gap named. HQ has no atomic app update
-(`models/applications.py::import_app` strips `version` and `copy_of`, landing
-every import at version 1), so publishing again creates a second app there;
+(`models/applications.py::_create_app_from_doc` lands every import at version 1:
+`ApplicationBase::from_source` strips `version` with the rest of `_meta_fields`,
+and `::convert_build_to_app` clears `copy_of`), so publishing again creates a second app there;
 the superseded mapping is retained rather than deleted so the app left behind
 stays nameable.
 
@@ -1757,7 +1763,7 @@ Grouped case tiles, attachment emission, the App setup UI, session endpoints,
 and multi-select are leaves — nothing waits on them, so each can land whenever
 its own prerequisites are met. Grouped case tiles are both an entry point and
 a leaf: nothing blocks them and nothing waits on them, which makes them the
-natural filler whenever the deployment chain is blocked on something external.
+natural filler whenever push and provisioning is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
 on it, so it can proceed independently without holding up push and provisioning.
 

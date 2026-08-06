@@ -82,9 +82,16 @@ match your app as it is now.
 ## If something goes wrong
 
 A publish that could not finish says so plainly, names what stopped it, and
-remembers where it stopped. Fixing the problem and trying again picks up from
-there: **you never have to publish the app again from the start** just because a
-later step failed.
+remembers where it stopped.
+
+What to do next depends on where it stopped, and Nova says which:
+
+- **Before the app reached CommCare HQ** (a connection problem, or something in
+  the app itself): fix it and publish again.
+- **After it got there** (a version that would not build, a release Nova could
+  not confirm): the app is already on your project space. Sort it out on
+  CommCare HQ, then choose **Check status**. You do not publish again, and you
+  do not get a second app.
 
 ## A note on Web Apps
 

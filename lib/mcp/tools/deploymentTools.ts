@@ -13,13 +13,14 @@
  * Scopes follow the existing split. Reading a deployment needs
  * `nova.hq.read`; adopting one needs `nova.hq.write`, because attaching a
  * Nova app to a CommCare HQ app decides what a later publish may replace.
- * Refreshing needs only `nova.hq.read`: it makes read-only calls to
- * CommCare HQ and changes only Nova's own record of what it saw.
+ * Refreshing is read-only against CommCare HQ but WRITES Nova's own
+ * record, so it takes `nova.hq.read` for the remote reads and `edit` on
+ * the app for the write.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { DeploymentError } from "@/lib/deployment/errors";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
 	adoptRemoteApp,
 	refreshDeployment,
@@ -113,10 +114,12 @@ export function registerRefreshDeployment(
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
 				assertScope(ctx, SCOPES.hqRead, "refresh_deployment");
+				/* Read-only against CommCare HQ, but it persists what it saw,
+				 * so the app capability is `edit` rather than `view`. */
 				const { doc, access } = await loadAppBlueprint(
 					args.app_id,
 					ctx.userId,
-					"view",
+					"edit",
 				);
 				const scope = {
 					appId: args.app_id,
@@ -131,7 +134,7 @@ export function registerRefreshDeployment(
 				);
 				if (refreshed === null) {
 					throw new McpInvalidInputError(
-						`This app has no deployment to “${args.domain.trim()}” on the ${args.server} server. Publish it there first, or call get_deployment to see where it has been published.`,
+						`This app has no deployment to “${args.domain.trim()}” on the ${COMMCARE_SERVERS[args.server].label} CommCare server. Publish it there first, or call get_deployment to see where it has been published.`,
 					);
 				}
 				return jsonResult({
@@ -194,21 +197,6 @@ export function registerAdoptHqApp(server: McpServer, ctx: ToolContext): void {
 					setup_artifact: await setupArtifactFor(scope, deployment, doc),
 				});
 			} catch (err) {
-				if (err instanceof DeploymentError && err.code === "already_mapped") {
-					return {
-						isError: true,
-						content: [
-							{
-								type: "text",
-								text: JSON.stringify({
-									error_type: "already_mapped",
-									message: err.message,
-									app_id: args.app_id,
-								}),
-							},
-						],
-					};
-				}
 				return toMcpErrorResult(err, {
 					appId: args.app_id,
 					userId: ctx.userId,

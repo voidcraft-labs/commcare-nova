@@ -4,8 +4,11 @@
  * The load-bearing checks here are the ones that stop Nova overstating:
  * a build older than the app is NOT built, an unreleased newest build is
  * NOT released, and the probe never touches the working app's id — which
- * would make `download_odk_profile` call `autogenerate_build` and turn a
- * read into a write.
+ * would make CommCare HQ start a whole new build.
+ *
+ * The probe's own failure split matters too: a redirecting project space
+ * or an unwell CommCare HQ must read as "could not check", never as
+ * "this build is broken".
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -170,13 +173,36 @@ describe("probe", () => {
 			{ id: "build-live", version: 2, isReleased: true },
 		] as never);
 		vi.mocked(probeBuildProfile).mockResolvedValue({
-			success: false,
-			status: 404,
+			ok: false,
+			reason: "not-installable",
 		} as never);
 
 		const result = await observeDeployment(INPUT);
 
-		expect(outcomeFor(result.outcomes, "probe")?.status).toBe("failed");
+		const probe = outcomeFor(result.outcomes, "probe");
+		expect(probe?.status).toBe("failed");
+		expect(
+			(probe as unknown as { failure: { code: string } }).failure.code,
+		).toBe("build_not_installable");
+	});
+
+	it("says it could not check, not that the build is broken, on a redirect", async () => {
+		// A project space carrying a `redirect_url` answers 302 to every
+		// download. Calling that a broken build accuses a healthy deployment.
+		vi.mocked(listAppBuilds).mockResolvedValue([
+			{ id: "build-live", version: 2, isReleased: true },
+		] as never);
+		vi.mocked(probeBuildProfile).mockResolvedValue({
+			ok: false,
+			reason: "unavailable",
+		} as never);
+
+		const result = await observeDeployment(INPUT);
+
+		const probe = outcomeFor(result.outcomes, "probe");
+		expect(
+			(probe as unknown as { failure: { code: string } }).failure.code,
+		).toBe("hq_unreachable");
 	});
 
 	it("says it could not check when the build list is unreadable", async () => {

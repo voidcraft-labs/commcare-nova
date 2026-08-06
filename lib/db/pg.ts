@@ -450,9 +450,15 @@ export interface AppLocationReferencesTable {
  * Keyed by `(app_id, project_id, server, domain)`: all four pick out a
  * different publication, since the same app in another Project belongs to
  * another tenant and CommCare HQ's US, India, and EU installations share
- * no account database. `project_id` rides the same deferred composite
- * tenant key `cases` uses, so a Project move carries deployments with the
- * rest of the closure and no mismatched row can commit.
+ * no account database.
+ *
+ * `project_id` deliberately does NOT take the composite tenant key `cases`
+ * uses: the auth-app tenancy migration keeps an exact catalog of everything
+ * referencing `apps.project_id` and blocks additions, so a second one would
+ * fail the migration job. Coherence comes from
+ * `lib/deployment/store.ts::lockAppForDeploymentWrite`, which compares the
+ * locked app's Project before any write, and from the Project move updating
+ * these rows in the same transaction.
  */
 export interface AppDeploymentsTable {
 	id: DefaultedUuidV7Column<string>;

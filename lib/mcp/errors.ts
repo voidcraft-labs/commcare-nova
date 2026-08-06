@@ -46,6 +46,7 @@ import {
 	CommitReauthError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
+import { DeploymentError } from "@/lib/deployment/errors";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
 import { McpScopeError } from "./scopes";
@@ -92,7 +93,23 @@ export type HqToolErrorType =
 	| "hq_not_configured"
 	| "hq_upload_failed"
 	| "domain_not_authorized"
-	| "domain_ambiguous";
+	| "domain_ambiguous"
+	/**
+	 * A CommCare HQ app another Nova app in this Project already publishes
+	 * to. Its own tag because the recovery is specific — look at what
+	 * already owns it — rather than "fix your arguments and retry".
+	 */
+	| "already_mapped";
+
+/**
+ * The subset an UPLOAD gate can emit.
+ *
+ * `already_mapped` belongs to adoption, not to publishing, so the upload
+ * tool's exhaustiveness guard checks against this rather than against the
+ * whole HQ union — otherwise it would demand a tag its gates can never
+ * produce.
+ */
+export type UploadErrorType = Exclude<HqToolErrorType, "already_mapped">;
 
 /**
  * Closed union of every `error_type` string an MCP tool response can
@@ -251,6 +268,35 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof DeploymentError) {
+		/* Every arm of this class is an EXPECTED rejection a caller can act
+		 * on: a project space their key cannot reach, a CommCare HQ app id
+		 * that is not there, an app another Nova app already publishes to.
+		 * Without this branch they fell through to the generic classifier,
+		 * which discarded the written message AND logged at `error` — so an
+		 * ordinary "you have not connected CommCare HQ" became a Sentry
+		 * issue and reached the client as an unrelated internal message.
+		 *
+		 * `already_mapped` keeps its own wire tag because the recovery is
+		 * specific: look at what already owns it rather than retrying. */
+		const errorType =
+			err.code === "already_mapped" ? "already_mapped" : "invalid_input";
+		log.warn("[mcp] deployment rejected", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+			code: err.code,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload(errorType, err.message)),
 				},
 			],
 		};

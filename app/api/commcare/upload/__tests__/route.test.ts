@@ -19,7 +19,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import { publishAppToHq } from "@/lib/deployment/service";
+import {
+	previewProjectSpaceFor,
+	publishAppToHq,
+} from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { POST } from "../route";
 
@@ -29,7 +32,12 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: class AppAccessError extends Error {},
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
-vi.mock("@/lib/deployment/service", () => ({ publishAppToHq: vi.fn() }));
+vi.mock("@/lib/deployment/service", () => ({
+	publishAppToHq: vi.fn(),
+	/* The route asks the server what Preview may name; only the server
+	 * can see whether the app is now live on more than one space. */
+	previewProjectSpaceFor: vi.fn(async () => "acme"),
+}));
 vi.mock("@/lib/doc/fieldParent", () => ({
 	hydratePersistedBlueprint: (doc: unknown) => doc,
 }));
@@ -196,6 +204,20 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.deployment.deployment.state).toBe("uploaded");
 		expect(body.setup_artifact.domain).toBe(DOMAIN);
 		expect(body.url).toContain("/a/acme/apps/view/");
+	});
+
+	it("answers with what Preview may name, resolved server-side", async () => {
+		// The browser cannot see whether this app is now live on a second
+		// project space, which is when `commcare_project` has two real
+		// answers and Nova must name neither.
+		vi.mocked(previewProjectSpaceFor).mockResolvedValue(null as never);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as { preview_project_space: unknown };
+
+		expect(body.preview_project_space).toBeNull();
 	});
 
 	it("answers 200 with the incomplete record rather than throwing it away", async () => {

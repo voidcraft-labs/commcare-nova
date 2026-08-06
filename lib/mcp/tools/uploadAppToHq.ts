@@ -74,11 +74,11 @@ import { publishAppToHq } from "@/lib/deployment/service";
 import { activeRemoteApp } from "@/lib/deployment/store";
 import { initMcpCall } from "../context";
 import {
-	type HqToolErrorType,
 	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
+	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId, timestampToMillis } from "../runId";
@@ -108,7 +108,7 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_not_authorized: "domain_not_authorized",
 	/** Multi-space key with no `domain` supplied — caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
-} as const satisfies Record<HqToolErrorType, HqToolErrorType>;
+} as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -122,7 +122,7 @@ export const UPLOAD_ERROR_TAGS = {
  * model branching) and the user-actionable `message` (for display).
  */
 function makeGateError(
-	errorType: HqToolErrorType,
+	errorType: UploadErrorType,
 	message: string,
 	appId: string,
 ): McpToolErrorResult {

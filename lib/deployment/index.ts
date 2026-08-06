@@ -8,11 +8,9 @@ export { DeploymentError, type DeploymentErrorCode } from "./errors";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
 export {
 	buildSetupArtifact,
-	renderSetupArtifact,
-	SETUP_ARTIFACT_SECTION_IDS,
 	type SetupArtifact,
 	type SetupArtifactSection,
-	type SetupArtifactSectionId,
+	type SetupArtifactStep,
 } from "./setupArtifact";
 export {
 	deploymentCanRunPhase,
@@ -20,8 +18,6 @@ export {
 	deploymentHasReached,
 	deploymentProgressIndex,
 	deploymentResumeState,
-	endpointLinkIsDurable,
-	nextDeploymentPhase,
 } from "./stateMachine";
 export {
 	DEPLOYMENT_PHASE_ENTRY_STATE,

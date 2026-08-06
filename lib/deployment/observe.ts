@@ -154,10 +154,11 @@ export async function observeDeployment(input: {
 	outcomes.push(["release", { status: "succeeded", at: now }]);
 
 	// ── Probe ───────────────────────────────────────────────────────
-	// The released build's id is needed before anything is fetched,
-	// because the profile endpoint starts a build when it resolves a
-	// working app rather than a build. Naming the id is what keeps this
-	// a read.
+	// The released build's id is resolved before anything is fetched,
+	// because the profile endpoint starts a NEW build when it resolves a
+	// working app rather than a build. Naming the id keeps the request on
+	// this build; see `probeBuildProfile` for what that request is and is
+	// not.
 	const builds = await listAppBuilds(creds, domain, hqAppId);
 	if ("success" in builds) {
 		outcomes.push([
@@ -194,14 +195,23 @@ export async function observeDeployment(input: {
 	}
 
 	const profile = await probeBuildProfile(creds, domain, released.id);
-	if ("success" in profile) {
+	if (!profile.ok) {
+		// A redirecting project space, or CommCare HQ being unwell, is not
+		// a verdict on the build. Saying "this build is broken" there would
+		// accuse a healthy deployment of something it is not doing.
 		outcomes.push([
 			"probe",
-			failed(
-				now,
-				"build_not_installable",
-				`The released build didn't serve the file a device installs from, so Nova can't confirm workers can open it yet. Try releasing it again on CommCare HQ, then check back.`,
-			),
+			profile.reason === "unavailable"
+				? failed(
+						now,
+						"hq_unreachable",
+						"Nova couldn't check whether the released build is ready to install. CommCare HQ didn't answer that request. Try again in a moment.",
+					)
+				: failed(
+						now,
+						"build_not_installable",
+						"The released build didn't serve the file a device installs from, so Nova can't confirm workers can open it yet. Try releasing it again on CommCare HQ, then check back.",
+					),
 		]);
 		return {
 			outcomes,

@@ -34,6 +34,7 @@ import {
 } from "react";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
+import { publishOutcome } from "@/components/builder/publishOutcome";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -366,47 +367,39 @@ export function PublishDialog({
 				error?: string;
 			};
 			if (!isCurrent()) return;
-			const deploymentView =
-				response.ok &&
-				data.deployment !== undefined &&
-				data.setup_artifact !== undefined
-					? { deployment: data.deployment, artifact: data.setup_artifact }
-					: undefined;
 
-			/* A REFUSED publish is not an error screen. The request succeeded
-			 * and answered with the durable record that says which phase
-			 * stopped and where a retry resumes, so showing a generic failure
-			 * box would throw away the one thing that makes the refusal
-			 * actionable. The error branch below is for the case where there
-			 * is genuinely no record: a transport fault, or a 4xx from the
-			 * route's own input and authorization checks. */
-			if (deploymentView === undefined) {
-				const blocked = data.preflight?.find(
-					(check) => check.status === "blocked",
-				);
+			/* One pure decision, kept out of here because getting it wrong is
+			 * invisible in a screenshot: a refused publish must show its
+			 * record, not a generic failure box. */
+			const outcome = publishOutcome(response.ok, data);
+			if (outcome.kind === "failure") {
 				const failure = describeApiFailure(
 					data,
 					`Upload failed (HTTP ${response.status})`,
 				);
 				setStatus({
 					type: "error",
-					message: blocked?.detail ?? failure.message,
+					message: outcome.blockedDetail ?? failure.message,
 					status: response.status,
 					details: failure.details,
 				});
 				return;
 			}
 
-			/* Preview may name the project space only once the app is really
-			 * on it. A refused publish did not put it there. */
-			if (data.success === true) setProjectSpace(selectedDomain);
+			/* Preview names whatever the SERVER says it may. Only the server
+			 * can see whether this app is now live on more than one project
+			 * space, which is when `commcare_project` has two real answers
+			 * and Nova must name neither; a client asserting the space it
+			 * just used would make a condition pass here and fail for half
+			 * the workers until the next reload withdrew it. */
+			if (outcome.landed) setProjectSpace(outcome.previewProjectSpace);
 			setStatus({
 				type: "upload-success",
-				appUrl: data.url ?? "",
-				warnings: data.warnings ?? [],
+				appUrl: outcome.appUrl,
+				warnings: outcome.warnings,
 				featureFlagReport: data.feature_flag_requirements,
-				deployment: deploymentView,
-				landed: data.success === true,
+				deployment: outcome.deployment,
+				landed: outcome.landed,
 			});
 		} catch (error) {
 			if (

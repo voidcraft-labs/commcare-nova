@@ -35,15 +35,34 @@ import {
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
-export const SETUP_ARTIFACT_SECTION_IDS = [
-	"worker-data",
-	"organization",
-	"automations",
-	"build-and-release",
-	"web-apps",
-] as const;
-export type SetupArtifactSectionId =
-	(typeof SETUP_ARTIFACT_SECTION_IDS)[number];
+type SetupArtifactSectionId =
+	| "worker-data"
+	| "organization"
+	| "automations"
+	| "build-and-release"
+	| "web-apps";
+
+/**
+ * One instruction.
+ *
+ * `detail` lines belong to the step above them. They are a separate slot
+ * rather than an indent convention because both renderers have to know the
+ * difference: text numbering would count them, and a DOM list would give
+ * each one its own number and show the leading spaces.
+ */
+export interface SetupArtifactStep {
+	/**
+	 * Stable identity for this step.
+	 *
+	 * A real id rather than a list position, for the same reason everything
+	 * else in Nova is: two organization levels can produce identical detail
+	 * lines, and a renderer keyed on position or text would confuse them.
+	 * It is the authored UUID wherever one exists.
+	 */
+	readonly id: string;
+	readonly text: string;
+	readonly detail: readonly string[];
+}
 
 export interface SetupArtifactSection {
 	readonly id: SetupArtifactSectionId;
@@ -52,8 +71,16 @@ export interface SetupArtifactSection {
 	readonly summary: string;
 	/** The exact page on the target project space, when there is one. */
 	readonly url: string | null;
-	readonly steps: readonly string[];
+	readonly steps: readonly SetupArtifactStep[];
 	readonly caveats: readonly string[];
+}
+
+function step(
+	id: string,
+	text: string,
+	detail: readonly string[] = [],
+): SetupArtifactStep {
+	return { id, text, detail };
 }
 
 export interface SetupArtifact {
@@ -77,7 +104,14 @@ function hqBase(server: CommCareServer): string {
 	return COMMCARE_SERVERS[server].baseUrl;
 }
 
-/** How a level's case flow reads on CommCare HQ's Organization Levels form. */
+/**
+ * How a level's case flow reads on CommCare HQ's Organization Levels page.
+ *
+ * The labels here are the ones actually on that page
+ * (`locations/templates/locations/location_types.html`), not Nova's
+ * vocabulary and not the model field names — an instruction naming a
+ * control the reader cannot find is not an instruction.
+ */
 function levelCaseFlowSteps(
 	level: OrganizationLevel,
 	levelName: (uuid: string) => string,
@@ -85,28 +119,29 @@ function levelCaseFlowSteps(
 	const steps: string[] = [];
 	const flow = level.caseFlow;
 	steps.push(
-		flow.workers === "assigned"
-			? "Tick “Location has users”."
-			: "Leave “Location has users” unticked.",
+		flow.ownsCases ? "Tick “Owns Cases”." : "Leave “Owns Cases” unticked.",
 	);
+	// "Has Users" and "View Child Data to Level" sit behind a domain
+	// toggle, so the instruction has to say what to do when they are not
+	// on the page rather than sending somebody hunting.
 	steps.push(
-		flow.ownsCases
-			? "Tick “Location shares cases”."
-			: "Leave “Location shares cases” unticked.",
+		flow.workers === "assigned"
+			? "Tick “Has Users”. If you cannot see that column, this project does not have the restore-file location toggle and workers can be assigned here anyway."
+			: "Leave “Has Users” unticked. If you cannot see that column, nothing to do.",
 	);
 	if (flow.workers === "assigned") {
 		switch (flow.descendantCases.kind) {
 			case "none":
-				steps.push("Leave “View child data” unticked.");
+				steps.push("Leave “View Child Data” unticked.");
 				break;
 			case "all":
 				steps.push(
-					"Tick “View child data” and leave the level limit unset, so workers here receive cases from every place below them.",
+					"Tick “View Child Data” and leave “View Child Data to Level” unset, so workers here receive cases from every place below them.",
 				);
 				break;
 			case "down-to":
 				steps.push(
-					`Tick “View child data” and set the limit to “${levelName(flow.descendantCases.levelUuid)}”.`,
+					`Tick “View Child Data” and set “View Child Data to Level” to “${levelName(flow.descendantCases.levelUuid)}”. If you cannot see that second column, this project does not have the restore-file location toggle and the limit cannot be set.`,
 				);
 				break;
 		}
@@ -114,7 +149,7 @@ function levelCaseFlowSteps(
 	return steps;
 }
 
-/** How a level's address book reads on the same form. */
+/** How a level's address book reads on the same page. */
 function levelAddressBookSteps(
 	level: OrganizationLevel,
 	levelName: (uuid: string) => string,
@@ -125,6 +160,10 @@ function levelAddressBookSteps(
 	// `locations/sql_templates/get_location_fixture_ids.sql`; the rest are
 	// states that query calls undefined, which is why Nova has no way to
 	// author them and this projection has no way to describe them.
+	//
+	// There is no "expand from root" checkbox: `location_types.js` puts a
+	// synthetic *root* entry into the "Level to expand from" dropdown and
+	// derives `expand_from_root` from whether it is selected.
 	const alsoTop = (uuid: string | undefined): string[] =>
 		uuid === undefined
 			? []
@@ -134,11 +173,13 @@ function levelAddressBookSteps(
 	const expandTo = (uuid: string | undefined): string[] =>
 		uuid === undefined
 			? []
-			: [`Set “Expand to” to “${levelName(uuid)}” to stop descending there.`];
+			: [
+					`Set “Level to expand to” to “${levelName(uuid)}” to stop descending there.`,
+				];
 	switch (book.reach) {
 		case "own-branch":
 			return [
-				"Leave “Expand from” and “Expand from root” unset, so workers carry their own place, everything under it, and the chain above it.",
+				"Leave “Level to expand from” unset, so workers carry their own place, everything under it, and the chain above it.",
 				...expandTo(book.downToLevelUuid),
 				...alsoTop(book.alsoIncludeTopDownToLevelUuid),
 			];
@@ -148,17 +189,17 @@ function levelAddressBookSteps(
 					.map((uuid) => `“${levelName(uuid)}”`)
 					.join(
 						", ",
-					)}. Leave “Expand to” unset, because CommCare HQ ignores “Include only” whenever it is set.`,
+					)}. Leave “Level to expand to” unset, because CommCare HQ ignores “Include only” whenever it is set.`,
 				...alsoTop(book.alsoIncludeTopDownToLevelUuid),
 			];
 		case "shared-branch":
 			return [
-				`Set “Expand from” to “${levelName(book.fromLevelUuid)}”, so the branch a worker carries starts there rather than at their own place and they can name their siblings.`,
+				`Set “Level to expand from” to “${levelName(book.fromLevelUuid)}”, so the branch a worker carries starts there rather than at their own place and they can name their siblings.`,
 				...expandTo(book.downToLevelUuid),
 			];
 		case "whole-organization":
 			return [
-				"Tick “Expand from root”, so workers here carry the whole organization.",
+				"Set “Level to expand from” to “root”, so workers here carry the whole organization.",
 				...expandTo(book.downToLevelUuid),
 			];
 	}
@@ -191,20 +232,19 @@ function organizationSection(
 		if (next !== undefined) ordered.push(next);
 	}
 
-	const steps = ordered.flatMap((level) => {
+	const steps = ordered.map((level) => {
 		const parent =
 			level.parentLevelUuid === undefined
 				? "no parent, so it is a top level"
 				: `parent “${levelName(level.parentLevelUuid)}”`;
-		return [
-			`Add a level named “${level.name}” with organization level code “${level.code}” and ${parent}.`,
-			...levelCaseFlowSteps(level, levelName).map(
-				(step) => `  ${level.name}: ${step}`,
-			),
-			...levelAddressBookSteps(level, levelName).map(
-				(step) => `  ${level.name}: ${step}`,
-			),
-		];
+		return step(
+			level.uuid,
+			`Add a level named “${level.name}” with “Type Code” “${level.code}” and ${parent}.`,
+			[
+				...levelCaseFlowSteps(level, levelName),
+				...levelAddressBookSteps(level, levelName),
+			],
+		);
 	});
 
 	return {
@@ -212,7 +252,13 @@ function organizationSection(
 		title: "Organization levels",
 		summary: `The rungs of your organization. Create these on “${input.domain}” before you add any places, because every place names the level it stands at.`,
 		url: `${hqBase(input.server)}/a/${input.domain}/settings/locations/location_types/`,
-		steps,
+		steps: [
+			step(
+				"advanced-mode",
+				"Tick “Advanced mode” at the top of the page first. Type Code, both expand settings, Include only, Include without expanding, and the user settings are hidden until you do.",
+			),
+			...steps,
+		],
 		caveats: [
 			"Organization level codes are permanent on CommCare HQ. The names can change later; the codes cannot, because they become part of how every place is addressed.",
 			"This page is the only way to define levels. CommCare HQ's location API can read them but not write them, so Nova cannot create them for you.",
@@ -228,20 +274,21 @@ function workerDataSection(
 	const properties = Object.values(userPropertiesOf(input.doc));
 	if (properties.length === 0) return null;
 	const steps = properties.map((property) => {
-		const parts = [
-			`Add a field with property name “${property.slug}” and label “${property.label}”.`,
-		];
-		parts.push(
+		const detail = [
 			property.required === true
 				? "Tick Required, and under “Required for” choose Mobile Workers."
 				: "Leave Required unticked.",
-		);
+		];
 		if (property.choices !== undefined && property.choices.length > 0) {
-			parts.push(
+			detail.push(
 				`Set its choices to exactly: ${property.choices.map((choice) => `“${choice}”`).join(", ")}.`,
 			);
 		}
-		return parts.join(" ");
+		return step(
+			property.uuid,
+			`Add a field with “User Property” “${property.slug}” and label “${property.label}”.`,
+			detail,
+		);
 	});
 	return {
 		id: "worker-data",
@@ -263,7 +310,7 @@ function automationsSection(
 	const automations = Object.values(input.doc.automations ?? {});
 	if (automations.length === 0) return null;
 	const base = hqBase(input.server);
-	const steps: string[] = [];
+	const steps: SetupArtifactStep[] = [];
 	const caveats = new Set<string>();
 	for (const automation of automations) {
 		const guide = buildAutomationSetupGuide(
@@ -272,13 +319,16 @@ function automationsSection(
 			input.locations,
 		);
 		steps.push(
-			`${guide.title} — requires ${guide.requiredPlan}. Create it at ${
-				automation.kind === "case-update"
-					? `${base}/a/${input.domain}/data/edit/automatic_updates/`
-					: `${base}/a/${input.domain}/messaging/conditional/`
-			}`,
+			step(
+				automation.uuid,
+				`${guide.title}. Requires ${guide.requiredPlan}. Create it at ${
+					automation.kind === "case-update"
+						? `${base}/a/${input.domain}/data/edit/automatic_updates/`
+						: `${base}/a/${input.domain}/messaging/conditional/`
+				}`,
+				guide.steps,
+			),
 		);
-		steps.push(...guide.steps.map((step) => `  ${step}`));
 		for (const caveat of guide.caveats) caveats.add(caveat);
 	}
 	return {
@@ -306,9 +356,12 @@ function buildAndReleaseSection(
 			"Nova puts the app on your project space. Turning it into something workers can open is two clicks there, and only a signed-in person can make them.",
 		url: releases,
 		steps: [
-			"Open the app's Releases screen on CommCare HQ.",
-			"Choose Make new version, and wait for it to finish.",
-			"Star the new version to release it.",
+			step("open-releases", "Open the app's Releases screen on CommCare HQ."),
+			step(
+				"make-version",
+				"Choose Make new version, and wait for it to finish.",
+			),
+			step("release", "Star the new version to release it."),
 		],
 		caveats: [
 			"CommCare HQ only lets a signed-in person do this. Its build and release pages accept a browser session and not an API key, so Nova watches for it rather than doing it.",
@@ -324,7 +377,12 @@ function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
 		title: "Web Apps availability",
 		summary: `Whether “${input.domain}” can open this app in a browser at all.`,
 		url: `${hqBase(input.server)}/a/${input.domain}/cloudcare/apps/v2/`,
-		steps: ["Open Web Apps on the project space and check the app is listed."],
+		steps: [
+			step(
+				"check-listed",
+				"Open Web Apps on the project space and check the app is listed.",
+			),
+		],
 		caveats: [
 			"CommCare HQ decides whether an app is available in Web Apps when the app is created, from whether the project had Web Apps at that moment. A project that gains Web Apps later does not retroactively enable an app published before it, so publish again once the feature is on.",
 			"Nova cannot read that setting back, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, this is the reason to check first.",
@@ -354,26 +412,4 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 		hqAppId: input.hqAppId,
 		sections,
 	};
-}
-
-/** The artifact as plain text, for copying into a ticket or a runbook. */
-export function renderSetupArtifact(artifact: SetupArtifact): string {
-	const lines: string[] = [
-		`Setting up ${artifact.domain} on CommCare HQ (${COMMCARE_SERVERS[artifact.server].label})`,
-		"",
-	];
-	for (const section of artifact.sections) {
-		lines.push(section.title, section.summary);
-		if (section.url !== null) lines.push(section.url);
-		lines.push("");
-		section.steps.forEach((step, index) => {
-			lines.push(step.startsWith("  ") ? step : `${index + 1}. ${step}`);
-		});
-		if (section.caveats.length > 0) {
-			lines.push("", "Before you save");
-			lines.push(...section.caveats.map((caveat) => `- ${caveat}`));
-		}
-		lines.push("");
-	}
-	return lines.join("\n");
 }

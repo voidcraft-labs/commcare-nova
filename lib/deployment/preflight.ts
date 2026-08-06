@@ -5,7 +5,7 @@ import {
 	featureFlagReportForPrepublish,
 	requiredHqFeatureFlags,
 } from "@/lib/commcare/featureFlags";
-import type { CommCareServer } from "@/lib/commcare/servers";
+import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -208,7 +208,7 @@ export async function runDeploymentPreflight(
 		id: "hq-connection",
 		title: "CommCare HQ connection",
 		status: "passed",
-		detail: `Your API key reaches “${credResult.domain.displayName}” on the ${input.server} server.`,
+		detail: `Your API key reaches “${credResult.domain.displayName}” on the ${COMMCARE_SERVERS[input.server].label} CommCare server.`,
 		items: [],
 	});
 

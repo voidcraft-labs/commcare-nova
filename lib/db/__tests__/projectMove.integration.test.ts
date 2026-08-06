@@ -546,9 +546,9 @@ describe("atomic Project move", () => {
 		await prepareMove(appId);
 		await commitMove(appId);
 
-		/* A deployment carries the same deferred `(project_id, app_id)` tenant
-		 * key case rows do, so leaving one behind would fail the constraint at
-		 * commit and roll the whole move back. This asserts the row actually
+		/* Deployments carry NO composite tenant foreign key, so nothing in
+		 * the database catches a move that forgets them: the rows would
+		 * silently stay in the source Project. This asserts the row actually
 		 * moved rather than merely that the move succeeded. */
 		const moved = await h
 			.db()
