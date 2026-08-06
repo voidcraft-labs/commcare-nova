@@ -103,6 +103,9 @@ describe("form submission authorization snapshot", () => {
 		).resolves.toEqual({
 			kind: "replay",
 			projectId: PROJECT,
+			/* The role the snapshot proved, carried out so a caller needing it
+			 * (Preview's project-space resolution) does not re-read it. */
+			role: "editor",
 			receipt: {
 				formUuid,
 				requestDigest: "accepted-request",
@@ -207,6 +210,9 @@ describe("form submission authorization snapshot", () => {
 		).resolves.toEqual({
 			kind: "replay",
 			projectId: PROJECT,
+			/* The role the snapshot proved, carried out so a caller needing it
+			 * (Preview's project-space resolution) does not re-read it. */
+			role: "editor",
 			receipt: {
 				formUuid,
 				requestDigest: "accepted-before-topology-delete",
