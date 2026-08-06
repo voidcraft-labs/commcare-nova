@@ -467,3 +467,21 @@ Two rules govern the args these `caseDataBinding` Server Actions take. The edge 
 
 - **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason.
 - **Read/query actions ship the smallest domain slice they need, not the whole blueprint.** `loadCaseCountAction` needs only `(appId, caseType)`. `loadCasesAction` and the Details projection arm of `loadCaseDataAction` additionally take `caseTypes` (the live `CaseType[]` catalog — the only slice the SQL compiler reads: property data types + relation paths); raw form loads omit it. `populateSampleCasesAction` / `resetSampleCasesAction` take the single live `CaseType`. The modules/forms/fields trees are dead weight on these paths (~30 KB) and stay off the wire. The catalog is sent **live** alongside the live `caseListConfig` (not re-read server-side) so the two stay consistent — a property rename/retype reaches both together, and a stale-schema compile can't happen. The filter inspector's structural query still accepts the full blueprint because it derives the effective case-type context from that live document; the payload stays plain JSON, so it never goes multipart.
+
+## `commcare_project` comes from the deployment record
+
+Preview names the project space a worker signed into exactly when one
+deployment of this app has reached `uploaded` — the app is genuinely on that
+project space, so a worker could have signed into it. It stays ABSENT when none
+has, and when several have: choosing between two real answers would make a
+condition on `commcare_project` pass here and fail for half the workers.
+`lib/deployment/previewTarget.ts` is the rule, the builder page resolves it
+server-side, and `DeploymentTargetProvider` carries it — durable server state,
+so deliberately not the ephemeral session store.
+
+It stays out of the USERCASE whatever the deployment says, and that asymmetry is
+CommCare's rather than Nova's:
+`callcenter/sync_usercase.py::_get_user_case_fields` builds from
+`UserData.to_dict()`, and `commcare_project` is injected only by
+`users/models.py::CouchUser.get_user_session_data`, which the usercase never
+goes through.

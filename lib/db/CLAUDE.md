@@ -9,6 +9,18 @@ from scratch on retry, so it stays pure of side effects), the table types
 (lock-stepped with the DDL in `lib/case-store/migrations/`), and the
 LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
+**Deployments are app-state tables too.** `app_deployments` and
+`app_deployment_resources` are read-write and carry the same deferred
+`(project_id, app_id)` tenant key `cases` does, so
+`apps.ts::commitAppProjectMoveInTransaction` MUST re-tenant them in the same
+transaction — leaving them behind fails the constraint at commit and rolls the
+whole move back. A partial unique index on
+`(deployment_id, kind, nova_resource_id) WHERE superseded_at IS NULL` makes two
+live ownership mappings for one Nova resource unrepresentable; superseded rows
+are retained rather than deleted, because CommCare HQ has no atomic app update
+and the app a later publish left behind has to stay nameable.
+`lib/deployment/CLAUDE.md` owns the lifecycle.
+
 **Lock ordering is the concurrency discipline.** Every transaction that
 decides anything about a run locks the APP ROW first (`SELECT … FOR UPDATE`
 via `lockAppRow`), then touches other rows (credit months, entities, the

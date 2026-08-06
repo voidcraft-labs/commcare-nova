@@ -90,6 +90,17 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 
 ## Publishing
 
+A publish returns a durable deployment record, and `DeploymentStatus` renders
+it on the success screen: the five progress states as a ladder with only the
+reached ones filled, each rung stating its own condition in text so nothing is
+conveyed by fill alone, and the pending reason printed beside a rung that has
+not been reached. `incomplete` draws as a refusal rather than a rung, with the
+failure and the phase a retry resumes at. **Never call an uploaded app released,
+live, or ready for workers** — Nova cannot make a version or release one, so
+those rungs are watched rather than performed, and Check status is what advances
+them. CommCare HQ apps an earlier publish left behind are named on the same
+screen.
+
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
 selector's supporting line explains the current option; only its fields and

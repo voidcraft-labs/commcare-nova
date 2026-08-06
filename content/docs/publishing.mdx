@@ -1,0 +1,95 @@
+---
+title: Publishing to CommCare HQ
+description: What happens when you publish an app, how to turn it into something workers can open, and what you set up by hand on your project space.
+---
+
+Publishing sends your app to a CommCare HQ project space. Nova remembers where
+it went, so you can come back at any time and see how far along it is.
+
+Getting an app into workers' hands takes five steps, and Nova does the first two.
+The other three happen on CommCare HQ, because it only lets a signed-in person
+do them.
+
+## The five steps
+
+| Step | Who does it |
+| --- | --- |
+| **Checked** | Nova, before anything is sent |
+| **On CommCare HQ** | Nova |
+| **Version made** | You, on CommCare HQ |
+| **Released** | You, on CommCare HQ |
+| **Ready for workers** | Nova checks it |
+
+Nova shows all five in the Publish dialog after you publish, filled in as far as
+you have got. Choose **Check status** at any time and Nova asks CommCare HQ
+again.
+
+### Checked
+
+Before anything leaves Nova, it checks two things that would stop the publish
+working: that your API key can reach the project space you picked, and that the
+app itself has nothing outstanding. If either fails, nothing is sent and Nova
+tells you which one it was.
+
+It also reports things you should know about but that do not stop the publish,
+like a feature flag your project space does not have yet, or a persona missing
+worker information that CommCare HQ will ask for later.
+
+### On CommCare HQ
+
+Your app is now on the project space. It is not something workers can open yet.
+
+CommCare HQ has no way to update an app in place, so **publishing again creates
+a second app there** rather than replacing the first. Nova names the earlier one
+so you can delete it when you no longer need it.
+
+### Version made, and Released
+
+On CommCare HQ, open your app and go to **Releases**. Choose **Make new
+version**, wait for it to finish, then **star** the new version to release it.
+
+Nova cannot do these two for you. CommCare HQ accepts an API key for putting an
+app on a project space but not for building or releasing one, so these are yours
+to do there. Nova watches for them instead.
+
+CommCare HQ validates the app again while it builds. If it reports errors there,
+they are about the version you just published: fix them in Nova and publish
+again.
+
+### Ready for workers
+
+Once a version is released, Nova checks that it actually serves the file a
+device installs from. That is the strongest sign it will open for workers, and
+only then does Nova present its link as somewhere you can send people.
+
+## What you set up by hand
+
+Some of what your app needs lives on the project space rather than in the app,
+and CommCare HQ has no way for Nova to create it. After you publish, Nova lists
+exactly what those are, with a link to the right page on **your** project space
+and the values already filled in.
+
+- **Worker information.** One field per piece of information your workers carry,
+  on the project's user-data page.
+- **Organization levels.** The rungs of your organization. Create these before
+  you add any places, because every place names the level it stands at.
+- **Automations.** Each rule or alert, created on the relevant page. Changing an
+  automation in Nova does not change one you already made on CommCare HQ.
+
+These notes are generated fresh every time you look at them, so they always
+match your app as it is now.
+
+## If something goes wrong
+
+A publish that could not finish says so plainly, names what stopped it, and
+remembers where it stopped. Fixing the problem and trying again picks up from
+there: **you never have to publish the app again from the start** just because a
+later step failed.
+
+## A note on Web Apps
+
+CommCare HQ decides whether an app can be opened in a browser at the moment the
+app is created, based on whether your project had Web Apps then. A project that
+gains Web Apps later does not retroactively enable an app published before it.
+If your released app does not appear in Web Apps, publish again now that the
+feature is on.
