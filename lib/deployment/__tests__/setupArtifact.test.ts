@@ -296,6 +296,70 @@ describe("organization levels", () => {
 		expect(detail).toContain("will allow workers to be assigned here");
 	});
 
+	it("tells an Include-only level to leave BOTH expand dials unset", () => {
+		/* `get_location_fixture_ids.sql` puts "Include only" between the other
+		 * two dials, losing to one and silently beating the other: the depth
+		 * column takes `expand_to_id` first, so include-only never reaches its
+		 * `-3` arm when "Level to expand to" is set; and the expand-from column
+		 * is guarded by `NOT EXISTS (… include_only …)`, so "Level to expand
+		 * from" is discarded. A reader who set either would believe it took
+		 * effect. */
+		const doc = baseDoc() as Record<string, unknown>;
+		doc.organizationLevels = {
+			[state]: {
+				uuid: state,
+				code: "state",
+				name: "State",
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "none" },
+				},
+				addressBook: { reach: "own-branch-limited", levelUuids: [state] },
+			},
+		};
+		doc.organizationLevelOrder = [state];
+		const limited = artifact({ doc: doc as never }).sections.find(
+			(s) => s.id === "organization",
+		);
+		const detail = JSON.stringify(limited?.steps);
+		expect(detail).toContain("Set “Include only” to exactly these levels");
+		expect(detail).toContain(
+			"Leave “Level to expand to” and “Level to expand from” unset",
+		);
+	});
+
+	it("warns that a level with places aborts the WHOLE save, not just itself", () => {
+		/* `views.py::remove_old_location_types` returns False on the first
+		 * omitted level that still has locations, and `post` then returns
+		 * `self.get(...)` before a single `_mk_loctype` runs — so every other
+		 * edit on the page is silently lost behind one warning banner. */
+		const caveats = section().caveats.join(" ");
+		expect(caveats).toMatch(/abandons the ENTIRE save/i);
+	});
+
+	it("says a missing page is a permission answer, not a wrong address", () => {
+		/* All three gates raise a bare `Http404`:
+		 * `permissions.py::locations_access_required` via
+		 * `requires_privilege_raise404(privileges.LOCATIONS)`,
+		 * `::can_edit_location_types` (which checks `edit_apps`, NOT
+		 * `edit_locations`), and `::require_can_edit_locations`. Nobody gets
+		 * an upgrade prompt. */
+		const caveats = section().caveats.join(" ");
+		expect(caveats).toMatch(/page-not-found/i);
+		expect(caveats).toContain("edit apps");
+	});
+
+	it("does not claim the location API can read these settings back", () => {
+		/* `locations/resources/v0_5.py::LocationTypeResource.Meta.fields` is
+		 * exactly id, domain, name, code, parent_type, administrative,
+		 * shares_cases, view_descendants — none of the expand_*, include_*,
+		 * or has_users fields this section configures. */
+		const caveats = section().caveats.join(" ");
+		expect(caveats).not.toMatch(/can read them but not write/i);
+		expect(caveats).toContain("cannot write them");
+	});
+
 	it("does not claim a level's Type Code is permanent, because it is not", () => {
 		/* `location_types.html` renders Type Code as a plain editable input
 		 * with no `disable` binding, and `views.py::_mk_loctype` writes

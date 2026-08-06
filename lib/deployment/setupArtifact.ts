@@ -169,11 +169,15 @@ function levelAddressBookSteps(
 	levelName: (uuid: string) => string,
 ): string[] {
 	const book = level.addressBook;
-	// The four arms map onto CommCare HQ's five sync-settings dials. Only
-	// these four combinations are named by
-	// `locations/sql_templates/get_location_fixture_ids.sql`; the rest are
-	// states that query calls undefined, which is why Nova has no way to
-	// author them and this projection has no way to describe them.
+	// The four arms map onto CommCare HQ's five sync-settings dials. Each
+	// one traces cleanly through
+	// `locations/sql_templates/get_location_fixture_ids.sql`, whose own
+	// header comment then lists the combinations it calls ambiguous or
+	// logically inconsistent. Nova's closed union is what keeps those
+	// unauthorable — most sharply `include_only` together with
+	// `expand_from_root`, which yields NO locations at all (the include-only
+	// arm matches on `loc_id = loc.id`, and `expand_from_root` sets `loc_id`
+	// to NULL), and which a person filling this page in by hand can reach.
 	//
 	// There is no "expand from root" checkbox: `location_types.js` puts a
 	// synthetic *root* entry into the "Level to expand from" dropdown and
@@ -201,9 +205,16 @@ function levelAddressBookSteps(
 			return [
 				`Set “Include only” to exactly these levels: ${book.levelUuids
 					.map((uuid) => `“${levelName(uuid)}”`)
-					.join(
-						", ",
-					)}. Leave “Level to expand to” unset, because CommCare HQ ignores “Include only” whenever it is set.`,
+					.join(", ")}.`,
+				/* "Include only" sits between the other two dials in the query's
+				 * precedence, and loses to one while silently beating the other:
+				 * the depth column takes `expand_to_id` first, so a level with
+				 * "Level to expand to" set never reaches the include-only arm at
+				 * all; and the expand-from column is guarded by
+				 * `NOT EXISTS (… include_only …)`, so "Level to expand from" is
+				 * ignored outright. Both are settings a reader would believe had
+				 * taken effect. */
+				"Leave “Level to expand to” and “Level to expand from” unset. CommCare HQ ignores “Include only” when the first is set, and ignores the second when “Include only” is set — either way one of them silently does nothing.",
 				...alsoTop(book.alsoIncludeTopDownToLevelUuid),
 			];
 		case "shared-branch":
@@ -275,9 +286,9 @@ function organizationSection(
 		],
 		caveats: [
 			"Two levels cannot share a Type Code. CommCare HQ checks that as you type and refuses to save a duplicate.",
-			"This page is the only way to define levels. CommCare HQ's location API can read them but not write them, so Nova cannot create them for you.",
-			"Saving this page replaces the whole list. A level you leave out is removed, so add to what is there rather than starting over.",
-			"Locations need the paid Locations feature on the project. Ask support@dimagi.com if the page is not available.",
+			"This page is the only way to define levels. CommCare HQ's location API cannot write them, and reads back only the name, code, parent, and two of the settings below — so Nova can neither create these for you nor check that you got them right.",
+			"Saving this page replaces the whole list. A level you leave out is removed — and if that level still has places in it, CommCare HQ abandons the ENTIRE save with only a warning at the top of the page, so none of your other changes land either. Add to what is there rather than starting over.",
+			"If this page is not there at all, it is one of three things: the project does not have the paid Locations feature (ask support@dimagi.com), or your CommCare HQ account lacks the “edit apps” or “edit locations” permission. CommCare HQ answers all three the same way — a plain page-not-found — so a missing page is not a wrong address.",
 		],
 	};
 }
@@ -294,8 +305,12 @@ function workerDataSection(
 				: "Leave Required unticked.",
 		];
 		if (property.choices !== undefined && property.choices.length > 0) {
+			/* The column is "Choices" on most projects and "Validation" on one
+			 * with the regex-validation feature, where the choices box appears
+			 * only after choosing "Choices" from a None / Choices / Regex
+			 * group. Naming both spellings costs a clause and saves a hunt. */
 			detail.push(
-				`Set its choices to exactly: ${property.choices.map((choice) => `“${choice}”`).join(", ")}.`,
+				`Set its choices to exactly: ${property.choices.map((choice) => `“${choice}”`).join(", ")}. If that column reads “Validation” rather than “Choices”, choose “Choices” first to get the list.`,
 			);
 		}
 		return step(
