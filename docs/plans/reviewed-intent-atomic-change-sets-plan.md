@@ -260,6 +260,7 @@ lib/agent/design/
   envelope.ts
   artifactStore.ts
   sourcePackage.ts
+  sourcePackageDeps.ts
   prompts.ts
   artifactResult.ts
   author.ts
@@ -279,7 +280,7 @@ lib/agent/design/
 validator and the capability catalog consume (dependency-free so the
 validator never drags the tool registry into its import graph); `graph.ts`
 holds `validateDesignGraph`; `envelope.ts`/`artifactStore.ts` are §6.12's
-persistence; `pipeline.ts` is §7.1/§7.3's bounded machine.
+persistence; `pipeline.ts` is §7.1/§7.3's bounded machine. `sourcePackageDeps.ts` holds the production resource seams separately, so the pure builder never drags the office-parser import graph (mammoth/bluebird) into a consumer.
 
 The Zod schemas are the authority. TypeScript types are inferred from them. Every persisted JSONB artifact round-trips through the same schema used by its producer and reader.
 

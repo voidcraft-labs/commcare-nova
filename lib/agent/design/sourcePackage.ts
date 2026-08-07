@@ -36,7 +36,6 @@
  * call.
  */
 
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
 	sourceClaimSchema,
@@ -46,13 +45,11 @@ import {
 	PLATFORM_CONSTRAINTS,
 	type PlatformConstraint,
 } from "@/lib/agent/design/platformConstraints";
-import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
-import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import {
 	attachmentRefSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
-import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	asMediaAssetId,
 	type DocumentKind,
@@ -62,7 +59,6 @@ import {
 	mediaAssetIdSchema,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import { downloadAssetBytes } from "@/lib/storage/media";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 /* ---- bounds ------------------------------------------------------- */
@@ -239,8 +235,11 @@ export function toPersistedSourcePackage(
 
 /* ---- builder ------------------------------------------------------ */
 
-/** The injectable resource seams — production defaults reach Postgres, the
- *  extraction store, and GCS; tests substitute fixtures. */
+/** The injectable resource seams. The production seams live in
+ *  `sourcePackageDeps.ts` — a separate module on purpose: the extraction
+ *  store's import graph carries the office parsers (mammoth's bluebird
+ *  allocates a promise at module load), and this pure builder must stay
+ *  importable without them. */
 export interface SourcePackageDeps {
 	loadAssets(
 		ids: readonly MediaAssetId[],
@@ -253,41 +252,6 @@ export interface SourcePackageDeps {
 	loadImage(
 		asset: MediaAssetRecord,
 	): Promise<{ mediaType: string; dataUrl: string; bytesDigest: string }>;
-}
-
-/** Production seams. The condenser backs the extraction store's backstop
- *  for a document whose eager extraction never ran. */
-export function productionSourcePackageDeps(
-	condenser: AttachmentCondenser,
-): SourcePackageDeps {
-	return {
-		loadAssets: (ids, projectId) => loadAssetsByIds(ids, projectId),
-		async readExtract(asset, kind) {
-			const result = await ensureStoredExtract({
-				asset,
-				documentKind: kind,
-				condenser,
-				onInflight: "wait",
-			});
-			if (result.status === "ready") {
-				return { text: result.text, truncated: result.truncated };
-			}
-			throw new SourcePackageError(
-				`The document "${asset.originalFilename}" could not be read: its extraction failed, so its requirements cannot ground a design. Re-attach the document or remove it from the request.`,
-			);
-		},
-		async loadImage(asset) {
-			const bytes = await downloadAssetBytes(
-				asset.gcsObjectKey,
-				MAX_IMAGE_BYTES,
-			);
-			return {
-				mediaType: asset.mimeType,
-				dataUrl: `data:${asset.mimeType};base64,${bytes.toString("base64")}`,
-				bytesDigest: createHash("sha256").update(bytes).digest("hex"),
-			};
-		},
-	};
 }
 
 export interface BuildSourcePackageArgs {

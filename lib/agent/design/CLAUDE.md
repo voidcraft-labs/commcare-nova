@@ -59,7 +59,9 @@ direct MCP edit.
   row-locked) and the DDL in
   `lib/case-store/migrations/20260808000000_design_artifacts.ts`
   (`design_session_id` opaque until the design-session unit adds its FK).
-- `sourcePackage.ts` — the one boundary turning a caller-authorized
+- `sourcePackage.ts` (+ `sourcePackageDeps.ts`, the production resource
+  seams split out so the pure builder never drags the office-parser import
+  graph into a consumer) — the one boundary turning a caller-authorized
   transcript into model input: bounded labeled blocks, Project-verified
   attachments through the extraction store, image projections bound by
   content digest, honest over-bound REJECTION (never silent clipping of a
