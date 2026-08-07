@@ -250,21 +250,37 @@ Create a new server-safe package:
 ```text
 lib/agent/design/
   ids.ts
+  platformConstraints.ts
+  evidence.ts
   contract.ts
+  graph.ts
   review.ts
   buildPlan.ts
-  evidence.ts
-  projection.ts
   complexity.ts
+  envelope.ts
+  artifactStore.ts
+  sourcePackage.ts
+  sourcePackageDeps.ts
   prompts.ts
+  artifactResult.ts
   author.ts
   reviewer.ts
   reviser.ts
   planner.ts
-  conformance.ts
-  quality.ts
+  pipeline.ts
+  capabilityCatalog.ts
+  designGenerationContext.ts
+  projection/
+  conformance.ts   (Unit F)
+  quality.ts       (Unit F)
   CLAUDE.md
 ```
+
+`platformConstraints.ts` is the closed constraint-code leaf both the graph
+validator and the capability catalog consume (dependency-free so the
+validator never drags the tool registry into its import graph); `graph.ts`
+holds `validateDesignGraph`; `envelope.ts`/`artifactStore.ts` are §6.12's
+persistence; `pipeline.ts` is §7.1/§7.3's bounded machine. `sourcePackageDeps.ts` holds the production resource seams separately, so the pure builder never drags the office-parser import graph (mammoth/bluebird) into a consumer.
 
 The Zod schemas are the authority. TypeScript types are inferred from them. Every persisted JSONB artifact round-trips through the same schema used by its producer and reader.
 
@@ -317,7 +333,8 @@ Rules:
 - Store normalized requirements, not raw source excerpts, unless an exact label/choice/value is itself the requirement.
 - Do not store model reasoning.
 - A claim marked `explicit` must carry a user-message or attachment source.
-- A claim based only on Nova/CommCare capability knowledge uses `platform-constraint`.
+- A claim based only on Nova/CommCare capability knowledge uses `platform-constraint`, whose `code` is the closed vocabulary in `platformConstraints.ts` (enforced by the schema enum).
+- There is no image coordinate yet: a requirement visible only in an attached image cites the message that attached it, with the image bytes digest-bound in the source package. The image evidence arm ships with the new-build cutover (Unit E work item 20), so image-heavy designs gain exact citations before real builds rely on them.
 - A reviewer cannot create a source-supported critical finding without a source reference.
 
 ### 6.4 UX-level design actor
@@ -395,6 +412,8 @@ const factDefinitionSchema = z.object({
 ```
 
 A fact's `source` is load-bearing. It is the basis for lowering direct field-to-case writes correctly and for identifying unjustified hidden writer fields.
+
+The `lookup` arm's intent ids name a design-level lookup vocabulary (table/column intents) the contract root does not carry yet, so they are the one reference family exempt from graph closure. That vocabulary — and the lifted exemption — ships with the new-build cutover (Unit E work item 19): a user-facing pipeline must be able to describe lookup-backed data as precisely as it validates everything else. Until then the canonical commit gate remains the full authority over real lookup references.
 
 ### 6.6 Tasks, inputs, transitions, and read-back
 
@@ -588,7 +607,7 @@ const appDesignContractSchema = z.object({
 }).superRefine(validateDesignGraph);
 ```
 
-`validateDesignGraph` proves internal referential closure, unique IDs, selected-option membership, fact/task consistency, acyclic navigation, and that every in-scope explicit claim is represented or explicitly deferred. It is not the Blueprint validator.
+`validateDesignGraph` proves internal referential closure, unique IDs, selected-option membership, fact/task consistency, acyclic navigation, and that every in-scope explicit claim is represented or explicitly deferred. It is not the Blueprint validator. It runs inside the schema's parse, so it executes everywhere the schema does — the producer call, the persistence boundary, and every persisted read.
 
 ---
 
@@ -626,7 +645,8 @@ Rules:
 - `artifactDigest` is over the canonical exact JSON bytes of every authoritative envelope field except `artifactDigest` itself. It is not `JSON.stringify` of a live object with implementation-dependent key order.
 - The producer metadata is operational provenance, not a claim that the same model call is deterministic.
 - Raw prompts, raw model output, hidden reasoning, provider response bodies, and source documents are not stored in the envelope.
-- An artifact row is insert-only. `accepted`, `superseded`, and `active` are relationships or pointers stored separately, not mutations of the artifact body.
+- An artifact row is insert-only. `accepted`, `superseded`, and `active` are relationships or pointers stored separately, not mutations of the artifact body. Acceptance of a reviewed draft is therefore a NEW `accepted` revision row (parent = the draft, inputs binding the review digest) — even when the content is unchanged — never a lifecycle flip on the draft row.
+- A contract envelope additionally carries the deterministic complexity evidence (§7.4) as an optional `complexity` field, so the depth decision persists with the draft it graded.
 - `active_design_revision` on `design_sessions` points only to a fully parsed accepted contract revision.
 - Every read parses both envelope and payload through the current exact schema. Unknown keys fail closed.
 - Prompt/schema version changes require a new artifact revision; they never silently reinterpret an old JSONB body.
@@ -656,7 +676,7 @@ interface DesignReviewRow {
 }
 ```
 
-`design_sessions.active_design_revision_id` may point only to an `accepted` revision from the same session. Historical accepted revisions remain immutable; supersession is derived from the active pointer and revision ancestry, not by updating their payload/status.
+`design_sessions.active_design_revision_id` may point only to an `accepted` revision from the same session. Historical accepted revisions remain immutable; supersession is derived from the active pointer and revision ancestry, not by updating their payload/status. Revision numbering is monotonic per session with `(revision = 1) ⇔ (parent IS NULL)`: a fresh draft after a superseding source package parents the session's prior head, so ancestry records the supersession.
 
 ### 6.13 Review dispositions
 
@@ -692,13 +712,13 @@ const designRevisionResultSchema = z.object({
 }).superRefine(validateDispositionClosure);
 ```
 
-`validateDispositionClosure` proves:
+`validateDispositionClosure` needs the parent draft's review passes, which a bare refinement cannot see, so it binds as a schema FACTORY — `designRevisionResultSchemaFor(reviews)` — making an unclosed disposition set an invalid structured output (retriable) rather than a persisted artifact. The structural `designRevisionResultSchema` (self-contained refinements only) serves persisted reads, where digest binding proves the artifact unchanged since its validated write. Dispositions persist in the SAME transaction as the revision that carries them; in a two-round flow that revision is round one's re-reviewable draft, so dispositions may ride a draft — acceptance itself still requires a persisted review of the parent. It proves:
 
 - every critical/important finding from every review pass for the parent draft appears exactly once;
 - no unknown finding is dispositioned;
 - accepted resolutions are represented by changed or newly linked intent IDs;
-- a rejected source-supported or platform finding contains a contradiction/evidence rationale, not “model disagreed”;
-- deferred critical findings create a blocking open question or an explicit deferred requirement and cannot be hidden from completion policy.
+- a rejected source-supported or platform finding contains a contradiction/evidence rationale, not “model disagreed” (the deterministic layer cannot judge prose, so this rule is prompt-enforced; the schema requires a nonempty rationale);
+- deferred critical findings create a blocking open question or an explicit deferred requirement — the disposition's `resultingIntentIds` must name it in the revised contract — and cannot be hidden from completion policy.
 
 ### 6.14 Evidence authorization and source-package construction
 
@@ -706,26 +726,36 @@ Create `lib/agent/design/sourcePackage.ts` as the only boundary that turns threa
 
 ```ts
 interface DesignSourcePackage {
+  schemaVersion: 1;
   designSessionId: string;
   projectId: string;
   packageDigest: string;
   request: ResolvedUserRequest;
   claims: SourceClaimSeed[];
   attachments: AuthorizedAttachmentProjection[];
+  images: AuthorizedImage[];
   platformConstraints: PlatformConstraint[];
+  /** The labeled index of every projected source — the closed set of
+   *  references a reviewer may cite (plus catalog constraints). */
+  sources: Array<{ ref: SourceRef }>;
 }
 ```
+
+Image attachments project as identity + content digest + transport
+(`assetId`, `mediaType`, `bytesDigest`, `dataUrl`); the package digest
+covers the identity and byte digest, never the base64 transport, and a
+reviewer cites an image through the message that attached it.
 
 The builder:
 
 1. resolves the thread through its authorized generation target;
 2. verifies every attachment still belongs to the same Project;
 3. uses the existing extraction/figure pipeline and media-reference protection;
-4. bounds text, table, and image projections by explicit per-source and total limits;
+4. bounds text, table, and image projections by explicit per-source and total limits, REJECTING an over-bound source honestly (`SourcePackageError`) instead of silently clipping evidence away;
 5. labels every source with an opaque source reference;
 6. excludes assistant hidden reasoning and prior reviewer narrative;
 7. computes one canonical digest over the exact projected package;
-8. persists only source references and normalized claims.
+8. persists only source references and normalized claims (`design_source_packages.payload` — the digest, the claims, the labeled source index, and count/byte observability metadata; no extract bodies, transcripts, or image bytes). The row is a deterministic projection, so it carries no producer/prompt-version columns, and `(design_session_id, package_digest)` is unique — an identical rebuild converges on the stored row.
 
 The author/reviewer/reviser system prompts state that all source text is **quoted data**, not instruction. A source that says “ignore prior instructions,” requests credentials, asks the model to call tools, or declares itself a system message has no authority.
 
@@ -743,11 +773,11 @@ The author/reviewer/reviser system prompts state that all source text is **quote
 - parent record and navigation graphs are acyclic;
 - architecture-decision option IDs are local to that decision;
 - every blocking open question is referenced by at least one affected intent or architecture decision;
-- every non-deferred explicit in-scope claim has at least one owning intent, not merely a loose evidence reference;
+- every non-deferred explicit in-scope claim has at least one OWNING intent — a record, fact, rule, task, transition, read model, or access policy citing it as evidence (actors, decisions, assumptions, and scenarios are context, not owners);
 - every acceptance scenario references at least one task/transition/read model;
-- sensitivity cannot be lowered by a reviser without a source-supported rationale.
+- sensitivity cannot be lowered by a reviser without a dispositioned finding naming the fact — a revision-PAIR property enforced in the reviser call (`validateSensitivityNotSilentlyLowered`), not in the single-graph validator.
 
-Graph validation is deterministic and runs before review, after revision, before build planning, and on every persisted read.
+Graph validation is deterministic and runs before review, after revision, before build planning, and on every persisted read (it lives inside the contract schema's parse). The lookup fact-source arm's intent ids are exempt from closure until a lookup-intent vocabulary joins the contract root.
 
 ## 7. Independent review pipeline
 
@@ -763,13 +793,25 @@ interface DesignPipeline {
 }
 
 type ArtifactResult<T> =
-  | { kind: "produced"; artifact: T; usage: LanguageModelUsage }
+  | {
+      kind: "produced";
+      artifact: T;
+      usage: LanguageModelUsage | undefined;
+      finishReason: string | undefined;
+    }
   | {
       kind: "not-produced";
       reason: "length" | "invalid-structured-output" | "cancelled";
       usage?: LanguageModelUsage;
     };
 ```
+
+Provider/network failures are not results — they throw, and the caller
+classifies them as retriable operational errors. The cross-artifact
+grounding rules ride the structured-output schemas themselves
+(`designReviewSchemaFor`, `designRevisionResultSchemaFor`, and the graph
+proof inside the contract schema), so "parsed" already means
+"graph-validated and grounded".
 
 The orchestrator owns these durable transitions:
 
@@ -848,14 +890,14 @@ Default limits:
 - one author call;
 - one review call;
 - one revision call when critical/important findings exist;
-- one second review and one second revision only when the first revision leaves a critical finding or changes architecture;
-- no third automatic loop.
+- one second review and one second revision only when the first revision leaves a critical finding (a critical dispositioned deferred, or rejected — the reviser overriding the reviewer on a critical deserves the second independent look) or changes architecture (the decision set or a selected option changed); extended depth always takes the second review — its impacted-scenario re-review;
+- no third automatic loop. A revision awaiting its second review persists as a `draft`; resume derives the round from durable ancestry (a draft whose parent, in the same source-package lineage, carries reviews is round 2), so a rerun can never grant an extra round — prompt versions move on deploys and are never round authority.
 
 Terminal outcomes:
 
 | Outcome | Durable state | User/app consequence |
 | --- | --- | --- |
-| Accepted | Accepted contract revision | Planner may run. |
+| Accepted | Accepted contract revision | Planner may run — unless the accepted revision carries blocking open questions, which short-circuit to the blocking-source-question outcome before any plan. |
 | Blocking source question | `awaiting_input = true`, open question persisted | No app; ask through existing `askQuestions` transcript contract. |
 | Structured output truncated/invalid | Retriable design-session error | No app; preserve source package and artifacts already committed. |
 | Provider/network failure | Retriable design-session error | No app; settle/refund according to actual usage policy. |
@@ -864,9 +906,11 @@ Terminal outcomes:
 
 A terminal system failure does not manufacture a user question. It records a retriable operational error and ends the run honestly.
 
+Rerunning the pipeline with the same source package CONVERGES on the durable state: an existing draft resumes at review, a reviewed draft resumes at revision, an accepted revision skips to planning, and an existing plan returns outright — artifacts already committed are never re-produced (`pipeline.ts`).
+
 ### 7.4 Proportional design depth
 
-Retain the v1 deterministic complexity score, but calculate it only after the draft passes schema and graph validation. Persist both the component counts and final score.
+The deterministic complexity score is calculated only after the draft passes schema and graph validation, and persists — component counts and final score — as the contract envelope's `complexity` field (`complexity.ts::computeDesignComplexity`, workflow-shape arithmetic over records/hierarchy/actors/tasks/transitions/rules/read models/access/location scope/lookup facts/sensitivity).
 
 ```ts
 type DesignDepth = "compact" | "standard" | "extended";
@@ -921,7 +965,7 @@ Implementations:
 - `AppGenerationContext` for an app-bound SA/edit run;
 - one shared adapter over `streamObjectWith`/`generateObjectWith`, provider privacy settings, safe structured-output logging, and usage metering.
 
-Do not duplicate provider code. Preserve `store: false`/training-disallow behavior and the existing rule that raw invalid structured output never enters Sentry or Cloud logs.
+Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interface plus the ONE adapter over `subGeneration.ts`'s `generateObjectWith`/`streamObjectWith` (which carry `abortSignal` pass-through), so `store: false`/training-disallow behavior, the sanitized structured-output logging, and cancellation are written once and cannot drift between targets. `lib/db/generationTargets.ts` lands the closed `app | design-session` union as a type leaf; the design-session unit builds its resolver (§11.1) around it — the same landed-early pattern as `design/ids.ts`. The offline wire pin is `lib/agent/__tests__/designGenerationContextWire.test.ts`.
 
 ### 7.6 Capability catalog
 
@@ -937,7 +981,7 @@ It contains:
 - deployment/HQ constraints;
 - deliberate target gaps from `docs/plans/complex-app/00-contracts.md`.
 
-A source test fails when a shared tool, authored entity family, or platform constraint changes without updating or explicitly exempting the catalog. The catalog may explain capability; it cannot emit mutations.
+A source test fails when a shared tool, authored entity family, or platform constraint changes without updating or explicitly exempting the catalog: the generated catalog (tool surface from `SHARED_TOOL_REGISTRY` policies, field kinds, case data shapes, the closed constraint codes) pins against a checked-in snapshot keyed by its canonical digest, and every deliberate-gap constraint pins against the remaining `docs/plans/complex-app/` unit FILES — a gap code must name a unit file that still exists, and every remaining unit file must carry a gap code, so shipping a unit forces the vocabulary to shed its code. The catalog may explain capability; it cannot emit mutations.
 
 ## 8. Build-slice plan
 
@@ -998,7 +1042,9 @@ const buildSliceSchema = z.object({
 });
 
 const buildPlanSchema = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(2),  // server-stamped; the planner MODEL emits
+                                // only { slices, externalActions,
+                                // intentOwnership } (buildPlanDraftSchema)
   designRevisionId: z.string().uuid(),
   designRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
   id: z.string().uuid(),
@@ -1019,13 +1065,13 @@ const buildPlanSchema = z.object({
 1. Slices are organized around actor tasks and observable outcomes, not modules.
 2. The DAG is acyclic and every prerequisite resolves.
 3. Exactly one slice has `role = "materialization-root"`.
-4. The materialization root's transitive prerequisite closure contains no post-materialization external action and forms one useful export-ready app.
-5. Every non-deferred in-scope intent has exactly one owning slice.
+4. The materialization root's transitive prerequisite closure contains no post-materialization external action — every action referenced there is timed `before-materialization` or `manual-setup` — and forms one useful export-ready app (the export-readiness half is proved by genesis, not the plan validator).
+5. Every non-deferred in-scope intent has exactly one owning slice — the implementable intents of the accepted contract (records, facts, rules, tasks, transitions, read models, access policies, navigation; intents present in the accepted contract are by construction the non-deferred in-scope set, deferral happening at claim level before intents exist), covered EXACTLY by `intentOwnership` and mirrored in the slices' `ownedIntentIds`.
 6. An intent may contribute to later slices, but completion is not double-counted.
 7. Every acceptance scenario belongs to at least one owning slice.
 8. Every external action has an owner, timing, required-for class, and completion evidence.
-9. A viewer/read model required before a child-creating task belongs in the same slice or a prerequisite.
-10. A batch-exclusive operation is the only canonical semantic operation in its `exclusive` slice.
+9. A viewer/read model required before a child-creating task belongs in the same slice or a prerequisite: a slice owning a task that create-transitions a child record must reach a read model over the parent record in its own intents or its prerequisite closure.
+10. A batch-exclusive operation is the only canonical semantic operation in its `exclusive` slice (the runtime enforcement is the change-set admission fence; the plan validator's contribution is that an exclusive slice is never the materialization root by role).
 11. A data-migration slice is impossible for a new app before materialization.
 12. New place rows, lookup rows/schemas, deployments, workers, and media bytes are not represented as Blueprint mutations.
 13. No slice references a Design Contract revision other than the plan's exact digest.
@@ -4177,28 +4223,32 @@ Prefer a table per lifecycle/authority rather than one generic polymorphic `desi
 
 ### 18.2 Artifact tables
 
-Each typed artifact row carries:
+Each typed MODEL artifact row carries:
 
 ```text
 id
 design_session_id
-schema_version
 artifact_digest
-parent_artifact_id / parent_revision where applicable
+parent linkage where applicable
 source_package_digest
 producer_model
 prompt_version
 created_by_run_id
 created_at
-payload jsonb
+envelope jsonb        (the full §6.12 envelope, schema version inside)
 ```
+
+`design_source_packages` is the deliberate exception: a deterministic
+projection with no model producer, so its row is
+`(id, design_session_id, project_id, package_digest, created_by_run_id,
+payload, created_at)` with `(design_session_id, package_digest)` unique.
 
 Additional exact bindings:
 
-- `design_revisions`: monotonic immutable revision with lifecycle `draft | accepted`; supersession derives from the session's active pointer and ancestry;
-- `design_reviews`: reviewed revision ID/digest, reviewer call metadata;
-- `design_review_dispositions`: review ID, finding ID, disposition, rationale, resulting revision;
-- `design_build_plans`: accepted design revision/digest, plan digest;
+- `design_revisions`: monotonic immutable revision with lifecycle `draft | accepted` fixed at insert, `contract_digest` beside the envelope digest, `(revision = 1) ⇔ (parent IS NULL)`; supersession derives from the session's active pointer and ancestry; acceptance requires a persisted review of the parent draft, proved at insert;
+- `design_reviews`: reviewed revision ID/digest (proved against the stored revision at insert), per-revision `review_ordinal`, reviewer call metadata; the review's source package must be the revision's;
+- `design_review_dispositions`: `(review_id, finding_id)` primary key, status, resulting revision, and the exact `FindingDisposition` payload — inserted in the SAME transaction as the revision that carries them;
+- `design_build_plans`: accepted design revision/digest (a plan over a draft is unpersistable), plan digest;
 - `design_conformance_reports`: app ID/sequence/snapshot digest and projection/rule versions;
 - `design_completion_reports`: exact current design/plan/app/report identities.
 
@@ -4776,19 +4826,27 @@ Do not proceed past these gates on assertion alone:
 
 **Primary files:**
 
-- new `lib/agent/design/*`
-- new artifact persistence modules/tables
-- `lib/agent/generationContext.ts`
-- `lib/agent/subGeneration.ts`
-- attachment/source extraction modules
-- new `scripts/preview-app-design.ts`
-- design fixtures/tests
+- `lib/agent/design/*` (schemas, validators, envelope, store, source
+  package, prompts, calls, pipeline, catalog — its `CLAUDE.md` is the
+  contract)
+- `lib/case-store/migrations/20260808000000_design_artifacts.ts` +
+  `lib/db/pg.ts` + `lib/db/privilegeConvergence.ts` (the five append-only
+  artifact tables, `design_session_id` opaque until Unit D's FK)
+- `lib/agent/modelRunContext.ts` + `lib/db/generationTargets.ts` (the §7.5
+  seam + target-union leaf) over `lib/agent/generationContext.ts` /
+  `lib/agent/subGeneration.ts`
+- attachment/source extraction modules (consumed through
+  `sourcePackage.ts`'s injectable seams)
+- `scripts/preview-app-design.ts` (⚠️ live calls) +
+  `scripts/inspect-design-artifacts.ts` (read-only)
+- design fixtures/tests (`lib/agent/design/__tests__/*`,
+  `lib/agent/__tests__/designGenerationContextWire.test.ts`)
 
 **Work:**
 
 1. Add Design ID, source package, contract, review, disposition, plan, artifact-envelope schemas.
 2. Implement `validateDesignGraph` and `validateSlicePlan`.
-3. Extract app-independent `ModelRunContext` without duplicating provider code.
+3. Extract the app-independent `StructuredModelRunContext` without duplicating provider code (one adapter; `DesignGenerationContext` + `GenerationContext` both implement it).
 4. Implement source package projection:
    - normalized claims;
    - source pointers;
@@ -4806,7 +4864,7 @@ Do not proceed past these gates on assertion alone:
    - external actions;
    - plan digest.
 10. Add a versioned capability catalog derived from actual domain/tool support.
-11. Add fixture preview/inspection scripts.
+11. Add fixture preview/inspection scripts (`preview-app-design.ts` drives the real calls with no persistence; `inspect-design-artifacts.ts` re-verifies a session's stored artifacts).
 
 **Acceptance:**
 
@@ -4935,6 +4993,13 @@ Do not proceed past these gates on assertion alone:
 18. Mount the model-facing change-set tools (begin/stage/inspect/commit/
     discard/raiseDesignExecutionIssue) on the executor surface and wire
     per-stage envelope emission from `committedStageEnvelopes`.
+19. Add the design-level lookup-intent vocabulary (table/column intents in
+    the contract root) and lift the graph-closure exemption on the `lookup`
+    fact-source arm — a real chat build designs lookup-backed data on day
+    one, so the exemption must not survive the cutover.
+20. Add the image evidence coordinate to the source-reference vocabulary
+    (asset id + content digest) and route the author/reviewer prompts to
+    cite it — retiring the cite-the-attaching-message interim rule.
 
 **Acceptance:**
 
@@ -5079,7 +5144,7 @@ Before declaring the unit done:
 - Materialization root includes its full prerequisite closure.
 - Every non-deferred intent has exactly one owning slice.
 - Dependency references do not count as ownership.
-- Every slice has at least one acceptance scenario.
+- Every acceptance scenario belongs to at least one slice (a corrective slice may carry none — scenarios are contract objects a plan covers, not per-slice inventions).
 - Every external action has a stable ID, timing, idempotency, required-for policy, and completion evidence type.
 - Exclusive operations occupy isolated slices/change sets.
 - Plan design revision/digest matches the accepted contract.

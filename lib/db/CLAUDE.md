@@ -734,6 +734,18 @@ captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in
 `lib/agent/change-set/CLAUDE.md`.
 
+**The design-artifact tables are the pipeline's durable record, not app
+history.** `design_source_packages`, `design_revisions`, `design_reviews`,
+`design_review_dispositions`, and `design_build_plans` are all append-only
+runtime DML — insert-only artifacts, never row-locked, never updated,
+never streamed. Every JSONB envelope/payload is authoritative persisted
+JSON: `::text` reads through `persistedJson.ts` + the exact producer
+schemas, with the canonical-JS artifact digest re-verified on every read.
+`design_session_id` stays an opaque FK-less identity until the
+design-session unit lands its table. The read/write boundary and
+integrity rules live in `lib/agent/design/artifactStore.ts`
+(`lib/agent/design/CLAUDE.md` is the contract).
+
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required

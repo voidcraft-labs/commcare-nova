@@ -629,6 +629,87 @@ export interface DesignCommittedSlicesTable {
 	committed_at: Timestamp;
 }
 
+/**
+ * One persisted design source package — references, normalized claims, and
+ * the canonical digest over the exact projection the models consumed
+ * (`lib/agent/design/sourcePackage.ts`). Raw extracts and transcripts are
+ * never duplicated here. `design_session_id` is opaque until the
+ * design-session unit adds its table and foreign key.
+ */
+export interface DesignSourcePackagesTable {
+	id: string;
+	design_session_id: string;
+	project_id: string;
+	package_digest: string;
+	created_by_run_id: string;
+	/** The `PersistedSourcePackage` — read as `::text`, strict-parsed. */
+	payload: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/** One immutable Design Contract revision — lifecycle fixed at insert;
+ *  acceptance is a NEW accepted row, never an update. */
+export interface DesignRevisionsTable {
+	id: string;
+	design_session_id: string;
+	revision: BigIntColumn;
+	parent_revision_id: string | null;
+	lifecycle: string;
+	artifact_digest: string;
+	contract_digest: string;
+	source_package_digest: string;
+	producer_model: string;
+	prompt_version: string;
+	created_by_run_id: string;
+	/** The full `DesignArtifactEnvelope<AppDesignContract>` — `::text` read. */
+	envelope: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/** One independent fresh-context review of one exact contract revision. */
+export interface DesignReviewsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	review_ordinal: number;
+	reviewed_revision_digest: string;
+	artifact_digest: string;
+	producer_model: string;
+	prompt_version: string;
+	created_by_run_id: string;
+	/** The full `DesignArtifactEnvelope<DesignReview>` — `::text` read. */
+	envelope: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/** Exactly one disposition per dispositioned finding, naming the revision
+ *  that resolved it. */
+export interface DesignReviewDispositionsTable {
+	review_id: string;
+	finding_id: string;
+	status: string;
+	resulting_revision_id: string;
+	/** The exact `FindingDisposition` — `::text` read, strict-parsed. */
+	payload: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/** One immutable build plan, digest-bound to its accepted revision. */
+export interface DesignBuildPlansTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	plan_digest: string;
+	artifact_digest: string;
+	producer_model: string;
+	prompt_version: string;
+	created_by_run_id: string;
+	/** The full `DesignArtifactEnvelope<BuildPlan>` — `::text` read. */
+	envelope: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
 /** Committed design provenance — intent → implementation coordinate. */
 export interface AppChangeIntentsTable {
 	app_id: string;
@@ -749,6 +830,11 @@ export interface AppDatabase {
 	design_change_set_handles: DesignChangeSetHandlesTable;
 	design_committed_slices: DesignCommittedSlicesTable;
 	app_change_intents: AppChangeIntentsTable;
+	design_source_packages: DesignSourcePackagesTable;
+	design_revisions: DesignRevisionsTable;
+	design_reviews: DesignReviewsTable;
+	design_review_dispositions: DesignReviewDispositionsTable;
+	design_build_plans: DesignBuildPlansTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

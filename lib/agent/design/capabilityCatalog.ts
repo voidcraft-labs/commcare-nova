@@ -1,0 +1,100 @@
+/**
+ * The versioned capability catalog — what Nova can construct, what the
+ * platform constrains, and which gaps are deliberate (plan §7.6).
+ *
+ * GENERATED from code-owned registries, never freehand prose:
+ *
+ *  - the constructible tool surface projects from `SHARED_TOOL_REGISTRY`
+ *    (names + reviewed effect/staging policy);
+ *  - the field vocabulary projects from `lib/domain/fields::fieldKinds`;
+ *  - the case data shapes project from
+ *    `lib/domain/casePropertyTypes::casePropertyDataTypes`;
+ *  - the constraint entries (Preview/runtime limits, external setup, HQ
+ *    closures, deliberate target gaps) are the closed
+ *    `platformConstraints.ts` vocabulary.
+ *
+ * The catalog may EXPLAIN capability to a reviewer or planner; it cannot
+ * emit mutations, and nothing here executes.
+ *
+ * `catalogDigest` is the drift tripwire: the source test
+ * (`__tests__/capabilityCatalog.test.ts`) pins it in a checked-in snapshot,
+ * so a shared tool, field kind, data shape, or platform constraint changing
+ * without a reviewed catalog update fails CI. Gap constraints additionally
+ * pin against the complex-app unit FILES: a gap code must name a unit file
+ * that still exists, and a remaining unit file must have a gap code —
+ * shipping a unit forces this vocabulary to shed its code.
+ */
+
+import {
+	PLATFORM_CONSTRAINTS,
+	type PlatformConstraint,
+} from "@/lib/agent/design/platformConstraints";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
+import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
+import { fieldKinds } from "@/lib/domain/fields";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+
+export interface CatalogToolEntry {
+	readonly saName: string;
+	readonly mcpName: string;
+	readonly effect: string;
+	readonly staging: string;
+}
+
+export interface CapabilityCatalog {
+	readonly catalogVersion: 1;
+	/** Canonical digest over everything below — the drift tripwire. */
+	readonly catalogDigest: string;
+	readonly toolSurface: readonly CatalogToolEntry[];
+	readonly fieldKinds: readonly string[];
+	readonly caseDataShapes: readonly string[];
+	readonly constraints: readonly PlatformConstraint[];
+}
+
+export function buildCapabilityCatalog(): CapabilityCatalog {
+	const toolSurface = SHARED_TOOL_REGISTRY.map((entry) => ({
+		saName: entry.saName,
+		mcpName: entry.mcpName,
+		effect: entry.policy.effect,
+		staging: entry.policy.staging,
+	})).sort((a, b) => a.saName.localeCompare(b.saName));
+	const body = {
+		catalogVersion: 1 as const,
+		toolSurface,
+		fieldKinds: [...fieldKinds],
+		caseDataShapes: [...casePropertyDataTypes],
+		constraints: Object.values(PLATFORM_CONSTRAINTS),
+	};
+	return { ...body, catalogDigest: canonicalJsonDigest(body) };
+}
+
+/**
+ * The reviewer/planner prompt projection: compact text a model reads,
+ * derived from the same catalog object — never a second hand-written list.
+ */
+export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
+	const lines: string[] = [];
+	lines.push(
+		`## Nova capability catalog (version ${catalog.catalogVersion}, digest ${catalog.catalogDigest.slice(0, 16)})`,
+	);
+	lines.push("");
+	lines.push("### Constructible vocabulary");
+	lines.push(`Field kinds: ${catalog.fieldKinds.join(", ")}.`);
+	lines.push(
+		`Case property data shapes: ${catalog.caseDataShapes.join(", ")}.`,
+	);
+	lines.push(
+		`Authoring surface (${catalog.toolSurface.length} shared tools): ` +
+			catalog.toolSurface.map((tool) => tool.saName).join(", ") +
+			".",
+	);
+	lines.push("");
+	lines.push("### Platform constraints and deliberate gaps");
+	lines.push(
+		"Each entry is a binding fact with a stable code. A critical platform-constraint finding must cite one of these codes; nothing outside this list is citable platform grounding.",
+	);
+	for (const constraint of catalog.constraints) {
+		lines.push(`- ${constraint.code}: ${constraint.statement}`);
+	}
+	return lines.join("\n");
+}
