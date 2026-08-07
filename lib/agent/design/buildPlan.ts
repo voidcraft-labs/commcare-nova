@@ -121,6 +121,23 @@ export const buildPlanSchema = buildPlanBaseSchema.superRefine(
 	validateSlicePlanStructure,
 );
 
+/**
+ * The PLANNER MODEL's output shape: slices, external actions, and intent
+ * ownership only. `schemaVersion`, the plan id, and the revision identity
+ * are server-stamped when the pipeline composes the persisted plan — a
+ * model never chooses server identity (§22.8). The composed plan then
+ * parses through `buildPlanSchemaFor(contract)`, which is where every
+ * structural and cross-contract rule runs.
+ */
+export const buildPlanDraftSchema = z
+	.object({
+		slices: z.array(buildSliceSchema).min(1),
+		externalActions: z.array(externalActionSchema),
+		intentOwnership: z.array(intentOwnershipEntrySchema),
+	})
+	.strict();
+export type BuildPlanDraft = z.infer<typeof buildPlanDraftSchema>;
+
 /** The intents a plan must give exactly one owner: the implementable
  *  intents of the accepted contract. Actors, decisions, assumptions, open
  *  questions, scenarios, and claims are context, not implementable units. */

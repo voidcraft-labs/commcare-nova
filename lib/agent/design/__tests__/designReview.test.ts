@@ -31,6 +31,7 @@ function makeSourcePackage(): DesignSourcePackage {
 		},
 		claims: [],
 		attachments: [],
+		images: [],
 		platformConstraints: [],
 		sources: [{ ref: messageRef() }],
 	};

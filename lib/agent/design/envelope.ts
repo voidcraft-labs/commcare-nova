@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import type { DesignComplexityEvidence } from "@/lib/agent/design/complexity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
@@ -36,6 +37,18 @@ export const artifactProducerSchema = z
 	})
 	.strict();
 export type ArtifactProducer = z.infer<typeof artifactProducerSchema>;
+
+/** The deterministic complexity evidence persisted with a contract draft
+ *  (plan §7.4 — the depth decision is auditable). Optional: only contract
+ *  envelopes carry it. */
+export const designComplexityEvidenceSchema = z
+	.object({
+		score: z.number().int().nonnegative(),
+		components: z.record(z.string(), z.union([z.number(), z.boolean()])),
+		depth: z.enum(["compact", "standard", "extended"]),
+		algorithmVersion: z.literal(1),
+	})
+	.strict();
 
 /**
  * The envelope schema, bound to one artifact type and payload schema. Every
@@ -60,6 +73,8 @@ export function designArtifactEnvelopeSchema<T extends z.ZodTypeAny>(
 			promptVersion: z.string().min(1),
 			producer: artifactProducerSchema,
 			createdAt: z.string().datetime(),
+			/** Deterministic complexity evidence — contract envelopes only. */
+			complexity: designComplexityEvidenceSchema.optional(),
 			payload,
 		})
 		.strict();
@@ -78,6 +93,7 @@ export interface DesignArtifactEnvelope<P> {
 	promptVersion: string;
 	producer: ArtifactProducer;
 	createdAt: string;
+	complexity?: DesignComplexityEvidence;
 	payload: P;
 }
 

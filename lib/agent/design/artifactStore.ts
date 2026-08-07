@@ -301,10 +301,15 @@ export async function insertDesignRevision(args: {
 			}
 		}
 
-		if (lifecycle === "accepted") {
+		if (lifecycle === "accepted" && parsed.parentArtifactId === null) {
+			throw new DesignArtifactStoreError(
+				"An accepted revision descends from a reviewed draft; revision 1 is always a draft.",
+			);
+		}
+		if (lifecycle === "accepted" || (args.dispositions ?? []).length > 0) {
 			if (parsed.parentArtifactId === null) {
 				throw new DesignArtifactStoreError(
-					"An accepted revision descends from a reviewed draft; revision 1 is always a draft.",
+					"Dispositions close a PARENT revision's reviews; revision 1 has no parent to have been reviewed.",
 				);
 			}
 			const reviews = await tx
@@ -312,7 +317,7 @@ export async function insertDesignRevision(args: {
 				.select(["id"])
 				.where("design_revision_id", "=", parsed.parentArtifactId)
 				.execute();
-			if (reviews.length === 0) {
+			if (lifecycle === "accepted" && reviews.length === 0) {
 				throw new DesignArtifactStoreError(
 					"An accepted revision requires a persisted review of its parent draft — without the review artifact, nothing here was reviewed.",
 				);
@@ -321,14 +326,10 @@ export async function insertDesignRevision(args: {
 			for (const entry of args.dispositions ?? []) {
 				if (!knownReviewIds.has(entry.reviewId)) {
 					throw new DesignArtifactStoreError(
-						"A disposition names a review that does not belong to the parent draft.",
+						"A disposition names a review that does not belong to the parent revision.",
 					);
 				}
 			}
-		} else if ((args.dispositions ?? []).length > 0) {
-			throw new DesignArtifactStoreError(
-				"Dispositions ride the ACCEPTED revision's transaction; a draft has nothing to close.",
-			);
 		}
 
 		await tx
@@ -390,6 +391,23 @@ export async function readLatestAcceptedDesignRevision(
 		.select(["id"])
 		.where("design_session_id", "=", designSessionId)
 		.where("lifecycle", "=", "accepted")
+		.orderBy("revision", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	if (!row) return null;
+	return readRevisionRecordInTx(db, row.id);
+}
+
+/** The session's newest revision of ANY lifecycle — the pipeline's resume
+ *  anchor. */
+export async function readLatestDesignRevision(
+	designSessionId: string,
+): Promise<DesignRevisionRecord | null> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_revisions")
+		.select(["id"])
+		.where("design_session_id", "=", designSessionId)
 		.orderBy("revision", "desc")
 		.limit(1)
 		.executeTakeFirst();
@@ -715,6 +733,23 @@ export async function readDesignBuildPlan(
 ): Promise<DesignBuildPlanRecord | null> {
 	const db = await getAppDb();
 	return readBuildPlanRecordInTx(db, planId);
+}
+
+/** The newest plan lowered from one exact revision — the pipeline's resume
+ *  anchor after acceptance. */
+export async function readLatestDesignBuildPlanForRevision(
+	designRevisionId: string,
+): Promise<DesignBuildPlanRecord | null> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_build_plans")
+		.select(["id"])
+		.where("design_revision_id", "=", designRevisionId)
+		.orderBy("created_at", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	if (!row) return null;
+	return readBuildPlanRecordInTx(db, row.id);
 }
 
 async function readBuildPlanRecordInTx(
