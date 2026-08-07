@@ -370,10 +370,17 @@ function BuiltInReference() {
 			<CollapsibleContent className="border-t border-nova-border/60 px-3 py-3">
 				<ul className="flex flex-col gap-3">
 					{BUILT_IN_USER_PROPERTIES.map((property) => {
+						/* `needs-deployment-target` is no longer a permanent blank:
+						 * Preview fills `commcare_project` in once the app is
+						 * published to one project space. Badging it "Empty in
+						 * Preview" would tell an author a condition on it can
+						 * never fire, which is the opposite of true. Its
+						 * description carries the "once you publish" condition. */
 						const availableInPreview =
 							property.availability === "derived" ||
 							property.availability === "constant" ||
-							property.availability === "needs-organization";
+							property.availability === "needs-organization" ||
+							property.availability === "needs-deployment-target";
 						return (
 							<li key={property.slug} className="flex flex-col gap-1">
 								<div className="flex flex-wrap items-center gap-x-2 gap-y-1">

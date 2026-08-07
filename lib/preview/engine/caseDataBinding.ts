@@ -38,6 +38,7 @@ import {
 	FormAttachmentWriteRejectedError,
 	loadAuthorizedFormSubmissionSnapshot,
 } from "@/lib/db/formAttachments";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -921,8 +922,12 @@ export async function loadFilterPreviewAction(args: {
 	try {
 		// Session-first matches every other action in this file. An
 		// unauthenticated request short-circuits before the parse
-		// work runs.
-		const identity = await resolvePreviewIdentity();
+		// work runs. The session is read ONCE and the identity rebuilt
+		// from it below once the project space is known, so the two
+		// resolutions cannot disagree about who is asking.
+		const session = await getSession();
+		if (session === null) return { kind: "unauthenticated" };
+		const identity = previewAsMe(session.user);
 		if (!identity) return { kind: "unauthenticated" };
 
 		// Wire-boundary parse. `caseListConfig` comes first because its
@@ -952,11 +957,31 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const { store, scope } = await gatedCaseStoreWithScope(
-			args.appId,
-			identity,
-			"view",
-		);
+		const {
+			store,
+			scope,
+			projectId,
+			role: accessRole,
+		} = await gatedCaseStoreWithScope(args.appId, identity, "view");
+		/* The filter preview compiles the SAME `#user/...` references the
+		 * running app does, so it must bind the same project space. Left on
+		 * the unthreaded identity, `commcare_project` compiled to empty here
+		 * and to the real domain in the app, and an author would tune a
+		 * filter against an answer their app never gives. */
+		const projectSpace = await previewProjectSpaceFor({
+			appId: args.appId,
+			projectId,
+			role: accessRole,
+			actorUserId: identity.actorUserId,
+		});
+		/* The SAME session user, re-projected with the project space now
+		 * that it is known. Rebuilding from the held session rather than
+		 * re-resolving means there is no second read to fail and no
+		 * fallback to an unthreaded identity — a fallback would compile
+		 * `#user/commcare_project` as absent and show the author a row set
+		 * the running app never shows, with no sign anything degraded. */
+		const boundIdentity = previewAsMe(session.user, undefined, projectSpace);
+		if (!boundIdentity) return { kind: "unauthenticated" };
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(parsedConfig.data),
@@ -966,7 +991,7 @@ export async function loadFilterPreviewAction(args: {
 			args.excludedOwnerIdsExpression,
 		);
 		const searchSession: PreviewSearchSessionValues = {
-			...identity.session,
+			...boundIdentity.session,
 			// This action intentionally previews the parsed candidate document,
 			// so immutable worker references must resolve through that candidate's
 			// catalog. Authorization still belongs to the server-resolved member.
@@ -1099,9 +1124,23 @@ export async function submitFormAction(
 				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
 			);
 		}
+		/* Same project space the rest of Preview resolves, so a submission's
+		 * conditions read `commcare_project` exactly as the form engine did
+		 * when it showed them. The receipt digest covers only the actor,
+		 * owner, and persona, so this cannot disturb replay. */
+		const projectSpace = await previewProjectSpaceFor({
+			appId,
+			projectId: authorized.projectId,
+			role: authorized.role,
+			actorUserId: session.user.id,
+		});
 		let identity: ResolvedPreviewIdentity | null;
 		if (personaUuid === undefined) {
-			identity = previewAsMe(session.user, authorized.app.blueprint);
+			identity = previewAsMe(
+				session.user,
+				authorized.app.blueprint,
+				projectSpace,
+			);
 		} else {
 			const persona = ownRecordValue(
 				personasOf(authorized.app.blueprint),
@@ -1117,6 +1156,7 @@ export async function submitFormAction(
 				session.user,
 				persona,
 				authorized.app.blueprint,
+				projectSpace,
 			);
 		}
 		if (!identity) return { kind: "unauthenticated" };

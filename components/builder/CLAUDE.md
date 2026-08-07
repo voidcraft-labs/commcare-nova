@@ -90,6 +90,30 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 
 ## Publishing
 
+A publish returns a durable deployment record, and `DeploymentStatus` renders
+it on the success screen: the five progress states as a ladder with only the
+reached ones filled, each rung stating its own condition in text so nothing is
+conveyed by fill alone, and the pending reason printed beside a rung that has
+not been reached. `incomplete` draws as a refusal rather than a rung, with the
+failure and the phase a retry resumes at. **Never call an uploaded app released,
+live, or ready for workers** — Nova cannot make a version or release one, so
+those rungs are watched rather than performed, and Check status is what advances
+them. CommCare HQ apps an earlier publish left behind are named on the same
+screen.
+
+The dialog **opens** on those records, above the publish form, not only after a
+publish creates one — the record outlives the request, and without this the only
+way to reach Check status would be publishing again, which puts a second app on
+the project space. The dialog keeps ONE copy per target: the open-time read
+seeds a store, and the publish response and every Check status upsert into it,
+so the landed hero and the list can never show the same project space with
+disagreeing contents, and a fresh deployment survives the status resets a
+destination-select change causes. A refusal renders the ATTEMPT's own failure
+(`refusal` on the response) beside the shared record; the record itself
+carries a failure only while genuinely `incomplete`. A viewer sees the ladder
+without the button (`canRefresh`), because checking writes what it observed;
+the button is also withheld when the record is one checking cannot answer.
+
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
 selector's supporting line explains the current option; only its fields and

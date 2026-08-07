@@ -29,6 +29,16 @@ const mocks = vi.hoisted(() => ({
 	},
 }));
 
+/* The dialog asks the server where the app already stands as soon as it
+ * opens. That is a Server Action reaching auth and Postgres, which has no
+ * business running in a component test — and left real it resolves after
+ * the test ends, which is exactly the escaped-update the setup file
+ * fails on. */
+vi.mock("@/lib/deployment/actions", () => ({
+	readDeploymentsAction: vi.fn(async () => ({ success: true, data: [] })),
+	refreshDeploymentAction: vi.fn(),
+}));
+
 vi.mock("@/lib/collab/context", () => ({
 	useReconcilerContext: () => null,
 }));
@@ -503,7 +513,7 @@ describe("PublishDialog", () => {
 			new Response(
 				JSON.stringify({
 					success: true,
-					appUrl: "https://hq.example/app",
+					url: "https://hq.example/app",
 					warnings: [],
 					feature_flag_requirements: uploadReport,
 				}),
@@ -517,7 +527,7 @@ describe("PublishDialog", () => {
 		await screen.findByText("Feature flags aren't enabled");
 		expect(screen.getByRole("alert")).toBeTruthy();
 		expect(
-			screen.getByText("App uploaded successfully").closest('[role="status"]'),
+			screen.getByText("Your app is on CommCare HQ").closest('[role="status"]'),
 		).not.toBeNull();
 		expect(
 			screen.getByText(/isn't enabled for the “project-space” project space/i),

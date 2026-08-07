@@ -4,7 +4,7 @@
 
 **Depends on:** [push and provisioning](push-and-provisioning-drivers.md) and
 [nested menus](nested-menus-and-linked-form-reuse.md) — push and provisioning
-rather than deployment core alone, because a shareable link must resolve to a
+rather than the deployment record alone, because a shareable link must resolve to a
 *released* build whose referenced tables and locations already exist on the
 target; linking into an app whose lookup tables were never pushed produces a
 dead claim frame at runtime rather than a build-time error. · **Blocks:**

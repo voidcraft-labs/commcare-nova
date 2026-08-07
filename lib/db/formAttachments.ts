@@ -116,11 +116,14 @@ export type AuthorizedFormSubmissionSnapshot =
 	| {
 			readonly kind: "replay";
 			readonly projectId: string;
+			/** The caller's proven role, so a caller needs no second read. */
+			readonly role: string;
 			readonly receipt: FormSubmissionReceiptRecord;
 	  }
 	| {
 			readonly kind: "current";
 			readonly projectId: string;
+			readonly role: string;
 			readonly app: AppDoc;
 	  };
 
@@ -174,6 +177,7 @@ export async function loadAuthorizedFormSubmissionSnapshot(args: {
 			return {
 				kind: "replay",
 				projectId: appRow.project_id,
+				role,
 				receipt: {
 					formUuid: receipt.form_uuid,
 					requestDigest: receipt.request_digest,
@@ -188,6 +192,7 @@ export async function loadAuthorizedFormSubmissionSnapshot(args: {
 		return {
 			kind: "current",
 			projectId: appRow.project_id,
+			role,
 			app,
 		};
 	});

@@ -143,6 +143,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"lookup_column_references",
 	"app_organization_state",
 	"app_locations",
+	"app_deployments",
+	"app_deployment_resources",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;

@@ -161,6 +161,31 @@ async function logAndReturnError(
 }
 
 /**
+ * The warn-level sibling, for the observation reads whose refusals are
+ * ANSWERS rather than faults: a deleted app's 404, a key without the
+ * Access APIs permission, a build with no profile. Each one is handled as
+ * a first-class outcome by `lib/deployment/observe.ts` and recurs by
+ * design on every Check status, so filing it at error level would stream
+ * a Sentry event per click for a state nobody can action from Nova's
+ * side. `log.warn` stays Cloud-Logging-only, which is the repo's line for
+ * expected-but-worth-recording conditions.
+ */
+async function warnAndReturnError(
+	context: string,
+	res: Response,
+): Promise<CommCareApiError> {
+	let body = "";
+	try {
+		body = await res.text();
+	} catch {}
+	log.warn(`[commcare] ${context}`, {
+		status: res.status,
+		body: body.substring(0, 200),
+	});
+	return { success: false, status: res.status };
+}
+
+/**
  * List all project spaces (domains) the authenticated user has access to.
  *
  * CommCare HQ's `/api/user_domains/v1/` endpoint correctly scopes results
@@ -754,4 +779,241 @@ async function pollMediaBundleStatus(
 /** Promise-returning sleep for the bounded status poll. */
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ── Reading what CommCare HQ has done with an app ──────────────────
+//
+// Nova imports an app and then watches. Building and releasing are not
+// things an API key can do: `views/releases.py::save_copy` and
+// `views/releases.py::release_build` both sit behind
+// `require_can_edit_apps`, which is
+// `require_permission(HqPermissions.edit_apps)` with the default
+// `login_and_domain_required` — a browser session and nothing else. The
+// three reads below are what an API key CAN see, and together they answer
+// "has somebody built it, released it, and can a device install it".
+
+/** What CommCare HQ currently holds of one app. */
+export interface HqAppVersions {
+	/** The working app's own version number. */
+	readonly currentVersion: number;
+	/** The newest build's version, or `null` when nothing has been built. */
+	readonly latestBuildVersion: number | null;
+	/** The newest RELEASED build's version, or `null` when none is released. */
+	readonly latestReleasedVersion: number | null;
+}
+
+/** One build CommCare HQ holds for an app. */
+export interface HqAppBuild {
+	readonly id: string;
+	readonly version: number;
+	readonly isReleased: boolean;
+	readonly builtOn: string | null;
+	readonly buildComment: string | null;
+}
+
+function finiteIntOrNull(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value)
+		? value
+		: null;
+}
+
+/**
+ * Read an app's current, latest-built, and latest-released versions.
+ *
+ * `GET /a/{domain}/apps/view/{app_id}/current_version/`, which carries
+ * `@login_or_api_key` (`views/releases.py::current_app_version`) and so is
+ * reachable with the stored key. It answers with version NUMBERS, not
+ * build ids; `listAppBuilds` is what supplies an id.
+ *
+ * A 404 here means CommCare HQ has no such working app in the domain —
+ * either it was deleted, or the id names a build rather than the app
+ * (`current_app_version` raises `Http404` on `NoResultFound` for exactly
+ * that case).
+ */
+export async function readAppVersions(
+	creds: CommCareCredentials,
+	domain: string,
+	hqAppId: string,
+): Promise<HqAppVersions | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds), Accept: "application/json" },
+		});
+	} catch (err) {
+		log.warn("[commcare] current_version request failed", {
+			domain,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return { success: false, status: 503 };
+	}
+	if (!res.ok) return warnAndReturnError("current_version failed", res);
+	let data: {
+		currentVersion?: unknown;
+		latestBuild?: unknown;
+		latestReleasedBuild?: unknown;
+	};
+	try {
+		data = (await res.json()) as typeof data;
+	} catch {
+		return { success: false, status: 502 };
+	}
+	const currentVersion = finiteIntOrNull(data.currentVersion);
+	if (currentVersion === null) return { success: false, status: 502 };
+	return {
+		currentVersion,
+		latestBuildVersion: finiteIntOrNull(data.latestBuild),
+		latestReleasedVersion: finiteIntOrNull(data.latestReleasedBuild),
+	};
+}
+
+/**
+ * List an app's builds, with their ids and release flags.
+ *
+ * The tastypie Application resource
+ * (`corehq/apps/api/resources/v0_4.py::ApplicationResource.dehydrate_versions`)
+ * is read-only and authenticates through `LoginAndDomainAuthentication`,
+ * whose decorator map carries an `API_KEY` entry — so the stored key
+ * works, provided its account also holds CommCare HQ's `access_api`
+ * permission. A key without it gets a 401/403 here while the rest of the
+ * deployment still functions, which is why callers treat a failure as
+ * "could not check" rather than "not built".
+ *
+ * `versions` comes back empty for a build rather than a working app, so an
+ * empty list from a working app genuinely means nothing has been built.
+ */
+export async function listAppBuilds(
+	creds: CommCareCredentials,
+	domain: string,
+	hqAppId: string,
+): Promise<readonly HqAppBuild[] | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	const url = `${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(hqAppId)}/`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds), Accept: "application/json" },
+		});
+	} catch (err) {
+		log.warn("[commcare] application resource request failed", {
+			domain,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return { success: false, status: 503 };
+	}
+	if (!res.ok) return warnAndReturnError("application resource failed", res);
+	let data: { versions?: unknown };
+	try {
+		data = (await res.json()) as typeof data;
+	} catch {
+		return { success: false, status: 502 };
+	}
+	if (!Array.isArray(data.versions)) return { success: false, status: 502 };
+	const builds: HqAppBuild[] = [];
+	for (const entry of data.versions) {
+		if (typeof entry !== "object" || entry === null) continue;
+		const row = entry as Record<string, unknown>;
+		const id = typeof row.id === "string" ? row.id : null;
+		const version = finiteIntOrNull(row.version);
+		if (id === null || version === null) continue;
+		builds.push({
+			id,
+			version,
+			isReleased: row.is_released === true,
+			builtOn: typeof row.built_on === "string" ? row.built_on : null,
+			buildComment:
+				typeof row.build_comment === "string" ? row.build_comment : null,
+		});
+	}
+	return builds;
+}
+
+/**
+ * Ask CommCare HQ for the profile a device installs one BUILD from.
+ *
+ * This is the strongest honest proof that a released build can be run: it
+ * is the first request a real device makes, so a 200 means a device would
+ * get one too.
+ *
+ * **It is a device install request, not a pure read, and the difference is
+ * worth stating plainly.** Despite the URL, this does NOT reach
+ * `views/download.py::download_odk_profile`: `urls.py` registers the
+ * catch-all `^download/(?P<app_id>[\w-]+)/(?P<path>.*)$` → `download_file`
+ * BEFORE the `download_urls` include (its own comment says "the order of
+ * these download urls is important"), so `download_file` handles it. That
+ * view generates a build's files and calls `request.app.save()` when they
+ * are missing, and patches in an ODK profile the same way on its
+ * `ResourceNotFound` arm. That is CommCare HQ repairing a build on a
+ * device's behalf, which happens for every real install too, and it cannot
+ * change the version or what is released: `ApplicationBase::save` only
+ * increments a version when `copy_of` is unset, and a build has it set.
+ *
+ * **It must still always name a BUILD id.** With one, `download_file`'s
+ * `assert request.app.copy_of` holds and the request stays on that build.
+ * With the working app's id the assert fails, the except arm falls through
+ * to `resolve_path` → `download_odk_profile` → `autogenerate_build`, and
+ * CommCare HQ starts building a NEW version. Never pass the working app id,
+ * and never `?latest=true`, which resolves to one whenever nothing is
+ * released.
+ *
+ * A redirect is "could not check", never "not installable":
+ * `decorators.py::check_access_and_redirect` answers 302 for any domain
+ * carrying a `redirect_url`, and `::safe_cached_download` 302s to the app
+ * page on an editing/case error. Reporting either as a broken build would
+ * accuse a healthy deployment.
+ */
+export async function probeBuildProfile(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+): Promise<
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: "unavailable" | "not-installable" }
+> {
+	if (!isValidDomainSlug(domain)) return { ok: false, reason: "unavailable" };
+	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/profile.ccpr`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: { Authorization: authHeader(creds) },
+			redirect: "manual",
+		});
+	} catch (err) {
+		log.warn("[commcare] build profile probe failed", {
+			domain,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return { ok: false, reason: "unavailable" };
+	}
+	if (res.status >= 300 && res.status < 400) {
+		log.warn("[commcare] build profile probe redirected", {
+			domain,
+			status: res.status,
+		});
+		try {
+			await res.body?.cancel();
+		} catch {}
+		return { ok: false, reason: "unavailable" };
+	}
+	if (!res.ok) {
+		await warnAndReturnError("build profile probe failed", res);
+		/* Only a 404 is a verdict on the BUILD: CommCare HQ served the
+		 * request and had no profile for it. Every other refusal is Nova
+		 * failing to ask — a 401 or 403 is the key's permissions, a 429 is
+		 * rate limiting, a 5xx is CommCare HQ being unwell — and reporting
+		 * those as `not-installable` tells somebody their release is broken
+		 * when nothing was learned about it at all. */
+		return {
+			ok: false,
+			reason: res.status === 404 ? "not-installable" : "unavailable",
+		};
+	}
+	// Drain the body so the connection is released; the bytes themselves
+	// are not what is being checked, only that CommCare HQ served them.
+	try {
+		await res.text();
+	} catch {}
+	return { ok: true };
 }

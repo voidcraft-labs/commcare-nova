@@ -9,6 +9,22 @@ from scratch on retry, so it stays pure of side effects), the table types
 (lock-stepped with the DDL in `lib/case-store/migrations/`), and the
 LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
+**Deployments are app-state tables too.** `app_deployments` and
+`app_deployment_resources` are read-write. `app_deployments` carries both
+`app_id` and `project_id` but deliberately NOT the composite
+`(project_id, app_id)` key `cases` uses: the auth-app tenancy migration keeps
+an exact catalog of everything referencing `apps.project_id` and blocks
+additions to it, so a second one would fail every deploy's migration job.
+Coherence is proved where the writes happen instead —
+`lib/deployment/store.ts::lockAppForDeploymentWrite` takes the app row and
+compares its Project first — and `apps.ts::commitAppProjectMoveInTransaction`
+re-tenants these rows in the same transaction that flips `apps.project_id`. A partial unique index on
+`(deployment_id, kind, nova_resource_id) WHERE superseded_at IS NULL` makes two
+live ownership mappings for one Nova resource unrepresentable; superseded rows
+are retained rather than deleted, because CommCare HQ has no atomic app update
+and the app a later publish left behind has to stay nameable.
+`lib/deployment/CLAUDE.md` owns the lifecycle.
+
 **Lock ordering is the concurrency discipline.** Every transaction that
 decides anything about a run locks the APP ROW first (`SELECT … FOR UPDATE`
 via `lockAppRow`), then touches other rows (credit months, entities, the
@@ -119,6 +135,11 @@ pokes the same channel with a `statusChanged` marker so connected builder
 streams re-read and re-announce the app status the moment a build commits
 `complete` (the one status transition that changes a tab's pricing; every
 other transition stays on the stream route's reauthorization cadence);
+every deployment write pokes it with a `deploymentChanged` marker
+(`notifyAppDeployments`, called by `lib/deployment/store.ts` inside each
+record-writing transaction) so connected streams re-resolve what Preview
+may name for `commcare_project` and announce it as a
+`preview-project-space` frame;
 presence reauthorizes against
 the app row + exact membership and writes/sweeps/deletes + pokes
 `nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
@@ -126,7 +147,7 @@ poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
 pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
 endpoint SELECT durable state from their cursor/scope, so a missed notification
 degrades to the next poke/catch-up, never to lost data. `streamListener.ts`
-owns ONE dedicated client per instance outside the pool and LISTENs on all four
+owns ONE dedicated client per instance outside the pool and LISTENs on all five
 channels. Replacement waits for bounded closure of the old client before a new
 one is constructed, preserving the exact connection budget in
 `lib/case-store/postgres/connection.ts`.

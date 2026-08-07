@@ -24,7 +24,17 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
+import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
+import { publishOutcome } from "@/components/builder/publishOutcome";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -49,6 +59,11 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
+import {
+	type DeploymentView,
+	type RefreshedDeploymentView,
+	readDeploymentsAction,
+} from "@/lib/deployment/actions";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
@@ -106,8 +121,24 @@ type PublishStatus =
 	| { type: "uploading" }
 	| { type: "downloading"; target: "web" | "mobile" }
 	| {
-			type: "upload-success";
+			/* The app reached the project space on this call. The durable
+			 * record itself lives in the shared deployments list, so this
+			 * carries only which target to celebrate; the record keeps
+			 * updating through Check status either way. */
+			type: "landed";
 			appUrl: string;
+			warnings: string[];
+			featureFlagReport?: HqFeatureFlagReport;
+			/** Null when the response carried no record to point at. */
+			target: { server: string; domain: string } | null;
+	  }
+	| {
+			/* This attempt was refused. The refusal is the attempt's own
+			 * report; whatever durable record the target has renders once,
+			 * in the shared deployments list, rather than a second copy
+			 * here that would drift from it. */
+			type: "refused";
+			refusal: { detail: string; items: readonly string[] };
 			warnings: string[];
 			featureFlagReport?: HqFeatureFlagReport;
 	  }
@@ -121,6 +152,13 @@ type PublishStatus =
 type FeatureFlagState =
 	| { type: "loading" }
 	| { type: "ready"; report: HqFeatureFlagReport }
+	| { type: "error"; message: string };
+
+/** The deployments this app already has, loaded when the dialog opens. */
+type ExistingDeployments =
+	| { type: "idle" }
+	| { type: "loading" }
+	| { type: "ready"; views: readonly DeploymentView[] }
 	| { type: "error"; message: string };
 
 export function PublishDialog({
@@ -138,6 +176,7 @@ export function PublishDialog({
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
+	const setProjectSpace = useSetDeploymentProjectSpace();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
 	const featureFlagControllerRef = useRef<AbortController | null>(null);
@@ -224,6 +263,76 @@ export function PublishDialog({
 			return availableDomains.length === 1 ? availableDomains[0].name : "";
 		});
 	}, [open, availableDomains]);
+
+	/* Where the app already stands, loaded whenever this opens. The record
+	 * outlives the publish that created it: somebody who published, made
+	 * the build on CommCare HQ, and came back tomorrow needs Check status,
+	 * and without this the only way to reach it would be publishing again,
+	 * which puts a SECOND app on their project space. */
+	const [existing, setExisting] = useState<ExistingDeployments>({
+		type: "idle",
+	});
+	useEffect(() => {
+		if (!open || !canUploadToHq) return;
+		let live = true;
+		setExisting({ type: "loading" });
+		/* A rejected Server Action must land in this dialog's own error slot.
+		 * Without the catch it is an unhandled rejection and the panel sits
+		 * on "loading" forever, which reads as "you have published nowhere". */
+		void readDeploymentsAction(getAppId())
+			.then((result) => {
+				if (!live) return;
+				setExisting(
+					result.success
+						? { type: "ready", views: result.data }
+						: { type: "error", message: result.message },
+				);
+			})
+			.catch(() => {
+				if (!live) return;
+				setExisting({
+					type: "error",
+					message:
+						"Nova couldn't load where this app has been published. Close and reopen to try again.",
+				});
+			});
+		return () => {
+			live = false;
+		};
+	}, [open, canUploadToHq, getAppId]);
+	/* ONE store for the records, keyed by target. The open-time read seeds
+	 * it, a publish response upserts into it, and Check status upserts into
+	 * it, so a record can never render twice with disagreeing contents,
+	 * and a fresh deployment survives every status reset (switching the
+	 * destination select and back must not make a landed publish vanish,
+	 * because publishing again from that screen would mint a second app). */
+	const upsertView = useCallback((next: DeploymentView) => {
+		setExisting((current) => {
+			const record = next.deployment.deployment;
+			const views = current.type === "ready" ? current.views : [];
+			const index = views.findIndex(
+				(view) =>
+					view.deployment.deployment.server === record.server &&
+					view.deployment.deployment.domain === record.domain,
+			);
+			return {
+				type: "ready",
+				views:
+					index === -1
+						? [next, ...views]
+						: views.map((view, at) => (at === index ? next : view)),
+			};
+		});
+	}, []);
+	/* Every refresh answers with the record AND what Preview may now name,
+	 * because an observation can change both. */
+	const handleRefreshed = useCallback(
+		(next: RefreshedDeploymentView) => {
+			upsertView(next);
+			setProjectSpace(next.previewProjectSpace);
+		},
+		[upsertView, setProjectSpace],
+	);
 
 	const featureFlagDomain =
 		target === "hq"
@@ -336,31 +445,60 @@ export function PublishDialog({
 				void response.body?.cancel();
 				return;
 			}
-			const data = (await response.json()) as {
-				success?: boolean;
-				appUrl?: string;
-				warnings?: string[];
-				feature_flag_requirements?: HqFeatureFlagReport;
-				error?: string;
-			};
+			const data = (await response.json()) as Parameters<
+				typeof publishOutcome
+			>[1] & { feature_flag_requirements?: HqFeatureFlagReport };
 			if (!isCurrent()) return;
-			if (!response.ok || !data.success) {
+
+			/* One pure decision, kept out of here because getting it wrong is
+			 * invisible in a screenshot: a refused publish must show its
+			 * refusal and record, not a generic failure box. */
+			const outcome = publishOutcome(response.ok, data);
+			if (outcome.kind === "failure") {
 				const failure = describeApiFailure(
 					data,
 					`Upload failed (HTTP ${response.status})`,
 				);
 				setStatus({
 					type: "error",
-					message: failure.message,
+					message: outcome.blockedDetail ?? failure.message,
 					status: response.status,
 					details: failure.details,
 				});
 				return;
 			}
+
+			/* Preview names whatever the SERVER says it may. Only the server
+			 * can see whether this app is now live on more than one project
+			 * space, which is when `commcare_project` has two real answers
+			 * and Nova must name neither; a client asserting the space it
+			 * just used would make a condition pass here and fail for half
+			 * the workers until the next reload withdrew it. A refusal's
+			 * answer applies too: this call is the freshest word either way. */
+			setProjectSpace(outcome.previewProjectSpace);
+			if (outcome.kind === "landed") {
+				if (outcome.deployment !== null) upsertView(outcome.deployment);
+				const record = outcome.deployment?.deployment.deployment;
+				setStatus({
+					type: "landed",
+					appUrl: outcome.appUrl,
+					warnings: outcome.warnings,
+					featureFlagReport: data.feature_flag_requirements,
+					target:
+						record === undefined
+							? null
+							: { server: record.server, domain: record.domain },
+				});
+				return;
+			}
+			if (outcome.deployment !== null) upsertView(outcome.deployment);
 			setStatus({
-				type: "upload-success",
-				appUrl: data.appUrl ?? "",
-				warnings: data.warnings ?? [],
+				type: "refused",
+				refusal: {
+					detail: outcome.refusal.message,
+					items: outcome.refusal.items,
+				},
+				warnings: outcome.warnings,
 				featureFlagReport: data.feature_flag_requirements,
 			});
 		} catch (error) {
@@ -382,7 +520,7 @@ export function PublishDialog({
 				uploadControllerRef.current = null;
 			}
 		}
-	}, [selectedDomain, appName, getAppId, session]);
+	}, [selectedDomain, appName, getAppId, session, setProjectSpace, upsertView]);
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
@@ -420,9 +558,22 @@ export function PublishDialog({
 	const downloadComplete =
 		status.type === "download-success" && status.target === downloadTarget;
 	const showFeatureFlagPreflight =
-		status.type !== "upload-success" &&
+		status.type !== "landed" &&
+		status.type !== "refused" &&
 		!downloadComplete &&
 		(target !== "hq" || (!notConfigured && Boolean(selectedDomain)));
+	/* The landed hero celebrates ONE target; its record renders from the
+	 * shared store so Check status keeps updating the same copy everyone
+	 * else sees. */
+	const landedTarget = status.type === "landed" ? status.target : null;
+	const landedView =
+		landedTarget !== null && existing.type === "ready"
+			? (existing.views.find(
+					(view) =>
+						view.deployment.deployment.server === landedTarget.server &&
+						view.deployment.deployment.domain === landedTarget.domain,
+				) ?? null)
+			: null;
 
 	if (accessPhase !== "authorized") return null;
 
@@ -504,29 +655,86 @@ export function PublishDialog({
 
 						<div className="mt-5 border-t border-nova-border pt-5">
 							{target === "hq" ? (
-								status.type === "upload-success" ? (
+								/* Only a publish that LANDED replaces the form. A refusal
+								   keeps it mounted, because what has to change to make the
+								   retry different is in it: the project space and the app
+								   name. Swapping to a result screen and offering "Try
+								   again" would re-send the exact request that just failed. */
+								status.type === "landed" ? (
 									<PublishSuccess
-										title="App uploaded successfully"
+										title="Your app is on CommCare HQ"
+										tone="done"
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
-									/>
+									>
+										{/* The app is THERE, which is not the same as ready
+										    for workers. The record says which, so the
+										    celebration never outruns the facts. */}
+										{landedView !== null ? (
+											<DeploymentStatus
+												appId={getAppId()}
+												view={landedView}
+												canRefresh={canEdit}
+												onUpdated={handleRefreshed}
+											/>
+										) : null}
+									</PublishSuccess>
 								) : notConfigured ? (
 									<NotConfigured
 										isRefreshing={isRefreshingHqConnection}
 										onRefresh={onRefreshHqConnection}
 									/>
 								) : (
-									<UploadForm
-										availableDomains={availableDomains}
-										domainItems={domainItems}
-										isMultiSpace={isMultiSpace}
-										selectedDomain={selectedDomain}
-										onSelectedDomainChange={handleSelectedDomainChange}
-										appName={appName}
-										onAppNameChange={setAppName}
-										status={status}
-									/>
+									<>
+										{status.type === "refused" ? (
+											<PublishSuccess
+												title="Nova couldn't finish publishing"
+												tone="refused"
+												blocked={status.refusal}
+												warnings={status.warnings}
+												featureFlagReport={status.featureFlagReport}
+												mode="upload"
+											/>
+										) : null}
+										{/* Before the form, because "you already published this
+										    to acme, and here is what is left to do there" is what
+										    somebody reopening this dialog came for. A refused
+										    publish's record renders HERE too (it was upserted
+										    into this same store), so one project space never
+										    appears twice with disagreeing contents. */}
+										{existing.type === "ready"
+											? existing.views.map((view) => (
+													<DeploymentStatus
+														key={view.deployment.deployment.id}
+														appId={getAppId()}
+														view={view}
+														canRefresh={canEdit}
+														onUpdated={handleRefreshed}
+													/>
+												))
+											: null}
+										{existing.type === "error" ? (
+											<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+												{existing.message}
+											</p>
+										) : null}
+										{existing.type === "ready" && existing.views.length > 0 ? (
+											<h3 className="mt-6 font-display text-[15px] font-semibold text-nova-text">
+												Publish again
+											</h3>
+										) : null}
+										<UploadForm
+											availableDomains={availableDomains}
+											domainItems={domainItems}
+											isMultiSpace={isMultiSpace}
+											selectedDomain={selectedDomain}
+											onSelectedDomainChange={handleSelectedDomainChange}
+											appName={appName}
+											onAppNameChange={setAppName}
+											status={status}
+										/>
+									</>
 								)
 							) : downloadComplete && status.type === "download-success" ? (
 								<PublishSuccess
@@ -557,13 +765,11 @@ export function PublishDialog({
 
 				<DialogFooter
 					className={`border-t border-nova-border px-5 py-4 ${
-						target === "hq" && status.type === "upload-success"
-							? "justify-between"
-							: ""
+						target === "hq" && status.type === "landed" ? "justify-between" : ""
 					}`}
 				>
 					{target === "hq" ? (
-						status.type === "upload-success" ? (
+						status.type === "landed" ? (
 							<>
 								{status.appUrl ? (
 									<a
@@ -888,11 +1094,20 @@ function PublishSuccess({
 	warnings = [],
 	featureFlagReport,
 	mode,
+	tone = "done",
+	blocked,
+	children,
 }: {
 	title: string;
 	warnings?: string[];
 	featureFlagReport?: HqFeatureFlagReport;
 	mode: "upload" | "download";
+	/** A refused publish reaches this screen too, and must not be
+	 *  celebrated: it shows the same record, without the tick. */
+	tone?: "done" | "refused";
+	/** What stopped it, when the record itself cannot say. */
+	blocked?: { detail: string; items: readonly string[] };
+	children?: ReactNode;
 }) {
 	return (
 		<div className="py-1">
@@ -901,12 +1116,36 @@ function PublishSuccess({
 					initial={{ scale: 0 }}
 					animate={{ scale: 1 }}
 					transition={{ type: "spring", stiffness: 300, damping: 20 }}
-					className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-nova-emerald/15"
+					className={`mx-auto mb-3 flex size-12 items-center justify-center rounded-full ${
+						tone === "done" ? "bg-nova-emerald/15" : "bg-nova-amber/15"
+					}`}
 				>
-					<Icon icon={tablerCheck} className="size-6 text-nova-emerald" />
+					<Icon
+						icon={tone === "done" ? tablerCheck : tablerAlertCircle}
+						className={`size-6 ${tone === "done" ? "text-nova-emerald" : "text-nova-amber"}`}
+					/>
 				</motion.div>
 				<h3 className="text-sm font-semibold text-nova-text">{title}</h3>
 			</div>
+
+			{blocked && (
+				/* The record is not always able to explain a refusal: a publish
+				   blocked against an app that is already live leaves it
+				   untouched and green. */
+				<div
+					role="alert"
+					className="mt-3 rounded-lg border border-nova-amber/40 bg-nova-amber/10 px-3 py-2.5 text-xs leading-relaxed"
+				>
+					<p className="text-nova-text">{blocked.detail}</p>
+					{blocked.items.length > 0 && (
+						<ul className="mt-2 flex list-disc flex-col gap-1 pl-4 text-nova-text-secondary">
+							{blocked.items.map((item) => (
+								<li key={item}>{item}</li>
+							))}
+						</ul>
+					)}
+				</div>
+			)}
 
 			{warnings.length > 0 && (
 				<div className="mt-3 space-y-1 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5">
@@ -924,6 +1163,8 @@ function PublishSuccess({
 			{featureFlagReport && (
 				<FeatureFlagNotice report={featureFlagReport} mode={mode} />
 			)}
+
+			{children}
 		</div>
 	);
 }

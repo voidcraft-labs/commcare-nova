@@ -2,8 +2,7 @@
 
 **PR:** `App setup: deployment`
 
-**Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md),
-[deployment core](deployment-core-and-artifact.md), and
+**Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md) and
 [push and provisioning](push-and-provisioning-drivers.md). · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure,

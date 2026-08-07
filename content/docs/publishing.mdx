@@ -1,0 +1,110 @@
+---
+title: Publishing to CommCare HQ
+description: What happens when you publish an app, how to turn it into something workers can open, and what you set up by hand on your project space.
+---
+
+Publishing sends your app to a CommCare HQ project space. Nova remembers where
+it went, so you can come back at any time and see how far along it is.
+
+Getting an app into workers' hands takes five steps, and Nova does the first two.
+The other three happen on CommCare HQ, because it only lets a signed-in person
+do them.
+
+## The five steps
+
+| Step | Who does it |
+| --- | --- |
+| **Checked** | Nova, before anything is sent |
+| **On CommCare HQ** | Nova |
+| **Version made** | You, on CommCare HQ |
+| **Released** | You, on CommCare HQ |
+| **Ready for workers** | Nova checks it |
+
+Nova shows all five in the Publish dialog, filled in as far as you have got.
+Open **Publish** at any time and every project space this app has reached is
+there, above the form, so a version you made on CommCare HQ last week is one
+**Check status** away, and you never have to publish again just to find out
+where things stand. (Publishing again would put a *second* app on the project
+space, which is why finding out has its own button.)
+
+### Checked
+
+Before anything leaves Nova, it checks two things that would stop the publish
+working: that your API key can reach the project space you picked, and that the
+app itself has nothing outstanding. If either fails, nothing is sent and Nova
+tells you which one it was.
+
+It also reports things you should know about but that do not stop the publish,
+like a feature flag your project space does not have yet, or a persona missing
+worker information that CommCare HQ will ask for later.
+
+### On CommCare HQ
+
+Your app is now on the project space. It is not something workers can open yet.
+
+CommCare HQ has no way to update an app in place, so **publishing again creates
+a second app there** rather than replacing the first. Nova names the earlier one
+so you can delete it when you no longer need it.
+
+### Version made, and Released
+
+On CommCare HQ, open your app and go to **Releases**. Choose **Make new
+version**, wait for it to finish, then **star** the new version to release it.
+
+Nova cannot do these two for you. CommCare HQ accepts an API key for putting an
+app on a project space but not for building or releasing one, so these are yours
+to do there. Nova watches for them instead.
+
+CommCare HQ validates the app again while it builds. If it reports errors there,
+they are about the version you just published: fix them in Nova and publish
+again.
+
+### Ready for workers
+
+Once a version is released, Nova checks that it actually serves the file a
+device installs from. That is the strongest sign it will open for workers, and
+the only one of the five steps Nova can confirm rather than take on trust.
+
+The **Open in CommCare HQ** link appears as soon as the app is there, and it
+goes to the app's page for you to work on. It is not the link workers use.
+
+## What you set up by hand
+
+Some of what your app needs lives on the project space rather than in the app,
+and CommCare HQ has no way for Nova to create it. After you publish, Nova lists
+exactly what those are, with a link to the right page on **your** project space
+and the values already filled in.
+
+- **Worker information.** One field per piece of information your workers carry,
+  on the project's user-data page.
+- **Organization levels.** The rungs of your organization. Create these before
+  you add any places, because every place names the level it stands at.
+- **Automations.** Each rule or alert, created on the relevant page. Changing an
+  automation in Nova does not change one you already made on CommCare HQ.
+
+These notes are generated fresh every time you look at them, so they always
+match your app as it is now.
+
+## If something goes wrong
+
+A publish that could not finish says so plainly, names what stopped it, and
+remembers where it stopped.
+
+What to do next depends on where it stopped, and Nova says which:
+
+- **Before the app reached CommCare HQ** (a connection problem, or something in
+  the app itself): fix it and publish again.
+- **After it got there** (a version that would not build, a release Nova could
+  not confirm): the app is already on your project space. Sort it out on
+  CommCare HQ, then choose **Check status**. You do not publish again, and you
+  do not get a second app.
+
+## A note on Web Apps
+
+CommCare HQ sets an app's **Web App** setting when the app is created, from
+whether your project had Web Apps at that moment. So an app published before the
+feature was turned on starts with it off, and will not appear in Web Apps even
+once it is released.
+
+If that happens, open the app's Settings on CommCare HQ and tick **Web App**.
+You do not need to publish again.

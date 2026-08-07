@@ -2,8 +2,7 @@
 
 **PR:** `Push referenced lookup tables and locations, and provision workers`
 
-**Depends on:** [deployment core](deployment-core-and-artifact.md). ·
-**Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md),
+**Depends on:** nothing outstanding. · **Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md),
 [session endpoints](session-endpoints-and-deep-links.md), and
 [multi-select](multi-select-related-cases-and-profile.md).
 
@@ -12,7 +11,7 @@
 > every driver here.
 
 Implement referenced-table push, location push, and explicit worker provisioning
-against deployment core's ownership mappings. Preflight organization levels,
+against the shipped deployment record's ownership mappings (`lib/deployment`). Preflight organization levels,
 fields, and toggles before external mutation. Push and verify required tables and
 locations before app import or release where the target APIs permit. If an
 unavoidable required step can occur only after import, its failure leaves the

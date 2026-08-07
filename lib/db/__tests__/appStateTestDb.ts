@@ -35,7 +35,11 @@ import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/2026
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import {
+	__setAppDbForTests,
+	__setAppPoolForTests,
+	type AppDatabase,
+} from "@/lib/db/pg";
 import type { AppReservation, AppRunLock } from "@/lib/db/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -189,6 +193,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			}),
 		});
 		__setAppDbForTests(injected);
+		__setAppPoolForTests(handle.pool);
 		await installAuthMemberSerialization(
 			injected as unknown as Kysely<unknown>,
 		);
@@ -196,6 +201,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 
 	afterEach(async () => {
 		__setAppDbForTests(null);
+		__setAppPoolForTests(null);
 		// The wrapper Kysely rides the per-test pool `setupPerTestDatabase`
 		// destroys in its own afterEach; destroying it here would double-close.
 		injected = null;

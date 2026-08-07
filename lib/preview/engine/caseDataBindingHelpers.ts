@@ -53,6 +53,7 @@ import {
 	materializeCaseStoreSchemas,
 } from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -1638,18 +1639,20 @@ export async function withSchemaHeal<T>(
 export async function resolvePreviewIdentity(
 	doc?: UserCollections,
 	personaUuid?: string,
+	projectSpace?: string | null,
 ): Promise<ResolvedPreviewIdentity | null> {
 	const session = await getSession();
 	if (!session) return null;
 	if (doc === undefined || personaUuid === undefined) {
-		return previewAsMe(session.user, doc);
+		return previewAsMe(session.user, doc, projectSpace);
 	}
 	// This low-level projection is used only when the caller already owns the
 	// document. App-facing selectors use `resolveAuthorizedPreviewContext`,
 	// whose stale-persona arm refuses rather than changing worker identities.
 	const persona = ownRecordValue(personasOf(doc), personaUuid);
-	if (persona === undefined) return previewAsMe(session.user, doc);
-	return previewAsPersona(session.user, persona, doc);
+	if (persona === undefined)
+		return previewAsMe(session.user, doc, projectSpace);
+	return previewAsPersona(session.user, persona, doc, projectSpace);
 }
 
 /**
@@ -1708,10 +1711,30 @@ export async function resolveAuthorizedPreviewContext(args: {
 		throw new Error("The app changed while Preview was loading it.");
 	}
 
-	let identity = memberIdentity;
+	/* The SAME project space the client form engine sees. This identity is
+	 * what binds `sessionUser` for the SQL compiler, so leaving it out here
+	 * while the browser's copy carries it would make one expression answer
+	 * two ways depending on which side evaluated it — the hardest kind of
+	 * difference to notice, because both halves look right alone. */
+	const projectSpace = await previewProjectSpaceFor({
+		appId: args.appId,
+		projectId: access.projectId,
+		role: access.role,
+		actorUserId: memberIdentity.actorUserId,
+	});
+
+	/* `memberIdentity` above proved the session exists, so every
+	 * `previewAsMe` here returns non-null for the same user; the earlier
+	 * `?? memberIdentity` fallbacks were unreachable and the no-blueprint
+	 * identity was rebuilt and discarded whenever one was loaded. */
+	let identity =
+		blueprint === undefined
+			? (previewAsMe(session?.user, undefined, projectSpace) ?? memberIdentity)
+			: memberIdentity;
 	if (blueprint !== undefined) {
 		if (args.personaUuid === undefined) {
-			identity = previewAsMe(session?.user, blueprint) ?? memberIdentity;
+			identity =
+				previewAsMe(session?.user, blueprint, projectSpace) ?? memberIdentity;
 		} else {
 			const persona = ownRecordValue(personasOf(blueprint), args.personaUuid);
 			if (persona === undefined) {
@@ -1720,7 +1743,12 @@ export async function resolveAuthorizedPreviewContext(args: {
 					message: PERSONA_UNAVAILABLE_MESSAGE,
 				};
 			}
-			const resolved = previewAsPersona(session?.user, persona, blueprint);
+			const resolved = previewAsPersona(
+				session?.user,
+				persona,
+				blueprint,
+				projectSpace,
+			);
 			if (resolved === null) return { kind: "unauthenticated" };
 			identity = resolved;
 		}
@@ -1763,7 +1791,12 @@ export async function gatedCaseStoreWithScope(
 	appId: string,
 	identity: ResolvedPreviewIdentity,
 	required: AppCapability,
-): Promise<{ store: CaseStore; scope: LookupScope }> {
+): Promise<{
+	store: CaseStore;
+	scope: LookupScope;
+	projectId: string;
+	role: string;
+}> {
 	// `actorUserId` — never `ownerId`. The owner may be a persona, which is
 	// authored blueprint content; keying membership on it would let an app
 	// choose whose data a request reads. The persona reaches the store only
@@ -1783,6 +1816,8 @@ export async function gatedCaseStoreWithScope(
 			{ appId },
 		),
 		scope: { projectId, actorId: identity.actorUserId, role },
+		projectId,
+		role,
 	};
 }
 

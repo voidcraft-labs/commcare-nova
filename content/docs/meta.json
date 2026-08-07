@@ -2,6 +2,7 @@
 	"title": "Docs",
 	"pages": [
 		"case-workspace",
+		"publishing",
 		"feature-flags",
 		"project-data",
 		"attachments",

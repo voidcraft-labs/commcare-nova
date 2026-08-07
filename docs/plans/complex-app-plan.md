@@ -1108,7 +1108,9 @@ asymmetry is easy to state backwards: `get_user_session_data` writes all three
 or none, so the session block omits them while nobody is assigned anywhere,
 while `_get_user_case_fields` takes an explicit `else` branch to `''`, so the
 usercase always carries them. Preview values are otherwise honest:
-`commcare_project` is **absent** until a deployment target supplies a domain,
+`commcare_project` is **absent** in both projections until a deployment target
+supplies a domain, the worker's name rides as `case_name` rather than `name`
+(HQ pops `name` into the case's name and never writes it as a property),
 always-written HQ keys are present-and-empty rather than absent, `user_type`
 is `"standard"`, and a **declared** property with no value is
 present-and-empty while an undeclared key is genuinely absent — the split a
@@ -1467,7 +1469,7 @@ counterpart to be faithful to; a future resume story must carry the entry key
 forward with the answers, and leave the signature pad blank rather than
 helpfully restoring it.
 
-### Export and HQ upload
+### Export, publishing, and the deployment record
 
 `lib/commcare` compiles a `BlueprintDoc` to the wire on three paths: a downloadable
 `.ccz`, an HQ import file, and a direct HQ upload through the REST client. All
@@ -1476,6 +1478,116 @@ three re-run the full validator with zero tolerance, and
 things the document alone cannot know — Project media membership, and which
 carriers a given export mode can represent. Credentials are KMS-encrypted per
 server, and `lib/commcare/client.ts` resolves its base URL from the selected one.
+
+**A publish is durable target state, not a fire-and-forget POST.** An
+`app_deployments` row records what one CommCare HQ project space holds of one
+app, keyed by app, Project, server, and domain — the server belongs to the key
+because HQ's US, India, and EU installations share no account database, so a key
+issued by one authenticates nowhere else. An `app_deployment_resources` row is
+the ownership ledger: Nova repoints or updates only what it created, and never
+infers ownership from a name, because two project spaces can hold unrelated apps
+sharing a name and picking one would attach a deployment to somebody else's
+work. `lib/deployment/CLAUDE.md` owns the
+detail.
+
+The lifecycle is `preflight → uploaded → built → released → runnable`, plus the
+terminal refusal `incomplete`, which carries the phase a retry resumes at and
+withholds both `released` and `runnable`. Every phase is independently
+retryable, and a retry never re-imports the app because the mapping already
+holds the remote id. A refused ATTEMPT never touches what the target holds:
+preflight failing against an already-released deployment writes nothing durable
+— the refusal is reported on the attempt itself (`PublishOutcome.refusal`),
+because the failure belongs to the caller's key or draft rather than to the app
+every Project member shares — and an observation that could not reach HQ at all
+writes nothing rather than demoting a healthy deployment. A later read failing
+mid-pass keeps the rungs that pass already confirmed. Observation may move a
+deployment BACKWARD, because a build that stops being released on HQ makes a
+`runnable` deployment not runnable; an answered pass also re-confirms the
+upload, which is what heals a deployment whose HQ app was deleted and then
+restored. No lock spans the HQ round trips: every record write is one short
+transaction folding against the freshly locked row, and an observation applies
+only while the mapping it asked about is still the active one.
+
+**Nova drives the first two states and observes the last three, because HQ
+draws that line.** `app_import_api.py::import_app_api` passes
+`login_decorator=api_auth()`, so an API key may import; `views/releases.py::save_copy`
+and `views/releases.py::release_build` both go through `require_can_edit_apps`,
+which is `require_permission(HqPermissions.edit_apps)` with the default
+`login_and_domain_required` — a browser session and nothing else.
+`cloudcare/views.py::FormplayerMain` is session-only too. The three reads an API
+key can make are `views/releases.py::current_app_version` (`@login_or_api_key`)
+for the version numbers, the read-only
+`api/resources/v0_4.py::ApplicationResource.dehydrate_versions` for build ids and
+release flags, and one build's `profile.ccpr` as the runnable proof. That last
+one is the device's own install request rather than a pure read: the catch-all
+`^download/<app_id>/<path>` route reaches `views/download.py::download_file`,
+not `::download_odk_profile`, and that view regenerates a build's files when
+they are missing — CommCare HQ repairing a build for a device, which cannot
+change the version or what is released. **It always names a build id and never
+`?latest=true`**, because on a working app `download_file` falls through to
+`download_odk_profile` and `autogenerate_build`, starting a whole new version.
+
+`built` means a build of what the project space currently holds rather than
+merely that some build exists, so an app edited on HQ after its last build is
+reported pending with the version gap named. HQ has no atomic app update
+(`models/applications.py::_create_app_from_doc` lands every import at version 1:
+`ApplicationBase::from_source` strips `version` with the rest of `_meta_fields`,
+and `::convert_build_to_app` clears `copy_of`), so publishing again creates a second app there;
+the superseded mapping is retained rather than deleted so the app left behind
+stays nameable.
+
+Preflight is a dependency graph with two kinds of edge. A blocking edge is a
+real prerequisite — no connection, or an app the export boundary refuses — and
+failing one leaves the deployment `incomplete` before anything externally
+visible happens. An attention edge is something the target needs that Nova
+cannot do from here, so it becomes a line in the setup artifact rather than a
+refusal; whether a persona satisfies a `required` worker property is one of
+these, because refusing a publish over it would refuse one that works while
+Nova creates no workers. Feature-flag reports remain advisory by standing
+contract: refusing a publish over one would let a target's configuration edit
+the app.
+
+The setup artifact regenerates from the document on every read and is never
+stored — a stored copy goes stale the first time a worker property is renamed,
+and somebody following stale instructions has no way to tell. It is target-aware
+throughout, and never claims a prerequisite was installed: the user-data schema
+and organization levels are session-only HTML forms
+(`users/views/mobile/custom_data_fields.py::UserFieldsView`,
+`locations/views.py::LocationTypesView`), automations have no REST resource, and
+building and releasing are the pages above. It also states that
+`models/applications.py::_create_app_from_doc` initializes `cloudcare_enabled`
+from the domain's Web Apps privilege at import, so an app published before the
+feature was on starts with it off. The remedy is the ordinary **Web App**
+setting (`commcare-app-settings.yml` id `cloudcare_enabled`, editable through
+`views/apps.py::edit_app_attr`), never a republish that would leave a duplicate
+app behind.
+
+Preview's `commcare_project` is supplied from that record: present when exactly
+one deployment has reached `uploaded`, absent when none has and when several
+have, since choosing between two real answers is a guess. It is a usercase
+property in a way it is not a session key —
+`callcenter/sync_usercase.py::_get_user_case_fields` writes it unconditionally,
+while `users/models.py::CouchUser.get_user_session_data` is the sole injector
+of the session copy — but NEITHER projection emits it empty, because the domain
+is never empty on a device and `= ''` would therefore fire in Preview and never
+in the field. Every identity resolver threads it, browser and server alike: the
+server-resolved identity binds `sessionUser` for the SQL compiler, so a
+client-only value would make one expression answer two ways.
+
+`publishAppToHq` is the one lifecycle the browser route and MCP's
+`upload_app_to_hq` both use; a refused publish answers 200 carrying the
+attempt's refusal plus whatever record the target has (none, when the app
+never reached it), and both callers read whether THIS attempt landed rather
+than inferring it from a state that describes the target. Deployments
+are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
+`refresh_deployment`) and deliberately NOT from the Solutions
+Architect, the same standing decision that keeps `get_app_hq_feature_flags` off
+that surface. Deployments carry `app_id` and `project_id` but not the composite tenant key
+case rows use, because the auth-app tenancy migration keeps an exact catalog of
+everything referencing `apps.project_id` and blocks additions; coherence is
+proved under the app lock every write already takes, and a Project move
+re-tenants them in the same transaction.
+
 Publishing also reports the HQ feature flags required by the emitted app.
 Direct upload checks the selected project space after import and distinguishes
 flags confirmed missing from flags whose state could not be verified; JSON and
@@ -1486,6 +1598,7 @@ feature-flag guide tells users to contact `support@dimagi.com` for a named
 project space. One central manifest drives detection, copy, docs, and a weekly
 audit against current CommCare HQ source so a graduated or renamed flag becomes
 an actionable failing check instead of stale product behavior.
+`content/docs/publishing.mdx` is the user-facing guide.
 
 ### Projects, moves, and multiplayer
 
@@ -1529,7 +1642,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Ten units, one file each. **Every entry below is a pointer, not a summary of
+Nine units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1553,7 +1666,7 @@ Nova choice, not a platform rule.
 ### Attachment target-aware emission and link UX
 
 [`complex-app/attachment-emission-and-link-ux.md`](complex-app/attachment-emission-and-link-ux.md)
-· depends on deployment core · blocks nothing
+· depends on nothing · blocks nothing
 
 Save-to-case attachment shapes, target-aware URL-column emission, explicit link
 presentation, and the opt-in legacy attachment mode. **The file holds** the exact
@@ -1572,25 +1685,14 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### Deployment core and artifact
-
-[`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
-· depends on nothing outstanding · blocks the
-attachment-emission, push-and-provisioning, and app-setup-UI units
-
-Durable deployment and resource-mapping records, preflight, ownership and
-adoption, independently retryable phases, and the target-aware setup artifact.
-**The file holds** the state machine enumerated end to end, including which state
-a required-phase failure lands in and what it withholds.
-
 ### Push and provisioning drivers
 
 [`complex-app/push-and-provisioning-drivers.md`](complex-app/push-and-provisioning-drivers.md)
-· depends on deployment core · blocks the app-setup-UI, session-endpoints, and
-multi-select units
+· depends on nothing outstanding · blocks the app-setup-UI, session-endpoints,
+and multi-select units
 
 Referenced-table push, location push, and explicit worker provisioning against
-deployment core's ownership mappings. **The file holds** the fixapi workbook's actual
+the deployment record's ownership mappings. **The file holds** the fixapi workbook's actual
 format, why a tag rename cannot be an in-place PUT, the v0.6 location API's
 semantics and caps, the user resource's create-only identity, and which part of
 the org model is not pushable at all.
@@ -1658,33 +1760,32 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
-| [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
+| [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | — |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | None |
-| [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, deployment core, push and provisioning |
+| [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | — |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, push and provisioning |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Four units have no outstanding prerequisites and can start in any order:
-grouped case tiles, the usercase, deployment core, and form links and sections. They
-are the independent entry points — every other unit descends from one of them.
+Five units have no outstanding prerequisites and can start in any order:
+grouped case tiles, attachment emission, the usercase, push and provisioning,
+and form links and sections. They are the independent entry points — every
+other unit descends from one of them.
 
-The remaining deployment chain (deployment core → push and provisioning) is
-the critical path: it gates attachment emission, the
-App setup UI, session endpoints, and multi-select, so anything needing a real
-HQ target waits on it. The navigation chain (form links → nested menus) runs
+Push and provisioning is the critical path: it gates the App setup UI, session
+endpoints, and multi-select, so anything needing resources on a real HQ target
+waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
 
 Grouped case tiles, attachment emission, the App setup UI, session endpoints,
 and multi-select are leaves — nothing waits on them, so each can land whenever
 its own prerequisites are met. Grouped case tiles are both an entry point and
 a leaf: nothing blocks them and nothing waits on them, which makes them the
-natural filler whenever the deployment chain is blocked on something external.
+natural filler whenever push and provisioning is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
-on it, so it can proceed independently without holding up deployment core.
+on it, so it can proceed independently without holding up push and provisioning.
 
 ---
 

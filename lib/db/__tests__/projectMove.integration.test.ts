@@ -9,6 +9,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
+import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -523,6 +524,43 @@ describe("atomic Project move", () => {
 			);
 		expect(cases.rows[0]?.count).toBe("0");
 	}, 15_000);
+
+	it("carries deployments to the destination rather than stranding them", async () => {
+		const appId = await seedMoveableApp({
+			id: "app-deployment-move",
+			appName: "Deployment move",
+			caseTypes: [{ name: "household", properties: [] }],
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+
+		const deployment = await foldDeploymentAttempt(
+			{
+				appId,
+				projectId: SOURCE,
+				role: "owner",
+				actorUserId: ACTOR,
+			},
+			{ server: "production", domain: "acme" },
+			"preflight",
+			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
+			{ ensure: true },
+		);
+
+		await prepareMove(appId);
+		await commitMove(appId);
+
+		/* Deployments carry NO composite tenant foreign key, so nothing in
+		 * the database catches a move that forgets them: the rows would
+		 * silently stay in the source Project. This asserts the row actually
+		 * moved rather than merely that the move succeeded. */
+		const moved = await h
+			.db()
+			.selectFrom("app_deployments")
+			.select(["project_id", "domain"])
+			.where("id", "=", deployment.deployment.id)
+			.executeTakeFirst();
+		expect(moved).toEqual({ project_id: DESTINATION, domain: "acme" });
+	});
 
 	it("moves the complete tenant closure atomically and preserves transcript metadata", async () => {
 		const appId = await seedMoveableApp({

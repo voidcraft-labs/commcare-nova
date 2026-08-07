@@ -35,6 +35,15 @@ export interface ReconcilerContextValue {
 	subscribePresence: (cb: (roster: PresenceFrame) => void) => () => void;
 	/** Subscribe to payload-free organization invalidations for this app. */
 	subscribeAppOrganization: (cb: () => void) => () => void;
+	/** Subscribe to `event: preview-project-space` frames off the shared
+	 *  stream: the server-resolved project space Preview may name for
+	 *  `commcare_project`, re-announced whenever a deployment write lands
+	 *  anywhere (a co-member's publish, any tab's Check status). The retained
+	 *  latest value replays immediately to a late subscriber; `null` means
+	 *  Preview names nothing. `DeploymentTargetProvider` is the consumer. */
+	subscribePreviewProjectSpace: (
+		cb: (projectSpace: string | null) => void,
+	) => () => void;
 	/** Subscribe to full Project lookup manifests from `event: lookup-revision`
 	 *  on the shared app stream. Lookup revisions are independent of blueprint
 	 *  mutation sequence and therefore never enter reconciler state. The latest

@@ -772,16 +772,25 @@ test.describe("authenticated builder", () => {
 		const rejectedSaveRelease = new Promise<void>((resolve) => {
 			releaseRejectedSave = resolve;
 		});
-		let organizationActionPosts = 0;
-		const countOrganizationActions = (request: Request) => {
+		/* Count the WRITE, not every Server Action on the page. The
+		 * organization panel also re-READS through a Server Action whenever a
+		 * co-editor poke arrives on the builder stream, and that arrives on
+		 * its own schedule — counting those made this assert a race that a
+		 * slower machine loses. The place's name is the discriminator,
+		 * because it is exactly the thing that must not be sent. */
+		/* Distinctive enough that no other request can contain it. */
+		const BLOCKED_PLACE_NAME = "Must not persist";
+		let placeWritePosts = 0;
+		const countPlaceWrites = (request: Request) => {
 			if (
 				request.method() === "POST" &&
-				request.headers()["next-action"] !== undefined
+				request.headers()["next-action"] !== undefined &&
+				(request.postData() ?? "").includes(BLOCKED_PLACE_NAME)
 			) {
-				organizationActionPosts++;
+				placeWritePosts++;
 			}
 		};
-		page.on("request", countOrganizationActions);
+		page.on("request", countPlaceWrites);
 		await page.route(`**/api/apps/${appId}`, async (route) => {
 			if (route.request().method() !== "PUT") return route.continue();
 			observeRejectedSave?.();
@@ -803,14 +812,13 @@ test.describe("authenticated builder", () => {
 		// The form initially opens at Region, whose active reverse-hop rule also
 		// renders a required District branch. Name the root explicitly before
 		// switching it to the newly authored Barrier level.
-		await barrierPlaces.getByLabel("Name").first().fill("Must not persist");
+		await barrierPlaces.getByLabel("Name").first().fill(BLOCKED_PLACE_NAME);
 		await barrierPlaces.getByLabel("Level").last().click();
 		await page.getByRole("option", { name: "Barrier level" }).click();
 		await barrierPlaces.getByLabel("Sits in").last().click();
 		await page.getByRole("option", { name: /Kilifi District/ }).click();
 		await barrierPlaces.getByLabel("Facility kind").last().click();
 		await page.getByRole("option", { name: "Clinic" }).click();
-		const postsBeforeBlockedWrite = organizationActionPosts;
 		const blockedAddPlace = barrierPlaces.getByRole("button", {
 			name: "Add place",
 		});
@@ -822,12 +830,14 @@ test.describe("authenticated builder", () => {
 				"The app changed before its places could be saved. Review the latest app, then try again.",
 			),
 		).toBeVisible();
-		expect(organizationActionPosts).toBe(postsBeforeBlockedWrite);
+		// The place never left the browser, so nothing on CommCare HQ or in
+		// the case store can be holding it.
+		expect(placeWritePosts).toBe(0);
 		await page.unroute(`**/api/apps/${appId}`);
-		page.off("request", countOrganizationActions);
+		page.off("request", countPlaceWrites);
 		await page.reload();
 		await expect(
-			barrierPlaces.getByRole("button", { name: /Must not persist/ }),
+			barrierPlaces.getByRole("button", { name: BLOCKED_PLACE_NAME }),
 		).toHaveCount(0);
 
 		for (const viewport of [

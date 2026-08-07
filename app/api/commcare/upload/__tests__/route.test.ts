@@ -1,445 +1,303 @@
 /**
- * `POST /api/commcare/upload`: boundary gate tests.
+ * `POST /api/commcare/upload` — the route's own contract.
  *
- * This route is media-ON and boundary-gated: any validator finding
- * returns an actionable 422 before the HQ import (a stale media
- * reference would otherwise make `expandDoc` throw `requireAssetRef` →
- * opaque 500). These tests prove the gate fires AND that the handler
- * returns on it (the un-typed fall-through risk: calling the gate,
- * getting errors, but forgetting to return and 500ing anyway).
+ * The route is a transport and authorization shell over the one publish
+ * lifecycle, so what it owns is: reject a malformed request, refuse a
+ * viewer, resolve which CommCare deployment the stored key belongs to,
+ * and answer in the shape the dialog reads. What a publish MEANS is
+ * proved against `publishAppToHq` in
+ * `lib/deployment/__tests__/publishLifecycle.test.ts`, which is why this
+ * file mocks it rather than re-testing the boundary gate through three
+ * layers.
  *
- * Boundaries are mocked: `requireSession` (so `req` is never read beyond
- * `json()`), `resolveAppAccess` (loads the blueprint server-side from the
- * posted `appId`), credentials/manifest/import/expand, and the boundary gate
- * itself. A stub `NextRequest` carries the body via `json()`. The loaded
- * fixture doc is schema-valid (built via `buildDoc`).
+ * The one behavior worth pinning here and nowhere else: a refused publish
+ * answers 200 carrying the `incomplete` record, not a 4xx. A 4xx would
+ * throw away the record that says which phase to retry from.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
-import {
-	importApp,
-	probeHqFeatureFlags,
-	uploadAppMediaBundle,
-} from "@/lib/commcare/client";
-import { expandDoc } from "@/lib/commcare/expander";
-import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
-import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { getCredentialsForUpload } from "@/lib/db/settings";
-import { proseText } from "@/lib/domain/prose";
-import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import { getCommCareSettings } from "@/lib/db/settings";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { publishAppToHq } from "@/lib/deployment/service";
+import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/db/settings", () => ({
-	getCredentialsForUpload: vi.fn(),
+vi.mock("@/lib/db/appAccess", () => ({
+	resolveAppAccess: vi.fn(),
+	AppAccessError: class AppAccessError extends Error {},
 }));
-vi.mock("@/lib/export/boundaryValidation", () => ({
-	prepareExportBoundary: vi.fn(),
+vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
+vi.mock("@/lib/deployment/service", () => ({ publishAppToHq: vi.fn() }));
+/* The route asks the server what Preview may name; only the server can
+ * see whether the app is now live on more than one space. */
+vi.mock("@/lib/deployment/previewSpace", () => ({
+	previewProjectSpaceFor: vi.fn(async () => "acme"),
 }));
-// `resolveMediaManifest` is mocked (it reads Postgres + GCS); `assetWirePaths`
-// is a pure projection, so give the mock its real behavior, the outcome
-// interpreter joins it against the doc to name the unmatched carrier.
-vi.mock("@/lib/media/manifest", () => ({
-	resolveMediaManifest: vi.fn(),
-	assetWirePaths: (manifest: Map<string, { wirePath: string }>) => {
-		const out = new Map<string, string>();
-		for (const [id, asset] of manifest) out.set(id, asset.wirePath);
-		return out;
-	},
-}));
-vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
-vi.mock("@/lib/commcare/client", async (orig) => ({
-	// Keep the real `isValidDomainSlug` (the route calls it); mock the
-	// network surfaces.
-	...(await orig<typeof import("@/lib/commcare/client")>()),
-	importApp: vi.fn(),
-	probeHqFeatureFlags: vi.fn(),
-	uploadAppMediaBundle: vi.fn(),
-}));
-// The bulk-zip builder needs real bytes; the route only checks the manifest
-// is non-empty before calling it, so a stub buffer keeps it network-free.
-vi.mock("@/lib/commcare/multimedia/bulkUploadZip", () => ({
-	buildMediaBulkUploadZip: vi.fn(() => Buffer.from("zip")),
+vi.mock("@/lib/doc/fieldParent", () => ({
+	hydratePersistedBlueprint: (doc: unknown) => doc,
 }));
 
 const SESSION = { user: { id: "u1" } };
 const DOMAIN = "acme";
 
 /**
- * The blueprint `resolveAppAccess` loads server-side. The persistable wire
- * shape (`blueprintDocSchema`) excludes the derived `fieldParent` (the route
- * rebuilds it), so strip it off the in-memory `buildDoc` output.
+ * Read the whole response.
+ *
+ * Every assertion goes through this rather than touching `res.status`
+ * alone: `NextResponse.json` holds a body stream, and a test that never
+ * consumes one leaves it open, which the async-leak detector fails the
+ * suite on.
  */
-function validDoc() {
-	const { fieldParent: _fieldParent, ...doc } = buildDoc({
-		appName: "Vaccine Tracker",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				forms: [
-					{
-						name: "Reg",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							},
-						],
-					},
-				],
-			},
-		],
-	});
-	return doc;
+async function read(res: Response): Promise<{ status: number; body: unknown }> {
+	return { status: res.status, body: await res.json() };
 }
 
-function docWithCaseSearch() {
-	const doc = validDoc();
-	const moduleUuid = doc.moduleOrder[0];
-	if (!moduleUuid) throw new Error("fixture module missing");
-	doc.modules[moduleUuid].caseSearchConfig = {};
-	return doc;
-}
-
-/**
- * A schema-valid doc whose `photo` question carries `assetId` as its label
- * image, so the real `walkAssetRefs` (run inside the route's outcome
- * interpreter) resolves an unmatched wire path back to this carrier.
- */
-function docWithFieldImage(assetId: string) {
-	const { fieldParent: _fieldParent, ...doc } = buildDoc({
-		appName: "Vaccine Tracker",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				forms: [
-					{
-						name: "Reg",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							},
-							{
-								kind: "text",
-								id: "photo",
-								label: proseText("Photo"),
-								label_media: { image: assetId },
-							},
-						],
-					},
-				],
-			},
-		],
-	});
-	return doc;
-}
-
-/** Build the stub request: only `json()` is read after `requireSession`. */
-function reqWith(body: unknown) {
+/** `readJsonBody` caps the body before parsing, so it reads real bytes. */
+function req(body: unknown) {
+	const bytes = new TextEncoder().encode(JSON.stringify(body));
 	return {
-		headers: new Headers(),
-		json: async () => body,
-		arrayBuffer: async () =>
-			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
-	} as unknown as Parameters<typeof POST>[0];
+		headers: new Headers({ "content-length": String(bytes.byteLength) }),
+		arrayBuffer: async () => bytes.buffer,
+	} as never;
 }
 
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
-function loadsDoc(doc: ReturnType<typeof validDoc>) {
-	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1", mutation_seq: 12 },
-		projectId: "project-1",
-		role: "owner",
-		actorUserId: "u1",
-	} as never);
+function deploymentView(state: string, resumePhase: string | null = null) {
+	return {
+		deployment: {
+			id: "dep-1",
+			appId: "app-1",
+			projectId: "proj-1",
+			server: "production",
+			domain: DOMAIN,
+			state,
+			resumePhase,
+			phases: NO_DEPLOYMENT_PHASE_OUTCOMES,
+			createdBy: "u1",
+			createdAt: "2026-08-06T00:00:00.000Z",
+			updatedAt: "2026-08-06T00:00:00.000Z",
+			lastObservedAt: null,
+		},
+		active: [],
+		superseded: [],
+	};
 }
 
 beforeEach(() => {
-	vi.mocked(requireSession).mockReset();
-	vi.mocked(resolveAppAccess).mockReset();
-	vi.mocked(getCredentialsForUpload).mockReset();
-	vi.mocked(prepareExportBoundary).mockReset();
-	vi.mocked(resolveMediaManifest).mockReset();
-	vi.mocked(expandDoc).mockReset();
-	vi.mocked(importApp).mockReset();
-	vi.mocked(uploadAppMediaBundle).mockReset();
-	vi.mocked(probeHqFeatureFlags).mockReset();
-
+	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	loadsDoc(validDoc());
-	// Successful credential + target-space resolution (`{ ok: true }`) so
-	// control passes the credential gate and reaches the media gate. The
-	// requested-space authorization lives inside `getCredentialsForUpload`,
-	// so a resolved result here means the key can reach the requested space.
-	vi.mocked(getCredentialsForUpload).mockResolvedValue({
-		ok: true,
-		creds: { username: "alice", apiKey: "k" },
-		domain: { name: DOMAIN, displayName: "ACME" },
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: { blueprint: {}, mutation_seq: 7 },
+		projectId: "proj-1",
+		role: "owner",
+		actorUserId: "u1",
 	} as never);
-	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
-	vi.mocked(prepareExportBoundary).mockImplementation(
-		async (input) =>
-			({
-				ok: true,
-				prepared: {
-					...input,
-					assets: await resolveMediaManifest(
-						input.doc,
-						input.access.projectId,
-						{ withBytes: true },
-					),
-				},
-			}) as never,
-	);
-	vi.mocked(expandDoc).mockReturnValue({} as never);
-	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
-		matched: 0,
-		unmatched: 0,
-		unmatchedFiles: [],
-		errors: [],
-		timedOut: false,
-	});
-	vi.mocked(probeHqFeatureFlags).mockResolvedValue([]);
+	vi.mocked(getCommCareSettings).mockResolvedValue({
+		configured: true,
+		username: "u",
+		server: "production",
+		availableDomains: [{ name: DOMAIN, displayName: "Acme" }],
+	} as never);
+	vi.mocked(publishAppToHq).mockResolvedValue({
+		landed: true,
+		deployment: deploymentView("uploaded"),
+		checks: [],
+		artifact: {
+			server: "production",
+			domain: DOMAIN,
+			hqAppId: null,
+			sections: [],
+		},
+		warnings: [],
+		featureFlags: null,
+		hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
+	} as never);
 });
 
-describe("POST /api/commcare/upload — boundary gate", () => {
-	it("returns 422 with the rule's message (not a 500) when a media ref is stale", async () => {
-		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
-			ok: false,
-			violations: [
-				validationError(
-					"MEDIA_ASSET_NOT_READY",
-					"field",
-					'At the label media on field "case_name" in form "Reg", the media is still uploading.',
-					{ formName: "Reg", fieldId: "case_name" },
-				),
-			],
+describe("POST /api/commcare/upload — request shape", () => {
+	it("rejects a missing project space", async () => {
+		const { status, body } = await read(
+			await POST(req({ appName: "App", appId: "app-1" })),
+		);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({ error: expect.stringMatching(/project/i) });
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	});
+
+	it("rejects a project space that could smuggle a path segment", async () => {
+		const { status } = await read(
+			await POST(
+				req({ domain: "acme/../evil", appName: "App", appId: "app-1" }),
+			),
+		);
+		expect(status).toBe(400);
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	});
+
+	it("rejects a missing app name", async () => {
+		const { status } = await read(
+			await POST(req({ domain: DOMAIN, appId: "app-1" })),
+		);
+		expect(status).toBe(400);
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	});
+});
+
+describe("POST /api/commcare/upload — target resolution", () => {
+	it("refuses before publishing when CommCare HQ is not connected", async () => {
+		vi.mocked(getCommCareSettings).mockResolvedValue({
+			configured: false,
 		} as never);
 
-		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+		const { status, body } = await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
 		);
-		const body = (await res.json()) as { error: string; details?: string[] };
 
-		expect(res.status).toBe(422);
-		expect(body.details?.[0]).toContain("uploading");
-		/* The gate must short-circuit BEFORE import: an invalid app
-		 * never reaches HQ. */
-		expect(importApp).not.toHaveBeenCalled();
-		expect(expandDoc).not.toHaveBeenCalled();
-		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+		expect(status).toBe(400);
+		expect(body).toMatchObject({ error: expect.stringMatching(/Settings/) });
+		expect(publishAppToHq).not.toHaveBeenCalled();
 	});
 
-	it("keeps an operational lookup-read failure operational and calls no HQ boundary", async () => {
-		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
-			new Error("lookup database unavailable"),
+	it("publishes to the server the stored key belongs to", async () => {
+		vi.mocked(getCommCareSettings).mockResolvedValue({
+			configured: true,
+			username: "u",
+			server: "india",
+			availableDomains: [{ name: DOMAIN, displayName: "Acme" }],
+		} as never);
+
+		await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
 		);
 
-		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
-		);
-		const body = (await res.json()) as { error: string };
-
-		expect(res.status).toBe(500);
-		expect(body.error).not.toContain("isn't ready to upload");
-		expect(expandDoc).not.toHaveBeenCalled();
-		expect(importApp).not.toHaveBeenCalled();
-		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
-	});
-
-	it("proceeds to import + bulk media upload when the boundary gate is clean", async () => {
-		vi.mocked(importApp).mockResolvedValueOnce({
-			success: true,
-			appId: "hq-1",
-			appUrl: "https://hq.example/app",
-			warnings: [],
+		expect(vi.mocked(publishAppToHq).mock.calls[0]?.[0]).toMatchObject({
+			server: "india",
+			domain: DOMAIN,
 		});
-		// A non-empty manifest so the route reaches the media upload (a
-		// media-free app skips it: covered below).
-		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["a1", {} as never]]) as never,
-		);
-
-		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
-		);
-		// Drain the response body: an unread `NextResponse.json` stream is a
-		// dangling async resource the leak detector flags; reading it also lets
-		// us assert the response shape, not just the status.
-		const body = (await res.json()) as { appId: string; warnings: string[] };
-
-		expect(res.status).toBe(201);
-		expect(body.appId).toBe("hq-1");
-		// Default bundle result is a clean match → no warnings.
-		expect(body.warnings).toEqual([]);
-		// Uploading PUBLISHES the app, so the membership gate is EDIT, not view
-		// (a viewer can't push a shared app to HQ).
-		expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
-		expect(prepareExportBoundary).toHaveBeenCalledWith(
-			expect.objectContaining({
-				mode: "hq-upload",
-				doc: expect.objectContaining({ appName: "Vaccine Tracker" }),
-			}),
-		);
-		expect(importApp).toHaveBeenCalledTimes(1);
-		expect(uploadAppMediaBundle).toHaveBeenCalledTimes(1);
 	});
 
-	it("skips the media upload for a media-free app", async () => {
-		vi.mocked(importApp).mockResolvedValueOnce({
-			success: true,
-			appId: "hq-2",
-			appUrl: "https://hq.example/app",
-			warnings: [],
-		});
-		// Default manifest is empty → no media to ship.
-		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+	it("requires edit, not view: publishing pushes the app out of the Project", async () => {
+		await read(
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
 		);
-		await res.json();
-
-		expect(res.status).toBe(201);
-		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "edit");
 	});
+});
 
-	it("returns flags confirmed missing from the exact uploaded project space", async () => {
-		loadsDoc(docWithCaseSearch());
-		vi.mocked(importApp).mockResolvedValueOnce({
-			success: true,
-			appId: "hq-flags",
-			appUrl: "https://hq.example/app",
-			warnings: [],
-		});
-		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
-			{
-				requirement: HQ_FEATURE_FLAG_REQUIREMENTS[0],
-				state: "missing",
-			},
-		]);
-
+describe("POST /api/commcare/upload — answering with the record", () => {
+	it("answers 201 with the deployment and its setup artifact", async () => {
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
 		);
 		const body = (await res.json()) as {
-			feature_flag_requirements: {
-				verification: string;
-				missing_flags: { slug: string }[];
-				message: string;
-			};
+			success: boolean;
+			deployment: { deployment: { state: string } };
+			setup_artifact: { domain: string };
+			url: string;
 		};
 
 		expect(res.status).toBe(201);
-		expect(probeHqFeatureFlags).toHaveBeenCalledWith(
-			expect.anything(),
-			DOMAIN,
-			[expect.objectContaining({ slug: "search_claim" })],
-		);
-		expect(body.feature_flag_requirements.verification).toBe("verified");
-		expect(body.feature_flag_requirements.missing_flags).toEqual([
-			expect.objectContaining({ slug: "search_claim" }),
-		]);
-		expect(body.feature_flag_requirements.message).toContain(
-			"support@dimagi.com",
-		);
+		expect(body.success).toBe(true);
+		expect(body.deployment.deployment.state).toBe("uploaded");
+		expect(body.setup_artifact.domain).toBe(DOMAIN);
+		expect(body.url).toContain("/a/acme/apps/view/");
 	});
 
-	it("names the carrier when HQ leaves a form's media unmatched", async () => {
-		vi.mocked(importApp).mockResolvedValueOnce({
-			success: true,
-			appId: "hq-3",
-			appUrl: "https://hq.example/app",
-			warnings: [],
-		});
-		// The doc references asset `a1` as a field's label image; the manifest
-		// resolves it to a wire path, and HQ reports THAT path unmatched. The
-		// route must name where the media lives, not just count it.
-		loadsDoc(docWithFieldImage("a1"));
-		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["a1", { wirePath: "commcare/img.png" } as never]]) as never,
-		);
-		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
-			matched: 0,
-			unmatched: 1,
-			unmatchedFiles: [
-				{ path: "commcare/img.png", reason: "Did not match any Image paths." },
-			],
-			errors: [],
-			timedOut: false,
-		});
+	it("answers with what Preview may name, resolved server-side", async () => {
+		// The browser cannot see whether this app is now live on a second
+		// project space, which is when `commcare_project` has two real
+		// answers and Nova must name neither.
+		vi.mocked(previewProjectSpaceFor).mockResolvedValue(null as never);
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
 		);
-		const body = (await res.json()) as { warnings: string[] };
+		const body = (await res.json()) as { preview_project_space: unknown };
 
-		expect(res.status).toBe(201);
-		const text = body.warnings.join(" ");
-		expect(text).toMatch(/couldn't attach/i);
-		// The carrier is named: the question id and form, not a bare number.
-		expect(text).toContain("photo");
-		expect(text).toContain("Reg");
+		expect(body.preview_project_space).toBeNull();
 	});
 
-	it("treats a standalone logo as a heads-up, not a failure", async () => {
-		vi.mocked(importApp).mockResolvedValueOnce({
-			success: true,
-			appId: "hq-4",
-			appUrl: "https://hq.example/app",
-			warnings: [],
-		});
-		// The logo image is used nowhere else, so HQ reports it unmatched by
-		// design (logos aren't in its bulk-match set). The route explains it
-		// gently rather than telling the user to "re-upload".
-		loadsDoc({ ...validDoc(), logo: "logoA" } as ReturnType<typeof validDoc>);
-		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["logoA", { wirePath: "commcare/logo.png" } as never]]) as never,
-		);
-		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
-			matched: 0,
-			unmatched: 1,
-			unmatchedFiles: [
-				{ path: "commcare/logo.png", reason: "Did not match any Image paths." },
+	it("reads success from the attempt, not from what the target holds", async () => {
+		/* A blocked preflight against an app that is already released
+		 * leaves the record released, because it still is. Judging success
+		 * from that state would report a publish that never happened as a
+		 * success. */
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: false,
+			deployment: deploymentView("runnable"),
+			checks: [
+				{
+					id: "hq-connection",
+					title: "CommCare HQ connection",
+					status: "blocked",
+					detail: "CommCare HQ isn't connected yet.",
+					items: [],
+				},
 			],
-			errors: [],
-			timedOut: false,
-		});
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			featureFlags: null,
+			hqAppUrl: null,
+		} as never);
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
 		);
-		const body = (await res.json()) as { warnings: string[] };
+		const body = (await res.json()) as {
+			success: boolean;
+			deployment: { deployment: { state: string } };
+		};
 
-		expect(res.status).toBe(201);
-		const text = body.warnings.join(" ");
-		expect(text).toMatch(/logo/i);
-		expect(text).toContain("CommCare HQ");
-		// The logo case is NOT framed as a failed attach.
-		expect(text).not.toMatch(/couldn't attach/i);
+		expect(res.status).toBe(200);
+		expect(body.success).toBe(false);
+		// The target really is still runnable, and says so.
+		expect(body.deployment.deployment.state).toBe("runnable");
+	});
+
+	it("answers 200 with the incomplete record rather than throwing it away", async () => {
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: false,
+			deployment: deploymentView("incomplete", "preflight"),
+			checks: [
+				{
+					id: "app-readiness",
+					title: "App readiness",
+					status: "blocked",
+					detail: "This app isn't ready to publish yet.",
+					items: ["Give the module a case list column."],
+				},
+			],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			featureFlags: null,
+			hqAppUrl: null,
+		} as never);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as {
+			success: boolean;
+			deployment: { deployment: { state: string; resumePhase: string } };
+			preflight: { status: string; detail: string }[];
+		};
+
+		expect(res.status).toBe(200);
+		expect(body.success).toBe(false);
+		expect(body.deployment.deployment.state).toBe("incomplete");
+		expect(body.deployment.deployment.resumePhase).toBe("preflight");
+		expect(body.preflight[0]?.status).toBe("blocked");
 	});
 });

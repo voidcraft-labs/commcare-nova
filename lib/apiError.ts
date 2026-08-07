@@ -182,6 +182,7 @@ export function isClientAbort(err: unknown): boolean {
  * - `ApiError`  -> uses its status and details directly
  * - a CLIENT ABORT (disconnect) -> `499`, logged at WARN (Cloud-Logging-only)
  * - `AppAccessError` -> 404 (IDOR-safe not-found)
+ * - `DeploymentError` -> its own status, message kept (expected rejection)
  * - anything else -> 500 with a generic message, logged at ERROR (→ Sentry)
  *
  * Response shape: `{ error: string, details?: string[] }`
@@ -215,6 +216,21 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 	 * db/auth graph into this lightweight error util. */
 	if (err.name === "AppAccessError") {
 		return NextResponse.json({ error: "App not found" }, { status: 404 });
+	}
+
+	/* Deployment rejections (`lib/deployment/errors`) are EXPECTED and carry
+	 * a written message: a project space the caller's key cannot reach, a
+	 * CommCare HQ app id that is not there, an app another Nova app already
+	 * publishes to. Falling through to the generic branch turned each one
+	 * into a 500, a Sentry issue, and "Internal server error" on screen.
+	 * `lib/mcp/errors.ts` classifies the same class for the same reason;
+	 * matched by name to keep this util's import graph light. */
+	if (err.name === "DeploymentError") {
+		const code = (err as { code?: string }).code;
+		const status =
+			code === "not_found" ? 404 : code === "domain_not_authorized" ? 403 : 400;
+		log.warn("[apiError] deployment rejected", { code: code ?? null });
+		return NextResponse.json({ error: err.message }, { status });
 	}
 
 	// Standard Error — return a generic message to avoid leaking internal

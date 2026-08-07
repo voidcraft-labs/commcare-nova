@@ -1,19 +1,21 @@
 /**
- * CommCare HQ app upload proxy: POST /api/commcare/upload.
+ * Publish an app to CommCare HQ: POST /api/commcare/upload.
  *
- * Accepts a blueprint and uploads it to CommCare HQ as a new app in the
- * caller's chosen project space. The API key stays server-side, and each
- * call creates a brand-new app: HQ has no atomic update API yet.
+ * The route is a thin authorization and transport shell. Everything a
+ * publish MEANS lives in `lib/deployment/service.ts::publishAppToHq`, so
+ * this path and the MCP `upload_app_to_hq` tool share one lifecycle
+ * instead of hand-rolling two that drift apart.
  *
- * The zero-tolerance boundary gate runs first: every validator finding
- * (soundness, completeness, or a stale media reference) returns an
- * actionable 422, never an opaque 500: an invalid app must never reach
- * HQ. Then the upload is media-ON, two-phase: the blueprint expands
- * media-ON and imports, and once the app exists, each asset's bytes are
- * uploaded per-file against the new app id so HQ's `create_mapping`
- * resolves the references on the device. A media-byte failure never fails
- * the upload: the app is already created, so it degrades to a warning on
- * the response.
+ * That lifecycle records what happened. A publish is not a fire-and-forget
+ * POST any more: it creates or advances a durable deployment for the
+ * (app, Project, server, domain) target, records the CommCare HQ app it
+ * created, and hands back the state, the preflight findings, and the setup
+ * instructions the target still needs by hand.
+ *
+ * A preflight refusal answers 200 with an `incomplete` deployment rather
+ * than an error status. That is deliberate: the request succeeded, the
+ * deployment is the answer, and the caller renders which edge stopped it.
+ * A 4xx here would throw away the record that says where to retry from.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -24,45 +26,26 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import {
-	importApp,
-	isValidDomainSlug,
-	probeHqFeatureFlags,
-	uploadAppMediaBundle,
-} from "@/lib/commcare/client";
-import { expandDoc } from "@/lib/commcare/expander";
-import {
-	featureFlagReportForUpload,
-	requiredHqFeatureFlags,
-} from "@/lib/commcare/featureFlags";
-import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getCommCareSettings } from "@/lib/db/settings";
+import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { publishAppToHq } from "@/lib/deployment/service";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
-import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { log } from "@/lib/logger";
-import { assetWirePaths } from "@/lib/media/manifest";
-import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
-		// Cap the body before materializing it (one ~1 MiB-bounded blueprint +
-		// a small envelope); rejects the pathological without touching a real
-		// upload.
+		// Cap the body before materializing it. Only identifiers cross the
+		// wire; the blueprint is loaded server-side from the app row.
 		const body = (await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES)) as {
 			domain?: string;
 			appName?: string;
 			appId?: string;
 		} | null;
 
-		if (!body) {
-			throw new ApiError("App data is required", 400);
-		}
-
-		/* ── Validate inputs ────────────────────────────────────────── */
+		if (!body) throw new ApiError("App data is required", 400);
 		if (!body.domain?.trim()) {
 			throw new ApiError("Project space is required", 400);
 		}
@@ -76,192 +59,80 @@ export async function POST(req: NextRequest) {
 			throw new ApiError("App data is required", 400);
 		}
 
-		/* Membership gate (edit) + load the blueprint server-side: no whole
-		 * doc crosses the wire. Uploading to CommCare HQ PUBLISHES the app, so
-		 * it requires edit, not just view (matching the MCP upload tool); a
-		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
-		 * Hydration rebuilds derived in-memory indexes on the canonical stored
-		 * document; it does not backfill an alternate representation. Media resolves
-		 * at the app's PROJECT scope (the sharing boundary the assets live in)
-		 * so a Project co-member can upload a shared app. */
+		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
+		 * push a shared app out of the Project. An `AppAccessError` maps to
+		 * 404, so a foreign app is indistinguishable from a missing one. */
 		const access = await resolveAppAccess(body.appId, session.user.id, "edit");
 		const { app } = access;
-		const docWithParent = hydratePersistedBlueprint(
-			app.blueprint as PersistableDoc,
-		);
 
-		/* ── Resolve credentials + authorize the requested space ──────── */
-		const requested = body.domain.trim();
-		const credResult = await getCredentialsForUpload(
-			session.user.id,
-			requested,
-		);
-		if (!credResult.ok) {
-			if (credResult.error === "not_configured") {
-				throw new ApiError(
-					"CommCare HQ is not configured. Add your API key in Settings.",
-					400,
-				);
-			}
-			if (credResult.error === "not_authorized") {
-				const reachable = credResult.available.map((d) => d.name).join(", ");
-				throw new ApiError(
-					`Your API key can't upload to "${requested}". It reaches: ${reachable}. Pick one of those project spaces.`,
-					403,
-				);
-			}
-			/* `ambiguous` shouldn't occur: the dialog always sends a chosen
-			 * space, but a malformed request with no space lands here. */
-			throw new ApiError("No project space selected for the upload.", 400);
+		/* Which CommCare deployment the stored key belongs to. A key only
+		 * authenticates against the server that issued it, so the server is
+		 * part of the deployment's identity rather than a display detail.
+		 * The settings read validates the stored server against the closed
+		 * catalog itself, collapsing an unrecognized one to not-configured,
+		 * so a configured result always names a real installation. */
+		const settings = await getCommCareSettings(session.user.id);
+		if (!settings.configured) {
+			throw new ApiError(
+				"CommCare HQ is not configured. Add your API key in Settings.",
+				400,
+			);
 		}
-		const { creds } = credResult;
-		const domain = credResult.domain.name;
 
-		/* ── Boundary gate: full validation before any expensive work ── */
-		// Zero tolerance at the upload boundary: every finding (soundness,
-		// completeness, media-state) rejects with the rule's actionable
-		// message and the carrier location. This also covers the media-ON
-		// expand's failure mode: a stale media reference would make
-		// `expandDoc` throw `requireAssetRef` → opaque 500.
-		const boundary = await prepareExportBoundary({
-			mode: "hq-upload",
-			access: {
+		const outcome = await publishAppToHq({
+			scope: {
+				appId: body.appId,
 				projectId: access.projectId,
 				role: access.role,
-				actorUserId: access.actorUserId,
+				actorUserId: session.user.id,
 			},
-			doc: docWithParent,
+			doc: hydratePersistedBlueprint(app.blueprint as PersistableDoc),
 			compiledAtSeq: app.mutation_seq,
-		});
-		if (!boundary.ok) {
-			throw new ApiError(
-				"This app isn't ready to upload. Fix the issues below, then try again.",
-				422,
-				boundary.violations.map(userFacingError),
-			);
-		}
-
-		/* ── Use the exact prepared resource generation ──────────────── */
-		// The upload path is media-ON: the imported app's forms carry the
-		// `jr://file/commcare/<hash><ext>` itext references, and the bytes
-		// follow via the multimedia upload below. One resolution pass with
-		// bytes feeds BOTH the expander (references + multimedia_map) and
-		// the byte upload, so the references emitted and the files sent
-		// come from the same source and cannot drift.
-		const prepared = boundary.prepared;
-		const manifest = prepared.assets;
-
-		/* ── Expand domain doc to HQ JSON (media-ON) ─────────────────── */
-		const hqJson = expandDoc(prepared.doc, { assets: manifest });
-
-		/* ── Import the app first ───────────────────────────────────── */
-		// The app must exist before any media upload: the app id goes in
-		// the upload URL, and HQ records each uploaded file against this
-		// new app's `multimedia_map`.
-		const result = await importApp(creds, domain, body.appName.trim(), hqJson);
-
-		if (!result.success) {
-			/* Map HQ 5xx → 502 so our monitoring distinguishes upstream failures
-			 * from our own errors. Client-facing message stays the same. */
-			const status = result.status >= 500 ? 502 : result.status;
-			throw new ApiError(uploadErrorMessage(result.status), status);
-		}
-
-		log.info("[commcare/upload] app imported", {
-			domain: body.domain,
-			appId: result.appId,
-			userId: session.user.id,
+			appName: body.appName.trim(),
+			server: settings.server,
+			domain: body.domain.trim(),
 		});
 
-		/* The app now exists, so start the diagnostic flag checks against the
-		 * exact target HQ just accepted. They settle independently and can never
-		 * fail the upload; running alongside media processing avoids adding their
-		 * latency to the already-successful publish. */
-		const featureFlagProbes = probeHqFeatureFlags(
-			creds,
-			domain,
-			requiredHqFeatureFlags(prepared.doc),
-		);
-
-		/* ── Upload media bytes against the new app ──────────────────── */
-		// The app is created; now ship its media as ONE bulk ZIP to HQ's
-		// api-key-authed `upload_multimedia_api`, which unzips and matches
-		// each `commcare/<hash><ext>` entry to the app's `jr://` references
-		// (the per-kind `uploaded/<kind>/` endpoints are session-only and
-		// reject the API key: see `uploadAppMediaBundle`). A media failure
-		// never invalidates the import (the app already exists): it surfaces
-		// as a warning. A media-free app skips the upload entirely.
-		const warnings = [...result.warnings];
-		if (manifest.size > 0) {
-			const mediaResult = await uploadAppMediaBundle(
-				creds,
-				domain,
-				result.appId,
-				buildMediaBulkUploadZip(manifest),
-			);
-			if ("success" in mediaResult) {
-				// The ZIP itself was rejected (auth / transport): the app
-				// exists but carries no media bytes.
-				warnings.push(
-					"Media upload could not be completed; the app was created but its media may not display.",
-				);
-				log.error("[commcare/upload] media bundle upload failed", undefined, {
-					domain: body.domain,
-					appId: result.appId,
-					status: mediaResult.status,
-				});
-			} else if (mediaResult.timedOut) {
-				// Accepted + queued, but HQ hadn't finished processing when we
-				// stopped polling: the media should appear shortly.
-				warnings.push(
-					"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
-				);
-			} else {
-				// Reconcile HQ's unmatched-file report against the app: name the
-				// genuine failures by their carrier, and separate the app-logo
-				// case (a logo-only image is unmatched by design). The shared
-				// reporter owns the warning copy + the error/warn log decision.
-				warnings.push(
-					...reportMediaAttach({
-						result: mediaResult,
-						assetWirePath: assetWirePaths(manifest),
-						doc: prepared.doc,
-						logPrefix: "[commcare/upload]",
-						logContext: { domain: body.domain, appId: result.appId },
-					}),
-				);
-			}
-		}
-
-		const featureFlagReport = featureFlagReportForUpload(
-			domain,
-			await featureFlagProbes,
-		);
+		/* Whether THIS publish got the app there, which is not the same as
+		 * where the deployment stands. A blocked preflight against an app
+		 * that is already released leaves the record released, because it
+		 * still is — reading success off the state would report a publish
+		 * that never happened as a success. */
+		const succeeded = outcome.landed;
+		/* What Preview may honestly name now. Resolved here rather than in
+		 * the browser because only the server can see whether this app is
+		 * live on more than one project space, which is exactly when
+		 * `commcare_project` has two real answers and Nova must name
+		 * neither. */
+		const scope = {
+			appId: body.appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: session.user.id,
+		};
 		return NextResponse.json(
 			{
-				...result,
-				warnings,
-				feature_flag_requirements: featureFlagReport,
+				success: succeeded,
+				preview_project_space: await previewProjectSpaceFor(scope),
+				/* Null when the app has never reached this target: a refused
+				 * first publish leaves nothing durable behind, and the refusal
+				 * below is the whole answer. */
+				deployment: outcome.deployment,
+				/* Why THIS attempt stopped, when it did. The record cannot
+				 * carry it: a refusal against an already-live deployment
+				 * deliberately writes nothing durable. */
+				refusal: outcome.refusal,
+				preflight: outcome.checks,
+				setup_artifact: outcome.artifact,
+				warnings: outcome.warnings,
+				feature_flag_requirements: outcome.featureFlags,
+				url: outcome.hqAppUrl,
 			},
-			{ status: 201 },
+			{ status: succeeded ? 201 : 200 },
 		);
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new Error("Upload failed"),
 		);
 	}
-}
-
-// ── Warnings + error messages (upload context) ────────────────────
-
-/** Map CommCare HQ status codes to messages appropriate for the upload dialog. */
-function uploadErrorMessage(status: number): string {
-	if (status === 401)
-		return "Your API key is invalid or expired. Update it in Settings.";
-	if (status === 403)
-		return "You don't have permission to create apps in this project space.";
-	if (status === 429)
-		return "Rate limited by CommCare HQ. Wait a moment and try again.";
-	if (status >= 500) return "CommCare HQ is unavailable. Try again later.";
-	return `Upload failed (HTTP ${status}).`;
 }

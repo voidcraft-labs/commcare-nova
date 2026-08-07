@@ -2167,6 +2167,23 @@ export async function commitAppProjectMoveInTransaction(
 		appId: args.appId,
 		toProjectId: args.toProjectId,
 	});
+	/* Deployments move with the app, exactly as case rows do.
+	 *
+	 * Unlike case rows they carry NO composite tenant foreign key (the
+	 * auth-app tenancy migration's catalog forbids a second one), so
+	 * nothing in the database will catch it if this update is removed —
+	 * the rows would silently stay in the source Project and be invisible
+	 * to every member of the destination. `projectMove.integration.test.ts`
+	 * asserts the row actually moved, rather than that the move succeeded.
+	 *
+	 * What the destination inherits is the honest record of where this app
+	 * has been published; whether its members' own API keys reach those
+	 * project spaces is a separate question their next publish answers. */
+	await tx
+		.updateTable("app_deployments")
+		.set({ project_id: args.toProjectId })
+		.where("app_id", "=", args.appId)
+		.execute();
 	await tx.deleteFrom("presence").where("app_id", "=", args.appId).execute();
 	const seq = nextPersistedSequence(
 		fresh.mutation_seq,

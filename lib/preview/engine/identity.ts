@@ -113,9 +113,11 @@ function splitName(name: string): { first: string; last: string } {
  * (`users/models.py::CouchUser.get_user_session_data`).
  *
  * Only the ones Nova can honestly know are emitted. `commcare_project` is
- * the HQ domain and stays ABSENT until a deployment target supplies one —
- * inventing a slug to make a condition pass is exactly the dishonesty the
- * preview contract forbids. First name, last name, and phone number are
+ * the HQ domain, so it appears exactly when a deployment has put this app
+ * on one project space and stays ABSENT otherwise — including when two
+ * project spaces hold it, where picking one would be a guess. Inventing a
+ * slug to make a condition pass is exactly the dishonesty the preview
+ * contract forbids. First name, last name, and phone number are
  * different: HQ writes all three keys unconditionally, so Preview preserves
  * their present-empty shape when Nova has no value. The location keys are absent while
  * nobody is assigned anywhere, which is what HQ does too:
@@ -135,7 +137,10 @@ function splitName(name: string): { first: string; last: string } {
  * leaving it absent here would make a condition on it fire on a device and
  * not in Preview.
  */
-function frameworkSessionKeys(displayName: string): Record<string, string> {
+function frameworkSessionKeys(
+	displayName: string,
+	projectSpace: string | null,
+): Record<string, string> {
 	const { first, last } = splitName(displayName);
 	return {
 		commcare_first_name: first,
@@ -144,6 +149,7 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
 		commcare_user_type: COMMCARE_MOBILE_WORKER_USER_TYPE,
 		commcare_profile: "",
 		user_type: COMMCARE_STANDARD_USER_TYPE,
+		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
 	};
 }
 
@@ -154,10 +160,27 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
  * block's `commcare_`-prefixed keys, which is the whole reason the two
  * projections exist separately.
  *
- * `commcare_project` is absent here for the same reason it is absent from
- * the session block. `language` and `last_device_id_used` are HQ account
- * settings Nova does not model, and HQ writes them as empty strings, so
- * they are emitted empty rather than invented.
+ * The worker's name is `case_name`, NOT `name`. `_get_user_case_fields`
+ * does put `name` in its dict, but both writers pop it straight back out
+ * into the case's name — `_UserCaseHelper.create_usercase` does
+ * `case_name=fields.pop('name', None)` and `::update_user_case` does
+ * `kwargs['case_name'] = fields.pop('name')` — so it never reaches the
+ * case's `<update>` as a property. What the device exposes is the casedb's
+ * own `case_name` node (`commcare-core .../CaseChildElement.java`), which
+ * is why HQ's `app_schemas/case_properties.py::get_usercase_properties`
+ * lists no `name` either. Emitting `name` here would make `#user/name`
+ * read the worker's name in Preview and blank on a device.
+ *
+ * `commcare_project` is written unconditionally by the same function —
+ * `_get_user_case_fields` ends with
+ * `fields.update({... 'commcare_project': domain})` — so it is a usercase
+ * property in a way it is not a session key. It still appears only when
+ * Nova knows the project space, because the domain is never empty on a
+ * device: emitting `""` would make `#user/commcare_project = ''` fire in
+ * Preview and never in the field, which is the opposite of what an absent
+ * key does. That is the split from `language` and `last_device_id_used`,
+ * which HQ genuinely writes empty (`user.language or ''`) and Preview
+ * therefore carries empty.
  *
  * The three location keys behave DIFFERENTLY here than in the session
  * block, and the difference is easy to get wrong: `_get_user_case_fields`
@@ -168,15 +191,18 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
  * on the session side — the dict starts from `UserData.to_dict()`, which
  * always includes the slot, and it survives the valid-XML-name filter.
  */
-function usercaseBuiltIns(worker: {
-	id: string;
-	username: string;
-	personName: string;
-	email: string;
-}): Record<string, string> {
+function usercaseBuiltIns(
+	worker: {
+		id: string;
+		username: string;
+		personName: string;
+		email: string;
+	},
+	projectSpace: string | null,
+): Record<string, string> {
 	const { first, last } = splitName(worker.personName);
 	return {
-		name: worker.personName,
+		case_name: worker.personName,
 		username: worker.username,
 		email: worker.email,
 		first_name: first,
@@ -189,6 +215,7 @@ function usercaseBuiltIns(worker: {
 		commcare_location_id: "",
 		commcare_location_ids: "",
 		commcare_primary_case_sharing_id: "",
+		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
 	};
 }
 
@@ -242,6 +269,7 @@ function projections(
 	},
 	authored: Record<string, string>,
 	doc: UserCollections,
+	projectSpace: string | null,
 ): Pick<ResolvedPreviewIdentity, "session" | "usercase"> {
 	const declared = declaredPropertySlots(doc);
 	const values = authoredBySlug(authored, doc);
@@ -256,7 +284,7 @@ function projections(
 			user: mergeOwnRecords(
 				declared,
 				values,
-				frameworkSessionKeys(worker.personName),
+				frameworkSessionKeys(worker.personName, projectSpace),
 			),
 			userPropertySlugs: recordFromEntries(
 				Object.values(userPropertiesOf(doc)).map(
@@ -264,7 +292,11 @@ function projections(
 				),
 			),
 		},
-		usercase: mergeOwnRecords(declared, values, usercaseBuiltIns(worker)),
+		usercase: mergeOwnRecords(
+			declared,
+			values,
+			usercaseBuiltIns(worker, projectSpace),
+		),
 	};
 }
 
@@ -282,6 +314,7 @@ function projections(
 export function previewAsMe(
 	user: PreviewSessionUser | null | undefined,
 	doc: UserCollections = {},
+	projectSpace: string | null = null,
 ): ResolvedPreviewIdentity | null {
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
@@ -301,6 +334,7 @@ export function previewAsMe(
 			},
 			{},
 			doc,
+			projectSpace,
 		),
 	};
 }
@@ -322,6 +356,7 @@ export function previewAsPersona(
 	user: PreviewSessionUser | null | undefined,
 	persona: Persona,
 	doc: UserCollections,
+	projectSpace: string | null = null,
 ): ResolvedPreviewIdentity | null {
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
@@ -335,6 +370,7 @@ export function previewAsPersona(
 		},
 		personaUserData(persona, doc),
 		doc,
+		projectSpace,
 	);
 	const locationIds = assignedLocationUuids(persona.locations);
 	const primary = locationIds[0];

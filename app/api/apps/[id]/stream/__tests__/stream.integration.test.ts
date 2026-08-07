@@ -934,6 +934,64 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(statusFrames.at(-1)?.data).toEqual({ status: "complete" });
 	});
 
+	it("announces the preview project space on connect and again off a deployment write's own notify", async () => {
+		/* The deployment lane end to end: the store's fold commits a record
+		 * write AND pokes the app channel's deployment lane in the same
+		 * transaction, the listener dispatches the marker, and the pump
+		 * re-resolves what Preview may name and announces it. This is how a
+		 * co-member's publish reaches every open tab's `commcare_project`
+		 * without a page load. */
+		const { foldDeploymentAttempt, recordRemoteResource } = await import(
+			"@/lib/deployment/store"
+		);
+		const appId = await seedApp(0);
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: USER,
+		};
+		const target = { server: "production" as const, domain: "acme" };
+		const at = "2026-08-06T00:00:00.000Z";
+
+		const { frames } = await collectUntil(appId, {
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "preview-project-space" &&
+						(x.data as { projectSpace?: string | null }).projectSpace ===
+							"acme",
+				),
+			onOpen: async () => {
+				await foldDeploymentAttempt(
+					scope,
+					target,
+					"preflight",
+					{ status: "succeeded", at },
+					{ ensure: true },
+				);
+				await recordRemoteResource(scope, target, {
+					kind: "app",
+					novaResourceId: appId,
+					remoteId: "hq-1",
+					ownership: "nova-created",
+					pushedRevision: 1,
+					uploadedAt: at,
+				});
+			},
+		});
+
+		const spaceFrames = frames.filter(
+			(x) => x.event === "preview-project-space",
+		);
+		/* Connect-time: nothing published yet, and `null` is a real answer
+		 * (Preview names nothing), not an omitted frame. */
+		expect(spaceFrames[0]?.data).toEqual({ projectSpace: null });
+		expect(spaceFrames.at(-1)?.data).toEqual({ projectSpace: "acme" });
+		/* Seq-less: only mutation frames own Last-Event-ID. */
+		for (const frame of spaceFrames) expect(frame.id).toBeUndefined();
+	});
+
 	it("emits an initial full lookup manifest without an SSE mutation id", async () => {
 		const appId = await seedApp(0);
 

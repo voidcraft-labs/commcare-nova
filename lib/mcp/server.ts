@@ -49,6 +49,10 @@ import { registerSharedTool } from "./adapters/sharedToolAdapter";
 import { registerCompileApp } from "./tools/compileApp";
 import { registerCreateApp } from "./tools/createApp";
 import { registerDeleteApp } from "./tools/deleteApp";
+import {
+	registerGetDeployment,
+	registerRefreshDeployment,
+} from "./tools/deploymentTools";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
 import { registerGetAppHqFeatureFlags } from "./tools/getAppHqFeatureFlags";
@@ -90,6 +94,8 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerCompileApp(server, ctx);
 	registerGetHqConnection(server, ctx);
 	registerUploadAppToHq(server, ctx);
+	registerGetDeployment(server, ctx);
+	registerRefreshDeployment(server, ctx);
 	registerUploadMediaAsset(server, ctx);
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth

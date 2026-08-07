@@ -445,6 +445,84 @@ export interface AppLocationReferencesTable {
 }
 
 /**
+ * One app, published to one CommCare HQ project space.
+ *
+ * Keyed by `(app_id, project_id, server, domain)`: all four pick out a
+ * different publication, since the same app in another Project belongs to
+ * another tenant and CommCare HQ's US, India, and EU installations share
+ * no account database.
+ *
+ * `project_id` deliberately does NOT take the composite tenant key `cases`
+ * uses: the auth-app tenancy migration keeps an exact catalog of everything
+ * referencing `apps.project_id` and blocks additions, so a second one would
+ * fail the migration job. Coherence comes from
+ * `lib/deployment/store.ts::lockAppForDeploymentWrite`, which compares the
+ * locked app's Project before any write, and from the Project move updating
+ * these rows in the same transaction.
+ */
+export interface AppDeploymentsTable {
+	id: DefaultedUuidV7Column<string>;
+	app_id: string;
+	project_id: string;
+	server: string;
+	domain: string;
+	state: string;
+	resume_phase: string | null;
+	phases: JSONColumnType<Record<string, unknown>>;
+	created_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	last_observed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+/**
+ * What Nova calls a resource, and what CommCare HQ calls the same thing.
+ *
+ * The ownership ledger: Nova repoints or updates only what it created, and
+ * never infers ownership from a name. A row whose `superseded_at` is set
+ * names a resource a later publish left behind on the target project
+ * space, kept precisely so the author can be told it is still there.
+ */
+export interface AppDeploymentResourcesTable {
+	id: DefaultedUuidV7Column<string>;
+	deployment_id: string;
+	kind: string;
+	nova_resource_id: string;
+	remote_id: string;
+	ownership: string;
+	pushed_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	pushed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	remote_observed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	superseded_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	created_at: Timestamp;
+}
+
+/**
  * One file a worker attached to a form in the running preview.
  *
  * A submission-scoped lane, deliberately NOT `media_assets`: a captured
@@ -541,6 +619,8 @@ export interface AppDatabase {
 	app_organization_state: AppOrganizationStateTable;
 	app_locations: AppLocationsTable;
 	app_location_references: AppLocationReferencesTable;
+	app_deployments: AppDeploymentsTable;
+	app_deployment_resources: AppDeploymentResourcesTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;
@@ -551,6 +631,31 @@ let injectedForTests: Kysely<AppDatabase> | null = null;
  */
 export function __setAppDbForTests(db: Kysely<AppDatabase> | null): void {
 	injectedForTests = db;
+}
+
+let injectedPoolForTests: unknown = null;
+
+/**
+ * Test-only seam for the POOL behind `getAppPool`. Separate from the handle
+ * above because a session advisory lock needs one checked-out connection it
+ * can hold statements on, which a Kysely wrapper cannot hand back.
+ */
+export function __setAppPoolForTests(pool: unknown): void {
+	injectedPoolForTests = pool;
+}
+
+/**
+ * The pool app-state work runs on, for the rare caller that needs a
+ * connection rather than a query interface — today only the session advisory
+ * lock, which must hold one session across several transactions.
+ */
+export async function getAppPool(): Promise<
+	Awaited<ReturnType<typeof getCaseStorePool>>
+> {
+	if (injectedPoolForTests !== null) {
+		return injectedPoolForTests as Awaited<ReturnType<typeof getCaseStorePool>>;
+	}
+	return getCaseStorePool();
 }
 
 /**
@@ -646,6 +751,23 @@ export async function notifyAppStatus(
 	appId: string,
 ): Promise<void> {
 	await sql`SELECT pg_notify(${APP_STREAM_CHANNEL}, ${JSON.stringify({ appId, statusChanged: true })})`.execute(
+		tx,
+	);
+}
+
+/** Poke the stream channel's DEPLOYMENT lane from INSIDE the transaction
+ * that writes a deployment record. Same channel as the mutation poke (one
+ * LISTEN covers both), distinguished by the `deploymentChanged` marker so
+ * the relay re-resolves what Preview may name for `commcare_project`
+ * instead of re-reading the mutation log. This is how a co-member's open
+ * tab learns a publish landed (or an observation walked a deployment back)
+ * without a page load: the server-side identity resolvers always read the
+ * table fresh, so the browser's copy is the one that needs the poke. */
+export async function notifyAppDeployments(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${APP_STREAM_CHANNEL}, ${JSON.stringify({ appId, deploymentChanged: true })})`.execute(
 		tx,
 	);
 }

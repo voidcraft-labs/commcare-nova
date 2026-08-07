@@ -110,11 +110,19 @@ describe("shared stream listener", () => {
 	it("uses one client for all five LISTEN channels and preserves fan-out", async () => {
 		const onMutation = vi.fn();
 		const onPresence = vi.fn();
+		const onStatus = vi.fn();
+		const onDeployment = vi.fn();
 		const onChat = vi.fn();
 		const onLookup = vi.fn();
 		const onOrganization = vi.fn();
 
-		const unsubscribeApp = subscribeAppStream("app-a", onMutation, onPresence);
+		const unsubscribeApp = subscribeAppStream(
+			"app-a",
+			onMutation,
+			onPresence,
+			onStatus,
+			onDeployment,
+		);
 		const unsubscribeChat = subscribeChatStream("stream-a", onChat);
 		const unsubscribeLookup = subscribeLookupProject("project-a", onLookup);
 		const unsubscribeOrganization = subscribeAppOrganization(
@@ -141,10 +149,20 @@ describe("shared stream listener", () => {
 		// notification routing for every pre-existing subscriber kind.
 		onMutation.mockClear();
 		onPresence.mockClear();
+		onStatus.mockClear();
+		onDeployment.mockClear();
 		onChat.mockClear();
 		onLookup.mockClear();
 		onOrganization.mockClear();
 		notify(current, "nova_app_stream", { appId: "app-a", seq: 41 });
+		notify(current, "nova_app_stream", {
+			appId: "app-a",
+			statusChanged: true,
+		});
+		notify(current, "nova_app_stream", {
+			appId: "app-a",
+			deploymentChanged: true,
+		});
 		notify(current, "nova_presence", { appId: "app-a" });
 		notify(current, "nova_chat_stream", { streamId: "stream-a" });
 		notify(current, "nova_organization_stream", {
@@ -152,7 +170,11 @@ describe("shared stream listener", () => {
 			revision: "17",
 		});
 
+		/* The two marker payloads route to their OWN lanes: neither reaches
+		 * the mutation callback, and neither marker triggers the other's. */
 		expect(onMutation).toHaveBeenCalledExactlyOnceWith(41);
+		expect(onStatus).toHaveBeenCalledOnce();
+		expect(onDeployment).toHaveBeenCalledOnce();
 		expect(onPresence).toHaveBeenCalledOnce();
 		expect(onChat).toHaveBeenCalledOnce();
 		expect(onLookup).not.toHaveBeenCalled();

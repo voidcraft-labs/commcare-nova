@@ -25,6 +25,87 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/* The deployment store is the only new boundary: mocking it (and the
+ * organization snapshot the setup artifact reads) lets the REAL
+ * `publishAppToHq` run through this tool, so every assertion below about
+ * import ordering, media, and the boundary gate still exercises the real
+ * path rather than a stand-in for it. */
+vi.mock("@/lib/organization/service", () => ({
+	readOrganization: vi.fn(async () => ({ revision: "1", locations: [] })),
+}));
+vi.mock("@/lib/deployment/store", () => {
+	const record = (over: Record<string, unknown> = {}) => ({
+		id: "dep-1",
+		appId: "app-1",
+		projectId: "proj-1",
+		server: "production",
+		domain: "acme",
+		state: "preflight",
+		resumePhase: null,
+		phases: {
+			preflight: null,
+			upload: null,
+			build: null,
+			release: null,
+			probe: null,
+		},
+		createdBy: "u1",
+		createdAt: "2026-08-06T00:00:00.000Z",
+		updatedAt: "2026-08-06T00:00:00.000Z",
+		lastObservedAt: null,
+		...over,
+	});
+	return {
+		readDeployment: vi.fn(async () => null),
+		foldDeploymentAttempt: vi.fn(
+			async (
+				_scope: unknown,
+				_target: unknown,
+				phase: "preflight" | "upload",
+				outcome: { status: string },
+			) => ({
+				deployment: record(
+					outcome.status === "failed"
+						? { state: "incomplete", resumePhase: phase }
+						: {},
+				),
+				active: [],
+				superseded: [],
+			}),
+		),
+		recordRemoteResource: vi.fn(
+			async (
+				_scope: unknown,
+				_target: unknown,
+				input: {
+					remoteId: string;
+					ownership: string;
+					pushedRevision: number | null;
+				},
+			) => ({
+				deployment: record({ state: "uploaded" }),
+				active: [
+					{
+						deploymentId: "dep-1",
+						kind: "app",
+						novaResourceId: "app-1",
+						remoteId: input.remoteId,
+						ownership: input.ownership,
+						pushedRevision: input.pushedRevision,
+						pushedAt: null,
+						remoteRevision: null,
+						remoteObservedAt: null,
+						supersededAt: null,
+					},
+				],
+				superseded: [],
+			}),
+		),
+		applyDeploymentObservation: vi.fn(),
+	};
+});
+
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	importApp,
@@ -36,7 +117,10 @@ import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import {
+	getCredentialsForUpload,
+	resolveUploadTarget,
+} from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
@@ -59,8 +143,13 @@ import { makeFakeServer } from "./fakeServer";
  * to an empty surface — present as a no-op intercept rather than as
  * a stub for any specific function. */
 vi.mock("@/lib/db/apps", () => ({}));
+/* Both are mocked so a test can assert which one the tool reached for.
+ * `getCredentialsForUpload` decrypts; `resolveUploadTarget` does not, and
+ * the tool must use the second — it needs the project space and the server,
+ * never the key. */
 vi.mock("@/lib/db/settings", () => ({
 	getCredentialsForUpload: vi.fn(),
+	resolveUploadTarget: vi.fn(),
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
@@ -181,8 +270,20 @@ const FAKE_HQ_JSON = {
 } as unknown as HqApplication;
 
 /**
- * Canonical success result — mirrors the `{ ok: true, creds, domain }` shape
- * `getCredentialsForUpload` returns once a target space resolves.
+ * What `resolveUploadTarget` returns: which space, which server, and the key
+ * STILL ENCRYPTED. This is what the tool sees.
+ */
+const FIXTURE_TARGET = {
+	ok: true as const,
+	username: "alice@example.com",
+	server: "production" as const,
+	domain: { name: "acme-research", displayName: "ACME Research" },
+	encryptedApiKey: "ciphertext-xyz",
+};
+
+/**
+ * What `getCredentialsForUpload` returns: the same, plus a decrypted key.
+ * Only the publish lifecycle asks for this, at the point it sends the app.
  */
 const FIXTURE_CREDS = {
 	ok: true as const,
@@ -208,7 +309,7 @@ const toolCtx: ToolContext = {
 
 beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
-	vi.mocked(getCredentialsForUpload).mockReset();
+	vi.mocked(resolveUploadTarget).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
@@ -220,6 +321,7 @@ beforeEach(() => {
 	/* Default happy-path mocks — individual tests override via
 	 * `mockReturnValueOnce` / `mockResolvedValueOnce` where needed. The
 	 * defaults mean tests only have to pin the deviation they care about. */
+	vi.mocked(resolveUploadTarget).mockResolvedValue(FIXTURE_TARGET);
 	vi.mocked(getCredentialsForUpload).mockResolvedValue(FIXTURE_CREDS);
 	vi.mocked(loadAppBlueprint).mockResolvedValue(fixtureLoadedApp());
 	vi.mocked(expandDoc).mockReturnValue(FAKE_HQ_JSON);
@@ -290,7 +392,13 @@ describe("registerUploadAppToHq — happy path", () => {
 		/* No `domain` arg → the resolver is asked with `undefined` and resolves
 		 * the sole reachable space (the only no-arg success case); that resolved
 		 * domain is what reaches `importApp`. */
-		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", undefined);
+		expect(resolveUploadTarget).toHaveBeenCalledWith("u1", undefined);
+
+		/* The tool works out WHICH space with the non-decrypting resolver, and
+		 * the key is decrypted exactly once — by the publish lifecycle, at the
+		 * point it sends the app. Two decrypts meant a second plaintext copy
+		 * of a live production credential in memory that nothing ever used. */
+		expect(getCredentialsForUpload).toHaveBeenCalledTimes(1);
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_CREDS.creds,
 			"acme-research",
@@ -299,17 +407,31 @@ describe("registerUploadAppToHq — happy path", () => {
 		);
 
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
-		expect(parsed).toEqual({
+		expect(parsed).toMatchObject({
 			stage: "upload_complete",
 			app_id: "a1",
 			hq_app_id: "hq-123",
-			url: "https://hq.example/app",
 			warnings: [],
 			feature_flag_requirements: expect.objectContaining({
 				verification: "not_required",
 				required_flags: [],
 			}),
 		});
+		/* Uploading is not releasing: the state a successful publish reaches
+		 * is `uploaded`, and a client that reported it as live would be
+		 * wrong. The setup artifact rides along so it can say what is left. */
+		expect(parsed.deployment_state).toBe("uploaded");
+		expect(parsed.deployment).toMatchObject({
+			state: "uploaded",
+			hq_app_id: "hq-123",
+			ownership: "nova-created",
+			left_behind: [],
+		});
+		expect(parsed.setup_artifact.sections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "build-and-release" }),
+			]),
+		);
 
 		/* LogWriter allocated + flushed exactly once — the finally block
 		 * runs regardless of outcome. */
@@ -318,9 +440,12 @@ describe("registerUploadAppToHq — happy path", () => {
 	});
 
 	it("forwards an explicit `domain` arg to resolution and uploads to it", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
-			ok: true,
-			creds: FIXTURE_CREDS.creds,
+		vi.mocked(resolveUploadTarget).mockResolvedValue({
+			...FIXTURE_TARGET,
+			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
+		});
+		vi.mocked(getCredentialsForUpload).mockResolvedValue({
+			...FIXTURE_CREDS,
 			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
 		});
 		vi.mocked(importApp).mockResolvedValueOnce({
@@ -573,7 +698,7 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 
 describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
 	it("returns error_type 'hq_not_configured' when no creds exist", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "not_configured",
 		});
@@ -610,7 +735,7 @@ describe("registerUploadAppToHq — gate 2: domain not authorized", () => {
 			{ name: "acme-research", displayName: "ACME Research" },
 			{ name: "connect-ace-prod", displayName: "ACE Prod" },
 		];
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "not_authorized",
 			available: reachable,
@@ -650,7 +775,7 @@ describe("registerUploadAppToHq — gate 2: ambiguous multi-space key", () => {
 			{ name: "connect-ace-prod", displayName: "ACE Prod" },
 			{ name: "ace-crispr-connect", displayName: "CRISPR" },
 		];
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(resolveUploadTarget).mockResolvedValueOnce({
 			ok: false,
 			error: "ambiguous",
 			available: reachable,
@@ -704,9 +829,11 @@ describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 		};
 		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
 		expect(payload.app_id).toBe("a1");
-		/* The HQ status code is surfaced in the user-facing message so
+		/* The failure reads person-to-person rather than echoing a status
+		 * code; `error_type` is the machine-readable half. The status is
+		 * logged server-side by the client. Kept because
 		 * the LLM can explain the failure category to the user. */
-		expect(payload.message).toContain("502");
+		expect(payload.message).toMatch(/unavailable right now/i);
 
 		/* LogWriter WAS allocated (this gate sits past the writer ctor) AND
 		 * flushed — the `finally` block drains even on non-success return. */
@@ -750,14 +877,19 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		/* Routed through `McpInvalidInputError` → `invalid_input`. */
 		expect(payload.error_type).toBe("invalid_input");
 		expect(payload.app_id).toBe("a1");
-		expect(payload.message).toContain("no longer exists");
+		expect(payload.message).toMatch(/media file is missing/i);
 
-		/* The gate fires BEFORE import + the LogWriter ctor — a
-		 * media-invalid doc never reaches HQ and never allocates a writer. */
+		/* The boundary gate runs inside the shared publish lifecycle, but
+		 * the call collaborators are allocated in its upload-started hook,
+		 * which a refused publish never reaches. An invalid app therefore
+		 * still allocates no LogWriter and records no phantom run — a
+		 * client retrying an invalid app in a loop must not fill admin
+		 * inspect with uploads that never happened — and nothing reaches
+		 * CommCare HQ. */
+		expect(LogWriterMock.instances).toHaveLength(0);
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
-		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
 	it("does not recast an operational lookup-read failure as invalid_input", async () => {
@@ -780,7 +912,6 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
-		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
 	it("proceeds to import + upload when the boundary gate is clean", async () => {
