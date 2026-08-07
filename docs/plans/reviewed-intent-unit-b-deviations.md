@@ -29,12 +29,21 @@ history.
    `app_change_intents` strict parsing). Both land as small leaf files at the
    exact paths the plan assigns them; Units C/F build the rest of those
    packages around them.
-4. **Model-facing executor tools defer to Unit E.** `beginChangeSet`,
-   `commitChangeSet`, `inspectChangeSet`, `discardChangeSet`, and the granular
-   stage tools exist as tool MODULES plus internal server functions, exercised
-   by tests, but are mounted on no chat/MCP surface — the executor loop that
-   dispatches them is Unit E. `raiseDesignExecutionIssue` (whose schema is a
-   §13.12 orchestration artifact) ships entirely with Unit E.
+4. **Model-facing executor tools defer to Unit E.** The §10.7 surface exists
+   as internal server functions — `beginAppEditChangeSet`/
+   `beginGenesisChangeSet`, `commitDesignChangeSet`,
+   `ChangeSetMutationWorkspace.inspect()`, `abandonChangeSet`/
+   `supersedeChangeSet` — plus three granular staging tool MODULES
+   (`stageModule`, `stageForm`, `moveStagedModule`), all exercised by tests
+   and mounted on no chat/MCP surface; the executor loop that wraps them as
+   model tools is Unit E. `stageFields`/`stageCaseListColumn`/
+   `stageCaseOperation` are not separate modules: the plan's own §10.7 note
+   ("existing shared granular edit tools operate on the overlay once targets
+   exist") already covers that grain — `addFields`, the case-list-config
+   family, and the case-operation family stage as-is. The genuinely new grain
+   Unit B adds is incomplete module/form creation and module reorder.
+   `raiseDesignExecutionIssue` (whose schema is a §13.12 orchestration
+   artifact) ships entirely with Unit E.
 5. **Per-stage event emission is a pure helper (§10.10 steps 17–18).**
    No surface drives a change-set commit in Unit B, so nothing emits SSE or
    event-log envelopes. `committedStageEnvelopes` derives the per-stage
@@ -111,7 +120,24 @@ history.
     (§10.11, §20.7). Committed lineage (`design_committed_slices`,
     `app_change_intents`) is app-keyed and carries no Project column, so it
     follows the app implicitly. The Project-move transaction is untouched.
-16. **Staging projection scope (§10.6).** Unit B lands the reviewed
+16. **Diagnostics deltas speak fingerprints (§10.8).**
+    `introducedSincePreviousStep`/`resolvedSincePreviousStep` carry stable
+    16-hex finding fingerprints rather than full `ValidationError[]`: a
+    RESOLVED finding's full body is not recomputable from the compact
+    receipts the protocol persists, and `inspect` recomputes full current
+    details on demand — carrying full bodies for one delta direction and
+    identities for the other would be a lopsided contract.
+17. **Sidecar execution point (§9.5).** Sidecars run inside the kernel
+    transaction AFTER the committed-batch write tail (the plan leaves the
+    point unstated): the provenance rows' immediate FK onto the fresh
+    `app_changes` row then holds without deferrable constraints, and a lost
+    holder compare-and-set aborts before any sidecar state exists.
+18. **`WorkspaceMutationOutcome` gains an optional `staged` receipt (§9.7).**
+    The success arm carries the durable `StageRequestReceipt` exactly when
+    the change-set host wrote it — how a staging tool's result and the §9.7
+    "disposition: staged plus new workspace revision" reach the tool layer
+    without a second result channel. The canonical host never sets it.
+19. **Staging projection scope (§10.6).** Unit B lands the reviewed
     handle-eligibility classification over the identity-pointer registry
     (`lib/agent/identityPointerRegistry.ts` — every UUID slot of every
     staging-allowed tool classified handle-eligible or canonical-only, new
