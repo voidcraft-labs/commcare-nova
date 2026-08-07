@@ -962,7 +962,18 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 						(x.data as { projectSpace?: string | null }).projectSpace ===
 							"acme",
 				),
-			onOpen: async () => {
+			onOpen: async (currentFrames) => {
+				/* The connect-time announce rides the deployment pump's async
+				 * resolve, so a write committed before that read would make the
+				 * FIRST announce already "acme" — masking the null-is-a-real-answer
+				 * property below. Sequence the write after the observed announce. */
+				await vi.waitFor(
+					() =>
+						expect(
+							currentFrames().some((x) => x.event === "preview-project-space"),
+						).toBe(true),
+					{ timeout: 2_000 },
+				);
 				await foldDeploymentAttempt(
 					scope,
 					target,
