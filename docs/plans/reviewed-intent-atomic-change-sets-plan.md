@@ -1131,7 +1131,6 @@ interface WorkspaceSnapshot {
   readonly revision: WorkspaceRevision;
   readonly canonicalSeq: number | null;
   readonly projectId: string;
-  readonly externalContextDigest: string;
 }
 
 interface ToolInvocationIdentity {
@@ -1141,7 +1140,7 @@ interface ToolInvocationIdentity {
 }
 
 interface ToolInvocationContext {
-  readonly appId: string | null;
+  readonly appId: string;
   readonly projectId: string;
   readonly userId: string;
   readonly runId: string;
@@ -1149,25 +1148,51 @@ interface ToolInvocationContext {
   readonly snapshot: WorkspaceSnapshot;
   readonly invocation: ToolInvocationIdentity;
 
-  readonly lookupDefinitions?: ToolExecutionContext["lookupDefinitions"];
-  readonly lookupCatalog?: ToolExecutionContext["lookupCatalog"];
-  readonly conversionImpact?: ConversionImpactFn;
+  readonly lookupDefinitions?: (
+    tableIds: readonly LookupTableId[],
+  ) => Promise<LookupDefinitionsSnapshot>;
+  readonly lookupCatalog?: () => Promise<LookupDefinitionsSnapshot>;
+  conversionImpact(
+    args: Parameters<ConversionImpactFn>[0],
+  ): Promise<ConversionImpact>;
 
   applyBatch(args: {
     readonly mutations: unknown;
     readonly stage?: string;
     readonly policy?: MutationApplicationPolicy;
-    readonly intentIds?: readonly DesignId[];
-    readonly readSet?: readonly ExternalReadDependency[];
   }): Promise<WorkspaceMutationOutcome>;
 
   applyStages(args: {
     readonly stages: unknown;
-    readonly intentIds?: readonly DesignId[];
-    readonly readSet?: readonly ExternalReadDependency[];
   }): Promise<WorkspaceMutationOutcome>;
+
+  adoptAuthoritativeSnapshot(args: {
+    readonly doc: BlueprintDoc;
+    readonly canonicalSeq?: number;
+  }): void;
 }
 ```
+
+`MutationApplicationPolicy` is the commit-time policy a tool attaches to its
+one write — today exactly the organization-revision fence
+(`{ expectedOrganizationRevision? }`).
+
+`adoptAuthoritativeSnapshot` exists because two canonical behaviors require a
+tool to hand the workspace a FRESHER authoritative document than its
+invocation snapshot: an authoritative zero-diff proof (an automation update
+whose requested state is already persisted proves it against a fresh
+Blueprint-plus-organization read, on both its no-op and conflict branches),
+and a cross-store service receipt (an archive that unassigns personas commits
+through its own app-locked transaction and returns the exact committed doc).
+Adoption is explicit and counts toward the invocation's one-workspace-write
+budget; a tool can never nominate a document through its RESULT.
+
+The change-set host (Unit B) extends this exact shape where its durable state
+gives the extensions real content: `appId` widens to `string | null` (a
+genesis change set has no app row), `WorkspaceSnapshot` gains the
+`externalContextDigest` binding the captured external context, and
+`applyBatch`/`applyStages` gain `intentIds`/`readSet` arguments recorded with
+each staged step. The canonical host does not fabricate any of these.
 
 Shared tool modules become:
 
@@ -1190,17 +1215,26 @@ interface ToolWorkspace {
   readonly mode: "canonical" | "change-set";
 
   invoke<T>(args: {
-    identity: ToolInvocationIdentity;
-    execute: (ctx: ToolInvocationContext) => Promise<T>;
+    readonly toolName: string;
+    readonly requestId?: string;
+    execute(ctx: ToolInvocationContext): Promise<T>;
   }): Promise<T>;
 
-  inspect(): Promise<WorkspaceInspection>;
+  currentSnapshot(): WorkspaceSnapshot;
 }
 ```
 
+Callers supply `toolName` and the surface's stable per-call id (the AI SDK
+`toolCallId` on chat; the workspace mints one when the surface has none). The
+`invocationOrdinal` is allocated BY the workspace, synchronously at `invoke`
+entry — a caller-supplied ordinal would let a buggy wrapper forge ordering,
+the exact hazard the ordinal exists to remove. `currentSnapshot()` is the
+read-only introspection surface wrappers use; the change-set workspace
+additionally exposes the richer `inspect()` diagnostics (section 10.8).
+
 `invoke` owns the full critical section:
 
-1. allocate/check invocation ordering;
+1. allocate the invocation ordinal and assert start order;
 2. load or rehydrate the authoritative snapshot;
 3. build a per-invocation context carrying that exact snapshot/revision;
 4. run the tool body;
@@ -1260,18 +1294,22 @@ interface CanonicalCommitRequest {
   kind: ClientAppChangeKind;
   mutations: AdmittedMutationBatch;
   expectedOrganizationRevision?: OrganizationRevision;
-  sidecars?: CanonicalCommitSidecar[];
 }
 
 interface CanonicalCommitReceipt {
   seq: number;
   committedDoc: BlueprintDoc;
   deduped: boolean;
-  batchId: string;
-  migration?: MigrationOutcome;
-  postCommitWork: PostCommitWork[];
 }
 ```
+
+The kernel's receipt stays exactly what the guarded commit returns today;
+migration outcomes remain on `applyBlueprintChange`'s result, and post-commit
+schema/index convergence remains that caller's descriptor. Server-owned
+callers compose the kernel through its transaction-hook seam
+(`CanonicalCommitTransactionHooks` — the `beforeWrite` hook case-store Phase A
+rides). Typed `sidecars` on the request are the Unit B extension of that same
+seam.
 
 Implement the service by extracting/promoting, not rewriting, these existing contracts from `lib/db/apps.ts::commitGuardedBatch` and `lib/db/applyBlueprintChange.ts::applyBlueprintChange`:
 
@@ -1406,7 +1444,7 @@ The change-set context lacks every external-write capability. A static registry 
 Initial classification:
 
 - **Allowed ordinary:** app scalar/name, case catalog additions, module/form/field edits, case lists, display/validation expressions, case operations without row migration, user properties/types/personas, organization-level and location-property **Blueprint definitions**, automations with captured organization read set, media-reference attachment to an existing asset.
-- **Exclusive:** `renameCaseProperties`, case-type retirement/retype or any operation whose current canonical saga performs row movement/parking/retirement.
+- **Exclusive:** `renameCaseProperties` — the tool whose every batch IS the batch-exclusive saga. Tools whose batches only SOMETIMES compose the retirement/row-migration saga (a module removal retiring a case type, a retype, a field edit migrating rows) stay `allowed` at tool granularity; the batch-exclusive mutation KINDS (`renameCaseProperties`, `retireCaseType`) are the change-set admission fence, which is strictly more precise than a per-tool ban and matches how `applyBlueprintChange` routes today.
 - **Forbidden while open:** media upload/delete, place row create/update/move/archive, lookup schema/row writes, deployment/HQ operations, worker provisioning, sample case generation, form submission, case data writes, object-store operations.
 - **Mixed transaction:** organization archive operations that may update external rows and Blueprint in one service remain canonical-only.
 
@@ -4608,7 +4646,7 @@ Do not proceed past these gates on assertion alone:
 
 8. Add structural source guards:
    - shared tool modules cannot import `apps.ts`, `applyBlueprintChange`, external write services, or event writers except through declared capability adapters;
-   - `ToolExecutionContext` no longer exposes direct persistence methods.
+   - the tool-facing invocation context exposes no direct persistence methods.
 
 **Acceptance:**
 
@@ -4646,7 +4684,12 @@ Do not proceed past these gates on assertion alone:
    - empty genesis base;
    - canonical app at sequence using baseline/suffix fold;
    - base digest verification.
-3. Implement row-locked `ChangeSetWorkspace`.
+3. Implement row-locked `ChangeSetWorkspace`, extending the shared tool
+   execution shape where its durable state gives the extensions content:
+   `ToolInvocationContext.appId` widens to `string | null` (a genesis change
+   set has no app row), `WorkspaceSnapshot` gains `externalContextDigest`,
+   and `applyBatch`/`applyStages` gain `intentIds`/`readSet` arguments
+   recorded with each staged step.
 4. Implement durable request idempotency:
    - stable request ID;
    - exact input digest;
@@ -4654,14 +4697,18 @@ Do not proceed past these gates on assertion alone:
    - atomic handle/step/result persistence.
 5. Implement structural staging schema projection and second canonical parse.
 6. Implement local handle binding with server-minted UUIDs.
-7. Implement ordinary/exclusive/external-effect policy enforcement.
+7. Implement ordinary/exclusive/external-effect policy enforcement: the
+   registry's per-tool staging policy plus the mutation-kind fence — a batch
+   carrying `renameCaseProperties` or `retireCaseType` is batch-exclusive and
+   must own its change set alone.
 8. Implement explicit external read sets and policy-driven refresh/fence behavior.
 9. Implement diagnostics and introduced/resolved identity.
 10. Implement existing-app commit:
     - deterministic batch ID;
     - fresh replay;
     - canonical kernel;
-    - change-set/provenance sidecars;
+    - typed `CanonicalCommitSidecar` request variants (change-set receipt,
+      intent provenance) over the kernel's transaction-hook seam;
     - structured rebase reports.
 11. Implement genesis rehydration/diagnostics, but do not expose materialization yet.
 12. Add granular private structure/reorder tools.
