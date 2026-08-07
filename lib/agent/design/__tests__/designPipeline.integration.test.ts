@@ -63,11 +63,13 @@ import {
 	messageRef,
 } from "./fixtures";
 
-setupAppStateTestDb("design_pipeline_");
+const h = setupAppStateTestDb("design_pipeline_");
 
 let sessionId: string;
-beforeEach(() => {
-	sessionId = crypto.randomUUID();
+beforeEach(async () => {
+	/* The design_sessions FK landed with the design-session unit: every
+	 * artifact row's session id must reference a real session row. */
+	sessionId = await h.seedDesignSession();
 });
 
 function makePackage(): DesignSourcePackage {

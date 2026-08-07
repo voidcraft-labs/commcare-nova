@@ -56,9 +56,12 @@ const ACTOR = "actor-user";
 const PROJECT = "project-test";
 const RUN = "run-1";
 
-function lineage(): ChangeSetLineage {
+/* The design_sessions FK landed with the design-session unit: a change
+ * set's session id must reference a real session row, so the lineage
+ * helper seeds one. */
+async function lineage(): Promise<ChangeSetLineage> {
 	return {
-		designSessionId: crypto.randomUUID(),
+		designSessionId: await h.seedDesignSession(),
 		designRevisionId: crypto.randomUUID(),
 		designRevisionDigest: canonicalJsonDigest("design"),
 		buildPlanId: crypto.randomUUID(),
@@ -81,7 +84,7 @@ async function openAppEditSet(appId: string) {
 	return beginAppEditChangeSet({
 		appId,
 		expectedProjectId: PROJECT,
-		lineage: lineage(),
+		lineage: await lineage(),
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
 	});
@@ -163,7 +166,7 @@ describe("beginChangeSet", () => {
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: base.digest,
-			lineage: lineage(),
+			lineage: await lineage(),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});

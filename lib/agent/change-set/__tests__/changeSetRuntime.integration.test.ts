@@ -52,9 +52,12 @@ const host: ChangeSetWorkspaceHost = {
 	}),
 };
 
-function lineage(): ChangeSetLineage {
+/* The design_sessions FK landed with the design-session unit: a change
+ * set's session id must reference a real session row, so the lineage
+ * helper seeds one. */
+async function lineage(): Promise<ChangeSetLineage> {
 	return {
-		designSessionId: crypto.randomUUID(),
+		designSessionId: await h.seedDesignSession(),
 		designRevisionId: crypto.randomUUID(),
 		designRevisionDigest: canonicalJsonDigest("design"),
 		buildPlanId: crypto.randomUUID(),
@@ -100,7 +103,7 @@ async function openWorkspace(appId: string) {
 	const changeSet = await beginAppEditChangeSet({
 		appId,
 		expectedProjectId: PROJECT,
-		lineage: lineage(),
+		lineage: await lineage(),
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
 	});
@@ -336,7 +339,7 @@ describe("private staging isolation", () => {
 
 	it("names the recoverable open change set when an attempt begins twice", async () => {
 		const app = await createTestApp();
-		const shared = lineage();
+		const shared = await lineage();
 		await beginAppEditChangeSet({
 			appId: app.appId,
 			expectedProjectId: PROJECT,
@@ -440,7 +443,7 @@ describe("genesis staging", () => {
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: base.digest,
-			lineage: lineage(),
+			lineage: await lineage(),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});
@@ -499,7 +502,7 @@ describe("genesis staging", () => {
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
-			lineage: lineage(),
+			lineage: await lineage(),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});

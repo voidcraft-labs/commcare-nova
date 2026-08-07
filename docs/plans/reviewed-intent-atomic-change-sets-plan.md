@@ -1685,9 +1685,9 @@ Required constraints:
 - committed status requires sequence, batch ID, and committed snapshot digest;
 - only open rows may receive requests or attempt commit;
 - exact owner-attribution columns are non-null while open;
-- holder authority is verified on the locked design-session/app row, not duplicated on the change set (until the design-session unit lands its row, a genesis set's change-set row is the serialization point and its owner-attribution columns the ownership proof);
+- holder authority is verified on the locked design-session/app row, not duplicated on the change set (a genesis set's change-set row remains the serialization point until Unit E's materialization re-homes genesis authority onto the locked session row);
 - digests are lower-hex SHA-256 over canonical JS JSON bytes — object keys recursively sorted by code point — computed and verified in JavaScript only; the SQL-computed fold-baseline digest is a separate domain, never compared against these;
-- design/plan identity columns are opaque non-null identities with no foreign keys until the design-session and orchestrator units land their tables and add them in their own migrations.
+- `design_session_id` is bound to `design_sessions(id)` by the design-session unit's migration; the remaining design/plan identity columns stay opaque non-null identities until the orchestrator unit lands its tables and adds their keys in its own migration.
 
 No durable `committing` state exists. Commit either atomically changes `open -> committed` beside the canonical write or rolls back to `open`. A lost response is resolved through the deterministic canonical batch ID and committed receipt, not through an intermediate lifecycle state.
 
@@ -1749,9 +1749,13 @@ Stage transaction:
 
 1. resolve the change set's authority target without holding a row lock;
 2. start the transaction and lock the authority carrier first:
-   - active pre-app build: design-session row (until the design-session
-     unit lands that row, the change-set row is the serialization point
-     and its owner-attribution columns the ownership proof);
+   - active pre-app build: design-session row (the row and its foreign
+     keys exist; Unit E's materialization transaction is what re-homes
+     genesis staging authority onto the locked session row when it starts
+     claiming sessions for real builds — until then a genesis set's
+     change-set row remains the serialization point and its
+     owner-attribution columns the ownership proof, since no production
+     writer creates genesis sets before the executor mounts);
    - materialized build or design-aware edit: app row;
 3. re-resolve target/Project mapping and prove exact user/run/holder ownership;
 4. lock the change-set row second, then re-prove fresh Project edit
@@ -2131,19 +2135,7 @@ CREATE TABLE design_sessions (
 
 Use repository-native ID column types and foreign keys in the actual migration; the SQL above communicates the closed shape.
 
-Pre-app build sessions use the same run-liveness pure helpers as apps through an adapter:
-
-```ts
-interface RunLeaseCarrier {
-  holderIdentity: ExactRunHolderIdentity | null;
-  actorUserId: string | null;
-  awaitingInput: boolean;
-  leaseExpiresAt: Date | null;
-  updatedAt: Date;
-}
-```
-
-Do not copy timeout arithmetic into a second module.
+Pre-app build sessions derive liveness beside the app derivation in the SAME module (`runLiveness.ts::designSessionLeaseState` over the session's explicit `run_lease_expires_at` lease, whose deadline shares `MAX_GENERATION_MINUTES` through `designSessionLeaseDeadlineMs`). Sessions are deliberately simpler than apps: only a `build`-mode holder exists, the holder and reservation column groups travel whole, and a reservation can never outlive its holder — so every terminal writer settles/refunds and releases BOTH groups in one transaction (`designSessionAuthorityCleared`), a failed or reaped session stays `active` with `last_error_type` set (recoverable or discardable), and there is no reaper-signature/false-reap self-heal arm to port. Timeout arithmetic is never copied into a second module.
 
 ### 11.3 Atomic cross-target admission
 
@@ -2157,7 +2149,7 @@ async function withActorGenerationAdmissionGate<T>(
 ): Promise<T>;
 ```
 
-It takes a transaction-scoped advisory lock derived from an unambiguous versioned hash namespace plus actor user ID.
+It takes a transaction-scoped advisory lock in PostgreSQL's 64-bit keyspace (a different keyspace from the two-int32 Project-membership gate, so the two cannot interact): the key is the first 8 bytes of `SHA-256("nova:actor-generation-admission:v1:" + actorUserId)`, big-endian as a signed int64 (`actorGenerationGateKey`, golden-vector-pinned). A cross-actor hash collision only over-serializes and cannot affect correctness.
 
 Every function that can create/claim/reacquire a chargeable generation must take this gate before evaluating the one-active-generation rule:
 
@@ -2169,7 +2161,9 @@ Every function that can create/claim/reacquire a chargeable generation must take
 - stale run reapers before freeing/refunding;
 - any operator recovery that creates a live holder.
 
-For any transaction that **creates, releases, pauses, resumes, settles, refunds, reaps, or transfers** a holder/reservation, the actor gate is the first lock. It is followed by the authority row (`apps` or `design_sessions`) and then the existing membership/dependent-row order. Canonical app commits and read/write operations that merely verify an unchanged holder do not take the actor gate and retain app/session-row-first ordering.
+For any transaction that **creates, releases, pauses, resumes, settles, refunds, reaps, or transfers** a holder/reservation, the actor gate is the first lock. It is followed by the authority row (`apps` or `design_sessions`) and then the existing membership/dependent-row order. Canonical app commits and read/write operations that merely verify an unchanged holder (the liveness heartbeats) do not take the actor gate and retain app/session-row-first ordering.
+
+One gate per transaction, keyed as follows: admission-evaluating writers (claim, reserve, reacquire, pause) key on the calling actor; holder-releasing/settling/reaping writers, whose callers carry only the holder token, key on the HOLDER's actor derived from an unlocked pre-read of the authority row (`lockActorGenerationGateForAppHolder` / `ForSessionHolder` — build holds charge to `res_user_id` falling back to `owner`, edit holds to `lock_actor_user_id`), skipping the gate when no row exists. A pre-read that goes stale is harmless: the writer's exact-holder compare-and-set already no-ops, and deadlock freedom needs only the uniform gate-before-row order, which one gate per transaction preserves. A source-scan test (`actorGenerationGate.test.ts`) pins gate-before-row on every lifecycle writer and gate-absence on every heartbeat.
 
 This is a deliberate, narrow amendment to the current app-row-first run-lifecycle convention. Applying the gate after an app row on one path and before a design-session row on another would permit a gate↔row deadlock during cross-target reap/admission.
 
@@ -2312,7 +2306,7 @@ Rules:
 - Thread target resolution supplies Project tenancy.
 - Asset deletion checks both app references and thread references, including soft-deleted/recoverable app/thread policy.
 - Project move re-tenants/remaps thread references with transcript attachment IDs in the existing app-move transaction.
-- Existing app threads are backfilled from exact transcript carriers, then app-wide transcript projection code is removed in the same final-shape migration/cutover.
+- Existing app threads are backfilled from exact transcript carriers INSIDE the design-session migration (the new deletion guard reads `thread_media_refs` from its first request, and the migrate Job is the one point ordered before it), which also rebuilds every edge-bearing app's `media_asset_refs` to the Blueprint-only projection; the backfill imports the production walks rather than freezing copies, because a derived-projection rebuild must converge on the projection the current runtime maintains. A one-off scan/migrate script pair re-runs the same convergence after the old revision drains (its writers keep the app-wide shape through the deploy window), then is deleted. App-wide transcript projection code is removed in the same final-shape cutover.
 - Assistant-message attachment metadata remains forbidden.
 
 This removes the current accidental coupling where one thread write reprojects the app's complete media carrier set.
@@ -2335,8 +2329,8 @@ interface StreamChunkAppend {
 
 Database shape:
 
-- nullable `app_id`;
-- nullable `design_session_id`;
+- nullable `app_id` (its historical FK-less shape retained);
+- nullable `design_session_id` with a real `ON DELETE CASCADE` foreign key (a pruned operational log cascading with a physically deleted session is harmless and keeps §18.11's explicit-delete-behavior rule);
 - exact-one CHECK;
 - existing `(stream_id, first_index)` uniqueness;
 - existing terminal outcome and retention behavior.

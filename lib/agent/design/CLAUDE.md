@@ -59,7 +59,8 @@ direct MCP edit.
   policy lives in `lib/db/privilegeConvergence.ts` (append-only, never
   row-locked) and the DDL in
   `lib/case-store/migrations/20260808000000_design_artifacts.ts`
-  (`design_session_id` opaque until the design-session unit adds its FK).
+  (`design_session_id` bound to `design_sessions(id)` by the
+  design-session unit's migration).
 - `sourcePackage.ts` (+ `sourcePackageDeps.ts`, the production resource
   seams split out so the pure builder never drags the office-parser import
   graph into a consumer) — the one boundary turning a caller-authorized

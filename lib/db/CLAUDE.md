@@ -26,10 +26,24 @@ and the app a later publish left behind has to stay nameable.
 `lib/deployment/CLAUDE.md` owns the lifecycle.
 
 **Lock ordering is the concurrency discipline.** Every transaction that
-decides anything about a run locks the APP ROW first (`SELECT … FOR UPDATE`
-via `lockAppRow`), then touches other rows (credit months, entities, the
-stream). Per-app contention resolves as row-lock waits, and every decision
-reads row state inside the locking transaction.
+decides anything about a run locks its AUTHORITY ROW first (`SELECT … FOR
+UPDATE` via `lockAppRow`, or the `design_sessions` row for a pre-app target),
+then touches other rows (credit months, entities, the stream). Per-target
+contention resolves as row-lock waits, and every decision reads row state
+inside the locking transaction. ONE deliberate amendment sits in front of
+that convention: a transaction that CREATES, claims, reacquires, pauses,
+settles, refunds, reaps, or discards a holder/reservation — on either target
+kind — takes the per-actor generation admission gate FIRST
+(`actorGenerationGate.ts`, a 64-bit transaction advisory lock keyed on a
+versioned hash of the actor id), then the authority row, then the membership
+gate/member row, then credit rows. The gate is what makes cross-target
+admission atomic: the claim's one-build-per-actor scan spans `apps` AND
+`design_sessions` (`scanActorGenerationTargets`), and two concurrent new
+design sessions for one actor can never both hold. Canonical commits,
+thread writes, and unchanged-holder verification (the heartbeats) take NO
+actor gate and keep authority-row-first ordering — gate-after-row on any
+lifecycle path would permit a gate↔row deadlock, which is exactly what the
+`actorGenerationGate.test.ts` source scan forbids.
 
 **Builder hydration is one authorized snapshot.**
 `appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the
@@ -373,6 +387,42 @@ never carry a stale generation's continuation authority into a new one.
 
 
 
+**`design_sessions` is the pre-app generation target.** A chat build's
+durable scope before any app row exists: mode `build` sessions carry the
+SAME holder + reservation nullable column groups the `apps` row carries
+(`run_id`/`run_holder_nonce`/`run_actor_user_id`/`run_mode`/
+`run_lease_expires_at` + `res_*`), claimed, paused, settled, refunded, and
+reaped by protocol-identical twins in `designSessions.ts`
+(`createAndClaimDesignSessionRun` — creation, cross-target scan,
+affordability, reservation, and holder write in ONE gated transaction —
+plus claim/reacquire/heartbeat/pause/complete/fail/reap/discard). Sessions
+are STRICTER than apps by construction: the table CHECKs force each column
+group whole, tie `res_run_id` to `run_id`, forbid authority columns on
+terminal states and on `mode = 'edit'` rows (an edit design session is an
+artifact scope only — its bound app row stays the sole run/credit
+authority), so a marker never outlives its holder and every terminal writer
+settles/refunds and clears BOTH groups in one transaction
+(`designSessionAuthorityCleared`) — there is no reaper-signature/self-heal
+arm to preserve. A failed or reaped session stays `active` with
+`last_error_type` set (recoverable by a fresh chargeable claim, or
+`discardDesignSession` → `abandoned`); `materialized` is Unit E's transfer.
+Liveness derives from the explicit lease column via
+`runLiveness.ts::designSessionLeaseState` (same module, same
+`MAX_GENERATION_MINUTES` horizon — never a second timeout arithmetic).
+`generationTargets.ts` is the ONE resolver boundary for target
+authorization (`resolveGenerationTargetScope` — opaque
+`AppAccessError("not_found")` on every denial, exactly like app routes) and
+the closed `GenerationTarget` union every target-polymorphic table speaks:
+`threads`, `chat_stream_chunks`, and `run_summaries` each carry nullable
+`app_id` XOR `design_session_id` (exactly-one CHECKs; `run_summaries`
+replaced its PK with the two partial unique indexes). A build thread stays
+design-session-targeted after materialization; the thread/stream writers
+resolve a materialized session's bound app WITHOUT a held lock and then
+lock the APP row as the authority (`threads.ts::lockThreadTargetAuthority`),
+so run authority delegates exactly as §11.7 orders the locks. No route
+mounts the session surface yet — the chat route serves app targets
+unchanged until Unit E's cutover.
+
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
 appends every UI chunk a POST streams, in write order, batched — dropping ALL
@@ -458,9 +508,11 @@ message id, stored `metadata.attachments` is authoritative even when an incoming
 version wins the parts tiebreak; a stale source-Project history therefore cannot
 restore asset ids the move already remapped. The history-bearing writers
 (turn upsert, bail merge) derive the complete canonical post-merge attachment
-set together with the authored Blueprint media set, lock all referenced
-assets sorted `FOR SHARE`, validate same Project/readiness/kind, and replace
-the app's exact reverse projection before the message write; the barrier
+set, lock all referenced assets sorted `FOR SHARE`, validate same
+Project/readiness/kind, and replace THIS thread's exact `thread_media_refs`
+rows after the message write in the same transaction (the split projection:
+Blueprint commits own `media_asset_refs`, thread writes own only their
+thread's rows); the barrier
 write deliberately does NOT run that projection (an assistant snapshot
 carries no attachments — stripped defensively — and the by-id merge cannot
 alter stored user messages, so the projected set is unchanged by
@@ -727,8 +779,9 @@ to serialize its ledgers); `design_change_set_requests` / `_steps` /
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
 poke realtime). Step mutations, receipts, read sets, and intent ids are
 authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
-strict schemas only. Design/plan identity columns are opaque and FK-less
-until the design-session/orchestrator units land their tables. A Project
+strict schemas only. `design_session_id` is bound to `design_sessions(id)`;
+the remaining design/plan identity columns stay opaque until the
+orchestrator unit lands its tables. A Project
 move deliberately does NOT re-tenant change-set rows: `base_project_id` is
 captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in
@@ -741,8 +794,8 @@ runtime DML — insert-only artifacts, never row-locked, never updated,
 never streamed. Every JSONB envelope/payload is authoritative persisted
 JSON: `::text` reads through `persistedJson.ts` + the exact producer
 schemas, with the canonical-JS artifact digest re-verified on every read.
-`design_session_id` stays an opaque FK-less identity until the
-design-session unit lands its table. The read/write boundary and
+`design_session_id` is bound to `design_sessions(id)`. The read/write
+boundary and
 integrity rules live in `lib/agent/design/artifactStore.ts`
 (`lib/agent/design/CLAUDE.md` is the contract).
 
@@ -754,12 +807,20 @@ assemble + hydrate the fresh doc →
 `mutationTargetsInvalid` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent app-change row + the in-commit NOTIFY. The per-commit edit
 lease refresh rides the same transaction when the committing run owns the
-lock. Every app or thread writer derives the complete poststate media projection
-from all authored Blueprint references plus canonical thread attachments,
-locks the referenced asset rows sorted `FOR SHARE`, verifies same Project,
-`ready`, and exact media kind, then deletes and reinserts the app's exact
-`media_asset_refs` rows in that SAME transaction. Atomic creation,
-`appendSyntheticBatch`, and Project move apply the identical rule.
+lock. The media reference projection is SPLIT by carrier family: every app
+writer derives the complete poststate AUTHORED projection from the
+Blueprint's references alone, locks the referenced asset rows sorted
+`FOR SHARE`, verifies same Project, `ready`, and exact media kind, then
+deletes and reinserts the app's exact `media_asset_refs` rows in that SAME
+transaction; every THREAD writer replaces only ITS thread's
+`thread_media_refs` rows (`mediaAssets.ts::replaceExactThreadMediaReferences`,
+same asset locks and verdicts, row written after the thread row it is a
+child of) in the transcript transaction. Neither family can overwrite the
+other, and deletion checks BOTH. Atomic creation, `appendSyntheticBatch`,
+and Project move apply the identical rule — the move additionally rewrites
+each thread's rows from its remapped transcript with destination ids and
+Project, and re-tenants the app's bound design sessions
+(materialized/completed/edit; an active pre-app session never moves).
 
 **Form attachments are a separate lane from `media_assets`, on purpose.**
 `formAttachments.ts` holds the files a worker attaches while filling in a form:
@@ -855,10 +916,12 @@ can strand capture evidence in the source tenant.
 
 **Media deletion is one authoritative transaction.**
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
-`edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier
-(including soft-deleted app rows)
-named by that asset's exact `media_asset_refs` candidates without taking app
-locks, and deletes metadata only when the result is empty.
+`edit`, locks the asset `FOR UPDATE`, then re-walks every persisted
+Blueprint carrier (including soft-deleted app rows) named by that asset's
+exact `media_asset_refs` candidates without taking app locks, checks the
+conversation family through the asset's exact `thread_media_refs` rows (the
+per-thread projection IS the authority — pre-app design-session threads
+included), and deletes metadata only when both families are empty.
 Each app root, its normalized blueprint entities, and thread messages come from
 one correlated SQL statement snapshot, so an atomic carrier relocation cannot
 fall between separate READ COMMITTED reads.
