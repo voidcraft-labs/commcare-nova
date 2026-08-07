@@ -345,7 +345,10 @@ export class GenerationContext implements CanonicalMutationHost {
 	 * `AppProjectChangedError` (the reload must not cross the tenant
 	 * boundary) — both fence every queued tool and fail the run.
 	 */
-	async reloadAuthorizedSnapshot(): Promise<BlueprintDoc> {
+	async reloadAuthorizedSnapshot(): Promise<{
+		doc: BlueprintDoc;
+		canonicalSeq: number;
+	}> {
 		let fresh: Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>;
 		try {
 			fresh = await resolveAuthorizedAppSnapshot(
@@ -368,7 +371,10 @@ export class GenerationContext implements CanonicalMutationHost {
 			this.latchTerminalScopeError(scopeError);
 			throw scopeError;
 		}
-		return hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc);
+		return {
+			doc: hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc),
+			canonicalSeq: fresh.baseSeq,
+		};
 	}
 
 	/** Resolve an OpenAI model id to a `LanguageModel` (Responses API).

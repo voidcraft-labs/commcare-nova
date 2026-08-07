@@ -493,6 +493,47 @@ describe("registerSharedTool — mutating tools", () => {
 		}
 	});
 
+	it("appends the parked-case-values note when the payload projects to a bare string", async () => {
+		/* `projectResult` collapses a `{ message, summary }` success to its bare
+		 * string — the shape a conversion-only edit returns. The parked note
+		 * must survive that collapse: a park invisible to the caller that
+		 * caused it violates the data-consequence contract. */
+		const parkedTool: SharedToolModule = {
+			description: "park",
+			inputSchema: z.object({}),
+			async execute() {
+				const result: MutatingToolResult<{
+					message: string;
+					summary: { subject: string };
+				}> = {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						message: "Converted the field.",
+						summary: { subject: "x" },
+					},
+				};
+				return result;
+			},
+		};
+		const note = "Data note: 2 saved case values were kept for review.";
+		const { McpContext } = await import("../context");
+		const original = McpContext.prototype.consumeParkedNote;
+		McpContext.prototype.consumeParkedNote = vi.fn().mockReturnValue(note);
+		try {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, "park_tool", parkedTool, toolCtx, "edit");
+			const out = (await capture()({ app_id: "a1" }, {})) as {
+				content: Array<{ type: "text"; text: string }>;
+			};
+			expect(JSON.parse(out.content[0]?.text ?? "null")).toBe(
+				`Converted the field.\n\n${note}`,
+			);
+		} finally {
+			McpContext.prototype.consumeParkedNote = original;
+		}
+	});
+
 	it.each([
 		{ destination: "child", accepted: true },
 		{ destination: "sibling", accepted: false },

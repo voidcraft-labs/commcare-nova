@@ -35,13 +35,17 @@ protocol error, never a silent overwrite.
    (`BlueprintCommitRejectedError`) adopts one fresh AUTHORIZED snapshot via
    the host's reload before the error surfaces. Nothing else replaces the
    document.
-2. **Ordering is explicit, synchronous, and asserted.** `invoke` allocates
-   the invocation ordinal before any await and runs bodies strictly in that
-   order; an out-of-order start throws instead of corrupting the document.
-   This deliberately does NOT depend on promise-microtask FIFO, so a future
-   SDK dispatch change or async lifecycle hook cannot silently reorder the
-   workspace (`__tests__/canonicalWorkspace.test.ts` pins it with a delayed
-   first branch).
+2. **Ordering is explicit, synchronous, and asserted — at the dispatch
+   boundary.** `invoke` allocates the invocation ordinal before any await
+   and runs bodies strictly in that order; an out-of-order start throws
+   instead of corrupting the document, and no body ever reads a torn or
+   stale-overwritten doc (`__tests__/canonicalWorkspace.test.ts` pins it
+   with a delayed first branch). The ordinal captures DISPATCH order —
+   whether dispatch matches model-emit order remains the SDK-boundary
+   property it always was: an await inserted upstream of `invoke` reorders
+   dispatch itself, which a dependent sibling call surfaces as a visible
+   missing-target error, never as silent state corruption. Ordering-
+   dependent creation therefore rides single batched calls.
 3. **The optimistic gate lives in the workspace.** `applyBatch` /
    `applyStages` run the whole-document verdict (with the unioned lookup
    context) against the invocation's snapshot before anything reaches the

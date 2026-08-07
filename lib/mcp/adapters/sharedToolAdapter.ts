@@ -37,12 +37,13 @@
  *      reason over via an exhaustive `kind`-switch.
  *
  * **Hard invariant — the adapter MUST NOT re-persist mutations.**
- * Every shared mutating tool already calls
- * `ctx.recordMutations(mutations, newDoc, stage)` inside its own body
- * before returning its `MutatingToolResult`. Doing it again here would
- * double-write the blueprint AND emit two copies of every
- * mutation event into the log stream. The adapter's job is to delegate
- * + envelope, never to re-apply.
+ * Every shared mutating tool commits through its invocation context's
+ * `applyBatch`/`applyStages` inside its own body, and the workspace routes
+ * the accepted batch to the host's `recordMutations` exactly once, before
+ * the tool returns its `MutatingToolResult`. Persisting again here would
+ * double-write the blueprint AND emit two copies of every mutation event
+ * into the log stream. The adapter's job is to delegate + envelope, never
+ * to re-apply.
  *
  * **`app_id` splicing.** The MCP tool schema safely extends the shared
  * tool's exact Zod object with an `app_id` argument (shared tools take
@@ -227,22 +228,28 @@ export function registerSharedTool(
 						execute: (invocationCtx) => tool.execute(toolInput, invocationCtx),
 					});
 					const payload = projectResult(outcome);
-					/* A committed row migration that PARKED saved case values stashed a note
-					 * on the context — append it to a message-bearing payload so
-					 * the client hears about the data consequence with the
-					 * result, never silently. */
+					/* A committed row migration that PARKED saved case values stashed a
+					 * note on the context — append it to the message so the client
+					 * hears about the data consequence with the result, never
+					 * silently. `projectResult` collapses a `{ message, summary }`
+					 * success to its bare string, so the note must ride BOTH the
+					 * bare-string and the message-object shapes. */
 					const parkedNote = mcpCtx.consumeParkedNote();
 					const finalPayload =
-						parkedNote !== undefined &&
-						typeof payload === "object" &&
-						payload !== null &&
-						"message" in payload &&
-						typeof (payload as { message: unknown }).message === "string"
-							? {
-									...payload,
-									message: `${(payload as { message: string }).message}\n\n${parkedNote}`,
-								}
-							: payload;
+						parkedNote === undefined
+							? payload
+							: typeof payload === "string"
+								? `${payload}\n\n${parkedNote}`
+								: typeof payload === "object" &&
+										payload !== null &&
+										"message" in payload &&
+										typeof (payload as { message: unknown }).message ===
+											"string"
+									? {
+											...payload,
+											message: `${(payload as { message: string }).message}\n\n${parkedNote}`,
+										}
+									: payload;
 					return {
 						content: [{ type: "text", text: JSON.stringify(finalPayload) }],
 					};
@@ -282,12 +289,11 @@ type SharedToolReturn = MutatingToolResult<unknown> | ReadToolResult<unknown>;
  * LLM sees. Two branches, dispatched on the `kind` discriminator:
  *
  *   - `"mutate"` — unwrap `result`, the per-tool typed payload. The
- *     mutations were already persisted by the tool body via
- *     `ctx.recordMutations`; the adapter does NOT re-apply them.
- *     `mutations` + `newDoc` are internal wire data the chat surface
- *     needs (its SA wrapper advances its working-doc closure when
- *     mutations land); MCP callers re-read state via read tools, so
- *     surfacing them on the wire would be noise.
+ *     mutations were already persisted through the workspace before the
+ *     tool returned; the adapter does NOT re-apply them. `mutations` is
+ *     internal introspection data (tests pin golden batches on it); MCP
+ *     callers re-read state via read tools, so surfacing it on the wire
+ *     would be noise.
  *   - `"read"` — unwrap `data`, the bare per-tool payload.
  *
  * Exhaustive switch — TypeScript narrows `kind` to `never` in the

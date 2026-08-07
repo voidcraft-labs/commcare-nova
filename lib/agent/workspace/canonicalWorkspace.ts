@@ -5,12 +5,16 @@
  * It owns the current document and the serialized invocation order the SA's
  * closure-`doc` + promise-chain mutex used to own, with the ordering made
  * EXPLICIT: `invoke` allocates the invocation ordinal synchronously (before
- * any await), enqueues strictly by that ordinal, and asserts the queue drains
- * in allocation order — so a future async hook or SDK dispatch change that
- * reordered branches would fail loudly instead of silently corrupting the
- * working document. Each invocation reads one frozen snapshot and may perform
- * at most one workspace mutation operation, verified against the exact
- * revision it read.
+ * any await), enqueues strictly by that ordinal, and asserts bodies START in
+ * allocation order — a refactor that broke the queue's FIFO would fail
+ * loudly instead of silently corrupting the working document, and every body
+ * observes the doc as left by the previous one. The ordinal captures
+ * DISPATCH order; whether dispatch matches model-emit order remains the
+ * SDK-boundary property it always was (an await inserted upstream of
+ * `invoke` reorders dispatch itself — sibling-dependent calls then miss
+ * their target visibly rather than corrupting state). Each invocation reads
+ * one frozen snapshot and may perform at most one workspace mutation
+ * operation, verified against the exact revision it read.
  *
  * The optimistic validity gate lives HERE (not in tool bodies): `applyBatch`
  * runs the whole-document verdict against the invocation's snapshot before
@@ -143,8 +147,11 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			/* The chain drains in append order and appends happen in allocation
 			 * order (both synchronous in this method), so this assertion cannot
 			 * fire today. It exists so a refactor that breaks either property —
-			 * an await before the append, a non-FIFO queue — fails loudly here
-			 * instead of silently corrupting the working document. */
+			 * an await between allocation and append, a non-FIFO queue — fails
+			 * loudly here instead of silently corrupting the working document.
+			 * It deliberately proves nothing about what happened UPSTREAM of
+			 * `invoke`: dispatch-order-vs-model-emit-order is the caller's
+			 * boundary. */
 			if (invocationOrdinal !== this.lastStartedOrdinal + 1) {
 				throw new Error(
 					`[workspace] invocation ${invocationOrdinal} (${args.toolName}) started out of order after ${this.lastStartedOrdinal}.`,
@@ -169,7 +176,8 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 					err instanceof BlueprintCommitRejectedError &&
 					this.host.reloadAuthorizedSnapshot !== undefined
 				) {
-					this.adopt(await this.host.reloadAuthorizedSnapshot(), null);
+					const reloaded = await this.host.reloadAuthorizedSnapshot();
+					this.adopt(reloaded.doc, reloaded.canonicalSeq);
 				}
 				throw err;
 			}
@@ -183,10 +191,13 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 		return next;
 	}
 
-	/** Adopt a new current document and advance the revision. */
+	/** Adopt a new current document and advance the revision. `canonicalSeq`
+	 *  is the sequence the adopted document is KNOWN to be at, or `null` when
+	 *  the adopter cannot name one — never a stale sequence carried over from
+	 *  an older document. */
 	private adopt(doc: BlueprintDoc, canonicalSeq: number | null): void {
 		this.doc = doc;
-		this.canonicalSeq = canonicalSeq ?? this.canonicalSeq;
+		this.canonicalSeq = canonicalSeq;
 		this.revision += 1;
 	}
 

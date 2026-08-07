@@ -34,12 +34,15 @@ function toolSourceFiles(dir = TOOLS_ROOT): string[] {
 	return out;
 }
 
-/** The module specifiers a line imports, for static `import`/`export from`. */
+/** Every module specifier a source reaches — static `import`/`export from`,
+ *  dynamic `import("...")`, and `require("...")`, so a runtime-loaded writer
+ *  cannot slip past the ban. */
 function importedSpecifiers(source: string): string[] {
 	const specifiers: string[] = [];
-	const pattern = /from\s+"([^"]+)"/g;
+	const pattern =
+		/from\s+"([^"]+)"|\bimport\(\s*"([^"]+)"\s*\)|\brequire\(\s*"([^"]+)"\s*\)/g;
 	for (const match of source.matchAll(pattern)) {
-		const specifier = match[1];
+		const specifier = match[1] ?? match[2] ?? match[3];
 		if (specifier !== undefined) specifiers.push(specifier);
 	}
 	return specifiers;

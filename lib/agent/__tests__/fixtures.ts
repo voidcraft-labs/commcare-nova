@@ -11,7 +11,8 @@
 // `makeMcpTestContext` is the sibling for the MCP surface: a stubbed
 // `McpContext` so shared tool modules can be driven through both
 // surfaces in cross-surface tests, exercising the same
-// `ToolExecutionContext` interface the production adapter uses.
+// `CanonicalMutationHost` contract the production adapter's per-call
+// workspace commits through.
 //
 // The helpers return both the `ctx` (for driving calls into the class
 // under test) and the stubs (for asserting what the class wrote). All
@@ -241,7 +242,7 @@ const emptyConversionImpact: ConversionImpactFn = async () => ({
  * batch returns a complete authoritative committed document without Postgres.
  *
  * Mirrors `makeTestContext` for the chat surface: both helpers return a
- * `ToolExecutionContext`-compatible value so shared tool modules can be
+ * `CanonicalMutationHost`-compatible value so shared tool modules can be
  * driven through either without per-test boilerplate. Cross-surface
  * tests use both helpers side by side to assert the same input produces
  * the same mutation batch on both surfaces.

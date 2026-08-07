@@ -65,10 +65,15 @@ export interface CanonicalMutationHost {
 	/**
 	 * Load one fresh AUTHORIZED snapshot after an authoritative commit
 	 * conflict, so the workspace continues from current server state rather
-	 * than its stale document. Chat implements it (latching terminal scope
-	 * errors — lost access, moved Project — before throwing them); MCP omits
-	 * it, because its doc lifecycle is per-call and a rejection simply
-	 * propagates to the wire envelope.
+	 * than its stale document. The returned `canonicalSeq` is the
+	 * `mutation_seq` the snapshot was read at, so the workspace never pairs a
+	 * reloaded document with an older commit's sequence. Chat implements it
+	 * (latching terminal scope errors — lost access, moved Project — before
+	 * throwing them); MCP omits it, because its doc lifecycle is per-call and
+	 * a rejection simply propagates to the wire envelope.
 	 */
-	reloadAuthorizedSnapshot?(): Promise<BlueprintDoc>;
+	reloadAuthorizedSnapshot?(): Promise<{
+		readonly doc: BlueprintDoc;
+		readonly canonicalSeq: number;
+	}>;
 }

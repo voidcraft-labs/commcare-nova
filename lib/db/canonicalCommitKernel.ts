@@ -793,13 +793,9 @@ export async function commitCanonicalBatch(
 		);
 	}
 
-	type InternalResult = CanonicalCommitReceipt & {
-		persistable?: PersistedBlueprint;
-	};
-
 	const commitInTransaction = async (
 		tx: Transaction<AppDatabase>,
-	): Promise<InternalResult> => {
+	): Promise<CanonicalCommitReceipt> => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) {
 			throw new Error(
@@ -989,15 +985,14 @@ export async function commitCanonicalBatch(
 			seq,
 			committedDoc: verdict.nextDoc,
 			deduped: false,
-			persistable,
 		};
 	};
-	const commitOnce = (): Promise<InternalResult> =>
+	const commitOnce = (): Promise<CanonicalCommitReceipt> =>
 		internalOptions.transaction === undefined
 			? withAppTx(commitInTransaction)
 			: commitInTransaction(internalOptions.transaction);
 
-	let result: InternalResult;
+	let result: CanonicalCommitReceipt;
 	try {
 		result = await commitOnce();
 	} catch (err) {
@@ -1011,6 +1006,5 @@ export async function commitCanonicalBatch(
 		result = await commitOnce();
 	}
 
-	const { persistable: _persistable, ...publicResult } = result;
-	return publicResult;
+	return result;
 }

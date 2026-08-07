@@ -202,7 +202,7 @@ describe("CanonicalMutationWorkspace — adoption", () => {
 describe("CanonicalMutationWorkspace — authoritative conflict recovery", () => {
 	it("adopts one fresh authorized snapshot through the host's reload, then surfaces the conflict", async () => {
 		const freshDoc = makeCanonicalGenesisDoc("Reloaded fresh");
-		const reload = vi.fn(async () => freshDoc);
+		const reload = vi.fn(async () => ({ doc: freshDoc, canonicalSeq: 42 }));
 		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc(), {
 			reloadAuthorizedSnapshot: reload,
 		});
@@ -219,6 +219,8 @@ describe("CanonicalMutationWorkspace — authoritative conflict recovery", () =>
 
 		expect(reload).toHaveBeenCalledTimes(1);
 		expect(h.currentDoc()).toBe(freshDoc);
+		/* The adopted sequence is the RELOAD's, never the pre-conflict one. */
+		expect(h.workspace.currentSnapshot().canonicalSeq).toBe(42);
 		/* The next invocation builds on the reloaded state. */
 		const seen = await h.workspace.invoke({
 			toolName: "next",

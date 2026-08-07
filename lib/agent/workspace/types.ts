@@ -38,9 +38,11 @@ export interface WorkspaceSnapshot {
 	/** The revision this snapshot was taken at. A workspace write presented
 	 * with a stale revision is a protocol error, never a silent retry. */
 	readonly revision: WorkspaceRevision;
-	/** The canonical `mutation_seq` of the last commit this workspace
-	 * observed, or `null` when no commit has been observed yet (a fresh
-	 * chat run before its first batch). Never fabricated. */
+	/** The canonical `mutation_seq` the current document is KNOWN to be at —
+	 * from the commit that produced it, the authorized reload, or an adopted
+	 * authoritative proof — or `null` when no sequence accompanied it (a
+	 * fresh chat run before its first batch, or an adoption that carried
+	 * none). Never a stale sequence paired with a newer document. */
 	readonly canonicalSeq: number | null;
 	/** Project scope the workspace's document was authorized under. */
 	readonly projectId: string;

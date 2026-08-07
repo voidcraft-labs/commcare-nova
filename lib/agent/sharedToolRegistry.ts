@@ -85,11 +85,9 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 
 /**
- * External mutable state a tool's staged batch or success result depends on.
- * Declared per registry entry so the private change-set runtime can capture
- * exact read-set dependencies at staging time and the canonical commit can
- * fence or recompute them (the organization revision fence exists today; the
- * rest are declarative until the change-set runtime lands).
+ * External mutable state a tool's batch or success result depends on. Each
+ * entry's policy names its kinds; the organization revision is the one a
+ * commit fences (`expectedOrganizationRevision` on the tool's write).
  */
 export type ExternalReadSetKind =
 	| "organization"
@@ -99,10 +97,10 @@ export type ExternalReadSetKind =
 	| "project-scope";
 
 /**
- * Runtime capabilities a tool's execution requires. Injected by the hosting
- * workspace, never globally reachable — the change-set execution context
- * receives NO external-write capability, which is what makes a staged call to
- * an external writer impossible rather than merely rejected.
+ * Runtime capabilities a tool's execution requires. The policy test keeps
+ * every external-WRITE capability off stageable classifications, and the
+ * source guards (`lib/agent/__tests__/toolSourceGuards.test.ts`) admit an
+ * external-writer import only where a declared capability justifies it.
  */
 export type ToolRuntimeCapability =
 	| "canonical-blueprint-write"
@@ -117,26 +115,27 @@ export type ToolRuntimeCapability =
 	| "deployment-write";
 
 /**
- * Final-shape execution policy for one shared tool.
+ * Execution policy for one shared tool — the reviewed classification the
+ * policy test (`lib/agent/__tests__/sharedToolRegistryPolicy.test.ts`) pins
+ * entry by entry.
  *
  * - `effect` — what the tool changes: nothing (`read-blueprint`), the
  *   Blueprint through the guarded commit (`mutate-blueprint`), external
  *   Project/app rows or object storage (`mutate-external`), or both stores in
  *   one service transaction (`mixed-transaction`).
- * - `staging` — whether a private change-set workspace may host the tool:
- *   `allowed` for ordinary Blueprint work, `exclusive` for batch-exclusive
- *   case-store sagas that must own their change set alone, `forbidden` for
- *   anything with an external side effect (no compensation contract exists).
- *   A tool whose batches only SOMETIMES compose a case-store saga (a module
- *   removal retiring a case type, a field edit migrating rows) stays
- *   `allowed`; the batch-exclusive mutation KINDS (`renameCaseProperties`,
- *   `retireCaseType`) are the change-set admission fence.
- * - `readSets` — the external read-set kinds the tool captures (see
+ * - `staging` — the stageability classification: `allowed` for ordinary
+ *   Blueprint work, `exclusive` for the tool whose every batch IS the
+ *   batch-exclusive case-store saga, `forbidden` for anything with an
+ *   external side effect. A tool whose batches only SOMETIMES compose a
+ *   case-store saga (a module removal retiring a case type, a field edit
+ *   migrating rows) is `allowed`; the batch-exclusive mutation KINDS
+ *   (`renameCaseProperties`, `retireCaseType`) carry that exclusivity.
+ * - `readSets` — the external read-set kinds the tool reads (see
  *   {@link ExternalReadSetKind}).
- * - `capabilities` — what the hosting workspace must inject.
+ * - `capabilities` — what the tool's execution requires of its host surface.
  * - `emitsFinalGuidanceFrom` — read sets whose CURRENT state the tool's
  *   success message projects (e.g. automation setup guidance from the
- *   organization), so a deferred commit must recompute or fence them.
+ *   organization), fenced at commit via `expectedOrganizationRevision`.
  */
 export interface ToolExecutionPolicy {
 	readonly effect:

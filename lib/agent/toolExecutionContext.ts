@@ -16,14 +16,9 @@
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { MutationEvent } from "@/lib/log/types";
-import type { OrganizationRevision } from "@/lib/organization/types";
+import type { MutationApplicationPolicy } from "./workspace/types";
 
-export type {
-	ConversionImpactFn,
-	MutationApplicationPolicy,
-	ToolInvocationContext,
-	WorkspaceMutationOutcome,
-} from "./workspace/types";
+export type { ConversionImpactFn } from "./workspace/types";
 
 /**
  * What a mutation-recording commit returns: the event envelopes it logged,
@@ -41,18 +36,11 @@ export interface RecordMutationsResult {
 }
 
 /**
- * Read-set fences a tool may attach to one authoritative Blueprint commit.
- *
- * Most tools need only the fresh Blueprint rebase/re-verdict. A tool whose
- * success result projects an external app-scoped store can name the exact
- * snapshot revision it used, so the writer either commits at that same
- * serialization point or rejects before persistence. This avoids a fallible
- * post-commit read while preventing a successful result from describing an
- * older external snapshot.
+ * The commit-time policy a host's `recordMutations` receives — exactly the
+ * tool-facing {@link MutationApplicationPolicy}, carried through the
+ * workspace unchanged (one definition, two vocabulary homes).
  */
-export interface RecordMutationsOptions {
-	readonly expectedOrganizationRevision?: OrganizationRevision;
-}
+export type RecordMutationsOptions = MutationApplicationPolicy;
 
 /**
  * Render a committed row migration's park outcome as the note the surface

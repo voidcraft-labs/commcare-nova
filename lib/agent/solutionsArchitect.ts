@@ -80,15 +80,20 @@ export function createSolutionsArchitect(
 	 * The AI SDK invokes parallel `tool_use` blocks from one assistant turn
 	 * concurrently via `Promise.all(toolCalls.map(...))`. `workspace.invoke`
 	 * allocates each invocation's ordinal SYNCHRONOUSLY at entry — before any
-	 * await — and runs bodies strictly in that order, so reads observe the doc
-	 * as left by the previous write and dependent batches (e.g. addFields
-	 * creating a group + addFields targeting it as parent) compose correctly.
-	 * Unlike the retired closure-doc + microtask-FIFO chain, the ordering is
-	 * explicit and asserted: a future lifecycle hook or SDK change that
-	 * awaited on a per-branch path before dispatch cannot silently reorder
-	 * the workspace (`canonicalWorkspace.ts` throws on an out-of-order
-	 * start). Each commit adopts the writer's committed doc; an authoritative
-	 * conflict adopts one fresh authorized snapshot via the host's reload. */
+	 * await — and runs bodies strictly in that order, so every body observes
+	 * the doc as left by the previous one, and each commit builds on the last
+	 * (the data-loss race the retired closure doc suffered is structurally
+	 * gone). The ordinal captures DISPATCH order: bodies provably start in
+	 * the order `invoke` was called (`canonicalWorkspace.ts` throws on an
+	 * out-of-order start), but whether dispatch order matches MODEL-EMIT
+	 * order still depends on the SDK calling each tool's `execute` without
+	 * per-branch awaits upstream of this wrapper — the same boundary caveat
+	 * as before. A lifecycle hook that awaits per branch can reorder
+	 * SIBLING calls' dispatch (a dependent parent lookup then misses — a
+	 * visible tool error, never a corrupted document), which is why
+	 * ordering-dependent creation rides single batched calls. Each commit
+	 * adopts the writer's committed doc; an authoritative conflict adopts
+	 * one fresh authorized snapshot via the host's reload. */
 	const workspace = new CanonicalMutationWorkspace({
 		host: ctx,
 		initialDoc,
