@@ -727,7 +727,7 @@ The builder:
 7. computes one canonical digest over the exact projected package;
 8. persists only source references and normalized claims.
 
-The author/reviewer/reviser system prompts state that all source text is **quoted data**, not instruction. A source that says “ignore prior instructions,” requests credentials, asks the model to call tools, or declares itself a system message has no authority. Add adversarial fixtures for prompt injection in plain text, PDFs, spreadsheets, images, and copied chat transcripts.
+The author/reviewer/reviser system prompts state that all source text is **quoted data**, not instruction. A source that says “ignore prior instructions,” requests credentials, asks the model to call tools, or declares itself a system message has no authority.
 
 ### 6.15 Stronger graph validation
 
@@ -4794,7 +4794,7 @@ Do not proceed past these gates on assertion alone:
    - source pointers;
    - bounded extracts/images;
    - untrusted-data delimiters;
-   - prompt-injection policy.
+   - the source-is-data prompt statement.
 5. Implement author/reviewer/reviser calls with safe structured-output logging/metering.
 6. Implement immutable artifact persistence/digest verification.
 7. Implement review grounding/disposition validation and bounded loop.
@@ -4811,7 +4811,7 @@ Do not proceed past these gates on assertion alone:
 **Acceptance:**
 
 - Reviewer receives source projection + proposed contract + capability catalog, not author reasoning/history.
-- Source text cannot instruct orchestration or expose secrets in adversarial fixtures.
+- Source material remains data: it cannot redefine orchestration policy or tool authority, and secrets never enter the source call.
 - Every critical/important finding satisfies grounding rules.
 - Every critical/important finding has one disposition.
 - Accepted revision and plan verify all parent digests.
@@ -4820,7 +4820,7 @@ Do not proceed past these gates on assertion alone:
 - Structured generation failure creates no app and cannot be labeled reviewed.
 - Artifact logs contain only safe metadata.
 
-**Reviewer focus:** graph closure, evidence truth, prompt-injection resistance, artifact immutability.
+**Reviewer focus:** graph closure, evidence truth, source-material data discipline, artifact immutability.
 
 ### Unit D — Design-session target and full chat protocol
 
@@ -4968,7 +4968,6 @@ Do not proceed past these gates on assertion alone:
 - build orchestrator completion/correction modules
 - conformance/completion tables
 - read-only Design panel
-- benchmark fixtures
 
 **Work:**
 
@@ -5032,48 +5031,6 @@ Do not proceed past these gates on assertion alone:
 
 **Reviewer focus:** authority separation and editor symmetry.
 
-### Unit H — Benchmark, fault injection, and product acceptance
-
-**Depends on:** Units E/F; continues through G.
-
-**Contract:** The architecture's quality, reliability, and authoring gains are measured rather than assumed.
-
-**Primary files:**
-
-- `scripts/benchmark-design-builds.ts`
-- fixture corpus and expected artifacts
-- fault-injection helpers
-- human review rubric/export
-- CI/nightly benchmark configuration as appropriate
-
-**Work:**
-
-1. Add offline/controlled ablations:
-   - current-style direct build baseline;
-   - Design Contract only;
-   - independent review only;
-   - Design Contract + review;
-   - Design Contract + review + Atomic Change Sets;
-   - complete v2 with conformance/correction.
-2. Add simple, medium, complex, and adversarial source fixtures.
-3. Re-run Community Nutrition.
-4. Add prompt-injection fixtures.
-5. Add deterministic process/DB/network fault points.
-6. Measure correctness, cost, latency, payload churn, and human quality.
-7. Export artifact/provenance summaries without source content.
-
-**Acceptance:**
-
-- Zero invalid canonical revisions in every variant.
-- Zero unrequested starter artifacts in the new path.
-- No duplicate app/step/handle under retry/fault injection.
-- Community Nutrition meets the regression contract.
-- Results include confidence intervals/sample counts where meaningful.
-- Human rubric is blinded to variant when practical.
-- A quality regression can be traced to design, execution, conformance, or cost stage.
-
-**Reviewer focus:** benchmark validity, not a single favorable demo.
-
 ### 19.3 Coding-agent checklist per unit
 
 Before changing code:
@@ -5114,7 +5071,6 @@ Before declaring the unit done:
 - Parent/source/design/plan digest mismatch rejects on read/use.
 - Prompt/schema/model metadata is complete.
 - Persisted JSON duplicate keys/noncanonical numbers/unknown dialects reject.
-- Source text containing prompt injection remains data and cannot change orchestration output fields outside the schema.
 
 ### 20.2 Build-plan properties
 
@@ -5437,29 +5393,7 @@ Unit/browser tests:
 - `incomplete` leaves the valid app usable;
 - direct human/MCP commit does not consult completion.
 
-### 20.18 Security and prompt-injection tests
-
-Source fixtures attempt to:
-
-- override system/developer instructions;
-- demand unreviewed build;
-- ask the model to reveal secrets/API keys;
-- fabricate platform support;
-- mark unsupported claims explicit;
-- inject tool calls/JSON outside the schema;
-- reference another Project's asset/session;
-- smuggle executable instructions in labels/options.
-
-Assert:
-
-- content remains source data;
-- secret/authority fields never enter outputs;
-- critical findings still obey grounding;
-- tool/runtime authority is server-owned;
-- cross-tenant probes are opaque;
-- logs contain no raw source/model output.
-
-### 20.19 Migration and runtime probe
+### 20.18 Migration and runtime probe
 
 - fresh database builds all migrations;
 - production-shape upgrade scan passes;
@@ -5472,7 +5406,7 @@ Assert:
 - no old schema reader/writer/import remains;
 - application starts and probes final artifact JSON schemas.
 
-### 20.20 Browser acceptance journey
+### 20.19 Browser acceptance journey
 
 1. Start chat build.
    - Design in progress appears.
@@ -5497,43 +5431,6 @@ Assert:
    - Final wording matches completion report/external setup.
 9. Start explicit blank.
    - Minimal app appears immediately without a design session.
-
-### 20.21 Community Nutrition regression
-
-Assert:
-
-- no generic starter module;
-- intended final module order;
-- no whole-module payload resend after a local reference correction;
-- direct screening answers write facts directly where equivalent;
-- no redundant identity-copy hidden writers under the conservative rule;
-- referral creation is correctly linked/conditioned;
-- read models support the intended screening/referral decisions;
-- clinical thresholds are source-grounded assumptions/deferred inputs, never inventions;
-- actor/location/persona/setup requirements remain honest;
-- every Version 1 intent maps to one committed owning slice;
-- final report names external/manual setup separately;
-- canonical revisions remain valid throughout.
-
-### 20.22 Benchmark correctness
-
-For every benchmark variant record:
-
-- fixture/version/model/prompt/schema IDs;
-- sample count and randomization;
-- zero invalid canonical revisions;
-- duplicate/retry failures;
-- requirement coverage;
-- reviewer findings/dispositions;
-- staged/committed calls and bytes;
-- boundary rejections/rebases;
-- token/cost/latency;
-- time to first meaningful materialization;
-- redundant writers;
-- external setup honesty;
-- blinded human ratings.
-
-Do not compare variants whose source packages, model settings, or validity rules differ without labeling the confound.
 
 ## 21. Observability and metrics
 
@@ -5754,7 +5651,6 @@ Do not set product targets until baseline distributions exist.
 - Every failure path has a stable safe code.
 - One session can be traced across pre-app/materialization/post-app phases.
 - Healthy idempotent retries are distinguishable from collisions.
-- Metrics can compare architecture variants without reading customer content.
 
 ## 22. Security and privacy
 
@@ -5921,18 +5817,6 @@ Audit records identify:
 They do not store secret credentials or raw source/model content.
 
 User deletion and operator retention paths document what is removed, retained for app history, or retained for compliance/support. A pre-app session deletion cannot erase an app it later materialized.
-
-### 22.13 Threat-focused acceptance
-
-- Cross-Project session/artifact/change-set/stream IDs are opaque.
-- Prompt-injection fixtures cannot alter orchestration authority.
-- A staged tool cannot import/call an external writer.
-- Same request ID/different digest is rejected and audited.
-- Stale holder, access loss, and Project move fence all writes.
-- Source/provider errors do not leak raw content into logs.
-- Asset deletion cannot orphan a thread or app reference.
-- Transaction retries cannot duplicate remote effects.
-- Oversized source/design/change-set inputs fail within documented bounds.
 
 ## 23. Documentation changes
 
@@ -6159,24 +6043,17 @@ The program is complete only when all of the following are true.
 51. Human/direct MCP edits remain valid when design metadata is absent or stale.
 52. Legacy apps never receive fabricated historical rationale.
 
-### Persistence, security, and operations
+### Persistence, delivery, and operations
 
 53. Database constraints reject impossible target/status/holder combinations.
 54. New tables are covered by runtime types, exact JSON parsing, privileges, probes, Project move, delete, and retention inventories.
 55. Cross-Project identifiers are opaque.
 56. No raw source, transcript, Design Contract, mutation payload, or model reasoning is written to general logs/Sentry.
 57. Transaction retries cannot duplicate external effects.
-58. Prompt-injection and resource-bound tests pass.
-59. Migration/cutover uses one final shape with no dual reader/writer or feature flag.
-60. Current-state contracts, subtree docs, public docs, operational docs, and MCP reference agree.
-
-### Product acceptance
-
-61. Community Nutrition meets its regression assertions.
-62. Benchmarks show zero invalid canonical revisions and zero duplicate app/step/handle outcomes.
-63. Quality, latency, cost, payload churn, and human review are measured on versioned fixtures.
-64. The implementation deletes obsolete early-app and old build-event paths.
-65. A coding agent can trace every unit to exact files/symbols, invariants, tests, and acceptance gates in this plan.
+58. Migration/cutover uses one final shape with no dual reader/writer or feature flag.
+59. Current-state contracts, subtree docs, public docs, operational docs, and MCP reference agree.
+60. The implementation deletes obsolete early-app and old build-event paths.
+61. A coding agent can trace every unit to exact files/symbols, invariants, tests, and acceptance gates in this plan.
 
 ## 25. Final product principle
 
