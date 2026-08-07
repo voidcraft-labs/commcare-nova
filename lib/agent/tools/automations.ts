@@ -28,6 +28,7 @@ import {
 	guardedMutate,
 	type MutatingToolResult,
 	type ReadToolResult,
+	requireInvocationAppId,
 	toToolErrorResult,
 } from "./common";
 import type { MutationSuccess } from "./shared/toolCallSummary";
@@ -80,7 +81,7 @@ type AutomationMutationResult =
 
 function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
-		appId: ctx.appId,
+		appId: requireInvocationAppId(ctx),
 		projectId: ctx.projectId,
 		actorUserId: ctx.userId,
 		role: "tool",

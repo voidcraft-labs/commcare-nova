@@ -38,7 +38,7 @@ import {
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
 import type { ToolInvocationContext } from "../../workspace/types";
-import type { ReadToolResult } from "../common";
+import { type ReadToolResult, requireInvocationAppId } from "../common";
 import { requireToolProjectId } from "./shared";
 
 export const removeMediaAssetInputSchema = z
@@ -67,7 +67,8 @@ export const removeMediaAssetTool = {
 		const doc = ctx.snapshot.doc;
 		const assetId = input.assetId;
 
-		const projectId = await requireToolProjectId(ctx.appId);
+		const appId = requireInvocationAppId(ctx);
+		const projectId = await requireToolProjectId(appId);
 
 		// Resolve the asset id-only, then Project-gate it. A row in another Project
 		// (or no row at all) collapses to the same "not found" so a probing caller
@@ -104,7 +105,7 @@ export const removeMediaAssetTool = {
 			projectId,
 			assetId,
 			await listReferencingAppIds(assetId),
-			{ skipAppId: ctx.appId },
+			{ skipAppId: appId },
 		);
 		if (otherAppReferences.length > 0) {
 			return {
@@ -127,7 +128,7 @@ export const removeMediaAssetTool = {
 				deleteRow: async () => {
 					if (chatRunHolder) {
 						return deleteMediaAssetForChatRun({
-							appId: ctx.appId,
+							appId,
 							assetId,
 							actorUserId: ctx.userId,
 							expectedProjectId: projectId,

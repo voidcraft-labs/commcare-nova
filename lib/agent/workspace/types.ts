@@ -14,6 +14,11 @@
  * stages admitted batches durably without touching canonical stores.
  */
 
+import type {
+	ExternalReadDependency,
+	StageRequestReceipt,
+} from "@/lib/agent/change-set/schemas";
+import type { DesignId } from "@/lib/agent/design/ids";
 import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -46,6 +51,11 @@ export interface WorkspaceSnapshot {
 	readonly canonicalSeq: number | null;
 	/** Project scope the workspace's document was authorized under. */
 	readonly projectId: string;
+	/** The change-set workspace's binding of its captured external context —
+	 * the canonical digest of the accumulated external read-set entries the
+	 * overlay was computed under. Absent on canonical snapshots: the
+	 * canonical host fabricates none of the change-set extensions. */
+	readonly externalContextDigest?: string;
 }
 
 /** Identity of one tool invocation against a workspace. */
@@ -86,6 +96,11 @@ export type WorkspaceMutationOutcome =
 			readonly ok: true;
 			readonly newDoc: BlueprintDoc;
 			readonly mutations: AdmittedMutationBatch;
+			/** Present exactly on the change-set host: the durable staging
+			 * receipt this write committed (disposition, ordinal, handles,
+			 * mutation digest, compact diagnostics). The canonical host never
+			 * sets it — a canonical write's receipt is its commit. */
+			readonly staged?: StageRequestReceipt;
 	  }
 	| { readonly ok: false; readonly error: string };
 
@@ -112,8 +127,11 @@ export type ConversionImpactFn = (args: {
  * write twice.
  */
 export interface ToolInvocationContext {
-	/** Current app id. Every canonical tool operates against one app. */
-	readonly appId: string;
+	/** Current app id. Every CANONICAL tool operates against one app; a
+	 * genesis change set has no app row yet, so the change-set host widens
+	 * this to `null` there. Tools whose behavior genuinely needs the app's
+	 * stored record narrow through `requireInvocationAppId`. */
+	readonly appId: string | null;
 
 	/** Project scope authoritatively admitted for this tool execution. */
 	readonly projectId: string;
@@ -173,6 +191,14 @@ export interface ToolInvocationContext {
 		readonly mutations: unknown;
 		readonly stage?: string;
 		readonly policy?: MutationApplicationPolicy;
+		/** Design intents this staged step implements — recorded with the
+		 * durable step by the change-set host. A canonical invocation
+		 * carrying these is a protocol error: the canonical host fabricates
+		 * none of the change-set extensions. */
+		readonly intentIds?: readonly DesignId[];
+		/** Explicit external read-set entries beyond what the change-set
+		 * host captures automatically. Change-set invocations only. */
+		readonly readSet?: readonly ExternalReadDependency[];
 	}): Promise<WorkspaceMutationOutcome>;
 
 	/**
@@ -182,6 +208,9 @@ export interface ToolInvocationContext {
 	 */
 	applyStages(args: {
 		readonly stages: unknown;
+		/** See {@link applyBatch} — change-set invocations only. */
+		readonly intentIds?: readonly DesignId[];
+		readonly readSet?: readonly ExternalReadDependency[];
 	}): Promise<WorkspaceMutationOutcome>;
 
 	/**

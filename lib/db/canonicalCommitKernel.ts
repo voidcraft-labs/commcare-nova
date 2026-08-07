@@ -79,6 +79,10 @@ import { asWalkableDoc, walkAuthoredAssetRefs } from "../domain/mediaRefs";
 import { type AssetKind, asMediaAssetId } from "../domain/multimedia";
 import { diffBlueprints } from "./blueprintRows";
 import {
+	type CanonicalCommitSidecar,
+	executeCanonicalCommitSidecars,
+} from "./canonicalCommitSidecars";
+import {
 	AppProjectChangedError,
 	appChangeFingerprintMatches,
 	BlueprintCommitRejectedError,
@@ -735,6 +739,16 @@ export interface CanonicalCommitTransactionHooks {
 	readonly beforeWrite?: (
 		context: GuardedBatchBeforeWriteContext,
 	) => Promise<void>;
+	/**
+	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
+	 * AFTER the committed-batch write tail, in the same transaction, with the
+	 * kernel's authoritative sequence/batch id/candidate — so a provenance
+	 * row's FK onto the fresh `app_changes` row is immediately checkable and
+	 * a lost holder CAS has already aborted. The change-set commit's
+	 * `open → committed` flip and receipt ride here. Skipped entirely on a
+	 * dedup hit — the original commit ran them.
+	 */
+	readonly sidecars?: readonly CanonicalCommitSidecar[];
 }
 
 export interface CanonicalCommitKernelOptions
@@ -981,6 +995,22 @@ export async function commitCanonicalBatch(
 				extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
 			}),
 		});
+		/* Typed sidecars run AFTER the committed-batch write, in the same
+		 * transaction: the provenance rows' foreign key onto the just-written
+		 * `app_changes` row is checkable immediately, and a lost holder CAS
+		 * above has already aborted before any sidecar state exists. */
+		if (
+			internalOptions.sidecars !== undefined &&
+			internalOptions.sidecars.length > 0
+		) {
+			await executeCanonicalCommitSidecars(tx, {
+				appId,
+				seq,
+				batchId,
+				committedSnapshot: persistable,
+				sidecars: internalOptions.sidecars,
+			});
+		}
 		return {
 			seq,
 			committedDoc: verdict.nextDoc,

@@ -145,11 +145,24 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"app_locations",
 	"app_deployments",
 	"app_deployment_resources",
+	"design_change_sets",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
 
-const RUNTIME_APPEND_ONLY_TABLES = ["app_changes"] as const;
+/** The change-set runtime's durable staging ledgers are append-only: the
+ * mutable authority row (`design_change_sets`) serializes them, so no code
+ * may row-lock or update a request, step, stage, handle, receipt, or
+ * provenance row — retention is a future, separately-owned service path. */
+const RUNTIME_APPEND_ONLY_TABLES = [
+	"app_changes",
+	"design_change_set_requests",
+	"design_change_set_steps",
+	"design_change_set_step_stages",
+	"design_change_set_handles",
+	"design_committed_slices",
+	"app_change_intents",
+] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads. */

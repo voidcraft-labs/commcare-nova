@@ -49,6 +49,7 @@ import * as organizationModel from "./20260802010000_organization_model";
 import * as automations from "./20260803010000_automations";
 import * as chatRecoveryBreadcrumbs from "./20260805010000_chat_recovery_breadcrumbs";
 import * as deployments from "./20260806000000_deployments";
+import * as designChangeSets from "./20260807000000_design_change_sets";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -92,6 +93,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260803010000_automations": automations,
 	"20260805010000_chat_recovery_breadcrumbs": chatRecoveryBreadcrumbs,
 	"20260806000000_deployments": deployments,
+	"20260807000000_design_change_sets": designChangeSets,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

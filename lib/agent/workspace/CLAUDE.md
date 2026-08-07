@@ -23,8 +23,13 @@ protocol error, never a silent overwrite.
   envelope).
 - `canonicalWorkspace.ts` — `CanonicalMutationWorkspace`, the one
   implementation both canonical surfaces use. The private change-set
-  workspace (a later unit) implements the same tool-facing contract over
-  durable staged state.
+  workspace (`lib/agent/change-set/workspace.ts`) implements the same
+  tool-facing contract over durable staged state; its extensions —
+  `appId: string | null` (a genesis change set has no app row),
+  `WorkspaceSnapshot.externalContextDigest`, and the `intentIds`/`readSet`
+  arguments on `applyBatch`/`applyStages` — are change-set-only, and the
+  canonical workspace REJECTS the staged arguments as a protocol error
+  rather than fabricating records for them.
 
 ## Invariants
 

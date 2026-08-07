@@ -96,6 +96,23 @@ export async function guardedMutateStages(
 }
 
 /**
+ * Narrow the invocation's app id for a tool whose behavior genuinely needs
+ * the app's STORED record (organization state, chat-run app services). On
+ * every canonical surface the app id is present; only a genesis change set —
+ * an app still being assembled privately, with no app row — reaches a tool
+ * with `null`, and such a tool honestly refuses rather than pretending an
+ * app exists.
+ */
+export function requireInvocationAppId(ctx: ToolInvocationContext): string {
+	if (ctx.appId === null) {
+		throw new Error(
+			"This tool reads the app's stored record, which does not exist yet while the app is being assembled in a private change set. Stage the app's structure first; this tool becomes available once the app is created.",
+		);
+	}
+	return ctx.appId;
+}
+
+/**
  * Standard output shape for every mutating shared tool.
  *
  * Tagged with `kind: "mutate"` so the MCP adapter's result projector

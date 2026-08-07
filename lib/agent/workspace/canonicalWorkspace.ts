@@ -90,6 +90,22 @@ async function lookupContextForCandidate(
 	};
 }
 
+/** The canonical host fabricates none of the change-set extensions: a
+ *  canonical invocation carrying staged intent/read-set arguments is a
+ *  protocol defect (only change-set staging tools pass them), never data to
+ *  silently drop. */
+function rejectChangeSetExtensions(
+	toolName: string,
+	intentIds: readonly unknown[] | undefined,
+	readSet: readonly unknown[] | undefined,
+): void {
+	if (intentIds !== undefined || readSet !== undefined) {
+		throw new Error(
+			`[workspace] ${toolName} passed change-set staging arguments (intentIds/readSet) to a canonical workspace, which cannot record them.`,
+		);
+	}
+}
+
 export interface CanonicalMutationWorkspaceOptions {
 	readonly host: CanonicalMutationHost;
 	/** The authorized starting document — the canonical genesis receipt on a
@@ -245,12 +261,14 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			}),
 			conversionImpact: (impactArgs) => host.conversionImpact(impactArgs),
 
-			applyBatch: async ({ mutations, stage, policy }) => {
+			applyBatch: async ({ mutations, stage, policy, intentIds, readSet }) => {
+				rejectChangeSetExtensions(invocation.toolName, intentIds, readSet);
 				consumeWriteBudget("applyBatch");
 				return this.applyBatchAgainst(snapshot.doc, mutations, stage, policy);
 			},
 
-			applyStages: async ({ stages }) => {
+			applyStages: async ({ stages, intentIds, readSet }) => {
+				rejectChangeSetExtensions(invocation.toolName, intentIds, readSet);
 				consumeWriteBudget("applyStages");
 				return this.applyStagesAgainst(snapshot.doc, stages);
 			},

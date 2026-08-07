@@ -523,6 +523,127 @@ export interface AppDeploymentResourcesTable {
 }
 
 /**
+ * One private Atomic Change Set — the mutable authority row for a slice
+ * executor's durable staging workspace (`lib/agent/change-set/`).
+ *
+ * `base_project_id` is the CAPTURED base scope, never live tenancy: a
+ * Project move deliberately strands open sets (their commit rejects), so
+ * no move transaction touches these rows. Design/plan identity columns
+ * are opaque until the design-session/orchestrator units add their
+ * tables and foreign keys.
+ */
+export interface DesignChangeSetsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	slice_id: string;
+	attempt_id: string;
+	kind: string;
+	app_id: string | null;
+	proposed_app_id: string | null;
+	base_seq: ColumnType<string | number | null, number | null, never>;
+	base_project_id: string;
+	base_snapshot_digest: string;
+	revision: ColumnType<string | number, number | undefined, number>;
+	next_ordinal: ColumnType<string | number, number | undefined, number>;
+	exclusive_kind: string | null;
+	owner_user_id: string;
+	owner_run_id: string;
+	status: string;
+	committed_seq: ColumnType<string | number | null, number | null, number>;
+	committed_batch_id: string | null;
+	committed_snapshot_digest: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** One durable staging request — the idempotency ledger's receipt row. */
+export interface DesignChangeSetRequestsTable {
+	change_set_id: string;
+	request_id: string;
+	tool_name: string;
+	input_digest: string;
+	expected_revision: BigIntColumn;
+	resulting_revision: BigIntColumn;
+	status: string;
+	rejection_code: string | null;
+	/** The exact `StageRequestReceipt` — read as `::text`, strict-parsed. */
+	receipt: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/** One admitted staged step — exact canonical mutations, append-only. */
+export interface DesignChangeSetStepsTable {
+	change_set_id: string;
+	ordinal: BigIntColumn;
+	request_id: string;
+	tool_name: string;
+	/** Exact admitted batch — read as `::text` through mutation admission. */
+	mutations: JSONColumnType<Mutation[]>;
+	mutation_digest: string;
+	intent_ids: JSONColumnType<string[]>;
+	read_set: JSONColumnType<Record<string, unknown>[]>;
+	created_at: Timestamp;
+}
+
+/** A step's stage ranges — names + mutation spans, never duplicated bytes. */
+export interface DesignChangeSetStepStagesTable {
+	change_set_id: string;
+	step_ordinal: BigIntColumn;
+	stage_ordinal: number;
+	stage_name: string;
+	mutation_start: number;
+	mutation_count: number;
+}
+
+/** One private handle binding — `@name` → server-minted canonical UUID. */
+export interface DesignChangeSetHandlesTable {
+	change_set_id: string;
+	handle: string;
+	uuid: string;
+	entity_kind: string;
+	binding_request_id: string;
+	created_at: Timestamp;
+}
+
+/** The immutable committed-slice receipt, inserted by the commit sidecar. */
+export interface DesignCommittedSlicesTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	slice_id: string;
+	slice_attempt_id: string;
+	change_set_id: string;
+	app_id: string;
+	seq: BigIntColumn;
+	batch_id: string;
+	committed_snapshot_digest: string;
+	owning_intent_ids: JSONColumnType<string[]>;
+	mutation_count: number;
+	committed_at: Timestamp;
+}
+
+/** Committed design provenance — intent → implementation coordinate. */
+export interface AppChangeIntentsTable {
+	app_id: string;
+	seq: BigIntColumn;
+	design_session_id: string;
+	design_revision_id: string;
+	build_plan_id: string;
+	slice_id: string;
+	intent_id: string;
+	coordinate_kind: string;
+	coordinate_payload: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/**
  * One file a worker attached to a form in the running preview.
  *
  * A submission-scoped lane, deliberately NOT `media_assets`: a captured
@@ -621,6 +742,13 @@ export interface AppDatabase {
 	app_location_references: AppLocationReferencesTable;
 	app_deployments: AppDeploymentsTable;
 	app_deployment_resources: AppDeploymentResourcesTable;
+	design_change_sets: DesignChangeSetsTable;
+	design_change_set_requests: DesignChangeSetRequestsTable;
+	design_change_set_steps: DesignChangeSetStepsTable;
+	design_change_set_step_stages: DesignChangeSetStepStagesTable;
+	design_change_set_handles: DesignChangeSetHandlesTable;
+	design_committed_slices: DesignCommittedSlicesTable;
+	app_change_intents: AppChangeIntentsTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;
