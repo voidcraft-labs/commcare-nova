@@ -162,6 +162,11 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_change_set_handles",
 	"design_committed_slices",
 	"app_change_intents",
+	"design_source_packages",
+	"design_revisions",
+	"design_reviews",
+	"design_review_dispositions",
+	"design_build_plans",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
