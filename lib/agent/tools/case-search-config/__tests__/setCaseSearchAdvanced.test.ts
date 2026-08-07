@@ -30,6 +30,7 @@ import { matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import {
 	MOD_A,
+	makeCaseSearchDoc,
 	makeCaseSearchFixture,
 	makeCaseSearchMcpFixture,
 } from "./fixtures";
@@ -73,38 +74,30 @@ beforeEach(() => {
 
 describe("setCaseSearchAdvanced", () => {
 	it("rejects case-property reads defensively when execute is called directly", async () => {
-		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: term(prop("patient", "external_id")),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseSearchFixture();
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term(prop("patient", "external_id")),
+		});
 
 		expect(result.mutations).toEqual([]);
-		expect(result.newDoc).toBe(doc);
+		expect(h.currentDoc()).toBe(h.doc);
 		expect(result.result).toMatchObject({
 			error: expect.stringContaining("before a case is selected"),
 		});
 	});
 
 	it("sets the advanced cluster to the supplied values", async () => {
-		const { doc, ctx } = makeCaseSearchFixture();
+		const h = makeCaseSearchFixture();
 		const excluded = term({ kind: "literal", value: "owner-a owner-b" });
 
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: excluded,
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: excluded,
+		});
 
 		expect(result.kind).toBe("mutate");
-		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		expect(config?.excludedOwnerIds).toEqual(excluded);
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
 		// so the persisted config's key set must be exactly the schema's
@@ -119,15 +112,11 @@ describe("setCaseSearchAdvanced", () => {
 		// the prose message — derive from `ADVANCED_SLOT_NAMES` via the
 		// shared `slotsSetByInput` projection, so the SA can confirm
 		// the tool ran without re-reading the config.
-		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseSearchFixture();
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -140,7 +129,7 @@ describe("setCaseSearchAdvanced", () => {
 		// The persisted shape must omit the cleared key rather than carry
 		// `key: undefined` — same convention as `setCaseListFilter`'s
 		// null-clear test.
-		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const baseDoc = makeCaseSearchDoc();
 		const seededDoc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -156,16 +145,13 @@ describe("setCaseSearchAdvanced", () => {
 			},
 		};
 
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: null,
-			},
-			ctx,
-			seededDoc,
-		);
+		const h = makeCaseSearchFixture(seededDoc);
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: null,
+		});
 
-		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeUndefined();
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
@@ -181,7 +167,7 @@ describe("setCaseSearchAdvanced", () => {
 		// Cross-cluster preservation contract — advanced and display are
 		// independent. Setting one cluster must NOT clobber any slot
 		// owned by the other.
-		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const baseDoc = makeCaseSearchDoc();
 		const seededDoc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -197,16 +183,13 @@ describe("setCaseSearchAdvanced", () => {
 			},
 		};
 
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
-			},
-			ctx,
-			seededDoc,
-		);
+		const h = makeCaseSearchFixture(seededDoc);
+		await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
+		});
 
-		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		const search = ordinary(config);
 		expect(search.searchScreenTitle).toBe("Find a patient");
 		expect(search.searchScreenSubtitle).toBe("Type to filter");
@@ -217,15 +200,11 @@ describe("setCaseSearchAdvanced", () => {
 	});
 
 	it("returns an Elm-style error for an unknown module UUID", async () => {
-		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MISSING_MODULE,
-				excludedOwnerIds: null,
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseSearchFixture();
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MISSING_MODULE,
+			excludedOwnerIds: null,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -236,7 +215,7 @@ describe("setCaseSearchAdvanced", () => {
 	});
 
 	it("initializes the caseSearchConfig when the module has none", async () => {
-		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const baseDoc = makeCaseSearchDoc();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {
 			...baseDoc,
@@ -245,21 +224,18 @@ describe("setCaseSearchAdvanced", () => {
 			},
 		};
 
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
-			},
-			ctx,
-			docWithoutConfig,
-		);
+		const h = makeCaseSearchFixture(docWithoutConfig);
+		await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+		});
 
-		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		expect(ordinary(config).excludedOwnerIds).toBeDefined();
 	});
 
 	it("marks a fresh owner-only rule as not authoring Search", async () => {
-		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const baseDoc = makeCaseSearchDoc();
 		const mod = baseDoc.modules[MOD_A];
 		if (mod?.caseListConfig === undefined) {
 			throw new Error("fixture must carry a case-list config");
@@ -277,22 +253,19 @@ describe("setCaseSearchAdvanced", () => {
 				} as Module,
 			},
 		};
-		const result = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
-			},
-			ctx,
-			ownerOnlyDoc,
-		);
+		const h = makeCaseSearchFixture(ownerOnlyDoc);
+		await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+		});
 		expect(
-			ownerOnly(result.newDoc.modules[MOD_A]?.caseSearchConfig)
+			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
 				.searchActionEnabled,
 		).toBe(false);
 	});
 
 	it("deletes the owner-only config when its owner rule is cleared", async () => {
-		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const baseDoc = makeCaseSearchDoc();
 		const mod = baseDoc.modules[MOD_A];
 		if (mod?.caseListConfig === undefined) {
 			throw new Error("fixture must carry a case-list config");
@@ -313,12 +286,12 @@ describe("setCaseSearchAdvanced", () => {
 				},
 			},
 		};
-		const result = await setCaseSearchAdvancedTool.execute(
-			{ moduleUuid: MOD_A, excludedOwnerIds: null },
-			ctx,
-			ownerOnlyDoc,
-		);
-		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toBeUndefined();
+		const h = makeCaseSearchFixture(ownerOnlyDoc);
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: null,
+		});
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toBeUndefined();
 		expect(result.mutations).toEqual([
 			{
 				kind: "updateModule",
@@ -336,18 +309,18 @@ describe("setCaseSearchAdvanced", () => {
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		// The tool body is ctx-shape-agnostic — chat and MCP contexts
+		// The tool body is host-shape-agnostic — chat and MCP hosts
 		// route through the same `recordMutations` interface and emit
 		// structurally identical mutation batches for the same input.
-		const { doc, ctx: chatCtx } = makeCaseSearchFixture();
-		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
+		const chat = makeCaseSearchFixture();
+		const mcp = makeCaseSearchMcpFixture();
 		const input = {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 		};
 
-		const r1 = await setCaseSearchAdvancedTool.execute(input, chatCtx, doc);
-		const r2 = await setCaseSearchAdvancedTool.execute(input, mcpCtx, doc);
+		const r1 = await chat.runTool(setCaseSearchAdvancedTool, input);
+		const r2 = await mcp.runTool(setCaseSearchAdvancedTool, input);
 
 		expect(r1.mutations).toEqual(r2.mutations);
 	});

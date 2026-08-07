@@ -64,7 +64,9 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { addFieldsTool } from "../addFields";
 import { addCaseListColumnsTool } from "../case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../case-list-config/addSearchInputs";
@@ -87,10 +89,10 @@ import { removeModuleTool } from "../removeModule";
 import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
 
-function makeCtx(): ToolExecutionContext {
-	// The guarded writer returns `{ events, committedDoc }`; echo the passed
-	// post-mutation doc as the committed doc so the fuzz driver threads each
-	// tool's `newDoc` (= committedDoc) into the next op.
+function makeCtx(): CanonicalMutationHost {
+	// The host echoes each prepared candidate's doc as the committed doc, so
+	// the fuzz driver's per-op workspace hands back exactly the post-mutation
+	// state and the driver threads it into the next op.
 	return {
 		appId: "app-fuzz",
 		projectId: "project-fuzz",
@@ -109,7 +111,6 @@ function makeCtx(): ToolExecutionContext {
 				committedDoc: prepared.nextDoc,
 			}),
 		),
-		recordConversation: vi.fn(),
 		conversionImpact: vi.fn(async () => ({
 			totalWithValue: 0,
 			uncastable: 0,
@@ -619,21 +620,28 @@ async function runParsed<I>(
 		inputSchema: { safeParse(raw: unknown): z.ZodSafeParseResult<I> };
 		execute(
 			input: I,
-			ctx: ToolExecutionContext,
-			doc: BlueprintDoc,
-		): Promise<{ newDoc: BlueprintDoc; mutations: readonly Mutation[] }>;
+			ctx: ToolInvocationContext,
+		): Promise<{ mutations: readonly Mutation[] }>;
 	},
 	rawInput: unknown,
-	ctx: ToolExecutionContext,
+	host: CanonicalMutationHost,
 	doc: BlueprintDoc,
 ): Promise<BlueprintDoc> {
 	const parsed = tool.inputSchema.safeParse(rawInput);
 	if (!parsed.success) return doc;
-	const out = await tool.execute(parsed.data, ctx, doc);
+	/* One single-shot canonical workspace per op over the threaded doc — the
+	 * tool commits (the workspace adopts the committed doc) or refuses (the
+	 * workspace stays on the input doc); either way the workspace's current
+	 * snapshot IS the post-op state the driver threads forward. */
+	const workspace = new CanonicalMutationWorkspace({ host, initialDoc: doc });
+	const out = await workspace.invoke({
+		toolName: "fuzz-op",
+		execute: (ctx) => tool.execute(parsed.data, ctx),
+	});
 	if (out.mutations.length > 0) {
 		expect(isAdmittedMutationBatch(out.mutations)).toBe(true);
 	}
-	return out.newDoc;
+	return workspace.currentSnapshot().doc;
 }
 
 /** The standard registration-unit field pair: the case_name writer plus a
@@ -662,7 +670,7 @@ function registrationUnitFields(caseType: string): FieldItem[] {
  *  legitimate outcomes; the invariant below judges the doc, not the op. */
 async function applyOp(
 	doc: BlueprintDoc,
-	ctx: ToolExecutionContext,
+	ctx: CanonicalMutationHost,
 	op: FuzzOp,
 ): Promise<BlueprintDoc> {
 	switch (op.type) {
@@ -1214,7 +1222,7 @@ function assertEveryOptionIdentified(doc: BlueprintDoc, context: string): void {
 // the sequence first landing an add.
 
 async function growStandardPrelude(
-	ctx: ToolExecutionContext,
+	ctx: CanonicalMutationHost,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
 	const starterModuleUuid = doc.moduleOrder[0];
@@ -1350,7 +1358,7 @@ async function growStandardPrelude(
 }
 
 async function growConnectPrelude(
-	ctx: ToolExecutionContext,
+	ctx: CanonicalMutationHost,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc("Fuzz Training");
 	const starterModuleUuid = doc.moduleOrder[0];

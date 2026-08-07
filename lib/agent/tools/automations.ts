@@ -23,7 +23,7 @@ import type {
 	OrganizationScope,
 	StoredLocation,
 } from "@/lib/organization/types";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -78,7 +78,7 @@ type AutomationMutationResult =
 	  })
 	| { error: string };
 
-function scope(ctx: ToolExecutionContext): OrganizationScope {
+function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
 		appId: ctx.appId,
 		projectId: ctx.projectId,
@@ -108,14 +108,10 @@ function setupGuideResult(
 	};
 }
 
-function mutationError(
-	doc: BlueprintDoc,
-	error: string,
-): MutatingToolResult<{ error: string }> {
+function mutationError(error: string): MutatingToolResult<{ error: string }> {
 	return {
 		kind: "mutate",
 		mutations: [],
-		newDoc: doc,
 		result: { error },
 	};
 }
@@ -132,8 +128,7 @@ export const getAutomationsTool = {
 	inputSchema: getAutomationsInputSchema,
 	async execute(
 		_input: z.infer<typeof getAutomationsInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
 			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
@@ -163,9 +158,9 @@ export const addAutomationsTool = {
 	inputSchema: addAutomationsInputSchema,
 	async execute(
 		input: z.infer<typeof addAutomationsInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const existing = new Set<string>();
 			for (const automation of input.automations) {
@@ -174,7 +169,7 @@ export const addAutomationsTool = {
 						existing.has(uuid) ||
 						findAuthoredBlueprintIdentity(doc, uuid) !== undefined
 					) {
-						return mutationError(doc, `UUID "${uuid}" is already in use.`);
+						return mutationError(`UUID "${uuid}" is already in use.`);
 					}
 					existing.add(uuid);
 				}
@@ -185,7 +180,6 @@ export const addAutomationsTool = {
 				ownRecordValue(doc.automations, input.afterAutomationUuid) === undefined
 			) {
 				return mutationError(
-					doc,
 					`Automation UUID "${input.afterAutomationUuid}" does not exist.`,
 				);
 			}
@@ -203,15 +197,14 @@ export const addAutomationsTool = {
 			// authoritative write so no fallible read can turn a successful commit
 			// into an error-shaped tool result and invite a duplicate retry.
 			const organization = await readOrganization(scope(ctx));
-			const commit = await guardedMutate(ctx, doc, mutations, "automations", {
+			const commit = await guardedMutate(ctx, mutations, "automations", {
 				expectedOrganizationRevision: organization.revision,
 			});
-			if (!commit.ok) return mutationError(doc, commit.error);
+			if (!commit.ok) return mutationError(commit.error);
 			const names = input.automations.map((automation) => automation.name);
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Added ${names.length} ${names.length === 1 ? "automation" : "automations"}: ${names.join(", ")}. Nova will not run them in Preview; use each generated guide to configure CommCare HQ manually.`,
 					automationUuids: input.automations.map(
@@ -224,7 +217,7 @@ export const addAutomationsTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -235,19 +228,18 @@ export const updateAutomationTool = {
 	inputSchema: updateAutomationInputSchema,
 	async execute(
 		input: z.infer<typeof updateAutomationInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const before = ownRecordValue(doc.automations, input.automation.uuid);
 			if (before === undefined) {
 				return mutationError(
-					doc,
 					`Automation UUID "${input.automation.uuid}" does not exist.`,
 				);
 			}
 			if (before.kind !== input.automation.kind) {
-				return mutationError(doc, "An automation's kind cannot be changed.");
+				return mutationError("An automation's kind cannot be changed.");
 			}
 			const next = produce(doc, (draft) => {
 				if (draft.automations !== undefined) {
@@ -266,19 +258,25 @@ export const updateAutomationTool = {
 					authoring.blueprint.automations,
 					input.automation.uuid,
 				);
+				/* The authoritative snapshot supersedes the invocation snapshot on
+				 * BOTH branches — conflict and proven no-op alike — so the workspace
+				 * continues from the state the proof actually read, never a stale
+				 * closure. Adoption is the invocation's one workspace operation. */
+				ctx.adoptAuthoritativeSnapshot({
+					doc: authoring.blueprint,
+					canonicalSeq: authoring.blueprintSeq,
+				});
 				if (
 					persistedAutomation === undefined ||
 					!deepEqual(persistedAutomation, input.automation)
 				) {
 					return mutationError(
-						authoring.blueprint,
 						"This automation changed concurrently. Read automations again and retry from the current complete state.",
 					);
 				}
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: authoring.blueprint,
 					result: {
 						message: `Automation "${persistedAutomation.name}" already has the requested settings.`,
 						automationUuids: [persistedAutomation.uuid],
@@ -296,24 +294,22 @@ export const updateAutomationTool = {
 			// Keep every fallible external projection before the write. The guide
 			// is pure over this authorized snapshot plus the committed document.
 			const organization = await readOrganization(scope(ctx));
-			const commit = await guardedMutate(ctx, doc, mutations, "automations", {
+			const commit = await guardedMutate(ctx, mutations, "automations", {
 				expectedOrganizationRevision: organization.revision,
 			});
-			if (!commit.ok) return mutationError(doc, commit.error);
+			if (!commit.ok) return mutationError(commit.error);
 			const committedAutomation = ownRecordValue(
 				commit.newDoc.automations,
 				input.automation.uuid,
 			);
 			if (committedAutomation === undefined) {
 				return mutationError(
-					commit.newDoc,
 					"The automation changed concurrently and is no longer available.",
 				);
 			}
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Updated automation "${committedAutomation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
 					automationUuids: [input.automation.uuid],
@@ -328,7 +324,7 @@ export const updateAutomationTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -339,20 +335,18 @@ export const removeAutomationTool = {
 	inputSchema: removeAutomationInputSchema,
 	async execute(
 		input: z.infer<typeof removeAutomationInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AutomationMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const automation = ownRecordValue(doc.automations, input.automationUuid);
 			if (automation === undefined) {
 				return mutationError(
-					doc,
 					`Automation UUID "${input.automationUuid}" does not exist.`,
 				);
 			}
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				[
 					{
 						kind: "removeAutomation",
@@ -362,11 +356,10 @@ export const removeAutomationTool = {
 				],
 				"automations",
 			);
-			if (!commit.ok) return mutationError(doc, commit.error);
+			if (!commit.ok) return mutationError(commit.error);
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Removed automation "${automation.name}" from Nova. A copy configured manually in CommCare HQ is unchanged.`,
 					automationUuids: [automation.uuid],
@@ -374,7 +367,7 @@ export const removeAutomationTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

@@ -3,8 +3,8 @@ import {
 	type CaseOperationMutationPlan,
 	removeCaseOperationMutation,
 } from "@/lib/doc/caseOperationMutations";
-import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { asUuid, uuidSchema } from "@/lib/domain";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -65,16 +65,15 @@ export const removeCaseOperationTool = {
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveCaseOperationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveOperationAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -87,7 +86,6 @@ export const removeCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
@@ -102,7 +100,6 @@ export const removeCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: removalRefusal(
 							operation.id,
@@ -119,7 +116,6 @@ export const removeCaseOperationTool = {
 			const mutations = [...plan.mutations];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`form:${address.formUuid}`,
 			);
@@ -127,14 +123,12 @@ export const removeCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Removed case operation "${operation.id}".`,
 					summary: {
@@ -144,7 +138,7 @@ export const removeCaseOperationTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

@@ -6,13 +6,12 @@
  * app-wide target state atomically.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface.
+ * shared `ToolInvocationContext` interface.
  */
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -43,18 +42,17 @@ export const updateAppTool = {
 	inputSchema: updateAppInputSchema,
 	async execute(
 		input: UpdateAppInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateAppResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const mutations: Mutation[] = [{ kind: "setAppName", name: input.name }];
 
-			const commit = await guardedMutate(ctx, doc, mutations, "app");
+			const commit = await guardedMutate(ctx, mutations, "app");
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -66,14 +64,13 @@ export const updateAppTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully set the app's name to "${input.name}".`,
 					summary,
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

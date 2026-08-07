@@ -28,7 +28,12 @@ import {
 } from "@/lib/domain";
 import { matchAll, today } from "@/lib/domain/predicate";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
-import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
+import {
+	MOD_A,
+	makeCaseListDoc,
+	makeCaseListFixture,
+	makeCaseListMcpFixture,
+} from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -49,19 +54,15 @@ beforeEach(() => {
 
 describe("addCaseListColumns", () => {
 	it("appends a single column with a freshly minted uuid", async () => {
-		const { doc, ctx } = makeCaseListFixture();
+		const h = makeCaseListFixture();
 
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
+		});
 
 		expect(result.kind).toBe("mutate");
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const final = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(final?.columns).toHaveLength(2);
 		const col = final?.columns.at(-1);
 		expect(col?.kind).toBe("plain");
@@ -73,25 +74,21 @@ describe("addCaseListColumns", () => {
 	});
 
 	it("adds multiple columns in one call, in order, in a single mutation", async () => {
-		const { doc, ctx } = makeCaseListFixture();
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [
-					{ kind: "plain", field: "case_name", header: "Name" },
-					{ kind: "phone", field: "phone", header: "Phone" },
-					{ kind: "date", field: "dob", header: "DOB", pattern: "%Y-%m-%d" },
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [
+				{ kind: "plain", field: "case_name", header: "Name" },
+				{ kind: "phone", field: "phone", header: "Phone" },
+				{ kind: "date", field: "dob", header: "DOB", pattern: "%Y-%m-%d" },
+			],
+		});
 
 		// One granular `addColumn` per column now (keyed by uuid + an append
 		// `order`), not a single wholesale `updateModule{caseListConfig}`.
 		expect(result.mutations).toHaveLength(3);
 		expect(result.mutations.every((m) => m.kind === "addColumn")).toBe(true);
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const final = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(final?.columns.map((c) => c.kind)).toEqual([
 			"plain",
 			"plain",
@@ -106,26 +103,23 @@ describe("addCaseListColumns", () => {
 	});
 
 	it("surfaces each new uuid in the structured result and the message", async () => {
-		const { doc, ctx } = makeCaseListFixture();
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		const newColumn =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1);
+		const newColumn = h
+			.currentDoc()
+			.modules[MOD_A]?.caseListConfig?.columns.at(-1);
 		expect(result.result.uuids[0]).toBe(newColumn?.uuid);
 		expect(result.result.message).toContain("Patient");
 	});
 
 	it("preserves filter and searchInputs when adding columns", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const seededInput = simpleSearchInputDef(
 			testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 			"name_search",
@@ -148,22 +142,19 @@ describe("addCaseListColumns", () => {
 			},
 		};
 
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			docWithConfig,
-		);
+		const h = makeCaseListFixture(docWithConfig);
+		await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
+		});
 
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const final = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(final?.searchInputs).toEqual([seededInput]);
 		expect(final?.filter).toEqual(seededFilter);
 	});
 
 	it("appends to an existing columns array without disturbing prior entries", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const existing = plainColumn(
 			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"existing",
@@ -182,23 +173,20 @@ describe("addCaseListColumns", () => {
 			},
 		};
 
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
-			},
-			ctx,
-			docWithConfig,
-		);
+		const h = makeCaseListFixture(docWithConfig);
+		await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [{ kind: "phone", field: "phone", header: "Phone" }],
+		});
 
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const final = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(final?.columns).toHaveLength(2);
 		expect(final?.columns[0]).toEqual(existing);
 		expect(final?.columns[1]?.kind).toBe("phone");
 	});
 
 	it("appends after independently arranged Results and Details", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const first = {
 			...plainColumn(
 				testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
@@ -230,26 +218,24 @@ describe("addCaseListColumns", () => {
 			},
 		};
 
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
-			},
-			ctx,
-			docWithConfig,
-		);
-		const columns = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
+		const h = makeCaseListFixture(docWithConfig);
+		await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [{ kind: "phone", field: "phone", header: "Phone" }],
+		});
+		const columns =
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.columns ?? [];
 		const added = columns.find(
 			(column) => column.uuid !== first.uuid && column.uuid !== second.uuid,
 		);
 
-		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config?.listColumnOrder.at(-1)).toBe(added?.uuid);
 		expect(config?.detailColumnOrder.at(-1)).toBe(added?.uuid);
 	});
 
 	it("round-trips every Column kind without corruption", async () => {
-		const { doc, ctx } = makeCaseListFixture();
+		const h = makeCaseListFixture();
 		const columns = [
 			{ kind: "plain" as const, field: "case_name", header: "Patient" },
 			{
@@ -299,13 +285,10 @@ describe("addCaseListColumns", () => {
 			},
 		];
 
-		const r = await addCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, columns },
-			ctx,
-			doc,
-		);
+		await h.runTool(addCaseListColumnsTool, { moduleUuid: MOD_A, columns });
 
-		const finalCols = r.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
+		const finalCols =
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.columns ?? [];
 		expect(finalCols).toHaveLength(columns.length + 1);
 		expect(finalCols.slice(-columns.length).map((c) => c.kind)).toEqual(
 			columns.map((i) => i.kind),
@@ -313,15 +296,11 @@ describe("addCaseListColumns", () => {
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { doc, ctx } = makeCaseListFixture();
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid: testUuid("unknown-module"),
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: testUuid("unknown-module"),
+			columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -334,8 +313,8 @@ describe("addCaseListColumns", () => {
 		// `crypto.randomUUID` produces a fresh value per call, so the
 		// minted column uuids won't match across the two runs. Strip them
 		// before comparing so the test pins the rest of the mutation shape.
-		const { doc, ctx: chatCtx } = makeCaseListFixture();
-		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		const chat = makeCaseListFixture();
+		const mcp = makeCaseListMcpFixture();
 		const input = {
 			moduleUuid: MOD_A,
 			columns: [
@@ -349,8 +328,8 @@ describe("addCaseListColumns", () => {
 			],
 		};
 
-		const r1 = await addCaseListColumnsTool.execute(input, chatCtx, doc);
-		const r2 = await addCaseListColumnsTool.execute(input, mcpCtx, doc);
+		const r1 = await chat.runTool(addCaseListColumnsTool, input);
+		const r2 = await mcp.runTool(addCaseListColumnsTool, input);
 
 		// The minted column uuid differs per run; the granular `order` key is
 		// deterministic (same fixture). Strip the uuid before comparing.
@@ -362,13 +341,17 @@ describe("addCaseListColumns", () => {
 			});
 
 		expect(stripUuid(r1.mutations)).toEqual(stripUuid(r2.mutations));
-		expect(r1.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1)).toEqual(
+		expect(
+			chat.currentDoc().modules[MOD_A]?.caseListConfig?.columns.at(-1),
+		).toEqual(
 			expect.objectContaining({
 				visibleInList: false,
 				visibleInDetail: false,
 			}),
 		);
-		expect(r2.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1)).toEqual(
+		expect(
+			mcp.currentDoc().modules[MOD_A]?.caseListConfig?.columns.at(-1),
+		).toEqual(
 			expect.objectContaining({
 				visibleInList: false,
 				visibleInDetail: false,

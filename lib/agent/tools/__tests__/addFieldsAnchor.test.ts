@@ -4,9 +4,8 @@
  * fail if the creation batch always appended.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -14,34 +13,8 @@ import {
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
-
-function makeCtx() {
-	// The guarded writer returns `{ events, committedDoc }`; echo the passed
-	// post-mutation doc so the tool's `newDoc` reflects the anchored insert.
-	const recordMutations = vi.fn(
-		async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const recordMutationStages = vi.fn(
-		async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const ctx = {
-		appId: "app-1",
-		userId: "user-1",
-		runId: "run-1",
-		recordMutations,
-		recordMutationStages,
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
-	return { ctx, recordMutations };
-}
 
 /** A one-form survey doc with three text fields (qa, qb, qc), HYDRATED so its
  *  existing fields carry the `order` keys the anchor computes bounds from —
@@ -100,51 +73,39 @@ function fieldUuidOf(doc: BlueprintDoc, id: string): Uuid {
 
 describe("add_fields anchored insert lands at the anchor in display order", () => {
 	it("afterFieldUuid places a single field immediately AFTER the anchor", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [textField("qx")],
-				afterFieldUuid: fieldUuidOf(doc, "qa"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx")],
+			afterFieldUuid: fieldUuidOf(doc, "qa"),
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual(["qa", "qx", "qb", "qc"]);
+		expect(displayIds(h.currentDoc())).toEqual(["qa", "qx", "qb", "qc"]);
 	});
 
 	it("beforeFieldUuid places a single field immediately BEFORE the anchor", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [textField("qx")],
-				beforeFieldUuid: fieldUuidOf(doc, "qc"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx")],
+			beforeFieldUuid: fieldUuidOf(doc, "qc"),
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qx", "qc"]);
+		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qx", "qc"]);
 	});
 
 	it("a MULTI-field anchored insert lands the run contiguously in input order", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [textField("qx"), textField("qy"), textField("qz")],
-				afterFieldUuid: fieldUuidOf(doc, "qa"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx"), textField("qy"), textField("qz")],
+			afterFieldUuid: fieldUuidOf(doc, "qa"),
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual([
+		expect(displayIds(h.currentDoc())).toEqual([
 			"qa",
 			"qx",
 			"qy",
@@ -155,46 +116,37 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 	});
 
 	it("beforeFieldUuid on the FIRST child lands the field ahead of everything", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [textField("qx")],
-				beforeFieldUuid: fieldUuidOf(doc, "qa"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx")],
+			beforeFieldUuid: fieldUuidOf(doc, "qa"),
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual(["qx", "qa", "qb", "qc"]);
+		expect(displayIds(h.currentDoc())).toEqual(["qx", "qa", "qb", "qc"]);
 	});
 
 	it("afterFieldUuid on the LAST child appends after everything", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [textField("qx")],
-				afterFieldUuid: fieldUuidOf(doc, "qc"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx")],
+			afterFieldUuid: fieldUuidOf(doc, "qc"),
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qc", "qx"]);
+		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qc", "qx"]);
 	});
 
 	it("no anchor still appends (regression guard for the default path)", async () => {
-		const { ctx } = makeCtx();
 		const doc = threeFieldDoc();
-		const out = await addFieldsTool.execute(
-			{ ...address(doc), fields: [textField("qx")] },
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [textField("qx")],
+		});
 		expect("message" in out.result).toBe(true);
-		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qc", "qx"]);
+		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qc", "qx"]);
 	});
 });

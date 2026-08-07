@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -43,7 +43,7 @@ const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithThreeColumns(): BlueprintDoc {
-	const { doc } = makeCaseListFixture();
+	const doc = makeCaseListDoc();
 	return {
 		...doc,
 		modules: {
@@ -66,18 +66,18 @@ function fixtureWithThreeColumns(): BlueprintDoc {
 
 describe("reorderCaseListColumns", () => {
 	it("reorders Results without changing Details or generic order", async () => {
-		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const detailsBefore =
 			doc.modules[MOD_A]?.caseListConfig?.detailColumnOrder ?? [];
+		const h = makeCaseListFixture(doc);
 
-		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, surface: "results", columnUuids: [C, A, B] },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [C, A, B],
+		});
 
-		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config?.listColumnOrder).toEqual([C, A, B]);
 		expect(config?.detailColumnOrder).toEqual(detailsBefore);
 		// The plan is the moves the new arrangement actually needs, not one per
@@ -92,28 +92,27 @@ describe("reorderCaseListColumns", () => {
 	});
 
 	it("reorders Details without changing Results", async () => {
-		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const resultsBefore =
 			doc.modules[MOD_A]?.caseListConfig?.listColumnOrder ?? [];
-		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, surface: "details", columnUuids: [B, C, A] },
-			ctx,
-			doc,
-		);
-		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const h = makeCaseListFixture(doc);
+		await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "details",
+			columnUuids: [B, C, A],
+		});
+		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config?.detailColumnOrder).toEqual([B, C, A]);
 		expect(config?.listColumnOrder).toEqual(resultsBefore);
 	});
 
 	it("returns the new order in the structured result and the message", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeColumns();
-		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, surface: "results", columnUuids: [C, A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeColumns());
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [C, A, B],
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -123,13 +122,12 @@ describe("reorderCaseListColumns", () => {
 	});
 
 	it("returns an Elm-style error on length mismatch", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeColumns();
-		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, surface: "results", columnUuids: [A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeColumns());
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [A, B],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -140,13 +138,12 @@ describe("reorderCaseListColumns", () => {
 	});
 
 	it("returns an Elm-style error on duplicate uuid in the request", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeColumns();
-		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleUuid: MOD_A, surface: "results", columnUuids: [A, A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeColumns());
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [A, A, B],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -157,18 +154,13 @@ describe("reorderCaseListColumns", () => {
 	});
 
 	it("returns an Elm-style error on unknown uuid in the request", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeColumns();
+		const h = makeCaseListFixture(fixtureWithThreeColumns());
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
-		const result = await reorderCaseListColumnsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				surface: "results",
-				columnUuids: [A, B, unknown],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [A, B, unknown],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -179,17 +171,12 @@ describe("reorderCaseListColumns", () => {
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeColumns();
-		const result = await reorderCaseListColumnsTool.execute(
-			{
-				moduleUuid: testUuid("unknown-module"),
-				surface: "results",
-				columnUuids: [A, B, C],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeColumns());
+		const result = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: testUuid("unknown-module"),
+			surface: "results",
+			columnUuids: [A, B, C],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

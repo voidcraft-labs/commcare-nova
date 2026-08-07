@@ -21,11 +21,12 @@
  *    `extractDocumentStructured` calls) accumulate tokens without stepping
  *    the counter.
  *
- * Implements `ToolExecutionContext` — the narrow interface extracted tool
- * modules consume. `recordMutations` + `recordConversation` are the
- * surface-neutral entry points; `commitBatch` (the guarded commit + SSE
- * fan-out) and `emitConversation` are the chat-surface implementations the
- * interface methods delegate to.
+ * Implements `CanonicalMutationHost` — the persistence seam the canonical
+ * Tool Workspace executes shared tools over. `recordMutations` /
+ * `recordMutationStages` are the host entry points; `commitBatch` (the
+ * guarded commit + SSE fan-out) and `emitConversation` are the chat-surface
+ * implementations they delegate to. Tool bodies never see this class: they
+ * run against `ToolInvocationContext` (lib/agent/workspace/types.ts).
  *
  * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
  * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
@@ -49,6 +50,10 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import {
+	AppAccessError,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
 	type ChatRunHolderCapability,
@@ -65,6 +70,7 @@ import {
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
@@ -72,7 +78,7 @@ import {
 	admittedMutationSlice,
 	encodeAdmittedMutationEnvelope,
 } from "@/lib/doc/mutationAdmission";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import type {
 	ClassifiedErrorPayload,
 	ConversationEvent,
@@ -101,9 +107,9 @@ import type {
 	ConversionImpactFn,
 	RecordMutationsOptions,
 	RecordMutationsResult,
-	ToolExecutionContext,
 } from "./toolExecutionContext";
 import { describeParkedOutcome } from "./toolExecutionContext";
+import type { CanonicalMutationHost } from "./workspace/canonicalHost";
 
 /**
  * Debounce for the per-step run-lease heartbeat — a live run refreshes its
@@ -168,7 +174,7 @@ interface GenerationContextOptions {
 	 * reaped mid-run during a long no-commit stretch.
 	 */
 	editLease: boolean;
-	/** The retype-impact lookup behind `ToolExecutionContext.conversionImpact`
+	/** The retype-impact lookup behind `ToolInvocationContext.conversionImpact`
 	 * — the route binds the schema store's `conversionImpact` to this app;
 	 * tests stub it so no tool test touches Postgres. */
 	conversionImpact: ConversionImpactFn;
@@ -210,7 +216,7 @@ export interface AgentStep {
 	warnings?: CallWarning[];
 }
 
-export class GenerationContext implements ToolExecutionContext {
+export class GenerationContext implements CanonicalMutationHost {
 	/** The OpenAI provider — the ONE model resolver for every LLM call this
 	 *  context issues (the SA, the document summarizer, structured sub-gens).
 	 *  Resolves to the Responses API model for each id. */
@@ -306,7 +312,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	readonly lookupDefinitions: NonNullable<
-		ToolExecutionContext["lookupDefinitions"]
+		CanonicalMutationHost["lookupDefinitions"]
 	> = (tableIds) =>
 		readToolLookupDefinitions(
 			{
@@ -317,7 +323,7 @@ export class GenerationContext implements ToolExecutionContext {
 			tableIds,
 		);
 
-	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+	readonly lookupCatalog: NonNullable<CanonicalMutationHost["lookupCatalog"]> =
 		() =>
 			readToolLookupCatalog({
 				projectId: this.projectId,
@@ -325,9 +331,45 @@ export class GenerationContext implements ToolExecutionContext {
 				role: this.projectRole,
 			});
 
-	/** See {@link ToolExecutionContext.conversionImpact} — injected at
+	/** See {@link CanonicalMutationHost.conversionImpact} — injected at
 	 * construction (`GenerationContextOptions.conversionImpact`). */
 	readonly conversionImpact: ConversionImpactFn;
+
+	/**
+	 * The canonical workspace's conflict recovery — one atomic authorized
+	 * snapshot after a `BlueprintCommitRejectedError`, so the run continues
+	 * from current server state rather than its stale document. Terminal
+	 * scope failures are LATCHED before they throw: lost edit access becomes
+	 * `CommitReauthError` (a reload can't restore authorization) and a
+	 * Project that no longer matches the run's admitted scope becomes
+	 * `AppProjectChangedError` (the reload must not cross the tenant
+	 * boundary) — both fence every queued tool and fail the run.
+	 */
+	async reloadAuthorizedSnapshot(): Promise<BlueprintDoc> {
+		let fresh: Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>;
+		try {
+			fresh = await resolveAuthorizedAppSnapshot(
+				this.appId,
+				this.userId,
+				"edit",
+			);
+		} catch (reloadError) {
+			if (reloadError instanceof AppAccessError) {
+				const scopeError = new CommitReauthError(
+					"You no longer have edit access.",
+				);
+				this.latchTerminalScopeError(scopeError);
+				throw scopeError;
+			}
+			throw reloadError;
+		}
+		if (fresh.projectId !== this.projectId) {
+			const scopeError = new AppProjectChangedError();
+			this.latchTerminalScopeError(scopeError);
+			throw scopeError;
+		}
+		return hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc);
+	}
 
 	/** Resolve an OpenAI model id to a `LanguageModel` (Responses API).
 	 *  One credential serves every model, so the SA and the document
@@ -337,7 +379,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext accessor — the authenticated Better Auth user
+	 * CanonicalMutationHost accessor — the authenticated Better Auth user
 	 * id. Exposed so shared tool bodies can look up user-scoped resources
 	 * (e.g. KMS-encrypted HQ credentials) through the interface without
 	 * dipping into the concrete class.
@@ -347,7 +389,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext accessor — the per-run grouping id, sourced
+	 * CanonicalMutationHost accessor — the per-run grouping id, sourced
 	 * from the `UsageAccumulator` so the run-id stamped on every event
 	 * envelope stays consistent with the run-summary doc.
 	 */
@@ -662,10 +704,12 @@ export class GenerationContext implements ToolExecutionContext {
 			}).value as never,
 		);
 		for (const e of events) this.logWriter.logEvent(e);
-		return { events, committedDoc: result.committedDoc };
+		return { events, committedDoc: result.committedDoc, seq: result.seq };
 	}
 
-	/** See `ToolExecutionContext.consumeParkedNote`. */
+	/** Read-and-clear the parked-value note the LAST commit's row migration
+	 * stashed — consumed by the SA wrapper after each mutating tool result so
+	 * a park is never invisible to the person who caused it. */
 	consumeParkedNote(): string | undefined {
 		const note = this._parkedNote;
 		this._parkedNote = undefined;
@@ -673,7 +717,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext implementation. AWAITS the inline guarded commit
+	 * CanonicalMutationHost implementation. AWAITS the inline guarded commit
 	 * (`commitBatch` → `commitGuardedBatch`) and returns its committed doc, so a
 	 * tool body sees the writer's `nextDoc` (a concurrent peer edit merged in),
 	 * never its own local candidate. Both the inline await here AND the SA's
@@ -696,7 +740,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext implementation. Concatenates the non-empty stages and
+	 * CanonicalMutationHost implementation. Concatenates the non-empty stages and
 	 * AWAITS ONE guarded commit for the whole sequence (one `batchId`, one `seq`),
 	 * preserving editField's convert→property-patch atomicity — a rejection commits
 	 * zero of the stages. Per-stage envelopes keep their own tags for the log /
@@ -719,7 +763,7 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext implementation. Pure delegator to
+	 * Conversation-event entry point (not part of the host contract). Pure delegator to
 	 * `emitConversation`; synchronous by construction (no Postgres
 	 * latency to block on for conversation events — the durable persistence
 	 * is owned by the batched `LogWriter.flush`).

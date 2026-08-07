@@ -1,10 +1,10 @@
 import type { z } from "zod";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import { findAuthoredBlueprintIdentity } from "@/lib/domain";
 import { prepareToolOptionsSource } from "../contentProcessing";
-import type { ToolExecutionContext } from "../toolExecutionContext";
 import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -35,16 +35,15 @@ export const setFieldOptionsSourceTool = {
 	inputSchema: setFieldOptionsSourceInputSchema,
 	async execute(
 		input: SetFieldOptionsSourceInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetFieldOptionsSourceResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveFieldAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -53,7 +52,6 @@ export const setFieldOptionsSourceTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `"${field.id}" is not a single- or multiple-choice field.`,
 					},
@@ -82,7 +80,6 @@ export const setFieldOptionsSourceTool = {
 						return {
 							kind: "mutate",
 							mutations: [],
-							newDoc: doc,
 							result: {
 								error: `Option UUID ${option.uuid} is duplicated in this call or already belongs to another authored object.`,
 							},
@@ -106,12 +103,11 @@ export const setFieldOptionsSourceTool = {
 							(table) => table.id === source.tableId,
 						)?.name ?? "the selected table")
 					: undefined;
-			const commit = await guardedMutate(ctx, doc, [mutation], "field:options");
+			const commit = await guardedMutate(ctx, [mutation], "field:options");
 			if (!commit.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -121,7 +117,6 @@ export const setFieldOptionsSourceTool = {
 				// built array — those are the same values only until admission
 				// has anything to say about them.
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message:
 						source.kind === "inline"
@@ -131,7 +126,7 @@ export const setFieldOptionsSourceTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

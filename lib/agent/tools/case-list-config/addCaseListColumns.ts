@@ -14,7 +14,7 @@
  * several columns at once; the singular forced a call per column).
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Two exit branches:
+ * shared `ToolInvocationContext` interface. Two exit branches:
  *
  *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, uuids }` plus the persisted mutation,
@@ -22,14 +22,9 @@
  */
 
 import { z } from "zod";
-import {
-	asUuid,
-	type BlueprintDoc,
-	findAuthoredBlueprintIdentity,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, findAuthoredBlueprintIdentity, type Uuid } from "@/lib/domain";
 import { addColumnsMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -77,9 +72,9 @@ export const addCaseListColumnsTool = {
 	inputSchema: addCaseListColumnsInputSchema,
 	async execute(
 		input: AddCaseListColumnsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddCaseListColumnsResult>> {
+		const doc = ctx.snapshot.doc;
 		const { columns } = input;
 		try {
 			const address = resolveModuleAddress(doc, input);
@@ -87,7 +82,6 @@ export const addCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -105,7 +99,6 @@ export const addCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Column UUID "${collision}" is duplicated in this call or already belongs to an authored object.`,
 					},
@@ -118,7 +111,6 @@ export const addCaseListColumnsTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:column:add`,
 			);
@@ -126,17 +118,14 @@ export const addCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			const headers = columns.map((c) => `"${c.header}"`).join(", ");
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Added ${columns.length} column${columns.length === 1 ? "" : "s"} to module "${mod.name}": ${headers}.`,
 					uuids,
@@ -144,7 +133,7 @@ export const addCaseListColumnsTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

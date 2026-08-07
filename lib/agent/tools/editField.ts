@@ -7,7 +7,7 @@
  * including `id` and `caseWrite`, lands in one post-conversion
  * `updateField` patch so the reducer sees the complete semantic edit
  * atomically. Both the SA chat factory and the MCP adapter call this
- * through the shared `ToolExecutionContext` interface.
+ * through the shared `ToolInvocationContext` interface.
  *
  * The stages are BUILT sequentially against local candidate docs (a
  * later batch reads the previous batch's result — e.g. a scalar patch
@@ -52,7 +52,6 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
-	BlueprintDoc,
 	CasePropertyDataType,
 	Field,
 	FieldKind,
@@ -68,8 +67,8 @@ import {
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { updateFieldMutations } from "../blueprintHelpers";
 import { prepareToolOptionsSource } from "../contentProcessing";
-import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
 	guardedMutateStages,
@@ -214,17 +213,16 @@ export const editFieldTool = {
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<EditFieldResult>> {
 		const { updates, confirmConversion } = input;
+		const doc = ctx.snapshot.doc;
 		try {
 			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: resolved.error },
 				};
 			}
@@ -258,7 +256,6 @@ export const editFieldTool = {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
-							newDoc: doc,
 							result: {
 								error: `Option UUID ${option.uuid} is duplicated in this call or already belongs to another authored object.`,
 							},
@@ -296,7 +293,6 @@ export const editFieldTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Cannot rename "${currentId}" to "${newId}". ${verdict.message}`,
 						},
@@ -331,7 +327,6 @@ export const editFieldTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Field "${currentId}" is a "${fromKind}" field, but you passed kind="${newKind}". To edit it in place, pass kind="${fromKind}".${convertHint}`,
 						},
@@ -356,7 +351,6 @@ export const editFieldTool = {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
-							newDoc: doc,
 							result: {
 								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs a complete choice source in the same call — pass \`optionsSource\` alongside kind="${newKind}".`,
 							},
@@ -406,7 +400,6 @@ export const editFieldTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Converting "${currentId}" to ${newKind} is blocked: ${blockerMessage}`,
 						},
@@ -419,11 +412,11 @@ export const editFieldTool = {
 				// accepted the conversion before STAGING it. A silent no-op
 				// from the reducer (reconcile produces a shape the target
 				// kind's schema rejects) would otherwise stage a misleading
-				// `convert:M-F` event and the SA wrapper would advance
-				// `doc = newDoc` against unchanged state. With the option
-				// seed handled above, no matrix edge should land here — this
-				// is the backstop for a future kind pair whose required keys
-				// this tool doesn't know to thread.
+				// `convert:M-F` event and the workspace would advance against
+				// unchanged state. With the option seed handled above, no
+				// matrix edge should land here — this is the backstop for a
+				// future kind pair whose required keys this tool doesn't know
+				// to thread.
 				const afterConvert = applyToDoc(workingDoc, convertMuts);
 				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
@@ -431,7 +424,6 @@ export const editFieldTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry and this call didn't supply. Pass the missing property in the same call, or report this if none applies.`,
 						},
@@ -470,7 +462,6 @@ export const editFieldTool = {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
-							newDoc: doc,
 							result: {
 								needsConfirmation: {
 									property: risk.property,
@@ -535,7 +526,6 @@ export const editFieldTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: `Field "${finalId}" not found after conversion` },
 				};
 			}
@@ -601,12 +591,11 @@ export const editFieldTool = {
 			// Gate the WHOLE edit as one candidate; persist the stage batches
 			// only after it passes. A rejection leaves zero committed prefix —
 			// the agent re-issues the corrected call from the original state.
-			const commit = await guardedMutateStages(ctx, doc, stages);
+			const commit = await guardedMutateStages(ctx, stages);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -642,15 +631,13 @@ export const editFieldTool = {
 				changedKeys.length > 0
 					? `Changed: ${changedKeys.join(", ")}.`
 					: "No property values changed.";
+			// The workspace continues against the guarded writer's committed doc (a
+			// peer's concurrent edit re-applied onto the fresh stored doc merged
+			// in), NOT the tool's local `workingDoc`. The message strings above
+			// read `workingDoc` only for this call's own display values.
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				// The SA continues against the guarded writer's committed doc (a
-				// peer's concurrent edit re-applied onto the fresh stored doc merged
-				// in), NOT the tool's local `workingDoc` — every other mutating tool
-				// returns `commit.newDoc` for the same reason. The message strings
-				// above read `workingDoc` only for this call's own display values.
-				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
 					...(preparedOptionsSource?.kind === "inline" && {
@@ -666,7 +653,7 @@ export const editFieldTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

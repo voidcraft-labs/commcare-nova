@@ -3,10 +3,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	makeMcpTestContext,
-	makeStubToolContext,
+	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -142,188 +143,154 @@ describe("configureConnect exact target-state tool", () => {
 
 	it("enables Connect atomically and derives omitted wire ids exactly once", async () => {
 		const doc = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const outcome = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{ formUuid: FIRST, connect: learnModule() },
-					{ formUuid: SECOND, connect: learnModule() },
-				],
-			},
-			ctx,
-			doc,
-		);
+		const harness = makeToolWorkspaceHarness(doc);
+		const outcome = await harness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{ formUuid: FIRST, connect: learnModule() },
+				{ formUuid: SECOND, connect: learnModule() },
+			],
+		});
 
 		expect(outcome.result).not.toHaveProperty("error");
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		expect(recordMutations.mock.calls[0]?.[1]).toBe("app");
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+		expect(harness.recordMutations.mock.calls[0]?.[1]).toBe("app");
 		expect(outcome.mutations.map((mutation) => mutation.kind)).toEqual([
 			"setConnectType",
 			"updateForm",
 			"updateForm",
 		]);
-		expect(outcome.newDoc.connectType).toBe("learn");
-		expect(outcome.newDoc.forms[FIRST]?.connect).toHaveProperty(
+		expect(harness.currentDoc().connectType).toBe("learn");
+		expect(harness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 		);
-		expect(outcome.newDoc.forms[SECOND]?.connect).toHaveProperty(
+		expect(harness.currentDoc().forms[SECOND]?.connect).toHaveProperty(
 			"learn_module.id",
 		);
-		expect(new Set(connectIds(outcome.newDoc)).size).toBe(2);
+		expect(new Set(connectIds(harness.currentDoc())).size).toBe(2);
 	});
 
 	it("reserves explicit ids and derives omissions in canonical document order", async () => {
 		const base = fixture();
-		const forward = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{ formUuid: FIRST, connect: learnModule() },
-					{ formUuid: SECOND, connect: learnModule("learning") },
-				],
-			},
-			makeStubToolContext().ctx,
-			structuredClone(base),
-		);
-		const reversed = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{ formUuid: SECOND, connect: learnModule("learning") },
-					{ formUuid: FIRST, connect: learnModule() },
-				],
-			},
-			makeStubToolContext().ctx,
-			structuredClone(base),
-		);
+		const forwardHarness = makeToolWorkspaceHarness(structuredClone(base));
+		const forward = await forwardHarness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{ formUuid: FIRST, connect: learnModule() },
+				{ formUuid: SECOND, connect: learnModule("learning") },
+			],
+		});
+		const reversedHarness = makeToolWorkspaceHarness(structuredClone(base));
+		const reversed = await reversedHarness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{ formUuid: SECOND, connect: learnModule("learning") },
+				{ formUuid: FIRST, connect: learnModule() },
+			],
+		});
 
 		expect(forward.result).not.toHaveProperty("error");
 		expect(reversed.result).not.toHaveProperty("error");
-		expect(forward.newDoc).toEqual(reversed.newDoc);
+		expect(forwardHarness.currentDoc()).toEqual(reversedHarness.currentDoc());
 		expect(forward.mutations).toEqual(reversed.mutations);
-		expect(forward.newDoc.forms[FIRST]?.connect).toHaveProperty(
+		expect(forwardHarness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"learning_2",
 		);
-		expect(forward.newDoc.forms[SECOND]?.connect).toHaveProperty(
+		expect(forwardHarness.currentDoc().forms[SECOND]?.connect).toHaveProperty(
 			"learn_module.id",
 			"learning",
 		);
 	});
 
 	it("preserves established same-form identities when ids are omitted", async () => {
-		const enabled = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{ formUuid: FIRST, connect: learnModule("lesson_identity") },
-					{
-						formUuid: SECOND,
-						connect: learnModule("assessment_identity"),
-					},
-				],
-			},
-			makeStubToolContext().ctx,
-			fixture(),
-		);
-		const reconfigured = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{ formUuid: SECOND, connect: learnModule() },
-					{ formUuid: FIRST, connect: learnModule() },
-				],
-			},
-			makeStubToolContext().ctx,
-			enabled.newDoc,
-		);
+		const harness = makeToolWorkspaceHarness(fixture());
+		await harness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{ formUuid: FIRST, connect: learnModule("lesson_identity") },
+				{
+					formUuid: SECOND,
+					connect: learnModule("assessment_identity"),
+				},
+			],
+		});
+		const reconfigured = await harness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{ formUuid: SECOND, connect: learnModule() },
+				{ formUuid: FIRST, connect: learnModule() },
+			],
+		});
 
 		expect(reconfigured.result).not.toHaveProperty("error");
-		expect(reconfigured.newDoc.forms[FIRST]?.connect).toHaveProperty(
+		expect(harness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"lesson_identity",
 		);
-		expect(reconfigured.newDoc.forms[SECOND]?.connect).toHaveProperty(
+		expect(harness.currentDoc().forms[SECOND]?.connect).toHaveProperty(
 			"learn_module.id",
 			"assessment_identity",
 		);
 	});
 
 	it("keeps established ids across form and module display-name changes", async () => {
-		const enabled = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [{ formUuid: FIRST, connect: learnModule() }],
-			},
-			makeStubToolContext().ctx,
-			fixture(),
-		);
-		const renamed = structuredClone(enabled.newDoc);
+		const enabledHarness = makeToolWorkspaceHarness(fixture());
+		await enabledHarness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [{ formUuid: FIRST, connect: learnModule() }],
+		});
+		const renamed = structuredClone(enabledHarness.currentDoc());
 		renamed.modules[MODULE].name = "Renamed module";
 		renamed.forms[FIRST].name = "Renamed form";
-		const reconfigured = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [{ formUuid: FIRST, connect: learnModule() }],
-			},
-			makeStubToolContext().ctx,
-			renamed,
-		);
+		const renamedHarness = makeToolWorkspaceHarness(renamed);
+		const reconfigured = await renamedHarness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [{ formUuid: FIRST, connect: learnModule() }],
+		});
 
 		expect(reconfigured.result).not.toHaveProperty("error");
-		expect(reconfigured.newDoc.forms[FIRST]?.connect).toHaveProperty(
+		expect(renamedHarness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"learning",
 		);
 	});
 
 	it("replaces participants, switches mode, and disables without dormant blocks", async () => {
-		const doc = fixture();
-		const firstContext = makeStubToolContext();
-		const enabled = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: [
-					{
-						formUuid: FIRST,
-						connect: learnModule("health_basics"),
-					},
-				],
-			},
-			firstContext.ctx,
-			doc,
-		);
-		const switched = await configureConnectTool.execute(
-			{
-				mode: "deliver",
-				participants: [
-					{
-						formUuid: SECOND,
-						connect: deliverUnit("household_visit"),
-					},
-				],
-			},
-			makeStubToolContext().ctx,
-			enabled.newDoc,
-		);
+		const harness = makeToolWorkspaceHarness(fixture());
+		await harness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{
+					formUuid: FIRST,
+					connect: learnModule("health_basics"),
+				},
+			],
+		});
+		const switched = await harness.runTool(configureConnectTool, {
+			mode: "deliver",
+			participants: [
+				{
+					formUuid: SECOND,
+					connect: deliverUnit("household_visit"),
+				},
+			],
+		});
 
 		expect(switched.result).not.toHaveProperty("error");
-		expect(switched.newDoc.connectType).toBe("deliver");
-		expect(switched.newDoc.forms[FIRST]?.connect).toBeUndefined();
-		expect(switched.newDoc.forms[SECOND]?.connect).toEqual(
+		expect(harness.currentDoc().connectType).toBe("deliver");
+		expect(harness.currentDoc().forms[FIRST]?.connect).toBeUndefined();
+		expect(harness.currentDoc().forms[SECOND]?.connect).toEqual(
 			deliverUnit("household_visit"),
 		);
 
-		const disabled = await configureConnectTool.execute(
-			{ mode: null },
-			makeStubToolContext().ctx,
-			switched.newDoc,
-		);
+		const disabled = await harness.runTool(configureConnectTool, {
+			mode: null,
+		});
 		expect(disabled.result).not.toHaveProperty("error");
-		expect(disabled.newDoc.connectType).toBeNull();
+		expect(harness.currentDoc().connectType).toBeNull();
 		expect(
-			Object.values(disabled.newDoc.forms).every((form) => !form?.connect),
+			Object.values(harness.currentDoc().forms).every((form) => !form?.connect),
 		).toBe(true);
 	});
 
@@ -348,25 +315,21 @@ describe("configureConnect exact target-state tool", () => {
 		},
 	])("rejects $label before persistence", async ({ participants, error }) => {
 		const doc = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const outcome = await configureConnectTool.execute(
-			{
-				mode: "learn",
-				participants: participants as Array<{
-					formUuid: Uuid;
-					connect: ReturnType<typeof learnModule>;
-				}>,
-			},
-			ctx,
-			doc,
-		);
+		const harness = makeToolWorkspaceHarness(doc);
+		const outcome = await harness.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: participants as Array<{
+				formUuid: Uuid;
+				connect: ReturnType<typeof learnModule>;
+			}>,
+		});
 
 		expect(outcome.result).toEqual({
 			error: expect.stringContaining(error),
 		});
 		expect(outcome.mutations).toEqual([]);
-		expect(outcome.newDoc).toBe(doc);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.currentDoc()).toBe(doc);
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("is one shared SA/MCP implementation with identical accepted mutations", async () => {
@@ -375,19 +338,25 @@ describe("configureConnect exact target-state tool", () => {
 			mode: "learn" as const,
 			participants: [{ formUuid: FIRST, connect: learnModule() }],
 		};
-		const sa = await configureConnectTool.execute(
-			input,
-			makeStubToolContext().ctx,
-			doc,
-		);
+		const saHarness = makeToolWorkspaceHarness(doc);
+		const sa = await saHarness.runTool(configureConnectTool, input);
 		const { ctx: mcpContext } = makeMcpTestContext({ initialDoc: doc });
 		const mcpRecord = vi.spyOn(mcpContext, "recordMutations");
-		const mcp = await configureConnectTool.execute(input, mcpContext, doc);
+		// MCP drives the same shared tool through its own canonical workspace —
+		// the per-call host is `McpContext` itself.
+		const mcpWorkspace = new CanonicalMutationWorkspace({
+			host: mcpContext,
+			initialDoc: doc,
+		});
+		const mcp = await mcpWorkspace.invoke({
+			toolName: "configure_connect",
+			execute: (ctx) => configureConnectTool.execute(input, ctx),
+		});
 
 		expect(mcpRecord).toHaveBeenCalledTimes(1);
 		expect(mcp.result).not.toHaveProperty("error");
 		expect(mcp.mutations).toEqual(sa.mutations);
-		expect(mcp.newDoc).toEqual(sa.newDoc);
+		expect(mcpWorkspace.currentSnapshot().doc).toEqual(saHarness.currentDoc());
 		expect(mcp.result).toEqual(sa.result);
 
 		const entry = SHARED_TOOL_REGISTRY.find(
@@ -398,6 +367,10 @@ describe("configureConnect exact target-state tool", () => {
 			mcpName: "configure_connect",
 			tool: configureConnectTool,
 			requires: "edit",
+			// The entry's exact execution policy is pinned once, for every tool,
+			// in `sharedToolRegistryPolicy.test.ts`; this assertion stays about
+			// the registration itself while remaining exhaustive over the keys.
+			policy: expect.anything(),
 		});
 
 		const wire = wireToolSchema(configureConnectInputSchema);

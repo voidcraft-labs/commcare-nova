@@ -17,12 +17,11 @@
 
 import type { z } from "zod";
 import {
-	type BlueprintDoc,
 	type CaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -74,16 +73,15 @@ export const setCaseSearchAdvancedTool = {
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveModuleAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -126,7 +124,6 @@ export const setCaseSearchAdvancedTool = {
 			});
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}:caseSearch:advanced`,
 			);
@@ -134,11 +131,9 @@ export const setCaseSearchAdvancedTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			// Derive the message from the same slot tuple. A new entry
 			// on `ADVANCED_SLOT_NAMES` flows through verbatim.
@@ -147,7 +142,6 @@ export const setCaseSearchAdvancedTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message:
 						advancedSlotsSet.length === 0
@@ -158,7 +152,7 @@ export const setCaseSearchAdvancedTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

@@ -16,7 +16,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -39,7 +39,7 @@ const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithColumns(): BlueprintDoc {
-	const { doc } = makeCaseListFixture();
+	const doc = makeCaseListDoc();
 	const target = plainColumn(TARGET_UUID, "case_name", "Patient");
 	const sibling = plainColumn(SIBLING_UUID, "phone", "Phone");
 	return {
@@ -58,28 +58,24 @@ function fixtureWithColumns(): BlueprintDoc {
 
 describe("removeCaseListColumn", () => {
 	it("removes the targeted column and leaves siblings intact", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithColumns();
+		const h = makeCaseListFixture(fixtureWithColumns());
 
-		const result = await removeCaseListColumnTool.execute(
-			{ moduleUuid: MOD_A, columnUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		await h.runTool(removeCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: TARGET_UUID,
+		});
 
-		const cols = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
+		const cols = h.currentDoc().modules[MOD_A]?.caseListConfig?.columns ?? [];
 		expect(cols).toHaveLength(1);
 		expect(cols[0]?.uuid).toBe(SIBLING_UUID);
 	});
 
 	it("returns the removed uuid and remaining count", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithColumns();
-		const result = await removeCaseListColumnTool.execute(
-			{ moduleUuid: MOD_A, columnUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithColumns());
+		const result = await h.runTool(removeCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: TARGET_UUID,
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -89,13 +85,11 @@ describe("removeCaseListColumn", () => {
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithColumns();
-		const result = await removeCaseListColumnTool.execute(
-			{ moduleUuid: testUuid("unknown-module"), columnUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithColumns());
+		const result = await h.runTool(removeCaseListColumnTool, {
+			moduleUuid: testUuid("unknown-module"),
+			columnUuid: TARGET_UUID,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -105,14 +99,12 @@ describe("removeCaseListColumn", () => {
 	});
 
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithColumns();
+		const h = makeCaseListFixture(fixtureWithColumns());
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
-		const result = await removeCaseListColumnTool.execute(
-			{ moduleUuid: MOD_A, columnUuid: unknown },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(removeCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: unknown,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

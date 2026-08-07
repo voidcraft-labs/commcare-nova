@@ -25,9 +25,9 @@
  */
 
 import type { z } from "zod";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -75,9 +75,9 @@ export const updateCaseListColumnTool = {
 	inputSchema: updateCaseListColumnInputSchema,
 	async execute(
 		input: UpdateCaseListColumnInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateCaseListColumnResult>> {
+		const doc = ctx.snapshot.doc;
 		const { columnUuid: rawColumnUuid, column } = input;
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
@@ -86,7 +86,6 @@ export const updateCaseListColumnTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -98,14 +97,12 @@ export const updateCaseListColumnTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: result.error },
 				};
 			}
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:column:update`,
 			);
@@ -113,16 +110,13 @@ export const updateCaseListColumnTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,
 					uuid: columnUuid,
@@ -130,7 +124,7 @@ export const updateCaseListColumnTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

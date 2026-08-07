@@ -21,7 +21,7 @@ import {
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { updateSearchInputTool } from "../updateSearchInput";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -44,7 +44,7 @@ const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithInputs(): BlueprintDoc {
-	const { doc } = makeCaseListFixture();
+	const doc = makeCaseListDoc();
 	const target = simpleSearchInputDef(
 		TARGET_UUID,
 		"name_search",
@@ -81,27 +81,22 @@ function fixtureWithInputs(): BlueprintDoc {
 
 describe("updateSearchInput", () => {
 	it("replaces the search input in place and preserves the uuid", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
+		const h = makeCaseListFixture(fixtureWithInputs());
 
-		const result = await updateSearchInputTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputUuid: TARGET_UUID,
-				searchInput: {
-					kind: "advanced",
-					name: "active_only",
-					label: "Active only",
-					type: "text",
-					predicate: matchAll(),
-				},
+		await h.runTool(updateSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+			searchInput: {
+				kind: "advanced",
+				name: "active_only",
+				label: "Active only",
+				type: "text",
+				predicate: matchAll(),
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs).toHaveLength(2);
 		const updated = inputs[0];
 		expect(updated?.uuid).toBe(TARGET_UUID);
@@ -109,73 +104,59 @@ describe("updateSearchInput", () => {
 	});
 
 	it("permits switching kinds (simple → advanced)", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
-		const result = await updateSearchInputTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputUuid: TARGET_UUID,
-				searchInput: {
-					kind: "advanced",
-					name: "active_only",
-					label: "Active only",
-					type: "text",
-					predicate: matchAll(),
-				},
+		const h = makeCaseListFixture(fixtureWithInputs());
+		await h.runTool(updateSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+			searchInput: {
+				kind: "advanced",
+				name: "active_only",
+				label: "Active only",
+				type: "text",
+				predicate: matchAll(),
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		const updated =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs[0];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0];
 		expect(updated?.kind).toBe("advanced");
 	});
 
 	it("leaves sibling search inputs untouched", async () => {
-		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const sibling = doc.modules[MOD_A]?.caseListConfig?.searchInputs[1];
+		const h = makeCaseListFixture(doc);
 
-		const result = await updateSearchInputTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputUuid: TARGET_UUID,
-				searchInput: {
-					kind: "simple",
-					name: "renamed",
-					label: "Renamed",
-					type: "text",
-					property: "case_name",
-				},
+		await h.runTool(updateSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+			searchInput: {
+				kind: "simple",
+				name: "renamed",
+				label: "Renamed",
+				type: "text",
+				property: "case_name",
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs[1]).toEqual(sibling);
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
-		const result = await updateSearchInputTool.execute(
-			{
-				moduleUuid: testUuid("unknown-module"),
-				searchInputUuid: TARGET_UUID,
-				searchInput: {
-					kind: "simple",
-					name: "renamed",
-					label: "Renamed",
-					type: "text",
-					property: "case_name",
-				},
+		const h = makeCaseListFixture(fixtureWithInputs());
+		const result = await h.runTool(updateSearchInputTool, {
+			moduleUuid: testUuid("unknown-module"),
+			searchInputUuid: TARGET_UUID,
+			searchInput: {
+				kind: "simple",
+				name: "renamed",
+				label: "Renamed",
+				type: "text",
+				property: "case_name",
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -185,24 +166,19 @@ describe("updateSearchInput", () => {
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
+		const h = makeCaseListFixture(fixtureWithInputs());
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
-		const result = await updateSearchInputTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputUuid: unknown,
-				searchInput: {
-					kind: "simple",
-					name: "renamed",
-					label: "Renamed",
-					type: "text",
-					property: "case_name",
-				},
+		const result = await h.runTool(updateSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: unknown,
+			searchInput: {
+				kind: "simple",
+				name: "renamed",
+				label: "Renamed",
+				type: "text",
+				property: "case_name",
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

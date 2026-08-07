@@ -52,7 +52,7 @@ import {
 	type MediaAttachExpectation,
 	mediaAttachVerdict,
 } from "@/lib/media/attachVerdicts";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { type GuardedMutateOutcome, guardedMutate } from "../common";
 
 /**
@@ -248,10 +248,10 @@ export interface ResolvedMediaBatchItem {
 	line: string;
 }
 
-/** Outcome of {@link commitMediaBatch}: the committed doc + the flattened
- *  mutation batch, or the error string for the tool's `{ error }` envelope. */
+/** Outcome of {@link commitMediaBatch}: the flattened mutation batch, or the
+ *  error string for the tool's `{ error }` envelope. */
 export type MediaBatchOutcome =
-	| { ok: true; newDoc: BlueprintDoc; mutations: AdmittedMutationBatch }
+	| { ok: true; mutations: AdmittedMutationBatch }
 	| { ok: false; error: string };
 
 /**
@@ -267,7 +267,7 @@ export type MediaBatchOutcome =
  * "attached").
  */
 export async function commitMediaBatch(args: {
-	ctx: ToolExecutionContext;
+	ctx: ToolInvocationContext;
 	doc: BlueprintDoc;
 	stage: string;
 	resolved: readonly ResolvedMediaBatchItem[];
@@ -296,7 +296,7 @@ export async function commitMediaBatch(args: {
 		resolved.flatMap((r) => r.expectations),
 	);
 	if (!commit.ok) return { ok: false, error: commit.error };
-	return { ok: true, newDoc: commit.newDoc, mutations: commit.mutations };
+	return { ok: true, mutations: commit.mutations };
 }
 
 /** Join a batch's per-item lines into one sentence-cased success message. */
@@ -310,7 +310,7 @@ export function joinBatchLines(lines: readonly string[]): string {
  * verdict over `expectations` (exists / owned / ready / kind-matched /
  * inside the export ceiling — `lib/media/attachVerdicts.ts`), then the
  * standard validity-gated commit. The expectations ride through to
- * `ctx.recordMutations` so the MCP surface re-verifies them inside its
+ * the workspace host so the MCP surface re-verifies them inside its
  * transactional save. A verdict failure returns the same `{ ok: false }`
  * shape as a gate rejection — the tool surfaces it in its `{ error }`
  * envelope and nothing is written.
@@ -318,7 +318,7 @@ export function joinBatchLines(lines: readonly string[]): string {
  * Clears pass an empty `expectations` and skip the asset read entirely.
  */
 export async function attachGuardedMutate(
-	ctx: ToolExecutionContext,
+	ctx: ToolInvocationContext,
 	doc: BlueprintDoc,
 	mutations: Mutation[],
 	stage: string,
@@ -342,5 +342,5 @@ export async function attachGuardedMutate(
 		});
 		if (!verdict.ok) return { ok: false, error: verdict.error };
 	}
-	return guardedMutate(ctx, doc, mutations, stage);
+	return guardedMutate(ctx, mutations, stage);
 }

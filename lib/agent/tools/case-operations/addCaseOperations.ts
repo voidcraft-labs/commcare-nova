@@ -2,13 +2,12 @@ import { z } from "zod";
 import { addCaseOperationAfterMutations } from "@/lib/doc/caseOperationMutations";
 import {
 	asUuid,
-	type BlueprintDoc,
 	findAuthoredBlueprintIdentity,
 	orderedCaseOperations,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	applyToDoc,
 	guardedMutate,
@@ -103,16 +102,15 @@ export const addCaseOperationsTool = {
 	inputSchema: addCaseOperationsInputSchema,
 	async execute(
 		input: AddCaseOperationsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddCaseOperationsResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveOperationAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -131,7 +129,6 @@ export const addCaseOperationsTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Operation UUID "${duplicateOperationUuid}" is already in use.`,
 					},
@@ -152,7 +149,6 @@ export const addCaseOperationsTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation UUID "${initialAfter}" is not an existing operation in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
@@ -171,7 +167,6 @@ export const addCaseOperationsTool = {
 					return {
 						kind: "mutate",
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Operation "${authorOperation.id}" was not added: ${idError}`,
 						},
@@ -198,7 +193,6 @@ export const addCaseOperationsTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`form:${address.formUuid}`,
 			);
@@ -206,7 +200,6 @@ export const addCaseOperationsTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -214,7 +207,6 @@ export const addCaseOperationsTool = {
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,
 					operationUuids,
@@ -226,7 +218,7 @@ export const addCaseOperationsTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

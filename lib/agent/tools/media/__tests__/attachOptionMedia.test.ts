@@ -86,15 +86,14 @@ const input = (...attachments: ReturnType<typeof attachment>[]) => ({
 
 describe("attachOptionMedia", () => {
 	it("sets media on the named option without disturbing siblings", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await attachOptionMediaTool.execute(
+		const h = makeMediaFixture();
+		const result = await h.runTool(
+			attachOptionMediaTool,
 			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
-			ctx,
-			doc,
 		);
 
 		expect(result.kind).toBe("mutate");
-		const options = optionsOf(result.newDoc);
+		const options = optionsOf(h.currentDoc());
 		expect(options[0].value).toBe("fever");
 		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
 		// Sibling option keeps no media.
@@ -103,16 +102,15 @@ describe("attachOptionMedia", () => {
 	});
 
 	it("covers a whole field's options in one batch", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await attachOptionMediaTool.execute(
+		const h = makeMediaFixture();
+		const result = await h.runTool(
+			attachOptionMediaTool,
 			input(
 				attachment(FEVER_OPTION, { image: ASSET_IMG_1 }),
 				attachment(COUGH_OPTION, { audio: ASSET_AUD_1 }),
 			),
-			ctx,
-			doc,
 		);
-		const options = optionsOf(result.newDoc);
+		const options = optionsOf(h.currentDoc());
 		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
 		expect(options[1].media).toEqual({ audio: ASSET_AUD_1 });
 		const success = result.result as { summary?: { count?: number } };
@@ -120,50 +118,43 @@ describe("attachOptionMedia", () => {
 	});
 
 	it("clears the option's media with an empty bundle", async () => {
-		const { doc: baseDoc, ctx } = makeMediaFixture();
-		const seeded = await attachOptionMediaTool.execute(
+		const h = makeMediaFixture();
+		await h.runTool(
+			attachOptionMediaTool,
 			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
-			ctx,
-			baseDoc,
 		);
-		const cleared = await attachOptionMediaTool.execute(
+		const cleared = await h.runTool(
+			attachOptionMediaTool,
 			input(attachment(FEVER_OPTION, {})),
-			ctx,
-			seeded.newDoc,
 		);
-		const options = optionsOf(cleared.newDoc);
+		const options = optionsOf(h.currentDoc());
 		expect(options[0].media).toBeUndefined();
 		const success = cleared.result as { message?: string };
 		expect(success.message).toContain("Cleared");
 	});
 
 	it("refuses a non-select field", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await attachOptionMediaTool.execute(
-			{
-				attachments: [
-					{
-						moduleUuid: MOD_A,
-						formUuid: FORM_A,
-						fieldUuid: TEXT_FIELD,
-						optionUuid: FEVER_OPTION,
-						media: { image: ASSET_IMG_1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeMediaFixture();
+		const result = await h.runTool(attachOptionMediaTool, {
+			attachments: [
+				{
+					moduleUuid: MOD_A,
+					formUuid: FORM_A,
+					fieldUuid: TEXT_FIELD,
+					optionUuid: FEVER_OPTION,
+					media: { image: ASSET_IMG_1 },
+				},
+			],
+		});
 		expect(result.mutations).toEqual([]);
 		expect(errorOf(result)).toContain("no options");
 	});
 
 	it("refuses an unknown option value and names the existing values", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await attachOptionMediaTool.execute(
+		const h = makeMediaFixture();
+		const result = await h.runTool(
+			attachOptionMediaTool,
 			input(attachment(UNKNOWN_OPTION, { image: ASSET_IMG_1 })),
-			ctx,
-			doc,
 		);
 		expect(result.mutations).toEqual([]);
 		const error = errorOf(result);
@@ -171,28 +162,27 @@ describe("attachOptionMedia", () => {
 	});
 
 	it("writes nothing when one attachment of a batch doesn't resolve", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await attachOptionMediaTool.execute(
+		const h = makeMediaFixture();
+		const result = await h.runTool(
+			attachOptionMediaTool,
 			input(
 				attachment(FEVER_OPTION, { image: ASSET_IMG_1 }),
 				attachment(UNKNOWN_OPTION, { image: ASSET_IMG_1 }),
 			),
-			ctx,
-			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		expect(optionsOf(result.newDoc)[0].media).toBeUndefined();
+		expect(optionsOf(h.currentDoc())[0].media).toBeUndefined();
 		const error = errorOf(result);
 		expect(error).toContain("attachments[1]");
 		expect(error).toContain("nothing was attached");
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const { doc, ctx: chatCtx } = makeMediaFixture();
-		const { ctx: mcpCtx } = makeMediaMcpFixture();
+		const h = makeMediaFixture();
+		const mcp = makeMediaMcpFixture();
 		const batch = input(attachment(FEVER_OPTION, { audio: ASSET_AUD_1 }));
-		const r1 = await attachOptionMediaTool.execute(batch, chatCtx, doc);
-		const r2 = await attachOptionMediaTool.execute(batch, mcpCtx, doc);
+		const r1 = await h.runTool(attachOptionMediaTool, batch);
+		const r2 = await mcp.runTool(attachOptionMediaTool, batch);
 		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

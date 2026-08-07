@@ -36,14 +36,14 @@
  * later one wins.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`.
+ * shared `ToolInvocationContext`.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import type { Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import { setFieldMediaMutations } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	fieldAddressSchema,
@@ -102,9 +102,9 @@ export const attachFieldMediaTool = {
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AttachFieldMediaResult>> {
+		const doc = ctx.snapshot.doc;
 		const { attachments } = input;
 		try {
 			// Resolve every attachment before writing anything, collecting
@@ -179,7 +179,6 @@ export const attachFieldMediaTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
@@ -188,14 +187,13 @@ export const attachFieldMediaTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: joinBatchLines(resolved.map((r) => r.line)),
 					summary: { count: fieldCount },
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

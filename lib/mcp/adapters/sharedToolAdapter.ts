@@ -15,9 +15,10 @@
  *   1. **Ownership** — `loadAppBlueprint(appId, userId)` ownership-gates
  *      and loads the doc in one read, so a cross-tenant probe
  *      throws before the tool body runs.
- *   2. **Per-call `McpContext`** — satisfies `ToolExecutionContext` for
- *      the shared tool and owns event-log writer + progress emitter +
- *      run id.
+ *   2. **Per-call `McpContext` + canonical workspace** — the context is
+ *      the `CanonicalMutationHost` a fresh `CanonicalMutationWorkspace`
+ *      commits through; it owns event-log writer + progress emitter +
+ *      run id, and the workspace owns the per-call document snapshot.
  *   3. **Server-derived run id** — after the app is loaded, the
  *      adapter derives a run id from the app's own state (current
  *      `run_id` + `updated_at` sliding window) and passes it into the
@@ -53,13 +54,13 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type {
 	MutatingToolResult,
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
+import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
+import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
@@ -101,8 +102,7 @@ export interface SharedToolModule {
 	readonly inputSchema: z.ZodObject<z.ZodRawShape>;
 	execute(
 		input: unknown,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<unknown> | ReadToolResult<unknown>>;
 }
 
@@ -210,10 +210,22 @@ export function registerSharedTool(
 					 * boundary field only, and shared tool input schemas
 					 * don't declare it. `run_id` reaches the shared tool
 					 * through `ctx.runId` (already bound on `mcpCtx`), so
-					 * the tool body accesses it via the execution-context
-					 * interface — same contract as the chat-side SA. */
+					 * the tool body accesses it via the invocation-context
+					 * interface — same contract as the chat-side SA. The
+					 * per-call canonical workspace owns the loaded document;
+					 * its host (`mcpCtx`) has no conflict reload, so an
+					 * authoritative rejection propagates to the error
+					 * envelope below — the per-call doc lifecycle. */
 					const { app_id: _discardedAppId, ...toolInput } = args;
-					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
+					const workspace = new CanonicalMutationWorkspace({
+						host: mcpCtx,
+						initialDoc: loaded.doc,
+						baseSeq: loaded.app.mutation_seq,
+					});
+					const outcome = await workspace.invoke({
+						toolName,
+						execute: (invocationCtx) => tool.execute(toolInput, invocationCtx),
+					});
 					const payload = projectResult(outcome);
 					/* A committed row migration that PARKED saved case values stashed a note
 					 * on the context — append it to a message-bearing payload so

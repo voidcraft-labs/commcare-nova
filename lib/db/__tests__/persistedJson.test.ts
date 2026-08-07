@@ -274,7 +274,7 @@ describe("persisted JSON source boundaries", () => {
 		expect(offenders).toEqual([]);
 
 		for (const relative of [
-			"lib/db/apps.ts",
+			"lib/db/canonicalCommitKernel.ts",
 			"lib/db/mediaDeletion.ts",
 			"scripts/scan-lookup-reference-edges.ts",
 		]) {
@@ -283,17 +283,28 @@ describe("persisted JSON source boundaries", () => {
 			expect(source).toMatch(/case_types.+::text/s);
 			expect(source).toMatch(/data.+::text/s);
 		}
+		/* The strict persisted-app admission lives in the canonical commit
+		 * kernel; `apps.ts` composes it through the exported projection and
+		 * loaders rather than re-growing raw readers. */
 		const appsSource = readFileSync(path.join(root, "lib/db/apps.ts"), "utf8");
+		const kernelSource = readFileSync(
+			path.join(root, "lib/db/canonicalCommitKernel.ts"),
+			"utf8",
+		);
 		expect(
 			appsSource.match(/\.select\(PERSISTED_BLUEPRINT_APP_COLUMNS\)/g),
-		).toHaveLength(5);
+		).toHaveLength(3);
 		expect(
-			appsSource.match(/\bassemblePersistedBlueprintJsonText\(/g),
+			kernelSource.match(/\.select\(PERSISTED_BLUEPRINT_APP_COLUMNS\)/g),
+		).toHaveLength(2);
+		expect(appsSource).not.toContain("assemblePersistedBlueprintJsonText(");
+		expect(
+			kernelSource.match(/\bassemblePersistedBlueprintJsonText\(/g),
 		).toHaveLength(1);
 		expect(appsSource).toMatch(
 			/return withAppTx\(\(tx\) => loadAppInTransaction\(tx, appId\)\)/,
 		);
-		const projection = appsSource.match(
+		const projection = kernelSource.match(
 			/const PERSISTED_BLUEPRINT_APP_COLUMNS = \[([\s\S]*?)\] as const/,
 		)?.[1];
 		expect(projection).toBeDefined();
@@ -410,7 +421,12 @@ describe("persisted JSON source boundaries", () => {
 	});
 
 	it("parses every replayable mutation body and fold baseline from text", () => {
-		const appsSource = readFileSync(path.join(root, "lib/db/apps.ts"), "utf8");
+		/* The guarded commit's dedup latch — the one apps-protocol mutation-body
+		 * read — lives in the canonical commit kernel. */
+		const kernelSource = readFileSync(
+			path.join(root, "lib/db/canonicalCommitKernel.ts"),
+			"utf8",
+		);
 		const streamSource = readFileSync(
 			path.join(root, "app/api/apps/[id]/stream/route.ts"),
 			"utf8",
@@ -423,8 +439,8 @@ describe("persisted JSON source boundaries", () => {
 			path.join(root, "lib/db/canonicalMutationFold.ts"),
 			"utf8",
 		);
-		expect(appsSource).toContain("parsePersistedMutationBatchText");
-		expect(appsSource).toMatch(/app_changes\.mutations.+::text/s);
+		expect(kernelSource).toContain("parsePersistedMutationBatchText");
+		expect(kernelSource).toMatch(/app_changes\.mutations.+::text/s);
 		expect(streamSource).toContain("parsePersistedAppChangeEnvelope");
 		expect(streamSource).toContain("readAppChangeStreamRowsSince");
 		expect(streamQuerySource).toMatch(/app_changes\.mutations.+::text/s);

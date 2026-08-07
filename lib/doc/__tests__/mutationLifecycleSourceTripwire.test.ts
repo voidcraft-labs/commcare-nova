@@ -40,12 +40,19 @@ type LifecycleMode = "admits-proposal" | "consumes-durable-admitted";
 const SOURCE_CLASSIFICATION = {
 	"app/api/apps/[id]/route.ts": "admits-proposal",
 	"lib/agent/generationContext.ts": "admits-proposal",
-	"lib/agent/toolExecutionContext.ts": "admits-proposal",
 	"lib/agent/tools/common.ts": "admits-proposal",
+	// The canonical workspace runs the optimistic admission + whole-document
+	// verdict over each invocation's proposal; its host seam carries the
+	// prepared candidate to the surface writers.
+	"lib/agent/workspace/canonicalHost.ts": "admits-proposal",
+	"lib/agent/workspace/canonicalWorkspace.ts": "admits-proposal",
 	"lib/collab/mutationFrame.ts": "consumes-durable-admitted",
 	"lib/collab/reconciler.ts": "consumes-durable-admitted",
 	"lib/db/applyBlueprintChange.ts": "consumes-durable-admitted",
 	"lib/db/apps.ts": "admits-proposal",
+	// The promoted guarded-commit transaction: re-admits the caller's proposal
+	// against the fresh locked snapshot before any durable write.
+	"lib/db/canonicalCommitKernel.ts": "admits-proposal",
 	"lib/db/canonicalMutationFold.ts": "consumes-durable-admitted",
 	"lib/db/commitGuard.ts": "consumes-durable-admitted",
 	"lib/db/persistedJson.ts": "consumes-durable-admitted",

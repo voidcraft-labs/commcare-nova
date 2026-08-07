@@ -21,9 +21,9 @@
  */
 
 import type { z } from "zod";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { updateSearchInputMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -71,9 +71,9 @@ export const updateSearchInputTool = {
 	inputSchema: updateSearchInputInputSchema,
 	async execute(
 		input: UpdateSearchInputInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateSearchInputResult>> {
+		const doc = ctx.snapshot.doc;
 		const { searchInputUuid: rawSearchInputUuid, searchInput } = input;
 		const searchInputUuid = asUuid(rawSearchInputUuid);
 		try {
@@ -82,7 +82,6 @@ export const updateSearchInputTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -98,14 +97,12 @@ export const updateSearchInputTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: result.error },
 				};
 			}
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:searchInput:update`,
 			);
@@ -113,16 +110,13 @@ export const updateSearchInputTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Updated search input ${searchInputUuid} on module "${mod.name}". New kind: ${searchInput.kind}, label "${searchInput.label}".`,
 					uuid: searchInputUuid,
@@ -130,7 +124,7 @@ export const updateSearchInputTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

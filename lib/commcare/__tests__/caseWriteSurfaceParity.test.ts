@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	makeMcpTestContext,
-	makeStubToolContext,
+	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import {
 	assertAndProjectCaseWriteInventory,
 	caseWriteAdmissionIssues,
@@ -494,18 +495,20 @@ describe("canonical case-write surface parity", () => {
 				).ok,
 			).toBe(false);
 
-			const sa = await editFieldTool.execute(
+			const sa = await makeToolWorkspaceHarness(built.doc).runTool(
+				editFieldTool,
 				input,
-				makeStubToolContext().ctx,
-				built.doc,
 			);
 			expect("error" in sa.result, `SA accepted ${property}`).toBe(true);
 
-			const mcp = await editFieldTool.execute(
-				input,
-				makeMcpTestContext({ initialDoc: built.doc }).ctx,
-				built.doc,
-			);
+			const mcp = await new CanonicalMutationWorkspace({
+				host: makeMcpTestContext({ initialDoc: built.doc }).ctx,
+				initialDoc: built.doc,
+			}).invoke({
+				toolName: "edit_field",
+				execute: (invocationCtx) =>
+					editFieldTool.execute(input as never, invocationCtx),
+			});
 			expect("error" in mcp.result, `MCP accepted ${property}`).toBe(true);
 		}
 	});
@@ -616,19 +619,21 @@ describe("canonical case-write surface parity", () => {
 			};
 			expect(editFieldTool.inputSchema.safeParse(input).success).toBe(true);
 
-			const sa = await editFieldTool.execute(
+			const sa = await makeToolWorkspaceHarness(built.doc).runTool(
+				editFieldTool,
 				input,
-				makeStubToolContext().ctx,
-				built.doc,
 			);
 			expect("message" in sa.result).toBe(accepted);
 			expect("error" in sa.result).toBe(!accepted);
 
-			const mcp = await editFieldTool.execute(
-				input,
-				makeMcpTestContext({ initialDoc: built.doc }).ctx,
-				built.doc,
-			);
+			const mcp = await new CanonicalMutationWorkspace({
+				host: makeMcpTestContext({ initialDoc: built.doc }).ctx,
+				initialDoc: built.doc,
+			}).invoke({
+				toolName: "edit_field",
+				execute: (invocationCtx) =>
+					editFieldTool.execute(input as never, invocationCtx),
+			});
 			expect("message" in mcp.result).toBe(accepted);
 			expect("error" in mcp.result).toBe(!accepted);
 		},

@@ -18,9 +18,9 @@
  */
 
 import { z } from "zod";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { reorderColumnsMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -67,9 +67,9 @@ export const reorderCaseListColumnsTool = {
 	inputSchema: reorderCaseListColumnsInputSchema,
 	async execute(
 		input: ReorderCaseListColumnsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<ReorderCaseListColumnsResult>> {
+		const doc = ctx.snapshot.doc;
 		const { surface, columnUuids: rawColumnUuids } = input;
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
@@ -78,7 +78,6 @@ export const reorderCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -93,14 +92,12 @@ export const reorderCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: result.error },
 				};
 			}
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:column:reorder`,
 			);
@@ -108,16 +105,13 @@ export const reorderCaseListColumnsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Reordered ${columnUuids.length} field${columnUuids.length === 1 ? "" : "s"} on ${surface === "results" ? "Results" : "Details"} for module "${mod.name}".`,
 					surface,
@@ -126,7 +120,7 @@ export const reorderCaseListColumnsTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

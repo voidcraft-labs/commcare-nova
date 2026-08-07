@@ -58,7 +58,9 @@ function docWithModules(moduleCount: number): BlueprintDoc {
 }
 
 async function search(doc: BlueprintDoc, query: string) {
-	const out = await searchBlueprintTool.execute({ query }, {} as never, doc);
+	const out = await searchBlueprintTool.execute({ query }, {
+		snapshot: { doc },
+	} as never);
 	return out.data;
 }
 

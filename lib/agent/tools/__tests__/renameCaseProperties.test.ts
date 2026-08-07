@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { makeStubToolContext } from "@/lib/agent/__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
@@ -95,7 +95,7 @@ function fixture(): BlueprintDoc {
 describe("renameCaseProperties shared SA/MCP tool", () => {
 	it("commits one exclusive semantic command and reports exact grouped document impact", async () => {
 		const doc = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
+		const harness = makeToolWorkspaceHarness(doc);
 		const input = {
 			renames: [
 				{
@@ -106,27 +106,30 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 			],
 		};
 
-		const outcome = await renameCasePropertiesTool.execute(input, ctx, doc);
+		const outcome = await harness.runTool(renameCasePropertiesTool, input);
 
 		expect(outcome.result).not.toHaveProperty("error");
 		expect(outcome.mutations).toEqual([
 			{ kind: "renameCaseProperties", renames: input.renames },
 		]);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		expect(recordMutations.mock.calls[0]?.[1]).toBe("case-properties:rename");
-		expect(outcome.newDoc.fields[FIELD].id).toBe("contact_number");
-		expect(fieldCaseWrite(outcome.newDoc.fields[FIELD])).toEqual({
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+		expect(harness.recordMutations.mock.calls[0]?.[1]).toBe(
+			"case-properties:rename",
+		);
+		expect(harness.currentDoc().fields[FIELD].id).toBe("contact_number");
+		expect(fieldCaseWrite(harness.currentDoc().fields[FIELD])).toEqual({
 			caseType: "patient",
 			property: "primary_phone",
 		});
 		expect(
-			outcome.newDoc.forms[FORM].caseOperations?.[0]?.writes?.[0]?.property,
+			harness.currentDoc().forms[FORM].caseOperations?.[0]?.writes?.[0]
+				?.property,
 		).toBe("primary_phone");
 		expect(
-			outcome.newDoc.caseTypes?.[0]?.properties.map(({ name }) => name),
+			harness.currentDoc().caseTypes?.[0]?.properties.map(({ name }) => name),
 		).toEqual(["primary_phone", "email"]);
 		expect(
-			outcome.newDoc.modules[MODULE].caseListConfig?.columns[0],
+			harness.currentDoc().modules[MODULE].caseListConfig?.columns[0],
 		).toMatchObject({ field: "primary_phone" });
 
 		expect(outcome.result).toMatchObject({
@@ -156,19 +159,15 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 
 	it("refuses an occupied destination without persisting a partial edit", async () => {
 		const doc = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
+		const harness = makeToolWorkspaceHarness(doc);
 
-		const outcome = await renameCasePropertiesTool.execute(
-			{
-				renames: [{ caseType: "patient", from: "phone", to: "email" }],
-			},
-			ctx,
-			doc,
-		);
+		const outcome = await harness.runTool(renameCasePropertiesTool, {
+			renames: [{ caseType: "patient", from: "phone", to: "email" }],
+		});
 
 		expect(outcome.mutations).toEqual([]);
-		expect(outcome.newDoc).toBe(doc);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.currentDoc()).toBe(doc);
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 		expect(outcome.result).toEqual({
 			error: expect.stringContaining("Nothing was changed"),
 		});
@@ -211,6 +210,10 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 			mcpName: "rename_case_properties",
 			tool: renameCasePropertiesTool,
 			requires: "edit",
+			// The entry's exact execution policy is pinned once, for every tool,
+			// in `sharedToolRegistryPolicy.test.ts`; this assertion stays about
+			// the registration itself while remaining exhaustive over the keys.
+			policy: expect.anything(),
 		});
 
 		const wire = wireToolSchema(renameCasePropertiesInputSchema);

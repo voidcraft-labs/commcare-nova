@@ -16,13 +16,12 @@
  * `null` clear carries no expectations and skips the asset read.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`.
+ * shared `ToolInvocationContext`.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
 import { setAppLogoMutations } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	attachGuardedMutate,
@@ -51,9 +50,9 @@ export const setAppLogoTool = {
 	inputSchema: setAppLogoInputSchema,
 	async execute(
 		input: SetAppLogoInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetAppLogoResult>> {
+		const doc = ctx.snapshot.doc;
 		const { logo } = input;
 		try {
 			const mutations = setAppLogoMutations(logo);
@@ -68,23 +67,20 @@ export const setAppLogoTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result:
 					logo === null
 						? "Cleared the app logo."
 						: `Set the app logo to ${logo}.`,
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

@@ -35,7 +35,7 @@ import AdmZip from "adm-zip";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { makeStubToolContext } from "@/lib/agent/__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
@@ -374,7 +374,6 @@ describe("schema parse", () => {
 
 describe("SA tool path — column atomic ops", () => {
 	it("threads uuids through add → update → reorder → remove", async () => {
-		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		// Single case-typed module — every SA tool invocation here
 		// targets its stable UUID. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
@@ -419,16 +418,16 @@ describe("SA tool path — column atomic ops", () => {
 			],
 		});
 		const moduleUuid = startDoc.moduleOrder[0];
+		// The workspace owns the document across the whole sequence: each
+		// call reads what the previous one committed, so nothing threads a
+		// doc by hand.
+		const h = makeToolWorkspaceHarness(startDoc, { appId: APP_ID });
 
 		// 1. Add the first column — capture the uuid the tool mints.
-		const addNameResult = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid,
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			startDoc,
-		);
+		const addNameResult = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid,
+			columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
+		});
 		if ("error" in addNameResult.result) {
 			throw new Error(
 				`add patient column failed: ${addNameResult.result.error}`,
@@ -441,14 +440,10 @@ describe("SA tool path — column atomic ops", () => {
 		expect(addNameResult.result.message).toContain("Patient");
 
 		// 2. Add a second column on the post-add doc.
-		const addAgeResult = await addCaseListColumnsTool.execute(
-			{
-				moduleUuid,
-				columns: [{ kind: "plain", field: "age", header: "Age" }],
-			},
-			ctx,
-			addNameResult.newDoc,
-		);
+		const addAgeResult = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid,
+			columns: [{ kind: "plain", field: "age", header: "Age" }],
+		});
 		if ("error" in addAgeResult.result) {
 			throw new Error(`add age column failed: ${addAgeResult.result.error}`);
 		}
@@ -458,42 +453,31 @@ describe("SA tool path — column atomic ops", () => {
 		// 3. Update the second column — flip on a sort directive.
 		// The replacement carries the same uuid (the tool stamps the
 		// existing uuid back onto the supplied body).
-		const updateResult = await updateCaseListColumnTool.execute(
-			{
-				moduleUuid,
-				columnUuid: ageUuid,
-				column: {
-					kind: "plain",
-					field: "age",
-					header: "Age",
-					sort: { direction: "desc", priority: 0 },
-				},
+		const updateResult = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid,
+			columnUuid: ageUuid,
+			column: {
+				kind: "plain",
+				field: "age",
+				header: "Age",
+				sort: { direction: "desc", priority: 0 },
 			},
-			ctx,
-			addAgeResult.newDoc,
-		);
+		});
 		if ("error" in updateResult.result) {
 			throw new Error(`update column failed: ${updateResult.result.error}`);
 		}
 		expect(updateResult.result.uuid).toBe(ageUuid);
 
 		// 4. Reorder — supply both uuids in age-first order.
-		const reorderResult = await reorderCaseListColumnsTool.execute(
-			{
-				moduleUuid,
-				surface: "results",
-				columnUuids: [ageUuid, nameUuid],
-			},
-			ctx,
-			updateResult.newDoc,
-		);
+		const reorderResult = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid,
+			surface: "results",
+			columnUuids: [ageUuid, nameUuid],
+		});
 		if ("error" in reorderResult.result) {
 			throw new Error(`reorder failed: ${reorderResult.result.error}`);
 		}
-		const reorderedColumns = orderedColumns(
-			configOf(reorderResult.newDoc),
-			"list",
-		);
+		const reorderedColumns = orderedColumns(configOf(h.currentDoc()), "list");
 		expect(reorderedColumns.map((column) => column.uuid)).toEqual([
 			ageUuid,
 			nameUuid,
@@ -501,15 +485,14 @@ describe("SA tool path — column atomic ops", () => {
 
 		// 5. Remove the original first column — still keyed by uuid
 		// so the address survives the prior reorder.
-		const removeResult = await removeCaseListColumnTool.execute(
-			{ moduleUuid, columnUuid: nameUuid },
-			ctx,
-			reorderResult.newDoc,
-		);
+		const removeResult = await h.runTool(removeCaseListColumnTool, {
+			moduleUuid,
+			columnUuid: nameUuid,
+		});
 		if ("error" in removeResult.result) {
 			throw new Error(`remove failed: ${removeResult.result.error}`);
 		}
-		const finalColumns = collectColumns(removeResult.newDoc);
+		const finalColumns = collectColumns(h.currentDoc());
 		expect(finalColumns).toHaveLength(1);
 		expect(finalColumns[0]?.uuid).toBe(ageUuid);
 		// Sort directive on the survivor survived the reorder + remove.
@@ -517,22 +500,18 @@ describe("SA tool path — column atomic ops", () => {
 	});
 
 	it("returns Elm-style error when an update targets an unknown column uuid", async () => {
-		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const doc = buildDoc({
 			appId: APP_ID,
 			modules: [{ name: "Patients", caseType: "patient", caseListOnly: true }],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		const moduleUuid = doc.moduleOrder[0];
-		const result = await updateCaseListColumnTool.execute(
-			{
-				moduleUuid,
-				columnUuid: testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
-				column: { kind: "plain", field: "case_name", header: "Patient" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc, { appId: APP_ID });
+		const result = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid,
+			columnUuid: testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+			column: { kind: "plain", field: "case_name", header: "Patient" },
+		});
 		if (!("error" in result.result)) {
 			throw new Error("expected error result on unknown uuid");
 		}
@@ -784,7 +763,6 @@ describe("calc-column comparator-type fallback", () => {
 
 describe("SearchInputDef exact four-arm round-trip", () => {
 	it("converts simple → advanced → simple via updateSearchInput, preserving uuid + common slots", async () => {
-		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const baseDoc = buildDoc({
 			appId: APP_ID,
 			modules: [
@@ -839,58 +817,51 @@ describe("SearchInputDef exact four-arm round-trip", () => {
 			],
 		});
 		const moduleUuid = baseDoc.moduleOrder[0];
+		const h = makeToolWorkspaceHarness(baseDoc, { appId: APP_ID });
 
 		// Add a simple input — capture the uuid the tool mints.
-		const addResult = await addSearchInputsTool.execute(
-			{
-				moduleUuid,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "patient_name",
-						label: "Patient name",
-						type: "text",
-						property: "full_name",
-						default: term(literal("Alice")),
-					},
-				],
-			},
-			ctx,
-			baseDoc,
-		);
+		const addResult = await h.runTool(addSearchInputsTool, {
+			moduleUuid,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "patient_name",
+					label: "Patient name",
+					type: "text",
+					property: "full_name",
+					default: term(literal("Alice")),
+				},
+			],
+		});
 		if ("error" in addResult.result) {
 			throw new Error(`add input failed: ${addResult.result.error}`);
 		}
 		const inputUuid = addResult.result.uuids[0];
-		const afterAdd = collectSearchInputs(addResult.newDoc);
+		const afterAdd = collectSearchInputs(h.currentDoc());
 		expect(afterAdd).toHaveLength(1);
 		expect(afterAdd[0]?.kind).toBe("simple");
 
 		// Convert simple → advanced. The new body carries a free-form
 		// predicate; the SA preserves uuid + name + label + type +
 		// default across the call.
-		const toAdvancedResult = await updateSearchInputTool.execute(
-			{
-				moduleUuid,
-				searchInputUuid: inputUuid,
-				searchInput: {
-					kind: "advanced",
-					name: "patient_name",
-					label: "Patient name",
-					type: "text",
-					default: term(literal("Alice")),
-					predicate: matchAll(),
-				},
+		const toAdvancedResult = await h.runTool(updateSearchInputTool, {
+			moduleUuid,
+			searchInputUuid: inputUuid,
+			searchInput: {
+				kind: "advanced",
+				name: "patient_name",
+				label: "Patient name",
+				type: "text",
+				default: term(literal("Alice")),
+				predicate: matchAll(),
 			},
-			ctx,
-			addResult.newDoc,
-		);
+		});
 		if ("error" in toAdvancedResult.result) {
 			throw new Error(
 				`simple → advanced failed: ${toAdvancedResult.result.error}`,
 			);
 		}
-		const advanced = collectSearchInputs(toAdvancedResult.newDoc)[0];
+		const advanced = collectSearchInputs(h.currentDoc())[0];
 		if (!advanced) throw new Error("missing input after simple → advanced");
 		expect(advanced.kind).toBe("advanced");
 		expect(advanced.uuid).toBe(inputUuid);
@@ -905,28 +876,24 @@ describe("SearchInputDef exact four-arm round-trip", () => {
 		// the simple-arm body shape; the advanced predicate is
 		// dropped on the conversion (the advanced and simple arms
 		// are distinct unions — there is no shared "predicate" slot).
-		const toSimpleResult = await updateSearchInputTool.execute(
-			{
-				moduleUuid,
-				searchInputUuid: inputUuid,
-				searchInput: {
-					kind: "simple",
-					name: "patient_name",
-					label: "Patient name",
-					type: "text",
-					property: "full_name",
-					default: term(literal("Alice")),
-				},
+		const toSimpleResult = await h.runTool(updateSearchInputTool, {
+			moduleUuid,
+			searchInputUuid: inputUuid,
+			searchInput: {
+				kind: "simple",
+				name: "patient_name",
+				label: "Patient name",
+				type: "text",
+				property: "full_name",
+				default: term(literal("Alice")),
 			},
-			ctx,
-			toAdvancedResult.newDoc,
-		);
+		});
 		if ("error" in toSimpleResult.result) {
 			throw new Error(
 				`advanced → simple failed: ${toSimpleResult.result.error}`,
 			);
 		}
-		const simple = collectSearchInputs(toSimpleResult.newDoc)[0];
+		const simple = collectSearchInputs(h.currentDoc())[0];
 		if (!simple) throw new Error("missing input after advanced → simple");
 		expect(simple.kind).toBe("simple");
 		expect(simple.uuid).toBe(inputUuid);
@@ -1125,7 +1092,6 @@ describe("sort-priority collision admission", () => {
 		// the second `updateCaseListColumn` that would land a duplicate
 		// priority fails the call with the validator's actionable
 		// message and leaves the doc untouched.
-		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const startDoc = buildDoc({
 			appId: APP_ID,
 			modules: [
@@ -1153,38 +1119,31 @@ describe("sort-priority collision admission", () => {
 			],
 		});
 		const moduleUuid = startDoc.moduleOrder[0];
+		const h = makeToolWorkspaceHarness(startDoc, { appId: APP_ID });
 
-		const firstUpdate = await updateCaseListColumnTool.execute(
-			{
-				moduleUuid,
-				columnUuid: colFirstUuid,
-				column: {
-					kind: "plain",
-					field: "case_name",
-					header: "Patient",
-					sort: { direction: "asc", priority: 0 },
-				},
+		const firstUpdate = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid,
+			columnUuid: colFirstUuid,
+			column: {
+				kind: "plain",
+				field: "case_name",
+				header: "Patient",
+				sort: { direction: "asc", priority: 0 },
 			},
-			ctx,
-			startDoc,
-		);
+		});
 		if ("error" in firstUpdate.result) {
 			throw new Error(`first update failed: ${firstUpdate.result.error}`);
 		}
-		const secondUpdate = await updateCaseListColumnTool.execute(
-			{
-				moduleUuid,
-				columnUuid: colSecondUuid,
-				column: {
-					kind: "plain",
-					field: "age",
-					header: "Age",
-					sort: { direction: "desc", priority: 0 },
-				},
+		const secondUpdate = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid,
+			columnUuid: colSecondUuid,
+			column: {
+				kind: "plain",
+				field: "age",
+				header: "Age",
+				sort: { direction: "desc", priority: 0 },
 			},
-			ctx,
-			firstUpdate.newDoc,
-		);
+		});
 		// The colliding write is rejected with the rule's actionable
 		// message — the SA renumbers and retries rather than landing a
 		// silent ordering ambiguity.
@@ -1195,7 +1154,7 @@ describe("sort-priority collision admission", () => {
 		expect(secondUpdate.mutations).toEqual([]);
 		// The doc after the rejected call still carries only the FIRST
 		// column's sort — the collision never landed.
-		const finalCols = collectColumns(secondUpdate.newDoc);
+		const finalCols = collectColumns(h.currentDoc());
 		expect(finalCols[0]?.sort?.priority).toBe(0);
 		expect(finalCols[1]?.sort).toBeUndefined();
 	});

@@ -4,9 +4,9 @@
  * Verifies the adapter's five load-bearing behaviors:
  *   - Read / mutating result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
- *     hard invariant that the adapter does NOT re-persist: the fake
- *     tool's `ctx.recordMutations` call is tracked and the adapter
- *     must not call it itself.
+ *     hard invariant that the adapter does NOT re-persist: the
+ *     workspace's one host `recordMutations` call is tracked and the
+ *     adapter must not add another.
  *   - Ownership failures short-circuit before the tool executes and
  *     route through `toMcpErrorResult`.
  *   - `logWriter.flush()` is awaited even when the tool throws.
@@ -26,18 +26,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
-import {
-	type PreparedMutationCandidate,
-	prepareMutationCandidate,
-} from "@/lib/doc/commitVerdicts";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -416,48 +412,58 @@ describe("registerSharedTool — exact refined input schema", () => {
 });
 
 describe("registerSharedTool — mutating tools", () => {
-	it("extracts result.result and does NOT re-persist mutations", async () => {
-		/* The fake mutating tool records whether the adapter called
-		 * `ctx.recordMutations` after the tool itself did. The invariant
-		 * we're guarding against is double-persistence: every shared
-		 * mutating tool already persists in its own body, so the adapter
-		 * must not call recordMutations again. */
-		const recordedByAdapter: Mutation[][] = [];
-		let toolSawRecordMutations = false;
+	it("extracts result.result and persists exactly once through the host", async () => {
+		/* The fake mutating tool commits through the invocation context's
+		 * `applyBatch` — the one write path a tool has. The invariant we're
+		 * guarding against is double-persistence: the workspace routes the
+		 * accepted batch to the host's `recordMutations` exactly once, and the
+		 * adapter must never re-persist on top. */
+		const recordedByHost: Mutation[][] = [];
+		let toolSawAcceptedCommit = false;
 
 		const mut: Mutation = { kind: "setAppName", name: "x" };
 
 		const writeTool: SharedToolModule = {
 			description: "mut",
 			inputSchema: z.object({ val: z.string() }),
-			async execute(_input, ctx: ToolExecutionContext, doc: BlueprintDoc) {
-				/* Simulate what every shared mutating tool does: call
-				 * recordMutations inside its own body. */
-				await ctx.recordMutations(
-					prepareMutationCandidate(doc, admitMutationBatch([mut])),
-					"stage:x",
-				);
-				toolSawRecordMutations = true;
+			async execute(_input, ctx: ToolInvocationContext) {
+				/* Simulate what every shared mutating tool does: commit its
+				 * batch through the workspace's one write path. */
+				const outcome = await ctx.applyBatch({
+					mutations: [mut],
+					stage: "stage:x",
+				});
+				toolSawAcceptedCommit = outcome.ok;
 				const result: MutatingToolResult<{ ok: true }> = {
 					kind: "mutate",
 					mutations: [mut],
-					newDoc: doc,
 					result: { ok: true },
 				};
 				return result;
 			},
 		};
 
+		/* The workspace gate is the real whole-document verdict, so the loaded
+		 * doc must be a valid app — an empty blueprint's pre-existing findings
+		 * would reject the unrelated rename. */
+		const doc = caseWriteAdapterBlueprint();
+		const { fieldParent: _derived, ...persisted } = doc;
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({
+				app_name: doc.appName,
+				blueprint: persisted as unknown as BlueprintDoc,
+			}),
+		);
+
 		/* Patch McpContext.recordMutations on its prototype so we can see
-		 * every call from both the tool AND (if any) the adapter. The
-		 * tool's call should fire once; the adapter's call should never
-		 * fire. */
+		 * every call from both the workspace AND (if any) the adapter. The
+		 * workspace's call should fire once; the adapter must add none. */
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
 		McpContext.prototype.recordMutations = vi
 			.fn()
 			.mockImplementation(async (prepared: PreparedMutationCandidate) => {
-				recordedByAdapter.push([...prepared.mutations]);
+				recordedByHost.push([...prepared.mutations]);
 				return { events: [], committedDoc: prepared.nextDoc };
 			});
 
@@ -469,15 +475,15 @@ describe("registerSharedTool — mutating tools", () => {
 				content: Array<{ type: "text"; text: string }>;
 			};
 
-			expect(toolSawRecordMutations).toBe(true);
-			/* Exactly ONE recordMutations call — from inside the tool.
-			 * This counts calls across BOTH paths: if a future contributor
-			 * adds adapter-side `ctx.recordMutations`, this length jumps to
+			expect(toolSawAcceptedCommit).toBe(true);
+			/* Exactly ONE recordMutations call — from the workspace's accepted
+			 * commit. This counts calls across BOTH paths: if a future
+			 * contributor adds adapter-side persistence, this length jumps to
 			 * 2 and the test fails. It's the guardrail for the "no
 			 * double-persistence" invariant documented at the top of
 			 * `sharedToolAdapter.ts`. */
-			expect(recordedByAdapter).toHaveLength(1);
-			expect(recordedByAdapter[0]).toEqual([mut]);
+			expect(recordedByHost).toHaveLength(1);
+			expect(recordedByHost[0]).toEqual([mut]);
 
 			/* Payload is the unwrapped `result.result` — not the full
 			 * MutatingToolResult. */
@@ -658,11 +664,9 @@ describe("projectResult — direct", () => {
 	});
 
 	it("unwraps a `mutate` result to its `result` field", () => {
-		const newDoc = mockBlueprint() as unknown as BlueprintDoc;
 		const raw: MutatingToolResult<{ ok: true }> = {
 			kind: "mutate",
 			mutations: [{ kind: "setAppName", name: "x" }],
-			newDoc,
 			result: { ok: true },
 		};
 		expect(projectResult(raw)).toEqual({ ok: true });

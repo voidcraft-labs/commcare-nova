@@ -3,7 +3,7 @@
  * subtrees) from the app.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. The reducer cascades deletion
+ * shared `ToolInvocationContext` interface. The reducer cascades deletion
  * to every form under the module and every field under those forms —
  * the entire subtree is dropped atomically.
  *
@@ -32,9 +32,8 @@
 import type { z } from "zod";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
 import { removeModuleMutations } from "../blueprintHelpers";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -61,10 +60,10 @@ export const removeModuleTool = {
 	inputSchema: removeModuleInputSchema,
 	async execute(
 		input: RemoveModuleInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveModuleResult>> {
 		const { moduleUuid: rawModuleUuid } = input;
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveModuleAddress(doc, input);
 
@@ -78,7 +77,6 @@ export const removeModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: `Module ${rawModuleUuid} does not exist — no change. App has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`,
 				};
 			}
@@ -100,7 +98,6 @@ export const removeModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: retirement.message },
 				};
 			}
@@ -111,7 +108,6 @@ export const removeModuleTool = {
 			];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:remove:${moduleUuid}`,
 			);
@@ -119,7 +115,6 @@ export const removeModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -128,7 +123,6 @@ export const removeModuleTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully removed module "${name}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${retirement.kind === "retire" ? ` Case type "${retirement.caseType}" had no other module or reference, so its record was retired from the catalog.` : ""}`,
 					// `name` is snapshotted off the pre-mutation doc and can be
@@ -138,7 +132,7 @@ export const removeModuleTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

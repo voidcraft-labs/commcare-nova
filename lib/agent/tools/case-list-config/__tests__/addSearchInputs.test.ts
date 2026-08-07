@@ -21,7 +21,7 @@ import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
 import { addSearchInputsTool } from "../addSearchInputs";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -64,27 +64,22 @@ function withCaseList(doc: BlueprintDoc): BlueprintDoc {
 
 describe("addSearchInputs", () => {
 	it("appends a simple-arm search input with a freshly minted uuid", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const doc = withCaseList(baseDoc);
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
+		await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs).toHaveLength(1);
 		const input = inputs[0];
 		expect(input?.kind).toBe("simple");
@@ -95,31 +90,26 @@ describe("addSearchInputs", () => {
 	});
 
 	it("adds multiple inputs in one call, in order, in a single mutation", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const doc = withCaseList(baseDoc);
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-					{
-						kind: "advanced",
-						name: "active_only",
-						label: "Active only",
-						type: "text",
-						predicate: matchAll(),
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
+		const result = await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+				{
+					kind: "advanced",
+					name: "active_only",
+					label: "Active only",
+					type: "text",
+					predicate: matchAll(),
+				},
+			],
+		});
 
 		// First search authoring also creates the one empty chrome config that
 		// makes the search surface real on export, followed by one granular add
@@ -134,36 +124,31 @@ describe("addSearchInputs", () => {
 			patch: {},
 		});
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((i) => i.kind)).toEqual(["simple", "advanced"]);
-		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({});
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toEqual({});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.uuids).toEqual(inputs.map((i) => i.uuid));
 	});
 
 	it("appends an advanced-arm search input with a freshly minted uuid", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const doc = withCaseList(baseDoc);
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
 		const predicate = matchAll();
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "advanced",
-						name: "active_only",
-						label: "Active only",
-						type: "text",
-						predicate,
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "advanced",
+					name: "active_only",
+					label: "Active only",
+					type: "text",
+					predicate,
+				},
+			],
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs).toHaveLength(1);
 		const input = inputs[0];
 		expect(input?.kind).toBe("advanced");
@@ -173,35 +158,30 @@ describe("addSearchInputs", () => {
 	});
 
 	it("surfaces each new uuid in the structured result and the message", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const doc = withCaseList(baseDoc);
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
+		const result = await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		const newInput =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs[0];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0];
 		expect(result.result.uuids[0]).toBe(newInput?.uuid);
 		expect(result.result.message).toContain("Name");
 	});
 
 	it("preserves columns and filter when adding a search input", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const seededColumn = plainColumn(
 			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"case_name",
@@ -222,32 +202,28 @@ describe("addSearchInputs", () => {
 			},
 		};
 
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-				],
-			},
-			ctx,
-			docWithConfig,
-		);
+		const h = makeCaseListFixture(docWithConfig);
+		await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		});
 
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const final = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(final?.columns).toEqual([seededColumn]);
 		expect(final?.filter).toEqual(seededFilter);
 	});
 
 	it("enables Search while preserving a fresh owner-only availability rule", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const owner = term(literal("owner-a"));
-		const caseListDoc = withCaseList(baseDoc);
+		const caseListDoc = withCaseList(makeCaseListDoc());
 		const ownerOnlyDoc: BlueprintDoc = {
 			...caseListDoc,
 			modules: {
@@ -260,49 +236,42 @@ describe("addSearchInputs", () => {
 				},
 			},
 		};
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-				],
-			},
-			ctx,
-			ownerOnlyDoc,
-		);
+		const h = makeCaseListFixture(ownerOnlyDoc);
+		const result = await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		});
 		expect(result.mutations[0]).toMatchObject({
 			kind: "updateModule",
 			caseSearchConfigOperation: "enable",
 		});
-		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toEqual({
 			excludedOwnerIds: owner,
 		});
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { doc, ctx } = makeCaseListFixture();
-		const result = await addSearchInputsTool.execute(
-			{
-				moduleUuid: testUuid("unknown-module"),
-				searchInputs: [
-					{
-						kind: "simple",
-						name: "name_search",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addSearchInputsTool, {
+			moduleUuid: testUuid("unknown-module"),
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

@@ -104,10 +104,10 @@ import { compileForPlatform } from "../compileForPlatform";
 //   - `makeCaseSearchFixture` (imported from
 //     `@/lib/agent/tools/case-search-config/__tests__/fixtures`) —
 //     the SA tool round-trip fixture used by Section 3. The SA tools
-//     need a paired `GenerationContext` shim (vi.fn-stubbed SSE
-//     writer + log writer) and the wholesale-replace contract is
-//     best demonstrated starting from an empty `caseSearchConfig` so
-//     each `set*` call's slot-set is observable.
+//     run through a canonical tool workspace over a stub host, and
+//     the wholesale-replace contract is best demonstrated starting
+//     from an empty `caseSearchConfig` so each `set*` call's
+//     slot-set is observable.
 //
 // `buildSearchBlueprint` exercises every slot the case-search
 // authoring surface introduces:
@@ -385,29 +385,25 @@ describe("case-search integration — validator surface", () => {
 // preserves the OTHER cluster byte-identically. The fine-grained
 // preservation tests live in each tool's dedicated test file. This
 // layer confirms the contract holds when both tools fire in
-// sequence on the same context, simulating the SA's typical
+// sequence on the same workspace, simulating the SA's typical
 // authoring flow.
 
 describe("case-search integration — SA tool round-trip", () => {
 	it("chains setCaseSearchDisplay then setCaseSearchAdvanced — both clusters land, neither clobbers the other", async () => {
 		// Boot the SA fixture's minimal one-module doc — the tool tests'
-		// established context. Calls run through the chat-side
-		// `GenerationContext`; the cross-surface MCP parity is pinned in
-		// each tool's own file.
-		const { doc, ctx } = makeCaseSearchFixture();
+		// established starting state. Calls run through a canonical
+		// workspace over the chat-shaped stub host; the cross-surface MCP
+		// parity is pinned in each tool's own file.
+		const h = makeCaseSearchFixture();
 
 		// Step 1 — set the display cluster.
-		const r1 = await setCaseSearchDisplayTool.execute(
-			{
-				moduleUuid: MOD_A,
-				searchScreenTitle: "Find a patient",
-				searchScreenSubtitle: null,
-				searchButtonLabel: "Search",
-				searchButtonDisplayCondition: matchAll(),
-			},
-			ctx,
-			doc,
-		);
+		const r1 = await h.runTool(setCaseSearchDisplayTool, {
+			moduleUuid: MOD_A,
+			searchScreenTitle: "Find a patient",
+			searchScreenSubtitle: null,
+			searchButtonLabel: "Search",
+			searchButtonDisplayCondition: matchAll(),
+		});
 		expect(r1.kind).toBe("mutate");
 		if ("error" in r1.result) {
 			throw new Error(`unexpected error: ${r1.result.error}`);
@@ -416,17 +412,14 @@ describe("case-search integration — SA tool round-trip", () => {
 		expect(r1.result.displaySlotsSet).toContain("searchButtonLabel");
 
 		// Step 2 — set the advanced cluster against the doc that
-		// just received the display update. The advanced tool must
-		// preserve the display labels written in Step 1.
+		// just received the display update. The workspace already holds
+		// Step 1's commit, so the advanced tool reads it and must
+		// preserve the display labels written there.
 		const excluded = term(literal("owner-x"));
-		const r2 = await setCaseSearchAdvancedTool.execute(
-			{
-				moduleUuid: MOD_A,
-				excludedOwnerIds: excluded,
-			},
-			ctx,
-			r1.newDoc,
-		);
+		const r2 = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: excluded,
+		});
 		expect(r2.kind).toBe("mutate");
 		if ("error" in r2.result) {
 			throw new Error(`unexpected error: ${r2.result.error}`);
@@ -434,8 +427,9 @@ describe("case-search integration — SA tool round-trip", () => {
 		expect(r2.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
 
 		// Final state — both clusters present.
-		const moduleUuid = r2.newDoc.moduleOrder[0];
-		const config = r2.newDoc.modules[moduleUuid]?.caseSearchConfig;
+		const finalDoc = h.currentDoc();
+		const moduleUuid = finalDoc.moduleOrder[0];
+		const config = finalDoc.modules[moduleUuid]?.caseSearchConfig;
 		if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) {
 			throw new Error("expected ordinary Search configuration");
 		}
@@ -453,18 +447,14 @@ describe("case-search integration — SA tool round-trip", () => {
 		// `moduleNotFoundResult` wiring routes through the integration
 		// path. Per-tool coverage of this arm lives in each tool's own
 		// test file.
-		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchDisplayTool.execute(
-			{
-				moduleUuid: testUuid("99999999-9999-4999-8999-999999999999"),
-				searchScreenTitle: null,
-				searchScreenSubtitle: null,
-				searchButtonLabel: null,
-				searchButtonDisplayCondition: null,
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseSearchFixture();
+		const result = await h.runTool(setCaseSearchDisplayTool, {
+			moduleUuid: testUuid("99999999-9999-4999-8999-999999999999"),
+			searchScreenTitle: null,
+			searchScreenSubtitle: null,
+			searchButtonLabel: null,
+			searchButtonDisplayCondition: null,
+		});
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}

@@ -29,47 +29,29 @@ import { proseText } from "@/lib/domain/prose";
  *     rejected (pinned here) — the same single rule as everything else.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
+} from "@/lib/agent/__tests__/fixtures";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
 
-/** Bare ctx stub — `recordMutations` is the persistence assertion surface. The
- *  guarded writer returns `{ events, committedDoc }`; echo the passed
- *  post-mutation doc as the committed doc so the tool's `newDoc` reflects it. */
-function makeCtx() {
-	const recordMutations = vi.fn(
-		async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const recordMutationStages = vi.fn(
-		async (
-			prepared: PreparedMutationCandidate,
-			_stages: AdmittedMutationStages,
-		) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const ctx: ToolExecutionContext = {
+/** Canonical workspace over a stub host — `recordMutations` is the persistence
+ *  assertion surface, and the workspace adopts each commit so consecutive tool
+ *  calls compose against the committed document. */
+function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
+	return makeToolWorkspaceHarness(initialDoc, {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
-		recordMutations,
-		recordMutationStages,
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
-	return { ctx, recordMutations };
+	});
 }
 
 /** Valid registration baseline: one patient module writing two properties. */
@@ -168,23 +150,19 @@ function formAddress(doc: BlueprintDoc, formIndex = 0) {
 
 describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is the repair", () => {
 	it("createForm(registration) on a case-typeless module fails the call, nothing persisted", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = caseTypelessDoc();
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				name: "Register",
-				type: "registration",
-				fields: [
-					{ kind: "text", id: "case_name", label: proseText("Name") } as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeHarness(doc);
+		const out = await h.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Register",
+			type: "registration",
+			fields: [
+				{ kind: "text", id: "case_name", label: proseText("Name") } as never,
+			],
+		});
 		expect("error" in out.result && out.result.error).toContain("case_type");
 		expect(out.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("updateModule with neither name nor case_type returns the corrective error, not a fake success", async () => {
@@ -193,74 +171,67 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		// the tool body owns the rejection. Without this branch, a no-op
 		// call would report "Successfully updated" for an edit that never
 		// happened.
-		const { ctx, recordMutations } = makeCtx();
 		const doc = caseTypelessDoc();
-		const out = await updateModuleTool.execute(moduleAddress(doc), ctx, doc);
+		const h = makeHarness(doc);
+		const out = await h.runTool(updateModuleTool, moduleAddress(doc));
 		expect("error" in out.result && out.result.error).toContain(
 			"Nothing to update",
 		);
 		expect(out.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("updateModule sets case_type (with the columns the flip obliges), after which the same createForm commits", async () => {
-		const { ctx } = makeCtx();
 		const doc = caseTypelessDoc();
+		const h = makeHarness(doc);
 
 		/* The flip alone would introduce MISSING_CASE_LIST_COLUMNS (the
 		 * module has a form), so the columns ride the same call — the
 		 * rejection's findings are satisfiable without a second tool. */
-		const bare = await updateModuleTool.execute(
-			{ ...moduleAddress(doc), case_type: "respondent" },
-			ctx,
-			doc,
-		);
+		const bare = await h.runTool(updateModuleTool, {
+			...moduleAddress(doc),
+			case_type: "respondent",
+		});
 		expect("error" in bare.result).toBe(true);
+		// A rejected call leaves the workspace on its exact prior document.
+		expect(h.currentDoc()).toBe(doc);
 
 		const columnUuid = testUuid("update-module-seeded-column");
-		const fixed = await updateModuleTool.execute(
-			{
-				...moduleAddress(doc),
-				case_type: "respondent",
-				case_list_columns: [
-					{
-						columnUuid,
-						kind: "plain",
-						field: "case_name",
-						header: "Name",
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const fixed = await h.runTool(updateModuleTool, {
+			...moduleAddress(doc),
+			case_type: "respondent",
+			case_list_columns: [
+				{
+					columnUuid,
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				} as never,
+			],
+		});
 		expect("message" in fixed.result).toBe(true);
 		if (!("columns" in fixed.result)) throw new Error("expected success");
 		expect(fixed.result.columns).toEqual([{ uuid: columnUuid }]);
 
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(fixed.newDoc),
-				name: "Register",
-				type: "registration",
-				fields: [
-					{
-						kind: "text",
-						id: "case_name",
-						label: proseText("Name"),
-						caseWrite: { caseType: "respondent", property: "case_name" },
-					} as never,
-					{
-						kind: "text",
-						id: "village",
-						label: proseText("Village"),
-						caseWrite: { caseType: "respondent", property: "village" },
-					} as never,
-				],
-			},
-			ctx,
-			fixed.newDoc,
-		);
+		const out = await h.runTool(createFormTool, {
+			...moduleAddress(h.currentDoc()),
+			name: "Register",
+			type: "registration",
+			fields: [
+				{
+					kind: "text",
+					id: "case_name",
+					label: proseText("Name"),
+					caseWrite: { caseType: "respondent", property: "case_name" },
+				} as never,
+				{
+					kind: "text",
+					id: "village",
+					label: proseText("Village"),
+					caseWrite: { caseType: "respondent", property: "village" },
+				} as never,
+			],
+		});
 		expect("message" in out.result).toBe(true);
 	});
 
@@ -270,27 +241,24 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		// `declareCaseType` — otherwise the seeded Name column's `case_name`
 		// can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`) and the gate rejects,
 		// so the SA/MCP could not do what the builder gesture does.
-		const { ctx, recordMutations } = makeCtx();
 		const doc = caseTypelessDoc();
-		const out = await updateModuleTool.execute(
-			{
-				...moduleAddress(doc),
-				case_type: "household",
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeHarness(doc);
+		const out = await h.runTool(updateModuleTool, {
+			...moduleAddress(doc),
+			case_type: "household",
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Name" } as never,
+			],
+		});
 		expect("message" in out.result).toBe(true);
-		expect(recordMutations).toHaveBeenCalled();
+		expect(h.recordMutations).toHaveBeenCalled();
+		const committed = h.currentDoc();
 		// The new type landed in the catalog…
 		expect(
-			(out.newDoc.caseTypes ?? []).some((ct) => ct.name === "household"),
+			(committed.caseTypes ?? []).some((ct) => ct.name === "household"),
 		).toBe(true);
 		// …and the module carries it.
-		expect(Object.values(out.newDoc.modules)[0]?.caseType).toBe("household");
+		expect(Object.values(committed.modules)[0]?.caseType).toBe("household");
 	});
 });
 
@@ -318,26 +286,22 @@ describe("case-create name completeness — the gate owns it", () => {
 
 describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => {
 	it("addFields with a case-bound reserved property name fails the call", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = minDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...formAddress(doc),
-				fields: [
-					// `date` is on CommCare's reserved case-property list.
-					{
-						kind: "date",
-						id: "date",
-						label: proseText("Date"),
-						caseWrite: { caseType: "patient", property: "date" },
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...formAddress(doc),
+			fields: [
+				// `date` is on CommCare's reserved case-property list.
+				{
+					kind: "date",
+					id: "date",
+					label: proseText("Date"),
+					caseWrite: { caseType: "patient", property: "date" },
+				} as never,
+			],
+		});
 		expect("error" in out.result && out.result.error).toContain("reserved");
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });
 
@@ -446,24 +410,20 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 
 describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 	it("the SA add path skips a single_select whose options are missing (assembly fails the domain schema)", async () => {
-		const { ctx } = makeCtx();
 		const doc = minDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...formAddress(doc),
-				fields: [
-					{
-						kind: "single_select",
-						id: "choice",
-						label: proseText("Choice"),
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeHarness(doc);
+		await h.runTool(addFieldsTool, {
+			...formAddress(doc),
+			fields: [
+				{
+					kind: "single_select",
+					id: "choice",
+					label: proseText("Choice"),
+				} as never,
+			],
+		});
 		// The field never assembles — no select entity lands on the doc.
-		const landed = Object.values(out.newDoc.fields).find(
+		const landed = Object.values(h.currentDoc().fields).find(
 			(fl) => fl.id === "choice",
 		);
 		expect(landed).toBeUndefined();
@@ -626,20 +586,16 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 
 describe("field-id format fixes — rejected at source", () => {
 	it("INVALID_FIELD_ID: an XML-illegal id never enters through addFields (identifier verdict)", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = minDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...formAddress(doc),
-				fields: [
-					{ kind: "text", id: "bad id!", label: proseText("Bad") } as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			...formAddress(doc),
+			fields: [
+				{ kind: "text", id: "bad id!", label: proseText("Bad") } as never,
+			],
+		});
 		expect("error" in out.result && out.result.error).toContain("bad id!");
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("rejects an XML-legal but property-illegal caseWrite destination at the input boundary", () => {

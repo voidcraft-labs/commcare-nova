@@ -14,9 +14,9 @@
  */
 
 import type { z } from "zod";
-import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
+import type { CaseSearchConfig } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -69,16 +69,15 @@ export const setCaseSearchDisplayTool = {
 	inputSchema: setCaseSearchDisplayInputSchema,
 	async execute(
 		input: SetCaseSearchDisplayInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetCaseSearchDisplayResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveModuleAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -110,7 +109,6 @@ export const setCaseSearchDisplayTool = {
 			});
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}:caseSearch:display`,
 			);
@@ -118,11 +116,9 @@ export const setCaseSearchDisplayTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			// Derive the message from the same slot tuple. A new entry
 			// on `DISPLAY_SLOT_NAMES` flows through verbatim.
@@ -131,7 +127,6 @@ export const setCaseSearchDisplayTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message:
 						displaySlotsSet.length === 0
@@ -142,7 +137,7 @@ export const setCaseSearchDisplayTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

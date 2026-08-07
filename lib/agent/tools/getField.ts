@@ -18,7 +18,7 @@ import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { unwrittenPropertiesReminder } from "../systemReminder";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
 	fieldAddressSchema,
@@ -65,9 +65,9 @@ export const getFieldTool = {
 	inputSchema: getFieldInputSchema,
 	async execute(
 		input: GetFieldInput,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetFieldResult>> {
+		const doc = ctx.snapshot.doc;
 		const resolved = resolveFieldAddress(doc, input);
 		if (!resolved.ok) {
 			return { kind: "read", data: { error: resolved.error } };

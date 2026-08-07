@@ -16,7 +16,7 @@ import type {
 import { caseOperationSchema } from "@/lib/domain";
 import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { makeStubToolContext } from "../../../__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";
 import {
 	addCaseOperationsInputSchema,
@@ -329,20 +329,20 @@ describe("case-operation canonical author boundary", () => {
 describe("shared case-operation tools", () => {
 	it("adds a UUID-predeclared dependent batch atomically", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const result = await addCaseOperationsTool.execute(
-			{ moduleUuid, formUuid, operations: visitBatch() },
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
 
 		expect(result.result).toMatchObject({
 			operationUuids: [CREATE_UUID, UPDATE_UUID],
 			operationIds: ["create_visit", "tag_visit"],
 			summary: { location: "Edit", count: 2 },
 		});
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const operations = result.newDoc.forms[formUuid].caseOperations ?? [];
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const operations = h.currentDoc().forms[formUuid].caseOperations ?? [];
 		expect(operations).toHaveLength(2);
 		expect(operations[0]).toMatchObject({
 			uuid: CREATE_UUID,
@@ -362,17 +362,16 @@ describe("shared case-operation tools", () => {
 
 	it("returns canonical UUID references from both read tools", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{ moduleUuid, formUuid, operations: visitBatch() },
-			ctx,
-			doc,
-		);
-		const read = await getCaseOperationsTool.execute(
-			{ moduleUuid, formUuid },
-			ctx,
-			added.newDoc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
+		const read = await h.runTool(getCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+		});
 		const json = JSON.stringify(
 			(read.data as { operations: readonly unknown[] }).operations,
 		);
@@ -382,42 +381,32 @@ describe("shared case-operation tools", () => {
 		expect(json).not.toContain('"path"');
 		expect(json).not.toContain('"operationId"');
 
-		const formRead = await getFormTool.execute(
-			{ moduleUuid, formUuid },
-			ctx,
-			added.newDoc,
-		);
+		const formRead = await h.runTool(getFormTool, { moduleUuid, formUuid });
 		const formOperations =
 			"form" in formRead.data ? formRead.data.form.caseOperations : undefined;
-		expect(formOperations).toEqual(added.newDoc.forms[formUuid].caseOperations);
+		expect(formOperations).toEqual(
+			h.currentDoc().forms[formUuid].caseOperations,
+		);
 	});
 
 	it("updates through granular patches with no whole-operation fallback", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [item(createVisit, CREATE_UUID)],
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(createVisit, CREATE_UUID)],
+		});
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+			operation: {
+				...createVisit,
+				id: "create_encounter",
+				condition: { kind: "match-all" },
 			},
-			ctx,
-			doc,
-		);
-		const result = await updateCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationUuid: CREATE_UUID,
-				operation: {
-					...createVisit,
-					id: "create_encounter",
-					condition: { kind: "match-all" },
-				},
-			},
-			ctx,
-			added.newDoc,
-		);
+		});
 
 		expect(result.mutations).toEqual([
 			expect.objectContaining({
@@ -444,31 +433,27 @@ describe("shared case-operation tools", () => {
 
 	it("retargets across case types atomically", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{ moduleUuid, formUuid, operations: visitBatch() },
-			ctx,
-			doc,
-		);
-		recordMutations.mockClear();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
+		h.recordMutations.mockClear();
 
 		const desired = {
 			...updateVisit,
 			caseType: "patient",
 			target: { kind: "session" },
 		} as const satisfies CaseOperationInput;
-		const result = await updateCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationUuid: UPDATE_UUID,
-				operation: desired,
-			},
-			ctx,
-			added.newDoc,
-		);
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: UPDATE_UUID,
+			operation: desired,
+		});
 
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(
 			result.mutations.filter(
 				(mutation) =>
@@ -492,89 +477,73 @@ describe("shared case-operation tools", () => {
 
 	it("refuses removing or moving a producer past its dependent", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{ moduleUuid, formUuid, operations: visitBatch() },
-			ctx,
-			doc,
-		);
-		recordMutations.mockClear();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
+		h.recordMutations.mockClear();
 
-		const removed = await removeCaseOperationTool.execute(
-			{ moduleUuid, formUuid, operationUuid: CREATE_UUID },
-			ctx,
-			added.newDoc,
-		);
+		const removed = await h.runTool(removeCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+		});
 		expect(removed.result).toEqual(
 			expect.objectContaining({ error: expect.stringContaining("tag_visit") }),
 		);
 
-		const moved = await moveCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationUuid: CREATE_UUID,
-				afterOperationUuid: UPDATE_UUID,
-			},
-			ctx,
-			added.newDoc,
-		);
+		const moved = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+			afterOperationUuid: UPDATE_UUID,
+		});
 		expect(moved.result).toEqual(
 			expect.objectContaining({ error: expect.stringContaining("tag_visit") }),
 		);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("reports canonical UUID placement for a no-op move", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [item(createVisit, CREATE_UUID)],
-			},
-			ctx,
-			doc,
-		);
-		recordMutations.mockClear();
-		const moved = await moveCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationUuid: CREATE_UUID,
-				afterOperationUuid: null,
-			},
-			ctx,
-			added.newDoc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(createVisit, CREATE_UUID)],
+		});
+		h.recordMutations.mockClear();
+		const moved = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+			afterOperationUuid: null,
+		});
 		expect(moved.result).toMatchObject({
 			afterOperationUuid: null,
 			operationOrder: [CREATE_UUID],
 			message: 'Moved case operation "create_visit" to the beginning.',
 		});
 		expect(moved.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("surfaces an authoritative race instead of reporting success", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const setup = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [item(createVisit, CREATE_UUID)],
-			},
-			setup.ctx,
-			doc,
-		);
-		const stale = added.newDoc;
+		const setup = makeToolWorkspaceHarness(doc);
+		await setup.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(createVisit, CREATE_UUID)],
+		});
+		const stale = setup.currentDoc();
 		const fresh = produce(stale, (draft) => {
 			delete draft.forms[formUuid].caseOperations;
 		});
-		const { ctx, recordMutations } = makeStubToolContext();
-		recordMutations.mockImplementation(async (prepared) => {
+		const h = makeToolWorkspaceHarness(stale);
+		h.recordMutations.mockImplementation(async (prepared) => {
 			if (mutationTargetsInvalid(fresh, prepared.mutations)) {
 				throw new BlueprintCommitRejectedError(
 					"A peer changed this case operation first.",
@@ -584,18 +553,14 @@ describe("shared case-operation tools", () => {
 		});
 
 		await expect(
-			updateCaseOperationTool.execute(
-				{
-					moduleUuid,
-					formUuid,
-					operationUuid: CREATE_UUID,
-					operation: { ...createVisit, id: "create_encounter" },
-				},
-				ctx,
-				stale,
-			),
+			h.runTool(updateCaseOperationTool, {
+				moduleUuid,
+				formUuid,
+				operationUuid: CREATE_UUID,
+				operation: { ...createVisit, id: "create_encounter" },
+			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -667,57 +632,49 @@ describe("dependency refusals name the actual constraint", () => {
 				},
 			],
 		} as const satisfies CaseOperationInput;
-		const { ctx, recordMutations } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [item(retypeLead, RETYPE_UUID), item(tagLead, TAG_UUID)],
-			},
-			ctx,
-			doc,
-		);
-		recordMutations.mockClear();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(retypeLead, RETYPE_UUID), item(tagLead, TAG_UUID)],
+		});
+		h.recordMutations.mockClear();
 
-		const removed = await removeCaseOperationTool.execute(
-			{ moduleUuid, formUuid, operationUuid: RETYPE_UUID },
-			ctx,
-			added.newDoc,
-		);
+		const removed = await h.runTool(removeCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: RETYPE_UUID,
+		});
 		const removeError = (removed.result as { error: string }).error;
 		expect(removeError).toContain("kind of case");
 		expect(removeError).toContain("tag_lead");
 		expect(removeError).not.toContain("uses its result");
 
-		const moved = await moveCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationUuid: RETYPE_UUID,
-				afterOperationUuid: TAG_UUID,
-			},
-			ctx,
-			added.newDoc,
-		);
+		const moved = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: RETYPE_UUID,
+			afterOperationUuid: TAG_UUID,
+		});
 		const moveError = (moved.result as { error: string }).error;
 		expect(moveError).toContain("kind of case");
 		expect(moveError).not.toContain("reference");
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("still names a reference when that is what breaks", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const { ctx } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{ moduleUuid, formUuid, operations: visitBatch() },
-			ctx,
-			doc,
-		);
-		const removed = await removeCaseOperationTool.execute(
-			{ moduleUuid, formUuid, operationUuid: CREATE_UUID },
-			ctx,
-			added.newDoc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
+		const removed = await h.runTool(removeCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+		});
 		const error = (removed.result as { error: string }).error;
 		expect(error).toContain("uses its result");
 		expect(error).not.toContain("kind of case");

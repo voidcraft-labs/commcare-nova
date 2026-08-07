@@ -27,7 +27,7 @@ import {
 	type SelectOption,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { makeStubToolContext } from "../../__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -152,24 +152,20 @@ describe("editField — convert to single_select", () => {
 			kind: "text",
 			label: proseText("Specialist facility"),
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "facility"),
-				updates: {
-					kind: "single_select",
-					optionsSource: toolInlineOptions(
-						["clinic_a", "Clinic A"],
-						["clinic_b", "Clinic B"],
-					),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "facility"),
+			updates: {
+				kind: "single_select",
+				optionsSource: toolInlineOptions(
+					["clinic_a", "Clinic A"],
+					["clinic_b", "Clinic B"],
+				),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 
-		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
 		if (!after) throw new Error("converted field missing");
 		const options = inlineOptions(after);
@@ -215,19 +211,15 @@ describe("editField — convert to single_select", () => {
 			kind: "text",
 			label: proseText("Facility"),
 		});
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "facility"),
-				updates: { kind: "single_select" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "facility"),
+			updates: { kind: "single_select" },
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("options");
 		expect(result.result.error).toContain("same call");
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 	});
 
 	it("refuses a one-option seed (the select schemas need at least 2)", async () => {
@@ -236,21 +228,17 @@ describe("editField — convert to single_select", () => {
 			kind: "text",
 			label: proseText("Facility"),
 		});
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "facility"),
-				updates: {
-					kind: "single_select",
-					optionsSource: toolInlineOptions(["only", "Only"]),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "facility"),
+			updates: {
+				kind: "single_select",
+				optionsSource: toolInlineOptions(["only", "Only"]),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("mutation data was not canonical");
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 	});
 });
 
@@ -262,17 +250,13 @@ describe("editField — convert to hidden", () => {
 			label: proseText("Full name"),
 			hint: proseText("first and last"),
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "full_name"),
-				updates: { kind: "hidden", calculate: xp('concat("a", " ", "b")') },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "full_name"),
+			updates: { kind: "hidden", calculate: xp('concat("a", " ", "b")') },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const after = result.newDoc.fields[soleField(doc, "full_name").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "full_name").uuid];
 		expect(after?.kind).toBe("hidden");
 		expect((after as { calculate?: unknown }).calculate).toBeDefined();
 		expect((after as { label?: unknown }).label).toBeUndefined();
@@ -285,20 +269,16 @@ describe("editField — convert to hidden", () => {
 			kind: "text",
 			label: proseText("Full name"),
 		});
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "full_name"),
-				updates: { kind: "hidden" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "full_name"),
+			updates: { kind: "hidden" },
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		// The commit gate's HIDDEN_NO_VALUE finding carries the fix.
 		expect(result.result.error).toMatch(/calculate|default_value/);
-		expect(recordMutationStages).not.toHaveBeenCalled();
-		expect(result.newDoc).toBe(doc);
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toBe(doc);
 	});
 
 	it("lands text → hidden on a source default_value alone", async () => {
@@ -308,17 +288,13 @@ describe("editField — convert to hidden", () => {
 			label: proseText("Stage"),
 			default_value: '"intake"',
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "visit_stage"),
-				updates: { kind: "hidden" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "visit_stage"),
+			updates: { kind: "hidden" },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const after = result.newDoc.fields[soleField(doc, "visit_stage").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "visit_stage").uuid];
 		expect(after?.kind).toBe("hidden");
 		expect((after as { default_value?: unknown }).default_value).toBeDefined();
 	});
@@ -332,17 +308,13 @@ describe("editField — demotions", () => {
 			label: proseText("Sample"),
 			hint: proseText("scan the vial"),
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "sample_id"),
-				updates: { kind: "text" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "sample_id"),
+			updates: { kind: "text" },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const after = result.newDoc.fields[soleField(doc, "sample_id").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "sample_id").uuid];
 		expect(after?.kind).toBe("text");
 		expect(
 			after && "hint" in after && after.hint
@@ -361,17 +333,13 @@ describe("editField — demotions", () => {
 				["closed", "Closed"],
 			),
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "status"),
-				updates: { kind: "text" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "status"),
+			updates: { kind: "text" },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const after = result.newDoc.fields[soleField(doc, "status").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "status").uuid];
 		expect(after?.kind).toBe("text");
 		expect("optionsSource" in (after ?? {})).toBe(false);
 		expect(after && "label" in after).toBe(true);
@@ -433,28 +401,25 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "facility"),
-				updates: {
-					kind: "single_select",
-					optionsSource: toolInlineOptions(
-						["clinic_a", "Clinic A"],
-						["clinic_b", "Clinic B"],
-					),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "facility"),
+			updates: {
+				kind: "single_select",
+				optionsSource: toolInlineOptions(
+					["clinic_a", "Clinic A"],
+					["clinic_b", "Clinic B"],
+				),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.message).toContain('data_type is now "single_select"');
 
-		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
-		const entry = result.newDoc.caseTypes
-			?.find((ct) => ct.name === "patient")
+		const entry = h
+			.currentDoc()
+			.caseTypes?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "facility");
 		expect(entry?.data_type).toBe("single_select");
 		expect(
@@ -530,27 +495,23 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "status"),
-				updates: {
-					kind: "single_select",
-					optionsSource: toolInlineOptions(
-						["open", "Open"],
-						["closed", "Closed"],
-					),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "status"),
+			updates: {
+				kind: "single_select",
+				optionsSource: toolInlineOptions(
+					["open", "Open"],
+					["closed", "Closed"],
+				),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.message).toContain('"Follow up"');
 
 		// Both writers flipped; each converted select carries its OWN
 		// minted option identities.
-		const converted = Object.values(result.newDoc.fields).filter(
+		const converted = Object.values(h.currentDoc().fields).filter(
 			(fld) => fld.id === "status",
 		);
 		expect(converted).toHaveLength(2);
@@ -630,23 +591,19 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "sample_id"),
-				updates: {
-					kind: "single_select",
-					optionsSource: toolInlineOptions(["a", "A"], ["b", "B"]),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "sample_id"),
+			updates: {
+				kind: "single_select",
+				optionsSource: toolInlineOptions(["a", "A"], ["b", "B"]),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("barcode");
 		expect(result.result.error).toContain('"Lab intake"');
 		expect(result.result.error).toContain('kind="text"');
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 	});
 
 	it("a same-call caseWrite clear converts only the addressed field — no cascade for a destination it leaves", async () => {
@@ -715,30 +672,26 @@ describe("editField — demotions", () => {
 				fld.label !== undefined &&
 				proseTemplateText(fld.label) === "Status",
 		);
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "status"),
-				updates: {
-					kind: "single_select",
-					id: "local_status",
-					optionsSource: toolInlineOptions(
-						["open", "Open"],
-						["closed", "Closed"],
-					),
-					caseWrite: null,
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "status"),
+			updates: {
+				kind: "single_select",
+				id: "local_status",
+				optionsSource: toolInlineOptions(
+					["open", "Open"],
+					["closed", "Closed"],
+				),
+				caseWrite: null,
 			},
-			ctx,
-			doc,
-		);
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 
 		// The addressed field converted and unbound; the follow-up form's
 		// writer is untouched — the call decoupled the field from the
 		// property, so there was nothing to keep in agreement.
 		const addressed =
-			result.newDoc.fields[registerStatus?.uuid ?? ("" as never)];
+			h.currentDoc().fields[registerStatus?.uuid ?? ("" as never)];
 		expect(addressed?.kind).toBe("single_select");
 		expect(addressed?.id).toBe("local_status");
 		expect(addressed && fieldCaseWrite(addressed)).toBeUndefined();
@@ -758,7 +711,7 @@ describe("editField — demotions", () => {
 				}),
 			}),
 		]);
-		const peer = Object.values(result.newDoc.fields).find(
+		const peer = Object.values(h.currentDoc().fields).find(
 			(fld) => fld.id === "status" && fld.uuid !== registerStatus?.uuid,
 		);
 		expect(peer?.kind).toBe("text");
@@ -842,28 +795,24 @@ describe("editField — demotions", () => {
 		const patientForm = doc.formOrder[patientModule]?.[0];
 		if (!patientForm) throw new Error("fixture patient form missing");
 
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				moduleUuid: patientModule,
-				formUuid: patientForm,
-				fieldUuid: addressed.uuid,
-				updates: {
-					kind: "single_select",
-					id: "risk_score",
-					caseWrite: {
-						caseType: "patient",
-						property: "risk_score",
-					},
-					optionsSource: toolInlineOptions(["low", "Low"], ["high", "High"]),
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			moduleUuid: patientModule,
+			formUuid: patientForm,
+			fieldUuid: addressed.uuid,
+			updates: {
+				kind: "single_select",
+				id: "risk_score",
+				caseWrite: {
+					caseType: "patient",
+					property: "risk_score",
 				},
+				optionsSource: toolInlineOptions(["low", "Low"], ["high", "High"]),
 			},
-			ctx,
-			doc,
-		);
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 
-		expect(result.newDoc.fields[addressed.uuid]).toMatchObject({
+		expect(h.currentDoc().fields[addressed.uuid]).toMatchObject({
 			id: "risk_score",
 			kind: "single_select",
 			caseWrite: {
@@ -874,7 +823,7 @@ describe("editField — demotions", () => {
 		// Planning against the call's final pair carries the existing
 		// household writer across too; planning against the abandoned
 		// patient/score pair would leave this peer as text.
-		expect(result.newDoc.fields[targetPeer.uuid]?.kind).toBe("single_select");
+		expect(h.currentDoc().fields[targetPeer.uuid]?.kind).toBe("single_select");
 		expect(
 			result.mutations.some(
 				(mutation) =>
@@ -958,25 +907,22 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "language"),
-				updates: { kind: "multi_select" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "language"),
+			updates: { kind: "multi_select" },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(recordMutationStages).toHaveBeenCalledTimes(1);
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 
-		const converted = Object.values(result.newDoc.fields).find(
+		const converted = Object.values(h.currentDoc().fields).find(
 			(fld) => fld.id === "language",
 		);
 		expect(converted?.kind).toBe("multi_select");
 		// The declaration followed the writer — type flipped, options kept.
-		const entry = result.newDoc.caseTypes
-			?.find((ct) => ct.name === "patient")
+		const entry = h
+			.currentDoc()
+			.caseTypes?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "language");
 		expect(entry?.data_type).toBe("multi_select");
 		expect(
@@ -1038,21 +984,18 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "visit_note"),
-				updates: { kind: "hidden", calculate: xp("today()") },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "visit_note"),
+			updates: { kind: "hidden", calculate: xp("today()") },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
 
-		const after = result.newDoc.fields[soleField(doc, "visit_note").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "visit_note").uuid];
 		expect(after?.kind).toBe("hidden");
-		const entry = result.newDoc.caseTypes
-			?.find((ct) => ct.name === "patient")
+		const entry = h
+			.currentDoc()
+			.caseTypes?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "visit_note");
 		expect(entry?.data_type).toBe("text");
 		// The message reports the PINNED type, never "hidden" (not a data
@@ -1071,17 +1014,13 @@ describe("editField — demotions", () => {
 				["cough", "Cough"],
 			),
 		});
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc, "symptoms"),
-				updates: { kind: "multi_select" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc, "symptoms"),
+			updates: { kind: "multi_select" },
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const after = result.newDoc.fields[soleField(doc, "symptoms").uuid];
+		const after = h.currentDoc().fields[soleField(doc, "symptoms").uuid];
 		expect(after?.kind).toBe("multi_select");
 		const convertMut = result.mutations.find((m) => m.kind === "convertField");
 		expect(

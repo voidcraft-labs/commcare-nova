@@ -5,7 +5,7 @@
  * close condition (close forms only), refinement of an existing Connect
  * participant, and
  * post-submit navigation. Both the SA chat factory and the MCP adapter
- * call this through the shared `ToolExecutionContext` interface.
+ * call this through the shared `ToolInvocationContext` interface.
  *
  * Omission keeps, null clears: a slot left out keeps its current value;
  * an explicit `null` clears it (unconditional close again, post-submit
@@ -41,11 +41,7 @@
 import { z } from "zod";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import type {
-	BlueprintDoc,
-	ConnectConfig,
-	PostSubmitDestination,
-} from "@/lib/domain";
+import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
 import { asUuid, POST_SUBMIT_DESTINATIONS } from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import {
@@ -56,7 +52,7 @@ import {
 	closeConditionInputSchema,
 	connectFormPatchSchema,
 } from "../planningSchemas";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -119,9 +115,9 @@ export const updateFormTool = {
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateFormResult>> {
+		const doc = ctx.snapshot.doc;
 		const {
 			moduleUuid: rawModuleUuid,
 			formUuid: rawFormUuid,
@@ -140,7 +136,6 @@ export const updateFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -163,7 +158,6 @@ export const updateFormTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Field UUID "${close_condition.fieldUuid}" is not in form "${existing.name}".`,
 						},
@@ -186,7 +180,6 @@ export const updateFormTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error:
 								"CommCare Connect is not enabled. Use configureConnect/configure_connect with the complete nonempty participant set.",
@@ -197,7 +190,6 @@ export const updateFormTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error:
 								"This form is not a Connect participant. Use configureConnect/configure_connect to replace the complete participant set.",
@@ -208,7 +200,6 @@ export const updateFormTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error:
 								"Removing a form from Connect changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
@@ -228,7 +219,6 @@ export const updateFormTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error:
 								"Removing the form's final Connect section changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
@@ -250,7 +240,6 @@ export const updateFormTool = {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
-							newDoc: doc,
 							result: { error: enforced.error },
 						};
 					}
@@ -279,17 +268,11 @@ export const updateFormTool = {
 							),
 						]),
 			];
-			const commit = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				`form:${formUuid}`,
-			);
+			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -300,7 +283,6 @@ export const updateFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: commit.mutations,
-					newDoc,
 					result: {
 						error: `Form ${formUuid} not found after update`,
 					},
@@ -323,7 +305,6 @@ export const updateFormTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, UUID ${formUuid}). Changed: ${formChanges.join(", ")}.`,
 					summary: {
@@ -333,7 +314,7 @@ export const updateFormTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

@@ -29,9 +29,8 @@ import {
 	toWireMediaAsset,
 	type WireMediaAsset,
 } from "@/lib/db/mediaAssets";
-import type { BlueprintDoc } from "@/lib/domain";
 import { MEDIA_KINDS } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import { requireToolProjectId } from "./shared";
 
@@ -70,8 +69,7 @@ export const listMediaAssetsTool = {
 	inputSchema: listMediaAssetsInputSchema,
 	async execute(
 		input: ListMediaAssetsInput,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<ListMediaAssetsResult>> {
 		const projectId = await requireToolProjectId(ctx.appId);
 		const { assets, nextCursor } = await listReadyAssetsForProject(projectId, {

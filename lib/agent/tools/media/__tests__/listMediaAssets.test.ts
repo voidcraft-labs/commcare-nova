@@ -59,13 +59,13 @@ function readyRecord(id: string): MediaAssetRecord {
 
 describe("listMediaAssets", () => {
 	it("returns projected wire assets and the next cursor", async () => {
-		const { doc, ctx } = makeMediaFixture();
+		const h = makeMediaFixture();
 		listReadyAssetsForProject.mockResolvedValue({
 			assets: [readyRecord("a1"), readyRecord("a2")],
 			nextCursor: "cursor-2",
 		});
 
-		const result = await listMediaAssetsTool.execute({}, ctx, doc);
+		const result = await h.runTool(listMediaAssetsTool, {});
 
 		expect(result.kind).toBe("read");
 		expect(result.data.assets).toHaveLength(2);
@@ -78,7 +78,7 @@ describe("listMediaAssets", () => {
 	});
 
 	it("projects a document's extract title + summary to the wire but keeps failureReason and model server-side", async () => {
-		const { doc, ctx } = makeMediaFixture();
+		const h = makeMediaFixture();
 		// A document record whose extract carries the human title + summary (both
 		// wanted on the wire — the library labels the asset, the preview header
 		// shows them) alongside the internal failureReason/model (must NOT leak).
@@ -107,7 +107,7 @@ describe("listMediaAssets", () => {
 			nextCursor: null,
 		});
 
-		const result = await listMediaAssetsTool.execute({}, ctx, doc);
+		const result = await h.runTool(listMediaAssetsTool, {});
 		const wire = result.data.assets[0];
 
 		expect(wire.extract?.title).toBe(
@@ -121,17 +121,13 @@ describe("listMediaAssets", () => {
 	});
 
 	it("passes the Project and the kind/cursor filters through", async () => {
-		const { doc, ctx } = makeMediaFixture();
+		const h = makeMediaFixture();
 		listReadyAssetsForProject.mockResolvedValue({
 			assets: [],
 			nextCursor: null,
 		});
 
-		await listMediaAssetsTool.execute(
-			{ kind: "audio", cursor: "page-1" },
-			ctx,
-			doc,
-		);
+		await h.runTool(listMediaAssetsTool, { kind: "audio", cursor: "page-1" });
 
 		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			// The tool's single-kind input is wrapped into the DB layer's kind SET.
@@ -141,13 +137,13 @@ describe("listMediaAssets", () => {
 	});
 
 	it("omits kind/cursor when not supplied", async () => {
-		const { doc, ctx } = makeMediaFixture();
+		const h = makeMediaFixture();
 		listReadyAssetsForProject.mockResolvedValue({
 			assets: [],
 			nextCursor: null,
 		});
 
-		await listMediaAssetsTool.execute({}, ctx, doc);
+		await h.runTool(listMediaAssetsTool, {});
 
 		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {});
 	});

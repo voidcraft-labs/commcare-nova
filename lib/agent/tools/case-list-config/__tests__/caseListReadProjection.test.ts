@@ -1,42 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
-import { plainColumn, tileCell } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
 import { getModuleTool } from "../../getModule";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
-function independentlyArrangedFixture() {
-	const fixture = makeCaseListFixture();
+function independentlyArrangedDoc(): BlueprintDoc {
+	const doc = makeCaseListDoc();
 	return {
-		...fixture,
-		doc: {
-			...fixture.doc,
-			modules: {
-				...fixture.doc.modules,
-				[MOD_A]: {
-					...fixture.doc.modules[MOD_A],
-					caseListConfig: {
-						columns: [
-							plainColumn(A, "case_name", "Patient", {}),
-							plainColumn(B, "phone", "Phone", {
-								visibleInDetail: false,
-							}),
-							plainColumn(C, "dob", "Date of birth", {
-								visibleInList: false,
-							}),
-						],
-						// Two independent arrangements over one set: Results shows
-						// Phone above Patient, Details shows Patient above Date of
-						// birth. Every column is a member of BOTH sequences —
-						// visibility is what decides which of them draws.
-						listColumnOrder: [B, A, C],
-						detailColumnOrder: [A, C, B],
-						searchInputs: [],
-					},
+		...doc,
+		modules: {
+			...doc.modules,
+			[MOD_A]: {
+				...doc.modules[MOD_A],
+				caseListConfig: {
+					columns: [
+						plainColumn(A, "case_name", "Patient", {}),
+						plainColumn(B, "phone", "Phone", {
+							visibleInDetail: false,
+						}),
+						plainColumn(C, "dob", "Date of birth", {
+							visibleInList: false,
+						}),
+					],
+					// Two independent arrangements over one set: Results shows
+					// Phone above Patient, Details shows Patient above Date of
+					// birth. Every column is a member of BOTH sequences —
+					// visibility is what decides which of them draws.
+					listColumnOrder: [B, A, C],
+					detailColumnOrder: [A, C, B],
+					searchInputs: [],
 				},
 			},
 		},
@@ -45,8 +42,8 @@ function independentlyArrangedFixture() {
 
 describe("case-list read projections", () => {
 	it("getModule exposes the exact independent visible screen sequences", async () => {
-		const { doc, ctx } = independentlyArrangedFixture();
-		const result = await getModuleTool.execute({ moduleUuid: MOD_A }, ctx, doc);
+		const h = makeCaseListFixture(independentlyArrangedDoc());
+		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
 		if ("error" in result.data) throw new Error(result.data.error);
 
 		expect(result.data.results_column_order).toEqual([B, A]);
@@ -54,21 +51,21 @@ describe("case-list read projections", () => {
 	});
 
 	it("summary preserves dormant definitions separately from screen compositions", () => {
-		const base = independentlyArrangedFixture();
+		const base = independentlyArrangedDoc();
 		const dormant = plainColumn(
 			testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd"),
 			"external_id",
 			"External ID",
 			{ visibleInList: false, visibleInDetail: false },
 		);
-		const config = base.doc.modules[MOD_A]?.caseListConfig;
+		const config = base.modules[MOD_A]?.caseListConfig;
 		if (config === undefined) throw new Error("fixture config missing");
 		const doc = {
-			...base.doc,
+			...base,
 			modules: {
-				...base.doc.modules,
+				...base.modules,
 				[MOD_A]: {
-					...base.doc.modules[MOD_A],
+					...base.modules[MOD_A],
 					caseListConfig: {
 						...config,
 						columns: [...config.columns, dormant],
@@ -100,40 +97,34 @@ describe("case-list read projections", () => {
 		// Rearranging a tile means knowing every OTHER cell — two may never
 		// overlap — so a read that showed the layout without the placements
 		// would force a guess. The summary is the edit turn's only read.
-		const base = independentlyArrangedFixture();
-		const fixture = {
+		const base = independentlyArrangedDoc();
+		const doc = {
 			...base,
-			doc: {
-				...base.doc,
-				modules: {
-					...base.doc.modules,
-					[MOD_A]: {
-						...base.doc.modules[MOD_A],
-						caseListConfig: {
-							searchInputs: [],
-							columns: [
-								plainColumn(A, "case_name", "Patient", {
-									tile: tileCell(0, 0, 12, 1, { fontSize: "large" }),
-								}),
-								plainColumn(B, "phone", "Phone", {
-									visibleInDetail: false,
-									tile: tileCell(0, 1, 6, 2),
-								}),
-							],
-							listColumnOrder: [A, B],
-							detailColumnOrder: [A, B],
-							tile: { persistOnForms: true as const },
-						},
+			modules: {
+				...base.modules,
+				[MOD_A]: {
+					...base.modules[MOD_A],
+					caseListConfig: {
+						searchInputs: [],
+						columns: [
+							plainColumn(A, "case_name", "Patient", {
+								tile: tileCell(0, 0, 12, 1, { fontSize: "large" }),
+							}),
+							plainColumn(B, "phone", "Phone", {
+								visibleInDetail: false,
+								tile: tileCell(0, 1, 6, 2),
+							}),
+						],
+						listColumnOrder: [A, B],
+						detailColumnOrder: [A, B],
+						tile: { persistOnForms: true as const },
 					},
 				},
 			},
 		};
 
-		const result = await getModuleTool.execute(
-			{ moduleUuid: MOD_A },
-			fixture.ctx,
-			fixture.doc,
-		);
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
 		if ("error" in result.data) throw new Error(result.data.error);
 		expect(result.data.case_list_config?.tile).toEqual({
 			persistOnForms: true,
@@ -145,7 +136,7 @@ describe("case-list read projections", () => {
 			{ x: 0, y: 1, width: 6, height: 2 },
 		]);
 
-		const summary = summarizeBlueprint(fixture.doc);
+		const summary = summarizeBlueprint(doc);
 		expect(summary).toContain("layout: tile (kept above every form)");
 		expect(summary).toContain("@ 0,0 12x1");
 		expect(summary).toContain("@ 0,1 6x2");
@@ -155,7 +146,7 @@ describe("case-list read projections", () => {
 		// A case list with no DRAWN placement pays nothing, so an app that has
 		// never used a tile keeps a byte-identical prompt prefix — which is what
 		// the provider cache keys on.
-		const { doc } = independentlyArrangedFixture();
+		const doc = independentlyArrangedDoc();
 		const summary = summarizeBlueprint(doc);
 
 		expect(summary).not.toContain("layout: tile");
@@ -168,13 +159,13 @@ describe("case-list read projections", () => {
 		// makes the model route around an obstacle that is not on the grid, and
 		// refuse its own next layout for a collision that cannot happen. Three
 		// ways a stored cell goes undrawn, and none of them may be reported.
-		const base = independentlyArrangedFixture();
+		const base = independentlyArrangedDoc();
 		const withCells = (tile: { persistOnForms: true } | undefined) => ({
-			...base.doc,
+			...base,
 			modules: {
-				...base.doc.modules,
+				...base.modules,
 				[MOD_A]: {
-					...base.doc.modules[MOD_A],
+					...base.modules[MOD_A],
 					caseListConfig: {
 						searchInputs: [],
 						columns: [

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
-import type {
-	RecordMutationsOptions,
-	ToolExecutionContext,
-} from "@/lib/agent/toolExecutionContext";
+import {
+	makeCanonicalGenesisDoc,
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
+} from "@/lib/agent/__tests__/fixtures";
+import type { RecordMutationsOptions } from "@/lib/agent/toolExecutionContext";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
@@ -35,20 +36,12 @@ import {
 const RULE_UUID = testUuid("tool-automation");
 const UPDATE_UUID = testUuid("tool-automation-update");
 
-function makeCtx(): ToolExecutionContext {
-	return {
+function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
+	return makeToolWorkspaceHarness(initialDoc, {
 		appId: "app-automations",
-		projectId: "project-automations",
 		userId: "member",
 		runId: "run",
-		recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		})),
-		recordMutationStages: vi.fn(),
-		recordConversation: vi.fn(),
-		conversionImpact: vi.fn(),
-	} as unknown as ToolExecutionContext;
+	});
 }
 
 function doc(): BlueprintDoc {
@@ -259,17 +252,15 @@ describe("automation shared tools", () => {
 
 	it("adds, reads, granularly updates, and removes the same canonical object", async () => {
 		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
-		const ctx = makeCtx();
-		const added = await addAutomationsTool.execute(
-			{ automations: [rule()] },
-			ctx,
-			doc(),
-		);
+		const h = makeHarness(doc());
+		const added = await h.runTool(addAutomationsTool, {
+			automations: [rule()],
+		});
 		if (added.mutations.length === 0) {
 			throw new Error(JSON.stringify(added.result));
 		}
 		expect(added.mutations).toHaveLength(1);
-		expect(added.newDoc.automations?.[RULE_UUID]).toEqual(rule());
+		expect(h.currentDoc().automations?.[RULE_UUID]).toEqual(rule());
 		expect(added.result).toMatchObject({
 			setupGuides: [
 				{
@@ -280,11 +271,11 @@ describe("automation shared tools", () => {
 			],
 		});
 		mocks.readAuthoring.mockResolvedValue({
-			blueprint: added.newDoc,
+			blueprint: h.currentDoc(),
 			blueprintSeq: 2,
 			organization: { revision: "1", locations: [] },
 		});
-		const read = await getAutomationsTool.execute({}, ctx, added.newDoc);
+		const read = await h.runTool(getAutomationsTool, {});
 		expect(read.data).toEqual([
 			expect.objectContaining({
 				automation: rule(),
@@ -301,24 +292,20 @@ describe("automation shared tools", () => {
 			name: "Resolve old visits",
 			closeCase: false,
 		} satisfies Automation;
-		const updated = await updateAutomationTool.execute(
-			{ automation: updatedRule },
-			ctx,
-			added.newDoc,
-		);
+		const updated = await h.runTool(updateAutomationTool, {
+			automation: updatedRule,
+		});
 		expect(updated.mutations).toEqual([
 			expect.objectContaining({
 				kind: "updateAutomation",
 				uuid: RULE_UUID,
 			}),
 		]);
-		expect(updated.newDoc.automations?.[RULE_UUID]).toEqual(updatedRule);
+		expect(h.currentDoc().automations?.[RULE_UUID]).toEqual(updatedRule);
 
-		const removed = await removeAutomationTool.execute(
-			{ automationUuid: RULE_UUID },
-			ctx,
-			updated.newDoc,
-		);
+		const removed = await h.runTool(removeAutomationTool, {
+			automationUuid: RULE_UUID,
+		});
 		expect(removed.mutations).toEqual([
 			{
 				kind: "removeAutomation",
@@ -326,8 +313,8 @@ describe("automation shared tools", () => {
 				targetKind: "case-update",
 			},
 		]);
-		expect(removed.newDoc.automations).toBeUndefined();
-		expect(removed.newDoc.automationOrder).toBeUndefined();
+		expect(h.currentDoc().automations).toBeUndefined();
+		expect(h.currentDoc().automationOrder).toBeUndefined();
 	});
 
 	it("derives read guidance from the authorized organization snapshot", async () => {
@@ -391,7 +378,7 @@ describe("automation shared tools", () => {
 			},
 		});
 
-		const read = await getAutomationsTool.execute({}, makeCtx(), current);
+		const read = await makeHarness(current).runTool(getAutomationsTool, {});
 		expect(read.data).toEqual([
 			expect.objectContaining({
 				setupGuide: expect.objectContaining({
@@ -452,11 +439,9 @@ describe("automation shared tools", () => {
 		};
 		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
 
-		const added = await addAutomationsTool.execute(
-			{ automations: [extensionRule] },
-			makeCtx(),
-			current,
-		);
+		const added = await makeHarness(current).runTool(addAutomationsTool, {
+			automations: [extensionRule],
+		});
 
 		expect(added.mutations).toHaveLength(1);
 		expect(added.result).toMatchObject({
@@ -476,32 +461,33 @@ describe("automation shared tools", () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
 		existing.automationOrder = [RULE_UUID];
-		const ctx = makeCtx();
-		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
-			const committedDoc = structuredClone(prepared.nextDoc);
-			const committed = committedDoc.automations?.[RULE_UUID];
-			if (committed === undefined) throw new Error("missing automation");
-			committed.criteria = [
-				{
-					uuid: testUuid("peer-criterion"),
-					kind: "match-property",
-					scope: "case",
-					property: "state",
-					matchType: "equal",
-					value: "peer-value",
-				},
-			];
-			return { events: [], committedDoc };
-		});
+		const h = makeHarness(existing);
+		h.recordMutations.mockImplementation(
+			async (prepared: PreparedMutationCandidate) => {
+				const committedDoc = structuredClone(prepared.nextDoc);
+				const committed = committedDoc.automations?.[RULE_UUID];
+				if (committed === undefined) throw new Error("missing automation");
+				committed.criteria = [
+					{
+						uuid: testUuid("peer-criterion"),
+						kind: "match-property",
+						scope: "case",
+						property: "state",
+						matchType: "equal",
+						value: "peer-value",
+					},
+				];
+				return { events: [], committedDoc };
+			},
+		);
 		mocks.readOrganization.mockResolvedValue({ revision: "2", locations: [] });
 
-		const updated = await updateAutomationTool.execute(
-			{ automation: { ...rule(), name: "My rename" } },
-			ctx,
-			existing,
-		);
+		const updated = await h.runTool(updateAutomationTool, {
+			automation: { ...rule(), name: "My rename" },
+		});
 
-		expect(updated.newDoc.automations?.[RULE_UUID]?.criteria).toEqual([
+		expect(updated.mutations).toHaveLength(1);
+		expect(h.currentDoc().automations?.[RULE_UUID]?.criteria).toEqual([
 			expect.objectContaining({ value: "peer-value" }),
 		]);
 		expect(updated.result).toMatchObject({
@@ -560,21 +546,19 @@ describe("automation shared tools", () => {
 			blueprintSeq: 9,
 			organization: { revision: "4", locations: [] },
 		});
-		const ctx = makeCtx();
+		const h = makeHarness(invocationDoc);
 
-		const updated = await updateAutomationTool.execute(
-			{ automation: requested },
-			ctx,
-			invocationDoc,
-		);
+		const updated = await h.runTool(updateAutomationTool, {
+			automation: requested,
+		});
 
 		expect(updated.mutations).toEqual([]);
-		expect(updated.newDoc).toBe(authoritativeDoc);
-		expect(updated.newDoc.automations?.[peerRule.uuid]).toEqual(peerRule);
+		expect(h.currentDoc()).toBe(authoritativeDoc);
+		expect(h.currentDoc().automations?.[peerRule.uuid]).toEqual(peerRule);
 		expect(JSON.stringify(updated.result)).toContain("Renamed peer module");
 		expect(JSON.stringify(updated.result)).toContain("Renamed peer survey");
 		expect(updated.result).not.toHaveProperty("error");
-		expect(ctx.recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(mocks.readOrganization).not.toHaveBeenCalled();
 		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
 	});
@@ -593,23 +577,21 @@ describe("automation shared tools", () => {
 			blueprintSeq: 10,
 			organization: { revision: "5", locations: [] },
 		});
-		const ctx = makeCtx();
+		const h = makeHarness(invocationDoc);
 
-		const updated = await updateAutomationTool.execute(
-			{ automation: requested },
-			ctx,
-			invocationDoc,
-		);
+		const updated = await h.runTool(updateAutomationTool, {
+			automation: requested,
+		});
 
 		expect(updated).toMatchObject({
 			mutations: [],
-			newDoc: authoritativeDoc,
 			result: {
 				error:
 					"This automation changed concurrently. Read automations again and retry from the current complete state.",
 			},
 		});
-		expect(ctx.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toBe(authoritativeDoc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(mocks.readOrganization).not.toHaveBeenCalled();
 		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
 	});
@@ -620,22 +602,22 @@ describe("automation shared tools", () => {
 			if (committed) throw new Error("organization changed after commit");
 			return { revision: "1", locations: [] };
 		});
-		const ctx = makeCtx();
-		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
-			committed = true;
-			return { events: [], committedDoc: prepared.nextDoc };
-		});
-
-		const added = await addAutomationsTool.execute(
-			{ automations: [rule()] },
-			ctx,
-			doc(),
+		const h = makeHarness(doc());
+		h.recordMutations.mockImplementation(
+			async (prepared: PreparedMutationCandidate) => {
+				committed = true;
+				return { events: [], committedDoc: prepared.nextDoc };
+			},
 		);
+
+		const added = await h.runTool(addAutomationsTool, {
+			automations: [rule()],
+		});
 
 		expect(added.mutations).toHaveLength(1);
 		expect(added.result).not.toHaveProperty("error");
 		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
-		expect(ctx.recordMutations).toHaveBeenCalledWith(
+		expect(h.recordMutations).toHaveBeenCalledWith(
 			expect.anything(),
 			"automations",
 			{ expectedOrganizationRevision: "1" },
@@ -651,22 +633,22 @@ describe("automation shared tools", () => {
 			if (committed) throw new Error("organization changed after commit");
 			return { revision: "1", locations: [] };
 		});
-		const ctx = makeCtx();
-		ctx.recordMutations = vi.fn(async (prepared: PreparedMutationCandidate) => {
-			committed = true;
-			return { events: [], committedDoc: prepared.nextDoc };
-		});
-
-		const updated = await updateAutomationTool.execute(
-			{ automation: { ...rule(), name: "Updated safely" } },
-			ctx,
-			existing,
+		const h = makeHarness(existing);
+		h.recordMutations.mockImplementation(
+			async (prepared: PreparedMutationCandidate) => {
+				committed = true;
+				return { events: [], committedDoc: prepared.nextDoc };
+			},
 		);
+
+		const updated = await h.runTool(updateAutomationTool, {
+			automation: { ...rule(), name: "Updated safely" },
+		});
 
 		expect(updated.mutations).toHaveLength(1);
 		expect(updated.result).not.toHaveProperty("error");
 		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
-		expect(ctx.recordMutations).toHaveBeenCalledWith(
+		expect(h.recordMutations).toHaveBeenCalledWith(
 			expect.anything(),
 			"automations",
 			{ expectedOrganizationRevision: "1" },
@@ -675,8 +657,8 @@ describe("automation shared tools", () => {
 
 	it("rejects before persistence when a place rename, metadata edit, or move advances the guidance snapshot", async () => {
 		mocks.readOrganization.mockResolvedValue({ revision: "7", locations: [] });
-		const ctx = makeCtx();
-		ctx.recordMutations = vi.fn(
+		const h = makeHarness(doc());
+		h.recordMutations.mockImplementation(
 			async (
 				prepared: PreparedMutationCandidate,
 				_stage?: string,
@@ -699,9 +681,9 @@ describe("automation shared tools", () => {
 		);
 
 		await expect(
-			addAutomationsTool.execute({ automations: [rule()] }, ctx, doc()),
+			h.runTool(addAutomationsTool, { automations: [rule()] }),
 		).rejects.toThrow("organization revision changed");
-		expect(ctx.recordMutations).toHaveBeenCalledWith(
+		expect(h.recordMutations).toHaveBeenCalledWith(
 			expect.anything(),
 			"automations",
 			{ expectedOrganizationRevision: "7" },
@@ -712,56 +694,48 @@ describe("automation shared tools", () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
 		existing.automationOrder = [RULE_UUID];
-		const ctx = makeCtx();
+		const h = makeHarness(existing);
 		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
-		const duplicate = await addAutomationsTool.execute(
-			{
-				automations: [
-					{
-						...rule(),
-						uuid: testUuid("tool-automation-second"),
-					},
-				],
-			},
-			ctx,
-			existing,
-		);
+		const duplicate = await h.runTool(addAutomationsTool, {
+			automations: [
+				{
+					...rule(),
+					uuid: testUuid("tool-automation-second"),
+				},
+			],
+		});
 		expect(duplicate.mutations).toEqual([]);
 		expect(duplicate.result).toHaveProperty("error");
 
-		const changedKind = await updateAutomationTool.execute(
-			{
-				automation: {
-					uuid: RULE_UUID,
-					kind: "conditional-alert",
-					name: "Resolve visits",
-					caseType: "visit",
-					criteriaOperator: "all",
-					criteria: [],
-					setupOnlyCriteria: [],
-					recipients: [{ uuid: testUuid("tool-recipient"), kind: "self" }],
-					schedule: {
-						kind: "immediate",
-						events: [
-							{
-								uuid: testUuid("tool-event"),
-								minutesToWait: 0,
-								content: {
-									kind: "sms",
-									message: automationMessageText("Hi"),
-								},
+		const changedKind = await h.runTool(updateAutomationTool, {
+			automation: {
+				uuid: RULE_UUID,
+				kind: "conditional-alert",
+				name: "Resolve visits",
+				caseType: "visit",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				recipients: [{ uuid: testUuid("tool-recipient"), kind: "self" }],
+				schedule: {
+					kind: "immediate",
+					events: [
+						{
+							uuid: testUuid("tool-event"),
+							minutesToWait: 0,
+							content: {
+								kind: "sms",
+								message: automationMessageText("Hi"),
 							},
-						],
-					},
-					includeDescendantLocations: false,
-					locationLevelUuids: [],
-					userDataFilters: [],
-					useUserCaseForFilter: false,
+						},
+					],
 				},
+				includeDescendantLocations: false,
+				locationLevelUuids: [],
+				userDataFilters: [],
+				useUserCaseForFilter: false,
 			},
-			ctx,
-			existing,
-		);
+		});
 		expect(changedKind.mutations).toEqual([]);
 		expect(changedKind.result).toHaveProperty("error");
 	});

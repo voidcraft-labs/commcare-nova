@@ -1,8 +1,9 @@
 /**
  * McpContext — request-scoped glue for MCP tool adapters.
  *
- * Mirrors `lib/agent/generationContext.ts` for the MCP surface: owns the
- * event-log writer and progress emitter so tool adapters can persist
+ * Mirrors `lib/agent/generationContext.ts` for the MCP surface: the
+ * `CanonicalMutationHost` the per-call canonical workspace commits through,
+ * plus the event-log writer and progress emitter, so tool adapters persist
  * mutations, record conversation artifacts, and announce progress through
  * a single API. Every MCP tool call gets its own `McpContext`; the adapter
  * constructs it after verifying ownership and stamps `source: "mcp"` on
@@ -44,9 +45,9 @@ import type {
 	ConversionImpactFn,
 	RecordMutationsOptions,
 	RecordMutationsResult,
-	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
 import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
+import type { CanonicalMutationHost } from "@/lib/agent/workspace/canonicalHost";
 import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
@@ -89,13 +90,13 @@ export interface McpContextOptions {
 	logWriter: LogWriter;
 	/** MCP progress-notification emitter. No-op if the client didn't opt in. */
 	progress: ProgressEmitter;
-	/** The retype-impact lookup behind `ToolExecutionContext.conversionImpact`
+	/** The retype-impact lookup behind `ToolInvocationContext.conversionImpact`
 	 * — `initMcpCall` binds the schema store's `conversionImpact` to this
 	 * app; tests stub it so no tool test touches Postgres. */
 	conversionImpact: ConversionImpactFn;
 }
 
-export class McpContext implements ToolExecutionContext {
+export class McpContext implements CanonicalMutationHost {
 	readonly appId: string;
 	readonly userId: string;
 	readonly projectId: string;
@@ -113,7 +114,8 @@ export class McpContext implements ToolExecutionContext {
 	 */
 	private seq = 0;
 
-	/** See `ToolExecutionContext.consumeParkedNote`. */
+	/** The parked-value note the last commit stashed; the adapter consumes it
+	 * so a park is never invisible to the caller that caused it. */
 	private _parkedNote: string | undefined;
 
 	constructor(opts: McpContextOptions) {
@@ -128,7 +130,7 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	readonly lookupDefinitions: NonNullable<
-		ToolExecutionContext["lookupDefinitions"]
+		CanonicalMutationHost["lookupDefinitions"]
 	> = (tableIds) =>
 		readToolLookupDefinitions(
 			{
@@ -139,7 +141,7 @@ export class McpContext implements ToolExecutionContext {
 			tableIds,
 		);
 
-	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+	readonly lookupCatalog: NonNullable<CanonicalMutationHost["lookupCatalog"]> =
 		() =>
 			readToolLookupCatalog({
 				projectId: this.projectId,
@@ -147,7 +149,7 @@ export class McpContext implements ToolExecutionContext {
 				role: this.projectRole,
 			});
 
-	/** See {@link ToolExecutionContext.conversionImpact} — injected at
+	/** See {@link CanonicalMutationHost.conversionImpact} — injected at
 	 * construction (`McpContextOptions.conversionImpact`). */
 	readonly conversionImpact: ConversionImpactFn;
 
@@ -185,10 +187,10 @@ export class McpContext implements ToolExecutionContext {
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		const committedDoc = await this.saveBlueprint(prepared, options);
+		const { committedDoc, seq } = await this.saveBlueprint(prepared, options);
 		const events = this.buildEnvelopes(prepared.mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
-		return { events, committedDoc };
+		return { events, committedDoc, seq };
 	}
 
 	/**
@@ -218,12 +220,12 @@ export class McpContext implements ToolExecutionContext {
 		if (stages.batch.length === 0) {
 			return { events: [], committedDoc: prepared.nextDoc };
 		}
-		const committedDoc = await this.saveBlueprint(prepared);
+		const { committedDoc, seq } = await this.saveBlueprint(prepared);
 		const events = stages.slices.flatMap((slice) =>
 			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
 		for (const e of events) this.logWriter.logEvent(e);
-		return { events, committedDoc };
+		return { events, committedDoc, seq };
 	}
 
 	/** Build the `MutationEvent` envelopes for one batch under one stage
@@ -300,7 +302,7 @@ export class McpContext implements ToolExecutionContext {
 	private async saveBlueprint(
 		prepared: PreparedMutationCandidate,
 		options?: RecordMutationsOptions,
-	): Promise<BlueprintDoc> {
+	): Promise<{ committedDoc: BlueprintDoc; seq: number }> {
 		const mutations = prepared.mutations;
 		const result = await applyBlueprintChange({
 			appId: this.appId,
@@ -335,10 +337,11 @@ export class McpContext implements ToolExecutionContext {
 				failureReasons: result.migration.failureReasons,
 			});
 		}
-		return result.committedDoc;
+		return { committedDoc: result.committedDoc, seq: result.seq };
 	}
 
-	/** See `ToolExecutionContext.consumeParkedNote`. */
+	/** Read-and-clear the parked-value note — consumed by the adapter after
+	 * each tool result. */
 	consumeParkedNote(): string | undefined {
 		const note = this._parkedNote;
 		this._parkedNote = undefined;

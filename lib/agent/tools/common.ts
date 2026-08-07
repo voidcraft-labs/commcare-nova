@@ -15,34 +15,16 @@ import {
 	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import {
-	describeCommitFindings,
-	evaluatePreparedMutationCandidate,
-	mutationCommitVerdict,
-	mutationWireCanonicalityRejection,
-	prepareMutationCandidate,
-} from "@/lib/doc/commitVerdicts";
-import {
-	extractLookupReferenceTargets,
-	LOOKUP_CONTEXT_UNAVAILABLE,
-	type LookupValidationContext,
-	unionLookupReferenceTargetSets,
-} from "@/lib/doc/lookupReferences";
-import {
-	type AdmittedMutationBatch,
-	type AdmittedMutationStages,
-	admitMutationBatch,
-	admitMutationStages,
-	MutationWireCanonicalityError,
-} from "@/lib/doc/mutationAdmission";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { StagedMutationBatch } from "../toolExecutionContext";
 import type {
-	RecordMutationsOptions,
-	StagedMutationBatch,
-	ToolExecutionContext,
-} from "../toolExecutionContext";
+	MutationApplicationPolicy,
+	ToolInvocationContext,
+	WorkspaceMutationOutcome,
+} from "../workspace/types";
 
 export type { StagedMutationBatch };
 
@@ -51,10 +33,15 @@ export type { StagedMutationBatch };
  *
  * Pure — returns a new doc and leaves the input frozen. Matches the
  * mutation applier the client uses in `docStore.applyMany`, so a
- * server-computed `newDoc` and a client-derived one are byte-identical
+ * server-computed candidate and a client-derived one are byte-identical
  * given the same input + mutations.
  *
  * No-op on empty batches — returns the input doc by reference.
+ *
+ * This is a LOCAL candidate computation helper (e.g. `editField`'s convert
+ * pre-check) — it persists nothing. Every committing batch goes through
+ * `guardedMutate` / `guardedMutateStages`, whose workspace runs the validity
+ * gate before anything reaches the canonical boundary.
  */
 export function applyToDoc(doc: BlueprintDoc, muts: unknown): BlueprintDoc {
 	const admitted = admitMutationBatch(muts);
@@ -65,157 +52,47 @@ export function applyToDoc(doc: BlueprintDoc, muts: unknown): BlueprintDoc {
 }
 
 /**
- * Outcome of a {@link guardedMutate} call. `ok: true` means the batch
- * passed the validity gate AND was persisted; `newDoc` is the doc the
- * tool continues against. `ok: false` means the gate rejected the batch
- * — nothing was written — and `error` is the person-to-person message
- * (one line per candidate finding) the tool returns in its `{ error }`
- * envelope so the agent self-corrects in its loop.
+ * Outcome of a {@link guardedMutate} call — the workspace's mutation
+ * outcome. `ok: true` means the batch passed the validity gate AND was
+ * persisted; `newDoc` is the committed doc the tool builds its result from.
+ * `ok: false` means the gate rejected the batch — nothing was written — and
+ * `error` is the person-to-person message (one line per candidate finding)
+ * the tool returns in its `{ error }` envelope so the agent self-corrects in
+ * its loop.
  */
-export type GuardedMutateOutcome =
-	| {
-			ok: true;
-			newDoc: BlueprintDoc;
-			mutations: AdmittedMutationBatch;
-	  }
-	| { ok: false; error: string };
+export type GuardedMutateOutcome = WorkspaceMutationOutcome;
 
 /**
- * The Project definitions this batch's verdict needs.
+ * The one write path for every mutating shared tool: the workspace gates the
+ * batch through the validity verdict against this invocation's exact
+ * snapshot, then persists through the canonical host.
  *
- * The commit gate is absolute, not a delta: a lookup occurrence it cannot
- * check is a soundness finding, and a soundness finding rejects. So handing it
- * an unavailable context whenever the doc holds ANY lookup carrier would refuse
- * every mutating call on that app — not just the ones touching lookups. The
- * targets are unioned across the before and after docs so an addition, an edit,
- * and a clear all resolve against the same snapshot.
- */
-async function lookupContextForCandidate(
-	ctx: ToolExecutionContext,
-	prevDoc: BlueprintDoc,
-	nextDoc: BlueprintDoc,
-): Promise<LookupValidationContext> {
-	const targets = unionLookupReferenceTargetSets(
-		extractLookupReferenceTargets(prevDoc),
-		extractLookupReferenceTargets(nextDoc),
-	);
-	if (targets.tableIds.length === 0) return LOOKUP_CONTEXT_UNAVAILABLE;
-	if (ctx.lookupDefinitions === undefined) return LOOKUP_CONTEXT_UNAVAILABLE;
-	const snapshot = await ctx.lookupDefinitions(targets.tableIds);
-	return {
-		kind: "available",
-		projectId: snapshot.projectId,
-		projectRevision: snapshot.projectRevision,
-		definitions: snapshot.definitions,
-	};
-}
-
-/**
- * The one write path for every mutating shared tool: gate the batch
- * through the validity verdict, then persist via `ctx.recordMutations`.
- *
- * The gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over
- * `evaluateCommit`) accepts a batch iff it introduces no validator
- * finding of a gating class — shape, soundness, or completeness. A
- * rejected batch persists NOTHING: the gate runs before the write, so an
- * invalid intermediate state never reaches Postgres or the mutation
- * stream, on the chat surface and MCP alike.
- *
- * Tools must route every batch through here rather than calling
- * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
- * skip the gate. (`applyToDoc` stays exported for non-commit candidate
- * computation, e.g. `editField`'s convert pre-check.)
+ * A pure admission adapter — the workspace owns optimistic diagnostics and
+ * the authoritative boundary. Tools must route every batch through here (or
+ * `ctx.applyBatch` directly) rather than persisting themselves; the
+ * invocation context exposes no persistence methods to bypass the gate with.
  */
 export async function guardedMutate(
-	ctx: ToolExecutionContext,
-	prevDoc: BlueprintDoc,
+	ctx: ToolInvocationContext,
 	mutations: unknown,
 	stage?: string,
-	options?: RecordMutationsOptions,
+	policy?: MutationApplicationPolicy,
 ): Promise<GuardedMutateOutcome> {
-	const verdict = mutationCommitVerdict(
-		prevDoc,
-		mutations,
-		await lookupContextForCandidate(ctx, prevDoc, prevDoc),
-	);
-	if (!verdict.ok) {
-		return { ok: false, error: describeCommitFindings(verdict.findings) };
-	}
-	if (verdict.mutations.length > 0) {
-		/* The guarded commit re-applies onto the FRESH stored doc, so its
-		 * `committedDoc` may carry a peer's concurrent edit merged in — the SA
-		 * continues against THAT, not the tool's pre-commit `nextDoc`. A
-		 * pre-commit finding already returned above (no reload); an
-		 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
-		 * which is NOT caught here — it propagates to `wrapMutating`, which
-		 * reloads fresh. */
-		const { committedDoc } = await ctx.recordMutations(
-			verdict.prepared,
-			stage,
-			options,
-		);
-		return {
-			ok: true,
-			newDoc: committedDoc,
-			mutations: verdict.mutations,
-		};
-	}
-	return {
-		ok: true,
-		newDoc: verdict.nextDoc,
-		mutations: verdict.mutations,
-	};
+	return ctx.applyBatch({ mutations, stage, policy });
 }
 
 /**
  * The multi-stage twin of {@link guardedMutate}: gate the WHOLE staged
  * sequence as one candidate, then persist it as ONE save that keeps the
- * per-stage event-log tags.
- *
- * The verdict runs over the concatenated batches against `prevDoc`, so a
- * rejection — wherever in the sequence the finding would arise — commits
- * NOTHING. The persistence side holds the same property: the whole
- * sequence goes through `ctx.recordMutationStages` as one save, so a
- * surface whose write can itself reject (the MCP transactional commit
- * re-verdicts against the FRESH stored doc) evaluates the concatenated
- * batch once and commits all-or-nothing. There is no committed prefix to
- * report or re-issue around, and no per-stage re-verdict that could be
- * stricter than the whole-sequence gate — which is what lets every
- * surface state "a rejected call saved nothing" without a multi-stage
- * asterisk.
+ * per-stage event-log tags. A rejection — wherever in the sequence the
+ * finding would arise — commits NOTHING; there is no committed prefix to
+ * report or re-issue around.
  */
 export async function guardedMutateStages(
-	ctx: ToolExecutionContext,
-	prevDoc: BlueprintDoc,
+	ctx: ToolInvocationContext,
 	stages: unknown,
 ): Promise<GuardedMutateOutcome> {
-	let admitted: AdmittedMutationStages;
-	try {
-		admitted = admitMutationStages(stages);
-	} catch (error) {
-		if (!(error instanceof MutationWireCanonicalityError)) throw error;
-		const rejected = mutationWireCanonicalityRejection(prevDoc, error);
-		if (rejected.ok) throw new Error("Canonicality rejection was accepted");
-		return {
-			ok: false,
-			error: describeCommitFindings(rejected.findings),
-		};
-	}
-	const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
-	const verdict = evaluatePreparedMutationCandidate(
-		prepared,
-		await lookupContextForCandidate(ctx, prevDoc, prepared.nextDoc),
-	);
-	if (!verdict.ok) {
-		return { ok: false, error: describeCommitFindings(verdict.findings) };
-	}
-	if (admitted.batch.length === 0) {
-		return { ok: true, newDoc: prevDoc, mutations: admitted.batch };
-	}
-	// The SA continues against the writer's committed doc (a peer edit merged
-	// in), not the tool's final-stage doc.
-	const { committedDoc } = await ctx.recordMutationStages(prepared, admitted);
-	return { ok: true, newDoc: committedDoc, mutations: admitted.batch };
+	return ctx.applyStages({ stages });
 }
 
 /**
@@ -230,19 +107,18 @@ export async function guardedMutateStages(
  *
  * - `kind`: the discriminator — always `"mutate"`.
  * - `mutations`: the computed batch. The tool has already persisted it
- *   via `ctx.recordMutations` before returning when it is nonempty.
- * - `newDoc`: the tool's exact post-call working doc, precomputed once so
- *   callers avoid a redundant second Immer pass. It is normally the
- *   post-mutation doc; an authoritative zero-diff proof may return a fresher
- *   persisted snapshot. Chat adopts it even when `mutations` is empty. MCP
- *   adapters ignore it because their doc lifecycle is per-call.
+ *   through the workspace before returning when it is nonempty.
  * - `result`: the value the LLM sees as the tool's return. Per-tool
  *   typed via the `R` parameter.
+ *
+ * There is no `newDoc` slot: the WORKSPACE owns the current document. A tool
+ * that proved a fresher authoritative snapshot adopts it through
+ * `ctx.adoptAuthoritativeSnapshot`, never by nominating a document in its
+ * result.
  */
 export interface MutatingToolResult<R> {
 	kind: "mutate";
 	mutations: readonly Mutation[];
-	newDoc: BlueprintDoc;
 	result: R;
 }
 
@@ -266,34 +142,31 @@ export interface ReadToolResult<R> {
  * A tool wraps its whole body — including the guarded commit — in a blanket
  * `catch` so an unexpected throw surfaces to the model as a friendly `{ error }`
  * rather than an unhandled rejection. But the four AUTHORITATIVE commit signals
- * MUST NOT be swallowed there: they are how the chat SA's `wrapMutating`
- * (`solutionsArchitect.ts`) recovers.
+ * MUST NOT be swallowed there: they are how the chat surface recovers.
  *
  * - `BlueprintCommitRejectedError` — a peer deleted/changed the target between
- *   the tool's read and the guarded commit. RE-THROWN so `wrapMutating` catches
- *   it, returns `{ error }` to the SA, AND reloads fresh so the next tool builds
- *   on the current server state (not the stale closure doc). Swallowing it here
- *   strands the SA on a stale doc.
+ *   the tool's read and the guarded commit. RE-THROWN so the workspace adopts
+ *   one fresh authorized snapshot and the surface wrapper returns `{ error }`
+ *   to the SA; the next tool builds on the current server state (not a stale
+ *   snapshot). Swallowing it here strands the run on stale state.
  * - `AppProjectChangedError` — the app no longer belongs to the Project this run
- *   was admitted against. RE-THROWN past `wrapMutating` so the route terminates
- *   the stale-scope run; reloading inside it must not cross the tenant boundary.
+ *   was admitted against. RE-THROWN so the route terminates the stale-scope
+ *   run; reloading must not cross the tenant boundary.
  * - `CommitReauthError` — the actor lost edit access mid-run. RE-THROWN so it
- *   propagates past `wrapMutating` (which does NOT catch it) and fails the run;
- *   a reload can't restore authorization, so continuing would just re-deny.
+ *   fails the run; a reload can't restore authorization, so continuing would
+ *   just re-deny.
  * - `RunHolderLostError` — this run no longer owns the app-holder generation.
  *   RE-THROWN so neither a stale doc commit nor a read-shaped external side
  *   effect can be reported as successful after a successor took over.
  *
  * Every other throw (a genuine tool-body fault) becomes the standard
- * `{ error }` envelope — the same shape + behavior the inline `catch` used
- * before, with `newDoc` unchanged (nothing committed). A pre-commit gate
- * finding never reaches here: `guardedMutate`/`guardedMutateStages` RETURN
+ * `{ error }` envelope — nothing committed. A pre-commit gate finding never
+ * reaches here: `guardedMutate`/`guardedMutateStages` RETURN
  * `{ ok: false, error }` rather than throwing, so the tool returns its own
  * `{ error }` and nothing reloads.
  */
 export function toToolErrorResult(
 	err: unknown,
-	doc: BlueprintDoc,
 ): MutatingToolResult<{ error: string }> {
 	if (
 		err instanceof AppProjectChangedError ||
@@ -312,7 +185,6 @@ export function toToolErrorResult(
 	return {
 		kind: "mutate",
 		mutations: [],
-		newDoc: doc,
 		result: { error: err instanceof Error ? err.message : String(err) },
 	};
 }

@@ -9,8 +9,7 @@
 
 import { z } from "zod";
 import { type SearchResult, searchBlueprint } from "@/lib/doc/searchBlueprint";
-import type { BlueprintDoc } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 
 export const searchBlueprintInputSchema = z
@@ -72,9 +71,9 @@ export const searchBlueprintTool = {
 	inputSchema: searchBlueprintInputSchema,
 	async execute(
 		input: SearchBlueprintInput,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<SearchBlueprintResult>> {
+		const doc = ctx.snapshot.doc;
 		const results = searchBlueprint(doc, input.query);
 		if (results.length <= MAX_RESULTS) {
 			return { kind: "read", data: { query: input.query, results } };

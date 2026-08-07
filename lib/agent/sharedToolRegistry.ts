@@ -84,12 +84,121 @@ import {
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 
+/**
+ * External mutable state a tool's staged batch or success result depends on.
+ * Declared per registry entry so the private change-set runtime can capture
+ * exact read-set dependencies at staging time and the canonical commit can
+ * fence or recompute them (the organization revision fence exists today; the
+ * rest are declarative until the change-set runtime lands).
+ */
+export type ExternalReadSetKind =
+	| "organization"
+	| "lookup-definition"
+	| "lookup-column"
+	| "media-asset"
+	| "project-scope";
+
+/**
+ * Runtime capabilities a tool's execution requires. Injected by the hosting
+ * workspace, never globally reachable — the change-set execution context
+ * receives NO external-write capability, which is what makes a staged call to
+ * an external writer impossible rather than merely rejected.
+ */
+export type ToolRuntimeCapability =
+	| "canonical-blueprint-write"
+	| "change-set-stage"
+	| "organization-read"
+	| "organization-write"
+	| "media-read"
+	| "media-write"
+	| "lookup-read"
+	| "lookup-write"
+	| "case-store-migration"
+	| "deployment-write";
+
+/**
+ * Final-shape execution policy for one shared tool.
+ *
+ * - `effect` — what the tool changes: nothing (`read-blueprint`), the
+ *   Blueprint through the guarded commit (`mutate-blueprint`), external
+ *   Project/app rows or object storage (`mutate-external`), or both stores in
+ *   one service transaction (`mixed-transaction`).
+ * - `staging` — whether a private change-set workspace may host the tool:
+ *   `allowed` for ordinary Blueprint work, `exclusive` for batch-exclusive
+ *   case-store sagas that must own their change set alone, `forbidden` for
+ *   anything with an external side effect (no compensation contract exists).
+ *   A tool whose batches only SOMETIMES compose a case-store saga (a module
+ *   removal retiring a case type, a field edit migrating rows) stays
+ *   `allowed`; the batch-exclusive mutation KINDS (`renameCaseProperties`,
+ *   `retireCaseType`) are the change-set admission fence.
+ * - `readSets` — the external read-set kinds the tool captures (see
+ *   {@link ExternalReadSetKind}).
+ * - `capabilities` — what the hosting workspace must inject.
+ * - `emitsFinalGuidanceFrom` — read sets whose CURRENT state the tool's
+ *   success message projects (e.g. automation setup guidance from the
+ *   organization), so a deferred commit must recompute or fence them.
+ */
+export interface ToolExecutionPolicy {
+	readonly effect:
+		| "read-blueprint"
+		| "mutate-blueprint"
+		| "mutate-external"
+		| "mixed-transaction";
+	readonly staging: "allowed" | "exclusive" | "forbidden";
+	readonly readSets: readonly ExternalReadSetKind[];
+	readonly capabilities: readonly ToolRuntimeCapability[];
+	readonly emitsFinalGuidanceFrom?: readonly ExternalReadSetKind[];
+}
+
 export interface SharedToolRegistryEntry {
 	readonly saName: string;
 	readonly mcpName: string;
 	readonly tool: SharedToolModule;
 	readonly requires: AppCapability;
+	readonly policy: ToolExecutionPolicy;
 }
+
+/** Shorthand policies for the recurring classifications. */
+const READ_POLICY: ToolExecutionPolicy = {
+	effect: "read-blueprint",
+	staging: "allowed",
+	readSets: [],
+	capabilities: [],
+};
+const BLUEPRINT_WRITE_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-blueprint",
+	staging: "allowed",
+	readSets: [],
+	capabilities: ["canonical-blueprint-write"],
+};
+/** Blueprint writers whose batch may compose the case-store saga (row
+ * migration/parking/retirement) — a module removal or retype retiring a case
+ * type, a field edit converting a property's stored rows. */
+const BLUEPRINT_WRITE_WITH_MIGRATION_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-blueprint",
+	staging: "allowed",
+	readSets: [],
+	capabilities: ["canonical-blueprint-write", "case-store-migration"],
+};
+const MEDIA_ATTACH_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-blueprint",
+	staging: "allowed",
+	readSets: ["media-asset"],
+	capabilities: ["canonical-blueprint-write", "media-read"],
+};
+const AUTOMATION_WRITE_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-blueprint",
+	staging: "allowed",
+	readSets: ["organization"],
+	capabilities: ["canonical-blueprint-write", "organization-read"],
+	emitsFinalGuidanceFrom: ["organization"],
+};
+const PLACE_ROW_WRITE_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-external",
+	staging: "forbidden",
+	readSets: ["organization"],
+	capabilities: ["organization-write"],
+};
 
 export const SHARED_TOOL_REGISTRY = [
 	{
@@ -97,407 +206,516 @@ export const SHARED_TOOL_REGISTRY = [
 		mcpName: "get_automations",
 		tool: getAutomationsTool,
 		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: ["organization"],
+			capabilities: ["organization-read"],
+			emitsFinalGuidanceFrom: ["organization"],
+		},
 	},
 	{
 		saName: "addAutomations",
 		mcpName: "add_automations",
 		tool: addAutomationsTool,
 		requires: "edit",
+		policy: AUTOMATION_WRITE_POLICY,
 	},
 	{
 		saName: "updateAutomation",
 		mcpName: "update_automation",
 		tool: updateAutomationTool,
 		requires: "edit",
+		policy: AUTOMATION_WRITE_POLICY,
 	},
 	{
 		saName: "removeAutomation",
 		mcpName: "remove_automation",
 		tool: removeAutomationTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addFields",
 		mcpName: "add_fields",
 		tool: addFieldsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "getLookupTables",
 		mcpName: "get_lookup_tables",
 		tool: getLookupTablesTool,
 		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: ["lookup-definition", "lookup-column"],
+			capabilities: ["lookup-read"],
+		},
 	},
 	{
 		saName: "setFieldOptionsSource",
 		mcpName: "set_field_options_source",
 		tool: setFieldOptionsSourceTool,
 		requires: "edit",
+		policy: {
+			effect: "mutate-blueprint",
+			staging: "allowed",
+			readSets: ["lookup-definition", "lookup-column"],
+			capabilities: ["canonical-blueprint-write", "lookup-read"],
+		},
 	},
 	{
 		saName: "configureConnect",
 		mcpName: "configure_connect",
 		tool: configureConnectTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "createForm",
 		mcpName: "create_form",
 		tool: createFormTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "createModule",
 		mcpName: "create_module",
 		tool: createModuleTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "editField",
 		mcpName: "edit_field",
 		tool: editFieldTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_WITH_MIGRATION_POLICY,
 	},
 	{
 		saName: "generateSchema",
 		mcpName: "generate_schema",
 		tool: generateSchemaTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "getField",
 		mcpName: "get_field",
 		tool: getFieldTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "getForm",
 		mcpName: "get_form",
 		tool: getFormTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "getModule",
 		mcpName: "get_module",
 		tool: getModuleTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "getCaseOperations",
 		mcpName: "get_case_operations",
 		tool: getCaseOperationsTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "moveField",
 		mcpName: "move_field",
 		tool: moveFieldTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeField",
 		mcpName: "remove_field",
 		tool: removeFieldTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeForm",
 		mcpName: "remove_form",
 		tool: removeFormTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeModule",
 		mcpName: "remove_module",
 		tool: removeModuleTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_WITH_MIGRATION_POLICY,
 	},
 	{
 		saName: "renameCaseProperties",
 		mcpName: "rename_case_properties",
 		tool: renameCasePropertiesTool,
 		requires: "edit",
+		policy: {
+			effect: "mutate-blueprint",
+			staging: "exclusive",
+			readSets: [],
+			capabilities: ["canonical-blueprint-write", "case-store-migration"],
+		},
 	},
 	{
 		saName: "searchBlueprint",
 		mcpName: "search_blueprint",
 		tool: searchBlueprintTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "addCaseOperations",
 		mcpName: "add_case_operations",
 		tool: addCaseOperationsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateCaseOperation",
 		mcpName: "update_case_operation",
 		tool: updateCaseOperationTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeCaseOperation",
 		mcpName: "remove_case_operation",
 		tool: removeCaseOperationTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "moveCaseOperation",
 		mcpName: "move_case_operation",
 		tool: moveCaseOperationTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addCaseListColumns",
 		mcpName: "add_case_list_columns",
 		tool: addCaseListColumnsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addSearchInputs",
 		mcpName: "add_search_inputs",
 		tool: addSearchInputsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeCaseListColumn",
 		mcpName: "remove_case_list_column",
 		tool: removeCaseListColumnTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeSearchInput",
 		mcpName: "remove_search_input",
 		tool: removeSearchInputTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "reorderCaseListColumns",
 		mcpName: "reorder_case_list_columns",
 		tool: reorderCaseListColumnsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "reorderSearchInputs",
 		mcpName: "reorder_search_inputs",
 		tool: reorderSearchInputsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "setCaseListFilter",
 		mcpName: "set_case_list_filter",
 		tool: setCaseListFilterTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "setCaseListTile",
 		mcpName: "set_case_list_tile",
 		tool: setCaseListTileTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateCaseListColumn",
 		mcpName: "update_case_list_column",
 		tool: updateCaseListColumnTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateSearchInput",
 		mcpName: "update_search_input",
 		tool: updateSearchInputTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "setCaseSearchAdvanced",
 		mcpName: "set_case_search_advanced",
 		tool: setCaseSearchAdvancedTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "setCaseSearchDisplay",
 		mcpName: "set_case_search_display",
 		tool: setCaseSearchDisplayTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "attachFieldMedia",
 		mcpName: "attach_field_media",
 		tool: attachFieldMediaTool,
 		requires: "edit",
+		policy: MEDIA_ATTACH_POLICY,
 	},
 	{
 		saName: "attachOptionMedia",
 		mcpName: "attach_option_media",
 		tool: attachOptionMediaTool,
 		requires: "edit",
+		policy: MEDIA_ATTACH_POLICY,
 	},
 	{
 		saName: "setMenuMedia",
 		mcpName: "set_menu_media",
 		tool: setMenuMediaTool,
 		requires: "edit",
+		policy: MEDIA_ATTACH_POLICY,
 	},
 	{
 		saName: "setAppLogo",
 		mcpName: "set_app_logo",
 		tool: setAppLogoTool,
 		requires: "edit",
+		policy: MEDIA_ATTACH_POLICY,
 	},
 	{
 		saName: "listMediaAssets",
 		mcpName: "list_media_assets",
 		tool: listMediaAssetsTool,
 		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: ["media-asset"],
+			capabilities: ["media-read"],
+		},
 	},
 	{
 		saName: "removeMediaAsset",
 		mcpName: "remove_media_asset",
 		tool: removeMediaAssetTool,
 		requires: "edit",
+		policy: {
+			effect: "mutate-external",
+			staging: "forbidden",
+			readSets: ["media-asset", "project-scope"],
+			capabilities: ["media-write"],
+		},
 	},
 	{
 		saName: "getUsers",
 		mcpName: "get_users",
 		tool: getUsersTool,
 		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "getOrganization",
 		mcpName: "get_organization",
 		tool: getOrganizationTool,
 		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: ["organization"],
+			capabilities: ["organization-read"],
+		},
 	},
 	{
 		saName: "addOrganizationLevels",
 		mcpName: "add_organization_levels",
 		tool: addOrganizationLevelsTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateOrganizationLevel",
 		mcpName: "update_organization_level",
 		tool: updateOrganizationLevelTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeOrganizationLevel",
 		mcpName: "remove_organization_level",
 		tool: removeOrganizationLevelTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addLocationProperties",
 		mcpName: "add_location_properties",
 		tool: addLocationPropertiesTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateLocationProperty",
 		mcpName: "update_location_property",
 		tool: updateLocationPropertyTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeLocationProperty",
 		mcpName: "remove_location_property",
 		tool: removeLocationPropertyTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "createLocation",
 		mcpName: "create_location",
 		tool: createLocationTool,
 		requires: "edit",
+		policy: PLACE_ROW_WRITE_POLICY,
 	},
 	{
 		saName: "updateLocation",
 		mcpName: "update_location",
 		tool: updateLocationTool,
 		requires: "edit",
+		policy: PLACE_ROW_WRITE_POLICY,
 	},
 	{
 		saName: "moveLocation",
 		mcpName: "move_location",
 		tool: moveLocationTool,
 		requires: "edit",
+		policy: PLACE_ROW_WRITE_POLICY,
 	},
 	{
 		saName: "setLocationArchived",
 		mcpName: "set_location_archived",
 		tool: setLocationArchivedTool,
 		requires: "edit",
+		policy: {
+			effect: "mixed-transaction",
+			staging: "forbidden",
+			readSets: ["organization"],
+			capabilities: ["organization-write", "canonical-blueprint-write"],
+		},
 	},
 	{
 		saName: "addUserProperties",
 		mcpName: "add_user_properties",
 		tool: addUserPropertiesTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateUserProperty",
 		mcpName: "update_user_property",
 		tool: updateUserPropertyTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeUserProperty",
 		mcpName: "remove_user_property",
 		tool: removeUserPropertyTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addUserTypes",
 		mcpName: "add_user_types",
 		tool: addUserTypesTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateUserType",
 		mcpName: "update_user_type",
 		tool: updateUserTypeTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removeUserType",
 		mcpName: "remove_user_type",
 		tool: removeUserTypeTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "addPersonas",
 		mcpName: "add_personas",
 		tool: addPersonasTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updatePersona",
 		mcpName: "update_persona",
 		tool: updatePersonaTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "removePersona",
 		mcpName: "remove_persona",
 		tool: removePersonaTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateApp",
 		mcpName: "update_app",
 		tool: updateAppTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateForm",
 		mcpName: "update_form",
 		tool: updateFormTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateModule",
 		mcpName: "update_module",
 		tool: updateModuleTool,
 		requires: "edit",
+		policy: BLUEPRINT_WRITE_WITH_MIGRATION_POLICY,
 	},
 ] as const satisfies readonly SharedToolRegistryEntry[];

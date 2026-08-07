@@ -3,7 +3,7 @@
  *
  * Thin wrapper over `removeFieldMutations`. Both the SA chat factory
  * and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface. The reducer cascades deletion to
+ * `ToolInvocationContext` interface. The reducer cascades deletion to
  * the field's children — container kinds drop their entire subtree.
  *
  * Two exit branches:
@@ -17,10 +17,9 @@
 
 import type { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { removeFieldMutations } from "../blueprintHelpers";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -47,16 +46,15 @@ export const removeFieldTool = {
 	inputSchema: removeFieldInputSchema,
 	async execute(
 		input: RemoveFieldInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveFieldResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: resolved.error },
 				};
 			}
@@ -77,7 +75,6 @@ export const removeFieldTool = {
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`form:${resolved.formUuid}`,
 			);
@@ -85,7 +82,6 @@ export const removeFieldTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -97,7 +93,6 @@ export const removeFieldTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully removed field "${removedId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
 					summary: {
@@ -107,7 +102,7 @@ export const removeFieldTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };
