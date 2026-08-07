@@ -315,7 +315,9 @@ export async function POST(req: Request) {
 		existingThread = await resolveThreadStream(threadId);
 		if (
 			existingThread !== null &&
-			(!parsed.data.appId || existingThread.appId !== parsed.data.appId)
+			(!parsed.data.appId ||
+				existingThread.target.kind !== "app" ||
+				existingThread.target.appId !== parsed.data.appId)
 		) {
 			return Response.json(
 				{
@@ -843,7 +845,7 @@ export async function POST(req: Request) {
 	 * surface tag so the two cannot drift. */
 	const logWriter = new LogWriter(appId, "chat");
 	const usage = new UsageAccumulator({
-		appId,
+		target: { kind: "app", appId },
 		userId,
 		runId: effectiveRunId,
 		holderNonce,
@@ -1011,7 +1013,7 @@ export async function POST(req: Request) {
 					 * log's health. */
 					if (!(await writer.flushNow())) return;
 					await persistResponseSnapshot({
-						appId,
+						target: { kind: "app", appId },
 						threadId,
 						streamId,
 						expectedProjectId: projectId,
@@ -1025,7 +1027,7 @@ export async function POST(req: Request) {
 					foldFinalMessage = responseMessage;
 					if (outcomeClawsBack(foldOutcome)) {
 						await clawBackThreadResponse({
-							appId,
+							target: { kind: "app", appId },
 							threadId,
 							streamId,
 							messageId: responseMessage.id,
@@ -1035,7 +1037,7 @@ export async function POST(req: Request) {
 						return;
 					}
 					await persistResponseSnapshot({
-						appId,
+						target: { kind: "app", appId },
 						threadId,
 						streamId,
 						expectedProjectId: projectId,
@@ -1084,7 +1086,7 @@ export async function POST(req: Request) {
 			 * the terminal row is durable before the response stream ends. */
 			const writer = new DurableStreamWriter({
 				streamId,
-				appId,
+				target: { kind: "app", appId },
 				runId: effectiveRunId,
 				threadId,
 				inner: rawWriter,
@@ -1277,7 +1279,7 @@ export async function POST(req: Request) {
 							try {
 								if (clawBack && foldMessageId !== null) {
 									await clawBackThreadResponse({
-										appId,
+										target: { kind: "app", appId },
 										threadId,
 										streamId,
 										messageId: foldMessageId,
@@ -1285,7 +1287,7 @@ export async function POST(req: Request) {
 									});
 								} else {
 									await persistResponseSnapshot({
-										appId,
+										target: { kind: "app", appId },
 										threadId,
 										streamId,
 										expectedProjectId: projectId,
@@ -1477,7 +1479,7 @@ export async function POST(req: Request) {
 				const persistBailedHistory = async (): Promise<void> => {
 					try {
 						await mergeThreadTurnMessages({
-							appId,
+							target: { kind: "app", appId },
 							threadId,
 							messages,
 							expectedProjectId: projectId,
@@ -1897,7 +1899,7 @@ export async function POST(req: Request) {
 				 * must terminate before publishing a stale continuation capability. */
 				try {
 					threadPersisted = await upsertThreadTurn({
-						appId,
+						target: { kind: "app", appId },
 						threadId,
 						runId: effectiveRunId,
 						streamId,

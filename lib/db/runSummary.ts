@@ -5,9 +5,19 @@
  * errors log but never bubble, so a storage outage degrades observability
  * without blocking the response.
  */
+import type { Kysely } from "kysely";
 import { log } from "@/lib/logger";
-import { getAppDb, withAppTx } from "./pg";
+import {
+	type GenerationTarget,
+	generationTargetColumns,
+} from "./generationTargets";
+import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import type { RunSummaryDoc } from "./types";
+
+/** The scope a run summary is keyed under — the closed target union
+ * (`run_summaries_app_run` / `run_summaries_design_session_run` partial
+ * unique indexes). */
+export type RunSummaryTarget = GenerationTarget;
 
 /**
  * What `writeRunSummary` did to the stored row — surfaced so the per-run
@@ -89,17 +99,14 @@ export type RunSummaryWriteAction =
  * accumulating onto it, so neither turn's deltas are dropped.
  */
 export async function writeRunSummary(
-	appId: string,
+	target: RunSummaryTarget,
 	runId: string,
 	summary: RunSummaryDoc,
 ): Promise<RunSummaryWriteAction> {
 	const attempt = () =>
 		withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
-			const existing = await tx
-				.selectFrom("run_summaries")
+			const existing = await runSummaryTargetQuery(tx, target, runId)
 				.selectAll()
-				.where("app_id", "=", appId)
-				.where("run_id", "=", runId)
 				.forUpdate()
 				.executeTakeFirst();
 
@@ -107,7 +114,7 @@ export async function writeRunSummary(
 				await tx
 					.insertInto("run_summaries")
 					.values({
-						app_id: appId,
+						...generationTargetColumns(target),
 						run_id: runId,
 						started_at: summary.startedAt,
 						finished_at: summary.finishedAt,
@@ -129,7 +136,7 @@ export async function writeRunSummary(
 
 			/* Pinned fields (started_at / prompt_mode / app_ready / model) are
 			 * omitted from the SET, so the first write's values stand. */
-			await tx
+			let update = tx
 				.updateTable("run_summaries")
 				.set({
 					finished_at: summary.finishedAt,
@@ -144,9 +151,12 @@ export async function writeRunSummary(
 						Number(existing.cache_write_tokens) + summary.cacheWriteTokens,
 					cost_estimate: existing.cost_estimate + summary.costEstimate,
 				})
-				.where("app_id", "=", appId)
-				.where("run_id", "=", runId)
-				.execute();
+				.where("run_id", "=", runId);
+			update =
+				target.kind === "app"
+					? update.where("app_id", "=", target.appId)
+					: update.where("design_session_id", "=", target.designSessionId);
+			await update.execute();
 			return "incremented";
 		});
 	try {
@@ -159,11 +169,23 @@ export async function writeRunSummary(
 		}
 	} catch (err) {
 		log.error("[writeRunSummary] Postgres write failed", err, {
-			appId,
+			target,
 			runId,
 		});
 		return "failed";
 	}
+}
+
+/** A SELECT pre-guarded by run id + exact target columns. */
+function runSummaryTargetQuery(
+	db: Pick<Kysely<AppDatabase>, "selectFrom">,
+	target: RunSummaryTarget,
+	runId: string,
+) {
+	const base = db.selectFrom("run_summaries").where("run_id", "=", runId);
+	return target.kind === "app"
+		? base.where("app_id", "=", target.appId)
+		: base.where("design_session_id", "=", target.designSessionId);
 }
 
 /**
@@ -174,15 +196,12 @@ export async function writeRunSummary(
  * `readRunSummary`.
  */
 export async function loadRunSummary(
-	appId: string,
+	target: RunSummaryTarget,
 	runId: string,
 ): Promise<RunSummaryDoc | null> {
 	const db = await getAppDb();
-	const row = await db
-		.selectFrom("run_summaries")
+	const row = await runSummaryTargetQuery(db, target, runId)
 		.selectAll()
-		.where("app_id", "=", appId)
-		.where("run_id", "=", runId)
 		.executeTakeFirst();
 	if (!row) return null;
 	return {

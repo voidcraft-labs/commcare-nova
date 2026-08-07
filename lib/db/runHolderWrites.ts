@@ -151,3 +151,73 @@ export function updatedExactlyOne(result: {
 }): boolean {
 	return result.numUpdatedRows === BigInt(1);
 }
+
+// ── Design-session holder predicates ───────────────────────────────
+
+/**
+ * SQL compare-and-set predicate for a design-session run holder. Sessions
+ * hold only in `build` mode on an `active` row (the table CHECKs make every
+ * other shape unrepresentable), and identity is the plain
+ * `(run_id, run_holder_nonce)` pair — there is no status/lock split and no
+ * pre-reservation window (claim writes holder and marker in one statement).
+ */
+export function expectedDesignSessionHolderPredicate(
+	expected: ExactRunHolderIdentity,
+): RawBuilder<boolean> {
+	return sql<boolean>`
+		${sql.ref("state")} = 'active'
+		AND ${sql.ref("run_mode")} = 'build'
+		AND NULLIF(${sql.ref("run_id")}, '') = ${expected.runId}
+		AND ${sql.ref("run_holder_nonce")} = ${expected.nonce}::uuid
+	`;
+}
+
+/**
+ * Final compare-and-set for a design-session free continuation: exact
+ * holder, still paused, and still the pause's own actor.
+ */
+export function expectedPausedDesignSessionResumePredicate(
+	expected: ExactRunHolderIdentity,
+	actorUserId: string,
+): RawBuilder<boolean> {
+	return sql<boolean>`
+		(${expectedDesignSessionHolderPredicate(expected)})
+		AND ${sql.ref("awaiting_input")} IS TRUE
+		AND ${sql.ref("run_actor_user_id")} = ${actorUserId}
+	`;
+}
+
+/**
+ * The SET that releases a design session's complete authority state — both
+ * closed column groups together, plus the pause flag. The table CHECKs tie
+ * `res_run_id` to `run_id` and require each group whole, so every terminal
+ * writer (complete, fail, reap, discard) clears through this one literal and
+ * a partial release is unrepresentable.
+ */
+export function designSessionAuthorityCleared(): {
+	awaiting_input: false;
+	run_id: null;
+	run_holder_nonce: null;
+	run_actor_user_id: null;
+	run_mode: null;
+	run_lease_expires_at: null;
+	res_period: null;
+	res_reserved: null;
+	res_settled: null;
+	res_user_id: null;
+	res_run_id: null;
+} {
+	return {
+		awaiting_input: false,
+		run_id: null,
+		run_holder_nonce: null,
+		run_actor_user_id: null,
+		run_mode: null,
+		run_lease_expires_at: null,
+		res_period: null,
+		res_reserved: null,
+		res_settled: null,
+		res_user_id: null,
+		res_run_id: null,
+	};
+}

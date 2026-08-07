@@ -405,3 +405,143 @@ export function runLeaseState(
 export function editLeaseDeadlineMs(now: number = Date.now()): number {
 	return now + MAX_RUN_MINUTES * 60_000;
 }
+
+/**
+ * Lease deadline for a design-session BUILD run — the same
+ * `MAX_GENERATION_MINUTES` horizon an app build's `updated_at` staleness
+ * window uses, expressed as the explicit `run_lease_expires_at` deadline the
+ * session row carries (a session has no status flip to hold through, so its
+ * lease is a real column rather than freshness arithmetic). Claim, resume,
+ * pause-clear, and the liveness heartbeat all stamp through here.
+ */
+export function designSessionLeaseDeadlineMs(now: number = Date.now()): number {
+	return now + MAX_GENERATION_MINUTES * 60_000;
+}
+
+// ── Design-session run liveness ─────────────────────────────────────
+
+/** The run-liveness slice of a `design_sessions` row — the exact columns
+ *  every session liveness decision reads (`DESIGN_SESSION_LEASE_COLUMNS` in
+ *  `actorGenerationGate.ts` mirrors this list for the admission scan). */
+export interface DesignSessionLeaseRow {
+	state: string;
+	awaiting_input: boolean;
+	owner_user_id: string;
+	run_id: string | null;
+	run_holder_nonce: string | null;
+	run_actor_user_id: string | null;
+	run_mode: string | null;
+	run_lease_expires_at: Date | null;
+	res_period: string | null;
+	res_reserved: number | null;
+	res_settled: boolean | null;
+	res_user_id: string | null;
+	res_run_id: string | null;
+	updated_at: Date;
+}
+
+/**
+ * The derived run-lease view of a design-session row — the session twin of
+ * {@link runLeaseState}, deliberately colocated so the timeout arithmetic
+ * and the derivation vocabulary live in ONE module. Sessions are simpler
+ * than apps by construction: only a `build`-mode holder exists (the table's
+ * CHECKs forbid everything else), the holder and reservation column groups
+ * travel whole, and a reservation can never outlive its holder — so there is
+ * no reaper-signature/false-reap arm to derive.
+ */
+export interface DesignSessionLease {
+	/** Exact holder identity — always mode `build` when present. */
+	holderIdentity: RunHolderIdentity | null;
+	/** A run occupies the session (holder columns present, state active). */
+	present: boolean;
+	/** Present, not paused, and inside the lease horizon. */
+	live: boolean;
+	/** Present and parked on an `askQuestions` round. */
+	paused: boolean;
+	/** Whether the PAUSED run belongs to `actorUserId` — the same-actor
+	 *  supersede gate, mirroring the app derivation's refund-actor rule. */
+	pausedBy: (actorUserId: string) => boolean;
+	/** Whether `runId` owns the occupying run (non-lenient — a missing id is
+	 *  owned by nobody). */
+	mine: (runId: string) => boolean;
+	/** Whether `runId` may perform its TERMINAL settle/refund write here —
+	 *  an unsettled marker carrying this run's id, like a build's. */
+	terminalWriteOwned: (runId: string) => boolean;
+	/** Whether `runId` still owns the PAUSED run `actorUserId` resumes. */
+	ownedByResume: (
+		runId: string,
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
+	) => boolean;
+	/** An unsettled reservation marker exists — a hold owed a settle/refund. */
+	markerSettleable: boolean;
+	/** A present holder whose lease lapsed — the session reaper's target
+	 *  (hard-killed AND abandoned-paused runs alike; the lapsed lease is the
+	 *  reap signal, paused or not — the app rule, restated). */
+	reapableStaleRun: boolean;
+}
+
+/** Derive the {@link DesignSessionLease} from a session row's run-state
+ *  leaves. Pure; `now` is injectable for tests. */
+export function designSessionLeaseState(
+	row: DesignSessionLeaseRow,
+	now: number = Date.now(),
+): DesignSessionLease {
+	const normalized = (value: string | null): string | null =>
+		typeof value === "string" && value.length > 0 ? value : null;
+	const present = row.state === "active" && normalized(row.run_id) !== null;
+	const holderIdentity: RunHolderIdentity | null = present
+		? {
+				mode: "build",
+				runId: normalized(row.run_id),
+				nonce: normalized(row.run_holder_nonce),
+			}
+		: null;
+	const paused = present && row.awaiting_input;
+	const lease = row.run_lease_expires_at;
+	const withinHorizon =
+		typeof lease?.getTime === "function" && lease.getTime() > now;
+	const live = present && !paused && withinHorizon;
+	const markerSettleable = row.res_period !== null && row.res_settled === false;
+
+	const mine = (runId: string): boolean =>
+		present && normalized(row.res_run_id) === runId;
+
+	const pausedBy = (actorUserId: string): boolean => {
+		if (!paused) return false;
+		const holder = row.run_actor_user_id ?? row.owner_user_id;
+		return holder !== "" && holder === actorUserId;
+	};
+
+	const terminalWriteOwned = (runId: string): boolean =>
+		markerSettleable && mine(runId);
+
+	const ownedByResume = (
+		runId: string,
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
+	): boolean =>
+		paused &&
+		normalized(row.run_id) === runId &&
+		(!enforceNonce ||
+			(holderNonce !== null && holderIdentity?.nonce === holderNonce)) &&
+		pausedBy(actorUserId);
+
+	const reapableStaleRun =
+		present && holderIdentity?.runId !== null && !withinHorizon;
+
+	return {
+		holderIdentity,
+		present,
+		live,
+		paused,
+		pausedBy,
+		mine,
+		terminalWriteOwned,
+		ownedByResume,
+		markerSettleable,
+		reapableStaleRun,
+	};
+}

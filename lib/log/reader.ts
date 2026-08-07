@@ -90,5 +90,5 @@ export async function readRunSummary(
 	appId: string,
 	runId: string,
 ): Promise<RunSummaryDoc | null> {
-	return loadRunSummary(appId, runId);
+	return loadRunSummary({ kind: "app", appId }, runId);
 }

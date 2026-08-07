@@ -61,8 +61,12 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
 import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
-import { appHeldLive } from "@/lib/db/apps";
+import { AppAccessError } from "@/lib/db/appAccess";
+import {
+	type GenerationTarget,
+	generationTargetHeldLive,
+	resolveGenerationTargetScope,
+} from "@/lib/db/generationTargets";
 import {
 	readStreamChunksFrom,
 	streamChunkMeta,
@@ -127,7 +131,7 @@ export async function GET(
 	{ params }: { params: Promise<{ streamId: string }> },
 ) {
 	let streamId: string;
-	let appId: string;
+	let target: GenerationTarget;
 	let userId: string;
 	let cursor: number;
 	let tailHeader: string | undefined;
@@ -138,18 +142,20 @@ export async function GET(
 
 		/* Resolve the path id: a stream id first (the hot path, a broken POST
 		 * reconnecting), then a thread id (the cold page-refresh resume). The
-		 * owning app is the auth anchor either way. An id that is neither, or
-		 * one the caller may not see: is 404 (the IDOR-safe posture; a pruned
-		 * stream is indistinguishable from a foreign one on purpose). */
+		 * owning generation target — an app, or a pre-app design session — is
+		 * the auth anchor either way (one shared resolver, opaque denials). An
+		 * id that is neither, or one the caller may not see: is 404 (the
+		 * IDOR-safe posture; a pruned stream is indistinguishable from a
+		 * foreign one on purpose). */
 		const meta = await streamChunkMeta(streamId);
 		if (meta) {
-			appId = meta.appId;
-			await resolveAppScope(appId, userId, "view");
+			target = meta.target;
+			await resolveGenerationTargetScope(target, userId, "view");
 		} else {
 			const thread = await resolveThreadStream(streamId);
 			if (!thread) throw new ApiError("Stream not found", 404);
-			appId = thread.appId;
-			await resolveAppScope(appId, userId, "view");
+			target = thread.target;
+			await resolveGenerationTargetScope(target, userId, "view");
 			if (!thread.activeStreamId) {
 				/* Nothing in flight on this thread. Answer a bare, well-formed
 				 * finish: the transport ERRORS on any non-OK response (it has no
@@ -184,7 +190,7 @@ export async function GET(
 		);
 	}
 
-	return openStream({ req, streamId, appId, userId, cursor, tailHeader });
+	return openStream({ req, streamId, target, userId, cursor, tailHeader });
 }
 
 /**
@@ -215,12 +221,12 @@ function finishOnlyResponse(): Response {
 function openStream(args: {
 	req: Request;
 	streamId: string;
-	appId: string;
+	target: GenerationTarget;
 	userId: string;
 	cursor: number;
 	tailHeader: string | undefined;
 }): Response {
-	const { req, streamId, appId, userId, tailHeader } = args;
+	const { req, streamId, target, userId, tailHeader } = args;
 
 	const encoder = new TextEncoder();
 	let teardownRef: (() => void) | null = null;
@@ -314,7 +320,7 @@ function openStream(args: {
 					typeof markerData?.threadId === "string" &&
 					typeof markerData.holderDigest === "string"
 						? await loadHolderNonceForReplayMarker({
-								appId,
+								target,
 								threadId: markerData.threadId,
 								holderDigest: markerData.holderDigest,
 								actorUserId: userId,
@@ -406,7 +412,7 @@ function openStream(args: {
 					if (closed) return;
 
 					try {
-						await resolveAppScope(appId, userId, "view");
+						await resolveGenerationTargetScope(target, userId, "view");
 					} catch (err) {
 						if (err instanceof AppAccessError) teardown();
 						return; // non-access throw: transient, re-check next tick
@@ -414,7 +420,7 @@ function openStream(args: {
 					if (closed) return;
 
 					try {
-						if (await appHeldLive(appId)) {
+						if (await generationTargetHeldLive(target)) {
 							deadTicks = 0;
 							return;
 						}

@@ -27,7 +27,7 @@ export async function GET(
 		 * in `handleApiError` (shared IDOR-safe not-found posture). */
 		await resolveAppScope(id, session.user.id, "view");
 
-		const threads = await listThreadMetas(id);
+		const threads = await listThreadMetas({ kind: "app", appId: id });
 		return Response.json(
 			{ threads },
 			{ headers: { "Cache-Control": "private, no-store" } },

@@ -18,7 +18,8 @@
 import { sql } from "kysely";
 import { log } from "@/lib/logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
-import { refundReservation } from "./credits";
+import { refundDesignSessionReservation, refundReservation } from "./credits";
+import type { GenerationTarget } from "./generationTargets";
 import { getCurrentPeriod } from "./period";
 import { getAppDb } from "./pg";
 import { writeRunSummary } from "./runSummary";
@@ -166,7 +167,10 @@ interface LLMCallUsage {
  * deterministic assertions, the route leaves it implicit.
  */
 export interface AccumulatorSeed {
-	appId: string;
+	/** The generation scope this run bills, summarizes, and refunds against —
+	 * an app, or a pre-app design session. Reservation/refund arithmetic is
+	 * identical across the two; only the marker's home row differs. */
+	target: GenerationTarget;
 	userId: string;
 	runId: string;
 	/** Server-minted holder generation for lifecycle/credit authority. Unlike
@@ -391,7 +395,7 @@ export class UsageAccumulator {
 		 * (created / incremented / overwritten / failed) feeds the finalize
 		 * log below — an `overwritten` is a silent clobber worth seeing. */
 		const summaryAction = await writeRunSummary(
-			this.seed.appId,
+			this.seed.target,
 			this.seed.runId,
 			summary,
 		);
@@ -438,18 +442,26 @@ export class UsageAccumulator {
 			this.seed.reservedAmount
 		) {
 			try {
-				// The marker (period + amount) lives on the app doc, co-committed with
-				// the debit at reserve time, so the refund reads it from there — and
-				// settles it atomically, so the reaper can never double-refund a hold
-				// this live flush already returned. Passing `runId` ownership-gates it:
-				// a run that was reaped mid-flight + its app re-claimed must not claw the
-				// new run's live marker (its `reserveCredits` overwrote `runId`).
-				await refundReservation(
-					this.seed.appId,
-					this.seed.runId,
-					this.seed.holderNonce,
-					this.seed.promptMode,
-				);
+				// The marker (period + amount) lives on the target's authority row,
+				// co-committed with the debit at reserve time, so the refund reads it
+				// from there — and settles it atomically, so the reaper can never
+				// double-refund a hold this live flush already returned. Passing
+				// `runId` ownership-gates it: a run that was reaped mid-flight + its
+				// target re-claimed must not claw the new run's live marker.
+				if (this.seed.target.kind === "app") {
+					await refundReservation(
+						this.seed.target.appId,
+						this.seed.runId,
+						this.seed.holderNonce,
+						this.seed.promptMode,
+					);
+				} else {
+					await refundDesignSessionReservation(
+						this.seed.target.designSessionId,
+						this.seed.runId,
+						this.seed.holderNonce,
+					);
+				}
 			} catch (err) {
 				/* The refund was owed but its transaction did not commit. Record it so
 				 * the route leaves the row reapable (rather than flipping to a status the
@@ -470,7 +482,7 @@ export class UsageAccumulator {
 		 * the flush saw no cost. Info level — it fires once per finalize and the
 		 * payload is numeric counters + identifiers, no user content. */
 		log.info("[run-finalize]", {
-			appId: this.seed.appId,
+			target: this.seed.target,
 			runId: this.seed.runId,
 			userId: this.seed.userId,
 			promptMode: this.seed.promptMode,

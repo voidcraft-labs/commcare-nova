@@ -174,7 +174,11 @@ export interface EventsTable {
  */
 export interface ThreadsTable {
 	thread_id: string;
-	app_id: string;
+	/** Exactly one generation target: `app_id` XOR `design_session_id`
+	 * (`threads_exactly_one_target`). A build thread stays design-session-
+	 * targeted after materialization; the target resolver supplies the app. */
+	app_id: string | null;
+	design_session_id: string | null;
 	created_at: string;
 	updated_at: string;
 	thread_type: string;
@@ -207,7 +211,10 @@ export interface ThreadsTable {
 export interface ChatStreamChunksTable {
 	stream_id: string;
 	first_index: number;
-	app_id: string;
+	/** Exactly one generation target: `app_id` XOR `design_session_id`
+	 * (`chat_stream_chunks_exactly_one_target`). */
+	app_id: string | null;
+	design_session_id: string | null;
 	run_id: string;
 	chunks: JSONColumnType<Record<string, unknown>[]>;
 	terminal: boolean;
@@ -221,7 +228,12 @@ export interface ChatStreamChunksTable {
 }
 
 export interface RunSummariesTable {
-	app_id: string;
+	/** Exactly one generation target: `app_id` XOR `design_session_id`
+	 * (`run_summaries_exactly_one_target`); the old `(app_id, run_id)` primary
+	 * key is now the pair of partial unique indexes `run_summaries_app_run` /
+	 * `run_summaries_design_session_run`. */
+	app_id: string | null;
+	design_session_id: string | null;
 	run_id: string;
 	started_at: string;
 	finished_at: string;
@@ -323,6 +335,18 @@ export interface MediaAssetRefsTable {
 	project_id: string;
 	asset_id: MediaAssetId;
 	app_id: string;
+}
+
+/**
+ * Exact conversation attachment references — one row per `(thread, asset)`,
+ * replaced under the thread's own transcript transaction. The split half of
+ * the media projection: `media_asset_refs` carries ONLY authored Blueprint
+ * references, this table ONLY conversation carriers. Deletion checks both.
+ */
+export interface ThreadMediaRefsTable {
+	thread_id: string;
+	asset_id: MediaAssetId;
+	project_id: string;
 }
 
 /** One successful pending-attempt id -> canonical ready asset replay record. */
@@ -528,9 +552,9 @@ export interface AppDeploymentResourcesTable {
  *
  * `base_project_id` is the CAPTURED base scope, never live tenancy: a
  * Project move deliberately strands open sets (their commit rejects), so
- * no move transaction touches these rows. Design/plan identity columns
- * are opaque until the design-session/orchestrator units add their
- * tables and foreign keys.
+ * no move transaction touches these rows. `design_session_id` is bound to
+ * `design_sessions(id)`; the remaining design/plan identity columns stay
+ * opaque until the orchestrator unit adds its tables and foreign keys.
  */
 export interface DesignChangeSetsTable {
 	id: string;
@@ -633,8 +657,8 @@ export interface DesignCommittedSlicesTable {
  * One persisted design source package — references, normalized claims, and
  * the canonical digest over the exact projection the models consumed
  * (`lib/agent/design/sourcePackage.ts`). Raw extracts and transcripts are
- * never duplicated here. `design_session_id` is opaque until the
- * design-session unit adds its table and foreign key.
+ * never duplicated here. `design_session_id` is bound to
+ * `design_sessions(id)`.
  */
 export interface DesignSourcePackagesTable {
 	id: string;
@@ -708,6 +732,45 @@ export interface DesignBuildPlansTable {
 	/** The full `DesignArtifactEnvelope<BuildPlan>` — `::text` read. */
 	envelope: JSONColumnType<Record<string, unknown>>;
 	created_at: Timestamp;
+}
+
+/**
+ * One design session — the pre-app generation target (mode `build`) or a
+ * design-aware edit's artifact scope (mode `edit`, whose bound app row stays
+ * the sole run/credit authority). A build session carries the same holder +
+ * reservation nullable column groups the `apps` row carries; the migration's
+ * CHECKs make a partial group, a holder on an edit session, and authority
+ * columns on a terminal session unrepresentable. Lifecycle writers live in
+ * `lib/db/designSessions.ts` and mirror the app run protocol exactly.
+ */
+export interface DesignSessionsTable {
+	id: string;
+	mode: string;
+	project_id: string;
+	owner_user_id: string;
+	proposed_app_id: string | null;
+	app_id: string | null;
+	state: string;
+	awaiting_input: ColumnType<boolean, boolean | undefined, boolean>;
+	run_id: string | null;
+	run_holder_nonce: string | null;
+	run_actor_user_id: string | null;
+	run_mode: string | null;
+	run_lease_expires_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	res_period: string | null;
+	res_reserved: number | null;
+	res_settled: boolean | null;
+	res_user_id: string | null;
+	res_run_id: string | null;
+	last_error_type: string | null;
+	active_design_revision_id: string | null;
+	active_build_plan_id: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
 }
 
 /** Committed design provenance — intent → implementation coordinate. */
@@ -835,6 +898,8 @@ export interface AppDatabase {
 	design_reviews: DesignReviewsTable;
 	design_review_dispositions: DesignReviewDispositionsTable;
 	design_build_plans: DesignBuildPlansTable;
+	design_sessions: DesignSessionsTable;
+	thread_media_refs: ThreadMediaRefsTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

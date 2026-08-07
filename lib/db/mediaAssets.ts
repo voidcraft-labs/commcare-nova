@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
 import {
 	type AssetKind,
 	type AssetMimeType,
@@ -1403,7 +1404,52 @@ export async function insertMediaReferenceEdges(
 	return unique;
 }
 
-/** Exact app ids whose live authored/thread projection references an asset. */
+/**
+ * Replace ONE thread's exact conversation media reference set
+ * (`thread_media_refs`) from its candidate transcript — the thread half of
+ * the split media projection (`media_asset_refs` carries only authored
+ * Blueprint references). Locks every referenced asset `FOR SHARE` and
+ * validates Project/readiness/kind exactly like the Blueprint projection,
+ * then replaces the thread's complete row set. Runs inside the thread
+ * writer's transaction (authority row → thread row → media assets).
+ */
+export async function replaceExactThreadMediaReferences(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly threadId: string;
+		readonly projectId: string;
+		readonly candidateMessages: readonly unknown[];
+	},
+): Promise<void> {
+	const requirements: MediaReferenceRequirement[] = collectThreadAttachments(
+		args.candidateMessages,
+	).map((attachment) => ({
+		assetId: attachment.assetId,
+		expectedKind: attachment.kind as AssetKind,
+	}));
+	const assetIds = await lockAndValidateMediaReferences(
+		tx,
+		args.projectId,
+		requirements,
+	);
+	await tx
+		.deleteFrom("thread_media_refs")
+		.where("thread_id", "=", args.threadId)
+		.execute();
+	if (assetIds.length === 0) return;
+	await tx
+		.insertInto("thread_media_refs")
+		.values(
+			assetIds.map((assetId) => ({
+				thread_id: args.threadId,
+				asset_id: assetId,
+				project_id: args.projectId,
+			})),
+		)
+		.execute();
+}
+
+/** Exact app ids whose live authored projection references an asset. */
 export async function listReferencingAppIds(
 	assetId: MediaAssetId,
 ): Promise<string[]> {

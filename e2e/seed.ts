@@ -210,7 +210,7 @@ async function seedSettledThread(args: {
 		args.projectId,
 	);
 	const written = await upsertThreadTurn({
-		appId: args.appId,
+		target: { kind: "app", appId: args.appId },
 		threadId: args.threadId,
 		runId,
 		streamId,
@@ -228,7 +228,7 @@ async function seedSettledThread(args: {
 		throw new Error(`e2e/seed.ts: thread seed lost holder (${releaseOutcome})`);
 	}
 	await persistResponseSnapshot({
-		appId: args.appId,
+		target: { kind: "app", appId: args.appId },
 		threadId: args.threadId,
 		streamId,
 		expectedProjectId: args.projectId,
@@ -813,7 +813,7 @@ async function main(): Promise<void> {
 			seedProjectId,
 		);
 		const written = await upsertThreadTurn({
-			appId: scrollAppId,
+			target: { kind: "app", appId: scrollAppId },
 			threadId: scrollQuestionThreadId,
 			runId,
 			streamId,
@@ -839,7 +839,7 @@ async function main(): Promise<void> {
 			);
 		}
 		await persistResponseSnapshot({
-			appId: scrollAppId,
+			target: { kind: "app", appId: scrollAppId },
 			threadId: scrollQuestionThreadId,
 			streamId,
 			expectedProjectId: seedProjectId,

@@ -38,7 +38,6 @@
 
 import { type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -76,7 +75,7 @@ import type {
 	PersistedBlueprint,
 } from "../domain/blueprint";
 import { asWalkableDoc, walkAuthoredAssetRefs } from "../domain/mediaRefs";
-import { type AssetKind, asMediaAssetId } from "../domain/multimedia";
+import { asMediaAssetId } from "../domain/multimedia";
 import { diffBlueprints } from "./blueprintRows";
 import {
 	type CanonicalCommitSidecar,
@@ -377,11 +376,6 @@ export function denormalize(doc: PersistableDoc) {
 
 // ── Media + lookup + membership admission ──────────────────────────
 
-export interface CandidateThreadMediaProjection {
-	readonly threadId: string;
-	readonly messages: readonly unknown[];
-}
-
 export function blueprintMediaRequirements(
 	doc: BlueprintDoc | PersistableDoc,
 ): MediaReferenceRequirement[] {
@@ -394,9 +388,12 @@ export function blueprintMediaRequirements(
 }
 
 /**
- * Rederive and replace one app's complete live media projection. The caller
- * already owns the app `FOR UPDATE`; that is what keeps every Blueprint and
- * thread carrier stable while this function reads the other rows.
+ * Rederive and replace one app's complete AUTHORED media projection —
+ * Blueprint carriers only. Conversation attachments live in the separate
+ * `thread_media_refs` projection, replaced by the thread writers under the
+ * same target lock discipline; the two halves never overwrite each other.
+ * The caller already owns the app `FOR UPDATE`; that is what keeps every
+ * Blueprint carrier stable while this function reads the other rows.
  */
 export async function replaceExactMediaReferencesForApp(
 	tx: Transaction<AppDatabase>,
@@ -404,7 +401,6 @@ export async function replaceExactMediaReferencesForApp(
 		readonly appId: string;
 		readonly projectId: string;
 		readonly candidateDoc?: BlueprintDoc | PersistableDoc;
-		readonly candidateThread?: CandidateThreadMediaProjection;
 	},
 ): Promise<void> {
 	let doc = args.candidateDoc;
@@ -418,36 +414,6 @@ export async function replaceExactMediaReferencesForApp(
 		doc = hydratePersistedBlueprint(stored.blueprint);
 	}
 	const requirements = blueprintMediaRequirements(doc);
-	const threads = await tx
-		.selectFrom("threads")
-		.select(["thread_id", "messages"])
-		.where("app_id", "=", args.appId)
-		.orderBy("thread_id")
-		.execute();
-	let substituted = false;
-	for (const thread of threads) {
-		const messages =
-			args.candidateThread?.threadId === thread.thread_id
-				? args.candidateThread.messages
-				: thread.messages;
-		if (args.candidateThread?.threadId === thread.thread_id) substituted = true;
-		for (const attachment of collectThreadAttachments(messages)) {
-			requirements.push({
-				assetId: attachment.assetId,
-				expectedKind: attachment.kind as AssetKind,
-			});
-		}
-	}
-	if (args.candidateThread !== undefined && !substituted) {
-		for (const attachment of collectThreadAttachments(
-			args.candidateThread.messages,
-		)) {
-			requirements.push({
-				assetId: attachment.assetId,
-				expectedKind: attachment.kind as AssetKind,
-			});
-		}
-	}
 	const assetIds = await lockAndValidateMediaReferences(
 		tx,
 		args.projectId,

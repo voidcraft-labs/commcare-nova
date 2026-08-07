@@ -14,6 +14,11 @@
  * touches `credit_months` rows — one consistent order, no deadlock cycles.
  */
 import type { Transaction } from "kysely";
+import {
+	DESIGN_SESSION_LEASE_COLUMNS,
+	lockActorGenerationGateForAppHolder,
+	lockActorGenerationGateForSessionHolder,
+} from "./actorGenerationGate";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
 import {
 	LEASE_COLUMNS,
@@ -24,13 +29,19 @@ import {
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import {
+	designSessionAuthorityCleared,
 	type ExactRunHolderIdentity,
 	exactRunHolderMatches,
+	expectedDesignSessionHolderPredicate,
 	expectedRunHolderPredicate,
 	type RunHolderWriteOutcome,
 	updatedExactlyOne,
 } from "./runHolderWrites";
-import { runLeaseState } from "./runLiveness";
+import {
+	type DesignSessionLeaseRow,
+	designSessionLeaseState,
+	runLeaseState,
+} from "./runLiveness";
 import type { AppReservation, CreditGrantDoc } from "./types";
 
 /**
@@ -153,6 +164,20 @@ async function upsertCreditMonth(
 		.execute();
 }
 
+/**
+ * Narrow in-transaction seam for the one refund a NON-credit module owns:
+ * `discardDesignSession` releases a discarded session's remaining hold inside
+ * its own gated transaction. Every other refund lives in this file.
+ */
+export async function refundToMonthInTransaction(
+	tx: Transaction<AppDatabase>,
+	userId: string,
+	period: string,
+	amount: number,
+): Promise<void> {
+	await refundToMonth(tx, userId, period, amount);
+}
+
 /** Un-book `amount` from a user's month (clamped at 0) — the shared refund
  *  write. A missing row is a clean no-op (nothing was ever debited there). */
 async function refundToMonth(
@@ -211,16 +236,41 @@ export async function debitAndBookReservation(
 		owner: string;
 	},
 ): Promise<void> {
-	const {
-		appId,
-		userId,
-		cost,
-		runId,
-		holderNonce,
-		period,
-		priorMarker,
-		owner,
-	} = args;
+	const { appId, userId, cost, runId, holderNonce, period } = args;
+	await debitForReservation(tx, args);
+	await tx
+		.updateTable("apps")
+		.set({
+			res_period: period,
+			res_reserved: cost,
+			res_settled: false,
+			res_user_id: userId,
+			res_run_id: runId,
+			run_holder_nonce: holderNonce,
+		})
+		.where("id", "=", appId)
+		.execute();
+}
+
+/**
+ * The credit-month half of the reservation debit, shared verbatim by the app
+ * and design-session claims: leftover-marker refund, affordability against
+ * the literal post-refund balance, and the seeded debit. The caller writes
+ * its own target's marker (and, for a design session, the holder group in
+ * the SAME statement — the session CHECKs tie `res_run_id` to `run_id`, so
+ * the two groups must land together).
+ */
+async function debitForReservation(
+	tx: Transaction<AppDatabase>,
+	args: {
+		userId: string;
+		cost: number;
+		period: string;
+		priorMarker: AppReservation | undefined;
+		owner: string;
+	},
+): Promise<void> {
+	const { userId, cost, period, priorMarker, owner } = args;
 
 	let priorRefundSameRow = 0;
 	let crossRefund: { user: string; period: string; amount: number } | undefined;
@@ -275,18 +325,25 @@ export async function debitAndBookReservation(
 		consumed: consumed + cost,
 		bonus,
 	});
-	await tx
-		.updateTable("apps")
-		.set({
-			res_period: period,
-			res_reserved: cost,
-			res_settled: false,
-			res_user_id: userId,
-			res_run_id: runId,
-			run_holder_nonce: holderNonce,
-		})
-		.where("id", "=", appId)
-		.execute();
+}
+
+/**
+ * The design-session claim's debit: the shared credit-month body above, with
+ * the marker (and holder group) write owned by the CALLER's claim statement.
+ * Runs inside the session claim transaction, after the actor gate and the
+ * locked session row.
+ */
+export async function debitForDesignSessionReservation(
+	tx: Transaction<AppDatabase>,
+	args: {
+		userId: string;
+		cost: number;
+		period: string;
+		priorMarker: AppReservation | undefined;
+		owner: string;
+	},
+): Promise<void> {
+	await debitForReservation(tx, args);
 }
 
 /**
@@ -307,6 +364,9 @@ export async function refundReservation(
 	mode: "build" | "edit",
 ): Promise<void> {
 	await withAppTx(async (tx) => {
+		/* Lifecycle lock order: the holder's actor gate FIRST, then the
+		 * authority row (see `actorGenerationGate.ts`). */
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return;
 		const lease = runLeaseState(leaseView(row));
@@ -355,6 +415,7 @@ export async function settleAndRelease(
 	opts: { mode: "build" | "edit" },
 ): Promise<{ settled: boolean; outcome: RunHolderWriteOutcome }> {
 	return await withAppTx(async (tx) => {
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return { settled: false, outcome: "released" };
 		const lease = runLeaseState(leaseView(row));
@@ -421,6 +482,7 @@ export async function refundStaleReservation(
 	expectedHolder: ExactRunHolderIdentity,
 ): Promise<StaleRunReapOutcome> {
 	return await withAppTx(async (tx) => {
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return "state_changed";
 		const lease = runLeaseState(leaseView(row));
@@ -476,6 +538,7 @@ export async function refundStaleGeneration(
 	expectedHolder: ExactRunHolderIdentity,
 ): Promise<StaleRunReapOutcome> {
 	return await withAppTx(async (tx) => {
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return "state_changed";
 		const lease = runLeaseState(leaseView(row));
@@ -511,6 +574,196 @@ export async function refundStaleGeneration(
 			.executeTakeFirst();
 		requireExactHolderWrite("refundStaleGeneration", result);
 		return "reaped";
+	});
+}
+
+// ── Design-session reservation lifecycle ───────────────────────────
+//
+// The design-session twins of the app writers above, sharing the same
+// month-row helpers, the same idempotence-via-`settled` discipline, and the
+// same lifecycle lock order (actor gate → authority row → credit months).
+// Sessions are stricter than apps by construction: the holder and
+// reservation column groups travel whole and a marker never outlives its
+// holder, so every terminal writer settles/refunds and clears BOTH groups
+// in its one transaction (`designSessionAuthorityCleared`), and there is no
+// reaper-signature/self-heal arm to preserve.
+
+/** Lock + read one design session's liveness slice inside a refund
+ * transaction. */
+async function lockDesignSessionLeaseRow(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+): Promise<(DesignSessionLeaseRow & { id: string }) | undefined> {
+	return await tx
+		.selectFrom("design_sessions")
+		.select(["id", ...DESIGN_SESSION_LEASE_COLUMNS])
+		.where("id", "=", designSessionId)
+		.forUpdate()
+		.executeTakeFirst();
+}
+
+/** The session row's reservation marker in the shared `AppReservation`
+ * shape — present iff `res_period` is set. */
+export function designSessionReservation(
+	row: DesignSessionLeaseRow,
+): AppReservation | undefined {
+	if (row.res_period === null) return undefined;
+	return {
+		period: row.res_period,
+		reserved: row.res_reserved ?? 0,
+		settled: !!row.res_settled,
+		...(row.res_user_id !== null && { userId: row.res_user_id }),
+		...(row.res_run_id !== null && { runId: row.res_run_id }),
+	};
+}
+
+/**
+ * The FLUSH path's refund for a design-session run — the twin of
+ * {@link refundReservation}: refund the booked credits AND settle the marker
+ * atomically, ownership-gated on the exact `(build, runId, nonce)` holder,
+ * idempotent via `settled`. The holder stays in place (the run's terminal
+ * writer clears it); a superseded or released run no-ops.
+ */
+export async function refundDesignSessionReservation(
+	designSessionId: string,
+	runId: string,
+	holderNonce: string,
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await lockActorGenerationGateForSessionHolder(tx, designSessionId);
+		const row = await lockDesignSessionLeaseRow(tx, designSessionId);
+		if (!row) return;
+		const lease = designSessionLeaseState(row);
+		const expectedHolder = {
+			mode: "build",
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+			!lease.terminalWriteOwned(runId)
+		) {
+			return;
+		}
+		const reservation = designSessionReservation(row);
+		if (!reservation || reservation.settled || !reservation.userId) return;
+		await refundToMonth(
+			tx,
+			reservation.userId,
+			reservation.period,
+			reservation.reserved,
+		);
+		const result = await tx
+			.updateTable("design_sessions")
+			.set({ res_settled: true, updated_at: new Date() })
+			.where("id", "=", designSessionId)
+			.where(expectedDesignSessionHolderPredicate(expectedHolder))
+			.executeTakeFirst();
+		requireExactHolderWrite("refundDesignSessionReservation", result);
+	});
+}
+
+/**
+ * Reap a stale design-session run — the twin of
+ * {@link refundStaleGeneration}: staleness RE-VALIDATED off the locked row
+ * (a resumed run reads live and this no-ops), the unsettled hold refunded to
+ * its charged actor, and the complete authority state released in one
+ * commit. The session STAYS `active` — a reaped session is recoverable
+ * (resume re-claims chargeable; discard abandons it) — with
+ * `last_error_type` carrying the same abandoned-pause classification the
+ * app reaper stamps.
+ */
+export async function refundStaleDesignSessionRun(
+	designSessionId: string,
+	expectedHolder: ExactRunHolderIdentity,
+): Promise<StaleRunReapOutcome> {
+	return await withAppTx(async (tx) => {
+		await lockActorGenerationGateForSessionHolder(tx, designSessionId);
+		const row = await lockDesignSessionLeaseRow(tx, designSessionId);
+		if (!row) return "state_changed";
+		const lease = designSessionLeaseState(row);
+		if (
+			expectedHolder.mode !== "build" ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+			!lease.reapableStaleRun
+		) {
+			return "state_changed";
+		}
+		const reservation = designSessionReservation(row);
+		if (reservation && !reservation.settled && reservation.userId) {
+			await refundToMonth(
+				tx,
+				reservation.userId,
+				reservation.period,
+				reservation.reserved,
+			);
+		}
+		const result = await tx
+			.updateTable("design_sessions")
+			.set({
+				...designSessionAuthorityCleared(),
+				last_error_type: row.awaiting_input ? "paused_timeout" : "internal",
+				updated_at: new Date(),
+			})
+			.where("id", "=", designSessionId)
+			.where(expectedDesignSessionHolderPredicate(expectedHolder))
+			.executeTakeFirst();
+		requireExactHolderWrite("refundStaleDesignSessionRun", result);
+		return "reaped";
+	});
+}
+
+/**
+ * The FAILED design-session run's terminal writer — the twin of
+ * {@link settleAndRelease}: refund-if-unsettled + release the complete
+ * authority state in ONE transaction, so "released but unsettled" is
+ * impossible by construction. The returned `settled` answers whether this
+ * admitted holder still owned the outcome. `last_error_type` records the
+ * classified failure for the session's recoverable error surface.
+ */
+export async function settleAndReleaseDesignSessionRun(
+	designSessionId: string,
+	runId: string,
+	holderNonce: string,
+	errorType: string,
+): Promise<{ settled: boolean; outcome: RunHolderWriteOutcome }> {
+	return await withAppTx(async (tx) => {
+		await lockActorGenerationGateForSessionHolder(tx, designSessionId);
+		const row = await lockDesignSessionLeaseRow(tx, designSessionId);
+		if (!row) return { settled: false, outcome: "released" };
+		const lease = designSessionLeaseState(row);
+		const expectedHolder = {
+			mode: "build",
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
+			return {
+				settled: false,
+				outcome: lease.present ? "superseded" : "released",
+			};
+		}
+		const reservation = designSessionReservation(row);
+		if (reservation && !reservation.settled && reservation.userId) {
+			await refundToMonth(
+				tx,
+				reservation.userId,
+				reservation.period,
+				reservation.reserved,
+			);
+		}
+		const result = await tx
+			.updateTable("design_sessions")
+			.set({
+				...designSessionAuthorityCleared(),
+				last_error_type: errorType,
+				updated_at: new Date(),
+			})
+			.where("id", "=", designSessionId)
+			.where(expectedDesignSessionHolderPredicate(expectedHolder))
+			.executeTakeFirst();
+		requireExactHolderWrite("settleAndReleaseDesignSessionRun", result);
+		return { settled: true, outcome: "owned" };
 	});
 }
 

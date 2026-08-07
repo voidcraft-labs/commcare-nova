@@ -3,7 +3,6 @@
 import { sql, type Transaction } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { MediaAssetId } from "@/lib/domain";
 import {
@@ -138,32 +137,10 @@ async function persistedAppReferencesInTransaction(
 					.whereRef("entity.app_id", "=", "app.id")
 					.orderBy("entity.uuid"),
 			).as("entities"),
-			jsonArrayFrom(
-				eb
-					.selectFrom("threads as thread")
-					.select("thread.messages")
-					.whereRef("thread.app_id", "=", "app.id")
-					.orderBy("thread.thread_id"),
-			).as("threads"),
 		])
 		.where("edge.project_id", "=", args.projectId)
 		.where("edge.asset_id", "=", args.assetId);
 	const apps = await appQuery.orderBy("app.id").execute();
-	if (apps.length === 0) return [];
-	const threadReferenceCountByApp = new Map<string, number>();
-	for (const app of apps) {
-		for (const thread of app.threads) {
-			const count = collectThreadAttachmentAssetIds(thread.messages).filter(
-				(assetId) => assetId === args.assetId,
-			).length;
-			if (count > 0) {
-				threadReferenceCountByApp.set(
-					app.id,
-					(threadReferenceCountByApp.get(app.id) ?? 0) + count,
-				);
-			}
-		}
-	}
 
 	const descriptions: string[] = [];
 	for (const app of apps) {
@@ -185,14 +162,6 @@ async function persistedAppReferencesInTransaction(
 					.map(describeCarrier),
 			),
 		];
-		const threadReferenceCount = threadReferenceCountByApp.get(app.id) ?? 0;
-		if (threadReferenceCount > 0) {
-			carriers.push(
-				threadReferenceCount === 1
-					? "a conversation attachment"
-					: `${threadReferenceCount} conversation attachments`,
-			);
-		}
 		if (
 			carriers.length > 0 &&
 			descriptions.length < REFERENCE_DESCRIPTION_LIMIT
@@ -206,6 +175,26 @@ async function persistedAppReferencesInTransaction(
 				`media_asset_refs is not an exact projection for app ${app.id} and asset ${args.assetId}`,
 			);
 		}
+	}
+
+	/* The CONVERSATION reference family — the split half of the projection.
+	 * One `thread_media_refs` row per referencing thread; the row is the
+	 * exact projection (the thread writers replace it transactionally), and
+	 * the walk above no longer sees transcripts, so this is the only place a
+	 * conversation attachment blocks deletion. */
+	const threadRefs = await tx
+		.selectFrom("thread_media_refs")
+		.select(["thread_id"])
+		.where("project_id", "=", args.projectId)
+		.where("asset_id", "=", args.assetId)
+		.orderBy("thread_id")
+		.execute();
+	if (threadRefs.length > 0) {
+		descriptions.push(
+			threadRefs.length === 1
+				? "a conversation attachment"
+				: `${threadRefs.length} conversation attachments`,
+		);
 	}
 	return descriptions;
 }

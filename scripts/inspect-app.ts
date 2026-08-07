@@ -399,7 +399,7 @@ async function main() {
 	}
 
 	/* ── Threads ──────────────────────────────────────────────────── */
-	const threads = await listThreadMetas(appId);
+	const threads = await listThreadMetas({ kind: "app", appId: appId });
 
 	if (threads.length > 0) {
 		/* Pre-fetch the per-run summary for every thread unconditionally. The
@@ -446,7 +446,10 @@ async function main() {
 			 * UIMessages; text parts print verbatim, everything else (tool
 			 * calls, reasoning, step markers) prints as a one-line tag. */
 			if (showThreads) {
-				const full = await loadThread(appId, t.thread_id);
+				const full = await loadThread(
+					{ kind: "app", appId: appId },
+					t.thread_id,
+				);
 				for (const msg of full?.messages ?? []) {
 					console.log();
 					console.log(`    [${msg.role}]`);

@@ -89,6 +89,12 @@ import {
 	type MediaAssetId,
 } from "../domain/multimedia";
 import type { Uuid } from "../domain/uuid";
+import {
+	lockActorGenerationGate,
+	lockActorGenerationGateForAppHolder,
+	type ReapableGenerationTarget,
+	scanActorGenerationTargets,
+} from "./actorGenerationGate";
 import { decomposeBlueprint } from "./blueprintRows";
 import {
 	admitExactMediaReferences,
@@ -122,6 +128,7 @@ import {
 import {
 	debitAndBookReservation,
 	type Reservation,
+	refundStaleDesignSessionRun,
 	refundStaleGeneration,
 	refundStaleReservation,
 	type StaleRunReapOutcome,
@@ -180,7 +187,6 @@ import { type AppDoc, parsePersistedAppLifecycleStatus } from "./types";
  * importing from `@/lib/db/apps`; only server-owned commit hosts reach the
  * kernel module directly. */
 export type {
-	CandidateThreadMediaProjection,
 	CanonicalCommitReceipt as CommitGuardedBatchResult,
 	CanonicalCommitRequest as CommitGuardedBatchArgs,
 	CanonicalCommitTransactionHooks as CommitGuardedBatchTransactionHooks,
@@ -318,84 +324,45 @@ export async function deleteMediaAssetForChatRun(args: {
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
- * Whether the ACTOR has a live build in progress on ANOTHER app — the
- * cross-app "one build at a time per user" guard.
+ * Whether the ACTOR has a live build in progress on ANOTHER generation
+ * target — the cross-target "one build at a time per user" guard, across
+ * apps AND design sessions (the scan body lives in
+ * `actorGenerationGate.ts::scanActorGenerationTargets`; the claim
+ * transactions run the same scan in-txn under the actor gate and fire the
+ * collected reaps after commit).
  *
- * One query unions the two places a run's actor is recorded across a build's
- * life: `owner` (a brand-new build, before the reservation marker exists —
- * `createApp` writes the row first, so the row itself is the lock) and
- * `res_user_id` (a run the actor drives on an app someone else owns). An
- * owner-matched row whose `res_user_id` is a DIFFERENT user is a co-member's
- * run on this user's app — their concurrency, not this user's — so it's
- * skipped; a marker-less owner match (the new-build window) is kept.
- *
- * Standalone callers get the fire-and-forget stale-reap side effect; the
- * claim transaction runs the same scan in-txn via `scanActiveGeneration` and
- * fires the reaps after commit.
+ * Standalone callers get the fire-and-forget stale-reap side effect.
  */
 export async function hasActiveGeneration(
 	actorUserId: string,
 	excludeAppId?: string,
 ): Promise<boolean> {
 	const db = await getAppDb();
-	const { live, reapable } = await scanActiveGeneration(
-		db,
-		actorUserId,
-		excludeAppId,
-	);
-	for (const target of reapable) {
-		void reapStaleGenerating(target.appId, target.identity);
-	}
+	const { live, reapable } = await scanActorGenerationTargets(db, actorUserId, {
+		appId: excludeAppId,
+	});
+	fireScanReaps(reapable);
 	return live;
 }
 
-/** The scan body, callable inside a transaction (side-effect free — the
- *  caller fires the collected reaps after commit). */
-async function scanActiveGeneration(
-	db: Pick<Transaction<AppDatabase>, "selectFrom">,
-	actorUserId: string,
-	excludeAppId?: string,
-): Promise<{
-	live: boolean;
-	reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }>;
-}> {
-	let query = db
-		.selectFrom("apps")
-		.select(["id", ...LEASE_COLUMNS])
-		.where("deleted_at", "is", null)
-		.where("status", "=", "generating")
-		.where((eb) =>
-			eb.or([
-				eb("owner", "=", actorUserId),
-				eb("res_user_id", "=", actorUserId),
-			]),
-		)
-		/* Freshest first, so a LIVE build is never paged out of the LIMIT by an
-		 * accumulation of stale un-reaped rows. */
-		.orderBy("updated_at", "desc")
-		.limit(10);
-	if (excludeAppId !== undefined) {
-		query = query.where("id", "!=", excludeAppId);
-	}
-	const rows = await query.execute();
-	const now = Date.now();
-	const reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }> =
-		[];
-	let live = false;
-	for (const row of rows) {
-		/* A co-member's run on THIS user's owned app is the co-member's
-		 * concurrency, not this user's. A marker-less owner match (the new-build
-		 * window) has no run actor yet and is kept. */
-		const runActor = row.res_user_id ?? undefined;
-		if (runActor !== undefined && runActor !== actorUserId) continue;
-		const lease = runLeaseState(leaseView(row as AppRow), now);
-		if (lease.live) live = true;
-		else if (lease.reapableStaleBuild) {
-			const identity = toExactRunHolderIdentity(lease.holderIdentity);
-			if (identity !== null) reapable.push({ appId: row.id, identity });
+/** Fire the reapers an admission scan surfaced — post-commit, per target
+ * kind. The design-session reap body lives in `credits.ts` (this module
+ * cannot import `designSessions.ts`, which imports the errors below). */
+function fireScanReaps(reapable: readonly ReapableGenerationTarget[]): void {
+	for (const target of reapable) {
+		if (target.kind === "app") {
+			void reapStaleGenerating(target.appId, target.identity);
+		} else {
+			void refundStaleDesignSessionRun(
+				target.designSessionId,
+				target.identity,
+			).catch((err) => {
+				log.error("[apps] design-session scan reap failed", err, {
+					designSessionId: target.designSessionId,
+				});
+			});
 		}
 	}
-	return { live, reapable };
 }
 
 // ── Existence Check ───────────────────────────────────────────────
@@ -1256,13 +1223,6 @@ export async function commitAppProjectMoveInTransaction(
 	if (staleSources.size > 0) {
 		return { kind: "media_stale", missing: [...staleSources].sort() };
 	}
-	const destinationIds = freshClosure.map((sourceId) => {
-		const destinationId = args.assetIdMap.get(sourceId);
-		if (destinationId === undefined) {
-			throw new Error(`Missing planned media mapping for ${sourceId}.`);
-		}
-		return destinationId;
-	});
 
 	const requestedCandidate =
 		args.assetIdMap.size > 0
@@ -1303,7 +1263,15 @@ export async function commitAppProjectMoveInTransaction(
 		...thread,
 		messages: remapThreadAttachmentAssetIds(thread.messages, args.assetIdMap),
 	}));
-	const destinationRequirements = blueprintMediaRequirements(verdict.nextDoc);
+	/* The Blueprint half of the split projection: the destination edges are
+	 * exactly the committed (already remapped) doc's authored references.
+	 * Conversation carriers ride each thread's own `thread_media_refs`
+	 * replacement below. Both families still validate against the
+	 * destination Project in ONE lock set here. */
+	const blueprintDestinationRequirements = blueprintMediaRequirements(
+		verdict.nextDoc,
+	);
+	const destinationRequirements = [...blueprintDestinationRequirements];
 	for (const thread of remappedThreads) {
 		for (const attachment of collectThreadAttachments(thread.messages)) {
 			destinationRequirements.push({
@@ -1338,20 +1306,52 @@ export async function commitAppProjectMoveInTransaction(
 	});
 	for (const thread of remappedThreads) {
 		if (
-			deepEqual(
+			!deepEqual(
 				thread.messages,
 				threads.find((source) => source.threadId === thread.threadId)?.messages,
 			)
 		) {
-			continue;
+			await tx
+				.updateTable("threads")
+				.set({ messages: JSON.stringify(thread.messages) })
+				.where("app_id", "=", args.appId)
+				.where("thread_id", "=", thread.threadId)
+				.execute();
 		}
+		/* Re-tenant this thread's exact conversation reference set: the same
+		 * remapped transcript that just committed is the projection source,
+		 * so the rows land destination-Project-scoped with destination asset
+		 * ids (the destination lock set above already validated them). */
 		await tx
-			.updateTable("threads")
-			.set({ messages: JSON.stringify(thread.messages) })
-			.where("app_id", "=", args.appId)
+			.deleteFrom("thread_media_refs")
 			.where("thread_id", "=", thread.threadId)
 			.execute();
+		const threadAssetRows = [
+			...new Set(
+				collectThreadAttachments(thread.messages).map((ref) => ref.assetId),
+			),
+		].sort();
+		if (threadAssetRows.length > 0) {
+			await tx
+				.insertInto("thread_media_refs")
+				.values(
+					threadAssetRows.map((assetId) => ({
+						thread_id: thread.threadId,
+						asset_id: assetId,
+						project_id: args.toProjectId,
+					})),
+				)
+				.execute();
+		}
 	}
+	/* Materialized/completed/edit design sessions follow their bound app's
+	 * Project (§18.14). Active pre-app sessions carry no `app_id` and never
+	 * move; open change sets deliberately stay on their captured base scope. */
+	await tx
+		.updateTable("design_sessions")
+		.set({ project_id: args.toProjectId, updated_at: new Date() })
+		.where("app_id", "=", args.appId)
+		.execute();
 	const fullTx = tx as unknown as Transaction<AppDatabase & CaseDatabase>;
 	await retenantAppCasesOn(fullTx.$pickTables<keyof CaseDatabase>(), {
 		appId: args.appId,
@@ -1393,7 +1393,7 @@ export async function commitAppProjectMoveInTransaction(
 	await insertMediaReferenceEdges(tx, {
 		appId: args.appId,
 		projectId: args.toProjectId,
-		assetIds: destinationIds,
+		assetIds: blueprintDestinationRequirements.map((entry) => entry.assetId),
 	});
 	await notifyPresence(tx, args.appId);
 	return { kind: "moved" };
@@ -1517,14 +1517,16 @@ export async function claimAndReserveRun(
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
 	try {
-		const reapable: Array<{
-			appId: string;
-			identity: ExactRunHolderIdentity;
-		}> = [];
+		const reapable: ReapableGenerationTarget[] = [];
 		const claimed = await withAppTx(async (tx) => {
 			/* The body re-runs from scratch on a deadlock/serialization retry —
 			 * reset the collector so a retried scan doesn't double-book reaps. */
 			reapable.length = 0;
+			/* Lifecycle lock order: the claimant's actor gate FIRST, then the
+			 * authority row — the one serialization point for this actor's
+			 * admissions across apps AND design sessions
+			 * (`actorGenerationGate.ts`). */
+			await lockActorGenerationGate(tx, actorUserId);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) {
 				throw new Error(
@@ -1564,7 +1566,9 @@ export async function claimAndReserveRun(
 				if (statusMode !== mode) throw new ClaimModeStaleError(statusMode);
 			}
 			if (mode === "build") {
-				const scan = await scanActiveGeneration(tx, actorUserId, appId);
+				const scan = await scanActorGenerationTargets(tx, actorUserId, {
+					appId,
+				});
 				reapable.push(...scan.reapable);
 				if (scan.live) throw new GenerationInProgressError();
 			}
@@ -1620,9 +1624,7 @@ export async function claimAndReserveRun(
 			}
 			return { mode, reservation: { period, reserved: cost }, holderNonce };
 		});
-		for (const target of reapable) {
-			void reapStaleGenerating(target.appId, target.identity);
-		}
+		fireScanReaps(reapable);
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -1657,12 +1659,11 @@ export async function reserveForNewBuild(
 	holderNonce: string,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
-	const reapable: Array<{
-		appId: string;
-		identity: ExactRunHolderIdentity;
-	}> = [];
+	const reapable: ReapableGenerationTarget[] = [];
 	const reservation = await withAppTx(async (tx) => {
 		reapable.length = 0;
+		/* Lifecycle lock order: actor gate first (see `claimAndReserveRun`). */
+		await lockActorGenerationGate(tx, actorUserId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) {
 			throw new Error(
@@ -1690,7 +1691,7 @@ export async function reserveForNewBuild(
 				toExactRunHolderIdentity(lease.holderIdentity),
 			);
 		}
-		const scan = await scanActiveGeneration(tx, actorUserId, appId);
+		const scan = await scanActorGenerationTargets(tx, actorUserId, { appId });
 		reapable.push(...scan.reapable);
 		if (scan.live) throw new GenerationInProgressError();
 		await debitAndBookReservation(tx, {
@@ -1705,9 +1706,7 @@ export async function reserveForNewBuild(
 		});
 		return { period, reserved: cost };
 	});
-	for (const target of reapable) {
-		void reapStaleGenerating(target.appId, target.identity);
-	}
+	fireScanReaps(reapable);
 	return reservation;
 }
 
@@ -1736,6 +1735,9 @@ export async function completeAndSettleRun(
 	holderNonce: string,
 ): Promise<RunHolderWriteOutcome> {
 	return await withAppTx(async (tx) => {
+		/* Lifecycle lock order: the holder's actor gate first (settle is a
+		 * holder/reservation transition — see `actorGenerationGate.ts`). */
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
 		const lease = runLeaseState(leaseView(fresh));
@@ -1862,6 +1864,8 @@ export async function clearRunLock(
 ): Promise<void> {
 	try {
 		await withAppTx(async (tx) => {
+			/* Lifecycle lock order: the holder's actor gate first (a release). */
+			await lockActorGenerationGateForAppHolder(tx, appId);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return;
 			const lease = runLeaseState(leaseView(fresh));
@@ -1901,6 +1905,8 @@ export async function clearRunLockAndSettle(
 	holderNonce: string,
 ): Promise<RunHolderWriteOutcome> {
 	return await withAppTx(async (tx) => {
+		/* Lifecycle lock order: the holder's actor gate first. */
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
 		const lease = runLeaseState(leaseView(fresh));
@@ -1979,6 +1985,9 @@ export async function reacquireLease(
 	expectedProjectId: string,
 ): Promise<ReacquireLeaseResult> {
 	return await withAppTx(async (tx) => {
+		/* Lifecycle lock order: the resuming actor's gate first (a resume can
+		 * restore a holder's liveness). */
+		await lockActorGenerationGate(tx, actorUserId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return { outcome: "released" };
 		assertExpectedAppProject(fresh, expectedProjectId);
@@ -2055,6 +2064,9 @@ export async function failApp(
 ): Promise<boolean> {
 	try {
 		return await withAppTx(async (tx) => {
+			/* Lifecycle lock order: the holder's actor gate first (a build's
+			 * error flip releases its status-held run window). */
+			await lockActorGenerationGateForAppHolder(tx, appId);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return false;
 			const lease = runLeaseState(leaseView(fresh));
@@ -2113,6 +2125,9 @@ export async function recoverAppStatus(
 	expectedHolder: ExactRunHolderIdentity | null,
 ): Promise<RecoverAppStatusOutcome> {
 	return await withAppTx(async (tx) => {
+		/* Lifecycle lock order: operator recovery can create/release a live
+		 * holder, so the holder's actor gate comes first. */
+		await lockActorGenerationGateForAppHolder(tx, appId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return { kind: "not_found" };
 		const lease = runLeaseState(leaseView(fresh));
@@ -2188,6 +2203,9 @@ export async function setAwaitingInput(
 	expectedProjectId: string,
 ): Promise<ReacquireOutcome> {
 	return await withAppTx(async (tx) => {
+		/* Lifecycle lock order: the pausing actor's gate first (pause/unpause
+		 * is a holder transition). */
+		await lockActorGenerationGate(tx, actorUserId);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
 		assertExpectedAppProject(fresh, expectedProjectId);
