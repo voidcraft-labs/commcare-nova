@@ -41,10 +41,12 @@ describe("actorGenerationGateKey", () => {
 	});
 
 	it("stays inside PostgreSQL's signed bigint range", () => {
+		const int64Min = -(BigInt(2) ** BigInt(63));
+		const int64Max = BigInt(2) ** BigInt(63);
 		for (const actor of ["a", "user-1", "user-2", "x".repeat(200)]) {
 			const key = actorGenerationGateKey(actor);
-			expect(key >= -(2n ** 63n)).toBe(true);
-			expect(key < 2n ** 63n).toBe(true);
+			expect(key >= int64Min).toBe(true);
+			expect(key < int64Max).toBe(true);
 		}
 	});
 

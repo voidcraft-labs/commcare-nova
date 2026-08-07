@@ -321,7 +321,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			responseMessage: assistantMsg("a1", "step one"),
 			clearMarker: false,
 		});
-		let row = await h
+		const row = await h
 			.db()
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id"])
@@ -340,14 +340,14 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			responseMessage: assistantMsg("a1", "step one and two"),
 			clearMarker: true,
 		});
-		row = await h
+		const terminal = await h
 			.db()
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "active_holder_nonce"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
-		expect(row.active_stream_id).toBeNull();
-		expect(row.active_holder_nonce).toBeNull();
+		expect(terminal.active_stream_id).toBeNull();
+		expect(terminal.active_holder_nonce).toBeNull();
 	});
 
 	it("terminal pause retains the continuation nonce (§20.11 terminal pause)", async () => {
@@ -387,7 +387,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			streamId,
 			messageId: "a-dead",
 		});
-		let row = await h
+		const row = await h
 			.db()
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "clawed_back_ids"])
@@ -411,13 +411,13 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			],
 			expectedProjectId: PROJECT,
 		});
-		row = await h
+		const afterRetry = await h
 			.db()
 			.selectFrom("threads")
 			.select(["messages"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
-		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([
+		expect((afterRetry.messages as UIMessage[]).map((m) => m.id)).toEqual([
 			"m1",
 			"m2",
 		]);

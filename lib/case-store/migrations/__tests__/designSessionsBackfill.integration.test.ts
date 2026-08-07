@@ -14,6 +14,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { caseStoreMigrations } from "../index";
 
 const MIGRATION_NAME = "20260809000000_design_sessions";
@@ -43,7 +44,10 @@ function migrator(upTo: (name: string) => boolean): Migrator {
 
 async function seedOldShape(): Promise<void> {
 	const doc = toPersistableDoc(canonicalTestBlueprint(APP, "Backfill App"));
-	const rows = decomposeBlueprint({ ...doc, logo: LOGO_ASSET });
+	const rows = decomposeBlueprint({
+		...doc,
+		logo: asMediaAssetId(LOGO_ASSET),
+	});
 	await handle.pool.query(
 		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower, connect_type,
 			case_types, logo, module_count, form_count, mutation_seq, status,
