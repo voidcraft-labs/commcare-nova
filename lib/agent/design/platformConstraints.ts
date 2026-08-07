@@ -1,0 +1,208 @@
+/**
+ * The closed platform-constraint vocabulary — the catalogued codes a source
+ * claim, review finding, or design issue may cite when its basis is a Nova or
+ * CommCare platform fact rather than user evidence.
+ *
+ * Dependency-free leaf on purpose: the graph validator (`graph.ts`), the
+ * review grounding rules (`review.ts`), and the capability catalog
+ * (`capabilityCatalog.ts`) all consume this one set, and the validator must
+ * not drag the tool registry into its import graph to know which codes exist.
+ *
+ * Each entry is a bounded, present-tense statement plus a stable repository
+ * anchor (`file::symbol` or a doc path — never line numbers). `gapUnitFile`
+ * marks a deliberate target gap from the complex-app program: the code stands
+ * exactly as long as its unit file remains under `docs/plans/complex-app/`,
+ * and the catalog source test fails when a unit ships (its file disappears)
+ * without this vocabulary shedding the code.
+ *
+ * Adding a code here is a reviewed act: it becomes citable grounding for a
+ * CRITICAL finding (`review.ts::validateFindingEvidence`), so a wrong entry
+ * lets the reviewer block designs on a fact Nova does not actually have.
+ */
+
+export const PLATFORM_CONSTRAINT_CODES = [
+	// Preview / runtime limitations
+	"PREVIEW_AUTOMATIONS_NOT_EXECUTED",
+	// External setup requirements
+	"AUTOMATION_HQ_MANUAL_SETUP",
+	"HQ_BUILD_RELEASE_NOT_API_DRIVEN",
+	// Deployment / HQ export closures
+	"LOOKUP_HQ_EXPORT_CLOSED",
+	"WORKER_PROVISIONING_NOT_SHIPPED",
+	"LOCATION_OWNER_EXPORT_CLOSED",
+	// Case / data shape rules
+	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
+	"STANDARD_SCALAR_WRITERS_LIMITED",
+	"CASE_NAME_REQUIRED_ON_CREATE",
+	"RESERVED_CASE_IDENTIFIERS_REJECTED",
+	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
+	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
+	// Deliberate target gaps (one per remaining complex-app unit)
+	"GAP_GROUPED_CASE_TILES",
+	"GAP_CASE_ATTACHMENT_EMISSION",
+	"GAP_USERCASE_OWNER_SETS",
+	"GAP_PUSH_PROVISIONING_DRIVERS",
+	"GAP_APP_SETUP_UI",
+	"GAP_FORM_LINKS_AND_SECTIONS",
+	"GAP_NESTED_MENUS",
+	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
+	"GAP_MULTI_SELECT_RELATED_CASES",
+] as const;
+
+export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
+
+export interface PlatformConstraint {
+	readonly code: PlatformConstraintCode;
+	/** Present-tense statement of the constraint, in Nova vocabulary. */
+	readonly statement: string;
+	/** Stable repository anchor stating the constraint (`file::symbol` or a
+	 * doc path). */
+	readonly sourceAnchor: string;
+	/** For deliberate target gaps: the complex-app unit file whose existence
+	 * keeps this code alive. */
+	readonly gapUnitFile?: string;
+}
+
+export const PLATFORM_CONSTRAINTS: Record<
+	PlatformConstraintCode,
+	PlatformConstraint
+> = {
+	PREVIEW_AUTOMATIONS_NOT_EXECUTED: {
+		code: "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
+		statement:
+			"Preview shows a read-only current-match count for an automation; it never updates a case, sends a message, or advances a schedule, and current matching does not predict CommCare HQ's next sweep.",
+		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+	},
+	AUTOMATION_HQ_MANUAL_SETUP: {
+		code: "AUTOMATION_HQ_MANUAL_SETUP",
+		statement:
+			"CommCare HQ has no REST resource for automatic case updates or conditional alerts; an automation ships as a regenerated human-applied HQ setup guide, and publishing an app does not install or alter any HQ rule.",
+		sourceAnchor: "lib/agent/tools/automations.ts",
+	},
+	HQ_BUILD_RELEASE_NOT_API_DRIVEN: {
+		code: "HQ_BUILD_RELEASE_NOT_API_DRIVEN",
+		statement:
+			"Nova drives HQ upload with an API key but cannot build or release an app remotely; the deployment lifecycle's built/released/runnable phases are observed, and a person completes them in CommCare HQ.",
+		sourceAnchor: "lib/deployment/CLAUDE.md",
+	},
+	LOOKUP_HQ_EXPORT_CLOSED: {
+		code: "LOOKUP_HQ_EXPORT_CLOSED",
+		statement:
+			"An app referencing lookup tables exports as a local .ccz with embedded fixture bytes only; direct HQ JSON and HQ upload modes refuse a lookup-carrying document until the resource-push driver ships.",
+		sourceAnchor: "lib/export/boundaryValidation.ts",
+	},
+	WORKER_PROVISIONING_NOT_SHIPPED: {
+		code: "WORKER_PROVISIONING_NOT_SHIPPED",
+		statement:
+			"User properties, user types, and personas are Nova authoring and Preview state; export and HQ upload configure no HQ user-data schema, role, or worker account until the provisioning driver ships.",
+		sourceAnchor: "lib/domain/users.ts",
+	},
+	LOCATION_OWNER_EXPORT_CLOSED: {
+		code: "LOCATION_OWNER_EXPORT_CLOSED",
+		statement:
+			"Typed location-based case ownership executes in Preview, but every export mode for it stays closed until the usercase/deployment work ships the persona-scoped locations fixture and HQ identity mapping.",
+		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+	},
+	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: {
+		code: "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
+		statement:
+			"A visible field carries at most one direct case-write destination; a value that must land in several case properties needs a calculated writer per additional destination.",
+		sourceAnchor: "lib/domain/fields/base.ts",
+	},
+	STANDARD_SCALAR_WRITERS_LIMITED: {
+		code: "STANDARD_SCALAR_WRITERS_LIMITED",
+		statement:
+			"case_name and external_id are the only standard scalar destinations a field writer may target; other reserved or system case names are rejected at authoring.",
+		sourceAnchor: "lib/commcare/caseWriteAdmission.ts",
+	},
+	CASE_NAME_REQUIRED_ON_CREATE: {
+		code: "CASE_NAME_REQUIRED_ON_CREATE",
+		statement:
+			"A registration form or child-create bucket requires exactly one case_name writer; a create without a name is not constructible.",
+		sourceAnchor:
+			"lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory",
+	},
+	RESERVED_CASE_IDENTIFIERS_REJECTED: {
+		code: "RESERVED_CASE_IDENTIFIERS_REJECTED",
+		statement:
+			"Platform-owned case types and reserved write properties (CommCare's reserved words plus name, owner_id, location_id, hq_user_id, external_id, category, state) are rejected as authored write targets.",
+		sourceAnchor: "lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES",
+	},
+	CASE_WRITE_TARGETS_MODULE_LINEAGE: {
+		code: "CASE_WRITE_TARGETS_MODULE_LINEAGE",
+		statement:
+			"A form's writable case destination is exactly the module's own case type or a declared child type whose parent_type is that module type; sibling, grandchild, and unrelated types are not writable from that form.",
+		sourceAnchor: "lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory",
+	},
+	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
+		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
+		statement:
+			"Display conditions govern what a worker is shown, not what they may access: a deep link that ignores relevancy traverses hidden menus and cases, so access rules must not be designed as display conditions.",
+		sourceAnchor: "lib/commcare/validator/rules/displayConditions.ts",
+	},
+	GAP_GROUPED_CASE_TILES: {
+		code: "GAP_GROUPED_CASE_TILES",
+		statement:
+			"Grouping a child case list under its shared parent (grouped case tiles) is a deliberate target gap; Nova cannot author it yet.",
+		sourceAnchor: "docs/plans/complex-app/grouped-case-tiles.md",
+		gapUnitFile: "grouped-case-tiles.md",
+	},
+	GAP_CASE_ATTACHMENT_EMISSION: {
+		code: "GAP_CASE_ATTACHMENT_EMISSION",
+		statement:
+			"Save-to-case attachment emission and attachment-link presentation are a deliberate target gap; a captured photo saves with the submission but cannot be attached to a case or linked from a case list yet.",
+		sourceAnchor: "docs/plans/complex-app/attachment-emission-and-link-ux.md",
+		gapUnitFile: "attachment-emission-and-link-ux.md",
+	},
+	GAP_USERCASE_OWNER_SETS: {
+		code: "GAP_USERCASE_OWNER_SETS",
+		statement:
+			"Usercase materialization, owner-set derivation, tenant-complete restore closure, and the flat location fixture are a deliberate target gap.",
+		sourceAnchor: "docs/plans/complex-app/usercase-owner-sets-and-wire.md",
+		gapUnitFile: "usercase-owner-sets-and-wire.md",
+	},
+	GAP_PUSH_PROVISIONING_DRIVERS: {
+		code: "GAP_PUSH_PROVISIONING_DRIVERS",
+		statement:
+			"Referenced-table push, location push, and explicit worker provisioning against a deployment's ownership mappings are a deliberate target gap; nothing pushes those resources to HQ yet.",
+		sourceAnchor: "docs/plans/complex-app/push-and-provisioning-drivers.md",
+		gapUnitFile: "push-and-provisioning-drivers.md",
+	},
+	GAP_APP_SETUP_UI: {
+		code: "GAP_APP_SETUP_UI",
+		statement:
+			"The App setup workspace's remaining Deployment section, and the SA/MCP/docs surfaces for the outstanding deployment-chain units, are a deliberate target gap.",
+		sourceAnchor: "docs/plans/complex-app/app-setup-ui-sa-mcp-and-docs.md",
+		gapUnitFile: "app-setup-ui-sa-mcp-and-docs.md",
+	},
+	GAP_FORM_LINKS_AND_SECTIONS: {
+		code: "GAP_FORM_LINKS_AND_SECTIONS",
+		statement:
+			"End-of-form links (exhaustive-else link projection) and authored form sections are a deliberate target gap; a form cannot chain to another form or present sectioned pages yet.",
+		sourceAnchor: "docs/plans/complex-app/form-links-and-sections.md",
+		gapUnitFile: "form-links-and-sections.md",
+	},
+	GAP_NESTED_MENUS: {
+		code: "GAP_NESTED_MENUS",
+		statement:
+			"One-tier menu nesting and native linked-form reuse are a deliberate target gap; navigation is a flat module list until that unit ships.",
+		sourceAnchor:
+			"docs/plans/complex-app/nested-menus-and-linked-form-reuse.md",
+		gapUnitFile: "nested-menus-and-linked-form-reuse.md",
+	},
+	GAP_SESSION_ENDPOINTS_DEEP_LINKS: {
+		code: "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
+		statement:
+			"Session endpoints and shareable deep links resolved against the selected HQ server are a deliberate target gap.",
+		sourceAnchor: "docs/plans/complex-app/session-endpoints-and-deep-links.md",
+		gapUnitFile: "session-endpoints-and-deep-links.md",
+	},
+	GAP_MULTI_SELECT_RELATED_CASES: {
+		code: "GAP_MULTI_SELECT_RELATED_CASES",
+		statement:
+			"Multi-select case lists, related-case display, and authorable profile extensions are a deliberate target gap.",
+		sourceAnchor:
+			"docs/plans/complex-app/multi-select-related-cases-and-profile.md",
+		gapUnitFile: "multi-select-related-cases-and-profile.md",
+	},
+};
