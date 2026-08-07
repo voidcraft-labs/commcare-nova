@@ -194,6 +194,9 @@ export async function generateObjectWith<T>(opts: {
 	images?: SubGenerationImage[];
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
+	/** Cancels the provider call; the AI SDK rejects with its abort error,
+	 *  which propagates like any other non-object failure. */
+	abortSignal?: AbortSignal;
 }): Promise<SubGenerationObjectResult<T>> {
 	try {
 		// A `file` input rides as a native document block in a user message.
@@ -221,6 +224,7 @@ export async function generateObjectWith<T>(opts: {
 						},
 					],
 					maxOutputTokens: opts.maxOutputTokens,
+					abortSignal: opts.abortSignal,
 					providerOptions: opts.providerOptions,
 				})
 			: await generateObject({
@@ -237,6 +241,7 @@ export async function generateObjectWith<T>(opts: {
 						},
 					],
 					maxOutputTokens: opts.maxOutputTokens,
+					abortSignal: opts.abortSignal,
 					providerOptions: opts.providerOptions,
 				});
 		return {
@@ -302,6 +307,9 @@ export async function streamObjectWith<T>(opts: {
 	/** Called per streamed chunk (reasoning OR output) with its character count —
 	 *  real token flow a caller maps to a progress signal (e.g. signal-grid energy). */
 	onProgress?: (deltaChars: number) => void;
+	/** Cancels the provider call; the AI SDK rejects with its abort error,
+	 *  which propagates like any other non-object failure. */
+	abortSignal?: AbortSignal;
 }): Promise<SubGenerationObjectResult<T>> {
 	// The result promises are consumed on the happy path; tracked here so the catch
 	// can observe any it didn't await (a stream-stopping error jumps to the catch
@@ -330,6 +338,7 @@ export async function streamObjectWith<T>(opts: {
 						},
 					],
 					maxOutputTokens: opts.maxOutputTokens,
+					abortSignal: opts.abortSignal,
 					providerOptions: opts.providerOptions,
 				})
 			: streamText({
@@ -346,6 +355,7 @@ export async function streamObjectWith<T>(opts: {
 						},
 					],
 					maxOutputTokens: opts.maxOutputTokens,
+					abortSignal: opts.abortSignal,
 					providerOptions: opts.providerOptions,
 				});
 

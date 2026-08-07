@@ -68,6 +68,7 @@ import {
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
+import type { GenerationTarget } from "@/lib/db/generationTargets";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -102,7 +103,16 @@ import {
 	readToolLookupCatalog,
 	readToolLookupDefinitions,
 } from "./lookupContext";
-import { streamObjectWith } from "./subGeneration";
+import {
+	meterSubGenerationUsage,
+	runStructuredWith,
+	type StructuredModelRunArgs,
+	type StructuredModelRunContext,
+} from "./modelRunContext";
+import {
+	type SubGenerationObjectResult,
+	streamObjectWith,
+} from "./subGeneration";
 import type {
 	ConversionImpactFn,
 	RecordMutationsOptions,
@@ -216,7 +226,9 @@ export interface AgentStep {
 	warnings?: CallWarning[];
 }
 
-export class GenerationContext implements CanonicalMutationHost {
+export class GenerationContext
+	implements CanonicalMutationHost, StructuredModelRunContext
+{
 	/** The OpenAI provider — the ONE model resolver for every LLM call this
 	 *  context issues (the SA, the document summarizer, structured sub-gens).
 	 *  Resolves to the Responses API model for each id. */
@@ -382,6 +394,27 @@ export class GenerationContext implements CanonicalMutationHost {
 	 *  summarizer resolve identically. */
 	model(id: string) {
 		return this.openai(id);
+	}
+
+	/** StructuredModelRunContext accessor — this run's billing/persistence
+	 *  scope. An app-bound context always targets its app. */
+	get target(): GenerationTarget {
+		return { kind: "app", appId: this.appId };
+	}
+
+	/**
+	 * StructuredModelRunContext implementation — the shared cancellation-aware
+	 * structured call (`modelRunContext.ts::runStructuredWith`), metered like
+	 * every other sub-generation. The design pipeline uses this seam so an
+	 * app-bound edit run and a pre-app design session run the exact same
+	 * provider path.
+	 */
+	async runStructured<T>(
+		args: StructuredModelRunArgs<T>,
+	): Promise<SubGenerationObjectResult<T>> {
+		return runStructuredWith(this.model(args.modelId), args, (usage) =>
+			this.trackSubGeneration(usage),
+		);
 	}
 
 	/**
@@ -1084,20 +1117,8 @@ export class GenerationContext implements CanonicalMutationHost {
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	private trackSubGeneration(usage: {
-		inputTokens?: number;
-		outputTokens?: number;
-		inputTokenDetails?: {
-			cacheReadTokens?: number;
-			cacheWriteTokens?: number;
-		};
-	}): void {
-		this.usage.track({
-			inputTokens: usage.inputTokens ?? 0,
-			outputTokens: usage.outputTokens ?? 0,
-			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-		});
+	trackSubGeneration(usage: LanguageModelUsage): void {
+		meterSubGenerationUsage(this.usage, usage);
 	}
 
 	/**
