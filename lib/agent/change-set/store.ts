@@ -733,6 +733,40 @@ function isUniqueViolation(err: unknown): boolean {
 	return (err as { code?: unknown })?.code === "23505";
 }
 
+/** The stage transaction's statement boundaries, in execution order — the
+ *  fault-injection seam's vocabulary. */
+export type StageTransactionBoundary =
+	| "after-authority-lock"
+	| "after-ledger-read"
+	| "after-request-insert"
+	| "after-step-insert"
+	| "after-stage-insert"
+	| "after-handle-insert"
+	| "after-advance";
+
+type StageTransactionFaultHook = (
+	boundary: StageTransactionBoundary,
+) => void | Promise<void>;
+let stageTransactionFaultHook: StageTransactionFaultHook | null = null;
+
+/**
+ * Deterministic fault-injection seam for the §20.5 statement-boundary
+ * matrix. Production never installs it; a throwing hook aborts the stage
+ * transaction at the named boundary, and the suite proves nothing partial
+ * persisted.
+ */
+export function __setStageTransactionFaultHookForTests(
+	hook: StageTransactionFaultHook | null,
+): void {
+	stageTransactionFaultHook = hook;
+}
+
+async function faultBoundary(
+	boundary: StageTransactionBoundary,
+): Promise<void> {
+	await stageTransactionFaultHook?.(boundary);
+}
+
 /**
  * The one durable staging write. Idempotent by `(changeSetId, requestId)`:
  * a replay whose tool name, input digest, and expected revision match the
@@ -784,10 +818,12 @@ async function stageInTransaction(
 			chatRunHolder: args.chatRunHolder,
 		}),
 	});
+	await faultBoundary("after-authority-lock");
 
 	/* Idempotent replay — the ledger read under the change-set lock observes
 	 * every prior committed request. */
 	const stored = await lookupStageRequest(args.changeSetId, args.requestId, tx);
+	await faultBoundary("after-ledger-read");
 	if (stored !== undefined) {
 		if (
 			stored.toolName === args.toolName &&
@@ -881,6 +917,7 @@ async function stageInTransaction(
 			receipt: JSON.stringify(receipt),
 		})
 		.execute();
+	await faultBoundary("after-request-insert");
 	await tx
 		.insertInto("design_change_set_steps")
 		.values({
@@ -894,6 +931,7 @@ async function stageInTransaction(
 			read_set: JSON.stringify(readSetSchema.parse(outcome.readSet)),
 		})
 		.execute();
+	await faultBoundary("after-step-insert");
 	if (outcome.stageSlices.length > 0) {
 		await tx
 			.insertInto("design_change_set_step_stages")
@@ -909,6 +947,7 @@ async function stageInTransaction(
 			)
 			.execute();
 	}
+	await faultBoundary("after-stage-insert");
 	if (outcome.handles.length > 0) {
 		await tx
 			.insertInto("design_change_set_handles")
@@ -923,6 +962,7 @@ async function stageInTransaction(
 			)
 			.execute();
 	}
+	await faultBoundary("after-handle-insert");
 	const advance = await tx
 		.updateTable("design_change_sets")
 		.set({
@@ -942,6 +982,7 @@ async function stageInTransaction(
 			`Change set ${args.changeSetId} advanced underneath its own locked stage transaction.`,
 		);
 	}
+	await faultBoundary("after-advance");
 	return { replayed: false, receipt };
 }
 

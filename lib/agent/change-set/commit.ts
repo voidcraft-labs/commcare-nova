@@ -32,7 +32,10 @@ import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadApp } from "@/lib/db/apps";
 import type { IntentProvenanceRow } from "@/lib/db/canonicalCommitSidecars";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import { parsePersistedJsonText } from "@/lib/db/persistedJson";
+import {
+	parsePersistedJsonText,
+	parsePersistedMutationBatchText,
+} from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
 import {
@@ -43,7 +46,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
-	admitMutationBatch,
+	encodeAdmittedMutationEnvelope,
 } from "@/lib/doc/mutationAdmission";
 import { parseOrganizationRevision } from "@/lib/organization/schema";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -174,12 +177,17 @@ export async function commitDesignChangeSet(
 		};
 	}
 
-	/* One concatenated admitted batch, in exact ordinal order. Admission of
-	 * the concatenation re-proves the whole-batch laws (the exclusive
+	/* One concatenated admitted batch, in exact ordinal order, re-admitted
+	 * from its exact JSON bytes (already-admitted values carry the internal
+	 * protector marks the raw admission rejects, so the round trip goes
+	 * through the envelope encoder — byte-faithful by construction). The
+	 * re-admission re-proves the whole-batch laws; the exclusive
 	 * rename-alone rule holds because the exclusive fence kept such a batch
-	 * the only step). */
-	const batch = admitMutationBatch(
-		steps.flatMap((step) => [...step.mutations]),
+	 * the only step. */
+	const batch = parsePersistedMutationBatchText(
+		encodeAdmittedMutationEnvelope(steps.flatMap((step) => [...step.mutations]))
+			.json,
+		`change set ${changeSet.id} concatenated batch`,
 	);
 	const mutationDigest = canonicalJsonDigest(batch);
 	const batchId = designChangeSetBatchId({
@@ -313,11 +321,14 @@ export function committedStageEnvelopes(
 				stepOrdinal: step.ordinal,
 				toolName: step.toolName,
 				stageName: stage.stageName,
-				mutations: admitMutationBatch(
-					step.mutations.slice(
-						stage.mutationStart,
-						stage.mutationStart + stage.mutationCount,
-					),
+				mutations: parsePersistedMutationBatchText(
+					encodeAdmittedMutationEnvelope(
+						step.mutations.slice(
+							stage.mutationStart,
+							stage.mutationStart + stage.mutationCount,
+						),
+					).json,
+					`step ${step.ordinal} stage ${stage.stageOrdinal} slice`,
 				),
 			});
 		}

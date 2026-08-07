@@ -4,11 +4,13 @@
  * transaction-hook seam.
  *
  * A sidecar runs INSIDE the same retryable app-locked transaction as the
- * canonical write, after the integrity hooks and before the committed-batch
- * write tail. It must be deterministic, idempotent under transaction retry,
- * and free of network/object-store effects; it cannot alter the candidate
- * Blueprint or bypass the gate. This dispatcher is the whole vocabulary —
- * arbitrary closures never enter the kernel.
+ * canonical write, after the committed-batch write tail (so the provenance
+ * rows' foreign key onto the fresh `app_changes` row is immediately
+ * checkable, and a lost holder CAS has already aborted). It must be
+ * deterministic, idempotent under transaction retry, and free of
+ * network/object-store effects; it cannot alter the candidate Blueprint or
+ * bypass the gate. This dispatcher is the whole vocabulary — arbitrary
+ * closures never enter the kernel.
  *
  * Initial variants (the Atomic Change Set runtime's two):
  *
@@ -22,9 +24,8 @@
  *   - `write-intent-provenance` — insert `app_change_intents` rows binding
  *     accepted design intents to the committed sequence's implementation
  *     coordinates. The rows' `(app_id, seq)` foreign key onto `app_changes`
- *     makes "provenance without its canonical change" unrepresentable; the
- *     deferred FK check passes because the kernel's app-change row commits
- *     in this same transaction.
+ *     makes "provenance without its canonical change" unrepresentable — the
+ *     kernel's app-change row is already written in this same transaction.
  *
  * On a kernel DEDUP hit sidecars are skipped entirely: the original commit
  * ran them, and a canonical batch without its change-set/receipt sidecars

@@ -958,18 +958,6 @@ export async function commitCanonicalBatch(
 				casePropertyRenamePlan: verdict.prepared.casePropertyRenamePlan,
 			}),
 		});
-		if (
-			internalOptions.sidecars !== undefined &&
-			internalOptions.sidecars.length > 0
-		) {
-			await executeCanonicalCommitSidecars(tx, {
-				appId,
-				seq,
-				batchId,
-				committedSnapshot: persistable,
-				sidecars: internalOptions.sidecars,
-			});
-		}
 		/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
 		 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 		 * the edit lock (through the one liveness reader). */
@@ -1005,6 +993,22 @@ export async function commitCanonicalBatch(
 				extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
 			}),
 		});
+		/* Typed sidecars run AFTER the committed-batch write, in the same
+		 * transaction: the provenance rows' foreign key onto the just-written
+		 * `app_changes` row is checkable immediately, and a lost holder CAS
+		 * above has already aborted before any sidecar state exists. */
+		if (
+			internalOptions.sidecars !== undefined &&
+			internalOptions.sidecars.length > 0
+		) {
+			await executeCanonicalCommitSidecars(tx, {
+				appId,
+				seq,
+				batchId,
+				committedSnapshot: persistable,
+				sidecars: internalOptions.sidecars,
+			});
+		}
 		return {
 			seq,
 			committedDoc: verdict.nextDoc,
