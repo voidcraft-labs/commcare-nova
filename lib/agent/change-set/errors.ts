@@ -84,9 +84,6 @@ export class ChangeSetRequestIdCollisionError extends Error {
 export class ChangeSetScopeLostError extends Error {
 	readonly name = "ChangeSetScopeLostError";
 	readonly code = "CHANGE_SET_SCOPE_LOST" as const;
-	constructor(message: string) {
-		super(message);
-	}
 }
 
 /**
@@ -97,7 +94,4 @@ export class ChangeSetScopeLostError extends Error {
 export class ChangeSetIntegrityError extends Error {
 	readonly name = "ChangeSetIntegrityError";
 	readonly code = "ARTIFACT_DIGEST_MISMATCH" as const;
-	constructor(message: string) {
-		super(message);
-	}
 }
