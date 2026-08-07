@@ -105,10 +105,18 @@ export async function writeRunSummary(
 ): Promise<RunSummaryWriteAction> {
 	const attempt = () =>
 		withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
-			const existing = await runSummaryTargetQuery(tx, target, runId)
+			/* Inline `selectFrom` + row lock (not the shared target-query
+			 * helper): the row-lock privilege scanner must statically prove
+			 * the locked table. */
+			const existingQuery = tx
+				.selectFrom("run_summaries")
 				.selectAll()
-				.forUpdate()
-				.executeTakeFirst();
+				.where("run_id", "=", runId)
+				.forUpdate();
+			const existing = await (target.kind === "app"
+				? existingQuery.where("app_id", "=", target.appId)
+				: existingQuery.where("design_session_id", "=", target.designSessionId)
+			).executeTakeFirst();
 
 			if (!existing) {
 				await tx

@@ -21,6 +21,7 @@ import {
 } from "./actorGenerationGate";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
 import {
+	designSessionReservation,
 	LEASE_COLUMNS,
 	type LeaseRow,
 	leaseView,
@@ -600,21 +601,6 @@ async function lockDesignSessionLeaseRow(
 		.where("id", "=", designSessionId)
 		.forUpdate()
 		.executeTakeFirst();
-}
-
-/** The session row's reservation marker in the shared `AppReservation`
- * shape — present iff `res_period` is set. */
-export function designSessionReservation(
-	row: DesignSessionLeaseRow,
-): AppReservation | undefined {
-	if (row.res_period === null) return undefined;
-	return {
-		period: row.res_period,
-		reserved: row.res_reserved ?? 0,
-		settled: !!row.res_settled,
-		...(row.res_user_id !== null && { userId: row.res_user_id }),
-		...(row.res_run_id !== null && { runId: row.res_run_id }),
-	};
 }
 
 /**

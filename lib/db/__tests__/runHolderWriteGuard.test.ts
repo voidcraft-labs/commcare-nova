@@ -243,20 +243,24 @@ describe("run-holder write structural guard", () => {
 		]);
 	});
 
-	it("proves the app holder before installing a thread marker", () => {
+	it("proves the target holder before installing a thread marker", () => {
 		const body = exportedFunction("lib/db/threads.ts", "upsertThreadTurn");
-		// Fixed lock order: app row, then thread row. Taking them the other way
-		// round would deadlock against a writer that already holds the thread.
-		const appLock = body.indexOf('.selectFrom("apps")');
+		// Fixed lock order: the authority row (app or design session, locked
+		// inside `lockThreadTargetAuthority`), then the thread row. Taking
+		// them the other way round would deadlock against a writer that
+		// already holds the thread.
+		const authorityLock = body.indexOf("lockThreadTargetAuthority(");
 		const threadLock = body.indexOf('.selectFrom("threads")');
-		expect(appLock).toBeGreaterThanOrEqual(0);
-		expect(appLock).toBeLessThan(threadLock);
-		expect(body).toContain("exactRunHolderMatches");
+		expect(authorityLock).toBeGreaterThanOrEqual(0);
+		expect(authorityLock).toBeLessThan(threadLock);
+		// The holder proof rides the locked authority's lease
+		// (`threadTargetHolderMatches` → `exactRunHolderMatches`).
+		expect(body).toContain("threadTargetHolderMatches");
 		expect(body).toContain("throw new RunHolderLostError");
-		// Holder loss outranks a thread/app mismatch: a lost holder must not be
-		// reported as someone else's thread.
+		// Holder loss outranks a thread/target mismatch: a lost holder must
+		// not be reported as someone else's thread.
 		expect(body.indexOf("if (holderLost !== null)")).toBeLessThan(
-			body.indexOf("existing.app_id !== args.appId"),
+			body.indexOf("if (existing && !existingMatchesTarget)"),
 		);
 
 		// A lost holder still persists the transcript — the user's words are not

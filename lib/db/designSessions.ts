@@ -53,12 +53,12 @@ import { assertProjectCapabilityInTransaction } from "./canonicalCommitKernel";
 import { AppProjectChangedError } from "./commitGuard";
 import {
 	debitForDesignSessionReservation,
-	designSessionReservation,
 	type Reservation,
 	refundStaleDesignSessionRun,
 	refundToMonthInTransaction,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
+import { designSessionReservation } from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import {

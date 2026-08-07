@@ -747,15 +747,23 @@ export async function persistResponseSnapshot(args: {
 	await withAppTx(async (tx) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority) return;
-		const row = await threadTargetSelect(tx, args.target, args.threadId)
+		/* Inline `selectFrom` + row lock (not the shared target-select helper):
+		 * the row-lock privilege scanner must statically prove the locked
+		 * table, and a builder returned from a helper has no provable target. */
+		const rowQuery = tx
+			.selectFrom("threads")
 			.select([
 				"messages",
 				"active_stream_id",
 				"active_holder_nonce",
 				"clawed_back_ids",
 			])
-			.forUpdate()
-			.executeTakeFirst();
+			.where("thread_id", "=", args.threadId)
+			.forUpdate();
+		const row = await (args.target.kind === "app"
+			? rowQuery.where("app_id", "=", args.target.appId)
+			: rowQuery.where("design_session_id", "=", args.target.designSessionId)
+		).executeTakeFirst();
 		if (!row) return;
 		const clearMarker =
 			args.clearMarker && row.active_stream_id === args.streamId;
@@ -857,10 +865,16 @@ export async function clawBackThreadResponse(args: {
 	await withAppTx(async (tx) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority) return;
-		const row = await threadTargetSelect(tx, args.target, args.threadId)
+		/* Inline for the row-lock scanner, as above. */
+		const rowQuery = tx
+			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "clawed_back_ids"])
-			.forUpdate()
-			.executeTakeFirst();
+			.where("thread_id", "=", args.threadId)
+			.forUpdate();
+		const row = await (args.target.kind === "app"
+			? rowQuery.where("app_id", "=", args.target.appId)
+			: rowQuery.where("design_session_id", "=", args.target.designSessionId)
+		).executeTakeFirst();
 		if (!row) return;
 		if (row.active_stream_id !== args.streamId) return;
 		const revertTo =
