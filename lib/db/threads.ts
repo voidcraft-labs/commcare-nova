@@ -529,14 +529,14 @@ export async function upsertThreadTurn(args: {
 						...logCtx,
 					}),
 				);
+				await threadTargetUpdate(tx, args.target, args.threadId)
+					.set({ updated_at: now, messages: JSON.stringify(merged) })
+					.execute();
 				await admitExactThreadMediaProjection(tx, {
 					projectId: authority.projectId,
 					candidateMessages: merged,
 					threadId: args.threadId,
 				});
-				await threadTargetUpdate(tx, args.target, args.threadId)
-					.set({ updated_at: now, messages: JSON.stringify(merged) })
-					.execute();
 			}
 			return { holderLost } as const;
 		}
@@ -560,11 +560,6 @@ export async function upsertThreadTurn(args: {
 					},
 				);
 			}
-			await admitExactThreadMediaProjection(tx, {
-				projectId: authority.projectId,
-				candidateMessages: insertable,
-				threadId: args.threadId,
-			});
 			await tx
 				.insertInto("threads")
 				.values({
@@ -580,6 +575,14 @@ export async function upsertThreadTurn(args: {
 					messages: JSON.stringify(insertable),
 				})
 				.execute();
+			/* Row first, then the reference projection: `thread_media_refs`
+			 * rows are children of this thread row, and a validation failure
+			 * still rolls the whole insert back. */
+			await admitExactThreadMediaProjection(tx, {
+				projectId: authority.projectId,
+				candidateMessages: insertable,
+				threadId: args.threadId,
+			});
 			return true;
 		}
 		let stored = (existing.messages ?? []) as StoredMessage[];
@@ -608,11 +611,6 @@ export async function upsertThreadTurn(args: {
 			stored,
 			admissibleHistory(stored, args.messages, clawedBackIds, { ...logCtx }),
 		);
-		await admitExactThreadMediaProjection(tx, {
-			projectId: authority.projectId,
-			candidateMessages: merged,
-			threadId: args.threadId,
-		});
 		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
@@ -623,6 +621,11 @@ export async function upsertThreadTurn(args: {
 				clawed_back_ids: JSON.stringify(clawedBackIds),
 			})
 			.execute();
+		await admitExactThreadMediaProjection(tx, {
+			projectId: authority.projectId,
+			candidateMessages: merged,
+			threadId: args.threadId,
+		});
 		return true;
 	});
 	if (typeof result === "object") {
@@ -673,14 +676,14 @@ export async function mergeThreadTurnMessages(args: {
 				threadId: args.threadId,
 			}),
 		);
+		await threadTargetUpdate(tx, args.target, args.threadId)
+			.set({ updated_at: now, messages: JSON.stringify(merged) })
+			.execute();
 		await admitExactThreadMediaProjection(tx, {
 			projectId: authority.projectId,
 			candidateMessages: merged,
 			threadId: args.threadId,
 		});
-		await threadTargetUpdate(tx, args.target, args.threadId)
-			.set({ updated_at: now, messages: JSON.stringify(merged) })
-			.execute();
 		return true;
 	});
 }

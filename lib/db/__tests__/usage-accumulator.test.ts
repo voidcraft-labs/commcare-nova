@@ -65,7 +65,7 @@ async function requestCount(userId: string): Promise<number | undefined> {
 describe("UsageAccumulator", () => {
 	it("tracks cumulative tokens + cost across track() calls", () => {
 		const acc = new UsageAccumulator({
-			appId: "app-1",
+			target: { kind: "app", appId: "app-1" },
 			userId: "user-1",
 			runId: "run-1",
 			holderNonce: HOLDER_NONCE,
@@ -105,7 +105,7 @@ describe("UsageAccumulator", () => {
 
 	it("stepCount increments on track(...,{step:true}) calls only", () => {
 		const acc = new UsageAccumulator({
-			appId: "a",
+			target: { kind: "app", appId: "a" },
 			userId: "u",
 			runId: "r",
 			holderNonce: HOLDER_NONCE,
@@ -124,7 +124,7 @@ describe("UsageAccumulator", () => {
 	it("flush() is idempotent", async () => {
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
-			appId: "a",
+			target: { kind: "app", appId: "a" },
 			userId: "u",
 			runId: "r",
 			holderNonce: HOLDER_NONCE,
@@ -146,7 +146,7 @@ describe("UsageAccumulator", () => {
 	it("flush() with zero cost skips the monthly increment", async () => {
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
-			appId: "a",
+			target: { kind: "app", appId: "a" },
 			userId: "u",
 			runId: "r",
 			holderNonce: HOLDER_NONCE,
@@ -166,7 +166,7 @@ describe("UsageAccumulator", () => {
 
 	it("runId getter returns the seed runId", () => {
 		const acc = new UsageAccumulator({
-			appId: "a",
+			target: { kind: "app", appId: "a" },
 			userId: "u",
 			runId: "run-getter-test",
 			holderNonce: HOLDER_NONCE,
@@ -188,7 +188,7 @@ describe("UsageAccumulator", () => {
 	describe("credit refund branch", () => {
 		/** A reserved seed pinned to a deterministic charge period for refund assertions. */
 		const reservedSeed = {
-			appId: "a",
+			target: { kind: "app" as const, appId: "a" },
 			userId: "u",
 			runId: "r",
 			holderNonce: HOLDER_NONCE,
@@ -358,7 +358,7 @@ describe("UsageAccumulator", () => {
 	 */
 	describe("finalize log", () => {
 		const reservedSeed = {
-			appId: "a",
+			target: { kind: "app" as const, appId: "a" },
 			userId: "u",
 			runId: "r",
 			holderNonce: HOLDER_NONCE,

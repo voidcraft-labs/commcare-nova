@@ -139,7 +139,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		// the client's connection broke), sealed terminal.
 		await appendStreamChunks({
 			streamId: STREAM_ID,
-			appId: "app-1",
+			target: { kind: "app", appId: "app-1" },
 			runId: "run-1",
 			firstIndex: 0,
 			chunks: FULL,
@@ -218,7 +218,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * replays it whole. */
 		const { appId } = await createApp(USER, "project-1", "run-1");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-1",
 			runId: "run-1",
 			streamId: STREAM_ID,
@@ -229,7 +229,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		});
 		await appendStreamChunks({
 			streamId: STREAM_ID,
-			appId,
+			target: { kind: "app", appId },
 			runId: "run-1",
 			firstIndex: 0,
 			chunks: FULL,
@@ -282,7 +282,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * completed step's parts. */
 		const { appId } = await createApp(USER, "project-1", "run-3");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-3",
 			runId: "run-3",
 			streamId: "stream-midrun",
@@ -297,7 +297,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * of tailing. */
 		await appendStreamChunks({
 			streamId: "stream-midrun",
-			appId,
+			target: { kind: "app", appId },
 			runId: "run-3",
 			firstIndex: 0,
 			chunks: [
@@ -406,7 +406,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * pins that the real parser consumes it without erroring or looping. */
 		const { appId } = await createApp(USER, "project-1", "run-2");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-2",
 			runId: "run-2",
 			streamId: "stream-idle",
@@ -416,7 +416,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			expectedProjectId: "project-1",
 		});
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-2",
 			streamId: "stream-idle",
 			expectedProjectId: "project-1",

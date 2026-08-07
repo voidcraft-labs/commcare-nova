@@ -1867,7 +1867,7 @@ describe("barrier persistence", () => {
 		/* The projection retires it: no interruption stamp, no marker, and
 		 * therefore no auto-re-drive against the finished answer. */
 		const { loadThread } = await import("@/lib/db/threads");
-		const loaded = await loadThread(app.id, THREAD);
+		const loaded = await loadThread({ kind: "app", appId: app.id }, THREAD);
 		expect(loaded?.resume_interrupted).toBeUndefined();
 		expect(loaded?.active_stream_id).toBeNull();
 	}, 30_000);
@@ -1915,7 +1915,7 @@ describe("barrier persistence", () => {
 		const thread = await threadRow(THREAD);
 		expect(thread.active_stream_id).toBe(streamId);
 		const { loadThread } = await import("@/lib/db/threads");
-		const loaded = await loadThread(app.id, THREAD);
+		const loaded = await loadThread({ kind: "app", appId: app.id }, THREAD);
 		expect(loaded?.resume_interrupted).toBe(true);
 	}, 30_000);
 

@@ -728,6 +728,10 @@ describe("atomic Project move", () => {
 		expectedMessages[0].metadata.attachments[2].assetId = destinationHistorical;
 		expect(storedThread.messages).toEqual(expectedMessages);
 
+		/* The split projection after the move: the Blueprint edge set carries
+		 * only the authored logo; the thread's three attachments land in
+		 * `thread_media_refs`, remapped to destination ids and re-tenanted to
+		 * the destination Project. */
 		const destinationEdges = await h
 			.db()
 			.selectFrom("media_asset_refs")
@@ -741,13 +745,20 @@ describe("atomic Project move", () => {
 			])
 			.orderBy("asset_id")
 			.execute();
-		expect(destinationEdges.map((edge) => edge.asset_id)).toEqual(
-			[
-				destinationLogo,
-				destinationImage,
-				destinationDocument,
-				destinationHistorical,
-			].sort(),
+		expect(destinationEdges.map((edge) => edge.asset_id)).toEqual([
+			destinationLogo,
+		]);
+		const destinationThreadRefs = await h
+			.db()
+			.selectFrom("thread_media_refs")
+			.select(["asset_id", "project_id"])
+			.where("thread_id", "=", "thread-atomic")
+			.orderBy("asset_id")
+			.execute();
+		expect(destinationThreadRefs).toEqual(
+			[destinationImage, destinationDocument, destinationHistorical]
+				.sort()
+				.map((assetId) => ({ asset_id: assetId, project_id: DESTINATION })),
 		);
 		const moveChange = await h
 			.db()
@@ -767,7 +778,7 @@ describe("atomic Project move", () => {
 		// source ids after the atomic thread rewrite.
 		await expect(
 			mergeThreadTurnMessages({
-				appId,
+				target: { kind: "app", appId },
 				threadId: "thread-atomic",
 				messages: originalMessages,
 				expectedProjectId: SOURCE,

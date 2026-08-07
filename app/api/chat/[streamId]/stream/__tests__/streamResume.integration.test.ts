@@ -332,7 +332,7 @@ describe("live tail", () => {
 				// The real append path: INSERT + pg_notify on the per-test DB.
 				await appendStreamChunks({
 					streamId: "s4",
-					appId: "app-1",
+					target: { kind: "app", appId: "app-1" },
 					runId: "run-1",
 					firstIndex: 1,
 					chunks: [delta(1), { type: "finish" }],
@@ -352,7 +352,7 @@ describe("live tail", () => {
 		};
 		const writer = new DurableStreamWriter({
 			streamId: "s5",
-			appId: "app-1",
+			target: { kind: "app", appId: "app-1" },
 			runId: "run-1",
 			threadId: "thread-1",
 			inner,
@@ -387,7 +387,7 @@ describe("live tail", () => {
 			throw new Error("createApp did not mint a run holder nonce");
 		}
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-private",
 			runId: "run-private",
 			streamId: "s-private",
@@ -403,7 +403,7 @@ describe("live tail", () => {
 		};
 		const writer = new DurableStreamWriter({
 			streamId: "s-private",
-			appId,
+			target: { kind: "app", appId },
 			runId: "run-private",
 			threadId: "thread-private",
 			inner,
@@ -421,7 +421,7 @@ describe("live tail", () => {
 				.execute();
 		});
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-private",
 			streamId: "s-private",
 			expectedProjectId: PROJECT,
@@ -475,7 +475,7 @@ describe("live tail", () => {
 			SUCCESSOR_NONCE,
 		);
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-private",
 			runId: "run-private",
 			streamId: "s-successor",
@@ -520,7 +520,7 @@ describe("dead-run fallback", () => {
 				await new Promise((r) => setTimeout(r, 600));
 				await appendStreamChunks({
 					streamId: "s7",
-					appId,
+					target: { kind: "app", appId },
 					runId: "run-live",
 					firstIndex: 1,
 					chunks: [delta(1), { type: "finish" }],
@@ -589,7 +589,7 @@ describe("append idempotency", () => {
 		// stream broken.
 		const batch = {
 			streamId: "s13",
-			appId: "app-1",
+			target: { kind: "app" as const, appId: "app-1" },
 			runId: "run-1",
 			firstIndex: 0,
 			chunks: [delta(0), { type: "finish" }],
@@ -610,7 +610,7 @@ describe("thread resolution", () => {
 	it("resolves a thread id to its live stream and replays it", async () => {
 		const { appId } = await createApp(USER, PROJECT, "run-t1");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-live",
 			runId: "run-t1",
 			streamId: "s14",
@@ -632,7 +632,7 @@ describe("thread resolution", () => {
 	it("answers a bare finish for a thread with nothing in flight", async () => {
 		const { appId } = await createApp(USER, PROJECT, "run-t2");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-idle",
 			runId: "run-t2",
 			streamId: "s15",
@@ -645,7 +645,7 @@ describe("thread resolution", () => {
 		 * 200 that terminates on its first chunk: the transport ERRORS on any
 		 * non-OK response (it has no null arm on this class). */
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-idle",
 			streamId: "s15",
 			expectedProjectId: PROJECT,
@@ -663,7 +663,7 @@ describe("thread resolution", () => {
 	it("404s a thread scope denial identically to a missing id", async () => {
 		const { appId } = await createApp(USER, PROJECT, "run-t3");
 		await upsertThreadTurn({
-			appId,
+			target: { kind: "app", appId },
 			threadId: "thread-foreign",
 			runId: "run-t3",
 			streamId: "s16",

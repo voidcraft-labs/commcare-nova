@@ -49,7 +49,7 @@ import type { ToolInvocationContext } from "../workspace/types";
  * (edit mode, cache expired, etc.) pass overrides via `seed`.
  */
 const DEFAULT_SEED: AccumulatorSeed = {
-	appId: "test-app",
+	target: { kind: "app", appId: "test-app" },
 	userId: "user-1",
 	runId: "run-1",
 	holderNonce: "00000000-0000-4000-8000-000000000001",
@@ -63,7 +63,7 @@ export interface MakeTestContextOptions {
 	/** Override specific accumulator seed fields (runId, promptMode, etc.). */
 	seed?: Partial<AccumulatorSeed>;
 	/** Override the appId passed into `GenerationContext`. Defaults to
-	 * "test-app" (matches `DEFAULT_SEED.appId`) when not supplied. */
+	 * "test-app" (matches `DEFAULT_SEED.target`) when not supplied. */
 	appId?: string;
 	/** Whether the run holds an edit `run_lock` (enables the per-step lease
 	 * heartbeat). Defaults to `false` — a build-mode fixture. */
