@@ -327,16 +327,24 @@ export async function attachGuardedMutate(
 	if (expectations.length > 0) {
 		/* The attach verdict scopes to the app's Project (media's tenant), so an
 		 * asset must belong to THIS app's Project to attach — resolved from the
-		 * app the tool operates on. */
-		const lookup = await loadAppProjectId(ctx.appId);
-		if (lookup.kind === "not-found") {
-			return {
-				ok: false,
-				error: "This app is no longer available. Reload and try again.",
-			};
+		 * app the tool operates on. A genesis change set has no app row yet, so
+		 * its invocation scope IS the tenant: the same Project the change set's
+		 * commit re-proves under the canonical media locks. */
+		let projectId: string;
+		if (ctx.appId === null) {
+			projectId = ctx.projectId;
+		} else {
+			const lookup = await loadAppProjectId(ctx.appId);
+			if (lookup.kind === "not-found") {
+				return {
+					ok: false,
+					error: "This app is no longer available. Reload and try again.",
+				};
+			}
+			projectId = lookup.projectId;
 		}
 		const verdict = await mediaAttachVerdict({
-			projectId: lookup.projectId,
+			projectId,
 			doc,
 			expectations,
 		});

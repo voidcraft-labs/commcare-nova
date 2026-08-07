@@ -34,6 +34,7 @@ import {
 	type CommitGuardedBatchTransactionHooks,
 	commitGuardedBatch,
 } from "./apps";
+import type { CanonicalCommitSidecar } from "./canonicalCommitSidecars";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
@@ -88,6 +89,13 @@ export interface ApplyBlueprintChangeArgs {
 	readonly guard: {
 		readonly mutations: AdmittedMutationBatch;
 	};
+	/**
+	 * Closed, typed transaction sidecars (`canonicalCommitSidecars.ts`) the
+	 * kernel executes beside this commit — the change-set receipt and intent
+	 * provenance ride here. Server-owned callers only; a dedup replay skips
+	 * them (the original commit ran them).
+	 */
+	readonly sidecars?: readonly CanonicalCommitSidecar[];
 }
 
 /**
@@ -309,7 +317,10 @@ async function persistBlueprint(
 				expectedOrganizationRevision: args.expectedOrganizationRevision,
 			}),
 		},
-		hooks,
+		{
+			...hooks,
+			...(args.sidecars !== undefined && { sidecars: args.sidecars }),
+		},
 	);
 	return {
 		result: {

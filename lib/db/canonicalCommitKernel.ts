@@ -79,6 +79,10 @@ import { asWalkableDoc, walkAuthoredAssetRefs } from "../domain/mediaRefs";
 import { type AssetKind, asMediaAssetId } from "../domain/multimedia";
 import { diffBlueprints } from "./blueprintRows";
 import {
+	type CanonicalCommitSidecar,
+	executeCanonicalCommitSidecars,
+} from "./canonicalCommitSidecars";
+import {
 	AppProjectChangedError,
 	appChangeFingerprintMatches,
 	BlueprintCommitRejectedError,
@@ -735,6 +739,14 @@ export interface CanonicalCommitTransactionHooks {
 	readonly beforeWrite?: (
 		context: GuardedBatchBeforeWriteContext,
 	) => Promise<void>;
+	/**
+	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
+	 * after `beforeWrite` and before the committed-batch write tail, with the
+	 * kernel's authoritative sequence/batch id/candidate. The change-set
+	 * commit's `open → committed` flip and receipt ride here. Skipped
+	 * entirely on a dedup hit — the original commit ran them.
+	 */
+	readonly sidecars?: readonly CanonicalCommitSidecar[];
 }
 
 export interface CanonicalCommitKernelOptions
@@ -946,6 +958,18 @@ export async function commitCanonicalBatch(
 				casePropertyRenamePlan: verdict.prepared.casePropertyRenamePlan,
 			}),
 		});
+		if (
+			internalOptions.sidecars !== undefined &&
+			internalOptions.sidecars.length > 0
+		) {
+			await executeCanonicalCommitSidecars(tx, {
+				appId,
+				seq,
+				batchId,
+				committedSnapshot: persistable,
+				sidecars: internalOptions.sidecars,
+			});
+		}
 		/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
 		 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 		 * the edit lock (through the one liveness reader). */

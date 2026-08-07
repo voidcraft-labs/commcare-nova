@@ -48,6 +48,7 @@ import {
 	guardedMutate,
 	type MutatingToolResult,
 	type ReadToolResult,
+	requireInvocationAppId,
 	toToolErrorResult,
 } from "./common";
 
@@ -60,7 +61,7 @@ type AddResult =
 
 function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
-		appId: ctx.appId,
+		appId: requireInvocationAppId(ctx),
 		projectId: ctx.projectId,
 		actorUserId: ctx.userId,
 		// Informational only. Every writer re-authorizes the fresh membership

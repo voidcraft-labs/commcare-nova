@@ -39,6 +39,18 @@ type LifecycleMode = "admits-proposal" | "consumes-durable-admitted";
  */
 const SOURCE_CLASSIFICATION = {
 	"app/api/apps/[id]/route.ts": "admits-proposal",
+	// The change-set commit re-admits the concatenated durable steps as one
+	// proposal and drives the guarded writer (applyBlueprintChange) with the
+	// deterministic change-set batch id.
+	"lib/agent/change-set/commit.ts": "admits-proposal",
+	// Overlay rehydration replays already-admitted durable steps — exact
+	// reduction, never admission.
+	"lib/agent/change-set/runtime.ts": "consumes-durable-admitted",
+	// The private staging host runs the same optimistic admission +
+	// whole-document evaluation as the canonical workspace, over its durable
+	// overlay; accepted steps persist through the change-set store, never a
+	// canonical writer.
+	"lib/agent/change-set/workspace.ts": "admits-proposal",
 	"lib/agent/generationContext.ts": "admits-proposal",
 	"lib/agent/tools/common.ts": "admits-proposal",
 	// The canonical workspace runs the optimistic admission + whole-document

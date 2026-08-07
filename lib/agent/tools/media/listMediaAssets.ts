@@ -71,7 +71,13 @@ export const listMediaAssetsTool = {
 		input: ListMediaAssetsInput,
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<ListMediaAssetsResult>> {
-		const projectId = await requireToolProjectId(ctx.appId);
+		/* A genesis change set has no app row; its invocation scope is the
+		 * library's tenant. Canonical calls keep resolving the app's fresh
+		 * Project, exactly as before. */
+		const projectId =
+			ctx.appId === null
+				? ctx.projectId
+				: await requireToolProjectId(ctx.appId);
 		const { assets, nextCursor } = await listReadyAssetsForProject(projectId, {
 			// The tool filters by a single kind; the DB layer takes a set, so wrap it.
 			...(input.kind !== undefined && { kinds: [input.kind] }),
