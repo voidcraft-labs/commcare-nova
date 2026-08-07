@@ -17,7 +17,7 @@ import {
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -105,8 +105,7 @@ export const renameCasePropertiesTool = {
 	inputSchema: renameCasePropertiesInputSchema,
 	async execute(
 		input: RenameCasePropertiesInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RenameCasePropertiesResult>> {
 		try {
 			const mutation: Mutation = {
@@ -115,7 +114,6 @@ export const renameCasePropertiesTool = {
 			};
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				[mutation],
 				"case-properties:rename",
 			);
@@ -123,7 +121,6 @@ export const renameCasePropertiesTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -133,7 +130,6 @@ export const renameCasePropertiesTool = {
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Renamed ${count} case ${count === 1 ? "property" : "properties"} across ${impact.totalOccurrences} document ${impact.totalOccurrences === 1 ? "occurrence" : "occurrences"} in ${impact.totalCarriers} ${impact.totalCarriers === 1 ? "carrier" : "carriers"} as one simultaneous app-wide change.`,
 					renames: input.renames,
@@ -144,7 +140,7 @@ export const renameCasePropertiesTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

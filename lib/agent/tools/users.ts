@@ -26,7 +26,6 @@ import {
 import {
 	assignedLocationUuids,
 	asUuid,
-	type BlueprintDoc,
 	orderedPersonas,
 	orderedUserProperties,
 	orderedUserTypes,
@@ -44,7 +43,7 @@ import {
 	userTypesOf,
 	uuidSchema,
 } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
 	guardedMutate,
@@ -259,26 +258,23 @@ function missing(kind: string, uuid: string): { error: string } {
 }
 
 async function commit(
-	ctx: ToolExecutionContext,
-	doc: BlueprintDoc,
+	ctx: ToolInvocationContext,
 	mutations: Mutation[],
 	stage: string,
 	message: string,
 	summary: ToolCallSummary,
 ): Promise<MutatingToolResult<MutationResult>> {
-	const outcome = await guardedMutate(ctx, doc, mutations, stage);
+	const outcome = await guardedMutate(ctx, mutations, stage);
 	if (!outcome.ok) {
 		return {
 			kind: "mutate",
 			mutations: [],
-			newDoc: doc,
 			result: { error: outcome.error },
 		};
 	}
 	return {
 		kind: "mutate",
 		mutations: outcome.mutations,
-		newDoc: outcome.newDoc,
 		result: { message, summary },
 	};
 }
@@ -289,9 +285,9 @@ export const addUserPropertiesTool = {
 	inputSchema: addUserPropertiesInputSchema,
 	async execute(
 		input: z.infer<typeof addUserPropertiesInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const uuids = input.properties.map(() => asUuid(crypto.randomUUID()));
 			let cursor = doc;
@@ -308,7 +304,6 @@ export const addUserPropertiesTool = {
 			}
 			const outcome = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				"users:workerInformation:add",
 			);
@@ -316,14 +311,12 @@ export const addUserPropertiesTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} worker-information ${uuids.length === 1 ? "property" : "properties"}. Stable uuids: ${uuids.join(", ")}.`,
 					uuids,
@@ -331,7 +324,7 @@ export const addUserPropertiesTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -342,16 +335,15 @@ export const updateUserPropertyTool = {
 	inputSchema: updateUserPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserPropertyInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(userPropertiesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Worker-information property", input.uuid),
 				};
 			}
@@ -360,20 +352,18 @@ export const updateUserPropertyTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: "Nothing to change." },
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				[{ kind: "updateUserProperty", uuid, patch }],
 				"users:workerInformation:update",
 				`Updated worker information "${current.label}".`,
 				{ subject: current.label },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -384,16 +374,15 @@ export const removeUserPropertyTool = {
 	inputSchema: removeUserPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof removeUserPropertyInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(userPropertiesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Worker-information property", input.uuid),
 				};
 			}
@@ -402,20 +391,18 @@ export const removeUserPropertyTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: plan.userMessage },
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				plan.mutations,
 				"users:workerInformation:remove",
 				`Removed worker information "${current.label}" and its recorded role/persona values.`,
 				{ subject: current.label },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -426,9 +413,9 @@ export const addUserTypesTool = {
 	inputSchema: addUserTypesInputSchema,
 	async execute(
 		input: z.infer<typeof addUserTypesInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const uuids = input.userTypes.map(() => asUuid(crypto.randomUUID()));
 			let cursor = doc;
@@ -446,24 +433,17 @@ export const addUserTypesTool = {
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
 			}
-			const outcome = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				"users:role:add",
-			);
+			const outcome = await guardedMutate(ctx, mutations, "users:role:add");
 			if (!outcome.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "role" : "roles"}. Stable uuids: ${uuids.join(", ")}.`,
 					uuids,
@@ -471,7 +451,7 @@ export const addUserTypesTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -482,16 +462,15 @@ export const updateUserTypeTool = {
 	inputSchema: updateUserTypeInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserTypeInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(userTypesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Role", input.uuid),
 				};
 			}
@@ -516,20 +495,18 @@ export const updateUserTypeTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: "Nothing to change." },
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				mutations,
 				"users:role:update",
 				`Updated role "${current.name}".`,
 				{ subject: current.name },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -540,16 +517,15 @@ export const removeUserTypeTool = {
 	inputSchema: removeUserTypeInputSchema,
 	async execute(
 		input: z.infer<typeof removeUserTypeInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(userTypesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Role", input.uuid),
 				};
 			}
@@ -558,20 +534,18 @@ export const removeUserTypeTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: plan.userMessage },
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				plan.mutations,
 				"users:role:remove",
 				`Removed role "${current.name}".`,
 				{ subject: current.name },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -582,9 +556,9 @@ export const addPersonasTool = {
 	inputSchema: addPersonasInputSchema,
 	async execute(
 		input: z.infer<typeof addPersonasInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddMutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const uuids = input.personas.map(() => asUuid(crypto.randomUUID()));
 			let cursor = doc;
@@ -613,24 +587,17 @@ export const addPersonasTool = {
 				mutations.push(...next);
 				cursor = applyToDoc(cursor, next);
 			}
-			const outcome = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				"users:persona:add",
-			);
+			const outcome = await guardedMutate(ctx, mutations, "users:persona:add");
 			if (!outcome.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "persona" : "personas"}. Stable uuids: ${uuids.join(", ")}.`,
 					uuids,
@@ -638,7 +605,7 @@ export const addPersonasTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -649,16 +616,15 @@ export const updatePersonaTool = {
 	inputSchema: updatePersonaInputSchema,
 	async execute(
 		input: z.infer<typeof updatePersonaInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(personasOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Persona", input.uuid),
 				};
 			}
@@ -694,20 +660,18 @@ export const updatePersonaTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: "Nothing to change." },
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				mutations,
 				"users:persona:update",
 				`Updated persona "${current.name}".`,
 				{ subject: current.name },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -718,29 +682,27 @@ export const removePersonaTool = {
 	inputSchema: removePersonaInputSchema,
 	async execute(
 		input: z.infer<typeof removePersonaInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MutationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(personasOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: missing("Persona", input.uuid),
 				};
 			}
 			return await commit(
 				ctx,
-				doc,
 				removePersonaMutations(input.uuid),
 				"users:persona:remove",
 				`Removed persona "${current.name}". The cases it already owned were preserved.`,
 				{ subject: current.name },
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -768,8 +730,7 @@ export const getUsersTool = {
 	inputSchema: getUsersInputSchema,
 	async execute(
 		_input: z.infer<typeof getUsersInputSchema>,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<
 		ReadToolResult<{
 			workerInformation: UserProperty[];
@@ -786,6 +747,7 @@ export const getUsersTool = {
 			>;
 		}>
 	> {
+		const doc = ctx.snapshot.doc;
 		const _properties = userPropertiesOf(doc);
 		const workerInformation = orderedUserProperties(doc);
 		const propertyOrder = new Map(

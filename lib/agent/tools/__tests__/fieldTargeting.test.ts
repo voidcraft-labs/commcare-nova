@@ -11,7 +11,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
-import { makeStubToolContext } from "../../__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { editFieldInputSchema, editFieldTool } from "../editField";
 import { getFieldInputSchema, getFieldTool } from "../getField";
@@ -114,26 +114,23 @@ describe("field UUID addresses", () => {
 	it("patches exactly the UUID-addressed duplicate", async () => {
 		const doc = makeDoc();
 		const inHistory = fieldByLabel(doc, "In history");
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc),
-				fieldUuid: inHistory.uuid,
-				updates: { kind: "text", label: proseText("History patient") },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...address(doc),
+			fieldUuid: inHistory.uuid,
+			updates: { kind: "text", label: proseText("History patient") },
+		});
 
 		expect(result.result).not.toHaveProperty("error");
-		const changed = result.newDoc.fields[inHistory.uuid];
+		const newDoc = h.currentDoc();
+		const changed = newDoc.fields[inHistory.uuid];
 		expect(
 			changed &&
 				"label" in changed &&
 				changed.label !== undefined &&
 				proseTemplateText(changed.label),
 		).toBe("History patient");
-		const untouched = result.newDoc.fields[fieldByLabel(doc, "In orders").uuid];
+		const untouched = newDoc.fields[fieldByLabel(doc, "In orders").uuid];
 		expect(
 			untouched &&
 				"label" in untouched &&
@@ -145,22 +142,18 @@ describe("field UUID addresses", () => {
 	it("keeps post-rename edits on the same identity", async () => {
 		const doc = makeDoc();
 		const inHistory = fieldByLabel(doc, "In history");
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...address(doc),
-				fieldUuid: inHistory.uuid,
-				updates: {
-					kind: "text",
-					id: "order_note",
-					label: proseText("Renamed history"),
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(editFieldTool, {
+			...address(doc),
+			fieldUuid: inHistory.uuid,
+			updates: {
+				kind: "text",
+				id: "order_note",
+				label: proseText("Renamed history"),
 			},
-			ctx,
-			doc,
-		);
+		});
 
-		expect(result.newDoc.fields[inHistory.uuid]).toMatchObject({
+		expect(h.currentDoc().fields[inHistory.uuid]).toMatchObject({
 			uuid: inHistory.uuid,
 			id: "order_note",
 			label: proseText("Renamed history"),
@@ -171,27 +164,25 @@ describe("field UUID addresses", () => {
 		const doc = makeDoc();
 		const inOrders = fieldByLabel(doc, "In orders");
 		const inHistory = fieldByLabel(doc, "In history");
-		const { ctx } = makeStubToolContext();
-		const result = await removeFieldTool.execute(
-			{ ...address(doc), fieldUuid: inOrders.uuid },
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(removeFieldTool, {
+			...address(doc),
+			fieldUuid: inOrders.uuid,
+		});
 
 		expect(result.result).not.toHaveProperty("error");
-		expect(result.newDoc.fields[inOrders.uuid]).toBeUndefined();
-		expect(result.newDoc.fields[inHistory.uuid]).toBeDefined();
+		expect(h.currentDoc().fields[inOrders.uuid]).toBeUndefined();
+		expect(h.currentDoc().fields[inHistory.uuid]).toBeDefined();
 	});
 
 	it("reads the canonical identity without projecting a path address", async () => {
 		const doc = makeDoc();
 		const inHistory = fieldByLabel(doc, "In history");
-		const { ctx } = makeStubToolContext();
-		const read = await getFieldTool.execute(
-			{ ...address(doc), fieldUuid: inHistory.uuid },
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const read = await h.runTool(getFieldTool, {
+			...address(doc),
+			fieldUuid: inHistory.uuid,
+		});
 
 		expect(read.data).toMatchObject({
 			...address(doc),
@@ -207,83 +198,71 @@ describe("field parent identity", () => {
 		const doc = makeDoc();
 		const history = fieldByLabel(doc, "History");
 		const newFieldUuid = testUuid("history-note");
-		const { ctx } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				...address(doc),
-				parentUuid: history.uuid,
-				fields: [
-					{
-						fieldUuid: newFieldUuid,
-						id: "note",
-						kind: "text",
-						label: proseText("Note"),
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(addFieldsTool, {
+			...address(doc),
+			parentUuid: history.uuid,
+			fields: [
+				{
+					fieldUuid: newFieldUuid,
+					id: "note",
+					kind: "text",
+					label: proseText("Note"),
+				},
+			],
+		});
 
 		expect(result.result).not.toHaveProperty("error");
-		expect(result.newDoc.fieldParent[newFieldUuid]).toBe(history.uuid);
+		expect(h.currentDoc().fieldParent[newFieldUuid]).toBe(history.uuid);
 	});
 
 	it("predeclares same-call parent and child UUIDs", async () => {
 		const doc = makeDoc();
 		const sectionUuid = testUuid("same-call-section");
 		const childUuid = testUuid("same-call-child");
-		const { ctx } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				...address(doc),
-				fields: [
-					{
-						fieldUuid: sectionUuid,
-						id: "section",
-						kind: "group",
-						label: proseText("Section"),
-					},
-					{
-						fieldUuid: childUuid,
-						parentUuid: sectionUuid,
-						id: "note",
-						kind: "text",
-						label: proseText("Note"),
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(addFieldsTool, {
+			...address(doc),
+			fields: [
+				{
+					fieldUuid: sectionUuid,
+					id: "section",
+					kind: "group",
+					label: proseText("Section"),
+				},
+				{
+					fieldUuid: childUuid,
+					parentUuid: sectionUuid,
+					id: "note",
+					kind: "text",
+					label: proseText("Note"),
+				},
+			],
+		});
 
 		expect(result.result).not.toHaveProperty("error");
-		expect(result.newDoc.fieldParent[childUuid]).toBe(sectionUuid);
+		expect(h.currentDoc().fieldParent[childUuid]).toBe(sectionUuid);
 	});
 
 	it("rejects a leaf UUID as a parent", async () => {
 		const doc = makeDoc();
 		const leaf = fieldByLabel(doc, "In history");
-		const { ctx, recordMutations } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				...address(doc),
-				parentUuid: leaf.uuid,
-				fields: [
-					{
-						fieldUuid: testUuid("invalid-child"),
-						id: "note",
-						kind: "text",
-						label: proseText("Note"),
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(addFieldsTool, {
+			...address(doc),
+			parentUuid: leaf.uuid,
+			fields: [
+				{
+					fieldUuid: testUuid("invalid-child"),
+					id: "note",
+					kind: "text",
+					label: proseText("Note"),
+				},
+			],
+		});
 
 		expect(result.result).toHaveProperty("error");
 		expect(result.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });

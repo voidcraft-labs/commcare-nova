@@ -19,8 +19,9 @@ import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
-	makeStubToolContext,
+	makeToolWorkspaceHarness,
 } from "../../__tests__/fixtures";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import { editFieldTool } from "../editField";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -87,55 +88,37 @@ beforeEach(() => {
 
 describe("editField — help text", () => {
 	it("sets help text on the field", async () => {
-		const { doc, ctx } = { doc: makeDoc(), ...makeStubToolContext() };
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: {
-					kind: "text",
-					help: proseText("Enter the patient's full legal name."),
-				},
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: {
+				kind: "text",
+				help: proseText("Enter the patient's full legal name."),
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		expect(result.kind).toBe("mutate");
-		expect(helpOf(result.newDoc)).toBe("Enter the patient's full legal name.");
+		expect(helpOf(h.currentDoc())).toBe("Enter the patient's full legal name.");
 	});
 
 	it("KEEPS help text when the slot is left out of the patch", async () => {
-		const { doc, ctx } = {
-			doc: makeDoc("Existing help"),
-			...makeStubToolContext(),
-		};
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", label: proseText("Patient name") },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(makeDoc("Existing help"));
+		await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", label: proseText("Patient name") },
+		});
 
-		expect(helpOf(result.newDoc)).toBe("Existing help");
+		expect(helpOf(h.currentDoc())).toBe("Existing help");
 	});
 
 	it("CLEARS help text when handed null — null removes, omission keeps", async () => {
-		const { doc, ctx } = {
-			doc: makeDoc("Existing help"),
-			...makeStubToolContext(),
-		};
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", help: null },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(makeDoc("Existing help"));
+		await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", help: null },
+		});
 
-		expect(helpOf(result.newDoc)).toBeUndefined();
+		expect(helpOf(h.currentDoc())).toBeUndefined();
 	});
 });
 
@@ -163,35 +146,27 @@ function makeTwoFieldDoc(): BlueprintDoc {
 
 describe("editField — rename identifier guard", () => {
 	it("rejects a rename to a sibling-conflicting id and persists nothing", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", id: "age" },
-			},
-			ctx,
-			makeTwoFieldDoc(),
-		);
+		const doc = makeTwoFieldDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", id: "age" },
+		});
 
 		expect(result.result).toHaveProperty("error");
 		expect((result.result as { error: string }).error).toContain('"age"');
 		expect(result.mutations).toHaveLength(0);
-		expect(recordSpy).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 		// Nothing persisted — the doc the SA holds is unchanged.
-		expect(result.newDoc.fields[FIELD]?.id).toBe("patient_name");
+		expect(h.currentDoc().fields[FIELD]?.id).toBe("patient_name");
 	});
 
 	it("rejects a rename to an XML-illegal id", async () => {
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", id: "patient name" },
-			},
-			ctx,
-			makeTwoFieldDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", id: "patient name" },
+		});
 
 		expect((result.result as { error: string }).error).toContain(
 			'"patient name"',
@@ -199,38 +174,28 @@ describe("editField — rename identifier guard", () => {
 	});
 
 	it("rejects a rename into the reserved __nova_ namespace", async () => {
-		const { ctx } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", id: "__nova_count_x" },
-			},
-			ctx,
-			makeTwoFieldDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", id: "__nova_count_x" },
+		});
 
 		expect((result.result as { error: string }).error).toContain("__nova_");
 	});
 
 	it("accepts a legal rename and persists it", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", id: "full_name" },
-			},
-			ctx,
-			makeTwoFieldDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", id: "full_name" },
+		});
 
 		expect(result.result).toHaveProperty("message");
-		expect(result.newDoc.fields[FIELD]?.id).toBe("full_name");
-		expect(recordSpy).toHaveBeenCalledTimes(1);
+		expect(h.currentDoc().fields[FIELD]?.id).toBe("full_name");
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 
 	it("emits independent id and caseWrite changes together in one post-declaration updateField patch", async () => {
-		const { ctx } = makeStubToolContext();
 		const doc = makeDoc();
 		doc.modules[MOD] = {
 			...doc.modules[MOD],
@@ -253,18 +218,15 @@ describe("editField — rename identifier guard", () => {
 			...doc.forms[FORM],
 			type: "followup",
 		};
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: {
-					kind: "text",
-					id: "household_name",
-					caseWrite: { caseType: "household", property: "case_name" },
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: {
+				kind: "text",
+				id: "household_name",
+				caseWrite: { caseType: "household", property: "case_name" },
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.mutations).toEqual([
@@ -293,14 +255,23 @@ describe("editField — rename identifier guard", () => {
 		const doc = makeTwoFieldDoc();
 		const { ctx } = makeMcpTestContext({ initialDoc: doc });
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
-		const result = await editFieldTool.execute(
-			{
-				...ADDRESS,
-				updates: { kind: "text", id: "age" },
-			},
-			ctx,
-			doc,
-		);
+		// The MCP context IS the canonical host on that surface — the same tool
+		// body runs against it through the same workspace the chat surface uses.
+		const workspace = new CanonicalMutationWorkspace({
+			host: ctx,
+			initialDoc: doc,
+		});
+		const result = await workspace.invoke({
+			toolName: "editField",
+			execute: (toolCtx) =>
+				editFieldTool.execute(
+					{
+						...ADDRESS,
+						updates: { kind: "text", id: "age" },
+					},
+					toolCtx,
+				),
+		});
 
 		expect((result.result as { error: string }).error).toContain('"age"');
 		expect(recordSpy).not.toHaveBeenCalled();
@@ -339,36 +310,32 @@ function makeSelectDoc(): BlueprintDoc {
 
 describe("editField — wholesale option-source replacement keeps identity", () => {
 	it("carries surviving values' uuids forward and identifies every option", async () => {
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(makeSelectDoc());
 		// The SA replaces the whole list and explicitly preserves the UUID of
 		// "yes"; "no" is dropped and "maybe" receives a new UUID before commit.
-		const result = await editFieldTool.execute(
-			{
-				moduleUuid: MOD,
-				formUuid: FORM,
-				fieldUuid: SEL,
-				updates: {
-					kind: "single_select",
-					optionsSource: {
-						kind: "inline",
-						options: [
-							{
-								optionUuid: OPT_YES,
-								label: proseText("Yes, agreed"),
-								value: "yes",
-							},
-							{ label: proseText("Maybe"), value: "maybe" },
-						],
-					},
+		const result = await h.runTool(editFieldTool, {
+			moduleUuid: MOD,
+			formUuid: FORM,
+			fieldUuid: SEL,
+			updates: {
+				kind: "single_select",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							optionUuid: OPT_YES,
+							label: proseText("Yes, agreed"),
+							value: "yes",
+						},
+						{ label: proseText("Maybe"), value: "maybe" },
+					],
 				},
 			},
-			ctx,
-			makeSelectDoc(),
-		);
+		});
 
 		expect(result.kind).toBe("mutate");
 		const options = (
-			result.newDoc.fields[SEL] as unknown as {
+			h.currentDoc().fields[SEL] as unknown as {
 				optionsSource: {
 					kind: "inline";
 					options: Array<{
@@ -405,33 +372,29 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 	});
 
 	it("rejects an option UUID owned by another authored object before commit", async () => {
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				moduleUuid: MOD,
-				formUuid: FORM,
-				fieldUuid: SEL,
-				updates: {
-					kind: "single_select",
-					optionsSource: {
-						kind: "inline",
-						options: [
-							{
-								optionUuid: FIELD,
-								label: proseText("Captured"),
-								value: "captured",
-							},
-							{ label: proseText("Safe"), value: "safe" },
-						],
-					},
+		const h = makeToolWorkspaceHarness(makeSelectDoc());
+		const result = await h.runTool(editFieldTool, {
+			moduleUuid: MOD,
+			formUuid: FORM,
+			fieldUuid: SEL,
+			updates: {
+				kind: "single_select",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							optionUuid: FIELD,
+							label: proseText("Captured"),
+							value: "captured",
+						},
+						{ label: proseText("Safe"), value: "safe" },
+					],
 				},
 			},
-			ctx,
-			makeSelectDoc(),
-		);
+		});
 
 		expect("error" in result.result && result.result.error).toContain(FIELD);
 		expect(result.mutations).toEqual([]);
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 	});
 });

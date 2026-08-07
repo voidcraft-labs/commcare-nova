@@ -692,6 +692,18 @@ edit holder; a replacement or reap is a clean no-op.
 
 ## Guarded commit
 
+The transaction body lives in `canonicalCommitKernel.ts` — the ONE canonical
+commit service (`commitCanonicalBatch`) plus the shared locked-app plumbing
+every protocol in `apps.ts` composes (the strict persisted-app admission,
+`lockAppRow`, the exact media projection, the authoritative lookup context,
+the membership/Project assertions, `writeCommittedBatch`). `apps.ts` keeps the
+public wrappers (`commitGuardedBatch`, `commitGuardedBatchInTransaction`) and
+re-exports the moved symbols, so ordinary callers never import the kernel;
+only server-owned commit hosts compose its transaction hooks
+(`CanonicalCommitTransactionHooks` — the `beforeWrite` seam case-store Phase A
+rides, and the seam future server-owned transaction sidecars extend). The
+dependency arrow is one-way: apps → kernel.
+
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required

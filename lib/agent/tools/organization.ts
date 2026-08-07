@@ -15,7 +15,6 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
-	type BlueprintDoc,
 	levelAddressBookSchema,
 	levelCaseFlowSchema,
 	locationPropertiesOf,
@@ -43,7 +42,7 @@ import {
 	updateLocation,
 } from "@/lib/organization/service";
 import type { OrganizationScope } from "@/lib/organization/types";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
 	guardedMutate,
@@ -59,7 +58,7 @@ type AddResult =
 	| { message: string; uuids: Uuid[]; summary: { count: number } }
 	| { error: string };
 
-function scope(ctx: ToolExecutionContext): OrganizationScope {
+function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
 		appId: ctx.appId,
 		projectId: ctx.projectId,
@@ -84,26 +83,23 @@ function errorMessage(error: unknown): string {
 }
 
 async function commit(
-	ctx: ToolExecutionContext,
-	doc: BlueprintDoc,
+	ctx: ToolInvocationContext,
 	mutations: Mutation[],
 	stage: string,
 	message: string,
 	subject?: string,
 ): Promise<MutatingToolResult<MutationResult>> {
-	const outcome = await guardedMutate(ctx, doc, mutations, stage);
+	const outcome = await guardedMutate(ctx, mutations, stage);
 	if (!outcome.ok) {
 		return {
 			kind: "mutate",
 			mutations: [],
-			newDoc: doc,
 			result: { error: outcome.error },
 		};
 	}
 	return {
 		kind: "mutate",
 		mutations: outcome.mutations,
-		newDoc: outcome.newDoc,
 		result: {
 			message,
 			...(subject === undefined ? {} : { summary: { subject } }),
@@ -270,8 +266,7 @@ export const getOrganizationTool = {
 	inputSchema: getOrganizationInputSchema,
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
 			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
@@ -413,9 +408,9 @@ export const addOrganizationLevelsTool = {
 	inputSchema: addOrganizationLevelsInputSchema,
 	async execute(
 		input: z.infer<typeof addOrganizationLevelsInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const uuids = input.levels.map(
 				(level) => level.uuid ?? asUuid(crypto.randomUUID()),
@@ -433,7 +428,6 @@ export const addOrganizationLevelsTool = {
 						new Error(
 							"Add a parent organization level before any child that names it in the same call.",
 						),
-						doc,
 					);
 				}
 				const {
@@ -458,7 +452,6 @@ export const addOrganizationLevelsTool = {
 			}
 			const outcome = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				"organization:levels:add",
 			);
@@ -466,14 +459,12 @@ export const addOrganizationLevelsTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} organization ${uuids.length === 1 ? "level" : "levels"}.`,
 					uuids,
@@ -481,7 +472,7 @@ export const addOrganizationLevelsTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -492,27 +483,23 @@ export const updateOrganizationLevelTool = {
 	inputSchema: updateOrganizationLevelInputSchema,
 	async execute(
 		input: z.infer<typeof updateOrganizationLevelInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(organizationLevelsOf(doc), input.uuid);
 			if (current === undefined)
-				return toToolErrorResult(
-					new Error("Organization level not found."),
-					doc,
-				);
+				return toToolErrorResult(new Error("Organization level not found."));
 			const { uuid, ...patch } = input;
 			return await commit(
 				ctx,
-				doc,
 				[{ kind: "updateOrganizationLevel", uuid, patch }],
 				"organization:level:update",
 				`Updated organization level "${current.name}".`,
 				current.name,
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -523,28 +510,24 @@ export const removeOrganizationLevelTool = {
 	inputSchema: removeOrganizationLevelInputSchema,
 	async execute(
 		input: z.infer<typeof removeOrganizationLevelInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(organizationLevelsOf(doc), input.uuid);
 			if (current === undefined)
-				return toToolErrorResult(
-					new Error("Organization level not found."),
-					doc,
-				);
+				return toToolErrorResult(new Error("Organization level not found."));
 			const plan = removeOrganizationLevelPlan(doc, input.uuid);
-			if (!plan.ok) return toToolErrorResult(new Error(plan.userMessage), doc);
+			if (!plan.ok) return toToolErrorResult(new Error(plan.userMessage));
 			return await commit(
 				ctx,
-				doc,
 				plan.mutations,
 				"organization:level:remove",
 				`Removed organization level "${current.name}".`,
 				current.name,
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -555,9 +538,9 @@ export const addLocationPropertiesTool = {
 	inputSchema: addLocationPropertiesInputSchema,
 	async execute(
 		input: z.infer<typeof addLocationPropertiesInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const uuids = input.properties.map(() => asUuid(crypto.randomUUID()));
 			let cursor = doc;
@@ -586,7 +569,6 @@ export const addLocationPropertiesTool = {
 			}
 			const outcome = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				"organization:placeInformation:add",
 			);
@@ -594,13 +576,11 @@ export const addLocationPropertiesTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			return {
 				kind: "mutate",
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} place-information ${uuids.length === 1 ? "field" : "fields"}.`,
 					uuids,
@@ -608,7 +588,7 @@ export const addLocationPropertiesTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -619,27 +599,25 @@ export const updateLocationPropertyTool = {
 	inputSchema: updateLocationPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof updateLocationPropertyInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(locationPropertiesOf(doc), input.uuid);
 			if (current === undefined)
 				return toToolErrorResult(
 					new Error("Place-information field not found."),
-					doc,
 				);
 			const { uuid, ...patch } = input;
 			return await commit(
 				ctx,
-				doc,
 				[{ kind: "updateLocationProperty", uuid, patch }],
 				"organization:placeInformation:update",
 				`Updated place information "${current.label}".`,
 				current.label,
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -650,26 +628,24 @@ export const removeLocationPropertyTool = {
 	inputSchema: removeLocationPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof removeLocationPropertyInputSchema>,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
+		const doc = ctx.snapshot.doc;
 		try {
 			const current = ownRecordValue(locationPropertiesOf(doc), input.uuid);
 			if (current === undefined)
 				return toToolErrorResult(
 					new Error("Place-information field not found."),
-					doc,
 				);
 			return await commit(
 				ctx,
-				doc,
 				removeLocationPropertyMutations(input.uuid),
 				"organization:placeInformation:remove",
 				`Removed place information "${current.label}".`,
 				current.label,
 			);
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
@@ -704,8 +680,7 @@ export const createLocationTool = {
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
 		const { expectedRevision, ...location } = input;
 		return rowResult(() =>
@@ -720,8 +695,7 @@ export const updateLocationTool = {
 	inputSchema: updateLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof updateLocationToolInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
 		const { locationUuid, expectedRevision, ...patch } = input;
 		return rowResult(() =>
@@ -736,8 +710,7 @@ export const moveLocationTool = {
 	inputSchema: moveLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof moveLocationToolInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
 		return rowResult(() =>
 			moveLocation(
@@ -761,8 +734,7 @@ export const setLocationArchivedTool = {
 	inputSchema: setLocationArchivedToolInputSchema,
 	async execute(
 		input: z.infer<typeof setLocationArchivedToolInputSchema>,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	) {
 		try {
 			if (input.archived && input.confirm !== true) {
@@ -798,10 +770,13 @@ export const setLocationArchivedTool = {
 			);
 			if (result.blueprintChange !== undefined) {
 				const { blueprintChange, ...organization } = result;
+				/* The archive committed persona mutations through the service's own
+				 * app-locked transaction, so the exact fresh-store document — not
+				 * this invocation's snapshot — is the state to continue from. */
+				ctx.adoptAuthoritativeSnapshot({ doc: blueprintChange.committedDoc });
 				return {
 					kind: "mutate" as const,
 					mutations: blueprintChange.mutations,
-					newDoc: blueprintChange.committedDoc,
 					result: {
 						message: `Archived ${result.archivedCount} ${result.archivedCount === 1 ? "place" : "places"} and updated ${result.unassignedPersonaCount} persona ${result.unassignedPersonaCount === 1 ? "assignment" : "assignments"}.`,
 						...organization,

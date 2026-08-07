@@ -27,20 +27,16 @@
  * items addressing the same tile apply in order — the later one wins.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`.
+ * shared `ToolInvocationContext`.
  */
 
 import { z } from "zod";
-import {
-	type BlueprintDoc,
-	FORM_ICON_SLUGS,
-	MODULE_ICON_SLUGS,
-} from "@/lib/domain";
+import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain";
 import {
 	setFormMediaMutations,
 	setModuleMediaMutations,
 } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	formAddressSchema,
@@ -118,9 +114,9 @@ export const setMenuMediaTool = {
 	inputSchema: setMenuMediaInputSchema,
 	async execute(
 		input: SetMenuMediaInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetMenuMediaResult>> {
+		const doc = ctx.snapshot.doc;
 		const { items } = input;
 		try {
 			// Resolve every item before writing anything, collecting every
@@ -209,7 +205,6 @@ export const setMenuMediaTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
@@ -217,14 +212,13 @@ export const setMenuMediaTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: `Set menu media on ${countPhrase(items.length)} — ${resolved.map((r) => r.line).join("; ")}.`,
 					summary: { count: items.length },
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

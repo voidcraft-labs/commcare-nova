@@ -26,7 +26,7 @@
  * outcome without re-parsing prose.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Two exit branches:
+ * shared `ToolInvocationContext` interface. Two exit branches:
  *
  *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, kind }` plus the persisted mutation,
@@ -35,9 +35,8 @@
 
 import type { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -95,9 +94,9 @@ export const setCaseListFilterTool = {
 	inputSchema: setCaseListFilterInputSchema,
 	async execute(
 		input: SetCaseListFilterInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetCaseListFilterResult>> {
+		const doc = ctx.snapshot.doc;
 		const { filter } = input;
 		try {
 			const address = resolveModuleAddress(doc, input);
@@ -105,7 +104,6 @@ export const setCaseListFilterTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -129,7 +127,6 @@ export const setCaseListFilterTool = {
 			// that action in place.
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}:filter`,
 			);
@@ -137,16 +134,13 @@ export const setCaseListFilterTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result:
 					filter === null
 						? {
@@ -161,7 +155,7 @@ export const setCaseListFilterTool = {
 							},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

@@ -11,7 +11,8 @@
 // `makeMcpTestContext` is the sibling for the MCP surface: a stubbed
 // `McpContext` so shared tool modules can be driven through both
 // surfaces in cross-surface tests, exercising the same
-// `ToolExecutionContext` interface the production adapter uses.
+// `CanonicalMutationHost` contract the production adapter's per-call
+// workspace commits through.
 //
 // The helpers return both the `ctx` (for driving calls into the class
 // under test) and the stubs (for asserting what the class wrote). All
@@ -38,8 +39,10 @@ import { GenerationContext } from "../generationContext";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	ToolExecutionContext,
 } from "../toolExecutionContext";
+import type { CanonicalMutationHost } from "../workspace/canonicalHost";
+import { CanonicalMutationWorkspace } from "../workspace/canonicalWorkspace";
+import type { ToolInvocationContext } from "../workspace/types";
 
 /**
  * Default accumulator seed. Tests that need a specific run config
@@ -239,7 +242,7 @@ const emptyConversionImpact: ConversionImpactFn = async () => ({
  * batch returns a complete authoritative committed document without Postgres.
  *
  * Mirrors `makeTestContext` for the chat surface: both helpers return a
- * `ToolExecutionContext`-compatible value so shared tool modules can be
+ * `CanonicalMutationHost`-compatible value so shared tool modules can be
  * driven through either without per-test boilerplate. Cross-surface
  * tests use both helpers side by side to assert the same input produces
  * the same mutation batch on both surfaces.
@@ -272,40 +275,64 @@ export function makeMcpTestContext(
 	};
 }
 
-/** Handles returned by `makeStubToolContext` — the stub ctx plus the vi.fn
- *  spies on its two persistence methods, so a tool test can assert what the
- *  tool persisted (mutations + stage) without a real `GenerationContext`. */
-export interface StubToolContextHandles {
-	ctx: ToolExecutionContext;
+/** Handles returned by `makeToolWorkspaceHarness` — a canonical workspace
+ *  over a stub host, plus the vi.fn spies on the host's two persistence
+ *  methods, so a tool test can assert what the tool persisted (mutations +
+ *  stage) without a real `GenerationContext`. */
+export interface ToolWorkspaceHarness {
+	workspace: CanonicalMutationWorkspace;
+	host: CanonicalMutationHost;
+	/** Run one shared tool through the workspace — the same `invoke` path the
+	 * SA wrapper and the MCP adapter use, so the tool receives a live
+	 * `ToolInvocationContext` bound to the workspace's current snapshot. The
+	 * workspace adopts each commit, so consecutive calls compose. */
+	runTool<T>(
+		tool: {
+			execute(input: never, ctx: ToolInvocationContext): Promise<T>;
+		},
+		input: unknown,
+	): Promise<T>;
+	/** The workspace's CURRENT document — what the next invocation would read. */
+	currentDoc(): BlueprintDoc;
 	recordMutations: ReturnType<typeof vi.fn>;
 	recordMutationStages: ReturnType<typeof vi.fn>;
-	recordConversation: ReturnType<typeof vi.fn>;
 	conversionImpact: ReturnType<typeof vi.fn>;
 }
 
+export interface MakeToolWorkspaceHarnessOptions {
+	appId?: string;
+	userId?: string;
+	runId?: string;
+	conversionImpact?: ConversionImpactFn;
+	/** Optional Project data reader for lookup-carrying candidates. */
+	lookupDefinitions?: CanonicalMutationHost["lookupDefinitions"];
+	lookupCatalog?: CanonicalMutationHost["lookupCatalog"];
+	/** Optional chat holder capability, for tools exercising chat-only side
+	 * effects. */
+	chatRunHolder?: CanonicalMutationHost["chatRunHolder"];
+	/** Optional authorized-reload hook, for tests exercising the workspace's
+	 * conflict recovery. */
+	reloadAuthorizedSnapshot?: CanonicalMutationHost["reloadAuthorizedSnapshot"];
+}
+
 /**
- * A lightweight `ToolExecutionContext` stub for shared-tool tests that only
- * exercise a tool body's mutation emission + returned `newDoc` — no Postgres,
- * no guarded writer, no SSE writer.
+ * A canonical workspace over a lightweight stub host for shared-tool tests
+ * that exercise a tool body's mutation emission — no Postgres, no guarded
+ * writer, no SSE writer.
  *
  * Both `recordMutations` and `recordMutationStages` return the
  * `{ events, committedDoc }` shape the real writer surfaces, echoing the
- * POST-mutation doc the caller passed (`recordMutations`' 2nd arg is
- * `verdict.nextDoc`; the stages path takes the final stage's doc) as the
- * committed doc. That models the no-concurrent-peer-edit case: the SA continues
- * against exactly the doc its batch produced, which is what every single-surface
- * tool test asserts. (Concurrent-merge behavior — the committed doc differing
- * from the local candidate — is covered against the real writer in the
+ * prepared candidate's `nextDoc` as the committed doc. That models the
+ * no-concurrent-peer-edit case: the workspace continues against exactly the
+ * doc the batch produced, which is what every single-surface tool test
+ * asserts. (Concurrent-merge behavior — the committed doc differing from the
+ * local candidate — is covered against the real writer in the
  * `commitGuardedBatch` emulator suite and `generationContext-recordMutations`.)
  */
-export function makeStubToolContext(
-	opts: {
-		appId?: string;
-		userId?: string;
-		runId?: string;
-		conversionImpact?: ConversionImpactFn;
-	} = {},
-): StubToolContextHandles {
+export function makeToolWorkspaceHarness(
+	initialDoc: BlueprintDoc,
+	opts: MakeToolWorkspaceHarnessOptions = {},
+): ToolWorkspaceHarness {
 	const recordMutations = vi.fn(
 		async (
 			prepared: PreparedMutationCandidate,
@@ -323,25 +350,42 @@ export function makeStubToolContext(
 			committedDoc: prepared.nextDoc,
 		}),
 	);
-	const recordConversation = vi.fn();
 	const conversionImpact = vi.fn(
 		opts.conversionImpact ?? emptyConversionImpact,
 	);
-	const ctx: ToolExecutionContext = {
+	const host: CanonicalMutationHost = {
 		appId: opts.appId ?? "test-app",
 		projectId: "project-test",
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
-		recordMutations,
-		recordMutationStages,
-		recordConversation,
+		...(opts.chatRunHolder !== undefined && {
+			chatRunHolder: opts.chatRunHolder,
+		}),
+		...(opts.lookupDefinitions !== undefined && {
+			lookupDefinitions: opts.lookupDefinitions,
+		}),
+		...(opts.lookupCatalog !== undefined && {
+			lookupCatalog: opts.lookupCatalog,
+		}),
+		...(opts.reloadAuthorizedSnapshot !== undefined && {
+			reloadAuthorizedSnapshot: opts.reloadAuthorizedSnapshot,
+		}),
 		conversionImpact,
-	};
-	return {
-		ctx,
 		recordMutations,
 		recordMutationStages,
-		recordConversation,
+	};
+	const workspace = new CanonicalMutationWorkspace({ host, initialDoc });
+	return {
+		workspace,
+		host,
+		runTool: (tool, input) =>
+			workspace.invoke({
+				toolName: "test-tool",
+				execute: (ctx) => tool.execute(input as never, ctx),
+			}),
+		currentDoc: () => workspace.currentSnapshot().doc,
+		recordMutations,
+		recordMutationStages,
 		conversionImpact,
 	};
 }

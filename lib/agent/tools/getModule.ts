@@ -31,7 +31,6 @@
 import type { z } from "zod";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
-	BlueprintDoc,
 	CaseListConfig,
 	CaseSearchConfig,
 	FormIconRef,
@@ -48,7 +47,7 @@ import {
 	parseBuiltinIconSlug,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
 	moduleAddressSchema,
@@ -109,9 +108,9 @@ export const getModuleTool = {
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetModuleResult>> {
+		const doc = ctx.snapshot.doc;
 		const resolved = resolveModuleAddress(doc, input);
 		if (!resolved.ok) {
 			return {

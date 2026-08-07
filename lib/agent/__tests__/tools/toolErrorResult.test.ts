@@ -8,7 +8,6 @@
 // the id and re-call, turning one broken write into a loop.
 
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -17,8 +16,6 @@ import {
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { toToolErrorResult } from "../../tools/common";
-
-const doc = buildDoc({ modules: [] });
 
 describe("toToolErrorResult", () => {
 	it("re-throws every failure the model cannot resolve by retrying", () => {
@@ -30,19 +27,15 @@ describe("toToolErrorResult", () => {
 			new MutationBatchIdCollisionError(),
 		]) {
 			expect(
-				() => toToolErrorResult(err, doc),
+				() => toToolErrorResult(err),
 				`${err.name} must escape the tool body`,
 			).toThrow(err.constructor as ErrorConstructor);
 		}
 	});
 
 	it("turns an ordinary tool fault into an error envelope with nothing committed", () => {
-		const result = toToolErrorResult(
-			new Error("a genuine tool-body fault"),
-			doc,
-		);
+		const result = toToolErrorResult(new Error("a genuine tool-body fault"));
 		expect(result.mutations).toEqual([]);
-		expect(result.newDoc).toBe(doc);
 		expect(result.result.error).toContain("a genuine tool-body fault");
 	});
 });

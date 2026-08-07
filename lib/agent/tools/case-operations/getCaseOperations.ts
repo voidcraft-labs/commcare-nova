@@ -1,5 +1,5 @@
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { Uuid } from "@/lib/domain";
+import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import {
 	operationAddressSchema,
@@ -30,9 +30,9 @@ export const getCaseOperationsTool = {
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetCaseOperationsResult>> {
+		const doc = ctx.snapshot.doc;
 		const address = resolveOperationAddress(doc, input);
 		if (!address.ok) {
 			return { kind: "read", data: { error: address.error } };

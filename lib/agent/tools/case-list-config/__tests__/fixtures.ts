@@ -2,14 +2,14 @@
  * Shared test fixtures for the case-list-config SA tools.
  *
  * Each tool test boots a minimal `BlueprintDoc` with one case-
- * carrying module + one followup form against the fixture's
- * `GenerationContext` shim. The fixture exposes the resulting
- * `{ doc, ctx }` pair so per-test bodies focus on the tool's
- * behavior rather than test-harness wiring.
+ * carrying module + one followup form into a canonical tool
+ * workspace. The fixture exposes the resulting `{ doc, runTool, ... }`
+ * bundle so per-test bodies focus on the tool's behavior rather than
+ * test-harness wiring.
  *
- * `makeMcpFixture` produces the parallel `McpContext`-driven shape
- * for cross-surface tests that assert the same input produces the
- * same mutation batch on both surfaces.
+ * `makeCaseListMcpFixture` produces the parallel `McpContext`-hosted
+ * shape for cross-surface tests that assert the same input produces
+ * the same mutation batch on both surfaces.
  */
 
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -24,9 +24,10 @@ import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
-	makeStubToolContext,
-	type StubToolContextHandles,
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
 } from "../../../__tests__/fixtures";
+import { CanonicalMutationWorkspace } from "../../../workspace/canonicalWorkspace";
 
 /* Stable uuid constants — imported by the per-tool tests so each
  * assertion can reference the module / form by uuid against the
@@ -114,34 +115,56 @@ export function makeCaseListDoc(): BlueprintDoc {
 	};
 }
 
-/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub for
- *  the per-tool tests (its `recordMutations` echoes the passed post-mutation
- *  doc as the committed doc — no Postgres, no guarded writer). */
-export interface CaseListFixture extends StubToolContextHandles {
+/** Bundle of the starting doc + a canonical workspace over a lightweight stub
+ *  host for the per-tool tests (its `recordMutations` echoes the prepared
+ *  candidate's doc as the committed doc — no Postgres, no guarded writer). */
+export interface CaseListFixture extends ToolWorkspaceHarness {
 	doc: BlueprintDoc;
 }
 
-/** Bundle of doc + MCP `McpContext` for cross-surface assertions. */
+/** Bundle of the starting doc + a canonical workspace hosted by the MCP
+ *  `McpContext`, for cross-surface assertions. */
 export interface CaseListMcpFixture extends MakeMcpTestContextHandles {
 	doc: BlueprintDoc;
+	workspace: CanonicalMutationWorkspace;
+	runTool: ToolWorkspaceHarness["runTool"];
+	currentDoc(): BlueprintDoc;
 }
 
 /**
- * Build a `{ doc, ctx, ... }` bundle for the chat surface — the
- * common shape every per-tool test boots from.
+ * Build a `{ doc, runTool, ... }` bundle for the chat surface — the
+ * common shape every per-tool test boots from. A test that needs a
+ * different starting document passes it in, so the workspace owns the
+ * exact doc the tool will read.
  */
-export function makeCaseListFixture(): CaseListFixture {
-	const handles = makeStubToolContext();
-	return { ...handles, doc: makeCaseListDoc() };
+export function makeCaseListFixture(
+	doc: BlueprintDoc = makeCaseListDoc(),
+): CaseListFixture {
+	return { ...makeToolWorkspaceHarness(doc), doc };
 }
 
 /**
- * Build a `{ doc, ctx, ... }` bundle for the MCP surface — used in
+ * Build a `{ doc, runTool, ... }` bundle for the MCP surface — used in
  * cross-surface parity tests that assert the same input produces
  * structurally-identical mutation batches.
  */
-export function makeCaseListMcpFixture(): CaseListMcpFixture {
-	const doc = makeCaseListDoc();
+export function makeCaseListMcpFixture(
+	doc: BlueprintDoc = makeCaseListDoc(),
+): CaseListMcpFixture {
 	const handles = makeMcpTestContext({ initialDoc: doc });
-	return { ...handles, doc };
+	const workspace = new CanonicalMutationWorkspace({
+		host: handles.ctx,
+		initialDoc: doc,
+	});
+	return {
+		...handles,
+		doc,
+		workspace,
+		runTool: (tool, input) =>
+			workspace.invoke({
+				toolName: "test-tool",
+				execute: (ctx) => tool.execute(input as never, ctx),
+			}),
+		currentDoc: () => workspace.currentSnapshot().doc,
+	};
 }

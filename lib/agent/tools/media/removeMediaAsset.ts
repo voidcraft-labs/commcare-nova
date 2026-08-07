@@ -30,7 +30,6 @@ import {
 	deleteMediaAssetForActor,
 	MediaAssetStillReferencedError,
 } from "@/lib/db/mediaDeletion";
-import type { BlueprintDoc } from "@/lib/domain";
 import { mediaAssetIdSchema } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import {
@@ -38,7 +37,7 @@ import {
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import { requireToolProjectId } from "./shared";
 
@@ -63,9 +62,9 @@ export const removeMediaAssetTool = {
 	inputSchema: removeMediaAssetInputSchema,
 	async execute(
 		input: RemoveMediaAssetInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<RemoveMediaAssetResult>> {
+		const doc = ctx.snapshot.doc;
 		const assetId = input.assetId;
 
 		const projectId = await requireToolProjectId(ctx.appId);

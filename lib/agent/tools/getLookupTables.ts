@@ -1,8 +1,7 @@
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupDataType } from "@/lib/lookup/types";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 
 export const getLookupTablesInputSchema = z.object({}).strict();
@@ -32,8 +31,7 @@ export const getLookupTablesTool = {
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		_input: GetLookupTablesInput,
-		ctx: ToolExecutionContext,
-		_doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetLookupTablesResult>> {
 		if (ctx.lookupCatalog === undefined) {
 			return {

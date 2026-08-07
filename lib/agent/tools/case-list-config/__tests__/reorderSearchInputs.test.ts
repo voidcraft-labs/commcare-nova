@@ -19,7 +19,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -43,7 +43,7 @@ const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithThreeInputs(): BlueprintDoc {
-	const { doc } = makeCaseListFixture();
+	const doc = makeCaseListDoc();
 	return {
 		...doc,
 		modules: {
@@ -70,16 +70,14 @@ function fixtureWithThreeInputs(): BlueprintDoc {
 
 describe("reorderSearchInputs", () => {
 	it("reorders the search-inputs array to match the supplied uuid sequence", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputUuids: [C, A, B],
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((i) => i.uuid)).toEqual([C, A, B]);
 		expect(result.mutations.every((m) => m.kind === "moveSearchInput")).toBe(
 			true,
@@ -87,13 +85,11 @@ describe("reorderSearchInputs", () => {
 	});
 
 	it("returns the new order in the structured result", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputUuids: [C, A, B],
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -101,13 +97,11 @@ describe("reorderSearchInputs", () => {
 	});
 
 	it("returns an Elm-style error on length mismatch", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuids: [A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputUuids: [A, B],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -118,13 +112,11 @@ describe("reorderSearchInputs", () => {
 	});
 
 	it("returns an Elm-style error on duplicate uuid in the request", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuids: [A, A, B] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputUuids: [A, A, B],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -135,14 +127,12 @@ describe("reorderSearchInputs", () => {
 	});
 
 	it("returns an Elm-style error on unknown uuid in the request", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuids: [A, B, unknown] },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputUuids: [A, B, unknown],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -153,13 +143,11 @@ describe("reorderSearchInputs", () => {
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithThreeInputs();
-		const result = await reorderSearchInputsTool.execute(
-			{ moduleUuid: testUuid("unknown-module"), searchInputUuids: [A, B, C] },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithThreeInputs());
+		const result = await h.runTool(reorderSearchInputsTool, {
+			moduleUuid: testUuid("unknown-module"),
+			searchInputUuids: [A, B, C],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

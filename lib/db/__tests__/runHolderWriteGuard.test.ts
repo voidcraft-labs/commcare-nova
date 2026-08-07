@@ -46,17 +46,19 @@ function exportedFunction(relativePath: string, name: string): string {
 	return contents.slice(start, next < 0 ? contents.length : next);
 }
 
-/** Every lifecycle writer that mutates an app while a holder owns it. */
+/** Every lifecycle writer that mutates an app while a holder owns it.
+ *  `writeCommittedBatch` lives in the canonical commit kernel; the rest stay
+ *  with the run lifecycle in `apps.ts`. */
 const LIFECYCLE_APP_WRITERS = [
-	"writeCommittedBatch",
-	"completeAndSettleRun",
-	"refreshEditLease",
-	"refreshBuildLiveness",
-	"clearRunLock",
-	"clearRunLockAndSettle",
-	"failApp",
-	"recoverAppStatus",
-	"setAwaitingInput",
+	{ file: "lib/db/canonicalCommitKernel.ts", name: "writeCommittedBatch" },
+	{ file: "lib/db/apps.ts", name: "completeAndSettleRun" },
+	{ file: "lib/db/apps.ts", name: "refreshEditLease" },
+	{ file: "lib/db/apps.ts", name: "refreshBuildLiveness" },
+	{ file: "lib/db/apps.ts", name: "clearRunLock" },
+	{ file: "lib/db/apps.ts", name: "clearRunLockAndSettle" },
+	{ file: "lib/db/apps.ts", name: "failApp" },
+	{ file: "lib/db/apps.ts", name: "recoverAppStatus" },
+	{ file: "lib/db/apps.ts", name: "setAwaitingInput" },
 ] as const;
 
 /** Credit writers that settle or refund against a specific generation. */
@@ -76,7 +78,11 @@ describe("run-holder write structural guard", () => {
 			.filter((path) => appDml.test(source(path)))
 			.sort();
 
-		expect(writers).toEqual(["lib/db/apps.ts", "lib/db/credits.ts"]);
+		expect(writers).toEqual([
+			"lib/db/apps.ts",
+			"lib/db/canonicalCommitKernel.ts",
+			"lib/db/credits.ts",
+		]);
 		// Operator recovery delegates to `recoverAppStatus` rather than issuing its
 		// own DML, so its writes go through the same holder proof as everything else.
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
@@ -108,8 +114,15 @@ describe("run-holder write structural guard", () => {
 		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(18);
-		// The eighteenth site is `writeProjectMoveChange`. A bare count would let
+		).toBe(17);
+		// The canonical commit kernel owns exactly one apps DML site — the
+		// committed-batch write tail — and its holder fence is pinned by the
+		// lifecycle-writer sweep below (`writeCommittedBatch`).
+		expect(
+			source("lib/db/canonicalCommitKernel.ts").match(new RegExp(appDml, "g"))
+				?.length,
+		).toBe(1);
+		// The seventeenth apps.ts site is `writeProjectMoveChange`. A bare count would let
 		// a future writer drop its fence and still pass, so pin the fence itself:
 		// the Project move is a compare-and-set on BOTH the source Project and the
 		// prior head, and it throws rather than reporting success when either has
@@ -154,11 +167,10 @@ describe("run-holder write structural guard", () => {
 	});
 
 	it("requires exact SQL holder predicates on lifecycle and recovery app writes", () => {
-		for (const name of LIFECYCLE_APP_WRITERS) {
-			expect(
-				exportedFunction("lib/db/apps.ts", name),
-				`lib/db/apps.ts::${name}`,
-			).toContain("expectedRunHolderPredicate");
+		for (const { file, name } of LIFECYCLE_APP_WRITERS) {
+			expect(exportedFunction(file, name), `${file}::${name}`).toContain(
+				"expectedRunHolderPredicate",
+			);
 		}
 		expect(exportedFunction("lib/db/apps.ts", "reacquireLease")).toContain(
 			"expectedPausedRunResumePredicate",

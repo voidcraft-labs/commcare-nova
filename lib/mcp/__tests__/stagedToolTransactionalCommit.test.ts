@@ -3,8 +3,8 @@
  * `editField`'s "a rejected call saved nothing" hold on the MCP surface.
  *
  * `editField` builds conversion and property-update stages (when needed) and
- * commits through `guardedMutateStages`, which persists via
- * `ctx.recordMutationStages`. On MCP that MUST be one transactional
+ * commits through `guardedMutateStages`, whose workspace persists via the
+ * host's `recordMutationStages`. On MCP that MUST be one transactional
  * guarded save over the concatenated sequence: a per-stage save would run
  * an independent fresh-doc re-verdict per stage, so a contention
  * rejection mid-sequence would leave the earlier stages PERSISTED while
@@ -24,6 +24,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -112,6 +113,20 @@ function makeMcpCtx() {
 	};
 }
 
+/** Drive the real tool through a per-call canonical workspace over the real
+ *  McpContext host — the exact composition the MCP adapter uses. */
+function invokeEditField(ctx: McpContext, doc: BlueprintDoc, input: unknown) {
+	const workspace = new CanonicalMutationWorkspace({
+		host: ctx,
+		initialDoc: doc,
+	});
+	return workspace.invoke({
+		toolName: "edit_field",
+		execute: (invocationCtx) =>
+			editFieldTool.execute(input as never, invocationCtx),
+	});
+}
+
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
 	vi.mocked(applyBlueprintChange).mockResolvedValue({
@@ -131,20 +146,16 @@ describe("editField through McpContext — one transactional save per edit", () 
 		);
 		if (fieldUuid === undefined) throw new Error("village fixture is missing");
 
-		const out = await editFieldTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				fieldUuid,
-				updates: {
-					kind: "text",
-					id: "village_name",
-					label: proseText("Home village"),
-				} as never,
+		const out = await invokeEditField(ctx, doc, {
+			moduleUuid,
+			formUuid,
+			fieldUuid,
+			updates: {
+				kind: "text",
+				id: "village_name",
+				label: proseText("Home village"),
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		expect("message" in out.result).toBe(true);
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
@@ -195,20 +206,16 @@ describe("editField through McpContext — one transactional save per edit", () 
 		// `toMcpErrorResult` maps it to the `invalid_input` wire envelope. Either
 		// way the RAW tool `execute` propagates it here.
 		await expect(
-			editFieldTool.execute(
-				{
-					moduleUuid,
-					formUuid,
-					fieldUuid,
-					updates: {
-						kind: "text",
-						id: "village_name",
-						label: proseText("Home village"),
-					} as never,
+			invokeEditField(ctx, doc, {
+				moduleUuid,
+				formUuid,
+				fieldUuid,
+				updates: {
+					kind: "text",
+					id: "village_name",
+					label: proseText("Home village"),
 				},
-				ctx,
-				doc,
-			),
+			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
 		// "Nothing was saved" is structurally true: the ONE transactional save

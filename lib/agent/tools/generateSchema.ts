@@ -34,14 +34,14 @@
  * the app (declare it here, then create its module).
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface.
+ * shared `ToolInvocationContext` interface.
  */
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 import { caseTypesOutputSchema, cleanCaseTypeRecord } from "../planningSchemas";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -69,9 +69,9 @@ export const generateSchemaTool = {
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<GenerateSchemaResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			// One entry per type name WITHIN the call — two entries for the same
 			// name would otherwise silently merge (declare no-ops, properties
@@ -87,7 +87,6 @@ export const generateSchemaTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Nothing was recorded — the call lists ${[...dupInInput]
 							.map((d) => `"${d}"`)
@@ -130,7 +129,6 @@ export const generateSchemaTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Nothing was recorded — the app already carries an authored record for ${authored
 							.map((d) => `"${d}"`)
@@ -175,12 +173,11 @@ export const generateSchemaTool = {
 				}
 			}
 
-			const commit = await guardedMutate(ctx, doc, mutations, "schema");
+			const commit = await guardedMutate(ctx, mutations, "schema");
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -197,14 +194,13 @@ export const generateSchemaTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""} createModule now references these by name; fields writing a recorded property inherit its label, options, and validation.`,
 					summary,
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

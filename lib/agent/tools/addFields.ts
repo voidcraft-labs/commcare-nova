@@ -16,7 +16,7 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Five legal exit branches
+ * shared `ToolInvocationContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. UUID address miss or parent-membership mismatch → `{ error }`, no
@@ -36,9 +36,9 @@
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import { asUuid, uuidSchema } from "@/lib/domain";
 import { addFieldsItemSchema } from "../toolSchemas";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -105,8 +105,7 @@ export const addFieldsTool = {
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddFieldsResult>> {
 		const {
 			moduleUuid,
@@ -116,13 +115,13 @@ export const addFieldsTool = {
 			afterFieldUuid,
 			beforeFieldUuid,
 		} = input;
+		const doc = ctx.snapshot.doc;
 		try {
 			const resolved = resolveFormAddress(doc, { moduleUuid, formUuid });
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: resolved.error,
 					},
@@ -160,7 +159,6 @@ export const addFieldsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: describeRejectedFieldIds(
 							form.name,
@@ -176,17 +174,11 @@ export const addFieldsTool = {
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
 			// establishes the cumulative Build milestone on the chat client.
-			const commit = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				`form:${formUuid}`,
-			);
+			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -213,7 +205,6 @@ export const addFieldsTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
 					fields: created,
@@ -228,7 +219,7 @@ export const addFieldsTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

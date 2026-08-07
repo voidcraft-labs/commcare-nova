@@ -3,9 +3,9 @@
  *
  * Phase D's thesis is that every shared tool under `lib/agent/tools/`
  * produces identical mutation batches when driven through either
- * surface's `ToolExecutionContext` implementation — `GenerationContext`
+ * surface's `CanonicalMutationHost` implementation — `GenerationContext`
  * for the chat route, `McpContext` for the MCP adapter. If the two
- * contexts ever diverged on how the tool's mutations are computed,
+ * hosts ever diverged on how the tool's mutations are computed,
  * replay + downstream persistence would drift. This file locks that
  * invariant in against one representative tool (`addFieldsTool`); Phase
  * E will add per-adapter coverage.
@@ -37,14 +37,15 @@ import type {
 } from "@/lib/domain";
 import { formExpressionSource, isConnectLearnConfig } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { addFieldsTool } from "../../tools/addFields";
-import { updateFormTool } from "../../tools/updateForm";
-import { makeMcpTestContext, makeStubToolContext } from "../fixtures";
+import { type AddFieldsInput, addFieldsTool } from "../../tools/addFields";
+import { type UpdateFormInput, updateFormTool } from "../../tools/updateForm";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
+import { makeMcpTestContext, makeToolWorkspaceHarness } from "../fixtures";
 
 /* Mock the apps module so importing it doesn't reach Postgres.
  * `completeApp` is stubbed for the SA's success-path status flip; the chat
- * ctx here is a `makeStubToolContext`, so its guarded commit never touches
- * this module. */
+ * workspace here is a `makeToolWorkspaceHarness`, so its guarded commit never
+ * touches this module. */
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
@@ -188,7 +189,7 @@ const ADD_FIELDS_INPUT = {
 			label: proseText("Date of birth"),
 		},
 	],
-};
+} satisfies AddFieldsInput;
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -206,19 +207,18 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		 * surface-specific code path. */
 		const doc = makeFixtureDoc();
 
-		const { ctx: chatCtx } = makeStubToolContext();
-		const chatResult = await addFieldsTool.execute(
-			ADD_FIELDS_INPUT,
-			chatCtx,
-			doc,
-		);
+		const chat = makeToolWorkspaceHarness(doc);
+		const chatResult = await chat.runTool(addFieldsTool, ADD_FIELDS_INPUT);
 
 		const { ctx: mcpCtx } = makeMcpTestContext({ initialDoc: doc });
-		const mcpResult = await addFieldsTool.execute(
-			ADD_FIELDS_INPUT,
-			mcpCtx,
-			doc,
-		);
+		const mcpWorkspace = new CanonicalMutationWorkspace({
+			host: mcpCtx,
+			initialDoc: doc,
+		});
+		const mcpResult = await mcpWorkspace.invoke({
+			toolName: "addFields",
+			execute: (ctx) => addFieldsTool.execute(ADD_FIELDS_INPUT, ctx),
+		});
 
 		/* Strip the minted field uuid — it's a fresh `crypto.randomUUID()`
 		 * per call, so two sequential calls won't match byte-for-byte on
@@ -255,44 +255,40 @@ describe("addFields add-path pipeline", () => {
 			testUuid("add-receipt-open"),
 			testUuid("add-receipt-done"),
 		];
-		const { ctx } = makeStubToolContext();
-		const out = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				fields: [
-					{
-						fieldUuid: fieldUuids[0],
-						id: "notes",
-						kind: "text",
-						label: proseText("Notes"),
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fields: [
+				{
+					fieldUuid: fieldUuids[0],
+					id: "notes",
+					kind: "text",
+					label: proseText("Notes"),
+				},
+				{
+					fieldUuid: fieldUuids[1],
+					id: "status",
+					kind: "single_select",
+					label: proseText("Status"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: optionUuids[0],
+								value: "open",
+								label: proseText("Open"),
+							},
+							{
+								optionUuid: optionUuids[1],
+								value: "done",
+								label: proseText("Done"),
+							},
+						],
 					},
-					{
-						fieldUuid: fieldUuids[1],
-						id: "status",
-						kind: "single_select",
-						label: proseText("Status"),
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{
-									optionUuid: optionUuids[0],
-									value: "open",
-									label: proseText("Open"),
-								},
-								{
-									optionUuid: optionUuids[1],
-									value: "done",
-									label: proseText("Done"),
-								},
-							],
-						},
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+				},
+			],
+		} satisfies AddFieldsInput);
 		if (!("fields" in out.result)) {
 			throw new Error(`expected success: ${JSON.stringify(out.result)}`);
 		}
@@ -324,25 +320,21 @@ describe("addFields add-path pipeline", () => {
 				{ value: "done", label: proseText("Done") },
 			],
 		});
-		const { ctx } = makeStubToolContext();
-		const out = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				fields: [
-					{
-						id: "consent_level",
-						kind: "single_select",
-						caseWrite: {
-							caseType: "patient",
-							property: "consent_level",
-						},
+		const h = makeToolWorkspaceHarness(doc);
+		const out = await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fields: [
+				{
+					id: "consent_level",
+					kind: "single_select",
+					caseWrite: {
+						caseType: "patient",
+						property: "consent_level",
 					},
-				],
-			},
-			ctx,
-			doc,
-		);
+				},
+			],
+		} satisfies AddFieldsInput);
 		if (!("fields" in out.result)) {
 			throw new Error(`expected success: ${JSON.stringify(out.result)}`);
 		}
@@ -351,7 +343,7 @@ describe("addFields add-path pipeline", () => {
 			"open",
 			"done",
 		]);
-		const stored = out.newDoc.fields[receipt?.uuid ?? ""];
+		const stored = h.currentDoc().fields[receipt?.uuid ?? ""];
 		expect(
 			stored &&
 				"optionsSource" in stored &&
@@ -367,36 +359,29 @@ describe("addFields add-path pipeline", () => {
 		 * the anchor's index. Seed three fields, then insert two before the
 		 * middle one and assert the resulting order. */
 		const doc = makeFixtureDoc();
-		const seedCtx = makeStubToolContext().ctx;
-		const { newDoc: seeded } = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				fields: [
-					{ id: "first", kind: "text", label: proseText("First") },
-					{ id: "middle", kind: "text", label: proseText("Middle") },
-					{ id: "last", kind: "text", label: proseText("Last") },
-				],
-			},
-			seedCtx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fields: [
+				{ id: "first", kind: "text", label: proseText("First") },
+				{ id: "middle", kind: "text", label: proseText("Middle") },
+				{ id: "last", kind: "text", label: proseText("Last") },
+			],
+		} satisfies AddFieldsInput);
+		const seeded = h.currentDoc();
 
-		const ctx = makeStubToolContext().ctx;
-		const { newDoc: final } = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				beforeFieldUuid: fieldUuid(seeded, "middle"),
-				fields: [
-					{ id: "ins_a", kind: "text", label: proseText("A") },
-					{ id: "ins_b", kind: "text", label: proseText("B") },
-				],
-			},
-			ctx,
-			seeded,
-		);
+		await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			beforeFieldUuid: fieldUuid(seeded, "middle"),
+			fields: [
+				{ id: "ins_a", kind: "text", label: proseText("A") },
+				{ id: "ins_b", kind: "text", label: proseText("B") },
+			],
+		} satisfies AddFieldsInput);
 
+		const final = h.currentDoc();
 		const formUuid = final.formOrder[MOD_A][0];
 		const order = (final.fieldOrder[formUuid] ?? []).map(
 			(u) => final.fields[u]?.id,
@@ -419,20 +404,15 @@ describe("addFields add-path pipeline", () => {
 		const doc = makeFixtureDoc();
 
 		// Seed two groups to nest under.
-		const seedCtx = makeStubToolContext().ctx;
-		const { newDoc: docWithGroups, mutations: groupMuts } =
-			await addFieldsTool.execute(
-				{
-					moduleUuid: MOD_A,
-					formUuid: FORM_A,
-					fields: [
-						{ id: "vitals", kind: "group", label: proseText("Vitals") },
-						{ id: "history", kind: "group", label: proseText("History") },
-					],
-				},
-				seedCtx,
-				doc,
-			);
+		const h = makeToolWorkspaceHarness(doc);
+		const { mutations: groupMuts } = await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fields: [
+				{ id: "vitals", kind: "group", label: proseText("Vitals") },
+				{ id: "history", kind: "group", label: proseText("History") },
+			],
+		} satisfies AddFieldsInput);
 		const groupUuid = (id: string): Uuid => {
 			const m = groupMuts.find(
 				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
@@ -442,27 +422,22 @@ describe("addFields add-path pipeline", () => {
 			return m.field.uuid;
 		};
 
-		const ctx = makeStubToolContext().ctx;
-		const { mutations } = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				parentUuid: groupUuid("vitals"), // batch default parent
-				fields: [
-					// No own parentUuid → inherits the batch default ("vitals").
-					{ id: "height", kind: "decimal", label: proseText("Height") },
-					// Own parentUuid → overrides the batch default ("history").
-					{
-						id: "weight",
-						kind: "decimal",
-						label: proseText("Weight"),
-						parentUuid: groupUuid("history"),
-					},
-				],
-			},
-			ctx,
-			docWithGroups,
-		);
+		const { mutations } = await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			parentUuid: groupUuid("vitals"), // batch default parent
+			fields: [
+				// No own parentUuid → inherits the batch default ("vitals").
+				{ id: "height", kind: "decimal", label: proseText("Height") },
+				// Own parentUuid → overrides the batch default ("history").
+				{
+					id: "weight",
+					kind: "decimal",
+					label: proseText("Weight"),
+					parentUuid: groupUuid("history"),
+				},
+			],
+		} satisfies AddFieldsInput);
 
 		const addedUnder = (id: string): string | undefined =>
 			mutations.find(
@@ -476,32 +451,20 @@ describe("addFields add-path pipeline", () => {
 
 	it("rejects a parentUuid naming a leaf", async () => {
 		const doc = makeFixtureDoc();
-		const seedCtx = makeStubToolContext().ctx;
-		const { newDoc: seeded } = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				fields: [
-					{ id: "patient_name", kind: "text", label: proseText("Name") },
-				],
-			},
-			seedCtx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fields: [{ id: "patient_name", kind: "text", label: proseText("Name") }],
+		} satisfies AddFieldsInput);
+		const seeded = h.currentDoc();
 
-		const ctx = makeStubToolContext().ctx;
-		const result = await addFieldsTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				parentUuid: fieldUuid(seeded, "patient_name"), // a leaf field — not a valid parent
-				fields: [
-					{ id: "dob", kind: "date", label: proseText("Date of birth") },
-				],
-			},
-			ctx,
-			seeded,
-		);
+		const result = await h.runTool(addFieldsTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			parentUuid: fieldUuid(seeded, "patient_name"), // a leaf field — not a valid parent
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
+		} satisfies AddFieldsInput);
 
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toHaveProperty("error");
@@ -518,20 +481,16 @@ describe("updateFormTool partial connect-config updates", () => {
 		 * treated as "clear" — wiping the pre-existing sub-config. The
 		 * fix only writes keys the SA explicitly provided. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					// Touch only `assessment` — `learn_module` must survive.
-					assessment: { user_score: xp("100") },
-				},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				// Touch only `assessment` — `learn_module` must survive.
+				assessment: { user_score: xp("100") },
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.mutations).toHaveLength(1);
 		const mut = result.mutations[0];
@@ -550,14 +509,11 @@ describe("updateFormTool partial connect-config updates", () => {
 			time_estimate: 20,
 		});
 		expect(learnConnect.assessment?.id).toBe("patient_enroll_quiz");
-		const patchedForm = result.newDoc.forms[FORM_A];
+		const patchedDoc = h.currentDoc();
+		const patchedForm = patchedDoc.forms[FORM_A];
 		expect(
 			patchedForm &&
-				formExpressionSource(
-					patchedForm,
-					"assessment_user_score",
-					result.newDoc,
-				),
+				formExpressionSource(patchedForm, "assessment_user_score", patchedDoc),
 		).toBe("100");
 	});
 
@@ -566,23 +522,19 @@ describe("updateFormTool partial connect-config updates", () => {
 		 * independently. Running both directions catches asymmetric
 		 * regressions where only one half of the fix was applied. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					learn_module: {
-						name: "Patient Module v2",
-						description: "Updated copy",
-						time_estimate: 30,
-					},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				learn_module: {
+					name: "Patient Module v2",
+					description: "Updated copy",
+					time_estimate: 30,
 				},
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.mutations).toHaveLength(1);
 		const mut = result.mutations[0];
@@ -592,14 +544,11 @@ describe("updateFormTool partial connect-config updates", () => {
 		const patchConnect = mut.patch.connect;
 		const learnConnect = requireLearnConnect(patchConnect);
 		expect(learnConnect.assessment?.id).toBe("patient_enroll_quiz");
-		const patchedForm = result.newDoc.forms[FORM_A];
+		const patchedDoc = h.currentDoc();
+		const patchedForm = patchedDoc.forms[FORM_A];
 		expect(
 			patchedForm &&
-				formExpressionSource(
-					patchedForm,
-					"assessment_user_score",
-					result.newDoc,
-				),
+				formExpressionSource(patchedForm, "assessment_user_score", patchedDoc),
 		).toBe("100");
 		/* Merge semantics: the spread keeps pre-existing `id` from the
 		 * existing learn_module plus the new name/description/time
@@ -622,24 +571,20 @@ describe("updateFormTool connect-id validity", () => {
 		 * NOTHING — never silently sanitize. The SA gets one diagnostic and
 		 * re-issues. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					learn_module: {
-						id: "bad id",
-						name: "M",
-						description: "x",
-						time_estimate: 5,
-					},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				learn_module: {
+					id: "bad id",
+					name: "M",
+					description: "x",
+					time_estimate: 5,
 				},
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toHaveProperty("error");
@@ -648,18 +593,14 @@ describe("updateFormTool connect-id validity", () => {
 
 	it("fails the call when an explicit connect id is over the length limit", async () => {
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeStubToolContext();
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					assessment: { id: "a".repeat(60), user_score: xp("100") },
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				assessment: { id: "a".repeat(60), user_score: xp("100") },
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toHaveProperty("error");
 	});
@@ -671,19 +612,15 @@ describe("updateFormTool connect-id validity", () => {
 		 * duplicate rejects independently of block order → `{ error }`, zero
 		 * mutations, nothing written. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeStubToolContext();
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				// learn_module already has id "patient_module" on this form.
-				connect: {
-					assessment: { id: "patient_module", user_score: xp("100") },
-				},
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			// learn_module already has id "patient_module" on this form.
+			connect: {
+				assessment: { id: "patient_module", user_score: xp("100") },
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toHaveProperty("error");
 		expect((result.result as { error: string }).error).toContain(
@@ -700,16 +637,12 @@ describe("updateFormTool connect-id validity", () => {
 				[FORM_A]: { ...base.forms[FORM_A], connect: undefined } as Form,
 			},
 		};
-		const { ctx } = makeStubToolContext();
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: { deliver_unit: { name: "Vendor visit" } },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: { deliver_unit: { name: "Vendor visit" } },
+		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toEqual({
 			error: expect.stringContaining("configureConnect/configure_connect"),
@@ -751,22 +684,18 @@ describe("updateFormTool deliver_unit", () => {
 		 * the agent layer would produce `<bind … calculate=""/>` which CCHQ
 		 * rejects). */
 		const doc = makeDeliverParticipantDoc();
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					deliver_unit: { name: "Vendor visit" },
-				},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				deliver_unit: { name: "Vendor visit" },
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.mutations).toHaveLength(1);
-		const finalForm = result.newDoc.forms[FORM_A];
+		const finalForm = h.currentDoc().forms[FORM_A];
 		expect(requireDeliverConnect(finalForm?.connect).deliver_unit).toEqual({
 			id: "patient",
 			name: "Vendor visit",
@@ -798,22 +727,19 @@ describe("updateFormTool deliver_unit", () => {
 				} as Form,
 			},
 		};
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(seeded);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					deliver_unit: { name: "Vendor visit (updated)" },
-				},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				deliver_unit: { name: "Vendor visit (updated)" },
 			},
-			ctx,
-			seeded,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.result).not.toHaveProperty("error");
-		const finalForm = result.newDoc.forms[FORM_A];
+		const finalDoc = h.currentDoc();
+		const finalForm = finalDoc.forms[FORM_A];
 		expect(
 			requireDeliverConnect(finalForm?.connect).deliver_unit,
 		).toMatchObject({
@@ -822,11 +748,11 @@ describe("updateFormTool deliver_unit", () => {
 		});
 		expect(
 			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
 		).toBe("concat('vendor-', uuid())");
 		expect(
 			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
+				formExpressionSource(finalForm, "deliver_entity_name", finalDoc),
 		).toBe("'Vendor'");
 	});
 
@@ -849,26 +775,23 @@ describe("updateFormTool deliver_unit", () => {
 				} as Form,
 			},
 		};
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					deliver_unit: {
-						name: "Beneficiary visit",
-						entity_id: xpIn(doc, FORM_A, "#form/case_name"),
-						entity_name: xpIn(doc, FORM_A, "#form/case_name"),
-					},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				deliver_unit: {
+					name: "Beneficiary visit",
+					entity_id: xpIn(doc, FORM_A, "#form/case_name"),
+					entity_name: xpIn(doc, FORM_A, "#form/case_name"),
 				},
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.result).not.toHaveProperty("error");
-		const finalForm = result.newDoc.forms[FORM_A];
+		const finalDoc = h.currentDoc();
+		const finalForm = finalDoc.forms[FORM_A];
 		expect(
 			requireDeliverConnect(finalForm?.connect).deliver_unit,
 		).toMatchObject({
@@ -877,11 +800,11 @@ describe("updateFormTool deliver_unit", () => {
 		});
 		expect(
 			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
 		).toBe("#form/case_name");
 		expect(
 			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
+				formExpressionSource(finalForm, "deliver_entity_name", finalDoc),
 		).toBe("#form/case_name");
 	});
 
@@ -891,25 +814,22 @@ describe("updateFormTool deliver_unit", () => {
 		 * independently optional; setting one doesn't force the
 		 * other. */
 		const doc = makeDeliverParticipantDoc();
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const result = await updateFormTool.execute(
-			{
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				connect: {
-					deliver_unit: {
-						name: "Site visit",
-						entity_id: xpIn(doc, FORM_A, "#form/case_name"),
-					},
+		const result = await h.runTool(updateFormTool, {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			connect: {
+				deliver_unit: {
+					name: "Site visit",
+					entity_id: xpIn(doc, FORM_A, "#form/case_name"),
 				},
 			},
-			ctx,
-			doc,
-		);
+		} satisfies UpdateFormInput);
 
 		expect(result.result).not.toHaveProperty("error");
-		const finalForm = result.newDoc.forms[FORM_A];
+		const finalDoc = h.currentDoc();
+		const finalForm = finalDoc.forms[FORM_A];
 		expect(
 			requireDeliverConnect(finalForm?.connect).deliver_unit,
 		).toMatchObject({
@@ -918,7 +838,7 @@ describe("updateFormTool deliver_unit", () => {
 		});
 		expect(
 			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
 		).toBe("#form/case_name");
 		expect(
 			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_name,

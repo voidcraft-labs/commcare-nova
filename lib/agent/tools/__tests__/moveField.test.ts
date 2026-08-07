@@ -21,8 +21,9 @@ import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
-import { makeStubToolContext } from "../../__tests__/fixtures";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
+import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import { applyToDoc } from "../common";
 import { moveFieldTool } from "../moveField";
 
@@ -111,17 +112,14 @@ beforeEach(() => {
 describe("moveField — anchored placement", () => {
 	it("reorders within the same parent (afterFieldUuid)", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "bravo"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "bravo"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, formUuidOf(result.newDoc))).toEqual([
+		const newDoc = h.currentDoc();
+		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"bravo",
 			"alpha",
 			"charlie",
@@ -132,18 +130,15 @@ describe("moveField — anchored placement", () => {
 
 	it("reorders within the same parent (beforeFieldUuid wins over afterFieldUuid)", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "charlie"),
-				beforeFieldUuid: uuidOf(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "bravo"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "charlie"),
+			beforeFieldUuid: uuidOf(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "bravo"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, formUuidOf(result.newDoc))).toEqual([
+		const newDoc = h.currentDoc();
+		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"charlie",
 			"alpha",
 			"bravo",
@@ -153,23 +148,16 @@ describe("moveField — anchored placement", () => {
 
 	it("derives the destination parent from the anchor — a top-level field lands inside the group", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "golf_one"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "golf_one"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		const newDoc = h.currentDoc();
 		const grp = uuidOf(doc, "grp");
-		expect(idsUnder(result.newDoc, grp)).toEqual([
-			"golf_one",
-			"alpha",
-			"golf_two",
-		]);
-		expect(idsUnder(result.newDoc, formUuidOf(result.newDoc))).toEqual([
+		expect(idsUnder(newDoc, grp)).toEqual(["golf_one", "alpha", "golf_two"]);
+		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"bravo",
 			"charlie",
 			"grp",
@@ -178,17 +166,14 @@ describe("moveField — anchored placement", () => {
 
 	it("accepts UUIDs for the moved field and the anchor", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				beforeFieldUuid: uuidOf(doc, "charlie"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			beforeFieldUuid: uuidOf(doc, "charlie"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, formUuidOf(result.newDoc))).toEqual([
+		const newDoc = h.currentDoc();
+		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"bravo",
 			"alpha",
 			"charlie",
@@ -200,17 +185,13 @@ describe("moveField — anchored placement", () => {
 describe("moveField — parentUuid placement", () => {
 	it("appends into a group when parentUuid names one and no anchor is given", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				parentUuid: uuidOf(doc, "grp"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			parentUuid: uuidOf(doc, "grp"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, uuidOf(doc, "grp"))).toEqual([
+		expect(idsUnder(h.currentDoc(), uuidOf(doc, "grp"))).toEqual([
 			"golf_one",
 			"golf_two",
 			"alpha",
@@ -220,21 +201,21 @@ describe("moveField — parentUuid placement", () => {
 
 	it("moves a nested field to the form's top level on parentUuid: null", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{ ...fieldAddress(doc, "golf_one"), parentUuid: null },
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "golf_one"),
+			parentUuid: null,
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, formUuidOf(result.newDoc))).toEqual([
+		const newDoc = h.currentDoc();
+		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"alpha",
 			"bravo",
 			"charlie",
 			"grp",
 			"golf_one",
 		]);
-		expect(idsUnder(result.newDoc, uuidOf(doc, "grp"))).toEqual(["golf_two"]);
+		expect(idsUnder(newDoc, uuidOf(doc, "grp"))).toEqual(["golf_two"]);
 	});
 
 	it("refuses a cross-parent collision instead of silently renaming identity text", async () => {
@@ -272,7 +253,7 @@ describe("moveField — parentUuid placement", () => {
 				},
 			],
 		});
-		const { ctx } = makeStubToolContext();
+		const h = makeToolWorkspaceHarness(twinDoc);
 		const nested = Object.values(twinDoc.fields).find(
 			(fld) =>
 				fld.id === "dup" &&
@@ -281,33 +262,25 @@ describe("moveField — parentUuid placement", () => {
 				proseTemplateText(fld.label) === "Nested dup",
 		);
 		if (!nested) throw new Error("fixture field missing");
-		const result = await moveFieldTool.execute(
-			{
-				moduleUuid: twinDoc.moduleOrder[0],
-				formUuid: formUuidOf(twinDoc),
-				fieldUuid: nested.uuid,
-				parentUuid: null,
-			},
-			ctx,
-			twinDoc,
-		);
+		const result = await h.runTool(moveFieldTool, {
+			moduleUuid: twinDoc.moduleOrder[0],
+			formUuid: formUuidOf(twinDoc),
+			fieldUuid: nested.uuid,
+			parentUuid: null,
+		});
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("same ID");
 		expect(result.result.error).toContain("Rename this field explicitly");
-		expect(result.newDoc).toBe(twinDoc);
+		expect(h.currentDoc()).toBe(twinDoc);
 	});
 });
 
 describe("moveField — refusals", () => {
 	it("refuses a call that names no placement", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			fieldAddress(doc, "alpha"),
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, fieldAddress(doc, "alpha"));
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("Nothing says where");
@@ -315,15 +288,11 @@ describe("moveField — refusals", () => {
 
 	it("refuses anchoring a field to itself", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "alpha"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "alpha"),
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("can't anchor to itself");
 	});
@@ -338,74 +307,67 @@ describe("moveField — refusals", () => {
 		const peerDoc = applyToDoc(doc, [
 			{ kind: "removeField", uuid: uuidOf(doc, "alpha") },
 		]);
-		const ctx = {
+		const host = {
 			appId: "test-app",
+			projectId: "project-test",
 			userId: "user-1",
 			runId: "run-1",
+			conversionImpact: vi.fn(),
 			recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
 				events: [],
 				committedDoc: applyToDoc(peerDoc, prepared.mutations),
 			})),
 			recordMutationStages: vi.fn(),
-			recordConversation: vi.fn(),
-		} as unknown as ToolExecutionContext;
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "bravo"),
-			},
-			ctx,
-			doc,
-		);
+		} as unknown as CanonicalMutationHost;
+		const workspace = new CanonicalMutationWorkspace({ host, initialDoc: doc });
+		const result = await workspace.invoke({
+			toolName: "move_field",
+			execute: (ctx) =>
+				moveFieldTool.execute(
+					{
+						...fieldAddress(doc, "alpha"),
+						afterFieldUuid: uuidOf(doc, "bravo"),
+					},
+					ctx,
+				),
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("didn't land");
 	});
 
 	it("refuses moving a container into its own subtree", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "grp"),
-				afterFieldUuid: uuidOf(doc, "golf_one"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "grp"),
+			afterFieldUuid: uuidOf(doc, "golf_one"),
+		});
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("own subtree");
 		// Nothing changed — no false success over a reducer skip.
-		expect(result.newDoc).toBe(doc);
+		expect(h.currentDoc()).toBe(doc);
 	});
 
 	it("refuses a parentUuid naming a non-container, pointing at the anchor style", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				parentUuid: uuidOf(doc, "bravo"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			parentUuid: uuidOf(doc, "bravo"),
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("not a group or repeat");
 	});
 
 	it("refuses a parentUuid that contradicts the anchor's parent", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "bravo"),
-				parentUuid: uuidOf(doc, "grp"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "bravo"),
+			parentUuid: uuidOf(doc, "grp"),
+		});
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain(
 			'Anchor "bravo" sits at the form\'s top level',
@@ -414,18 +376,14 @@ describe("moveField — refusals", () => {
 
 	it("accepts a parentUuid that agrees with the anchor's parent", async () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await moveFieldTool.execute(
-			{
-				...fieldAddress(doc, "alpha"),
-				afterFieldUuid: uuidOf(doc, "golf_one"),
-				parentUuid: uuidOf(doc, "grp"),
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "golf_one"),
+			parentUuid: uuidOf(doc, "grp"),
+		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(idsUnder(result.newDoc, uuidOf(doc, "grp"))).toEqual([
+		expect(idsUnder(h.currentDoc(), uuidOf(doc, "grp"))).toEqual([
 			"golf_one",
 			"alpha",
 			"golf_two",

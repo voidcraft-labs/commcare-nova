@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { makeStubToolContext } from "../../__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -107,24 +107,18 @@ beforeEach(() => {
 describe("editField — conversion consent", () => {
 	it("a failable flip with saved data at stake returns needsConfirmation and persists nothing", async () => {
 		const doc = makeCaseBoundDoc();
-		const { ctx, recordMutationStages, conversionImpact } = makeStubToolContext(
-			{
-				conversionImpact: async () => ({
-					totalWithValue: 12,
-					uncastable: 3,
-					alreadyHeld: 1,
-					samples: ["17.5", "n/a", "3.25"],
-				}),
-			},
-		);
-		const result = await editFieldTool.execute(
-			{
-				...addressFor(doc, "score"),
-				updates: { kind: "int" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc, {
+			conversionImpact: async () => ({
+				totalWithValue: 12,
+				uncastable: 3,
+				alreadyHeld: 1,
+				samples: ["17.5", "n/a", "3.25"],
+			}),
+		});
+		const result = await h.runTool(editFieldTool, {
+			...addressFor(doc, "score"),
+			updates: { kind: "int" },
+		});
 		if (!("needsConfirmation" in result.result)) {
 			throw new Error(
 				`expected needsConfirmation, got ${JSON.stringify(result.result)}`,
@@ -145,87 +139,72 @@ describe("editField — conversion consent", () => {
 		expect(result.result.message).toContain("held out of the running app");
 		expect(result.result.message).toContain("confirmConversion: true");
 
-		expect(conversionImpact).toHaveBeenCalledExactlyOnceWith({
+		expect(h.conversionImpact).toHaveBeenCalledExactlyOnceWith({
 			caseType: "patient",
 			property: "score",
 			toType: "int",
 		});
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 		expect(result.mutations).toEqual([]);
-		expect(result.newDoc).toBe(doc);
+		expect(h.currentDoc()).toBe(doc);
 	});
 
 	it("the same call with confirmConversion: true converts without re-counting", async () => {
 		const doc = makeCaseBoundDoc();
-		const { ctx, recordMutationStages, conversionImpact } = makeStubToolContext(
-			{
-				conversionImpact: async () => ({
-					totalWithValue: 12,
-					uncastable: 3,
-					alreadyHeld: 0,
-					samples: ["17.5"],
-				}),
-			},
-		);
-		const result = await editFieldTool.execute(
-			{
-				...addressFor(doc, "score"),
-				updates: { kind: "int" },
-				confirmConversion: true,
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc, {
+			conversionImpact: async () => ({
+				totalWithValue: 12,
+				uncastable: 3,
+				alreadyHeld: 0,
+				samples: ["17.5"],
+			}),
+		});
+		const result = await h.runTool(editFieldTool, {
+			...addressFor(doc, "score"),
+			updates: { kind: "int" },
+			confirmConversion: true,
+		});
 		if ("error" in result.result || "needsConfirmation" in result.result) {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
-		expect(conversionImpact).not.toHaveBeenCalled();
-		expect(recordMutationStages).toHaveBeenCalledTimes(1);
-		const after = result.newDoc.fields[soleField(doc, "score").uuid];
+		expect(h.conversionImpact).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+		const after = h.currentDoc().fields[soleField(doc, "score").uuid];
 		expect(after?.kind).toBe("int");
 	});
 
 	it("a failable flip whose counted impact is empty proceeds without a confirmation round", async () => {
 		const doc = makeCaseBoundDoc();
-		const { ctx, recordMutationStages, conversionImpact } =
-			makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...addressFor(doc, "score"),
-				updates: { kind: "int" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...addressFor(doc, "score"),
+			updates: { kind: "int" },
+		});
 		if ("error" in result.result || "needsConfirmation" in result.result) {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
-		expect(conversionImpact).toHaveBeenCalledTimes(1);
-		expect(recordMutationStages).toHaveBeenCalledTimes(1);
-		const after = result.newDoc.fields[soleField(doc, "score").uuid];
+		expect(h.conversionImpact).toHaveBeenCalledTimes(1);
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+		const after = h.currentDoc().fields[soleField(doc, "score").uuid];
 		expect(after?.kind).toBe("int");
 	});
 
 	it("a total flip never consults the impact lookup", async () => {
 		const doc = makeCaseBoundDoc();
-		const { ctx, conversionImpact } = makeStubToolContext({
+		const h = makeToolWorkspaceHarness(doc, {
 			conversionImpact: async () => {
 				throw new Error("a total flip must not count impact");
 			},
 		});
 		// date → datetime extends to midnight — total, no consent.
-		const result = await editFieldTool.execute(
-			{
-				...addressFor(doc, "visit_on"),
-				updates: { kind: "datetime" },
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(editFieldTool, {
+			...addressFor(doc, "visit_on"),
+			updates: { kind: "datetime" },
+		});
 		if ("error" in result.result || "needsConfirmation" in result.result) {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
-		expect(conversionImpact).not.toHaveBeenCalled();
+		expect(h.conversionImpact).not.toHaveBeenCalled();
 	});
 
 	it("a non-case-bound conversion never consults the impact lookup", async () => {
@@ -245,18 +224,14 @@ describe("editField — conversion consent", () => {
 				},
 			],
 		});
-		const { ctx, conversionImpact } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				...addressFor(doc, "score"),
-				updates: { kind: "int" },
-			},
-			ctx,
-			doc,
-		);
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...addressFor(doc, "score"),
+			updates: { kind: "int" },
+		});
 		if ("error" in result.result || "needsConfirmation" in result.result) {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
-		expect(conversionImpact).not.toHaveBeenCalled();
+		expect(h.conversionImpact).not.toHaveBeenCalled();
 	});
 });

@@ -13,42 +13,11 @@
  *     naming the references, with nothing persisted.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
-import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import { proseText } from "@/lib/domain/prose";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { removeModuleTool } from "../removeModule";
-
-function makeCtx() {
-	// The guarded writer returns `{ events, committedDoc }`; echo the passed
-	// post-mutation doc as the committed doc so the tool's `newDoc` reflects it.
-	const recordMutations = vi.fn(
-		async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const recordMutationStages = vi.fn(
-		async (
-			prepared: PreparedMutationCandidate,
-			_stages: AdmittedMutationStages,
-		) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const ctx: ToolExecutionContext = {
-		appId: "app-1",
-		userId: "user-1",
-		runId: "run-1",
-		recordMutations,
-		recordMutationStages,
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
-	return { ctx, recordMutations };
-}
 
 const registrationFields = (caseType: string) => [
 	f({
@@ -98,16 +67,14 @@ describe("removeModule", () => {
 			caseTypes: [record("patient")],
 			modules: [moduleSpec("Patients", "patient")],
 		});
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await removeModuleTool.execute(
-			{ moduleUuid: doc.moduleOrder[0] },
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(removeModuleTool, {
+			moduleUuid: doc.moduleOrder[0],
+		});
 
-		expect(out.newDoc).toBe(doc);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(out.result).toMatchObject({
 			error: expect.stringContaining("at least one module"),
 		});
@@ -126,24 +93,22 @@ describe("removeModule", () => {
 				moduleSpec("Visits", "visit"),
 			],
 		});
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await removeModuleTool.execute(
-			{ moduleUuid: doc.moduleOrder[1] },
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(removeModuleTool, {
+			moduleUuid: doc.moduleOrder[1],
+		});
 
 		expect(out.result).toMatchObject({
 			message: expect.stringContaining('Case type "visit"'),
 		});
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(out.mutations).toEqual([
 			{ kind: "removeModule", uuid: expect.any(String) },
 			{ kind: "retireCaseType", caseType: "visit" },
 		]);
-		expect(out.newDoc.moduleOrder).toHaveLength(1);
-		expect(out.newDoc.caseTypes).toEqual([record("patient")]);
+		expect(h.currentDoc().moduleOrder).toHaveLength(1);
+		expect(h.currentDoc().caseTypes).toEqual([record("patient")]);
 	});
 
 	it("fails the call naming the references when the retired type is still referenced", async () => {
@@ -175,16 +140,14 @@ describe("removeModule", () => {
 				moduleSpec("Visits", "visit"),
 			],
 		});
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await removeModuleTool.execute(
-			{ moduleUuid: doc.moduleOrder[1] },
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(removeModuleTool, {
+			moduleUuid: doc.moduleOrder[1],
+		});
 
-		expect(out.newDoc).toBe(doc);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		const result = out.result as { error: string };
 		expect(result.error).toContain('"visit_note"');
 		expect(result.error).toContain("Remove or retarget");

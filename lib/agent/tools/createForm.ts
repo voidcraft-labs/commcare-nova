@@ -18,7 +18,7 @@
  * exists; creation cannot become a second participant-set writer.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Exit branches:
+ * shared `ToolInvocationContext` interface. Exit branches:
  *
  *   1. Parent module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
@@ -33,11 +33,7 @@
 
 import { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
-import type {
-	BlueprintDoc,
-	FormType,
-	PostSubmitDestination,
-} from "@/lib/domain";
+import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
@@ -47,8 +43,8 @@ import {
 } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
 import { closeConditionInputSchema } from "../planningSchemas";
-import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -128,9 +124,9 @@ export const createFormTool = {
 	inputSchema: createFormInputSchema,
 	async execute(
 		input: CreateFormInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<CreateFormResult>> {
+		const doc = ctx.snapshot.doc;
 		const {
 			moduleUuid: rawModuleUuid,
 			formUuid: requestedFormUuid,
@@ -149,7 +145,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -164,7 +159,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `formUuid ${formUuid} already belongs to an authored entity in this app.`,
 					},
@@ -182,7 +176,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: describeRejectedFieldIds(
 							name,
@@ -203,7 +196,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `"${name}" wasn't created — none of its ${fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
 					},
@@ -219,7 +211,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Close-condition fieldUuid ${close_condition.fieldUuid} is not a field created in form "${name}".`,
 					},
@@ -244,7 +235,6 @@ export const createFormTool = {
 			const mutations = [...formMutations, ...assembly.mutations];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}`,
 			);
@@ -252,7 +242,6 @@ export const createFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -274,7 +263,6 @@ export const createFormTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
 					formUuid,
@@ -286,7 +274,7 @@ export const createFormTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

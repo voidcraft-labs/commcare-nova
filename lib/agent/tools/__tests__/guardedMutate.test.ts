@@ -2,7 +2,7 @@
  * `guardedMutate` — the one write path every mutating shared tool routes
  * through. The contract under test:
  *
- *   - a batch the gate rejects persists NOTHING (`ctx.recordMutations`
+ *   - a batch the gate rejects persists NOTHING (`recordMutations`
  *     never fires) and returns the person-to-person error;
  *   - a passing batch persists exactly once, with the post-batch doc and
  *     the caller's stage tag;
@@ -15,15 +15,16 @@
  * layer is what gives both per-call gating.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
-import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import {
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
+} from "../../__tests__/fixtures";
 import { guardedMutate } from "../common";
 import { editFieldTool } from "../editField";
 
@@ -72,37 +73,24 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
-/** Bare `ToolExecutionContext` stub — `recordMutations` (single-batch
- *  tools) and `recordMutationStages` (multi-stage tools) are the
+/** Drive a DIRECT `guardedMutate` call through the workspace — the same
+ *  `invoke` path a tool body runs under, so the helper receives the live
+ *  `ToolInvocationContext` bound to the workspace's current snapshot. The
+ *  harness's `recordMutations` / `recordMutationStages` spies are the
  *  assertion surfaces; nothing here touches Postgres. Both return the
- *  `{ events, committedDoc }` shape the guarded writer surfaces, echoing
- *  the passed post-mutation doc as the committed doc (the real writer's
- *  hydrated `nextDoc` — here with no concurrent peer edit to merge). */
-function makeCtx() {
-	const recordMutations = vi.fn(
-		async (prepared: PreparedMutationCandidate, _stage?: string) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const recordMutationStages = vi.fn(
-		async (
-			prepared: PreparedMutationCandidate,
-			_stages: AdmittedMutationStages,
-		) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const ctx: ToolExecutionContext = {
-		appId: "app-1",
-		userId: "user-1",
-		runId: "run-1",
-		recordMutations,
-		recordMutationStages,
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
-	return { ctx, recordMutations, recordMutationStages };
+ *  `{ events, committedDoc }` shape the guarded writer surfaces, echoing the
+ *  prepared candidate's post-mutation doc as the committed doc (the real
+ *  writer's hydrated `nextDoc` — here with no concurrent peer edit to
+ *  merge). */
+function runGuarded(
+	harness: ToolWorkspaceHarness,
+	mutations: unknown,
+	stage?: string,
+) {
+	return harness.workspace.invoke({
+		toolName: "test-tool",
+		execute: (ctx) => guardedMutate(ctx, mutations, stage),
+	});
 }
 
 function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
@@ -130,7 +118,7 @@ function villageAddress(doc: BlueprintDoc) {
 describe("guardedMutate", () => {
 	it("persists a passing batch once, with the post-batch doc and stage tag", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const mutations: Mutation[] = [
 			{
@@ -141,11 +129,11 @@ describe("guardedMutate", () => {
 			} as Mutation,
 		];
 
-		const outcome = await guardedMutate(ctx, doc, mutations, "form:0-0");
+		const outcome = await runGuarded(h, mutations, "form:0-0");
 
 		expect(outcome.ok).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const [prepared, stage] = recordMutations.mock.calls[0] ?? [];
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const [prepared, stage] = h.recordMutations.mock.calls[0] ?? [];
 		expect(prepared?.mutations).toEqual(mutations);
 		expect(stage).toBe("form:0-0");
 		// The persisted doc IS the post-batch doc the tool continues against.
@@ -154,17 +142,12 @@ describe("guardedMutate", () => {
 
 	it("persists nothing on a gate rejection and returns the findings as prose", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const outcome = await guardedMutate(
-			ctx,
-			doc,
-			badRelevantMutation(doc),
-			"form:0-0",
-		);
+		const outcome = await runGuarded(h, badRelevantMutation(doc), "form:0-0");
 
 		expect(outcome.ok).toBe(false);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		if (!outcome.ok) {
 			expect(outcome.error).toContain("This change wasn't applied");
 			expect(outcome.error).toContain("Nothing was changed.");
@@ -186,42 +169,38 @@ describe("guardedMutate", () => {
 			},
 		];
 
-		const { ctx, recordMutations } = makeCtx();
-		const rejected = await guardedMutate(ctx, doc, addEmptyForm);
+		const h = makeToolWorkspaceHarness(doc);
+		const rejected = await runGuarded(h, addEmptyForm);
 		expect(rejected.ok).toBe(false);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("skips persistence entirely for an empty batch", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx();
-		const outcome = await guardedMutate(ctx, doc, []);
+		const h = makeToolWorkspaceHarness(doc);
+		const outcome = await runGuarded(h, []);
 		expect(outcome).toEqual({ ok: true, newDoc: doc, mutations: [] });
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });
 
 describe("tool-level gating (editField through the shared layer)", () => {
 	it("fails the call with { error } and persists nothing when the patch introduces a soundness error", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await editFieldTool.execute(
-			{
-				...villageAddress(doc),
-				updates: { kind: "text", relevant: xp("if(") },
-			},
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(editFieldTool, {
+			...villageAddress(doc),
+			updates: { kind: "text", relevant: xp("if(") },
+		});
 
 		expect(out.kind).toBe("mutate");
 		expect(out.mutations).toEqual([]);
-		expect(out.newDoc).toBe(doc);
+		expect(h.currentDoc()).toBe(doc);
 		expect("error" in out.result && out.result.error).toContain(
 			"This change wasn't applied",
 		);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("an ID-changing edit is atomic — a bad sibling property leaves zero committed prefix", async () => {
@@ -231,28 +210,24 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
 		const doc = minDoc();
-		const { ctx, recordMutations, recordMutationStages } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await editFieldTool.execute(
-			{
-				...villageAddress(doc),
-				updates: {
-					kind: "text",
-					id: "village_name",
-					relevant: xp("if("),
-				},
+		const out = await h.runTool(editFieldTool, {
+			...villageAddress(doc),
+			updates: {
+				kind: "text",
+				id: "village_name",
+				relevant: xp("if("),
 			},
-			ctx,
-			doc,
-		);
+		});
 
 		expect("error" in out.result && out.result.error).toContain(
 			"This change wasn't applied",
 		);
 		expect(out.mutations).toEqual([]);
-		expect(out.newDoc).toBe(doc);
-		expect(recordMutations).not.toHaveBeenCalled();
-		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
 		// The rename never landed.
 		const renamed = Object.values(doc.fields).find(
 			(fl) => fl.id === "village_name",
@@ -262,26 +237,22 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 	it("a passing ID-and-property edit persists as one canonical update stage", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutationStages } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await editFieldTool.execute(
-			{
-				...villageAddress(doc),
-				updates: {
-					kind: "text",
-					id: "village_name",
-					label: proseText("Home village"),
-				} as never,
-			},
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(editFieldTool, {
+			...villageAddress(doc),
+			updates: {
+				kind: "text",
+				id: "village_name",
+				label: proseText("Home village"),
+			} as never,
+		});
 
 		expect("message" in out.result).toBe(true);
 		// One persistence call, with ID and label carried by the same
 		// target-kind-aware updateField stage.
-		expect(recordMutationStages).toHaveBeenCalledTimes(1);
-		const stages = recordMutationStages.mock.calls[0]?.[1] as {
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+		const stages = h.recordMutationStages.mock.calls[0]?.[1] as {
 			slices: readonly { stage?: string }[];
 		};
 		const formUuid = villageAddress(doc).formUuid;
@@ -290,19 +261,15 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutationStages } = makeCtx();
+		const h = makeToolWorkspaceHarness(doc);
 
-		const out = await editFieldTool.execute(
-			{
-				...villageAddress(doc),
-				updates: { kind: "text", label: proseText("Home village") },
-			},
-			ctx,
-			doc,
-		);
+		const out = await h.runTool(editFieldTool, {
+			...villageAddress(doc),
+			updates: { kind: "text", label: proseText("Home village") },
+		});
 
 		expect("message" in out.result).toBe(true);
 		expect(out.mutations.length).toBeGreaterThan(0);
-		expect(recordMutationStages).toHaveBeenCalledTimes(1);
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 });

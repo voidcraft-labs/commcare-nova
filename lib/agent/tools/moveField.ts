@@ -6,7 +6,7 @@
  * reference to it survives (a remove-and-re-add mints a new identity and
  * strands every expression pointing at the old one; this tool exists so
  * the SA never has to do that). Both the SA chat factory and the MCP
- * adapter call this through the shared `ToolExecutionContext` interface.
+ * adapter call this through the shared `ToolInvocationContext` interface.
  *
  * Addressing mirrors `addFields`' anchor vocabulary, with one deliberate
  * upgrade: an anchor resolves ANYWHERE in the form and the destination
@@ -47,10 +47,10 @@
 import type { z } from "zod";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import type { Field, Uuid } from "@/lib/domain";
 import { isContainer, uuidSchema } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -95,14 +95,13 @@ export const moveFieldTool = {
 	inputSchema: moveFieldInputSchema,
 	async execute(
 		input: MoveFieldInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MoveFieldToolResult>> {
 		const { moduleUuid, formUuid, parentUuid } = input;
+		const doc = ctx.snapshot.doc;
 		const fail = (error: string): MutatingToolResult<MoveFieldToolResult> => ({
 			kind: "mutate" as const,
 			mutations: [],
-			newDoc: doc,
 			result: { error },
 		});
 		try {
@@ -238,12 +237,7 @@ export const moveFieldTool = {
 					after,
 				},
 			];
-			const commit = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				`form:${formUuid}`,
-			);
+			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) return fail(commit.error);
 			const newDoc = commit.newDoc;
 
@@ -291,7 +285,6 @@ export const moveFieldTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Moved "${moved.id}" ${placement} in "${formName}".${displacedNote}`,
 					summary: {
@@ -301,7 +294,7 @@ export const moveFieldTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

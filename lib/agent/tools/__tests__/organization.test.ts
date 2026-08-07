@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import {
+	makeCanonicalGenesisDoc,
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
+} from "@/lib/agent/__tests__/fixtures";
 import { CommitReauthError } from "@/lib/db/commitGuard";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { BlueprintDoc } from "@/lib/domain";
 import * as organizationService from "@/lib/organization/service";
 import {
 	addLocationPropertiesInputSchema,
@@ -22,103 +25,86 @@ import {
 	updateOrganizationLevelInputSchema,
 } from "../organization";
 
-function context(): ToolExecutionContext {
-	return {
-		appId: "organization-tool-app",
-		projectId: "organization-tool-project",
+const APP_ID = "organization-tool-app";
+
+function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
+	return makeToolWorkspaceHarness(initialDoc, {
+		appId: APP_ID,
 		userId: "member",
 		runId: "run",
-		recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		})),
-		recordMutationStages: vi.fn(),
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
+	});
 }
 
 describe("organization authoring tools", () => {
 	it("creates a declared parent and child in the same tool call", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const parentUuid = testUuid("11111111-1111-4111-8111-111111111111");
 		const childUuid = testUuid("22222222-2222-4222-8222-222222222222");
-		const result = await addOrganizationLevelsTool.execute(
-			{
-				levels: [
-					{
-						uuid: parentUuid,
-						code: "region",
-						name: "Region",
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-					{
-						uuid: childUuid,
-						code: "facility",
-						name: "Facility",
-						parentLevelUuid: parentUuid,
-						caseFlow: { workers: "none", ownsCases: true },
-						addressBook: { reach: "own-branch" },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(addOrganizationLevelsTool, {
+			levels: [
+				{
+					uuid: parentUuid,
+					code: "region",
+					name: "Region",
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+				{
+					uuid: childUuid,
+					code: "facility",
+					name: "Facility",
+					parentLevelUuid: parentUuid,
+					caseFlow: { workers: "none", ownsCases: true },
+					addressBook: { reach: "own-branch" },
+				},
+			],
+		});
 
 		expect(result.result).toMatchObject({ uuids: [parentUuid, childUuid] });
-		expect(result.newDoc.organizationLevels?.[childUuid]).toMatchObject({
+		expect(h.currentDoc().organizationLevels?.[childUuid]).toMatchObject({
 			parentLevelUuid: parentUuid,
 		});
 	});
 
 	it("creates levels and place-information fields through guarded mutations", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
-		const level = await addOrganizationLevelsTool.execute(
-			{
-				levels: [
-					{
-						code: "facility",
-						name: "Facility",
-						caseFlow: {
-							workers: "assigned",
-							ownsCases: true,
-							descendantCases: { kind: "none" },
-						},
-						addressBook: { reach: "own-branch" },
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
+		const level = await h.runTool(addOrganizationLevelsTool, {
+			levels: [
+				{
+					code: "facility",
+					name: "Facility",
+					caseFlow: {
+						workers: "assigned",
+						ownsCases: true,
+						descendantCases: { kind: "none" },
 					},
-				],
-			},
-			ctx,
-			doc,
-		);
+					addressBook: { reach: "own-branch" },
+				},
+			],
+		});
 		if (!("uuids" in level.result)) throw new Error("level creation failed");
 		const levelUuid = level.result.uuids[0];
-		expect(level.newDoc.organizationLevels?.[levelUuid]).toMatchObject({
+		expect(h.currentDoc().organizationLevels?.[levelUuid]).toMatchObject({
 			code: "facility",
 			name: "Facility",
 		});
 
-		const property = await addLocationPropertiesTool.execute(
-			{
-				properties: [
-					{
-						slug: "phone",
-						label: "Phone",
-						levelUuids: [levelUuid],
-					},
-				],
-			},
-			ctx,
-			level.newDoc,
-		);
+		const property = await h.runTool(addLocationPropertiesTool, {
+			properties: [
+				{
+					slug: "phone",
+					label: "Phone",
+					levelUuids: [levelUuid],
+				},
+			],
+		});
 		if (!("uuids" in property.result)) {
 			throw new Error("property creation failed");
 		}
 		expect(
-			property.newDoc.locationProperties?.[property.result.uuids[0]],
+			h.currentDoc().locationProperties?.[property.result.uuids[0]],
 		).toMatchObject({ slug: "phone", levelUuids: [levelUuid] });
 	});
 
@@ -173,33 +159,29 @@ describe("organization authoring tools", () => {
 	});
 
 	it("requires parents to appear before children in one add call", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const parentUuid = testUuid("parent-later");
 		const childUuid = testUuid("child-first");
-		const result = await addOrganizationLevelsTool.execute(
-			{
-				levels: [
-					{
-						uuid: childUuid,
-						code: "facility",
-						name: "Facility",
-						parentLevelUuid: parentUuid,
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-					{
-						uuid: parentUuid,
-						code: "region",
-						name: "Region",
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(addOrganizationLevelsTool, {
+			levels: [
+				{
+					uuid: childUuid,
+					code: "facility",
+					name: "Facility",
+					parentLevelUuid: parentUuid,
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+				{
+					uuid: parentUuid,
+					code: "region",
+					name: "Region",
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+			],
+		});
 		expect(result.result).toMatchObject({
 			error: expect.stringMatching(/parent.*before/i),
 		});
@@ -245,8 +227,8 @@ describe("organization authoring tools", () => {
 	});
 
 	it("returns a bounded searchable page without custom values by default", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const snapshot = {
 			revision: "7",
 			locations: Array.from({ length: 60 }, (_, index) => ({
@@ -274,22 +256,18 @@ describe("organization authoring tools", () => {
 				blueprintSeq: 3,
 				organization: snapshot,
 			});
-		const first = await getOrganizationTool.execute(
-			{ query: "clinic", limit: 25, includeValues: false },
-			ctx,
-			doc,
-		);
+		const first = await h.runTool(getOrganizationTool, {
+			query: "clinic",
+			limit: 25,
+			includeValues: false,
+		});
 		const firstPage = first.data as { page: { nextCursor: string } };
-		const result = await getOrganizationTool.execute(
-			{
-				query: "clinic",
-				cursor: firstPage.page.nextCursor,
-				limit: 25,
-				includeValues: false,
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(getOrganizationTool, {
+			query: "clinic",
+			cursor: firstPage.page.nextCursor,
+			limit: 25,
+			includeValues: false,
+		});
 		expect(result.data).toMatchObject({
 			revision: "7",
 			page: {
@@ -306,9 +284,8 @@ describe("organization authoring tools", () => {
 	});
 
 	it("bounds levels, place information, and places in one paged stream", async () => {
-		const ctx = context();
 		const doc = structuredClone(
-			makeCanonicalGenesisDoc("Organization", ctx.appId),
+			makeCanonicalGenesisDoc("Organization", APP_ID),
 		);
 		const levels = Array.from({ length: 40 }, (_, index) => {
 			const uuid = testUuid(`bounded-level-${index}`);
@@ -357,17 +334,17 @@ describe("organization authoring tools", () => {
 			blueprintSeq: 3,
 			organization: { revision: "7", locations },
 		});
+		const h = makeHarness(doc);
 
 		let cursor: string | undefined;
 		let levelCount = 0;
 		let propertyCount = 0;
 		let locationCount = 0;
 		for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
-			const page = await getOrganizationTool.execute(
-				{ limit: 25, ...(cursor === undefined ? {} : { cursor }) },
-				ctx,
-				doc,
-			);
+			const page = await h.runTool(getOrganizationTool, {
+				limit: 25,
+				...(cursor === undefined ? {} : { cursor }),
+			});
 			const data = page.data as {
 				levels: unknown[];
 				placeInformation: unknown[];
@@ -399,32 +376,28 @@ describe("organization authoring tools", () => {
 	});
 
 	it("propagates terminal chat authorization loss from place writers", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		vi.spyOn(organizationService, "createLocation").mockRejectedValueOnce(
 			new CommitReauthError("Project membership changed."),
 		);
 		await expect(
-			createLocationTool.execute(
-				{
-					levelUuid: testUuid("terminal-level"),
-					name: "Clinic",
-					externalId: null,
-					latitude: null,
-					longitude: null,
-					values: {},
-					parentId: null,
-					expectedRevision: "0",
-				},
-				ctx,
-				doc,
-			),
+			h.runTool(createLocationTool, {
+				levelUuid: testUuid("terminal-level"),
+				name: "Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				parentId: null,
+				expectedRevision: "0",
+			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 	});
 
 	it("preflights an archive without writing and binds confirmation to its payload", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const locationUuid = testUuid("archive-location");
 		const impact = {
 			revision: "9" as const,
@@ -451,16 +424,12 @@ describe("organization authoring tools", () => {
 				impact,
 			});
 
-		const preflight = await setLocationArchivedTool.execute(
-			{
-				locationUuid,
-				archived: true,
-				expectedRevision: "9",
-				confirm: false,
-			},
-			ctx,
-			doc,
-		);
+		const preflight = await h.runTool(setLocationArchivedTool, {
+			locationUuid,
+			archived: true,
+			expectedRevision: "9",
+			confirm: false,
+		});
 		expect(preflight).toMatchObject({
 			kind: "read",
 			data: {
@@ -472,17 +441,13 @@ describe("organization authoring tools", () => {
 		});
 		expect(write).not.toHaveBeenCalled();
 
-		await setLocationArchivedTool.execute(
-			{
-				locationUuid,
-				archived: true,
-				expectedRevision: "9",
-				confirm: true,
-				confirmedImpact: impact,
-			},
-			ctx,
-			doc,
-		);
+		await h.runTool(setLocationArchivedTool, {
+			locationUuid,
+			archived: true,
+			expectedRevision: "9",
+			confirm: true,
+			confirmedImpact: impact,
+		});
 		expect(write).toHaveBeenCalledWith(
 			expect.anything(),
 			locationUuid,
@@ -493,29 +458,25 @@ describe("organization authoring tools", () => {
 	});
 
 	it("returns the archive revision at the same result depth on every branch", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		vi.spyOn(organizationService, "setLocationArchived").mockResolvedValueOnce({
 			revision: "11",
 			archivedCount: 1,
 			unassignedPersonaCount: 0,
 		});
-		const result = await setLocationArchivedTool.execute(
-			{
-				locationUuid: testUuid("unarchive-location"),
-				archived: false,
-				expectedRevision: "10",
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setLocationArchivedTool, {
+			locationUuid: testUuid("unarchive-location"),
+			archived: false,
+			expectedRevision: "10",
+		});
 		expect(result).toMatchObject({ kind: "read", data: { revision: "11" } });
 		expect((result as { data: unknown }).data).not.toHaveProperty("result");
 	});
 
 	it("rejects a continuation cursor after the organization revision changes", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const location = {
 			id: testUuid("paged-location"),
 			levelUuid: testUuid("paged-level"),
@@ -546,20 +507,16 @@ describe("organization authoring tools", () => {
 				blueprintSeq: 3,
 				organization: { revision: "8", locations: [location] },
 			});
-		const first = await getOrganizationTool.execute({ limit: 1 }, ctx, doc);
+		const first = await h.runTool(getOrganizationTool, { limit: 1 });
 		const cursor = (first.data as { page: { nextCursor: string } }).page
 			.nextCursor;
-		const second = await getOrganizationTool.execute(
-			{ cursor, limit: 1 },
-			ctx,
-			doc,
-		);
+		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "8" });
 	});
 
 	it("rejects a continuation cursor after only the Blueprint changes", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		const location = {
 			id: testUuid("blueprint-paged-location"),
 			levelUuid: testUuid("blueprint-paged-level"),
@@ -590,20 +547,16 @@ describe("organization authoring tools", () => {
 				blueprintSeq: 4,
 				organization: { revision: "7", locations: [location] },
 			});
-		const first = await getOrganizationTool.execute({ limit: 1 }, ctx, doc);
+		const first = await h.runTool(getOrganizationTool, { limit: 1 });
 		const cursor = (first.data as { page: { nextCursor: string } }).page
 			.nextCursor;
-		const second = await getOrganizationTool.execute(
-			{ cursor, limit: 1 },
-			ctx,
-			doc,
-		);
+		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "7" });
 	});
 
 	it("marks an owner-rule archive preflight blocked instead of confirmable", async () => {
-		const ctx = context();
-		const doc = makeCanonicalGenesisDoc("Organization", ctx.appId);
+		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const h = makeHarness(doc);
 		vi.spyOn(
 			organizationService,
 			"describeArchiveImpact",
@@ -619,15 +572,11 @@ describe("organization authoring tools", () => {
 			blockingAutomationCount: 0,
 			blockingAutomationPreview: [],
 		});
-		const result = await setLocationArchivedTool.execute(
-			{
-				locationUuid: testUuid("blocked-location"),
-				archived: true,
-				expectedRevision: "9",
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setLocationArchivedTool, {
+			locationUuid: testUuid("blocked-location"),
+			archived: true,
+			expectedRevision: "9",
+		});
 		expect(result).toMatchObject({
 			data: { blocked: true, confirmationRequired: false },
 		});

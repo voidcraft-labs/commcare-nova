@@ -6,12 +6,11 @@ import {
 } from "@/lib/doc/caseOperationMutations";
 import {
 	asUuid,
-	type BlueprintDoc,
 	orderedCaseOperations,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -82,16 +81,15 @@ export const moveCaseOperationTool = {
 	inputSchema: moveCaseOperationInputSchema,
 	async execute(
 		input: MoveCaseOperationInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<MoveCaseOperationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveOperationAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -104,7 +102,6 @@ export const moveCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
@@ -118,7 +115,6 @@ export const moveCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation "${operation.id}" cannot follow itself.`,
 					},
@@ -133,7 +129,6 @@ export const moveCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation UUID "${afterOperationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
@@ -149,7 +144,6 @@ export const moveCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: moveRefusal(
 							operation.id,
@@ -166,7 +160,6 @@ export const moveCaseOperationTool = {
 			const mutations = [...plan.mutations];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`form:${address.formUuid}`,
 			);
@@ -174,7 +167,6 @@ export const moveCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -194,7 +186,6 @@ export const moveCaseOperationTool = {
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message:
 						committedAfter === null
@@ -209,7 +200,7 @@ export const moveCaseOperationTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

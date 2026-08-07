@@ -23,7 +23,7 @@
  *      readers + writers the chat-side Solutions Architect already uses
  *      (search, add_fields, edit_field, create_form, …).
  *      Those modules share a uniform contract (input schema, `execute`
- *      against a `BlueprintDoc` + `ToolExecutionContext`) so the MCP
+ *      against a workspace-owned `ToolInvocationContext`) so the MCP
  *      surface funnels them through one adapter: `registerSharedTool`
  *      adds ownership + per-call log writer + progress emitter + result
  *      projection in one place. Adding a new shared tool is a one-line

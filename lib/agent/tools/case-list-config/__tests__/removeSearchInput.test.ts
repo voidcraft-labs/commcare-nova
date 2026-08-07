@@ -19,7 +19,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { removeSearchInputTool } from "../removeSearchInput";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -42,7 +42,7 @@ const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithInputs(): BlueprintDoc {
-	const { doc } = makeCaseListFixture();
+	const doc = makeCaseListDoc();
 	return {
 		...doc,
 		modules: {
@@ -80,28 +80,24 @@ function fixtureWithInputs(): BlueprintDoc {
 
 describe("removeSearchInput", () => {
 	it("removes the targeted search input and leaves siblings intact", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithInputs());
+		await h.runTool(removeSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+		});
 
 		const inputs =
-			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs).toHaveLength(1);
 		expect(inputs[0]?.uuid).toBe(SIBLING_UUID);
 	});
 
 	it("returns the removed uuid and remaining count", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithInputs());
+		const result = await h.runTool(removeSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -110,7 +106,6 @@ describe("removeSearchInput", () => {
 	});
 
 	it("removes empty search chrome when the final input was the only search surface", async () => {
-		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
 		if (onlyInput === undefined) throw new Error("fixture input missing");
@@ -128,13 +123,13 @@ describe("removeSearchInput", () => {
 				},
 			},
 		} satisfies BlueprintDoc;
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
-			ctx,
-			withOne,
-		);
+		const h = makeCaseListFixture(withOne);
+		const result = await h.runTool(removeSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+		});
 
-		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toBeUndefined();
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"removeSearchInput",
 			"updateModule",
@@ -145,7 +140,6 @@ describe("removeSearchInput", () => {
 	});
 
 	it("removes the final input and drops copy that belonged to its Search screen", async () => {
-		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
 		if (onlyInput === undefined) throw new Error("fixture input missing");
@@ -164,11 +158,11 @@ describe("removeSearchInput", () => {
 			},
 		} satisfies BlueprintDoc;
 
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
-			ctx,
-			customized,
-		);
+		const h = makeCaseListFixture(customized);
+		const result = await h.runTool(removeSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: TARGET_UUID,
+		});
 
 		expect(result.mutations).toEqual([
 			{
@@ -183,22 +177,20 @@ describe("removeSearchInput", () => {
 				caseSearchConfigOperation: "cleanup-after-final-input",
 			},
 		]);
-		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toBeUndefined();
 		expect(
-			result.newDoc.modules[MOD_A].caseListConfig?.searchInputs,
+			h.currentDoc().modules[MOD_A].caseListConfig?.searchInputs,
 		).toHaveLength(0);
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.remaining).toBe(0);
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: testUuid("unknown-module"), searchInputUuid: TARGET_UUID },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(fixtureWithInputs());
+		const result = await h.runTool(removeSearchInputTool, {
+			moduleUuid: testUuid("unknown-module"),
+			searchInputUuid: TARGET_UUID,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -208,14 +200,12 @@ describe("removeSearchInput", () => {
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
-		const { ctx } = makeCaseListFixture();
-		const doc = fixtureWithInputs();
+		const h = makeCaseListFixture(fixtureWithInputs());
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
-		const result = await removeSearchInputTool.execute(
-			{ moduleUuid: MOD_A, searchInputUuid: unknown },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(removeSearchInputTool, {
+			moduleUuid: MOD_A,
+			searchInputUuid: unknown,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {

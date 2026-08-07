@@ -22,12 +22,14 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { createFormInputSchema, createFormTool } from "../createForm";
 import { createModuleInputSchema, createModuleTool } from "../createModule";
 import { updateFormTool } from "../updateForm";
 
-function makeCtx() {
+function makeHarness(initialDoc: BlueprintDoc) {
 	// Every persisted doc must survive the SAME Zod gate the next load
 	// runs (`appDocSchema` parses the stored blueprint through
 	// `blueprintDocSchema`'s sub-schemas). Parsing here means a tool that
@@ -53,14 +55,13 @@ function makeCtx() {
 				return { events: [], committedDoc: prepared.nextDoc };
 			},
 		);
-	const ctx: ToolExecutionContext = {
+	const host: CanonicalMutationHost = {
 		appId: "app-1",
 		projectId: "project-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
 		recordMutationStages,
-		recordConversation: vi.fn(),
 		conversionImpact: async () => ({
 			totalWithValue: 0,
 			uncastable: 0,
@@ -68,7 +69,20 @@ function makeCtx() {
 			samples: [],
 		}),
 	};
-	return { ctx, recordMutations };
+	const workspace = new CanonicalMutationWorkspace({ host, initialDoc });
+	return {
+		recordMutations,
+		runTool<T>(
+			tool: { execute(input: never, ctx: ToolInvocationContext): Promise<T> },
+			input: unknown,
+		): Promise<T> {
+			return workspace.invoke({
+				toolName: "test-tool",
+				execute: (ctx) => tool.execute(input as never, ctx),
+			});
+		},
+		currentDoc: () => workspace.currentSnapshot().doc,
+	};
 }
 
 /** A COMPLETE app: one patient module, registration form, case list. */
@@ -139,8 +153,8 @@ function formAddress(doc: BlueprintDoc) {
 
 describe("createForm — atomic form + fields", () => {
 	it("grows a COMPLETE app: a followup form lands with its fields in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = completeDoc();
+		const harness = makeHarness(doc);
 		const formUuid = testUuid("receipt-followup-form");
 		const notesUuid = testUuid("receipt-followup-notes");
 		const statusUuid = testUuid("receipt-followup-status");
@@ -148,49 +162,45 @@ describe("createForm — atomic form + fields", () => {
 			testUuid("receipt-followup-status-open"),
 			testUuid("receipt-followup-status-done"),
 		];
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				formUuid,
-				name: "Follow up",
-				type: "followup",
-				fields: [
-					{
-						fieldUuid: notesUuid,
-						kind: "text",
-						id: "visit_notes",
-						label: proseText("Visit notes"),
-						caseWrite: { caseType: "patient", property: "visit_notes" },
-					} as never,
-					{
-						fieldUuid: statusUuid,
-						kind: "single_select",
-						id: "visit_status",
-						label: proseText("Visit status"),
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{
-									optionUuid: optionUuids[0],
-									value: "open",
-									label: proseText("Open"),
-								},
-								{
-									optionUuid: optionUuids[1],
-									value: "done",
-									label: proseText("Done"),
-								},
-							],
-						},
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const out = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			formUuid,
+			name: "Follow up",
+			type: "followup",
+			fields: [
+				{
+					fieldUuid: notesUuid,
+					kind: "text",
+					id: "visit_notes",
+					label: proseText("Visit notes"),
+					caseWrite: { caseType: "patient", property: "visit_notes" },
+				} as never,
+				{
+					fieldUuid: statusUuid,
+					kind: "single_select",
+					id: "visit_status",
+					label: proseText("Visit status"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: optionUuids[0],
+								value: "open",
+								label: proseText("Open"),
+							},
+							{
+								optionUuid: optionUuids[1],
+								value: "done",
+								label: proseText("Done"),
+							},
+						],
+					},
+				} as never,
+			],
+		});
 
 		expect("message" in out.result).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		// One batch: addForm + its addField(s) — no transitional empty form
 		// ever exists on any surface.
 		const kinds = out.mutations.map((m) => m.kind);
@@ -212,58 +222,50 @@ describe("createForm — atomic form + fields", () => {
 	});
 
 	it("rejects a registration form missing its case_name writer with guidance THIS call can satisfy", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = completeDoc();
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				name: "Enroll",
-				type: "registration",
-				fields: [
-					{
-						kind: "text",
-						id: "village",
-						label: proseText("Village"),
-						caseWrite: { caseType: "patient", property: "village" },
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const harness = makeHarness(doc);
+		const out = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Enroll",
+			type: "registration",
+			fields: [
+				{
+					kind: "text",
+					id: "village",
+					label: proseText("Village"),
+					caseWrite: { caseType: "patient", property: "village" },
+				} as never,
+			],
+		});
 
 		expect("error" in out.result && out.result.error).toContain("case_name");
 		expect(out.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("nests fields under a group created in the same call", async () => {
-		const { ctx } = makeCtx();
 		const doc = completeDoc();
+		const harness = makeHarness(doc);
 		const vitalsUuid = testUuid("same-call-vitals");
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				name: "Assessment",
-				type: "followup",
-				fields: [
-					{
-						fieldUuid: vitalsUuid,
-						kind: "group",
-						id: "vitals",
-						label: proseText("Vitals"),
-					} as never,
-					{
-						kind: "decimal",
-						id: "temperature",
-						label: proseText("Temperature"),
-						parentUuid: vitalsUuid,
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const out = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Assessment",
+			type: "followup",
+			fields: [
+				{
+					fieldUuid: vitalsUuid,
+					kind: "group",
+					id: "vitals",
+					label: proseText("Vitals"),
+				} as never,
+				{
+					kind: "decimal",
+					id: "temperature",
+					label: proseText("Temperature"),
+					parentUuid: vitalsUuid,
+				} as never,
+			],
+		});
 
 		expect("message" in out.result).toBe(true);
 		const addFields = out.mutations.filter(
@@ -279,7 +281,7 @@ describe("createForm — atomic form + fields", () => {
 
 describe("createModule — atomic module + forms + case list", () => {
 	it("grows a COMPLETE app: a case-managing module lands with forms and columns in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx();
+		const harness = makeHarness(completeDoc());
 		const moduleUuid = testUuid("receipt-household-module");
 		const formUuid = testUuid("receipt-household-form");
 		const nameUuid = testUuid("receipt-household-name");
@@ -290,76 +292,72 @@ describe("createModule — atomic module + forms + case list", () => {
 			testUuid("receipt-household-kind-urban"),
 		];
 		const columnUuid = testUuid("receipt-household-column");
-		const out = await createModuleTool.execute(
-			{
-				moduleUuid,
-				name: "Households",
-				case_type: "household",
-				forms: [
-					{
-						formUuid,
-						name: "Register household",
-						type: "registration",
-						fields: [
-							{
-								fieldUuid: nameUuid,
-								kind: "text",
-								id: "case_name",
-								label: proseText("Household name"),
-								caseWrite: {
-									caseType: "household",
-									property: "case_name",
-								},
-							} as never,
-							{
-								fieldUuid: headUuid,
-								kind: "text",
-								id: "head_of_household",
-								label: proseText("Head of household"),
-								caseWrite: {
-									caseType: "household",
-									property: "head_of_household",
-								},
-							} as never,
-							{
-								fieldUuid: kindUuid,
-								kind: "single_select",
-								id: "household_kind",
-								label: proseText("Household kind"),
-								optionsSource: {
-									kind: "inline",
-									options: [
-										{
-											optionUuid: optionUuids[0],
-											value: "rural",
-											label: proseText("Rural"),
-										},
-										{
-											optionUuid: optionUuids[1],
-											value: "urban",
-											label: proseText("Urban"),
-										},
-									],
-								},
-							} as never,
-						],
-					},
-				],
-				case_list_columns: [
-					{
-						columnUuid,
-						kind: "plain",
-						field: "case_name",
-						header: "Name",
-					} as never,
-				],
-			},
-			ctx,
-			completeDoc(),
-		);
+		const out = await harness.runTool(createModuleTool, {
+			moduleUuid,
+			name: "Households",
+			case_type: "household",
+			forms: [
+				{
+					formUuid,
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							fieldUuid: nameUuid,
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						} as never,
+						{
+							fieldUuid: headUuid,
+							kind: "text",
+							id: "head_of_household",
+							label: proseText("Head of household"),
+							caseWrite: {
+								caseType: "household",
+								property: "head_of_household",
+							},
+						} as never,
+						{
+							fieldUuid: kindUuid,
+							kind: "single_select",
+							id: "household_kind",
+							label: proseText("Household kind"),
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{
+										optionUuid: optionUuids[0],
+										value: "rural",
+										label: proseText("Rural"),
+									},
+									{
+										optionUuid: optionUuids[1],
+										value: "urban",
+										label: proseText("Urban"),
+									},
+								],
+							},
+						} as never,
+					],
+				},
+			],
+			case_list_columns: [
+				{
+					columnUuid,
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				} as never,
+			],
+		});
 
 		expect("message" in out.result).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		const kinds = out.mutations.map((m) => m.kind);
 		expect(kinds[0]).toBe("addModule");
 		expect(kinds).toContain("addForm");
@@ -397,87 +395,78 @@ describe("createModule — atomic module + forms + case list", () => {
 
 	it("rejects a case-typed module with no forms (forms belong in this call)", async () => {
 		{
-			const { ctx, recordMutations } = makeCtx();
-			const out = await createModuleTool.execute(
-				{ name: "Households", case_type: "household" },
-				ctx,
-				completeDoc(),
-			);
+			const harness = makeHarness(completeDoc());
+			const out = await harness.runTool(createModuleTool, {
+				name: "Households",
+				case_type: "household",
+			});
 			expect("error" in out.result && out.result.error).toContain("forms");
-			expect(recordMutations).not.toHaveBeenCalled();
+			expect(harness.recordMutations).not.toHaveBeenCalled();
 		}
 	});
 
 	it("rejects a case-managing module without case-list columns on a complete app", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Households",
-				case_type: "household",
-				forms: [
-					{
-						name: "Register household",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: proseText("Household name"),
-								caseWrite: {
-									caseType: "household",
-									property: "case_name",
-								},
-							} as never,
-							{
-								kind: "text",
-								id: "head_of_household",
-								label: proseText("Head of household"),
-								caseWrite: {
-									caseType: "household",
-									property: "head_of_household",
-								},
-							} as never,
-						],
-					},
-				],
-			},
-			ctx,
-			completeDoc(),
-		);
+		const harness = makeHarness(completeDoc());
+		const out = await harness.runTool(createModuleTool, {
+			name: "Households",
+			case_type: "household",
+			forms: [
+				{
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						} as never,
+						{
+							kind: "text",
+							id: "head_of_household",
+							label: proseText("Head of household"),
+							caseWrite: {
+								caseType: "household",
+								property: "head_of_household",
+							},
+						} as never,
+					],
+				},
+			],
+		});
 
 		expect("error" in out.result && out.result.error).toContain(
 			"visible Results field",
 		);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("still creates a plain (case-less) survey module the simple way", async () => {
-		const { ctx } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Feedback",
-				forms: [
-					{
-						name: "Feedback survey",
-						type: "survey",
-						fields: [
-							{
-								kind: "text",
-								id: "comments",
-								label: proseText("Comments"),
-							} as never,
-						],
-					},
-				],
-			},
-			ctx,
-			completeDoc(),
-		);
+		const harness = makeHarness(completeDoc());
+		const out = await harness.runTool(createModuleTool, {
+			name: "Feedback",
+			forms: [
+				{
+					name: "Feedback survey",
+					type: "survey",
+					fields: [
+						{
+							kind: "text",
+							id: "comments",
+							label: proseText("Comments"),
+						} as never,
+					],
+				},
+			],
+		});
 		expect("message" in out.result).toBe(true);
 	});
 
 	it("rejects a field/option UUID collision across separate born forms", async () => {
-		const { ctx, recordMutations } = makeCtx();
+		const harness = makeHarness(completeDoc());
 		const repeatedOptionUuid = testUuid("cross-form-option-collision");
 		const select = (id: string, suffix: string) =>
 			({
@@ -499,31 +488,27 @@ describe("createModule — atomic module + forms + case list", () => {
 					],
 				},
 			}) as never;
-		const out = await createModuleTool.execute(
-			{
-				name: "Colliding surveys",
-				forms: [
-					{
-						name: "First",
-						type: "survey",
-						fields: [select("first_answer", "first")],
-					},
-					{
-						name: "Second",
-						type: "survey",
-						fields: [select("second_answer", "second")],
-					},
-				],
-			},
-			ctx,
-			completeDoc(),
-		);
+		const out = await harness.runTool(createModuleTool, {
+			name: "Colliding surveys",
+			forms: [
+				{
+					name: "First",
+					type: "survey",
+					fields: [select("first_answer", "first")],
+				},
+				{
+					name: "Second",
+					type: "survey",
+					fields: [select("second_answer", "second")],
+				},
+			],
+		});
 
 		expect("error" in out.result && out.result.error).toContain(
 			repeatedOptionUuid,
 		);
 		expect(out.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 });
 
@@ -626,111 +611,106 @@ describe("atomic creation on a complete Connect app", () => {
 		 * out of Connect, which Connect's per-form ingestion scan handles
 		 * by simply not finding a block there. The app keeps its existing
 		 * participating form, so the participation floor holds. */
-		const { ctx, recordMutations } = makeCtx();
 		const doc = completeConnectDoc();
-		const out = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				name: "Reference sheet",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: proseText("Notes"),
-						caseWrite: { caseType: "trainee", property: "lesson_notes" },
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const harness = makeHarness(doc);
+		const out = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Reference sheet",
+			type: "followup",
+			fields: [
+				{
+					kind: "text",
+					id: "lesson_notes",
+					label: proseText("Notes"),
+					caseWrite: { caseType: "trainee", property: "lesson_notes" },
+				} as never,
+			],
+		});
 
 		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		const addForm = out.mutations.find(
 			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
 		);
 		expect(addForm?.form.connect).toBeUndefined();
-		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(
+			runValidation(harness.currentDoc(), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
 	});
 
 	it("routes whole-block removal to the app-wide Connect target owner", async () => {
 		/* updateForm refines the config of an existing participant. Changing
 		 * participation is a complete-set command even when this is the only
 		 * participating form. */
-		const { ctx, recordMutations } = makeCtx();
 		const doc = completeConnectDoc();
-		const out = await updateFormTool.execute(
-			{ ...formAddress(doc), connect: null },
-			ctx,
-			doc,
-		);
+		const harness = makeHarness(doc);
+		const out = await harness.runTool(updateFormTool, {
+			...formAddress(doc),
+			connect: null,
+		});
 
 		const error = "error" in out.result ? out.result.error : "";
 		expect(error).toContain("configureConnect/configure_connect");
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("routes participant removal to the app-wide owner while an auxiliary form remains", async () => {
-		const { ctx, recordMutations } = makeCtx();
 		const doc = completeConnectDoc();
-		const grown = await createFormTool.execute(
-			{
-				...moduleAddress(doc),
-				name: "Lesson two",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: proseText("Notes"),
-						caseWrite: { caseType: "trainee", property: "lesson_notes" },
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
+		const harness = makeHarness(doc);
+		const grown = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Lesson two",
+			type: "followup",
+			fields: [
+				{
+					kind: "text",
+					id: "lesson_notes",
+					label: proseText("Notes"),
+					caseWrite: { caseType: "trainee", property: "lesson_notes" },
+				} as never,
+			],
+		});
 		expect("message" in grown.result).toBe(true);
 
-		const out = await updateFormTool.execute(
-			{ ...formAddress(grown.newDoc), connect: null },
-			ctx,
-			grown.newDoc,
-		);
+		const out = await harness.runTool(updateFormTool, {
+			...formAddress(harness.currentDoc()),
+			connect: null,
+		});
 
 		expect(out.result).toEqual({
 			error: expect.stringContaining("configureConnect/configure_connect"),
 		});
 		expect(out.mutations).toEqual([]);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+		expect(
+			runValidation(harness.currentDoc(), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
 	});
 
 	it("derives a newly-added section id from the same-call target form name", async () => {
 		const doc = completeConnectDoc();
 		const address = formAddress(doc);
-		const out = await updateFormTool.execute(
-			{
-				...address,
-				name: "Final quiz",
-				connect: {
-					assessment: {
-						user_score: xp("100"),
-					},
+		const harness = makeHarness(doc);
+		const out = await harness.runTool(updateFormTool, {
+			...address,
+			name: "Final quiz",
+			connect: {
+				assessment: {
+					user_score: xp("100"),
 				},
 			},
-			makeCtx().ctx,
-			doc,
-		);
+		});
 
 		expect(out.result).not.toHaveProperty("error");
-		expect(out.newDoc.forms[address.formUuid]?.name).toBe("Final quiz");
-		expect(out.newDoc.forms[address.formUuid]?.connect).toMatchObject({
-			learn_module: { id: "enroll_module" },
-			assessment: { id: "lessons_final_quiz" },
-		});
+		expect(harness.currentDoc().forms[address.formUuid]?.name).toBe(
+			"Final quiz",
+		);
+		expect(harness.currentDoc().forms[address.formUuid]?.connect).toMatchObject(
+			{
+				learn_module: { id: "enroll_module" },
+				assessment: { id: "lessons_final_quiz" },
+			},
+		);
 	});
 
 	it("createModule rejects nested Connect blocks so participation has one owner", () => {

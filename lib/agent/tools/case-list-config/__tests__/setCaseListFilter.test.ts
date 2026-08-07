@@ -29,7 +29,12 @@ import {
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
 import { setCaseListFilterTool } from "../setCaseListFilter";
-import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
+import {
+	MOD_A,
+	makeCaseListDoc,
+	makeCaseListFixture,
+	makeCaseListMcpFixture,
+} from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -49,45 +54,36 @@ beforeEach(() => {
 });
 
 describe("setCaseListFilter", () => {
-	/** A doc whose module carries a real (non-empty) case-list config — the
+	/** A fixture whose module carries a real (non-empty) case-list config — the
 	 *  shape every production case module is born with (`caseListConfigWithName`).
 	 *  `setCaseListFilter` EDITS an existing config; a config-less module is a
 	 *  concurrent-removal signal, not a first-configure path (see the
 	 *  config-removed test below). */
-	function docWithConfig(): {
-		doc: BlueprintDoc;
-		ctx: ReturnType<typeof makeCaseListFixture>["ctx"];
-	} {
-		const { doc, ctx } = makeCaseListFixture();
-		return { doc, ctx };
+	function fixtureWithConfig() {
+		return makeCaseListFixture();
 	}
 
 	it("sets the case list filter to the supplied predicate", async () => {
-		const { doc, ctx } = docWithConfig();
+		const h = fixtureWithConfig();
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter,
+		});
 
 		expect(result.kind).toBe("mutate");
-		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const finalConfig = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(finalConfig?.filter).toEqual(filter);
 	});
 
 	it("persists Nova's canonical standard-property names", async () => {
-		const { doc, ctx } = docWithConfig();
+		const h = fixtureWithConfig();
 		const filter = eq(prop("patient", "case_name"), literal("Ada"));
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			doc,
-		);
+		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
 
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.filter).toEqual(
 			eq(prop("patient", "case_name"), literal("Ada")),
 		);
 		// The canonical input is stored byte-for-byte; this tool owns no alias
@@ -99,14 +95,13 @@ describe("setCaseListFilter", () => {
 		// Mirrors the atomic-op family's `{ message, uuid }` contract:
 		// the SA reads the predicate's discriminator off `result.kind`
 		// rather than parsing it back out of the prose message.
-		const { doc, ctx } = makeCaseListFixture();
+		const h = makeCaseListFixture();
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter,
+		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -116,7 +111,7 @@ describe("setCaseListFilter", () => {
 
 	it("clears the filter when null is passed", async () => {
 		// Seed a filter, then null-clear it.
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const seededDoc = {
 			...baseDoc,
 			modules: {
@@ -131,13 +126,13 @@ describe("setCaseListFilter", () => {
 			},
 		};
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter: null },
-			ctx,
-			seededDoc,
-		);
+		const h = makeCaseListFixture(seededDoc);
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter: null,
+		});
 
-		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const finalConfig = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(finalConfig?.filter).toBeUndefined();
 		// The schema treats absent as "no filter"; the persisted shape
 		// must NOT carry an explicit `filter: undefined` key.
@@ -151,7 +146,7 @@ describe("setCaseListFilter", () => {
 	});
 
 	it("keeps an intentional zero-input Search action when its availability rule is cleared", async () => {
-		const { doc: baseDoc, ctx } = docWithConfig();
+		const baseDoc = makeCaseListDoc();
 		const existingConfig = baseDoc.modules[MOD_A].caseListConfig;
 		if (!existingConfig) throw new Error("fixture case list missing");
 		const doc: BlueprintDoc = {
@@ -169,23 +164,25 @@ describe("setCaseListFilter", () => {
 			},
 		};
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter: null },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter: null,
+		});
 
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"setCaseListMeta",
 		]);
-		expect(result.newDoc.modules[MOD_A].caseListConfig?.filter).toBeUndefined();
-		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toEqual({});
+		expect(
+			h.currentDoc().modules[MOD_A].caseListConfig?.filter,
+		).toBeUndefined();
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.kind).toBe("cleared");
 	});
 
 	it("preserves columns and search inputs when setting filter", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseDoc = makeCaseListDoc();
 		const seededColumn = plainColumn(
 			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"case_name",
@@ -213,40 +210,30 @@ describe("setCaseListFilter", () => {
 		};
 
 		const filter = matchAll();
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			seededDoc,
-		);
+		const h = makeCaseListFixture(seededDoc);
+		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
 
-		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const finalConfig = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(finalConfig?.filter).toEqual(filter);
 		expect(finalConfig?.columns).toEqual([seededColumn]);
 		expect(finalConfig?.searchInputs).toEqual([seededInput]);
 	});
 
 	it("is idempotent — two identical calls produce equivalent final state", async () => {
-		const { doc, ctx } = makeCaseListFixture();
+		const h = makeCaseListFixture();
 		const filter = eq(prop("patient", "status"), literal("active"));
 
-		const r1 = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			doc,
-		);
-		const r2 = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			r1.newDoc,
-		);
+		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
+		const afterFirst = h.currentDoc().modules[MOD_A]?.caseListConfig?.filter;
+		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
 
-		expect(r2.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
-			r1.newDoc.modules[MOD_A]?.caseListConfig?.filter,
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.filter).toEqual(
+			afterFirst,
 		);
 	});
 
 	it("round-trips a recursive predicate (and/eq/literal/prop)", async () => {
-		const { doc, ctx } = docWithConfig();
+		const h = fixtureWithConfig();
 		const filter = and(
 			eq(prop("patient", "status"), literal("active")),
 			eq(prop("patient", "region"), literal("north")),
@@ -262,24 +249,19 @@ describe("setCaseListFilter", () => {
 		});
 		expect(parseResult.success).toBe(true);
 
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			doc,
-		);
+		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
 
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.filter).toEqual(
 			filter,
 		);
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { doc, ctx } = makeCaseListFixture();
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: testUuid("unknown-module"), filter: null },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture();
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: testUuid("unknown-module"),
+			filter: null,
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) {
@@ -289,26 +271,23 @@ describe("setCaseListFilter", () => {
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		// Cross-surface parity sentinel — driving the same input
-		// through both surfaces' `ToolExecutionContext` implementations
-		// must produce structurally identical mutation batches. The
-		// tool body is ctx-shape-agnostic by construction; this test
-		// pins that contract so future ctx-aware logic added to the
-		// tool surface gets caught.
-		const { doc, ctx: chatCtx } = makeCaseListFixture();
-		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		// Cross-surface parity sentinel — driving the same input through both
+		// surfaces' canonical mutation hosts must produce structurally
+		// identical mutation batches. The tool body is host-shape-agnostic by
+		// construction; this test pins that contract so future host-aware
+		// logic added to the tool surface gets caught.
+		const chat = makeCaseListFixture();
+		const mcp = makeCaseListMcpFixture();
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
-		const r1 = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			chatCtx,
-			doc,
-		);
-		const r2 = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			mcpCtx,
-			doc,
-		);
+		const r1 = await chat.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter,
+		});
+		const r2 = await mcp.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter,
+		});
 
 		expect(r1.mutations).toEqual(r2.mutations);
 	});

@@ -1,12 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
-import { makeCanonicalGenesisDoc } from "../../__tests__/fixtures";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import {
+	makeCanonicalGenesisDoc,
+	makeToolWorkspaceHarness,
+} from "../../__tests__/fixtures";
 import {
 	addPersonasInputSchema,
 	addPersonasTool,
@@ -25,23 +26,12 @@ import {
 	updateUserTypeTool,
 } from "../users";
 
-function makeCtx() {
-	const recordMutations = vi.fn(
-		async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		}),
-	);
-	const ctx = {
+function makeHarness(doc: BlueprintDoc) {
+	return makeToolWorkspaceHarness(doc, {
 		appId: "app-users",
-		projectId: "project-users",
 		userId: "member",
 		runId: "run",
-		recordMutations,
-		recordMutationStages: vi.fn(),
-		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
-	return { ctx, recordMutations };
+	});
 }
 
 function emptyDoc(): BlueprintDoc {
@@ -58,20 +48,18 @@ describe("user authoring tools", () => {
 			}).success,
 		).toBe(false);
 
-		const { ctx } = makeCtx();
-		const added = await addPersonasTool.execute(
-			{
-				personas: [{ name: "Asha", locationUuids: [first, second] }],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const added = await harness.runTool(addPersonasTool, {
+			personas: [{ name: "Asha", locationUuids: [first, second] }],
+		});
 		if (!("uuids" in added.result)) throw new Error("persona creation failed");
-		expect(added.newDoc.personas?.[added.result.uuids[0]]?.locations).toEqual({
+		expect(
+			harness.currentDoc().personas?.[added.result.uuids[0]]?.locations,
+		).toEqual({
 			primaryUuid: first,
 			additionalUuids: [second],
 		});
-		const read = await getUsersTool.execute({}, ctx, added.newDoc);
+		const read = await harness.runTool(getUsersTool, {});
 		expect(read.data.personas[0]?.locationUuids).toEqual([first, second]);
 		expect(read.data.personas[0]).not.toHaveProperty("locations");
 		expect(
@@ -127,68 +115,56 @@ describe("user authoring tools", () => {
 	});
 
 	it("bridges returned property uuids into role and persona value records", async () => {
-		const { ctx } = makeCtx();
-		const propertyResult = await addUserPropertiesTool.execute(
-			{
-				properties: [
-					{
-						slug: "region",
-						label: "Region",
-						choices: ["north", "south"],
-					},
-				],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const propertyResult = await harness.runTool(addUserPropertiesTool, {
+			properties: [
+				{
+					slug: "region",
+					label: "Region",
+					choices: ["north", "south"],
+				},
+			],
+		});
 		if (!("uuids" in propertyResult.result)) {
 			throw new Error("property creation unexpectedly failed");
 		}
 		const propertyUuid = propertyResult.result.uuids[0];
 
-		const roleResult = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "Community health worker",
-						values: [{ userPropertyUuid: propertyUuid, value: "north" }],
-					},
-				],
-			},
-			ctx,
-			propertyResult.newDoc,
-		);
+		const roleResult = await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "Community health worker",
+					values: [{ userPropertyUuid: propertyUuid, value: "north" }],
+				},
+			],
+		});
 		if (!("uuids" in roleResult.result)) {
 			throw new Error("role creation unexpectedly failed");
 		}
 		const roleUuid = roleResult.result.uuids[0];
-		expect(roleResult.newDoc.userTypes?.[roleUuid]?.values).toEqual({
+		expect(harness.currentDoc().userTypes?.[roleUuid]?.values).toEqual({
 			[propertyUuid]: "north",
 		});
 
-		const personaResult = await addPersonasTool.execute(
-			{
-				personas: [
-					{
-						name: "Asha",
-						userTypeUuid: roleUuid,
-						values: [{ userPropertyUuid: propertyUuid, value: "south" }],
-					},
-				],
-			},
-			ctx,
-			roleResult.newDoc,
-		);
+		const personaResult = await harness.runTool(addPersonasTool, {
+			personas: [
+				{
+					name: "Asha",
+					userTypeUuid: roleUuid,
+					values: [{ userPropertyUuid: propertyUuid, value: "south" }],
+				},
+			],
+		});
 		if (!("uuids" in personaResult.result)) {
 			throw new Error("persona creation unexpectedly failed");
 		}
 		const personaUuid = personaResult.result.uuids[0];
-		expect(personaResult.newDoc.personas?.[personaUuid]).toMatchObject({
+		expect(harness.currentDoc().personas?.[personaUuid]).toMatchObject({
 			userTypeUuid: roleUuid,
 			values: { [propertyUuid]: "south" },
 		});
 
-		const read = await getUsersTool.execute({}, ctx, personaResult.newDoc);
+		const read = await harness.runTool(getUsersTool, {});
 		expect(read.data.roles[0]?.values).toEqual([
 			{ userPropertyUuid: propertyUuid, value: "north" },
 		]);
@@ -206,24 +182,22 @@ describe("user authoring tools", () => {
 	});
 
 	it("uses null only as an explicit clear and keeps omitted slots unchanged", async () => {
-		const { ctx } = makeCtx();
-		const nullableAdd = await addUserPropertiesTool.execute(
-			{
-				properties: [
-					{
-						slug: "district",
-						label: "District",
-						required: null,
-						choices: null,
-					},
-				],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const nullableHarness = makeHarness(emptyDoc());
+		const nullableAdd = await nullableHarness.runTool(addUserPropertiesTool, {
+			properties: [
+				{
+					slug: "district",
+					label: "District",
+					required: null,
+					choices: null,
+				},
+			],
+		});
 		if (!("uuids" in nullableAdd.result)) throw new Error("setup failed");
 		expect(
-			nullableAdd.newDoc.userProperties?.[nullableAdd.result.uuids[0]],
+			nullableHarness.currentDoc().userProperties?.[
+				nullableAdd.result.uuids[0]
+			],
 		).toEqual(
 			expect.objectContaining({
 				slug: "district",
@@ -231,166 +205,141 @@ describe("user authoring tools", () => {
 			}),
 		);
 		expect(
-			nullableAdd.newDoc.userProperties?.[nullableAdd.result.uuids[0]],
+			nullableHarness.currentDoc().userProperties?.[
+				nullableAdd.result.uuids[0]
+			],
 		).not.toHaveProperty("required");
 		expect(
-			nullableAdd.newDoc.userProperties?.[nullableAdd.result.uuids[0]],
+			nullableHarness.currentDoc().userProperties?.[
+				nullableAdd.result.uuids[0]
+			],
 		).not.toHaveProperty("choices");
 
-		const property = await addUserPropertiesTool.execute(
-			{ properties: [{ slug: "region", label: "Region", required: true }] },
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const property = await harness.runTool(addUserPropertiesTool, {
+			properties: [{ slug: "region", label: "Region", required: true }],
+		});
 		if (!("uuids" in property.result)) throw new Error("setup failed");
 		const propertyUuid = property.result.uuids[0];
-		const role = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "CHW",
-						description: "Visits households",
-						values: [{ userPropertyUuid: propertyUuid, value: "north" }],
-					},
-				],
-			},
-			ctx,
-			property.newDoc,
-		);
+		const role = await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "CHW",
+					description: "Visits households",
+					values: [{ userPropertyUuid: propertyUuid, value: "north" }],
+				},
+			],
+		});
 		if (!("uuids" in role.result)) throw new Error("setup failed");
 		const roleUuid = role.result.uuids[0];
 
-		const cleared = await updateUserTypeTool.execute(
-			{
-				uuid: roleUuid,
-				description: null,
-				valuePatch: { userPropertyUuid: propertyUuid, value: null },
-			},
-			ctx,
-			role.newDoc,
-		);
-		expect(cleared.newDoc.userTypes?.[roleUuid]).toMatchObject({ name: "CHW" });
-		expect(cleared.newDoc.userTypes?.[roleUuid]).not.toHaveProperty(
+		await harness.runTool(updateUserTypeTool, {
+			uuid: roleUuid,
+			description: null,
+			valuePatch: { userPropertyUuid: propertyUuid, value: null },
+		});
+		expect(harness.currentDoc().userTypes?.[roleUuid]).toMatchObject({
+			name: "CHW",
+		});
+		expect(harness.currentDoc().userTypes?.[roleUuid]).not.toHaveProperty(
 			"description",
 		);
-		expect(cleared.newDoc.userTypes?.[roleUuid]).not.toHaveProperty("values");
-
-		const propertyCleared = await updateUserPropertyTool.execute(
-			{ uuid: propertyUuid, required: null },
-			ctx,
-			cleared.newDoc,
+		expect(harness.currentDoc().userTypes?.[roleUuid]).not.toHaveProperty(
+			"values",
 		);
+
+		await harness.runTool(updateUserPropertyTool, {
+			uuid: propertyUuid,
+			required: null,
+		});
 		expect(
-			propertyCleared.newDoc.userProperties?.[propertyUuid],
+			harness.currentDoc().userProperties?.[propertyUuid],
 		).not.toHaveProperty("required");
-		expect(propertyCleared.newDoc.userProperties?.[propertyUuid]?.label).toBe(
+		expect(harness.currentDoc().userProperties?.[propertyUuid]?.label).toBe(
 			"Region",
 		);
 	});
 
 	it("rejects duplicate roles atomically and preserves a refused accepted-value edit", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const duplicate = await addUserTypesTool.execute(
-			{ userTypes: [{ name: "CHW" }, { name: " chw " }] },
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const duplicate = await harness.runTool(addUserTypesTool, {
+			userTypes: [{ name: "CHW" }, { name: " chw " }],
+		});
 		expect(duplicate.result).toMatchObject({
 			error: expect.stringContaining("role"),
 		});
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 
-		const property = await addUserPropertiesTool.execute(
-			{
-				properties: [
-					{ slug: "region", label: "Region", choices: ["north", "south"] },
-				],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const property = await harness.runTool(addUserPropertiesTool, {
+			properties: [
+				{ slug: "region", label: "Region", choices: ["north", "south"] },
+			],
+		});
 		if (!("uuids" in property.result)) throw new Error("setup failed");
 		const propertyUuid = property.result.uuids[0];
-		const role = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "CHW",
-						values: [{ userPropertyUuid: propertyUuid, value: "south" }],
-					},
-				],
-			},
-			ctx,
-			property.newDoc,
-		);
-		const narrowed = await updateUserPropertyTool.execute(
-			{ uuid: propertyUuid, choices: ["north"] },
-			ctx,
-			role.newDoc,
-		);
+		await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "CHW",
+					values: [{ userPropertyUuid: propertyUuid, value: "south" }],
+				},
+			],
+		});
+		const docAfterRole = harness.currentDoc();
+		const narrowed = await harness.runTool(updateUserPropertyTool, {
+			uuid: propertyUuid,
+			choices: ["north"],
+		});
 		expect(narrowed.result).toMatchObject({
 			error: expect.stringContaining("south"),
 		});
-		expect(narrowed.newDoc).toBe(role.newDoc);
+		expect(harness.currentDoc()).toBe(docAfterRole);
 	});
 
 	it("removes a property and every UUID-keyed value in one batch, while held roles refuse removal", async () => {
-		const { ctx } = makeCtx();
-		const property = await addUserPropertiesTool.execute(
-			{ properties: [{ slug: "region", label: "Region" }] },
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const property = await harness.runTool(addUserPropertiesTool, {
+			properties: [{ slug: "region", label: "Region" }],
+		});
 		if (!("uuids" in property.result)) throw new Error("setup failed");
 		const propertyUuid = property.result.uuids[0];
-		const role = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "CHW",
-						values: [{ userPropertyUuid: propertyUuid, value: "north" }],
-					},
-				],
-			},
-			ctx,
-			property.newDoc,
-		);
+		const role = await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "CHW",
+					values: [{ userPropertyUuid: propertyUuid, value: "north" }],
+				},
+			],
+		});
 		if (!("uuids" in role.result)) throw new Error("setup failed");
 		const roleUuid = role.result.uuids[0];
-		const persona = await addPersonasTool.execute(
-			{
-				personas: [
-					{
-						name: "Asha",
-						userTypeUuid: roleUuid,
-						values: [{ userPropertyUuid: propertyUuid, value: "south" }],
-					},
-				],
-			},
-			ctx,
-			role.newDoc,
-		);
+		await harness.runTool(addPersonasTool, {
+			personas: [
+				{
+					name: "Asha",
+					userTypeUuid: roleUuid,
+					values: [{ userPropertyUuid: propertyUuid, value: "south" }],
+				},
+			],
+		});
+		const docAfterPersona = harness.currentDoc();
 
-		const held = await removeUserTypeTool.execute(
-			{ uuid: roleUuid },
-			ctx,
-			persona.newDoc,
-		);
+		const held = await harness.runTool(removeUserTypeTool, { uuid: roleUuid });
 		expect(held.result).toMatchObject({
 			error: expect.stringContaining("Asha"),
 		});
-		expect(held.newDoc).toBe(persona.newDoc);
+		expect(harness.currentDoc()).toBe(docAfterPersona);
 
-		const removed = await removeUserPropertyTool.execute(
-			{ uuid: propertyUuid },
-			ctx,
-			persona.newDoc,
-		);
-		expect(removed.newDoc.userProperties).toBeUndefined();
-		expect(removed.newDoc.userTypes?.[roleUuid]).not.toHaveProperty("values");
-		expect(Object.values(removed.newDoc.personas ?? {})[0]).not.toHaveProperty(
+		const removed = await harness.runTool(removeUserPropertyTool, {
+			uuid: propertyUuid,
+		});
+		expect(harness.currentDoc().userProperties).toBeUndefined();
+		expect(harness.currentDoc().userTypes?.[roleUuid]).not.toHaveProperty(
 			"values",
 		);
+		expect(
+			Object.values(harness.currentDoc().personas ?? {})[0],
+		).not.toHaveProperty("values");
 		expect(removed.mutations.at(-1)).toEqual({
 			kind: "removeUserProperty",
 			uuid: propertyUuid,
@@ -426,130 +375,102 @@ describe("user authoring tools", () => {
 				},
 			},
 		});
-		const { ctx, recordMutations } = makeCtx();
+		const harness = makeHarness(doc);
 
-		const result = await removeUserPropertyTool.execute(
-			{ uuid: propertyUuid },
-			ctx,
-			doc,
-		);
+		const result = await harness.runTool(removeUserPropertyTool, {
+			uuid: propertyUuid,
+		});
 
-		expect(result.newDoc).toBe(doc);
+		expect(harness.currentDoc()).toBe(doc);
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toEqual({
 			error: expect.stringContaining(
 				"Update or remove that reference before removing",
 			),
 		});
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("updates and removes a persona by UUID, then allows its unreferenced role to be removed", async () => {
-		const { ctx } = makeCtx();
-		const role = await addUserTypesTool.execute(
-			{ userTypes: [{ name: "CHW" }] },
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const role = await harness.runTool(addUserTypesTool, {
+			userTypes: [{ name: "CHW" }],
+		});
 		if (!("uuids" in role.result)) throw new Error("setup failed");
 		const roleUuid = role.result.uuids[0];
-		const persona = await addPersonasTool.execute(
-			{
-				personas: [
-					{
-						name: "Asha",
-						description: "South district",
-						userTypeUuid: roleUuid,
-					},
-				],
-			},
-			ctx,
-			role.newDoc,
-		);
+		const persona = await harness.runTool(addPersonasTool, {
+			personas: [
+				{
+					name: "Asha",
+					description: "South district",
+					userTypeUuid: roleUuid,
+				},
+			],
+		});
 		if (!("uuids" in persona.result)) throw new Error("setup failed");
 		const personaUuid = persona.result.uuids[0];
 
-		const updated = await updatePersonaTool.execute(
-			{
-				uuid: personaUuid,
-				name: "Asha N.",
-				description: null,
-				userTypeUuid: null,
-			},
-			ctx,
-			persona.newDoc,
-		);
-		expect(updated.newDoc.personas?.[personaUuid]).toMatchObject({
+		await harness.runTool(updatePersonaTool, {
+			uuid: personaUuid,
+			name: "Asha N.",
+			description: null,
+			userTypeUuid: null,
+		});
+		expect(harness.currentDoc().personas?.[personaUuid]).toMatchObject({
 			uuid: personaUuid,
 			name: "Asha N.",
 		});
-		expect(updated.newDoc.personas?.[personaUuid]).not.toHaveProperty(
+		expect(harness.currentDoc().personas?.[personaUuid]).not.toHaveProperty(
 			"description",
 		);
-		expect(updated.newDoc.personas?.[personaUuid]).not.toHaveProperty(
+		expect(harness.currentDoc().personas?.[personaUuid]).not.toHaveProperty(
 			"userTypeUuid",
 		);
 
-		const removedPersona = await removePersonaTool.execute(
-			{ uuid: personaUuid },
-			ctx,
-			updated.newDoc,
-		);
-		expect(removedPersona.newDoc.personas).toBeUndefined();
+		const removedPersona = await harness.runTool(removePersonaTool, {
+			uuid: personaUuid,
+		});
+		expect(harness.currentDoc().personas).toBeUndefined();
 		expect(removedPersona.mutations).toEqual([
 			{ kind: "removePersona", uuid: personaUuid },
 		]);
 
-		const removedRole = await removeUserTypeTool.execute(
-			{ uuid: roleUuid },
-			ctx,
-			removedPersona.newDoc,
-		);
-		expect(removedRole.newDoc.userTypes).toBeUndefined();
+		const removedRole = await harness.runTool(removeUserTypeTool, {
+			uuid: roleUuid,
+		});
+		expect(harness.currentDoc().userTypes).toBeUndefined();
 		expect(removedRole.mutations).toEqual([
 			{ kind: "removeUserType", uuid: roleUuid },
 		]);
 	});
 
 	it("emits one shared mutation per changed role value", async () => {
-		const { ctx } = makeCtx();
-		const properties = await addUserPropertiesTool.execute(
-			{
-				properties: [
-					{ slug: "region", label: "Region" },
-					{ slug: "cadre", label: "Cadre" },
-				],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const properties = await harness.runTool(addUserPropertiesTool, {
+			properties: [
+				{ slug: "region", label: "Region" },
+				{ slug: "cadre", label: "Cadre" },
+			],
+		});
 		if (!("uuids" in properties.result)) throw new Error("setup failed");
 		const [regionUuid, cadreUuid] = properties.result.uuids;
-		const role = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "CHW",
-						values: [
-							{ userPropertyUuid: regionUuid, value: "north" },
-							{ userPropertyUuid: cadreUuid, value: "community" },
-						],
-					},
-				],
-			},
-			ctx,
-			properties.newDoc,
-		);
+		const role = await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "CHW",
+					values: [
+						{ userPropertyUuid: regionUuid, value: "north" },
+						{ userPropertyUuid: cadreUuid, value: "community" },
+					],
+				},
+			],
+		});
 		if (!("uuids" in role.result)) throw new Error("setup failed");
 
-		const updated = await updateUserTypeTool.execute(
-			{
-				uuid: role.result.uuids[0],
-				valuePatch: { userPropertyUuid: regionUuid, value: "south" },
-			},
-			ctx,
-			role.newDoc,
-		);
+		const updated = await harness.runTool(updateUserTypeTool, {
+			uuid: role.result.uuids[0],
+			valuePatch: { userPropertyUuid: regionUuid, value: "south" },
+		});
 
 		expect(updated.mutations).toHaveLength(1);
 		expect(
@@ -557,53 +478,45 @@ describe("user authoring tools", () => {
 				"valuePatch" in mutation ? mutation.valuePatch : undefined,
 			),
 		).toEqual([{ userPropertyUuid: regionUuid, value: "south" }]);
-		expect(updated.newDoc.userTypes?.[role.result.uuids[0]]?.values).toEqual({
+		expect(
+			harness.currentDoc().userTypes?.[role.result.uuids[0]]?.values,
+		).toEqual({
 			[regionUuid]: "south",
 			[cadreUuid]: "community",
 		});
 	});
 
 	it("preserves unmentioned values when one value is patched", async () => {
-		const { ctx } = makeCtx();
-		const properties = await addUserPropertiesTool.execute(
-			{
-				properties: [
-					{ slug: "region", label: "Region" },
-					{ slug: "cadre", label: "Cadre" },
-				],
-			},
-			ctx,
-			emptyDoc(),
-		);
+		const harness = makeHarness(emptyDoc());
+		const properties = await harness.runTool(addUserPropertiesTool, {
+			properties: [
+				{ slug: "region", label: "Region" },
+				{ slug: "cadre", label: "Cadre" },
+			],
+		});
 		if (!("uuids" in properties.result)) throw new Error("setup failed");
 		const [regionUuid, cadreUuid] = properties.result.uuids;
-		const role = await addUserTypesTool.execute(
-			{
-				userTypes: [
-					{
-						name: "CHW",
-						values: [
-							{ userPropertyUuid: regionUuid, value: "north" },
-							{ userPropertyUuid: cadreUuid, value: "community" },
-						],
-					},
-				],
-			},
-			ctx,
-			properties.newDoc,
-		);
+		const role = await harness.runTool(addUserTypesTool, {
+			userTypes: [
+				{
+					name: "CHW",
+					values: [
+						{ userPropertyUuid: regionUuid, value: "north" },
+						{ userPropertyUuid: cadreUuid, value: "community" },
+					],
+				},
+			],
+		});
 		if (!("uuids" in role.result)) throw new Error("setup failed");
 
-		const updated = await updateUserTypeTool.execute(
-			{
-				uuid: role.result.uuids[0],
-				valuePatch: { userPropertyUuid: regionUuid, value: "south" },
-			},
-			ctx,
-			role.newDoc,
-		);
+		const updated = await harness.runTool(updateUserTypeTool, {
+			uuid: role.result.uuids[0],
+			valuePatch: { userPropertyUuid: regionUuid, value: "south" },
+		});
 
-		expect(updated.newDoc.userTypes?.[role.result.uuids[0]]?.values).toEqual({
+		expect(
+			harness.currentDoc().userTypes?.[role.result.uuids[0]]?.values,
+		).toEqual({
 			[regionUuid]: "south",
 			[cadreUuid]: "community",
 		});
@@ -618,21 +531,20 @@ describe("user authoring tools", () => {
 	});
 
 	it.each([
-		{ kind: "role", execute: updateUserTypeTool.execute },
-		{ kind: "persona", execute: updatePersonaTool.execute },
-	])("does not resolve an inherited $kind target", async ({ execute }) => {
-		const { ctx, recordMutations } = makeCtx();
+		{ kind: "role", tool: updateUserTypeTool },
+		{ kind: "persona", tool: updatePersonaTool },
+	])("does not resolve an inherited $kind target", async ({ tool }) => {
+		const harness = makeHarness(emptyDoc());
 
-		const result = await execute(
-			{ uuid: testUuid("constructor"), name: "Forged" },
-			ctx,
-			emptyDoc(),
-		);
+		const result = await harness.runTool(tool, {
+			uuid: testUuid("constructor"),
+			name: "Forged",
+		});
 
 		expect(result.result).toMatchObject({
 			error: expect.stringContaining("no longer exists"),
 		});
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 });
 

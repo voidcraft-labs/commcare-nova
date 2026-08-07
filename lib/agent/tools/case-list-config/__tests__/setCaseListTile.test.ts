@@ -28,7 +28,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { setCaseListTileTool } from "../setCaseListTile";
-import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
+import {
+	MOD_A,
+	makeCaseListDoc,
+	makeCaseListFixture,
+	makeCaseListMcpFixture,
+} from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -51,12 +56,9 @@ const NAME_COLUMN = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const STATUS_COLUMN = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
 /** A doc whose module carries a two-field case list, laid out as rows. */
-function docWithColumns(columns: Column[]): {
-	doc: BlueprintDoc;
-	ctx: ReturnType<typeof makeCaseListFixture>["ctx"];
-} {
-	const { doc: baseDoc, ctx } = makeCaseListFixture();
-	const doc: BlueprintDoc = {
+function docWithColumns(columns: Column[]): BlueprintDoc {
+	const baseDoc = makeCaseListDoc();
+	return {
 		...baseDoc,
 		modules: {
 			[MOD_A]: {
@@ -65,7 +67,11 @@ function docWithColumns(columns: Column[]): {
 			} as Module,
 		},
 	};
-	return { doc, ctx };
+}
+
+/** The workspace every test drives, booted on that rows-layout doc. */
+function fixtureWithColumns(columns: Column[]) {
+	return makeCaseListFixture(docWithColumns(columns));
 }
 
 /** The rows-layout starting point every "turn it on" test builds from. */
@@ -101,37 +107,33 @@ function expectSuccess(result: { error: string } | { layout: string }) {
 
 describe("setCaseListTile", () => {
 	it("turns the tile on and places every field in one call", async () => {
-		const { doc, ctx } = docWithColumns(unplacedColumns());
+		const h = fixtureWithColumns(unplacedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				tile: {},
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 0, width: 12, height: 1 },
-					},
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: {},
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		const success = expectSuccess(result.result);
 		expect(success).toMatchObject({ layout: "tile", unplacedColumnUuids: [] });
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.tile).toEqual({});
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toEqual({
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({});
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
 			x: 0,
 			y: 0,
 			width: 12,
 			height: 1,
 		});
-		expect(columnTile(result.newDoc, STATUS_COLUMN)).toEqual({
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual({
 			x: 0,
 			y: 1,
 			width: 6,
@@ -143,26 +145,22 @@ describe("setCaseListTile", () => {
 		// Placement is its own mergeable write: a peer relabelling the same field
 		// is an edit to a different thing and must survive. The layout rides the
 		// granular case-list metadata kind for the same reason.
-		const { doc, ctx } = docWithColumns(unplacedColumns());
+		const h = fixtureWithColumns(unplacedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				tile: { persistOnForms: true },
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 0, width: 12, height: 1 },
-					},
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: { persistOnForms: true },
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expect(result.mutations).toEqual([
 			expect.objectContaining({
@@ -181,45 +179,41 @@ describe("setCaseListTile", () => {
 				patch: { tile: { persistOnForms: true } },
 			},
 		]);
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.tile).toEqual({
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({
 			persistOnForms: true,
 		});
 	});
 
 	it("carries the presentation slots on the cell they belong to", async () => {
-		const { doc, ctx } = docWithColumns(unplacedColumns());
+		const h = fixtureWithColumns(unplacedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				tile: {},
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: {
-							x: 0,
-							y: 0,
-							width: 12,
-							height: 1,
-							horizontalAlign: "center",
-							verticalAlign: "middle",
-							fontSize: "large",
-							showBorder: true,
-							showShading: true,
-						},
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: {},
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: {
+						x: 0,
+						y: 0,
+						width: 12,
+						height: 1,
+						horizontalAlign: "center",
+						verticalAlign: "middle",
+						fontSize: "large",
+						showBorder: true,
+						showShading: true,
 					},
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expectSuccess(result.result);
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toEqual({
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
 			x: 0,
 			y: 0,
 			width: 12,
@@ -235,7 +229,7 @@ describe("setCaseListTile", () => {
 	it("turns the tile off with null and keeps every placement", async () => {
 		// An author who tries a tile and goes back to columns must not lose the
 		// layout they drew — turning it back on has to be accepted with no rework.
-		const { doc: baseDoc, ctx } = docWithColumns(placedColumns());
+		const baseDoc = docWithColumns(placedColumns());
 		const doc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -251,18 +245,18 @@ describe("setCaseListTile", () => {
 			},
 		};
 
-		const result = await setCaseListTileTool.execute(
-			{ moduleUuid: MOD_A, tile: null },
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: null,
+		});
 
 		const success = expectSuccess(result.result);
 		expect(success).toMatchObject({ layout: "rows", unplacedColumnUuids: [] });
-		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config && "tile" in config).toBe(false);
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toBeDefined();
-		expect(columnTile(result.newDoc, STATUS_COLUMN)).toBeDefined();
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toBeDefined();
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toBeDefined();
 		expect(result.mutations).toEqual([
 			{ kind: "setCaseListMeta", uuid: MOD_A, patch: { tile: null } },
 		]);
@@ -271,16 +265,12 @@ describe("setCaseListTile", () => {
 	it("takes one field off the tile with an explicit null cell", async () => {
 		// The clear must reach the client doc store and Postgres: `JSON.stringify`
 		// drops an `undefined`-valued key, so the wire spelling has to be `null`.
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [{ columnUuid: STATUS_COLUMN, cell: null }],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [{ columnUuid: STATUS_COLUMN, cell: null }],
+		});
 
 		expectSuccess(result.result);
 		expect(result.mutations).toEqual([
@@ -290,12 +280,12 @@ describe("setCaseListTile", () => {
 				tilePatch: null,
 			}),
 		]);
-		expect(columnTile(result.newDoc, STATUS_COLUMN)).toBeUndefined();
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toBeDefined();
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toBeUndefined();
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toBeDefined();
 	});
 
 	it("leaves the layout alone when `tile` is omitted", async () => {
-		const { doc: baseDoc, ctx } = docWithColumns(placedColumns());
+		const baseDoc = docWithColumns(placedColumns());
 		const doc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -310,55 +300,48 @@ describe("setCaseListTile", () => {
 			},
 		};
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 6, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 6, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		const success = expectSuccess(result.result);
 		expect(success).toMatchObject({ layout: "tile" });
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"updateColumn",
 		]);
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.tile).toEqual({
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({
 			persistOnForms: true,
 		});
 	});
 
 	it("leaves an unnamed field's placement untouched", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 6, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 6, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expectSuccess(result.result);
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toEqual(
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual(
 			tileCell(0, 0, 12, 1, { fontSize: "large" }),
 		);
 	});
 
 	it("emits nothing when the layout and every named cell already match", async () => {
-		const { doc: baseDoc, ctx } = docWithColumns(placedColumns());
+		const baseDoc = docWithColumns(placedColumns());
 		const doc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -373,20 +356,17 @@ describe("setCaseListTile", () => {
 			},
 		};
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				tile: {},
-				placements: [
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: {},
+			placements: [
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expectSuccess(result.result);
 		expect(result.mutations).toEqual([]);
@@ -395,34 +375,30 @@ describe("setCaseListTile", () => {
 	it("swaps two fields in one call", async () => {
 		// The reason placement lives with the layout: either half of this swap on
 		// its own puts two fields on the same square, which the gate rejects.
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-					{
-						columnUuid: STATUS_COLUMN,
-						cell: { x: 0, y: 0, width: 12, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+			],
+		});
 
 		expectSuccess(result.result);
-		expect(columnTile(result.newDoc, NAME_COLUMN)).toEqual({
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
 			x: 0,
 			y: 1,
 			width: 6,
 			height: 1,
 		});
-		expect(columnTile(result.newDoc, STATUS_COLUMN)).toEqual({
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual({
 			x: 0,
 			y: 0,
 			width: 12,
@@ -431,68 +407,56 @@ describe("setCaseListTile", () => {
 	});
 
 	it("is rejected when half a swap would put two fields on one square", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 1, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
 
 		if (!("error" in result.result)) throw new Error("expected error result");
 		expect(result.result.error).toContain("on top of each other");
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.columns).toEqual(
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.columns).toEqual(
 			placedColumns(),
 		);
 	});
 
 	it("is rejected when the tile is turned on with a field left unplaced", async () => {
-		const { doc, ctx } = docWithColumns(unplacedColumns());
+		const h = fixtureWithColumns(unplacedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				tile: {},
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 0, width: 12, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: {},
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+			],
+		});
 
 		if (!("error" in result.result)) throw new Error("expected error result");
 		expect(result.result.error).toContain("no place on the tile");
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.tile).toBeUndefined();
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toBeUndefined();
 	});
 
 	it("names the fields still needing a place while the list is on rows", async () => {
-		const { doc, ctx } = docWithColumns(unplacedColumns());
+		const h = fixtureWithColumns(unplacedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 0, width: 12, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+			],
+		});
 
 		const success = expectSuccess(result.result);
 		expect(success).toMatchObject({
@@ -502,25 +466,21 @@ describe("setCaseListTile", () => {
 	});
 
 	it("rejects a field named twice in one call", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 0, y: 0, width: 6, height: 1 },
-					},
-					{
-						columnUuid: NAME_COLUMN,
-						cell: { x: 6, y: 0, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 6, height: 1 },
+				},
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 6, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
@@ -528,21 +488,17 @@ describe("setCaseListTile", () => {
 	});
 
 	it("rejects a placement naming an unknown field", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{
-				moduleUuid: MOD_A,
-				placements: [
-					{
-						columnUuid: testUuid("unknown-column"),
-						cell: { x: 0, y: 0, width: 6, height: 1 },
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			placements: [
+				{
+					columnUuid: testUuid("unknown-column"),
+					cell: { x: 0, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
@@ -550,13 +506,9 @@ describe("setCaseListTile", () => {
 	});
 
 	it("rejects a call that names neither the layout nor a placement", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{ moduleUuid: MOD_A },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, { moduleUuid: MOD_A });
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
@@ -564,13 +516,12 @@ describe("setCaseListTile", () => {
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {
-		const { doc, ctx } = docWithColumns(placedColumns());
+		const h = fixtureWithColumns(placedColumns());
 
-		const result = await setCaseListTileTool.execute(
-			{ moduleUuid: testUuid("unknown-module"), tile: {} },
-			ctx,
-			doc,
-		);
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: testUuid("unknown-module"),
+			tile: {},
+		});
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
@@ -578,8 +529,8 @@ describe("setCaseListTile", () => {
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const { doc, ctx: chatCtx } = docWithColumns(placedColumns());
-		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		const chat = fixtureWithColumns(placedColumns());
+		const mcp = makeCaseListMcpFixture(docWithColumns(placedColumns()));
 		const input = {
 			moduleUuid: MOD_A,
 			tile: { persistOnForms: true } as const,
@@ -591,8 +542,8 @@ describe("setCaseListTile", () => {
 			],
 		};
 
-		const r1 = await setCaseListTileTool.execute(input, chatCtx, doc);
-		const r2 = await setCaseListTileTool.execute(input, mcpCtx, doc);
+		const r1 = await chat.runTool(setCaseListTileTool, input);
+		const r2 = await mcp.runTool(setCaseListTileTool, input);
 
 		expect(r1.mutations).toEqual(r2.mutations);
 	});

@@ -7,8 +7,10 @@
  * `single_select` field (which carries options), and a `hidden` field
  * (which carries NO message-media slot beyond identity — the negative
  * case for the slot-availability guard). `makeMediaFixture` bundles the
- * doc with the chat-side `GenerationContext` shim; `makeMediaMcpFixture`
- * is the MCP-surface sibling for cross-surface parity.
+ * doc with a canonical workspace over the chat-side stub host;
+ * `makeMediaMcpFixture` is the MCP-surface sibling for cross-surface parity —
+ * the same workspace over an `McpContext` host, exactly as the shared MCP
+ * adapter builds it.
  */
 
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -28,10 +30,13 @@ import type {
 import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
+	type MakeToolWorkspaceHarnessOptions,
 	makeMcpTestContext,
-	makeStubToolContext,
-	type StubToolContextHandles,
+	makeToolWorkspaceHarness,
+	type ToolWorkspaceHarness,
 } from "../../../__tests__/fixtures";
+import { CanonicalMutationWorkspace } from "../../../workspace/canonicalWorkspace";
+import type { ToolInvocationContext } from "../../../workspace/types";
 
 // ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
 //
@@ -205,27 +210,59 @@ export function makeMediaDoc(): BlueprintDoc {
 	return doc;
 }
 
-/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub
- *  (its `recordMutations` echoes the passed post-mutation doc as the committed
- *  doc; the media-expectations arg still rides through for assertion). */
-export interface MediaFixture extends StubToolContextHandles {
+/** Bundle of doc + a canonical workspace over the lightweight chat-surface
+ *  stub host (its `recordMutations` echoes the prepared candidate's post-mutation
+ *  doc as the committed doc). */
+export interface MediaFixture extends ToolWorkspaceHarness {
 	doc: BlueprintDoc;
 }
 
-/** Bundle of doc + MCP `McpContext`. */
+/** Bundle of doc + MCP `McpContext` and the canonical workspace over it. */
 export interface MediaMcpFixture extends MakeMcpTestContextHandles {
 	doc: BlueprintDoc;
+	workspace: CanonicalMutationWorkspace;
+	/** Run one shared tool through the MCP-host workspace — the same `invoke`
+	 * path `sharedToolAdapter` uses. */
+	runTool<T>(
+		tool: {
+			execute(input: never, ctx: ToolInvocationContext): Promise<T>;
+		},
+		input: unknown,
+	): Promise<T>;
+	/** The workspace's CURRENT document. */
+	currentDoc(): BlueprintDoc;
 }
 
-/** Build a `{ doc, ctx, ... }` bundle for the chat surface. */
-export function makeMediaFixture(): MediaFixture {
-	return { ...makeStubToolContext(), doc: makeMediaDoc() };
+/** Build a `{ doc, runTool, ... }` bundle for the chat surface. `doc` seeds the
+ *  workspace, so a test needing a pre-referencing document passes its own. */
+export function makeMediaFixture({
+	doc = makeMediaDoc(),
+	...opts
+}: MakeToolWorkspaceHarnessOptions & {
+	doc?: BlueprintDoc;
+} = {}): MediaFixture {
+	return { ...makeToolWorkspaceHarness(doc, opts), doc };
 }
 
-/** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */
+/** Build a `{ doc, runTool, ... }` bundle for the MCP surface. */
 export function makeMediaMcpFixture(): MediaMcpFixture {
 	const doc = makeMediaDoc();
-	return { ...makeMcpTestContext({ initialDoc: doc }), doc };
+	const handles = makeMcpTestContext({ initialDoc: doc });
+	const workspace = new CanonicalMutationWorkspace({
+		host: handles.ctx,
+		initialDoc: doc,
+	});
+	return {
+		...handles,
+		doc,
+		workspace,
+		runTool: (tool, input) =>
+			workspace.invoke({
+				toolName: "test-tool",
+				execute: (ctx) => tool.execute(input as never, ctx),
+			}),
+		currentDoc: () => workspace.currentSnapshot().doc,
+	};
 }
 
 /** Narrow a mutating-tool result to its error string, failing the test on

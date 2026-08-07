@@ -6,14 +6,15 @@
  * a sibling-id conflict, an XML-illegal name, a reserved `__nova_`
  * prefix, or an over-long case-property name fails the WHOLE call with
  * an `{ error }` envelope naming EVERY failing item, and
- * `ctx.recordMutations` never fires. The `DUPLICATE_FIELD_ID` /
+ * the host's `recordMutations` never fires. The `DUPLICATE_FIELD_ID` /
  * `INVALID_FIELD_ID` / `RESERVED_FIELD_ID_PREFIX` validator rules stay
  * as backstops — this guard is the at-source twin (the connect-id
  * pattern).
  *
- * Tests drive the REAL tool handler with both execution contexts (chat
+ * Tests drive the REAL tool handler through both canonical hosts (chat
  * `GenerationContext`, MCP `McpContext`) to prove both surfaces hit the
- * same guard — the MCP adapter calls this same `execute` body.
+ * same guard — the MCP adapter runs this same `execute` body through the
+ * same workspace.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +23,9 @@ import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
-	makeStubToolContext,
+	makeToolWorkspaceHarness,
 } from "../../__tests__/fixtures";
+import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import { addFieldsTool } from "../addFields";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -109,31 +111,25 @@ beforeEach(() => {
 
 describe("addFields — identifier guard (chat surface)", () => {
 	it("rejects a duplicate sibling id and persists nothing", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		const result = await addFieldsTool.execute(
-			{ ...ADDRESS, fields: [textItem("age")] },
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("age")],
+		});
 
 		expect(result.result).toHaveProperty("error");
 		const error = (result.result as { error: string }).error;
 		expect(error).toContain('"age"');
 		expect(result.mutations).toHaveLength(0);
-		expect(recordSpy).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("names EVERY failing item, not just the first", async () => {
-		const { ctx } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				...ADDRESS,
-				fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
-			},
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
+		});
 
 		const error = (result.result as { error: string }).error;
 		expect(error).toContain('"age"');
@@ -142,69 +138,50 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("rejects two in-batch fields landing on the same parent with the same id", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		const result = await addFieldsTool.execute(
-			{
-				...ADDRESS,
-				fields: [textItem("dup"), textItem("dup")],
-			},
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("dup"), textItem("dup")],
+		});
 
 		const error = (result.result as { error: string }).error;
 		expect(error).toContain('"dup"');
-		expect(recordSpy).not.toHaveBeenCalled();
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("rejects a duplicate against a group's existing children", async () => {
-		const { ctx } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				...ADDRESS,
-				fields: [textItem("note", GRP)],
-			},
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("note", GRP)],
+		});
 
 		expect((result.result as { error: string }).error).toContain('"note"');
 	});
 
 	it("accepts a cousin id (same id under a different parent) and persists", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		const result = await addFieldsTool.execute(
-			{
-				...ADDRESS,
-				fields: [textItem("age", GRP)],
-			},
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("age", GRP)],
+		});
 
 		expect(result.result).toHaveProperty("message");
 		expect(result.mutations).toHaveLength(1);
-		expect(recordSpy).toHaveBeenCalledTimes(1);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("accepts a legal batch and persists it", async () => {
-		const { ctx } = makeStubToolContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		const result = await addFieldsTool.execute(
-			{
-				...ADDRESS,
-				fields: [textItem("weight"), textItem("height")],
-			},
-			ctx,
-			makeDoc(),
-		);
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [textItem("weight"), textItem("height")],
+		});
 
 		expect(result.result).toHaveProperty("message");
 		expect(result.mutations).toHaveLength(2);
-		expect(recordSpy).toHaveBeenCalledTimes(1);
-		const ids = Object.values(result.newDoc.fields).map((f) => f?.id);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const ids = Object.values(h.currentDoc().fields).map((f) => f?.id);
 		expect(ids).toContain("weight");
 		expect(ids).toContain("height");
 	});
@@ -215,11 +192,20 @@ describe("addFields — identifier guard (MCP surface, same tool body)", () => {
 		const doc = makeDoc();
 		const { ctx } = makeMcpTestContext({ initialDoc: doc });
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		const result = await addFieldsTool.execute(
-			{ ...ADDRESS, fields: [textItem("age")] },
-			ctx,
-			doc,
-		);
+		// The MCP adapter's own shape: a per-call canonical workspace over the
+		// `McpContext` host, running the same shared tool body.
+		const workspace = new CanonicalMutationWorkspace({
+			host: ctx,
+			initialDoc: doc,
+		});
+		const result = await workspace.invoke({
+			toolName: "add_fields",
+			execute: (invocationCtx) =>
+				addFieldsTool.execute(
+					{ ...ADDRESS, fields: [textItem("age")] },
+					invocationCtx,
+				),
+		});
 
 		const error = (result.result as { error: string }).error;
 		expect(error).toContain('"age"');

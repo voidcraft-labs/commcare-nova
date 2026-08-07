@@ -14,7 +14,7 @@ import type {
 	LookupDefinitionsSnapshot,
 	LookupRevision,
 } from "@/lib/lookup/types";
-import { makeStubToolContext } from "../../__tests__/fixtures";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { getCaseOperationsTool } from "../case-operations/getCaseOperations";
 import { getFieldTool } from "../getField";
 import { getFormTool } from "../getForm";
@@ -143,32 +143,26 @@ describe("shared read tools — canonical lookup identity", () => {
 	it("returns every immutable lookup UUID without mutating the doc", async () => {
 		const doc = lookupDoc();
 		const before = JSON.stringify(doc);
-		const stub = makeStubToolContext();
-		const ctx = {
-			...stub.ctx,
+		const h = makeToolWorkspaceHarness(doc, {
 			lookupCatalog: async () => LOOKUP_CATALOG,
-		};
+		});
 
-		const fieldRead = await getFieldTool.execute(
-			{ moduleUuid: MODULE, formUuid: FORM, fieldUuid: GROUP },
-			ctx,
-			doc,
-		);
-		const formRead = await getFormTool.execute(
-			{ moduleUuid: MODULE, formUuid: FORM },
-			ctx,
-			doc,
-		);
-		const moduleRead = await getModuleTool.execute(
-			{ moduleUuid: MODULE },
-			ctx,
-			doc,
-		);
-		const operationRead = await getCaseOperationsTool.execute(
-			{ moduleUuid: MODULE, formUuid: FORM },
-			ctx,
-			doc,
-		);
+		const fieldRead = await h.runTool(getFieldTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+			fieldUuid: GROUP,
+		});
+		const formRead = await h.runTool(getFormTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+		});
+		const moduleRead = await h.runTool(getModuleTool, {
+			moduleUuid: MODULE,
+		});
+		const operationRead = await h.runTool(getCaseOperationsTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+		});
 		if ("error" in fieldRead.data) throw new Error(fieldRead.data.error);
 		if ("error" in formRead.data) throw new Error(formRead.data.error);
 		if ("error" in moduleRead.data) throw new Error(moduleRead.data.error);

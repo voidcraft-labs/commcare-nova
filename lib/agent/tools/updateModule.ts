@@ -23,7 +23,7 @@
  * at the model boundary but persist each changed Search setting independently.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface.
+ * shared `ToolInvocationContext` interface.
  *
  * Three exit branches:
  *
@@ -39,15 +39,10 @@ import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
-import {
-	asUuid,
-	type BlueprintDoc,
-	findAuthoredBlueprintIdentity,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, findAuthoredBlueprintIdentity, type Uuid } from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../blueprintHelpers";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	columnInputSchema,
 	newUuid,
@@ -109,9 +104,9 @@ export const updateModuleTool = {
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
+		const doc = ctx.snapshot.doc;
 		const {
 			moduleUuid: rawModuleUuid,
 			name,
@@ -124,7 +119,6 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error:
 							"Nothing to update — no slot was given. Pass `name`, `case_type`, and/or `displayCondition` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
@@ -138,7 +132,6 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -160,7 +153,6 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: retirement.message },
 				};
 			}
@@ -192,7 +184,6 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Column UUID ${seedCollision.uuid} is duplicated in this call or already belongs to an authored object.`,
 					},
@@ -235,7 +226,6 @@ export const updateModuleTool = {
 			];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}`,
 			);
@@ -243,7 +233,6 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -257,14 +246,12 @@ export const updateModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: commit.mutations,
-					newDoc,
 					result: { error: `Module ${moduleUuid} not found after update` },
 				};
 			}
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${
 						case_type != null ? ` — case type: ${newMod.caseType}` : ""
@@ -276,7 +263,7 @@ export const updateModuleTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

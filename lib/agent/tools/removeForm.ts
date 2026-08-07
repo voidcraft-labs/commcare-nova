@@ -3,7 +3,7 @@
  * a module.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. The reducer cascades
+ * shared `ToolInvocationContext` interface. The reducer cascades
  * deletion to the form's fields — the full subtree is dropped atomically.
  *
  * The tool tolerates an already-missing form UUID: instead of returning an
@@ -23,9 +23,9 @@
 import type { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import { removeFormMutations } from "../blueprintHelpers";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -52,10 +52,10 @@ export const removeFormTool = {
 	inputSchema: removeFormInputSchema,
 	async execute(
 		input: RemoveFormInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveFormResult>> {
 		const { moduleUuid: rawModuleUuid, formUuid: rawFormUuid } = input;
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveFormAddress(doc, input);
 
@@ -73,7 +73,6 @@ export const removeFormTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: `Form ${rawFormUuid} does not exist in module ${rawModuleUuid} — no change. That module has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
 				};
 			}
@@ -85,17 +84,11 @@ export const removeFormTool = {
 			const removedName = form.name;
 
 			const mutations: Mutation[] = removeFormMutations(doc, formUuid);
-			const commit = await guardedMutate(
-				ctx,
-				doc,
-				mutations,
-				`form:${formUuid}`,
-			);
+			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -105,7 +98,6 @@ export const removeFormTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully removed form "${removedName}" from module "${mod.name}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
 					summary: {
@@ -115,7 +107,7 @@ export const removeFormTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

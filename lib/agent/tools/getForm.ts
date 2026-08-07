@@ -8,9 +8,9 @@
  */
 
 import type { z } from "zod";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
 	formAddressSchema,
@@ -39,9 +39,9 @@ export const getFormTool = {
 	inputSchema: getFormInputSchema,
 	async execute(
 		input: GetFormInput,
-		_ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetFormResult>> {
+		const doc = ctx.snapshot.doc;
 		const address = resolveFormAddress(doc, input);
 		if (!address.ok) {
 			return { kind: "read", data: { error: address.error } };

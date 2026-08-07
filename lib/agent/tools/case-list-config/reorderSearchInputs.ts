@@ -17,9 +17,9 @@
  */
 
 import { z } from "zod";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { reorderSearchInputsMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -62,9 +62,9 @@ export const reorderSearchInputsTool = {
 	inputSchema: reorderSearchInputsInputSchema,
 	async execute(
 		input: ReorderSearchInputsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<ReorderSearchInputsResult>> {
+		const doc = ctx.snapshot.doc;
 		const { searchInputUuids: rawSearchInputUuids } = input;
 		const searchInputUuids = rawSearchInputUuids.map(asUuid);
 		try {
@@ -73,7 +73,6 @@ export const reorderSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -84,14 +83,12 @@ export const reorderSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: result.error },
 				};
 			}
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:searchInput:reorder`,
 			);
@@ -99,16 +96,13 @@ export const reorderSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Reordered ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,
 					order: [...searchInputUuids],
@@ -116,7 +110,7 @@ export const reorderSearchInputsTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

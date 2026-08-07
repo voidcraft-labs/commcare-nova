@@ -22,12 +22,12 @@
  * addressing the same option apply in order — the later one wins.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`.
+ * shared `ToolInvocationContext`.
  */
 
 import { z } from "zod";
-import { type BlueprintDoc, type SelectOption, uuidSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { type SelectOption, uuidSchema } from "@/lib/domain";
+import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	fieldAddressSchema,
@@ -82,9 +82,9 @@ export const attachOptionMediaTool = {
 	inputSchema: attachOptionMediaInputSchema,
 	async execute(
 		input: AttachOptionMediaInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AttachOptionMediaResult>> {
+		const doc = ctx.snapshot.doc;
 		const { attachments } = input;
 		try {
 			// Resolve every attachment before writing anything, collecting
@@ -177,7 +177,6 @@ export const attachOptionMediaTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: outcome.error },
 				};
 			}
@@ -185,14 +184,13 @@ export const attachOptionMediaTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
-				newDoc: outcome.newDoc,
 				result: {
 					message: joinBatchLines(resolved.map((r) => r.line)),
 					summary: { count: attachments.length },
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

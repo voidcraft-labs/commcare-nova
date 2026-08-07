@@ -35,7 +35,7 @@
  * tile.
  *
  * Both the SA chat factory and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface. Five exit branches:
+ * `ToolInvocationContext` interface. Five exit branches:
  *
  *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Module has no case list at all → `{ error }`, no mutations. There is
@@ -53,12 +53,11 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
-	type BlueprintDoc,
 	type CaseTileLayout,
 	type Column,
 	type Uuid,
 } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -119,18 +118,17 @@ export const setCaseListTileTool = {
 	inputSchema: setCaseListTileInputSchema,
 	async execute(
 		input: SetCaseListTileInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetCaseListTileResult>> {
+		const doc = ctx.snapshot.doc;
 		const { tile, placements } = input;
 		try {
 			const address = resolveModuleAddress(doc, input);
-			if (!address.ok) return errorResult(doc, address.error);
+			if (!address.ok) return errorResult(address.error);
 			const { moduleUuid, module: mod } = address;
 
 			if (tile === undefined && placements === undefined) {
 				return errorResult(
-					doc,
 					`Tried to lay out the case list on module "${mod.name}" (${moduleUuid}). The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
 				);
 			}
@@ -138,7 +136,6 @@ export const setCaseListTileTool = {
 			const config = mod.caseListConfig;
 			if (!config) {
 				return errorResult(
-					doc,
 					`Tried to lay out the case list on module "${mod.name}" (${moduleUuid}). That module has no case list, so there is nothing to lay out. Give the module a case list first — a module that shows cases is created with one — or lay out a module that already has one.`,
 				);
 			}
@@ -153,13 +150,11 @@ export const setCaseListTileTool = {
 				const current = columnsByUuid.get(columnUuid);
 				if (!current) {
 					return errorResult(
-						doc,
 						`Tried to place field ${columnUuid} on the case tile for module "${mod.name}". Found no field with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
 					);
 				}
 				if (named.has(columnUuid)) {
 					return errorResult(
-						doc,
 						`Tried to place field ${columnUuid} on the case tile for module "${mod.name}" twice in one call. A field sits in one place, so name each field at most once and give it the rectangle it should end up in.`,
 					);
 				}
@@ -182,12 +177,11 @@ export const setCaseListTileTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`module:${moduleUuid}:caseList:tile`,
 			);
 			if (!commit.ok) {
-				return errorResult(doc, commit.error);
+				return errorResult(commit.error);
 			}
 
 			// Report against the COMMITTED doc, not the tool's own candidate: the
@@ -210,7 +204,6 @@ export const setCaseListTileTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message: describeOutcome({
 						moduleName: mod.name,
@@ -229,20 +222,16 @@ export const setCaseListTileTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };
 
 /** No-op failure result — every rejection branch leaves the doc untouched. */
-function errorResult(
-	doc: BlueprintDoc,
-	error: string,
-): MutatingToolResult<SetCaseListTileResult> {
+function errorResult(error: string): MutatingToolResult<SetCaseListTileResult> {
 	return {
 		kind: "mutate" as const,
 		mutations: [],
-		newDoc: doc,
 		result: { error },
 	};
 }

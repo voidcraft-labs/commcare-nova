@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
-import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { asUuid, type Uuid, uuidSchema } from "@/lib/domain";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -43,16 +43,15 @@ export const updateCaseOperationTool = {
 	inputSchema: updateCaseOperationInputSchema,
 	async execute(
 		input: UpdateCaseOperationInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<UpdateCaseOperationResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveOperationAddress(doc, input);
 			if (!address.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -65,7 +64,6 @@ export const updateCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
@@ -81,7 +79,6 @@ export const updateCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Operation "${existing.id}" was not updated: ${idError}`,
 					},
@@ -93,7 +90,6 @@ export const updateCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Operation "${existing.id}" was not updated: ${plan.reason}`,
 					},
@@ -102,7 +98,6 @@ export const updateCaseOperationTool = {
 			const mutations = [...plan.mutations];
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				mutations,
 				`form:${address.formUuid}`,
 			);
@@ -110,14 +105,12 @@ export const updateCaseOperationTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message:
 						mutations.length === 0
@@ -132,7 +125,7 @@ export const updateCaseOperationTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };

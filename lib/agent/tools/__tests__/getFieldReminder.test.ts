@@ -8,10 +8,8 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { getFieldTool } from "../getField";
-
-const CTX = {} as ToolExecutionContext;
 
 const ORDER_CATALOG = [
 	{
@@ -40,11 +38,11 @@ async function getField(doc: ReturnType<typeof buildDoc>, fieldId: string) {
 		(field) => field.id === fieldId,
 	)?.uuid;
 	if (!fieldUuid) throw new Error(`fixture missing field "${fieldId}"`);
-	const outcome = await getFieldTool.execute(
-		{ moduleUuid, formUuid, fieldUuid },
-		CTX,
-		doc,
-	);
+	const outcome = await makeToolWorkspaceHarness(doc).runTool(getFieldTool, {
+		moduleUuid,
+		formUuid,
+		fieldUuid,
+	});
 	expect(outcome.kind).toBe("read");
 	return outcome.data;
 }

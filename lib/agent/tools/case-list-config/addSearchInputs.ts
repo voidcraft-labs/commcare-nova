@@ -20,14 +20,9 @@
  */
 
 import { z } from "zod";
-import {
-	asUuid,
-	type BlueprintDoc,
-	findAuthoredBlueprintIdentity,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, findAuthoredBlueprintIdentity, type Uuid } from "@/lib/domain";
 import { addSearchInputsMutation } from "../../blueprintHelpers";
-import type { ToolExecutionContext } from "../../toolExecutionContext";
+import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -74,9 +69,9 @@ export const addSearchInputsTool = {
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AddSearchInputsResult>> {
+		const doc = ctx.snapshot.doc;
 		const { searchInputs } = input;
 		try {
 			const address = resolveModuleAddress(doc, input);
@@ -84,7 +79,6 @@ export const addSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: address.error },
 				};
 			}
@@ -104,7 +98,6 @@ export const addSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Search-input UUID "${collision}" is duplicated in this call or already belongs to an authored object.`,
 					},
@@ -120,7 +113,6 @@ export const addSearchInputsTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				doc,
 				result.mutations,
 				`module:${moduleUuid}:caseList:searchInput:add`,
 			);
@@ -128,17 +120,14 @@ export const addSearchInputsTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			const labels = searchInputs.map((s) => `"${s.label}"`).join(", ");
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Added ${searchInputs.length} search input${searchInputs.length === 1 ? "" : "s"} to module "${mod.name}": ${labels}.`,
 					uuids,
@@ -146,7 +135,7 @@ export const addSearchInputsTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

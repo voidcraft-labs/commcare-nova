@@ -29,7 +29,7 @@
  * module creation cannot become a second owner of participation.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Exit branches:
+ * shared `ToolInvocationContext` interface. Exit branches:
  *
  *   1. A `case_type` with no record in the app's catalog → `{ error }`
  *      pointing at generateSchema, no mutations.
@@ -43,7 +43,6 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
@@ -53,8 +52,8 @@ import {
 } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import { closeConditionInputSchema } from "../planningSchemas";
-import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	columnInputSchema,
 	newUuid,
@@ -188,9 +187,9 @@ export const createModuleTool = {
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<CreateModuleResult>> {
+		const doc = ctx.snapshot.doc;
 		const {
 			moduleUuid: requestedModuleUuid,
 			name,
@@ -210,7 +209,6 @@ export const createModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `Module "${name}" wasn't created — the app has no data-model record for case type "${case_type}". Record it first with generateSchema (its properties, labels, and any parent link), then re-issue this call.`,
 					},
@@ -226,7 +224,6 @@ export const createModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `moduleUuid ${moduleUuid} already belongs to an authored entity in this app.`,
 					},
@@ -285,7 +282,6 @@ export const createModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error:
 							"moduleUuid, formUuid, and column UUID declarations in this call must be unique.",
@@ -299,7 +295,6 @@ export const createModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: {
 						error: `UUID ${existingCollision} already belongs to an authored object in this app.`,
 					},
@@ -317,7 +312,6 @@ export const createModuleTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `minted form UUID ${formUuid} collided with another identity in this call.`,
 						},
@@ -337,7 +331,6 @@ export const createModuleTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: describeRejectedFieldIds(
 								formInput.name,
@@ -358,7 +351,6 @@ export const createModuleTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Module "${name}" wasn't created — none of form "${formInput.name}"'s ${formInput.fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
 						},
@@ -373,7 +365,6 @@ export const createModuleTool = {
 					return {
 						kind: "mutate" as const,
 						mutations: [],
-						newDoc: doc,
 						result: {
 							error: `Module "${name}" wasn't created — close-condition fieldUuid ${formInput.close_condition.fieldUuid} is not a field created in form "${formInput.name}".`,
 						},
@@ -422,12 +413,11 @@ export const createModuleTool = {
 				skipped.push(...assembly.skipped);
 			}
 
-			const commit = await guardedMutate(ctx, doc, mutations, "module:create");
+			const commit = await guardedMutate(ctx, mutations, "module:create");
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -449,7 +439,6 @@ export const createModuleTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
-				newDoc,
 				result: {
 					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
 					moduleUuid,
@@ -459,7 +448,7 @@ export const createModuleTool = {
 				},
 			};
 		} catch (err) {
-			return toToolErrorResult(err, doc);
+			return toToolErrorResult(err);
 		}
 	},
 };

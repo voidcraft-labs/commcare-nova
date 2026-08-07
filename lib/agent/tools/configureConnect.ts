@@ -11,7 +11,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { connectFormConfigSchema } from "../planningSchemas";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -232,9 +232,9 @@ export const configureConnectTool = {
 	inputSchema: configureConnectInputSchema,
 	async execute(
 		input: ConfigureConnectInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
+		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<ConfigureConnectResult>> {
+		const doc = ctx.snapshot.doc;
 		try {
 			let labels: readonly string[] = [];
 			let target: ConnectTargetState = { mode: null };
@@ -253,7 +253,6 @@ export const configureConnectTool = {
 					return {
 						kind: "mutate",
 						mutations: [],
-						newDoc: doc,
 						result: { error: prepared.error },
 					};
 				}
@@ -268,16 +267,14 @@ export const configureConnectTool = {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: planned.messages.join(" ") },
 				};
 			}
-			const commit = await guardedMutate(ctx, doc, planned.mutations, "app");
+			const commit = await guardedMutate(ctx, planned.mutations, "app");
 			if (!commit.ok) {
 				return {
 					kind: "mutate",
 					mutations: [],
-					newDoc: doc,
 					result: { error: commit.error },
 				};
 			}
@@ -288,7 +285,6 @@ export const configureConnectTool = {
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
-				newDoc: commit.newDoc,
 				result: {
 					message:
 						input.mode === null
@@ -298,7 +294,7 @@ export const configureConnectTool = {
 				},
 			};
 		} catch (error) {
-			return toToolErrorResult(error, doc);
+			return toToolErrorResult(error);
 		}
 	},
 };
