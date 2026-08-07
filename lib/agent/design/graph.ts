@@ -34,7 +34,7 @@
  * a lookup-intent vocabulary the contract root does not carry yet.
  *
  * Sensitivity-lowering (§ the reviser rule) is a revision-PAIR property and
- * is enforced by the pipeline's acceptance path, not here.
+ * is enforced in the reviser call (`reviser.ts`), not here.
  */
 
 import type { z } from "zod";

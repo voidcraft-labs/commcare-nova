@@ -84,6 +84,8 @@ ${IDENTITY_RULES}
   from sources; "assumption" claims fill gaps the sources leave open.
 - A claim grounded only in platform knowledge cites a platform-constraint
   code from the provided catalog entries — never an invented code.
+- A requirement visible only in an attached IMAGE cites the message that
+  attached the image (there is no image-coordinate reference kind).
 - Every explicit claim is either represented (a record, fact, rule, task,
   transition, read model, or access policy cites it as evidence) or listed
   in deferredRequirements with a reason. Nothing is silently dropped.
@@ -260,6 +262,25 @@ function sourceOpen(ref: string): string {
 const SOURCE_CLOSE = "</nova:source>";
 
 /**
+ * Break any literal delimiter spelling inside UNTRUSTED text so a crafted
+ * message or document can never close (or reopen) the evidence container —
+ * the containment contract depends on the delimiter being unforgeable.
+ * Applied at RENDER time only: the package and its digest keep the exact
+ * source bytes, and the substitution (an angle-bracket lookalike) stays
+ * legible to the model as quoted text.
+ */
+function neutralizeSourceDelimiters(text: string): string {
+	return text.replace(/<(\s*\/?\s*)nova:source/gi, "\u27e8$1nova:source");
+}
+
+/** Ref-attribute tokens interpolate into the opening tag, so free-form ids
+ *  (a message id is any nonempty string) are reduced to a safe alphabet —
+ *  a quote or angle bracket in an id must not break the tag. */
+function refToken(value: string): string {
+	return value.replace(/[^A-Za-z0-9_.:-]/g, "_");
+}
+
+/**
  * The source package as prompt text: request blocks and document extracts
  * in delimited blocks, seeded claims and constraint entries as typed JSON.
  * Image bytes ride separately (`sourcePackageImages`).
@@ -271,23 +292,27 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 	lines.push("## User request");
 	for (const block of pkg.request.blocks) {
 		const { threadId, messageId, partIndex } = block.ref;
-		lines.push(sourceOpen(`message:${threadId}:${messageId}:${partIndex}`));
-		lines.push(block.text);
+		lines.push(
+			sourceOpen(`message:${threadId}:${refToken(messageId)}:${partIndex}`),
+		);
+		lines.push(neutralizeSourceDelimiters(block.text));
 		if (block.truncated) lines.push("[clipped at the projection bound]");
 		lines.push(SOURCE_CLOSE);
 	}
 	for (const attachment of pkg.attachments) {
 		lines.push("");
 		lines.push(
-			`## Attached document: ${attachment.filename} (attachment:${attachment.assetId}:${attachment.extractorVersion})`,
+			`## Attached document: ${neutralizeSourceDelimiters(attachment.filename)} (attachment:${attachment.assetId}:${attachment.extractorVersion})`,
 		);
-		if (attachment.summary) lines.push(`Summary: ${attachment.summary}`);
+		if (attachment.summary) {
+			lines.push(`Summary: ${neutralizeSourceDelimiters(attachment.summary)}`);
+		}
 		lines.push(
 			sourceOpen(
 				`attachment:${attachment.assetId}:${attachment.extractorVersion}`,
 			),
 		);
-		lines.push(attachment.extract);
+		lines.push(neutralizeSourceDelimiters(attachment.extract));
 		if (attachment.truncated) {
 			lines.push("[the stored extract was truncated or clipped at the bound]");
 		}
@@ -319,7 +344,7 @@ export function sourcePackageImages(
 	return pkg.images.map((image) => ({
 		mediaType: image.mediaType,
 		data: image.dataUrl,
-		label: `Attached image: ${image.filename}`,
+		label: `Attached image: ${neutralizeSourceDelimiters(image.filename)}`,
 	}));
 }
 

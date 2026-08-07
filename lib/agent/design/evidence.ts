@@ -33,6 +33,10 @@ import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
  * - `platform-constraint` — a catalogued Nova/CommCare platform fact. The
  *   `code` is closed (`platformConstraints.ts`); `sourceAnchor` names the
  *   repository/doc anchor that states the constraint.
+ *
+ * There is deliberately no image-coordinate kind: a requirement visible
+ * only in an attached image is cited through the MESSAGE that attached it,
+ * and the source package binds the image bytes by content digest.
  */
 export const sourceRefSchema = z.discriminatedUnion("kind", [
 	z

@@ -4,9 +4,10 @@
  * its lifecycle, digests, and complexity, each independent review with its
  * findings and dispositions, and the build plans.
  *
- * Every row is re-verified on read (envelope digest recomputation + strict
- * schema, through the artifact store's own readers), so this doubles as an
- * integrity probe for a session that behaved oddly.
+ * Every artifact is read through the store's verified readers — envelope
+ * digest recomputation plus the exact producer schemas — so this doubles as
+ * an integrity probe for a session that behaved oddly: a tampered or
+ * drifted row throws instead of printing as healthy.
  *
  * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL`
  * locally); `--prod` targets the production instance over its public IP
@@ -18,12 +19,12 @@
 import "dotenv/config";
 import {
 	readDesignReviews,
+	readDesignRevisionsForSession,
 	readDesignSourcePackage,
 	readDispositions,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { getAppDb } from "@/lib/db/pg";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -42,27 +43,15 @@ async function main(): Promise<void> {
 	const sessionId = sessionFlag >= 0 ? argv[sessionFlag + 1] : undefined;
 	if (!sessionId) usage();
 
-	const db = await getAppDb();
-	const revisions = await db
-		.selectFrom("design_revisions")
-		.select([
-			"id",
-			"revision",
-			"lifecycle",
-			"artifact_digest",
-			"source_package_digest",
-			"prompt_version",
-			"created_at",
-		])
-		.where("design_session_id", "=", sessionId)
-		.orderBy("revision", "asc")
-		.execute();
+	const revisions = await readDesignRevisionsForSession(sessionId);
 	if (revisions.length === 0) {
 		console.log(`No design revisions for session ${sessionId}.`);
 		return;
 	}
 
-	const packages = new Set(revisions.map((row) => row.source_package_digest));
+	const packages = new Set(
+		revisions.map((revision) => revision.sourcePackageDigest),
+	);
 	for (const digest of packages) {
 		const pkg = await readDesignSourcePackage(sessionId, digest);
 		if (!pkg) continue;
@@ -74,13 +63,20 @@ async function main(): Promise<void> {
 		);
 	}
 
-	for (const row of revisions) {
+	for (const revision of revisions) {
 		console.log("");
 		console.log(
-			`revision ${row.revision} [${row.lifecycle}] ${row.id} (${row.prompt_version}, ${row.created_at.toISOString()})`,
+			`revision ${revision.revision} [${revision.lifecycle}] ${revision.id} ` +
+				`(${revision.envelope.promptVersion}, ${revision.createdAt.toISOString()})`,
 		);
-		console.log(`  artifact digest ${row.artifact_digest.slice(0, 16)}…`);
-		const reviews = await readDesignReviews(row.id);
+		console.log(`  artifact digest ${revision.artifactDigest.slice(0, 16)}…`);
+		const complexity = revision.envelope.complexity;
+		if (complexity) {
+			console.log(
+				`  complexity ${complexity.score} → ${complexity.depth} (algorithm v${complexity.algorithmVersion})`,
+			);
+		}
+		const reviews = await readDesignReviews(revision.id);
 		for (const review of reviews) {
 			const findings = review.envelope.payload.findings;
 			console.log(
@@ -94,8 +90,8 @@ async function main(): Promise<void> {
 				);
 			}
 		}
-		if (row.lifecycle === "accepted") {
-			const plan = await readLatestDesignBuildPlanForRevision(row.id);
+		if (revision.lifecycle === "accepted") {
+			const plan = await readLatestDesignBuildPlanForRevision(revision.id);
 			if (plan) {
 				console.log(
 					`  build plan ${plan.id}: ${plan.envelope.payload.slices.length} slices, ` +

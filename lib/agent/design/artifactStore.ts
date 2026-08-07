@@ -398,6 +398,26 @@ export async function readLatestAcceptedDesignRevision(
 	return readRevisionRecordInTx(db, row.id);
 }
 
+/** Every revision of one session, ascending, each read through the
+ *  verified record reader — the inspector's integrity walk. */
+export async function readDesignRevisionsForSession(
+	designSessionId: string,
+): Promise<DesignRevisionRecord[]> {
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("design_revisions")
+		.select(["id"])
+		.where("design_session_id", "=", designSessionId)
+		.orderBy("revision", "asc")
+		.execute();
+	const records: DesignRevisionRecord[] = [];
+	for (const row of rows) {
+		const record = await readRevisionRecordInTx(db, row.id);
+		if (record) records.push(record);
+	}
+	return records;
+}
+
 /** The session's newest revision of ANY lifecycle — the pipeline's resume
  *  anchor. */
 export async function readLatestDesignRevision(

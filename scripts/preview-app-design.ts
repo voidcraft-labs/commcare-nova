@@ -13,7 +13,14 @@
  * durable pipeline (`lib/agent/design/pipeline.ts` owns that).
  *
  * Usage:
- *   npx tsx scripts/preview-app-design.ts --out /tmp/design "Track CHW home visits..."
+ *   npx tsx --conditions=react-server scripts/preview-app-design.ts \
+ *     --out /tmp/design "Track CHW home visits..."
+ *
+ * The `--conditions=react-server` flag is required, exactly as it is for
+ * `npm run test:schema`: the capability catalog imports the shared tool
+ * registry, whose graph reaches `server-only` — under plain Node its bare
+ * default export throws before this script prints anything, while the
+ * condition resolves it to the package's own no-op.
  *
  * Reads OPENAI_API_KEY from .env.
  * ⚠️ Cost: 2–4 live gpt-5.6-sol calls at high/xhigh reasoning — this is the
@@ -40,7 +47,10 @@ import {
 
 function usage(): never {
 	console.log(
-		'Usage: npx tsx scripts/preview-app-design.ts [--out <dir>] "<request text>"\n' +
+		"Usage: npx tsx --conditions=react-server scripts/preview-app-design.ts " +
+			'[--out <dir>] "<request text>"\n' +
+			"(--conditions=react-server is required — the tool-registry import " +
+			"graph reaches server-only)\n" +
 			"⚠️ Sends 2–4 live gpt-5.6-sol calls (the design half of a build).",
 	);
 	process.exit(1);

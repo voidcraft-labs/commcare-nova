@@ -34,12 +34,14 @@
 
 import {
 	type DesignBuildPlanRecord,
+	type DesignReviewRecord,
 	type DesignRevisionRecord,
 	insertDesignBuildPlan,
 	insertDesignReview,
 	insertDesignRevision,
 	insertDesignSourcePackage,
 	readDesignReviews,
+	readDesignRevision,
 	readLatestDesignBuildPlanForRevision,
 	readLatestDesignRevision,
 } from "@/lib/agent/design/artifactStore";
@@ -113,15 +115,12 @@ export async function runDesignPipeline(
 		if (latest.lifecycle === "accepted") {
 			return finishFromAccepted(ctx, pkg, latest, signal);
 		}
-		/* A reviser-produced draft is round 2's re-review — resuming must not
-		 * grant it another full round, or the bound breaks. */
-		const round: 1 | 2 =
-			latest.envelope.promptVersion === DESIGN_PROMPT_VERSIONS.reviser ? 2 : 1;
+		const round = await deriveRound(latest);
 		const priorReviews = await readDesignReviews(latest.id);
 		if (priorReviews.length === 0) {
 			return reviewRound(ctx, pkg, latest, round, signal);
 		}
-		return reviseRound(ctx, pkg, latest, [], round, signal);
+		return continueFromReviews(ctx, pkg, latest, priorReviews, round, signal);
 	}
 
 	/* ---- author ------------------------------------------------------ */
@@ -148,6 +147,24 @@ export async function runDesignPipeline(
 /* ------------------------------------------------------------------ */
 /* Rounds                                                              */
 /* ------------------------------------------------------------------ */
+
+/**
+ * The round a resumed draft sits in, derived from DURABLE ancestry — never
+ * from prompt versions, which move under in-flight sessions on a deploy.
+ * Only the reviser produces a draft whose parent (in the SAME source-package
+ * lineage) carries reviews, and that draft is round 2's re-reviewable
+ * revision; a fresh author draft's parent is either absent or a prior
+ * package's head.
+ */
+async function deriveRound(draft: DesignRevisionRecord): Promise<1 | 2> {
+	if (draft.parentRevisionId === null) return 1;
+	const parent = await readDesignRevision(draft.parentRevisionId);
+	if (!parent || parent.sourcePackageDigest !== draft.sourcePackageDigest) {
+		return 1;
+	}
+	const parentReviews = await readDesignReviews(parent.id);
+	return parentReviews.length > 0 ? 2 : 1;
+}
 
 async function reviewRound(
 	ctx: StructuredModelRunContext,
@@ -177,20 +194,43 @@ async function reviewRound(
 		designRevisionId: draft.id,
 		runId: ctx.runId,
 	});
-	const gated = reviewed.artifact.findings.filter(
-		(finding) =>
-			finding.severity === "critical" || finding.severity === "important",
-	);
+	return continueFromReviews(ctx, pkg, draft, [review], round, signal);
+}
+
+/**
+ * One decision point for a reviewed draft — live path and resume path
+ * alike, over the PERSISTED review records: a clean review accepts the
+ * draft's exact content, a gated one goes to the reviser. A resumed rerun
+ * therefore takes the same route (and bills the same calls) as the run it
+ * resumes.
+ */
+async function continueFromReviews(
+	ctx: StructuredModelRunContext,
+	pkg: DesignSourcePackage,
+	draft: DesignRevisionRecord,
+	reviews: readonly DesignReviewRecord[],
+	round: 1 | 2,
+	signal: AbortSignal,
+): Promise<DesignPipelineOutcome> {
+	const gated = reviews
+		.flatMap((review) => review.envelope.payload.findings)
+		.filter(
+			(finding) =>
+				finding.severity === "critical" || finding.severity === "important",
+		);
 	if (gated.length === 0) {
 		/* Nothing to revise: acceptance re-issues the SAME contract content
-		 * as a new accepted revision whose inputs bind the review. */
+		 * as a new accepted revision whose inputs bind every review. */
 		const accepted = await insertDesignRevision({
 			envelope: contractEnvelope({
 				pkg,
 				contract: draft.envelope.payload,
 				revision: draft.revision + 1,
 				parentId: draft.id,
-				inputDigests: [draft.artifactDigest, review.artifactDigest],
+				inputDigests: [
+					draft.artifactDigest,
+					...reviews.map((review) => review.artifactDigest),
+				],
 				promptVersion: draft.envelope.promptVersion,
 				finishReason: draft.envelope.producer.finishReason,
 			}),
@@ -200,36 +240,18 @@ async function reviewRound(
 		});
 		return finishFromAccepted(ctx, pkg, accepted, signal);
 	}
-	return reviseRound(
-		ctx,
-		pkg,
-		draft,
-		[reviewedRecordShim(review.envelope)],
-		round,
-		signal,
-		[review.id],
-	);
+	return reviseRound(ctx, pkg, draft, reviews, round, signal);
 }
 
 async function reviseRound(
 	ctx: StructuredModelRunContext,
 	pkg: DesignSourcePackage,
 	draft: DesignRevisionRecord,
-	reviews: readonly DesignReview[],
+	reviews: readonly DesignReviewRecord[],
 	round: 1 | 2,
 	signal: AbortSignal,
-	reviewIds?: readonly string[],
 ): Promise<DesignPipelineOutcome> {
-	/* A resume path loads persisted review records; a live path passes the
-	 * fresh payloads. Normalize both to payloads + row ids. */
-	let reviewPayloads = reviews;
-	let reviewRowIds = reviewIds;
-	if (reviewRowIds === undefined) {
-		const records = await readDesignReviews(draft.id);
-		reviewPayloads = records.map((record) => record.envelope.payload);
-		reviewRowIds = records.map((record) => record.id);
-	}
-
+	const reviewPayloads = reviews.map((review) => review.envelope.payload);
 	const revised = await runDesignReviser(
 		ctx,
 		{ pkg, contract: draft.envelope.payload, reviews: reviewPayloads },
@@ -239,11 +261,7 @@ async function reviseRound(
 		return { kind: "not-produced", stage: "revise", reason: revised.reason };
 	}
 	const result = revised.artifact;
-	const dispositions = mapDispositionsToReviews(
-		result,
-		reviewPayloads,
-		reviewRowIds,
-	);
+	const dispositions = mapDispositionsToReviews(result, reviews);
 
 	const depth = draft.envelope.complexity?.depth ?? "standard";
 	const secondRoundWarranted =
@@ -260,7 +278,10 @@ async function reviseRound(
 			contract: result.contract,
 			revision: draft.revision + 1,
 			parentId: draft.id,
-			inputDigests: [draft.artifactDigest],
+			inputDigests: [
+				draft.artifactDigest,
+				...reviews.map((review) => review.artifactDigest),
+			],
 			promptVersion: DESIGN_PROMPT_VERSIONS.reviser,
 			finishReason: revised.finishReason,
 		}),
@@ -383,17 +404,14 @@ function changesArchitecture(
  *  was proved inside the reviser parse; this is pure bookkeeping. */
 function mapDispositionsToReviews(
 	result: DesignRevisionResult,
-	reviews: readonly DesignReview[],
-	reviewRowIds: readonly string[],
+	reviews: readonly DesignReviewRecord[],
 ): Array<{ reviewId: string; disposition: FindingDisposition }> {
 	const reviewIdByFinding = new Map<string, string>();
-	reviews.forEach((review, index) => {
-		const rowId = reviewRowIds[index];
-		if (rowId === undefined) return;
-		for (const finding of review.findings) {
-			reviewIdByFinding.set(finding.id, rowId);
+	for (const review of reviews) {
+		for (const finding of review.envelope.payload.findings) {
+			reviewIdByFinding.set(finding.id, review.id);
 		}
-	});
+	}
 	return result.dispositions.flatMap((disposition) => {
 		const reviewId = reviewIdByFinding.get(disposition.findingId);
 		return reviewId === undefined ? [] : [{ reviewId, disposition }];
@@ -495,12 +513,4 @@ function planEnvelope(args: {
 		createdAt: new Date().toISOString(),
 		payload: args.plan,
 	});
-}
-
-/** A live review round already holds the payload; the shim keeps one code
- *  path for the reviser call. */
-function reviewedRecordShim(
-	envelope: DesignArtifactEnvelope<DesignReview>,
-): DesignReview {
-	return envelope.payload;
 }

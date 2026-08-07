@@ -23,6 +23,9 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	insertDesignReview,
+	insertDesignRevision,
+	insertDesignSourcePackage,
 	readDesignReviews,
 	readDispositions,
 	readLatestAcceptedDesignRevision,
@@ -30,6 +33,7 @@ import {
 } from "@/lib/agent/design/artifactStore";
 import type { BuildPlanDraft } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
+import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { runDesignPipeline } from "@/lib/agent/design/pipeline";
 import {
 	DESIGN_AUTHOR_SYSTEM,
@@ -236,6 +240,29 @@ describe("runDesignPipeline", () => {
 		);
 	});
 
+	it("a revised acceptance also binds the review digest in its inputs", async () => {
+		const ctx = scriptedCtx({
+			author: makeContract,
+			review: criticalReview,
+			revise: resolvingRevision,
+			plan: planDraft,
+		});
+		const outcome = await runDesignPipeline({
+			ctx,
+			pkg: makePackage(),
+			signal: new AbortController().signal,
+		});
+		if (outcome.kind !== "accepted") {
+			throw new Error(`expected accepted, got ${JSON.stringify(outcome)}`);
+		}
+		const reviews = await readDesignReviews(
+			outcome.revision.parentRevisionId ?? "",
+		);
+		expect(outcome.revision.envelope.inputArtifactDigests).toContain(
+			reviews[0]?.artifactDigest,
+		);
+	});
+
 	it("findings path: dispositions land beside the accepted revision", async () => {
 		const ctx = scriptedCtx({
 			author: makeContract,
@@ -278,6 +305,105 @@ describe("runDesignPipeline", () => {
 		expect(draft?.lifecycle).toBe("draft");
 		expect(await readDesignReviews(draft?.id ?? "")).toHaveLength(0);
 		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
+	});
+
+	it("resume after a clean review converges on acceptance — no reviser call", async () => {
+		// Simulate a run that died BETWEEN the review insert and the
+		// acceptance insert: persist the draft and its clean review directly
+		// through the store, then rerun the pipeline. The rerun must take
+		// the live path's route — accept the reviewed content — and never
+		// fire a reviser call the live path would not make (the scripted
+		// context has no reviser, so a wrong route fails the run).
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, runId: "run-pipeline-test" });
+		const draftEnvelope = sealArtifactEnvelope({
+			artifactType: "design-contract" as const,
+			artifactSchemaVersion: 1,
+			artifactId: crypto.randomUUID(),
+			designSessionId: sessionId,
+			revision: 1,
+			parentArtifactId: null,
+			sourcePackageDigest: pkg.packageDigest,
+			inputArtifactDigests: [],
+			promptVersion: "design-author-v1",
+			producer: {
+				provider: "openai",
+				modelId: "gpt-test",
+				finishReason: "stop",
+			},
+			createdAt: new Date().toISOString(),
+			payload: makeContract(),
+		});
+		const draft = await insertDesignRevision({
+			envelope: draftEnvelope,
+			lifecycle: "draft",
+			runId: "run-pipeline-test",
+		});
+		await insertDesignReview({
+			envelope: sealArtifactEnvelope({
+				artifactType: "design-review" as const,
+				artifactSchemaVersion: 1,
+				artifactId: crypto.randomUUID(),
+				designSessionId: sessionId,
+				revision: draft.revision,
+				parentArtifactId: draft.id,
+				sourcePackageDigest: draft.sourcePackageDigest,
+				inputArtifactDigests: [draft.artifactDigest],
+				promptVersion: "design-reviewer-v1",
+				producer: {
+					provider: "openai",
+					modelId: "gpt-test",
+					finishReason: "stop",
+				},
+				createdAt: new Date().toISOString(),
+				payload: cleanReview(),
+			}),
+			designRevisionId: draft.id,
+			runId: "run-pipeline-test",
+		});
+
+		const resumed = scriptedCtx({ plan: planDraft });
+		const outcome = await runDesignPipeline({
+			ctx: resumed,
+			pkg,
+			signal: new AbortController().signal,
+		});
+		expect(outcome.kind).toBe("accepted");
+		expect(resumed.calls).toEqual({ author: 0, review: 0, revise: 0, plan: 1 });
+		const accepted = await readLatestAcceptedDesignRevision(sessionId);
+		// The resumed acceptance carries the SAME reviewed content and binds
+		// the persisted review's digest.
+		expect(accepted?.contractDigest).toBe(draft.contractDigest);
+	});
+
+	it("resume with a persisted GATED review goes to the reviser, not a re-review", async () => {
+		const pkg = makePackage();
+		// First run: draft + gated review persist; the reviser fails, so the
+		// run ends with the review on disk and no revision.
+		const first = scriptedCtx({
+			author: makeContract,
+			review: criticalReview,
+			revise: () => null,
+		});
+		const firstOutcome = await runDesignPipeline({
+			ctx: first,
+			pkg,
+			signal: new AbortController().signal,
+		});
+		expect(firstOutcome).toEqual({
+			kind: "not-produced",
+			stage: "revise",
+			reason: "invalid-structured-output",
+		});
+
+		const second = scriptedCtx({ revise: resolvingRevision, plan: planDraft });
+		const outcome = await runDesignPipeline({
+			ctx: second,
+			pkg,
+			signal: new AbortController().signal,
+		});
+		expect(outcome.kind).toBe("accepted");
+		expect(second.calls).toEqual({ author: 0, review: 0, revise: 1, plan: 1 });
 	});
 
 	it("resume after a failed review re-produces nothing already committed", async () => {

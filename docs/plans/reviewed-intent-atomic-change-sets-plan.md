@@ -888,7 +888,7 @@ Default limits:
 - one review call;
 - one revision call when critical/important findings exist;
 - one second review and one second revision only when the first revision leaves a critical finding (a critical dispositioned deferred, or rejected — the reviser overriding the reviewer on a critical deserves the second independent look) or changes architecture (the decision set or a selected option changed); extended depth always takes the second review — its impacted-scenario re-review;
-- no third automatic loop. A revision awaiting its second review persists as a `draft`; resume derives the round from the draft's prompt version, so a rerun can never grant an extra round.
+- no third automatic loop. A revision awaiting its second review persists as a `draft`; resume derives the round from durable ancestry (a draft whose parent, in the same source-package lineage, carries reviews is round 2), so a rerun can never grant an extra round — prompt versions move on deploys and are never round authority.
 
 Terminal outcomes:
 

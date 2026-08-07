@@ -383,6 +383,18 @@ export async function buildDesignSourcePackage(
 		);
 	}
 
+	/* The text ceiling depends only on blocks + extracts, so it runs BEFORE
+	 * the image downloads — an over-bound source must not pay for megabytes
+	 * of image bytes just to be rejected. */
+	const totalChars =
+		blocks.reduce((sum, block) => sum + block.text.length, 0) +
+		attachments.reduce((sum, a) => sum + a.extract.length, 0);
+	if (totalChars > MAX_TOTAL_PROJECTED_CHARS) {
+		throw new SourcePackageError(
+			`The projected source material is ${totalChars.toLocaleString()} characters, over the ${MAX_TOTAL_PROJECTED_CHARS.toLocaleString()} design ceiling. Trim the request or its documents so the whole source can be read together.`,
+		);
+	}
+
 	const images: AuthorizedImage[] = [];
 	for (const ref of imageRefs) {
 		const asset = requireAsset(ref.assetId, ref.filename);
@@ -394,15 +406,6 @@ export async function buildDesignSourcePackage(
 			bytesDigest: image.bytesDigest,
 			dataUrl: image.dataUrl,
 		});
-	}
-
-	const totalChars =
-		blocks.reduce((sum, block) => sum + block.text.length, 0) +
-		attachments.reduce((sum, a) => sum + a.extract.length, 0);
-	if (totalChars > MAX_TOTAL_PROJECTED_CHARS) {
-		throw new SourcePackageError(
-			`The projected source material is ${totalChars.toLocaleString()} characters, over the ${MAX_TOTAL_PROJECTED_CHARS.toLocaleString()} design ceiling. Trim the request or its documents so the whole source can be read together.`,
-		);
 	}
 
 	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
