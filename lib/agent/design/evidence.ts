@@ -34,9 +34,11 @@ import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
  *   `code` is closed (`platformConstraints.ts`); `sourceAnchor` names the
  *   repository/doc anchor that states the constraint.
  *
- * There is deliberately no image-coordinate kind: a requirement visible
- * only in an attached image is cited through the MESSAGE that attached it,
- * and the source package binds the image bytes by content digest.
+ * There is no image-coordinate kind YET: a requirement visible only in an
+ * attached image is cited through the MESSAGE that attached it, and the
+ * source package binds the image bytes by content digest. The image
+ * evidence arm ships with the new-build cutover (the reviewed-intent
+ * plan's Unit E, work item 20), which retires this interim rule.
  */
 export const sourceRefSchema = z.discriminatedUnion("kind", [
 	z

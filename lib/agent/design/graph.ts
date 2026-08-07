@@ -31,7 +31,9 @@
  *     read model.
  *
  * The lookup fact-source arm's intent ids are exempt from closure: they name
- * a lookup-intent vocabulary the contract root does not carry yet.
+ * a lookup-intent vocabulary the contract root does not carry yet. The
+ * vocabulary and the lifted exemption ship with the new-build cutover (the
+ * reviewed-intent plan's Unit E, work item 19).
  *
  * Sensitivity-lowering (§ the reviser rule) is a revision-PAIR property and
  * is enforced in the reviser call (`reviser.ts`), not here.

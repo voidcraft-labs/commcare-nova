@@ -88,7 +88,8 @@ export type RecordConcept = z.infer<typeof recordConceptSchema>;
  *
  * The `lookup` arm's intent ids name a lookup-table/column intent vocabulary
  * that does not exist in the contract root yet; they are exempt from graph
- * closure until that vocabulary lands (see `graph.ts`).
+ * closure until that vocabulary lands with the new-build cutover (the
+ * reviewed-intent plan's Unit E, work item 19 — see `graph.ts`).
  */
 export const factSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("answer"), taskInputId: designIdSchema }).strict(),

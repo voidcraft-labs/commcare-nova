@@ -334,6 +334,7 @@ Rules:
 - Do not store model reasoning.
 - A claim marked `explicit` must carry a user-message or attachment source.
 - A claim based only on Nova/CommCare capability knowledge uses `platform-constraint`, whose `code` is the closed vocabulary in `platformConstraints.ts` (enforced by the schema enum).
+- There is no image coordinate yet: a requirement visible only in an attached image cites the message that attached it, with the image bytes digest-bound in the source package. The image evidence arm ships with the new-build cutover (Unit E work item 20), so image-heavy designs gain exact citations before real builds rely on them.
 - A reviewer cannot create a source-supported critical finding without a source reference.
 
 ### 6.4 UX-level design actor
@@ -411,6 +412,8 @@ const factDefinitionSchema = z.object({
 ```
 
 A fact's `source` is load-bearing. It is the basis for lowering direct field-to-case writes correctly and for identifying unjustified hidden writer fields.
+
+The `lookup` arm's intent ids name a design-level lookup vocabulary (table/column intents) the contract root does not carry yet, so they are the one reference family exempt from graph closure. That vocabulary — and the lifted exemption — ships with the new-build cutover (Unit E work item 19): a user-facing pipeline must be able to describe lookup-backed data as precisely as it validates everything else. Until then the canonical commit gate remains the full authority over real lookup references.
 
 ### 6.6 Tasks, inputs, transitions, and read-back
 
@@ -4990,6 +4993,13 @@ Do not proceed past these gates on assertion alone:
 18. Mount the model-facing change-set tools (begin/stage/inspect/commit/
     discard/raiseDesignExecutionIssue) on the executor surface and wire
     per-stage envelope emission from `committedStageEnvelopes`.
+19. Add the design-level lookup-intent vocabulary (table/column intents in
+    the contract root) and lift the graph-closure exemption on the `lookup`
+    fact-source arm — a real chat build designs lookup-backed data on day
+    one, so the exemption must not survive the cutover.
+20. Add the image evidence coordinate to the source-reference vocabulary
+    (asset id + content digest) and route the author/reviewer prompts to
+    cite it — retiring the cite-the-attaching-message interim rule.
 
 **Acceptance:**
 

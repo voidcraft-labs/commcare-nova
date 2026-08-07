@@ -27,8 +27,9 @@ direct MCP edit.
   record-bound transition writes, acyclic parent forests, blocking
   questions naming their intents, scenarios exercising the workflow). An
   incoherent contract is an invalid structured output, never an artifact.
-  The lookup fact-source arm's intent ids are exempt from closure until a
-  lookup-intent vocabulary exists.
+  The lookup fact-source arm's intent ids are exempt from closure until
+  the lookup-intent vocabulary ships (the plan's Unit E, work item 19);
+  the image evidence coordinate is likewise Unit E work item 20.
 - `review.ts` — findings (severity EARNED by basis: heuristic never
   critical, source-supported critical needs source refs,
   platform-critical needs a catalogued code), dispositions, and closure.
