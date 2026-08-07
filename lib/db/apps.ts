@@ -30,7 +30,7 @@ import {
 } from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
-import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { retenantAppCasesOn } from "@/lib/case-store/retenant";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import {
@@ -40,20 +40,15 @@ import {
 } from "@/lib/chat/threadAttachments";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
-import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
-import { parseOrganizationRevision } from "@/lib/organization/schema";
-import type { OrganizationRevision } from "@/lib/organization/types";
 import {
 	nextPersistedSequence,
 	safePersistedSequence,
 } from "@/lib/utils/persistedSequence";
-import type { CasePropertyRenamePlan } from "../doc/casePropertyRenames";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
 	exportReadinessFindings,
-	mutationCommitVerdict,
 	prepareMutationCandidate,
 } from "../doc/commitVerdicts";
 import { deepEqual } from "../doc/deepEqual";
@@ -68,8 +63,6 @@ import {
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
 	extractLookupReferenceTargets,
-	type LookupReferenceTargetSet,
-	type LookupValidationContext,
 	unionLookupReferenceTargetSets,
 } from "../doc/lookupReferences";
 import {
@@ -77,7 +70,6 @@ import {
 	admitMutationBatch,
 	encodeAdmittedMutationEnvelope,
 } from "../doc/mutationAdmission";
-import { buildReferenceIndex } from "../doc/referenceIndex";
 import { canonicalAppGenesis } from "../doc/scaffolds";
 import type { Mutation } from "../doc/types";
 import {
@@ -90,7 +82,6 @@ import {
 	asWalkableDoc,
 	collectRealAssetRefs,
 	remapAssetRefs,
-	walkAuthoredAssetRefs,
 } from "../domain/mediaRefs";
 import {
 	type AssetKind,
@@ -98,13 +89,33 @@ import {
 	type MediaAssetId,
 } from "../domain/multimedia";
 import type { Uuid } from "../domain/uuid";
-import { decomposeBlueprint, diffBlueprints } from "./blueprintRows";
+import { decomposeBlueprint } from "./blueprintRows";
 import {
-	AppProjectChangedError,
-	appChangeFingerprintMatches,
+	admitExactMediaReferences,
+	assertAppCapabilityInTransaction,
+	assertExpectedAppProject,
+	assertProjectCapabilityInTransaction,
+	blueprintMediaRequirements,
+	type CanonicalCommitKernelOptions,
+	type CanonicalCommitReceipt,
+	type CanonicalCommitRequest,
+	type CanonicalCommitTransactionHooks,
+	type ChatRunHolderCapability,
+	commitCanonicalBatch,
+	denormalize,
+	hasLookupReferenceTargets,
+	loadAppInTransaction,
+	loadStrictAppSnapshotFromRowInTransaction,
+	lockAppRow,
+	lookupContextForAuthoritativeWrite,
+	PERSISTED_BLUEPRINT_APP_COLUMNS,
+	type PersistedBlueprintAppRow,
+	writeBlueprintEntityDiff,
+	writeCommittedBatch,
+} from "./canonicalCommitKernel";
+import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
-	MutationBatchIdCollisionError,
 	mutationTargetsInvalid,
 	RunHolderLostError,
 } from "./commitGuard";
@@ -115,14 +126,8 @@ import {
 	refundStaleReservation,
 	type StaleRunReapOutcome,
 } from "./credits";
+import { LEASE_COLUMNS, leaseView, rowReservation } from "./leaseView";
 import {
-	LEASE_COLUMNS,
-	leaseView,
-	rowReservation,
-	rowRunLock,
-} from "./leaseView";
-import {
-	LookupReferenceWriteError,
 	lockLookupTablesForReferenceWrite,
 	readStoredLookupReferenceTargets,
 	replaceLookupReferenceEdges,
@@ -133,18 +138,12 @@ import {
 	lockAndValidateMediaReferences,
 	type MediaAssetRecord,
 	MediaReferenceProjectionError,
-	type MediaReferenceRequirement,
 } from "./mediaAssets";
 import {
 	deleteMediaAssetMetadataInTransaction,
 	MediaAssetStillReferencedError,
 } from "./mediaDeletion";
 import { getCurrentPeriod } from "./period";
-import {
-	assemblePersistedBlueprintJsonText,
-	type PersistedEntityRowText,
-	parsePersistedMutationBatchText,
-} from "./persistedJson";
 import {
 	type AppDatabase,
 	type AppsTable,
@@ -154,7 +153,6 @@ import {
 	notifyPresence,
 	withAppTx,
 } from "./pg";
-import { projectRoleForInTransaction } from "./projectMembership";
 import { lockProjectMoveMemberships } from "./projectMoveAdmission";
 import {
 	type ExactRunHolderIdentity,
@@ -172,26 +170,28 @@ import {
 	type RunHolderIdentity,
 	runLeaseState,
 } from "./runLiveness";
-import {
-	type AppDoc,
-	type BlueprintMutationAppChangeKind,
-	type ClientAppChangeKind,
-	parsePersistedAppLifecycleStatus,
-} from "./types";
+import { type AppDoc, parsePersistedAppLifecycleStatus } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-/**
- * Exact holder authority carried only by a chat Solutions Architect run.
- *
- * `runId` on a committed batch is attribution: MCP also stamps one, but an MCP
- * call does not own the app's chat build/edit lease. This separate capability
- * is what authorizes a chat run to keep mutating after its claim. The literal
- * source tag prevents a plain attribution object from being passed by accident.
- */
-export interface ChatRunHolderCapability extends ExactRunHolderIdentity {
-	readonly source: "chat";
-}
+/* The canonical commit kernel owns the guarded-commit transaction and the
+ * shared locked-app plumbing every protocol in this file composes. These
+ * re-exports preserve this module's public surface — external callers keep
+ * importing from `@/lib/db/apps`; only server-owned commit hosts reach the
+ * kernel module directly. */
+export type {
+	CandidateThreadMediaProjection,
+	CanonicalCommitReceipt as CommitGuardedBatchResult,
+	CanonicalCommitRequest as CommitGuardedBatchArgs,
+	CanonicalCommitTransactionHooks as CommitGuardedBatchTransactionHooks,
+	ChatRunHolderCapability,
+	GuardedBatchBeforeWriteContext,
+} from "./canonicalCommitKernel";
+export {
+	__setStrictAppLoadAfterRootReadHookForTests,
+	loadAppInTransaction,
+	replaceExactMediaReferencesForApp,
+} from "./canonicalCommitKernel";
 
 /** Subset of AppDoc fields returned by list queries (no blueprint assembly). */
 export interface AppSummary {
@@ -273,387 +273,6 @@ export interface SearchAppsResult {
 
 type AppRow = Selectable<AppsTable>;
 type AppRowWithoutCaseTypes = Omit<AppRow, "case_types">;
-type PersistedBlueprintAppRow = Omit<AppRow, "case_types"> & {
-	readonly case_types_text: string | null;
-};
-
-/**
- * Complete app-row projection for Blueprint readers. `case_types` is
- * deliberately absent: selecting it even beside `case_types::text` would let
- * pg eagerly parse and numerically alias the discarded JSONB value.
- */
-const PERSISTED_BLUEPRINT_APP_COLUMNS = [
-	"id",
-	"owner",
-	"project_id",
-	"app_name",
-	"app_name_lower",
-	"connect_type",
-	"logo",
-	"module_count",
-	"form_count",
-	"mutation_seq",
-	"status",
-	"awaiting_input",
-	"error_type",
-	"deleted_at",
-	"recoverable_until",
-	"run_id",
-	"res_period",
-	"res_reserved",
-	"res_settled",
-	"res_user_id",
-	"res_run_id",
-	"lock_run_id",
-	"lock_actor_user_id",
-	"lock_expire_at",
-	"run_holder_nonce",
-	"created_at",
-	"updated_at",
-] as const satisfies readonly (keyof AppsTable)[];
-
-// ── Row projections ────────────────────────────────────────────────
-
-/** Project one already-admitted persisted blueprint into the full app record. */
-function rowToAppDoc(
-	row: PersistedBlueprintAppRow,
-	blueprint: PersistableDoc,
-): AppDoc {
-	return {
-		owner: row.owner,
-		project_id: row.project_id,
-		app_name: row.app_name,
-		blueprint,
-		mutation_seq: safePersistedSequence(
-			row.mutation_seq,
-			`apps.mutation_seq for app ${row.id}`,
-		),
-		connect_type: row.connect_type,
-		module_count: row.module_count,
-		form_count: row.form_count,
-		status: parsePersistedAppLifecycleStatus(row.status),
-		...(row.awaiting_input && { awaiting_input: true }),
-		error_type: row.error_type,
-		deleted_at: row.deleted_at?.toISOString() ?? null,
-		recoverable_until: row.recoverable_until?.toISOString() ?? null,
-		run_id: row.run_id,
-		run_holder_nonce: row.run_holder_nonce,
-		...(rowReservation(row) && { reservation: rowReservation(row) }),
-		...(rowRunLock(row) && { run_lock: rowRunLock(row) }),
-		created_at: row.created_at,
-		updated_at: row.updated_at,
-	};
-}
-
-/** Lock an app row for the duration of the transaction — the per-app
- *  serialization point every run-lifecycle/commit transaction takes first. */
-async function lockAppRow(
-	tx: Transaction<AppDatabase>,
-	appId: string,
-): Promise<PersistedBlueprintAppRow | undefined> {
-	return (await tx
-		.selectFrom("apps")
-		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
-		.select(
-			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
-				"case_types_text",
-			),
-		)
-		.where("id", "=", appId)
-		.forUpdate()
-		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
-}
-
-async function loadEntities(
-	tx: Transaction<AppDatabase>,
-	appId: string,
-): Promise<PersistedEntityRowText[]> {
-	const rows = await tx
-		.selectFrom("blueprint_entities")
-		.select(["uuid", "kind", "parent_uuid", "ordinal"])
-		.select(
-			sql<string>`${sql.ref("blueprint_entities.data")}::text`.as("data_text"),
-		)
-		.where("app_id", "=", appId)
-		.execute();
-	return rows as PersistedEntityRowText[];
-}
-
-type StrictAppLoadAfterRootReadHook = (appId: string) => void | Promise<void>;
-let strictAppLoadAfterRootReadHook: StrictAppLoadAfterRootReadHook | null =
-	null;
-
-/**
- * Deterministic concurrency seam for the torn-read regression. Production
- * never installs this hook; it runs while the app row's share/update lock is
- * held and before entity rows are read.
- */
-export function __setStrictAppLoadAfterRootReadHookForTests(
-	hook: StrictAppLoadAfterRootReadHook | null,
-): void {
-	strictAppLoadAfterRootReadHook = hook;
-}
-
-interface StrictAppSnapshot {
-	readonly app: AppDoc;
-	readonly doc: BlueprintDoc;
-	readonly lookupContext: LookupValidationContext;
-}
-
-/**
- * The one current persisted-app admission owner.
- *
- * The caller has already read the app row under either its share lock or one
- * repeatable-read snapshot on `tx`. From there this
- * function reads every Blueprint JSONB carrier as exact `::text`, performs
- * strict schema assembly and hydration, reads the referenced Project lookup
- * definitions on the same transaction, and applies the absolute whole-document
- * gate before returning any current state.
- */
-async function loadStrictAppSnapshotFromRowInTransaction(
-	tx: Transaction<AppDatabase>,
-	row: PersistedBlueprintAppRow,
-): Promise<StrictAppSnapshot> {
-	await strictAppLoadAfterRootReadHook?.(row.id);
-	const entities = await loadEntities(tx, row.id);
-	const persisted = assemblePersistedBlueprintJsonText(
-		row.id,
-		{
-			app_name: row.app_name,
-			connect_type: row.connect_type,
-			case_types_text: row.case_types_text,
-			logo: row.logo,
-		},
-		entities,
-	);
-	const doc = hydratePersistedBlueprint(persisted);
-	const targets = extractLookupReferenceTargets(doc);
-	const definitionSnapshot = await readLookupDefinitionsInTransaction(
-		tx,
-		row.project_id,
-		targets.tableIds,
-	);
-	const lookupContext: LookupValidationContext = {
-		kind: "available",
-		...definitionSnapshot,
-	};
-	const verdict = mutationCommitVerdict(doc, [], lookupContext);
-	if (!verdict.ok) {
-		const codes = [...new Set(verdict.findings.map((finding) => finding.code))]
-			.sort()
-			.join(",");
-		throw new Error(
-			`Persisted app ${row.id} fails the absolute commit gate (${codes}).`,
-		);
-	}
-	return {
-		app: rowToAppDoc(row, toPersistableDoc(verdict.nextDoc)),
-		doc: verdict.nextDoc,
-		lookupContext,
-	};
-}
-
-/** Extract denormalized list-display fields from a persistable doc. An app name
- *  is non-blank by construction, so `app_name_lower` is a plain lowering of the
- *  same name the list shows. */
-function denormalize(doc: PersistableDoc) {
-	const formCount = doc.moduleOrder.reduce(
-		(sum, modUuid) => sum + (doc.formOrder[modUuid]?.length ?? 0),
-		0,
-	);
-	return {
-		app_name: doc.appName,
-		app_name_lower: doc.appName.toLowerCase(),
-		connect_type: doc.connectType ?? null,
-		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
-		logo: doc.logo ?? null,
-		module_count: doc.moduleOrder.length,
-		form_count: formCount,
-	};
-}
-
-export interface CandidateThreadMediaProjection {
-	readonly threadId: string;
-	readonly messages: readonly unknown[];
-}
-
-function blueprintMediaRequirements(
-	doc: BlueprintDoc | PersistableDoc,
-): MediaReferenceRequirement[] {
-	return [...walkAuthoredAssetRefs(asWalkableDoc(doc))]
-		.filter((ref) => !isBuiltinIconRef(ref.assetId))
-		.map((ref) => ({
-			assetId: asMediaAssetId(ref.assetId),
-			expectedKind: ref.slotKind,
-		}));
-}
-
-/**
- * Rederive and replace one app's complete live media projection. The caller
- * already owns the app `FOR UPDATE`; that is what keeps every Blueprint and
- * thread carrier stable while this function reads the other rows.
- */
-export async function replaceExactMediaReferencesForApp(
-	tx: Transaction<AppDatabase>,
-	args: {
-		readonly appId: string;
-		readonly projectId: string;
-		readonly candidateDoc?: BlueprintDoc | PersistableDoc;
-		readonly candidateThread?: CandidateThreadMediaProjection;
-	},
-): Promise<void> {
-	let doc = args.candidateDoc;
-	if (doc === undefined) {
-		const stored = await loadAppInTransaction(tx, args.appId);
-		if (stored === null || stored.project_id !== args.projectId) {
-			throw new MediaReferenceProjectionError(
-				"The app media projection could not be derived from its locked Project.",
-			);
-		}
-		doc = hydratePersistedBlueprint(stored.blueprint);
-	}
-	const requirements = blueprintMediaRequirements(doc);
-	const threads = await tx
-		.selectFrom("threads")
-		.select(["thread_id", "messages"])
-		.where("app_id", "=", args.appId)
-		.orderBy("thread_id")
-		.execute();
-	let substituted = false;
-	for (const thread of threads) {
-		const messages =
-			args.candidateThread?.threadId === thread.thread_id
-				? args.candidateThread.messages
-				: thread.messages;
-		if (args.candidateThread?.threadId === thread.thread_id) substituted = true;
-		for (const attachment of collectThreadAttachments(messages)) {
-			requirements.push({
-				assetId: attachment.assetId,
-				expectedKind: attachment.kind as AssetKind,
-			});
-		}
-	}
-	if (args.candidateThread !== undefined && !substituted) {
-		for (const attachment of collectThreadAttachments(
-			args.candidateThread.messages,
-		)) {
-			requirements.push({
-				assetId: attachment.assetId,
-				expectedKind: attachment.kind as AssetKind,
-			});
-		}
-	}
-	const assetIds = await lockAndValidateMediaReferences(
-		tx,
-		args.projectId,
-		requirements,
-	);
-	await deleteMediaReferenceEdges(tx, args.appId);
-	await insertMediaReferenceEdges(tx, {
-		appId: args.appId,
-		projectId: args.projectId,
-		assetIds,
-	});
-}
-
-async function admitExactMediaReferences(
-	tx: Transaction<AppDatabase>,
-	args: {
-		readonly appId: string;
-		readonly projectId: string;
-		readonly candidateDoc: BlueprintDoc | PersistableDoc;
-	},
-): Promise<void> {
-	try {
-		await replaceExactMediaReferencesForApp(tx, args);
-	} catch (error) {
-		if (error instanceof MediaReferenceProjectionError) {
-			throw new BlueprintCommitRejectedError(
-				"A media file used by this app is unavailable, outside this Project, not ready, or the wrong kind for its authored slot. Choose it again and retry.",
-			);
-		}
-		throw error;
-	}
-}
-
-function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
-	return targets.tableIds.length > 0 || targets.columnTargets.length > 0;
-}
-
-/**
- * Freeze the exact tables one candidate pair can reference, then read the
- * rows-free definitions against that same transaction snapshot.
- */
-async function lookupContextForAuthoritativeWrite(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	targets: LookupReferenceTargetSet,
-): Promise<LookupValidationContext> {
-	try {
-		await lockLookupTablesForReferenceWrite(tx, projectId, targets.tableIds);
-	} catch (error) {
-		if (
-			error instanceof LookupReferenceWriteError &&
-			error.code === "unavailable"
-		) {
-			throw new BlueprintCommitRejectedError(
-				"One or more lookup tables used by this app are no longer available in its Project. Remove or replace those references, then try again.",
-			);
-		}
-		throw error;
-	}
-	const snapshot = await readLookupDefinitionsInTransaction(
-		tx,
-		projectId,
-		targets.tableIds,
-	);
-	return { kind: "available", ...snapshot };
-}
-
-/** Lock and authorize one existing Better Auth membership on this app tx. */
-async function assertProjectCapabilityInTransaction(
-	tx: Transaction<AppDatabase>,
-	actorUserId: string,
-	projectId: string,
-	capability: AppCapability,
-	message: string,
-): Promise<void> {
-	const role = await projectRoleForInTransaction(tx, actorUserId, projectId);
-	if (role === null || !roleAllowsApp(role, capability)) {
-		throw new CommitReauthError(message);
-	}
-}
-
-/**
- * Authorize an actor against the Project carried by the freshly locked app
- * row, locking the actor's exact membership row before the caller makes any
- * write-side decision.
- */
-async function assertAppCapabilityInTransaction(
-	tx: Transaction<AppDatabase>,
-	app: Pick<Selectable<AppsTable>, "owner" | "project_id">,
-	actorUserId: string,
-	capability: AppCapability,
-	message: string,
-): Promise<void> {
-	await assertProjectCapabilityInTransaction(
-		tx,
-		actorUserId,
-		app.project_id,
-		capability,
-		message,
-	);
-}
-
-/** Reject a writer whose admitted Project snapshot no longer matches the app. */
-function assertExpectedAppProject(
-	app: Pick<Selectable<AppsTable>, "project_id">,
-	expectedProjectId: string,
-): void {
-	if (app.project_id !== expectedProjectId) {
-		throw new AppProjectChangedError();
-	}
-}
 
 /**
  * Delete one media metadata row for a live chat run under the same app-row,
@@ -974,119 +593,6 @@ export async function createApp(
 
 // ── Committed-batch writer ──────────────────────────────────────────
 
-async function writeBlueprintEntityDiff(
-	tx: Transaction<AppDatabase>,
-	args: {
-		readonly appId: string;
-		readonly prevDoc: PersistableDoc;
-		readonly committedDoc: PersistedBlueprint;
-	},
-): Promise<void> {
-	const { upserts, deletedUuids } = diffBlueprints(
-		args.prevDoc,
-		args.committedDoc,
-	);
-	if (deletedUuids.length > 0) {
-		await tx
-			.deleteFrom("blueprint_entities")
-			.where("app_id", "=", args.appId)
-			.where("uuid", "in", deletedUuids)
-			.execute();
-	}
-	if (upserts.length > 0) {
-		await tx
-			.insertInto("blueprint_entities")
-			.values(
-				upserts.map((r) => ({
-					app_id: args.appId,
-					uuid: r.uuid,
-					kind: r.kind,
-					parent_uuid: r.parent_uuid,
-					ordinal: r.ordinal,
-					data: JSON.stringify(r.data),
-				})),
-			)
-			.onConflict((oc) =>
-				oc.columns(["app_id", "uuid"]).doUpdateSet({
-					kind: (eb) => eb.ref("excluded.kind"),
-					parent_uuid: (eb) => eb.ref("excluded.parent_uuid"),
-					ordinal: (eb) => eb.ref("excluded.ordinal"),
-					data: (eb) => eb.ref("excluded.data"),
-				}),
-			)
-			.execute();
-	}
-}
-
-/**
- * The one committed-batch write — the shared tail of every guarded commit.
- * On the caller's transaction (which holds the app row lock): write the
- * entity-row DIFF (only what changed), stamp the scalars + denormalized
- * summary + `mutation_seq` at the caller's LITERAL `seq`, append the
- * PERMANENT `app_changes` entry (whose `UNIQUE (app_id, batch_id)` is
- * the idempotency latch), and poke the stream channel — the NOTIFY delivers
- * on commit, after the rows are visible.
- */
-async function writeCommittedBatch(
-	tx: Transaction<AppDatabase>,
-	args: {
-		appId: string;
-		seq: number;
-		batchId: string;
-		runId?: string;
-		prevDoc: PersistableDoc;
-		committedDoc: PersistedBlueprint;
-		mutations: AdmittedMutationBatch;
-		actorUserId: string;
-		kind: BlueprintMutationAppChangeKind;
-		/** Exact chat holder authority. The conditional app-row write is the final
-		 * SQL compare-and-set after every entity/reference preparation step. */
-		expectedHolder?: ExactRunHolderIdentity;
-		extraAppFields?: Partial<{ lock_expire_at: Date }>;
-	},
-): Promise<void> {
-	await writeBlueprintEntityDiff(tx, args);
-	await tx
-		.insertInto("app_changes")
-		.values({
-			app_id: args.appId,
-			seq: args.seq,
-			batch_id: args.batchId,
-			run_id: args.runId ?? null,
-			actor_id: args.actorUserId,
-			kind: args.kind,
-			mutations: encodeAdmittedMutationEnvelope(args.mutations).json,
-			from_project_id: null,
-			to_project_id: null,
-		})
-		.execute();
-	let appUpdate = tx
-		.updateTable("apps")
-		.set({
-			...denormalize(args.committedDoc),
-			mutation_seq: args.seq,
-			updated_at: new Date(),
-			...(args.runId !== undefined && { run_id: args.runId }),
-			...args.extraAppFields,
-		})
-		.where("id", "=", args.appId);
-	if (args.expectedHolder !== undefined) {
-		appUpdate = appUpdate.where(
-			expectedRunHolderPredicate(args.expectedHolder),
-		);
-	}
-	const appUpdateResult = await appUpdate.executeTakeFirst();
-	if (!updatedExactlyOne(appUpdateResult)) {
-		if (args.expectedHolder !== undefined) {
-			throw new RunHolderLostError("superseded");
-		}
-		throw new Error(
-			`[writeCommittedBatch] app row missing for appId=${args.appId}`,
-		);
-	}
-	await notifyAppStream(tx, args.appId, args.seq);
-}
-
 /**
  * Persist one exact Project transition. The event is inserted while the
  * locked app still carries the source Project and preceding head; only then is
@@ -1142,340 +648,24 @@ async function writeProjectMoveChange(
 	await notifyAppStream(tx, args.appId, args.seq);
 }
 
-/** Arguments for {@link commitGuardedBatch}. */
-export interface CommitGuardedBatchArgs {
-	readonly appId: string;
-	/** Client-minted idempotency key; a re-commit of the same id is a no-op. */
-	readonly batchId: string;
-	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
-	readonly runId?: string;
-	/**
-	 * Exact chat lease authority, distinct from the attribution `runId` above.
-	 * GenerationContext supplies it; MCP deliberately never does.
-	 */
-	readonly chatRunHolder?: ChatRunHolderCapability;
-	readonly mutations: AdmittedMutationBatch;
-	/** The acting user — reauth + attribution key, never the tenant. */
-	readonly actorUserId: string;
-	readonly kind: ClientAppChangeKind;
-	/**
-	 * Project captured with the caller's admitted blueprint/scope snapshot. A
-	 * move before this commit rejects so stale work reloads instead of silently
-	 * crossing tenant scope. This is only a scope expectation: fresh
-	 * authorization below always runs transactionally.
-	 */
-	readonly expectedProjectId: string;
-	/**
-	 * Optional read-set fence for a tool result derived from organization rows.
-	 * Checked after the app lock and before a fresh write; dedup replays return
-	 * their prior success regardless of later organization changes.
-	 */
-	readonly expectedOrganizationRevision?: OrganizationRevision;
-}
-
-/** Outcome of {@link commitGuardedBatch}. */
-export interface CommitGuardedBatchResult {
-	readonly seq: number;
-	/** The committed doc, fully hydrated (`fieldParent` + `refIndex`). */
-	readonly committedDoc: BlueprintDoc;
-	/** True when the `batchId` was already committed (nothing written). */
-	readonly deduped: boolean;
-}
-
-export interface GuardedBatchBeforeWriteContext {
-	readonly tx: Transaction<AppDatabase>;
-	readonly freshDoc: BlueprintDoc;
-	readonly nextDoc: BlueprintDoc;
-	readonly seq: number;
-	readonly casePropertyRenamePlan?: CasePropertyRenamePlan;
-}
-
-export interface CommitGuardedBatchTransactionHooks {
-	/**
-	 * Infrastructure composition seam after fresh locked admission and before
-	 * Blueprint/event persistence. Explicit case-property rename uses it to put
-	 * row/schema Phase A in the same app-locked transaction.
-	 */
-	readonly beforeWrite?: (
-		context: GuardedBatchBeforeWriteContext,
-	) => Promise<void>;
-}
-
-interface CommitGuardedBatchInternalOptions
-	extends CommitGuardedBatchTransactionHooks {
-	/**
-	 * Existing transaction used only by infrastructure probes that must exercise
-	 * the exact guarded writer and then roll the surrounding transaction back.
-	 * Ordinary callers always omit this and retain the retrying transaction plus
-	 * same-transaction exact media projection below.
-	 */
-	readonly transaction?: Transaction<AppDatabase>;
-}
-
-/** Postgres unique-violation SQLSTATE — the dedup latch's concurrent-retry arm. */
-function isUniqueViolation(err: unknown): boolean {
-	return (err as { code?: unknown })?.code === "23505";
-}
+/* `CommitGuardedBatchArgs` / `CommitGuardedBatchResult` /
+ * `CommitGuardedBatchTransactionHooks` are re-exported near the top of this
+ * file as aliases of the kernel's request/receipt/hook types. */
 
 /**
- * The unified guarded blueprint commit — the read-evaluate-write every
- * interactive mutation path (chat, MCP, auto-save) shares. Synthetic repairs
- * and the atomic cross-Project move use the parallel locked protocols below.
- *
- * One transaction: lock the app row (the per-app serialization point); a
- * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
- * committed doc, writing nothing; lock + reauthorize the actor's exact Project
- * membership against the fresh row (a concurrent MOVE rejects retryably);
- * when chat supplied holder authority,
- * compare its exact mode/run identity before evaluation and again on the final
- * app-row SQL update (MCP's attribution-only run id supplies no authority);
- * re-check media expectations against rows read `FOR SHARE` (a racing delete
- * blocks behind this commit); assemble + hydrate the fresh doc; reject a
- * batch targeting a concurrently-removed entity or one the re-run verdict
- * rejects; lock the union of prior/candidate lookup tables, evaluate against
- * their same-snapshot definitions, replace exact reference edges; advance
- * `mutation_seq` to a LITERAL `fresh + 1`; and {@link writeCommittedBatch}. A
- * concurrent retry of the same batch that
- * races past the dedup read is caught by the UNIQUE latch at insert and
- * converges on the deduped result.
+ * The unified guarded blueprint commit — the public wrapper over the
+ * canonical commit kernel (`lib/db/canonicalCommitKernel.ts`), which owns the
+ * whole read-evaluate-write transaction every interactive mutation path
+ * (chat, MCP, auto-save) shares. Synthetic repairs and the atomic
+ * cross-Project move use the parallel locked protocols below. Ordinary
+ * callers use this wrapper; only server-owned commit hosts compose kernel
+ * hooks directly.
  */
 export async function commitGuardedBatch(
-	args: CommitGuardedBatchArgs,
-	internalOptions: CommitGuardedBatchInternalOptions = {},
-): Promise<CommitGuardedBatchResult> {
-	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
-	if (
-		(kind === "chat" &&
-			(args.chatRunHolder?.source !== "chat" ||
-				runId === undefined ||
-				runId !== args.chatRunHolder?.runId)) ||
-		(kind !== "chat" && args.chatRunHolder !== undefined)
-	) {
-		throw new Error(
-			"[commitGuardedBatch] chat writes require matching chat holder authority; non-chat writes cannot supply it",
-		);
-	}
-
-	type InternalResult = CommitGuardedBatchResult & {
-		persistable?: PersistedBlueprint;
-	};
-
-	const commitInTransaction = async (
-		tx: Transaction<AppDatabase>,
-	): Promise<InternalResult> => {
-		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) {
-			throw new Error(
-				`[commitGuardedBatch] app row missing for appId=${appId}`,
-			);
-		}
-		// Idempotent replay of an already-committed batch — the latch read
-		// happens under the app row lock, so it observes every prior commit.
-		const latch = await tx
-			.selectFrom("app_changes")
-			.select(["seq", "actor_id", "kind", "run_id"])
-			.select(
-				sql<string>`${sql.ref("app_changes.mutations")}::text`.as(
-					"mutations_text",
-				),
-			)
-			.where("app_id", "=", appId)
-			.where("batch_id", "=", batchId)
-			.executeTakeFirst();
-		const latchMutations =
-			latch === undefined
-				? undefined
-				: parsePersistedMutationBatchText(
-						latch.mutations_text,
-						`app_changes.mutations for app ${appId}, sequence ${latch.seq}`,
-					);
-		if (
-			latch !== undefined &&
-			!appChangeFingerprintMatches(
-				{
-					mutations: latchMutations,
-					actorUserId: latch.actor_id,
-					kind: latch.kind,
-					runId: latch.run_id,
-				},
-				{ mutations, actorUserId, kind, runId },
-			)
-		) {
-			throw new MutationBatchIdCollisionError();
-		}
-		// Reject a caller admitted against an older Project placement. Explicit
-		// rename Phase A shares this transaction, so no case/schema write can
-		// escape before this fresh scope check.
-		assertExpectedAppProject(fresh, args.expectedProjectId);
-		await assertProjectCapabilityInTransaction(
-			tx,
-			actorUserId,
-			fresh.project_id,
-			"edit",
-			"You no longer have edit access to this app's Project.",
-		);
-		const lease = runLeaseState(leaseView(fresh));
-		if (
-			args.chatRunHolder !== undefined &&
-			!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
-		) {
-			throw new RunHolderLostError(lease.present ? "superseded" : "released");
-		}
-		if (mutations.length === 0) {
-			throw new BlueprintCommitRejectedError(
-				"This change did not contain any edits.",
-			);
-		}
-		const freshSnapshot = await loadStrictAppSnapshotFromRowInTransaction(
-			tx,
-			fresh,
-		);
-		const freshPersistable = freshSnapshot.app.blueprint;
-		if (latch) {
-			const dedupedDoc = freshSnapshot.doc;
-			dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
-			return {
-				seq: safePersistedSequence(
-					latch.seq,
-					`app_changes.seq for app ${appId}`,
-				),
-				committedDoc: dedupedDoc,
-				deduped: true,
-			};
-		}
-		if (args.expectedOrganizationRevision !== undefined) {
-			const organizationState = await tx
-				.selectFrom("app_organization_state")
-				.select("revision")
-				.where("app_id", "=", appId)
-				.executeTakeFirst();
-			const currentOrganizationRevision =
-				organizationState === undefined
-					? "0"
-					: parseOrganizationRevision(organizationState.revision);
-			const expectedOrganizationRevision = parseOrganizationRevision(
-				args.expectedOrganizationRevision,
-			);
-			if (currentOrganizationRevision !== expectedOrganizationRevision) {
-				throw new BlueprintCommitRejectedError(
-					"This app's places changed while the automation was being saved. Retry the automation change so its CommCare HQ setup guide uses the current organization.",
-				);
-			}
-		}
-		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
-		const freshDoc = freshSnapshot.doc;
-		if (mutationTargetsInvalid(freshDoc, mutations)) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while you were editing. Something your change " +
-					"targeted was removed by someone else. Reload to get the latest " +
-					"version, then redo that change.",
-			);
-		}
-		const prepared = prepareMutationCandidate(freshDoc, mutations);
-		const previousTargets = extractLookupReferenceTargets(freshDoc);
-		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-		const lookupTargets = unionLookupReferenceTargetSets(
-			previousTargets,
-			candidateTargets,
-		);
-		const lookupContext = await lookupContextForAuthoritativeWrite(
-			tx,
-			fresh.project_id,
-			lookupTargets,
-		);
-		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
-		if (!verdict.ok) {
-			throw new BlueprintCommitRejectedError(
-				describeCommitFindings(verdict.findings),
-			);
-		}
-		const seq = nextPersistedSequence(
-			fresh.mutation_seq,
-			`apps.mutation_seq for app ${appId}`,
-		);
-		const persistable = toPersistableDoc(verdict.nextDoc);
-		await admitExactMediaReferences(tx, {
-			appId,
-			projectId: fresh.project_id,
-			candidateDoc: verdict.nextDoc,
-		});
-		await applyOrganizationCommitIntegrity(tx, {
-			appId,
-			previousDoc: freshDoc,
-			candidateDoc: verdict.nextDoc,
-		});
-		await internalOptions.beforeWrite?.({
-			tx,
-			freshDoc,
-			nextDoc: verdict.nextDoc,
-			seq,
-			...(verdict.prepared.casePropertyRenamePlan !== undefined && {
-				casePropertyRenamePlan: verdict.prepared.casePropertyRenamePlan,
-			}),
-		});
-		/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
-		 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
-		 * the edit lock (through the one liveness reader). */
-		const commitLease =
-			args.chatRunHolder !== undefined
-				? runLeaseState(leaseView(fresh))
-				: undefined;
-		const ownsEditLock =
-			args.chatRunHolder?.mode === "edit" &&
-			exactRunHolderMatches(
-				commitLease?.holderIdentity ?? null,
-				args.chatRunHolder,
-			);
-		await replaceLookupReferenceEdges(tx, {
-			appId,
-			projectId: fresh.project_id,
-			targets: candidateTargets,
-		});
-		await writeCommittedBatch(tx, {
-			appId,
-			seq,
-			batchId,
-			runId,
-			prevDoc: freshPersistable,
-			committedDoc: persistable,
-			mutations,
-			actorUserId,
-			kind,
-			...(args.chatRunHolder !== undefined && {
-				expectedHolder: args.chatRunHolder,
-			}),
-			...(ownsEditLock && {
-				extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
-			}),
-		});
-		return {
-			seq,
-			committedDoc: verdict.nextDoc,
-			deduped: false,
-			persistable,
-		};
-	};
-	const commitOnce = (): Promise<InternalResult> =>
-		internalOptions.transaction === undefined
-			? withAppTx(commitInTransaction)
-			: commitInTransaction(internalOptions.transaction);
-
-	let result: InternalResult;
-	try {
-		result = await commitOnce();
-	} catch (err) {
-		// A concurrent commit of the SAME batchId slipped between our latch read
-		// and insert — the UNIQUE constraint caught it; converge on the dedup.
-		// An externally-owned transaction is already aborted by the violation,
-		// so its rollback-only probe must fail instead of attempting a retry.
-		if (internalOptions.transaction !== undefined || !isUniqueViolation(err)) {
-			throw err;
-		}
-		result = await commitOnce();
-	}
-
-	const { persistable: _persistable, ...publicResult } = result;
-	return publicResult;
+	args: CanonicalCommitRequest,
+	internalOptions: CanonicalCommitKernelOptions = {},
+): Promise<CanonicalCommitReceipt> {
+	return commitCanonicalBatch(args, internalOptions);
 }
 
 /**
@@ -1485,9 +675,9 @@ export async function commitGuardedBatch(
  */
 export async function commitGuardedBatchInTransaction(
 	tx: Transaction<AppDatabase>,
-	args: CommitGuardedBatchArgs,
-	hooks: CommitGuardedBatchTransactionHooks = {},
-): Promise<CommitGuardedBatchResult> {
+	args: CanonicalCommitRequest,
+	hooks: CanonicalCommitTransactionHooks = {},
+): Promise<CanonicalCommitReceipt> {
 	return commitGuardedBatch(args, { transaction: tx, ...hooks });
 }
 
@@ -3186,36 +2376,6 @@ export async function loadAppForInspection(
 			if (row === undefined) return null;
 			return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 		});
-}
-
-/**
- * Load one complete app snapshot on an existing app-state transaction.
- *
- * The `FOR SHARE` app-row lock is the snapshot boundary: every authoritative
- * blueprint writer locks this row before changing either its scalar columns or
- * `blueprint_entities`, so the row (including `mutation_seq`) and the assembled
- * blueprint cannot come from different commits. The lock is intentionally held
- * until the caller's surrounding transaction ends. This function performs no
- * authorization; user-facing readers pair it with the transaction-scoped
- * resolver in `appAccess.ts`.
- */
-export async function loadAppInTransaction(
-	tx: Transaction<AppDatabase>,
-	appId: string,
-): Promise<AppDoc | null> {
-	const row = (await tx
-		.selectFrom("apps")
-		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
-		.select(
-			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
-				"case_types_text",
-			),
-		)
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
-	if (!row) return null;
-	return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 }
 
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
