@@ -1187,12 +1187,14 @@ through its own app-locked transaction and returns the exact committed doc).
 Adoption is explicit and counts toward the invocation's one-workspace-write
 budget; a tool can never nominate a document through its RESULT.
 
-The change-set host (Unit B) extends this exact shape where its durable state
-gives the extensions real content: `appId` widens to `string | null` (a
-genesis change set has no app row), `WorkspaceSnapshot` gains the
-`externalContextDigest` binding the captured external context, and
-`applyBatch`/`applyStages` gain `intentIds`/`readSet` arguments recorded with
-each staged step. The canonical host does not fabricate any of these.
+The change-set host (`lib/agent/change-set/workspace.ts`) extends this exact
+shape where its durable state gives the extensions real content: `appId`
+widens to `string | null` (a genesis change set has no app row),
+`WorkspaceSnapshot` gains the `externalContextDigest` binding the captured
+external context, and `applyBatch`/`applyStages` gain `intentIds`/`readSet`
+arguments recorded with each staged step. The canonical host fabricates none
+of these — a canonical invocation carrying the staged arguments is a
+protocol error, never data to silently drop.
 
 Shared tool modules become:
 
@@ -1308,8 +1310,8 @@ migration outcomes remain on `applyBlueprintChange`'s result, and post-commit
 schema/index convergence remains that caller's descriptor. Server-owned
 callers compose the kernel through its transaction-hook seam
 (`CanonicalCommitTransactionHooks` — the `beforeWrite` hook case-store Phase A
-rides). Typed `sidecars` on the request are the Unit B extension of that same
-seam.
+rides). Typed `sidecars` on those hooks are that seam's closed vocabulary
+(`lib/db/canonicalCommitSidecars.ts`).
 
 Implement the service by extracting/promoting, not rewriting, these existing contracts from `lib/db/apps.ts::commitGuardedBatch` and `lib/db/applyBlueprintChange.ts::applyBlueprintChange`:
 
@@ -1341,6 +1343,9 @@ type CanonicalCommitSidecar =
       kind: "commit-design-change-set";
       changeSetId: string;
       expectedRevision: number;
+      /** Receipt-row identity, minted by the caller OUTSIDE the retryable
+       * transaction so a retry reuses it. */
+      receiptId: string;
       sliceAttemptId: string;
       designSessionId: string;
       designRevisionId: string;
@@ -1354,7 +1359,7 @@ type CanonicalCommitSidecar =
   | { kind: "write-intent-provenance"; rows: IntentProvenanceRow[] };
 ```
 
-The `commit-design-change-set` sidecar marks the set committed and inserts the immutable committed-slice receipt using the kernel's authoritative sequence, batch ID, and committed snapshot digest. Sidecars run in the same retryable transaction and must be deterministic, idempotent, and free of network/object-store effects. They cannot alter the candidate Blueprint or bypass the gate.
+The `commit-design-change-set` sidecar locks the change-set row (AFTER the kernel's app lock — the canonical order), verifies status/revision/lineage, flips `open -> committed`, and inserts the immutable committed-slice receipt using the kernel's authoritative sequence, batch ID, and committed snapshot digest. Sidecars run in the same retryable transaction AFTER the committed-batch write tail — a provenance row's foreign key onto the fresh `app_changes` row is then immediately checkable, and a lost holder compare-and-set has already aborted — and must be deterministic, idempotent, and free of network/object-store effects. They cannot alter the candidate Blueprint or bypass the gate, and a dedup hit skips them entirely: the original commit ran them, and a canonical batch without its receipt is corruption for the caller to detect, never a new commit.
 
 ### 9.6 CanonicalMutationWorkspace
 
@@ -1390,9 +1395,11 @@ No canonical tool can observe a private change-set workspace.
 11. appends the request, handle bindings, and step atomically;
 12. evaluates real validator diagnostics;
 13. increments the durable change-set revision;
-14. returns `disposition: "staged"` and the new workspace revision.
+14. returns the durable staged receipt (disposition, ordinal, handle
+    bindings, mutation digest, compact diagnostics) on the write outcome's
+    `staged` slot.
 
-It accepts a private candidate with gating findings. It never calls the canonical transaction kernel, emits app mutation events, or writes canonical stores.
+It accepts a private candidate with gating findings. It never calls the canonical transaction kernel, emits app mutation events, or writes canonical stores. A store-level replay convergence — a concurrent continuation landed the same request between the ledger pre-check and the stage transaction — resyncs the workspace wholesale from durable state before answering from the stored step, so locally minted identities can never shadow the winner's. `adoptAuthoritativeSnapshot` is a protocol error on this host: a private overlay has no fresher authority than its own replay.
 
 ### 9.8 Tool execution policy
 
@@ -1450,6 +1457,8 @@ Initial classification:
 
 The exact classification is generated/tested against every registry entry; the list above is a starting audit, not a hand-maintained exception table.
 
+Stageability is the reviewed POLICY classification; the change-set registry additionally fences classified tools whose BODIES are not yet overlay-native — `getAutomations`, `getOrganization`, and `updateAutomation` read the authoritative persisted app/organization snapshot (and the update's zero-diff arm proves its no-op through `adoptAuthoritativeSnapshot`), so admitting them would make staged private state invisible to an executor's own read-backs. They stay canonical-only until the executor unit makes those bodies read `ctx.snapshot.doc` and removes the fence.
+
 ### 9.9 External read sets
 
 ```ts
@@ -1484,12 +1493,14 @@ type ExternalReadDependency =
     };
 ```
 
-Policies decide whether commit must:
+Capture is workspace-owned and automatic: lookup dependencies record through the invocation context's wrapped `lookupDefinitions`/`lookupCatalog` readers AND from each staged step's own diagnostics resolution; the organization dependency comes from the write's `expectedOrganizationRevision` policy; media-asset dependencies come from the staged batch's authored-asset-ref delta; `project-scope` is the change-set row's `base_project_id` rather than a per-step entry. The required-read-set fence is enforced at staging (`READ_SET_UNRECORDED`): a tool whose registry policy declares `organization` stages only with a captured revision fence, and one declaring lookup kinds stages a lookup-referencing candidate only when a Project definitions reader recorded the revisions.
 
-- require exact equality;
-- merely re-resolve and revalidate stable identities;
-- recompute final guidance after commit;
-- reject and ask the executor to inspect/revise.
+Per-kind commit policy:
+
+- `organization` requires exact equality — the LATEST captured revision across steps rides the kernel's `expectedOrganizationRevision` fence;
+- lookup and media dependencies re-resolve and revalidate under the kernel's fresh locked verdicts (their staged currency is advisory diagnostics);
+- guidance-projecting tools recompute final guidance after commit;
+- anything else rejects and asks the executor to inspect/revise.
 
 For example, an automation staged using location-derived setup guidance carries the organization revision. The final canonical commit fences that revision or recomputes guidance from the committed state before anything is shown to the user.
 
@@ -1556,12 +1567,14 @@ interface DesignChangeSetRow {
   revision: number;
   nextOrdinal: number;
 
+  attemptId: string;
   ownerUserId: string;
   ownerRunId: string;
 
   status: ChangeSetStatus;
   committedSeq: number | null;
   committedBatchId: string | null;
+  committedSnapshotDigest: string | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -1617,14 +1630,18 @@ Required constraints:
 - unique `(change_set_id, ordinal)`;
 - unique `(change_set_id, handle)`;
 - unique `(change_set_id, uuid)`;
+- one open change set per slice attempt (a partial unique index on
+  `attempt_id` while `open`; a second begin under the same attempt names
+  the reopenable set instead of surfacing a raw constraint error);
 - `next_ordinal >= 0`, `revision >= 0`;
 - genesis has `app_id IS NULL`, `proposed_app_id IS NOT NULL`, `base_seq IS NULL`;
 - app edit has `app_id IS NOT NULL`, `proposed_app_id IS NULL`, `base_seq IS NOT NULL`;
 - committed status requires sequence, batch ID, and committed snapshot digest;
 - only open rows may receive requests or attempt commit;
 - exact owner-attribution columns are non-null while open;
-- holder authority is verified on the locked design-session/app row, not duplicated on the change set;
-- digests use canonical lower-hex SHA-256.
+- holder authority is verified on the locked design-session/app row, not duplicated on the change set (until the design-session unit lands its row, a genesis set's change-set row is the serialization point and its owner-attribution columns the ownership proof);
+- digests are lower-hex SHA-256 over canonical JS JSON bytes — object keys recursively sorted by code point — computed and verified in JavaScript only; the SQL-computed fold-baseline digest is a separate domain, never compared against these;
+- design/plan identity columns are opaque non-null identities with no foreign keys until the design-session and orchestrator units land their tables and add them in their own migrations.
 
 No durable `committing` state exists. Commit either atomically changes `open -> committed` beside the canonical write or rolls back to `open`. A lost response is resolved through the deterministic canonical batch ID and committed receipt, not through an intermediate lifecycle state.
 
@@ -1659,7 +1676,7 @@ Implementation:
 6. do not use current app-head entities as the base;
 7. do not require the historical candidate to be re-authored from names or tool payloads.
 
-This reuses `lib/db/canonicalMutationFold.ts` primitives but adds a sequence-bounded loader. Current lookup context is applied when diagnostics or commit require it; history replay itself remains exact mutation reduction.
+This reuses `lib/db/canonicalMutationFold.ts` primitives but adds a sequence-bounded loader. Current lookup context is applied when diagnostics or commit require it; history replay itself remains exact mutation reduction. The bounded fold runs no final lookup-context gate — a historical Blueprint passed the absolute gate when it committed, and today's mutable definitions cannot honestly re-judge it; identity is proved by the recorded base digest, and the fold's arrival Project must equal the recorded base Project.
 
 For genesis, the base is the canonical empty in-memory Blueprint with `proposedAppId`, a fixed schema version, and a recorded digest. It is never persisted as an app.
 
@@ -1686,13 +1703,18 @@ Stage transaction:
 
 1. resolve the change set's authority target without holding a row lock;
 2. start the transaction and lock the authority carrier first:
-   - active pre-app build: design-session row;
+   - active pre-app build: design-session row (until the design-session
+     unit lands that row, the change-set row is the serialization point
+     and its owner-attribution columns the ownership proof);
    - materialized build or design-aware edit: app row;
 3. re-resolve target/Project mapping and prove exact user/run/holder ownership;
-4. lock the change-set row second;
+4. lock the change-set row second, then re-prove fresh Project edit
+   membership — the membership gate is only ever taken while already
+   holding the authority rows, and membership writers take no change-set
+   or app locks, so gate-after-row cannot cycle;
 5. parse status and artifact/base identities;
 6. look up `(changeSetId, requestId)`;
-7. if found and tool name, expected revision, and `inputDigest` match, return the stored receipt unchanged;
+7. if found and the tool name and input digest match — a retry recomputes its digest at the STORED expected revision, so a post-advance retry still replays its original receipt — return the stored receipt unchanged;
 8. if found and any differ, throw `ChangeSetRequestIdCollisionError` and latch the run;
 9. require `expectedRevision === row.revision`;
 10. rehydrate the overlay at that revision;
@@ -1734,12 +1756,13 @@ Rules:
 2. Spelling is bounded and canonical, for example `@[a-z][a-z0-9_-]{0,63}`.
 3. A handle is bound once to a server-minted canonical UUID and entity kind.
 4. Allocation is deterministic for a retried request because the original binding is persisted.
-5. References resolve to UUIDs before the original tool schema runs.
+5. A handle reference is exactly the one-key `{ "handle": "@name" }` object, resolved structurally to its UUID before the original tool schema runs; prose strings are never searched, and no canonical tool schema owns a `handle` property (a source test proves the spelling collision-free).
 6. Persisted steps contain only exact canonical mutation JSON and UUIDs.
 7. Handles never enter Blueprint, app history, event log, MCP, builder, export, or deployment.
 8. A handle cannot be rebound, reused for another kind, or shadowed.
 9. A reference cannot point to a handle created by a later invocation.
 10. The handle table and step commit atomically.
+11. Declarations ride the granular staging tools' identity slots; minting happens outside the durable transaction against a scratch table merged into workspace state only when the step commits.
 
 This is a private symbol table, not a second authored identity system.
 
@@ -1747,33 +1770,27 @@ This is a private symbol table, not a second authored identity system.
 
 Add `lib/agent/change-set/stagingProjection.ts`.
 
-The projection is generated from, or exhaustively checked against, the same identity/reference registries used by canonical schemas:
+The projection is a reviewed classification per identity FAMILY over the same identity-pointer registry the identity-parity tests derive from (`lib/agent/identityPointerRegistry.ts`):
 
-- only Blueprint-entity UUID input slots become `uuid | { handle }`;
-- app, Project, media asset, lookup, case, thread, run, batch, submission, and external IDs remain canonical;
-- typed expression/template references receive explicit staging-only entity-handle variants;
+- only Blueprint-entity families are handle-eligible (`uuid | { handle }`);
+- app, Project, media asset, lookup, location, case, thread, run, batch, submission, and external IDs remain canonical;
 - prose strings are never searched or replaced;
 - path/name/slug values are never interpreted as handles;
-- projected input resolves structurally;
+- projected input resolves structurally (the one-key `{ handle }` object form);
 - the resolved value is parsed again through the original shared tool schema;
 - the ordinary tool body sees only canonical input.
 
-A source test fails when a canonical authored-reference carrier is added without a projection decision.
+A source test fails when an identity family is added without a projection decision, and every handle-eligible family maps to its staged entity kind. The executor-facing `uuid | { handle }` wire schemas emit from this same classification on the executor surface.
 
 ### 10.7 Executor-only staging tools
 
-Register only for `ChangeSetMutationWorkspace`:
+Register only for `ChangeSetMutationWorkspace`. The genuinely new grain is incomplete structure creation and reorder, shipped as executor-only tool modules with the runtime:
 
-- `beginChangeSet`
 - `stageModule`
 - `stageForm`
-- `stageFields`
-- `stageCaseListColumn`
 - `moveStagedModule`
-- `inspectChangeSet`
-- `commitChangeSet`
-- `discardChangeSet`
-- `raiseDesignExecutionIssue`
+
+`beginChangeSet`, `commitChangeSet`, `inspectChangeSet`, `discardChangeSet`, and `raiseDesignExecutionIssue` are server functions (`beginAppEditChangeSet`/`beginGenesisChangeSet`, `commitDesignChangeSet`, `ChangeSetMutationWorkspace.inspect()`, `abandonChangeSet`/`supersedeChangeSet`) whose model-facing tool wrappers mount with the executor. There are no separate `stageFields`/`stageCaseListColumn` twins: field, case-list, and case-operation grains ride the existing shared granular tools over the overlay once targets exist.
 
 `stageModule` and `stageForm` expose granular canonical mutation builders without imposing canonical completeness on each call. They may create an incomplete private module/form because no canonical write occurs.
 
@@ -1789,7 +1806,7 @@ The builders still enforce:
 
 Existing shared granular edit tools operate on the overlay once targets exist. Canonical `createModule`/`createForm` retain complete convenience semantics for direct chat/MCP/builder use.
 
-Add a shared canonical module reorder tool backed by the existing `moveModule` mutation; creation order is not final navigation order.
+The shared canonical module reorder tool (backed by the existing `moveModule` mutation — creation order is not final navigation order) ships with the executor cutover; `moveStagedModule` covers change-set reordering until then.
 
 ### 10.8 Diagnostics
 
@@ -1798,9 +1815,12 @@ interface ChangeSetDiagnostics {
   snapshotRevision: number;
   candidateDigest: string;
   allFindings: ValidationError[];
-  introducedSincePreviousStep: ValidationError[];
-  resolvedSincePreviousStep: ValidationError[];
-  admissionWarnings: ChangeSetWarning[];
+  /** Stable 16-hex finding fingerprints for BOTH delta directions: a
+   * resolved finding's full body is not recomputable from the compact
+   * receipts the protocol persists, and `inspect` recomputes full current
+   * details on demand. */
+  introducedSincePreviousStep: string[];
+  resolvedSincePreviousStep: string[];
   readSetStatus: ReadSetStatus[];
   sliceIntentCoverage: IntentCoverage[];
   canCommit: boolean;
@@ -1817,10 +1837,14 @@ Diagnostic calculation:
 6. group findings by affected object;
 7. compute `canCommit` only when:
    - zero gating findings;
-   - every required read set is current/resolvable;
-   - no unsupported exclusive combination exists;
-   - the slice's required intent coverage is structurally present;
+   - every captured read set is current/resolvable;
+   - at least one step is staged;
    - genesis also passes export-readiness preflight.
+   (An unsupported exclusive combination is unrepresentable — the
+   admission fence closes an exclusive set to further steps. Required
+   intent coverage joins the derivation when the accepted build plan
+   supplies the owning-intent set; until then `sliceIntentCoverage` is the
+   informational per-intent step count.)
 
 Full validator findings are not duplicated into every row. Persist compact stable fingerprints/counts on the request receipt; `inspectChangeSet` recomputes full current details.
 
@@ -1858,18 +1882,20 @@ Genesis is deliberately different: sequence `1` remains the protected empty `fol
 8. concatenate admitted steps in ordinal order;
 9. reapply the exact batch to fresh state;
 10. reject target/anchor/exclusive/read-set conflicts with a structured rebase report;
-11. run the canonical transaction kernel, including current lookup/media/organization/case-schema rules;
+11. run the guarded case-schema-coupled writer (`applyBlueprintChange`, composing the canonical transaction kernel) so rename/retirement Phase A, ordinary case-type sweeps, and the current lookup/media/organization/case-schema rules keep their exact semantics;
 12. write one `app_changes` row and entity diff;
 13. write intent provenance;
 14. mark the change set committed with sequence/batch ID via canonical sidecars;
 15. commit;
 16. run returned post-commit index/schema convergence;
-17. build per-stage event-log envelopes from the stored step-stage ranges and emit/log only after commit;
+17. build per-stage event-log envelopes from the stored step-stage ranges (`committedStageEnvelopes` — the executor surface owns emission) and emit/log only after commit;
 18. emit user-facing app mutation/progress frames only after commit.
 
 Older conformance reports become stale by exact sequence/digest comparison; no report row is mutated. Event-log delivery remains post-commit and is not a transaction sidecar.
 
 No success path performs a second transaction to mark the change set committed.
+
+The structured rebase report derives from a fresh strict snapshot immediately before the authoritative attempt and re-derives after a kernel rejection; when the change set meanwhile committed — a concurrent duplicate won — the outcome is the stored receipt, never a conflict report against the set's own committed work. Every kernel-transaction failure maps into the closed change-set taxonomy: a sidecar revision race is the ordinary stale-revision signal (rehydrate, re-derive, retry), a mid-commit Project move is scope loss, and a deterministic-batch-id collision is integrity corruption.
 
 A retry normally observes `status = committed` under the change-set lock and returns the stored `design_committed_slices` receipt. If canonical batch dedup is reached, preserve current repository semantics: it may pair the original committed sequence with the currently authorized head document. Never derive the original slice snapshot digest from that current document; verify and return the atomic stored slice receipt instead. A canonical batch without its change-set/receipt sidecars is corruption, not a new commit.
 
@@ -2973,19 +2999,17 @@ The executor prompt and deterministic checks enforce:
 
 ### 13.10 Granular staging tools
 
-Initial executor-only tools:
+The executor-only tool surface:
 
 - `stageModule`;
 - `stageForm`;
-- `stageFields`;
-- `stageCaseListColumn`;
-- `stageCaseOperation`;
-- `stageNavigationPatch`;
 - `moveStagedModule`;
 - `inspectChangeSet`;
 - `commitChangeSet`;
 - `discardChangeSet`;
 - `raiseDesignExecutionIssue`.
+
+Field, case-list, and case-operation grains ride the shared granular tools over the overlay; there are no `stageFields`/`stageCaseListColumn`/`stageCaseOperation` twins.
 
 These tools reuse existing domain mutation builders where possible. They do not fork domain rules.
 
@@ -4280,7 +4304,7 @@ The orchestrator may append a `slice-committed` event after the transaction, but
 id
 design_session_id
 design_revision_id
-design_digest
+design_revision_digest
 build_plan_id
 build_plan_digest
 slice_id
@@ -4289,7 +4313,10 @@ kind                  genesis | app-edit
 app_id
 proposed_app_id
 base_seq
+base_project_id
 base_snapshot_digest
+owner_user_id
+owner_run_id
 status                open | committed | abandoned | superseded
 revision
 next_ordinal
@@ -4317,17 +4344,16 @@ change_set_id
 request_id
 tool_name
 input_digest
-expected_workspace_revision
-resulting_workspace_revision
+expected_revision
+resulting_revision
 status                staged | rejected
-result_payload
-error_code
+rejection_code
+receipt
 created_at
-completed_at
 PRIMARY KEY (change_set_id, request_id)
 ```
 
-A successful request, handles, stages, result receipt, and revision advance commit in one transaction. There is no durable in-progress request state.
+A successful request, handles, stages, result receipt, and revision advance commit in one transaction. There is no durable in-progress request state — and therefore one timestamp. A staged request advances the revision by exactly one and a rejected one advances nothing; a CHECK ties `resulting_revision` to `status`.
 
 `design_change_set_steps`:
 
@@ -4486,6 +4512,8 @@ Register every table with its final runtime capability:
 
 Do not add row-lock clauses to tables whose runtime role lacks the PostgreSQL `UPDATE` privilege required by those clauses.
 
+The change-set tables' concrete policy: `design_change_sets` is the one read-write authority row (row-locked to serialize its ledgers); the request/step/stage/handle ledgers, `design_committed_slices`, and `app_change_intents` are append-only (`SELECT, INSERT`) and never row-locked. No realtime channel exists for any of them — private staging never pokes a stream.
+
 ### 18.14 Project movement
 
 Before materialization, a design session cannot change Projects.
@@ -4495,13 +4523,15 @@ After materialization, an app Project move transaction:
 - locks the app using the current order;
 - reauthorizes source/destination;
 - updates materialized design-session Project IDs;
-- updates Project-scoped provenance/external-action rows;
+- updates Project-scoped external-action rows (committed slice receipts and intent provenance are app-keyed, carry no Project column, and follow the app implicitly);
 - validates/remaps thread media as current app move rules require;
 - preserves app-change Project continuity;
 - does not rewrite immutable source claims or artifact content;
 - makes subsequent artifact reads authorize against the destination Project.
 
 A mode-edit design session follows its bound app move or is rejected if a live incompatible edit run exists under current move rules.
+
+Open change sets deliberately do NOT re-tenant on a move: `base_project_id` is the captured base scope, so a moved app strands its open sets — their commit rejects terminally — and the move transaction never touches change-set rows.
 
 ### 18.15 Soft delete and physical delete
 
@@ -4669,6 +4699,11 @@ Do not proceed past these gates on assertion alone:
 **Primary files:**
 
 - new `lib/agent/change-set/*`
+- new `lib/db/canonicalCommitSidecars.ts` + `lib/utils/canonicalJson.ts`
+- new `lib/agent/design/ids.ts` + `lib/agent/design/projection/coordinates.ts`
+  (the identity and closed-coordinate leaves the change-set tables
+  strict-parse through; Units C/F build the rest of those packages around
+  them)
 - new change-set migrations/types/persisted parsers
 - `lib/agent/sharedToolRegistry.ts`
 - `lib/db/canonicalMutationFold.ts`
@@ -4682,8 +4717,9 @@ Do not proceed past these gates on assertion alone:
 1. Add final-shape change-set, request, step, stage, and handle tables.
 2. Implement exact base loading:
    - empty genesis base;
-   - canonical app at sequence using baseline/suffix fold;
-   - base digest verification.
+   - canonical app at sequence using the baseline/suffix fold (no final
+     lookup-context gate — the recorded base digest is the identity proof);
+   - base digest and base-Project verification.
 3. Implement row-locked `ChangeSetWorkspace`, extending the shared tool
    execution shape where its durable state gives the extensions content:
    `ToolInvocationContext.appId` widens to `string | null` (a genesis change
@@ -4706,10 +4742,13 @@ Do not proceed past these gates on assertion alone:
 10. Implement existing-app commit:
     - deterministic batch ID;
     - fresh replay;
-    - canonical kernel;
+    - the guarded case-schema-coupled writer (`applyBlueprintChange`
+      composing the canonical kernel);
     - typed `CanonicalCommitSidecar` request variants (change-set receipt,
       intent provenance) over the kernel's transaction-hook seam;
-    - structured rebase reports.
+    - structured rebase reports, with concurrent-duplicate convergence on
+      the stored receipt and every kernel failure mapped into the closed
+      change-set taxonomy.
 11. Implement genesis rehydration/diagnostics, but do not expose materialization yet.
 12. Add granular private structure/reorder tools.
 
@@ -4888,6 +4927,14 @@ Do not proceed past these gates on assertion alone:
 13. Keep canonical edit prompt/tools intact.
 14. Update current-state contracts/docs in the same cutover.
 15. Delete obsolete early-app build code; do not retain a fallback path.
+16. Make `getAutomations`/`getOrganization`/`updateAutomation` overlay-native
+    (bodies read `ctx.snapshot.doc`) and remove the change-set registry's
+    readiness fence.
+17. Add the shared canonical module reorder tool backed by the existing
+    `moveModule` mutation.
+18. Mount the model-facing change-set tools (begin/stage/inspect/commit/
+    discard/raiseDesignExecutionIssue) on the executor surface and wire
+    per-stage envelope emission from `committedStageEnvelopes`.
 
 **Acceptance:**
 

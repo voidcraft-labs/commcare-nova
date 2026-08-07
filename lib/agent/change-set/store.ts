@@ -526,10 +526,10 @@ async function lockAndVerifyOpenChangeSet(
 		verifyOpenOwnership(changeSet, args);
 		return changeSet;
 	}
-	/* Genesis arm: the design-session authority row ships with a later unit;
-	 * until then the change-set row is the serialization point and its own
-	 * owner-attribution columns are the ownership proof
-	 * (docs/plans/reviewed-intent-unit-b-deviations.md). */
+	/* Genesis arm: the design-session authority row ships with the
+	 * design-session unit; until then the change-set row is the serialization
+	 * point and its own owner-attribution columns are the ownership proof
+	 * (docs/plans/reviewed-intent-atomic-change-sets-plan.md §10.4). */
 	const changeSet = await lockChangeSetRow(tx, args.changeSetId);
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");

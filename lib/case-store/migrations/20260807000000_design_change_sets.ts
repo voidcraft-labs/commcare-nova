@@ -43,7 +43,8 @@
 // `build_plan_id`, `slice_id`, `attempt_id`) are opaque non-null columns
 // with no foreign keys yet: the tables they will reference ship with the
 // design-session and orchestrator units, which add those constraints in
-// their own migrations (docs/plans/reviewed-intent-unit-b-deviations.md).
+// their own migrations (docs/plans/reviewed-intent-atomic-change-sets-plan.md
+// §18.7).
 //
 // Tenancy: `base_project_id` is the CAPTURED base scope, not live tenancy —
 // an app Project move deliberately leaves open change sets behind (their
