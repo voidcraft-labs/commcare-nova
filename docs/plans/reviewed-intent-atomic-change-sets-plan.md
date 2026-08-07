@@ -5134,7 +5134,7 @@ Before declaring the unit done:
 - Materialization root includes its full prerequisite closure.
 - Every non-deferred intent has exactly one owning slice.
 - Dependency references do not count as ownership.
-- Every slice has at least one acceptance scenario.
+- Every acceptance scenario belongs to at least one slice (a corrective slice may carry none — scenarios are contract objects a plan covers, not per-slice inventions).
 - Every external action has a stable ID, timing, idempotency, required-for policy, and completion evidence type.
 - Exclusive operations occupy isolated slices/change sets.
 - Plan design revision/digest matches the accepted contract.
