@@ -12,9 +12,12 @@
  * transaction. There is no durable in-progress state: a request either
  * committed everything it staged or nothing.
  *
- * Lock order (matches the canonical protocols): apps → auth membership →
- * design_change_sets. No path holds a change-set row while waiting for an
- * app row.
+ * Lock order (the plan's rule for existing-app staging): apps →
+ * design_change_sets → membership gate/member row. No path holds a
+ * change-set row while waiting for an app row, and the membership gate is
+ * only ever taken while already holding the authority rows — membership
+ * writers never take change-set or app locks, so gate-after-row cannot
+ * cycle. (A genesis set has no app row yet; its change-set row leads.)
  *
  * The staging ledgers (requests/steps/stages/handles) are append-only at the
  * database privilege level; this row-locked authority table is what
@@ -582,54 +585,56 @@ export async function beginAppEditChangeSet(
 	},
 ): Promise<DesignChangeSet> {
 	const id = crypto.randomUUID();
-	return withAppTx(async (tx) => {
-		const app = await loadAppInTransaction(tx, args.appId);
-		if (app === null || app.deleted_at !== null) {
-			throw new ChangeSetScopeLostError(
-				"This app is no longer available, so no change set can open against it.",
-			);
-		}
-		if (app.project_id !== args.expectedProjectId) {
-			throw new ChangeSetScopeLostError(
-				"This app moved to a different Project, so no change set can open against the captured scope.",
-			);
-		}
-		await assertEditMembership(tx, args.ownerUserId, app.project_id);
-		const digest = canonicalJsonDigest(app.blueprint);
-		await tx
-			.insertInto("design_change_sets")
-			.values({
-				id,
-				design_session_id: args.lineage.designSessionId,
-				design_revision_id: args.lineage.designRevisionId,
-				design_revision_digest: args.lineage.designRevisionDigest,
-				build_plan_id: args.lineage.buildPlanId,
-				build_plan_digest: args.lineage.buildPlanDigest,
-				slice_id: args.lineage.sliceId,
-				attempt_id: args.lineage.attemptId,
-				kind: "app-edit",
-				app_id: args.appId,
-				proposed_app_id: null,
-				base_seq: app.mutation_seq,
-				base_project_id: app.project_id,
-				base_snapshot_digest: digest,
-				exclusive_kind: null,
-				owner_user_id: args.ownerUserId,
-				owner_run_id: args.ownerRunId,
-				status: "open",
-				committed_seq: null,
-				committed_batch_id: null,
-				committed_snapshot_digest: null,
-			})
-			.execute();
-		const created = await loadChangeSet(id, tx);
-		if (created === undefined) {
-			throw new ChangeSetIntegrityError(
-				`Change set ${id} vanished inside its own creation transaction.`,
-			);
-		}
-		return created;
-	});
+	return beginWithOpenAttemptFence(args.lineage.attemptId, () =>
+		withAppTx(async (tx) => {
+			const app = await loadAppInTransaction(tx, args.appId);
+			if (app === null || app.deleted_at !== null) {
+				throw new ChangeSetScopeLostError(
+					"This app is no longer available, so no change set can open against it.",
+				);
+			}
+			if (app.project_id !== args.expectedProjectId) {
+				throw new ChangeSetScopeLostError(
+					"This app moved to a different Project, so no change set can open against the captured scope.",
+				);
+			}
+			await assertEditMembership(tx, args.ownerUserId, app.project_id);
+			const digest = canonicalJsonDigest(app.blueprint);
+			await tx
+				.insertInto("design_change_sets")
+				.values({
+					id,
+					design_session_id: args.lineage.designSessionId,
+					design_revision_id: args.lineage.designRevisionId,
+					design_revision_digest: args.lineage.designRevisionDigest,
+					build_plan_id: args.lineage.buildPlanId,
+					build_plan_digest: args.lineage.buildPlanDigest,
+					slice_id: args.lineage.sliceId,
+					attempt_id: args.lineage.attemptId,
+					kind: "app-edit",
+					app_id: args.appId,
+					proposed_app_id: null,
+					base_seq: app.mutation_seq,
+					base_project_id: app.project_id,
+					base_snapshot_digest: digest,
+					exclusive_kind: null,
+					owner_user_id: args.ownerUserId,
+					owner_run_id: args.ownerRunId,
+					status: "open",
+					committed_seq: null,
+					committed_batch_id: null,
+					committed_snapshot_digest: null,
+				})
+				.execute();
+			const created = await loadChangeSet(id, tx);
+			if (created === undefined) {
+				throw new ChangeSetIntegrityError(
+					`Change set ${id} vanished inside its own creation transaction.`,
+				);
+			}
+			return created;
+		}),
+	);
 }
 
 /**
@@ -645,42 +650,69 @@ export async function beginGenesisChangeSet(
 	},
 ): Promise<DesignChangeSet> {
 	const id = crypto.randomUUID();
-	return withAppTx(async (tx) => {
-		await assertEditMembership(tx, args.ownerUserId, args.projectId);
-		await tx
-			.insertInto("design_change_sets")
-			.values({
-				id,
-				design_session_id: args.lineage.designSessionId,
-				design_revision_id: args.lineage.designRevisionId,
-				design_revision_digest: args.lineage.designRevisionDigest,
-				build_plan_id: args.lineage.buildPlanId,
-				build_plan_digest: args.lineage.buildPlanDigest,
-				slice_id: args.lineage.sliceId,
-				attempt_id: args.lineage.attemptId,
-				kind: "genesis",
-				app_id: null,
-				proposed_app_id: args.proposedAppId,
-				base_seq: null,
-				base_project_id: args.projectId,
-				base_snapshot_digest: args.baseSnapshotDigest,
-				exclusive_kind: null,
-				owner_user_id: args.ownerUserId,
-				owner_run_id: args.ownerRunId,
-				status: "open",
-				committed_seq: null,
-				committed_batch_id: null,
-				committed_snapshot_digest: null,
-			})
-			.execute();
-		const created = await loadChangeSet(id, tx);
-		if (created === undefined) {
-			throw new ChangeSetIntegrityError(
-				`Change set ${id} vanished inside its own creation transaction.`,
+	return beginWithOpenAttemptFence(args.lineage.attemptId, () =>
+		withAppTx(async (tx) => {
+			await assertEditMembership(tx, args.ownerUserId, args.projectId);
+			await tx
+				.insertInto("design_change_sets")
+				.values({
+					id,
+					design_session_id: args.lineage.designSessionId,
+					design_revision_id: args.lineage.designRevisionId,
+					design_revision_digest: args.lineage.designRevisionDigest,
+					build_plan_id: args.lineage.buildPlanId,
+					build_plan_digest: args.lineage.buildPlanDigest,
+					slice_id: args.lineage.sliceId,
+					attempt_id: args.lineage.attemptId,
+					kind: "genesis",
+					app_id: null,
+					proposed_app_id: args.proposedAppId,
+					base_seq: null,
+					base_project_id: args.projectId,
+					base_snapshot_digest: args.baseSnapshotDigest,
+					exclusive_kind: null,
+					owner_user_id: args.ownerUserId,
+					owner_run_id: args.ownerRunId,
+					status: "open",
+					committed_seq: null,
+					committed_batch_id: null,
+					committed_snapshot_digest: null,
+				})
+				.execute();
+			const created = await loadChangeSet(id, tx);
+			if (created === undefined) {
+				throw new ChangeSetIntegrityError(
+					`Change set ${id} vanished inside its own creation transaction.`,
+				);
+			}
+			return created;
+		}),
+	);
+}
+
+/**
+ * Map the one-open-change-set-per-attempt partial unique violation to a
+ * person-readable signal: the attempt already has an open change set to
+ * REOPEN (`ChangeSetMutationWorkspace.open`), never a raw SQL error.
+ */
+async function beginWithOpenAttemptFence(
+	attemptId: string,
+	begin: () => Promise<DesignChangeSet>,
+): Promise<DesignChangeSet> {
+	try {
+		return await begin();
+	} catch (err) {
+		if (
+			isUniqueViolation(err) &&
+			String((err as { constraint?: unknown }).constraint ?? "") ===
+				"design_change_sets_open_attempt"
+		) {
+			throw new ChangeSetScopeLostError(
+				`Slice attempt ${attemptId} already has an open change set. Reopen that change set and continue it instead of beginning another.`,
 			);
 		}
-		return created;
-	});
+		throw err;
+	}
 }
 
 // ── The stage transaction ──────────────────────────────────────────

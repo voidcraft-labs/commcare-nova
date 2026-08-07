@@ -43,10 +43,30 @@ const STAGE_TOOL_POLICY: ToolExecutionPolicy = {
 	capabilities: ["change-set-stage"],
 };
 
+/**
+ * Staging-classified tools whose BODIES are not yet overlay-native: they
+ * read the authoritative persisted app/organization snapshot from Postgres
+ * (`readOrganizationAuthoringSnapshot` → `loadAppInTransaction`) instead of
+ * `ctx.snapshot.doc`, and `updateAutomation`'s zero-diff arm additionally
+ * proves its no-op through `adoptAuthoritativeSnapshot` — meaningless over a
+ * private overlay. Admitting them would make staged private state invisible
+ * to an executor's own read-backs (a re-stage loop, or duplicate rows at
+ * commit). They stay canonical-only until the executor unit makes their
+ * bodies overlay-native; their REVIEWED staging classification in
+ * `sharedToolRegistry.ts` is unchanged — this is a runtime-readiness fence,
+ * not a policy reversal.
+ */
+const NOT_YET_OVERLAY_NATIVE = new Set([
+	"getAutomations",
+	"getOrganization",
+	"updateAutomation",
+]);
+
 function buildRegistry(): ReadonlyMap<string, ChangeSetToolEntry> {
 	const entries = new Map<string, ChangeSetToolEntry>();
 	for (const entry of SHARED_TOOL_REGISTRY) {
 		if (entry.policy.staging === "forbidden") continue;
+		if (NOT_YET_OVERLAY_NATIVE.has(entry.saName)) continue;
 		entries.set(entry.saName, {
 			name: entry.saName,
 			tool: entry.tool,

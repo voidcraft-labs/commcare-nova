@@ -101,6 +101,11 @@ export async function rehydrateChangeSet(
 			seq: changeSet.baseSeq,
 			expectedDigest: changeSet.baseSnapshotDigest,
 		});
+		if (base.projectId !== changeSet.baseProjectId) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${changeSet.id} recorded base Project ${changeSet.baseProjectId}, but the fold at sequence ${changeSet.baseSeq} arrives in ${base.projectId}.`,
+			);
+		}
 		baseDoc = base.doc;
 	} else {
 		if (changeSet.proposedAppId === null) {

@@ -741,10 +741,12 @@ export interface CanonicalCommitTransactionHooks {
 	) => Promise<void>;
 	/**
 	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
-	 * after `beforeWrite` and before the committed-batch write tail, with the
-	 * kernel's authoritative sequence/batch id/candidate. The change-set
-	 * commit's `open → committed` flip and receipt ride here. Skipped
-	 * entirely on a dedup hit — the original commit ran them.
+	 * AFTER the committed-batch write tail, in the same transaction, with the
+	 * kernel's authoritative sequence/batch id/candidate — so a provenance
+	 * row's FK onto the fresh `app_changes` row is immediately checkable and
+	 * a lost holder CAS has already aborted. The change-set commit's
+	 * `open → committed` flip and receipt ride here. Skipped entirely on a
+	 * dedup hit — the original commit ran them.
 	 */
 	readonly sidecars?: readonly CanonicalCommitSidecar[];
 }

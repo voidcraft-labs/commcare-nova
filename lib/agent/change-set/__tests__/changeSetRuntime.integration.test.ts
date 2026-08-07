@@ -274,6 +274,87 @@ describe("private staging isolation", () => {
 		).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
 	});
 
+	it("fences the not-yet-overlay-native tools out of the change-set registry", async () => {
+		const app = await createTestApp();
+		const { workspace } = await openWorkspace(app.appId);
+		for (const toolName of [
+			"getAutomations",
+			"getOrganization",
+			"updateAutomation",
+		]) {
+			await expect(
+				workspace.stageDispatch({
+					toolName,
+					requestId: `fence-${toolName}`,
+					input: {},
+				}),
+			).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
+		}
+	});
+
+	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		/* addAutomations' reviewed policy declares the organization read set;
+		 * a staged write under that name without the exact revision fence
+		 * must not become a silently unfenced step. */
+		const outcome = await workspace.invoke({
+			toolName: "addAutomations",
+			requestId: "unfenced-1",
+			input: { simulated: true },
+			execute: async (ctx) =>
+				ctx.applyBatch({
+					mutations: [
+						{ kind: "setAppName", name: "Unfenced write" },
+					] satisfies Mutation[],
+				}),
+		});
+		expect(outcome.ok).toBe(false);
+		expect(!outcome.ok && outcome.error).toContain("organization");
+		const stored = await loadChangeSetSteps(changeSet.id);
+		expect(stored).toHaveLength(0);
+
+		/* The same write WITH the fence stages, capturing the dependency. */
+		const fenced = await workspace.invoke({
+			toolName: "addAutomations",
+			requestId: "fenced-1",
+			input: { simulated: true, fenced: true },
+			execute: async (ctx) =>
+				ctx.applyBatch({
+					mutations: [
+						{ kind: "setAppName", name: "Fenced write" },
+					] satisfies Mutation[],
+					policy: { expectedOrganizationRevision: "0" },
+				}),
+		});
+		expect(fenced.ok).toBe(true);
+		const steps = await loadChangeSetSteps(changeSet.id);
+		expect(steps[0]?.readSet).toEqual([
+			{ kind: "organization", projectId: PROJECT, revision: "0" },
+		]);
+	});
+
+	it("names the recoverable open change set when an attempt begins twice", async () => {
+		const app = await createTestApp();
+		const shared = lineage();
+		await beginAppEditChangeSet({
+			appId: app.appId,
+			expectedProjectId: PROJECT,
+			lineage: shared,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		await expect(
+			beginAppEditChangeSet({
+				appId: app.appId,
+				expectedProjectId: PROJECT,
+				lineage: shared,
+				ownerUserId: ACTOR,
+				ownerRunId: RUN,
+			}),
+		).rejects.toThrow(/already has an open change set/);
+	});
+
 	it("fences batch-exclusive mutations: exclusive-not-alone and exclusive-set-closed", async () => {
 		const app = await createTestApp();
 		const { workspace } = await openWorkspace(app.appId);

@@ -64,6 +64,7 @@ import {
 } from "./diagnostics";
 import { canonicalJsonDigest, stagingInputDigest } from "./digest";
 import {
+	ChangeSetIntegrityError,
 	ChangeSetRequestIdCollisionError,
 	ChangeSetScopeLostError,
 	type ChangeSetStageErrorCode,
@@ -539,19 +540,47 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 
 	// ── Staging internals ────────────────────────────────────────────
 
+	/**
+	 * Replace every piece of in-memory state with the durable truth — after a
+	 * store-level replay convergence proved another continuation landed state
+	 * this instance never saw. The introduced/resolved delta baseline resets;
+	 * the next receipt's fingerprints re-seed it.
+	 */
+	private async resyncFromDurable(): Promise<void> {
+		const changeSet = await loadChangeSet(this.changeSet.id);
+		if (changeSet === undefined) {
+			throw new ChangeSetScopeLostError("This change set no longer exists.");
+		}
+		const rehydrated = await rehydrateChangeSet(changeSet);
+		this.changeSet = changeSet;
+		this.steps = [...rehydrated.steps];
+		this.overlayDoc = rehydrated.overlay.doc;
+		this.handleTable = new HandleTable(rehydrated.handles);
+		this.accumulatedReadSet = [...rehydrated.accumulatedReadSet];
+		this.lastSummaryFingerprints = [];
+	}
+
 	private replayedResult(receipt: StageRequestReceipt): unknown {
 		if (receipt.disposition === "rejected") {
 			return { error: receipt.error?.message ?? "This request was rejected." };
 		}
 		/* The receipt IS the replay contract: identical handles, mutation
-		 * digest, diagnostics, and workspace revision. The in-memory step list
-		 * already holds the exact admitted mutations for this ordinal. */
+		 * digest, diagnostics, and workspace revision, with the minted
+		 * identities recoverable from the receipt's handle map and the step's
+		 * exact mutations (an identity minted without a handle rides inside
+		 * its add mutation). A staged receipt whose step is missing is
+		 * receipt/step divergence — corruption, never a silent empty batch. */
 		const step = this.steps.find(
 			(entry) => entry.requestId === receipt.requestId,
 		);
+		if (step === undefined) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${this.changeSet.id} holds a staged receipt for request ${receipt.requestId} but no matching step.`,
+			);
+		}
 		return {
 			kind: "mutate",
-			mutations: step?.mutations ?? [],
+			mutations: step.mutations,
 			result: { receipt },
 		};
 	}
@@ -706,9 +735,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			);
 		}
 
-		/* Read-set capture: lookup reads recorded by the wrapped readers, the
-		 * organization fence from the write policy, media identities from the
-		 * authored-asset-ref delta, plus any explicit entries. */
+		/* Read-set capture: lookup reads recorded by the wrapped readers AND
+		 * by this step's own diagnostics resolution, the organization fence
+		 * from the write policy, media identities from the authored-asset-ref
+		 * delta, plus any explicit entries. */
 		const captured: ExternalReadDependency[] = [
 			...args.lookupCaptures,
 			...(args.readSet ?? []),
@@ -738,18 +768,62 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				newAssets,
 			)),
 		);
+
+		const lookupContext = await this.lookupContextFor(
+			this.overlayDoc,
+			prepared.nextDoc,
+		);
+		if (lookupContext.kind === "available") {
+			captured.push(
+				...lookupSnapshotDependencies({
+					projectId: lookupContext.projectId,
+					projectRevision: lookupContext.projectRevision,
+					definitions: lookupContext.definitions,
+				}),
+			);
+		}
+
+		/* The required-read-set fence: a tool whose reviewed policy declares
+		 * external read sets stages only when the matching dependencies were
+		 * actually captured — an organization-derived result without its
+		 * fenced revision, or a lookup-referencing candidate with no Project
+		 * definitions reader, must not become a silently unfenced step. */
+		const policy = changeSetToolEntry(args.toolName)?.policy;
+		if (policy !== undefined) {
+			const capturedKinds = new Set(captured.map((entry) => entry.kind));
+			if (
+				policy.readSets.includes("organization") &&
+				!capturedKinds.has("organization")
+			) {
+				return reject(
+					"READ_SET_UNRECORDED",
+					`${args.toolName} derives its result from the app's organization state, but this staged write carried no organization revision to fence. Pass the exact revision the result was derived from and retry.`,
+				);
+			}
+			const declaresLookups =
+				policy.readSets.includes("lookup-definition") ||
+				policy.readSets.includes("lookup-column");
+			const candidateLookupTargets = unionLookupReferenceTargetSets(
+				extractLookupReferenceTargets(this.overlayDoc),
+				extractLookupReferenceTargets(prepared.nextDoc),
+			);
+			if (
+				declaresLookups &&
+				candidateLookupTargets.tableIds.length > 0 &&
+				lookupContext.kind !== "available"
+			) {
+				return reject(
+					"READ_SET_UNRECORDED",
+					`${args.toolName} references Project data tables, but this workspace has no Project data reader to record their current definitions. Retry on a surface that supplies one.`,
+				);
+			}
+		}
+
 		const stepReadSet = normalizeReadSet(captured);
 		const nextAccumulated = normalizeReadSet([
 			...this.accumulatedReadSet,
 			...captured,
 		]);
-
-		/* Diagnostics over the NEW candidate — the real whole-document
-		 * evaluator; findings are recorded, never gating here. */
-		const lookupContext = await this.lookupContextFor(
-			this.overlayDoc,
-			prepared.nextDoc,
-		);
 		const nextSnapshot = toPersistableDoc(prepared.nextDoc);
 		const nextSteps: ChangeSetStep[] = [
 			...this.steps,
@@ -788,7 +862,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		});
 		const summary = summarizeDiagnostics(diagnostics);
 
-		const { receipt } = await stageChangeSetRequest({
+		const { replayed, receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
 			requestId: args.requestId,
 			toolName: args.toolName,
@@ -810,6 +884,24 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				diagnostics: summary,
 			},
 		});
+		if (replayed) {
+			/* A concurrent continuation of this run landed the SAME request
+			 * durably between this invocation's ledger pre-check and the stage
+			 * transaction. The durable step — possibly carrying the winner's
+			 * differently minted identities — is the truth; nothing locally
+			 * prepared (scratch handle bindings, the local candidate) may
+			 * shadow it. Resync wholesale and answer from the stored step. */
+			await this.resyncFromDurable();
+			const durableStep = this.steps.find(
+				(entry) => entry.requestId === args.requestId,
+			);
+			if (durableStep === undefined) {
+				throw new ChangeSetIntegrityError(
+					`Change set ${this.changeSet.id} replayed request ${args.requestId} without its stored step.`,
+				);
+			}
+			return { kind: "staged", receipt, mutations: durableStep.mutations };
+		}
 
 		/* Durable truth advanced — adopt the staged state in memory so the
 		 * next invocation builds on it. */

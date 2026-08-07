@@ -30,8 +30,15 @@ import {
 } from "@/lib/db/applyBlueprintChange";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadApp } from "@/lib/db/apps";
-import type { IntentProvenanceRow } from "@/lib/db/canonicalCommitSidecars";
-import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import {
+	CanonicalCommitSidecarError,
+	type IntentProvenanceRow,
+} from "@/lib/db/canonicalCommitSidecars";
+import {
+	AppProjectChangedError,
+	BlueprintCommitRejectedError,
+	MutationBatchIdCollisionError,
+} from "@/lib/db/commitGuard";
 import {
 	parsePersistedJsonText,
 	parsePersistedMutationBatchText,
@@ -206,13 +213,19 @@ export async function commitDesignChangeSet(
 	/* Preflight classification against a fresh (unlocked) snapshot: the
 	 * structured report the executor amends from. The kernel's own locked
 	 * replay remains the authority — a race between this read and the
-	 * transaction reclassifies below. */
+	 * transaction reclassifies below. A conflict is reported only when the
+	 * change set is STILL open: a concurrent duplicate commit makes the
+	 * replay collide with its own already-committed work, and the honest
+	 * answer there is the stored receipt, not an amendment demand. */
 	const preflight = await classifyAgainstFreshState({
 		changeSet,
 		steps,
 		organizationRevision,
 	});
-	if (preflight !== undefined) return preflight;
+	if (preflight !== undefined) {
+		const committed = await committedReplayIfWon(changeSet);
+		return committed ?? preflight;
+	}
 
 	const receiptId = crypto.randomUUID();
 	try {
@@ -270,10 +283,52 @@ export async function commitDesignChangeSet(
 			replayed: receipt.id !== receiptId,
 		};
 	} catch (error) {
+		if (error instanceof CanonicalCommitSidecarError) {
+			/* The sidecar's own locked verification failed AFTER the kernel's
+			 * write — the whole transaction rolled back. Map it back into the
+			 * package's closed taxonomy: a concurrent duplicate that won is a
+			 * committed replay; an advanced revision is the ordinary stale
+			 * signal (rehydrate, re-derive, retry); anything else is
+			 * corruption. */
+			const fresh = await loadChangeSet(args.changeSetId);
+			if (fresh === undefined) {
+				throw new ChangeSetScopeLostError("This change set no longer exists.");
+			}
+			if (fresh.status === "committed") {
+				return {
+					kind: "committed",
+					receipt: await requireStoredReceipt(fresh),
+					replayed: true,
+				};
+			}
+			if (fresh.revision !== args.expectedRevision) {
+				throw new ChangeSetWorkspaceRevisionStaleError(
+					args.expectedRevision,
+					fresh.revision,
+				);
+			}
+			throw new ChangeSetIntegrityError(error.message);
+		}
+		if (error instanceof AppProjectChangedError) {
+			throw new ChangeSetScopeLostError(
+				"This app moved to a different Project while the change set was committing; the change set cannot commit across tenant scope.",
+			);
+		}
+		if (error instanceof MutationBatchIdCollisionError) {
+			/* The deterministic batch id embeds the revision and mutation
+			 * digest, so a collision means the stored canonical batch differs
+			 * from what this exact revision replays to — corruption, never an
+			 * ordinary retry. */
+			throw new ChangeSetIntegrityError(
+				`Change set ${args.changeSetId} derived batch id ${batchId}, which the app already holds with different content.`,
+			);
+		}
 		if (!(error instanceof BlueprintCommitRejectedError)) throw error;
 		/* The kernel rejected a batch the preflight passed — a narrow race.
 		 * Reclassify on fresh state for the structured report; the gate
 		 * message is the fallback when the fresh state has since healed. */
+		const committed = await committedReplayIfWon(changeSet);
+		if (committed !== undefined) return committed;
 		const reclassified = await classifyAgainstFreshState({
 			changeSet,
 			steps,
@@ -286,6 +341,23 @@ export async function commitDesignChangeSet(
 			currentSeq: await currentAppSeq(changeSet.appId),
 		};
 	}
+}
+
+/** The concurrent-duplicate check: when the change set has meanwhile
+ *  committed (another attempt of this run won), the stored receipt is the
+ *  outcome — never a conflict report against its own committed work. */
+async function committedReplayIfWon(
+	changeSet: DesignChangeSet,
+): Promise<
+	Extract<CommitDesignChangeSetOutcome, { kind: "committed" }> | undefined
+> {
+	const fresh = await loadChangeSet(changeSet.id);
+	if (fresh === undefined || fresh.status !== "committed") return undefined;
+	return {
+		kind: "committed",
+		receipt: await requireStoredReceipt(fresh),
+		replayed: true,
+	};
 }
 
 // ── Post-commit envelope derivation (Unit E wiring point) ──────────

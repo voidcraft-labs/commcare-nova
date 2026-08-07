@@ -87,12 +87,25 @@ history.
     preflight passed (narrow race). Steps are always retained.
 11. **Read-set capture is workspace-owned and automatic.** Lookup deps are
     captured by wrapping the invocation context's `lookupDefinitions`/
-    `lookupCatalog`; the organization dep from the write's
-    `expectedOrganizationRevision` policy; media-asset deps from the staged
-    batch's authored-asset-ref delta. `project-scope` is the row-level
-    `base_project_id` rather than a per-step entry. A tool whose registry
-    policy declares read sets stages only when the matching entries were
-    captured.
+    `lookupCatalog` AND from each step's own diagnostics resolution; the
+    organization dep from the write's `expectedOrganizationRevision` policy;
+    media-asset deps from the staged batch's authored-asset-ref delta.
+    `project-scope` is the row-level `base_project_id` rather than a
+    per-step entry. The required-read-set fence is real: a tool whose
+    registry policy declares `organization` stages only with a captured
+    organization revision, and one declaring lookup kinds stages a
+    lookup-referencing candidate only when a Project definitions reader
+    recorded the revisions (`READ_SET_UNRECORDED` otherwise).
+11a. **Three staging-classified tools are fenced out of the change-set
+    registry until their bodies are overlay-native.** `getAutomations`,
+    `getOrganization`, and `updateAutomation` read the authoritative
+    persisted app/organization snapshot (and the update's zero-diff arm
+    proves its no-op via `adoptAuthoritativeSnapshot`), so admitting them
+    would make staged private state invisible to an executor's own
+    read-backs. Their reviewed §9.8 staging classification is unchanged;
+    `lib/agent/change-set/registry.ts::NOT_YET_OVERLAY_NATIVE` is a
+    runtime-readiness fence the executor unit removes by making those
+    bodies read `ctx.snapshot.doc`.
 12. **Slice intent coverage is informational in Unit B (§10.8).** With no
     build-plan artifact yet, `sliceIntentCoverage` reports which staged
     `intentIds` have steps; the required-coverage gate becomes real when

@@ -91,10 +91,14 @@ gate, and integrity services every other write uses.
    anchor, missing target, rename-plan issues, reducer throws, policy
    fences, unbound handles) reject BEFORE a step appends; validator
    findings do not — the private candidate may carry them.
-4. Lock order: apps → auth membership → design_change_sets. No path holds
-   a change-set row while waiting for an app row. The staging ledgers are
-   append-only at the privilege level; the row-locked authority table
-   serializes them.
+4. Lock order (the plan's rule for existing-app staging): apps →
+   design_change_sets → membership gate/member row. No path holds a
+   change-set row while waiting for an app row, and the membership gate is
+   only ever taken while already holding the authority rows — membership
+   writers never take change-set or app locks, so gate-after-row cannot
+   cycle (a genesis set has no app row yet; its change-set row leads). The
+   staging ledgers are append-only at the privilege level; the row-locked
+   authority table serializes them.
 5. `base_project_id` is captured scope, not live tenancy: a Project move
    strands open sets by design (commit rejects), and no move transaction
    touches these rows. Committed lineage is app-keyed and moves implicitly.
