@@ -197,6 +197,12 @@ describe("runtime row-lock privilege contract", () => {
 	it("keeps every reduced-capability table non-row-lockable", () => {
 		expect(RUNTIME_TABLES_WITHOUT_UPDATE).toEqual([
 			"app_changes",
+			"design_change_set_requests",
+			"design_change_set_steps",
+			"design_change_set_step_stages",
+			"design_change_set_handles",
+			"design_committed_slices",
+			"app_change_intents",
 			"case_schema_index_deletions",
 			"media_asset_refs",
 			"app_location_references",
