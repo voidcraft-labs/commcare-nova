@@ -101,6 +101,15 @@ interface ChatSidebarProps {
 	onSelectThread?: (threadId: string) => Promise<boolean>;
 	/** Start a fresh conversation. */
 	onNewChat?: () => void;
+	/** The design-build progress region (stage line + reviewed-design
+	 *  outline), rendered at the foot of the transcript so a long outline
+	 *  scrolls with the conversation it belongs to and the conversation stays
+	 *  primary (§15.1). Absent for every ordinary app conversation. */
+	designProgress?: ReactNode;
+	/** Suppress the generic activity row while `designProgress` owns the
+	 *  status. The design stage line is a live region of its own and says the
+	 *  same thing more precisely; announcing both reads as a stutter. */
+	activityStatusHidden?: boolean;
 }
 
 interface ShortChatFallbackOptions {
@@ -156,6 +165,8 @@ export function ChatSidebar({
 	activeThreadId,
 	onSelectThread,
 	onNewChat,
+	designProgress,
+	activityStatusHidden = false,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -662,6 +673,12 @@ export function ChatSidebar({
 									isStreaming={isLoading && msgIndex === messages.length - 1}
 								/>
 							))}
+
+							{/* Below the transcript, inside the same scroll region: a
+							 *  design build's progress and outline belong to the
+							 *  conversation, and stick-to-bottom keeps them in view
+							 *  while the build runs. */}
+							{designProgress}
 						</ConversationContent>
 						<ConversationScrollButton />
 					</Conversation>
@@ -669,7 +686,7 @@ export function ChatSidebar({
 
 				{/* Resting chat has no status chrome. Work in progress uses one compact,
 				 * plain-language row that yields entirely in a short inspector dock. */}
-				{!shortInspectorDock && !shortChatFallback && (
+				{!shortInspectorDock && !shortChatFallback && !activityStatusHidden && (
 					<ChatActivityStatus state={activity.state} label={activity.label} />
 				)}
 

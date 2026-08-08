@@ -36,6 +36,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { DesignProgressPanel } from "@/components/chat/DesignProgressPanel";
 import { StartFromScratch } from "@/components/chat/StartFromScratch";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -59,10 +60,19 @@ import {
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
 import {
+	type DesignSessionSeed,
+	parseDesignSessionScope,
+} from "@/lib/generation/designProgressWire";
+import {
 	applyStreamEvent,
 	conversationEventError,
 } from "@/lib/generation/streamDispatcher";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import {
+	createDesignProgressStore,
+	type DesignProgressStoreApi,
+	useDesignProgressView,
+} from "@/lib/session/designProgressStore";
 import {
 	deriveChatAppReady,
 	useAccessPhase,
@@ -605,6 +615,7 @@ function createChatInstance(
 	runIdRef: { current: string | undefined },
 	holderNonceRef: { current: string | undefined },
 	designSessionIdRef: { current: string | undefined },
+	designProgressStore: DesignProgressStoreApi,
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	autoResendFatalStrikesRef: { current: number },
@@ -777,11 +788,16 @@ function createChatInstance(
 			 * evaluates `sendAutomaticallyWhen` the failed response has left no
 			 * message behind to tell this round apart from one that was never
 			 * tried. */
-			if (
-				type === "data-conversation-event" &&
-				conversationEventError(data)?.fatal === true
-			) {
-				autoResendFatalStrikesRef.current += 1;
+			if (type === "data-conversation-event") {
+				const error = conversationEventError(data);
+				if (error?.fatal === true) {
+					autoResendFatalStrikesRef.current += 1;
+					/* A design build's progress region has to say the run stopped:
+					 * the transcript's error toast is the only other signal, and a
+					 * stage line still reading "Building your app" over a dead run
+					 * is the exact dishonesty §15.12 forbids. */
+					designProgressStore.getState().markFailed(error.message);
+				}
 			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
@@ -830,16 +846,22 @@ function createChatInstance(
 			 * latches the store's unfinished-build read. A replay is
 			 * idempotent. */
 			if (type === "data-design-session") {
-				const scope = data as {
-					designSessionId?: unknown;
-					materializedAppId?: unknown;
-				};
-				if (typeof scope.designSessionId === "string") {
+				const scope = parseDesignSessionScope(data);
+				if (scope !== null) {
 					designSessionIdRef.current = scope.designSessionId;
+					designProgressStore.getState().beginSession(scope);
 					if (scope.materializedAppId === null) {
 						sessionStoreRef.current?.getState().markBuildUnfinished();
 					}
 				}
+				return;
+			}
+
+			/* The durable progress projections (§15.4). Each is validated
+			 * against this conversation's design session inside the store and
+			 * dropped when it doesn't match, so an out-of-scope or
+			 * unknown-version frame renders nothing rather than half a card. */
+			if (designProgressStore.getState().applyProgressFrame(type, data)) {
 				return;
 			}
 			/* The build finished: release the store's unfinished-build latch so
@@ -886,6 +908,10 @@ function createChatInstance(
 					);
 					return;
 				}
+				/* Fold the genesis slice into the progress count before the early
+				 * return below: the first workflow's commit IS this receipt, and
+				 * it emits no `slice-committed` frame of its own. Idempotent. */
+				designProgressStore.getState().markMaterialized(activation.appId);
 				if (current.appId === activation.appId) return; // replayed frame
 				/* This tab now owns an UNFINISHED build. The RSC page only seeds
 				 * the latch for tabs that LOADED a generating app; a `/build/new`
@@ -950,6 +976,13 @@ interface ChatContainerProps {
 	/** The signed-in user: a replayed run's credit-refund notice is shown
 	 *  only to the actor who was actually charged. */
 	currentUserId?: string;
+	/** A cold load of an existing design session (`/build/new?design=<id>`).
+	 *  The stage is the SERVER's derivation over the durable session plus its
+	 *  orchestration head, so a resumed design says where it stopped instead
+	 *  of showing nothing until the next turn streams a frame. The outline and
+	 *  plan are not seeded: they exist only in the frames a run streams, and
+	 *  inventing them would be the fake-progress §15.1 rules out. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 export function ChatContainer({
@@ -959,6 +992,7 @@ export function ChatContainer({
 	initialThread,
 	appGenerating,
 	currentUserId,
+	initialDesignSession,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -1018,6 +1052,17 @@ export function ChatContainer({
 	const designSessionIdRef = useRef<string | undefined>(
 		initialThread?.design_session_id ?? undefined,
 	);
+	/** This conversation's design-build progress: the stage, the reviewed
+	 *  design outline, and which planned workflows have committed. One store
+	 *  per mounted conversation, fed only by the durable frames the run
+	 *  streams (plus the page-load seed below), reset on every thread swap. */
+	const [designProgressStore] = useState(() => {
+		const store = createDesignProgressStore();
+		if (initialDesignSession)
+			store.getState().seedSession(initialDesignSession);
+		return store;
+	});
+	const designProgress = useDesignProgressView(designProgressStore);
 	/** Whether the SSE transport was open on the previous render, used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -1131,6 +1176,10 @@ export function ChatContainer({
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
+			/* A different conversation is a different design: its stage, outline,
+			 * and slice progress belong to the run that streamed them. The next
+			 * turn's `data-design-session` frame re-opens the scope. */
+			designProgressStore.getState().reset();
 			return createChatInstance(
 				init,
 				docStoreRef,
@@ -1138,6 +1187,7 @@ export function ChatContainer({
 				runIdRef,
 				holderNonceRef,
 				designSessionIdRef,
+				designProgressStore,
 				reconcilerCtxRef,
 				ownUserIdRef,
 				autoResendFatalStrikesRef,
@@ -1146,7 +1196,7 @@ export function ChatContainer({
 				scopeEpoch,
 			);
 		},
-		[projectToast, scopeEpoch],
+		[designProgressStore, projectToast, scopeEpoch],
 	);
 
 	/* The session store is recreated inside `BuilderSessionProvider` on every
@@ -1167,6 +1217,7 @@ export function ChatContainer({
 			runIdRef,
 			holderNonceRef,
 			designSessionIdRef,
+			designProgressStore,
 			reconcilerCtxRef,
 			ownUserIdRef,
 			autoResendFatalStrikesRef,
@@ -1200,6 +1251,19 @@ export function ChatContainer({
 	stopRef.current = stop;
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
+
+	/* A blocking question round parks the run (§15.8), and the transcript is
+	 * the only place that pause is visible from here: the stream closes and an
+	 * unanswered card is left standing. Report it so the progress region stops
+	 * claiming work is moving while it waits on a person. */
+	useEffect(() => {
+		const streamOpen = status === "submitted" || status === "streaming";
+		designProgressStore
+			.getState()
+			.setAwaitingInput(
+				!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+			);
+	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
@@ -1991,6 +2055,17 @@ export function ChatContainer({
 			activeThreadId={chat.id}
 			onSelectThread={openThread}
 			onNewChat={startNewChat}
+			designProgress={
+				designProgress.active ? (
+					<DesignProgressPanel view={designProgress} />
+				) : undefined
+			}
+			/* Only while the app does not exist yet: from materialization on,
+			 * the builder's own activity row describes the run and this region
+			 * is one quiet sentence per committed workflow. */
+			activityStatusHidden={
+				designProgress.active && !designProgress.materialized
+			}
 		/>
 	);
 }

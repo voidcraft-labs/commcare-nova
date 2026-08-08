@@ -124,6 +124,15 @@ export interface DesignSessionScope {
 	readonly materializedAppId: string | null;
 }
 
+/** What a COLD load of an existing design carries from the RSC page: the
+ *  scope plus the stage the server folded from the durable session and its
+ *  orchestration head. Deliberately no outline or plan — those exist only in
+ *  the frames a run streams, and a reconstructed card would be invented
+ *  progress. */
+export interface DesignSessionSeed extends DesignSessionScope {
+	readonly stage: DesignBuildStage;
+}
+
 // ── Parsing ────────────────────────────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
