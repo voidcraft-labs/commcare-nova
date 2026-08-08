@@ -201,12 +201,15 @@ export async function materializeAppFromGenesis(
 				mutations: batch,
 			});
 
-			const reservation = designSessionReservation(session);
+			/* A value COPY for the transfer, not a liveness decision — the exact
+			 * session holder was already proved through the one lease reader in
+			 * `verifySessionForTransfer`. */
+			const sessionHold = designSessionReservation(session);
 			if (
-				reservation === undefined ||
-				reservation.settled ||
-				reservation.userId === undefined ||
-				reservation.runId === undefined
+				sessionHold === undefined ||
+				sessionHold.settled ||
+				sessionHold.userId === undefined ||
+				sessionHold.runId === undefined
 			) {
 				throw new ChangeSetScopeLostError(
 					"This design session's run no longer carries an unsettled reservation, so its hold cannot transfer to the new app.",
@@ -226,10 +229,10 @@ export async function materializeAppFromGenesis(
 				holderTransfer: {
 					runHolderNonce: args.holderNonce,
 					reservation: {
-						period: reservation.period,
-						reserved: reservation.reserved,
-						userId: reservation.userId,
-						runId: reservation.runId,
+						period: sessionHold.period,
+						reserved: sessionHold.reserved,
+						userId: sessionHold.userId,
+						runId: sessionHold.runId,
 					},
 				},
 			});

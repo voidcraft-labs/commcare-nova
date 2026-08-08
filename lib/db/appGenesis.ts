@@ -172,6 +172,7 @@ export async function writePreparedGenesisInTransaction(
 		"You no longer have edit access to this Project.",
 	);
 	const transfer = args.holderTransfer;
+	const transferredHold = transfer?.reservation;
 	await tx
 		.insertInto("apps")
 		.values({
@@ -187,12 +188,15 @@ export async function writePreparedGenesisInTransaction(
 			recoverable_until: null,
 			run_id: args.runId,
 			run_holder_nonce: transfer?.runHolderNonce ?? args.runHolderNonce ?? null,
-			...(transfer !== undefined && {
-				res_period: transfer.reservation.period,
-				res_reserved: transfer.reservation.reserved,
+			/* A value COPY of the transferred hold, not a liveness read: the
+			 * caller (materialization) already proved the exact session holder
+			 * through the one lease reader before handing these values over. */
+			...(transferredHold !== undefined && {
+				res_period: transferredHold.period,
+				res_reserved: transferredHold.reserved,
 				res_settled: false,
-				res_user_id: transfer.reservation.userId,
-				res_run_id: transfer.reservation.runId,
+				res_user_id: transferredHold.userId,
+				res_run_id: transferredHold.runId,
 			}),
 		})
 		.execute();
