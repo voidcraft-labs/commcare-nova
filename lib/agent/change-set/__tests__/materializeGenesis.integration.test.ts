@@ -342,14 +342,16 @@ describe("materializeAppFromGenesis", () => {
 		if (outcome.kind !== "materialized") {
 			throw new Error(`expected materialized, got ${JSON.stringify(outcome)}`);
 		}
+		/* `case_type_schemas` lives on the case-store side of the shared
+		 * database, outside `AppDatabase` — read it through the raw pool. */
 		const schema = await h
-			.db()
-			.selectFrom("case_type_schemas")
-			.select(["case_type", "synced_seq"])
-			.where("app_id", "=", fixture.proposedAppId)
-			.execute();
-		expect(schema.map((row) => row.case_type)).toEqual(["client"]);
-		expect(Number(schema[0]?.synced_seq)).toBe(1);
+			.pool()
+			.query<{ case_type: string; synced_seq: string }>(
+				"SELECT case_type, synced_seq FROM case_type_schemas WHERE app_id = $1",
+				[fixture.proposedAppId],
+			);
+		expect(schema.rows.map((row) => row.case_type)).toEqual(["client"]);
+		expect(Number(schema.rows[0]?.synced_seq)).toBe(1);
 	});
 
 	it("refuses a superseded holder and a paused session, touching nothing", async () => {

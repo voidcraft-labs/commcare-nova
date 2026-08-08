@@ -62,6 +62,9 @@ const SOURCE_CLASSIFICATION = {
 	"lib/collab/reconciler.ts": "consumes-durable-admitted",
 	"lib/db/applyBlueprintChange.ts": "consumes-durable-admitted",
 	"lib/db/apps.ts": "admits-proposal",
+	// The closed genesis owner: admits the genesis batch and re-evaluates the
+	// whole candidate inside the creation/materialization transaction.
+	"lib/db/appGenesis.ts": "admits-proposal",
 	// The promoted guarded-commit transaction: re-admits the caller's proposal
 	// against the fresh locked snapshot before any durable write.
 	"lib/db/canonicalCommitKernel.ts": "admits-proposal",
