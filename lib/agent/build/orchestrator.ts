@@ -44,9 +44,9 @@ import type {
 } from "@/lib/agent/design/artifactStore";
 import { readDesignReviews } from "@/lib/agent/design/artifactStore";
 import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
-import type { OpenQuestion } from "@/lib/agent/design/contract";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { sourceClaimSchema } from "@/lib/agent/design/evidence";
+import { asDesignId } from "@/lib/agent/design/ids";
 import {
 	type DesignPipelineOutcome,
 	runDesignPipeline,
@@ -60,7 +60,7 @@ import { productionSourcePackageDeps } from "@/lib/agent/design/sourcePackageDep
 import { createExtractionCondenser } from "@/lib/agent/documentExtraction";
 import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
-import { refreshBuildLiveness } from "@/lib/db/apps";
+import { refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
 import {
 	refreshDesignSessionLiveness,
 	setDesignSessionActiveArtifacts,
@@ -186,18 +186,27 @@ function narrate(writer: OrchestratorStreamWriter, text: string): void {
 	writer.write({ type: "finish-step" });
 }
 
+/** One blocking question the pause presents: a design revision's open
+ *  question (free text, no options) or a missing-information escalation's
+ *  single decision with its proposed choices. */
+interface PauseQuestion {
+	readonly id: string;
+	readonly question: string;
+	readonly options: readonly string[];
+}
+
 /** The blocking-question pause: the standard askQuestions tool part the
  *  chat client already renders and answers. */
 function emitQuestions(
 	writer: OrchestratorStreamWriter,
-	questions: readonly OpenQuestion[],
+	questions: readonly PauseQuestion[],
 ): void {
 	const toolCallId = crypto.randomUUID();
 	const input = {
 		header: "A few decisions shape this app's structure",
 		questions: questions.map((question) => ({
 			question: question.question,
-			options: [],
+			options: [...question.options],
 		})),
 	};
 	writer.write({ type: "start-step" });
@@ -419,7 +428,12 @@ export async function runBuildOrchestration(
 				args,
 				head,
 				pipelineOutcome.revision,
-				pipelineOutcome.blockingQuestions,
+				appId,
+				pipelineOutcome.blockingQuestions.map((question) => ({
+					id: question.id as string,
+					question: question.question,
+					options: [],
+				})),
 			);
 		}
 
@@ -569,16 +583,15 @@ export async function runBuildOrchestration(
 					outcome.issue.category,
 				);
 				if (outcome.issue.category === "missing-information") {
-					return await pauseOnQuestions(args, head, revision, [
-						...outcome.issue.proposedOptions.map((option, index) => ({
-							id: outcome.issue.id,
-							question:
-								index === 0 ? `${outcome.issue.explanation} ${option}` : option,
-							structuralImpact: outcome.issue.structuralImpact,
-							blocking: true,
-							relatedIntentIds: outcome.issue.affectedIntentIds,
-						})),
-					] as unknown as OpenQuestion[]);
+					/* One decision, one question: the explanation is what needs
+					 * answering and the proposed options are its choices. */
+					return await pauseOnQuestions(args, head, revision, appId, [
+						{
+							id: outcome.issue.id as string,
+							question: outcome.issue.explanation,
+							options: outcome.issue.proposedOptions,
+						},
+					]);
 				}
 				head = await appendFailure(args, head, {
 					errorType: `design-issue-${outcome.issue.category}`,
@@ -623,6 +636,11 @@ export async function runBuildOrchestration(
 				"The build plan committed no materialization root, so no app exists.",
 			);
 		}
+		/* The final sequence is the APP's, not this run's: a resumed
+		 * orchestration that found every slice already committed advanced
+		 * nothing locally, and reporting seq 1 would stamp a wrong durable
+		 * record and let the case-store sweep skip later slices' schemas. */
+		lastSeq = Math.max(lastSeq, await currentAppSeq(appId));
 		head = await appendOrchestrationEvent({
 			designSessionId: args.designSessionId,
 			runId: args.runId,
@@ -709,8 +727,21 @@ async function pauseOnQuestions(
 	args: RunBuildOrchestrationArgs,
 	head: OrchestrationHead | null,
 	revision: DesignRevisionRecord,
-	questions: readonly OpenQuestion[],
+	/** The run's current app: null pre-materialization. The run HOLDER lives
+	 *  on the session row before the transfer and on the app row after, so
+	 *  the pause must stamp whichever row actually carries it — the session
+	 *  writer answers "released" for a materialized session, which the route
+	 *  would surface as a lost pause and a clawed-back question round. */
+	appId: string | null,
+	questions: readonly PauseQuestion[],
 ): Promise<BuildOrchestrationOutcome> {
+	if (questions.length === 0) {
+		/* An empty round is unpresentable AND unpersistable (the event schema
+		 * requires at least one blocking id) — refuse before either write. */
+		throw new Error(
+			"A blocking-question pause was requested with no questions to ask.",
+		);
+	}
 	narrate(
 		args.writer,
 		"A few decisions genuinely change how this app should be structured — your answers will shape the design.",
@@ -724,18 +755,29 @@ async function pauseOnQuestions(
 			kind: "awaiting-user",
 			designSessionId: args.designSessionId,
 			designRevisionId: revision.id,
-			blockingQuestionIds: questions.map((question) => question.id),
+			blockingQuestionIds: questions.map((question) => asDesignId(question.id)),
 		},
 		expectedHead: head,
 	});
-	const pause = await setDesignSessionAwaitingInput(
-		args.designSessionId,
-		args.runId,
-		args.holderNonce,
-		true,
-		args.actorUserId,
-		args.projectId,
-	);
+	const pause =
+		appId === null
+			? await setDesignSessionAwaitingInput(
+					args.designSessionId,
+					args.runId,
+					args.holderNonce,
+					true,
+					args.actorUserId,
+					args.projectId,
+				)
+			: await setAwaitingInput(
+					appId,
+					args.runId,
+					args.holderNonce,
+					"build",
+					true,
+					args.actorUserId,
+					args.projectId,
+				);
 	return { kind: "awaiting-input", pauseOwned: pause === "owned" };
 }
 
@@ -780,6 +822,16 @@ async function committedSliceIds(planId: string): Promise<Set<string>> {
 		.where("build_plan_id", "=", planId)
 		.execute();
 	return new Set(rows.map((row) => row.slice_id));
+}
+
+async function currentAppSeq(appId: string): Promise<number> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("apps")
+		.select(["mutation_seq"])
+		.where("id", "=", appId)
+		.executeTakeFirstOrThrow();
+	return safePersistedSequence(row.mutation_seq, "apps.mutation_seq");
 }
 
 async function appBaseTarget(appId: string) {

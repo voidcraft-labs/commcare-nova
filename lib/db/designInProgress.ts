@@ -70,6 +70,7 @@ export interface DesignInProgressRow {
 	readonly app_id: string | null;
 	readonly state: DesignSessionState;
 	readonly awaiting_input: boolean;
+	readonly last_error_type: string | null;
 	readonly updated_at: Date;
 	/** The most recent thread bound to this session, when it has one. */
 	readonly thread_summary: string | null;
@@ -100,7 +101,7 @@ export function projectDesignInProgress(
 			{
 				state: row.state,
 				awaiting_input: row.awaiting_input,
-				last_error_type: null,
+				last_error_type: row.last_error_type,
 				app_id: row.app_id,
 			},
 			head,
@@ -132,6 +133,7 @@ export async function listDesignsInProgress(args: {
 			"app_id",
 			"state",
 			"awaiting_input",
+			"last_error_type",
 			"updated_at",
 		])
 		.where("mode", "=", "build")
@@ -182,6 +184,7 @@ export async function listDesignsInProgress(args: {
 				app_id: row.app_id,
 				state: parsePersistedDesignSessionState(row.state),
 				awaiting_input: row.awaiting_input,
+				last_error_type: row.last_error_type,
 				updated_at: row.updated_at,
 				thread_summary: thread?.summary ?? null,
 				thread_updated_at: thread?.updatedAt ?? null,

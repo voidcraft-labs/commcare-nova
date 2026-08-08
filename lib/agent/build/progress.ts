@@ -44,7 +44,12 @@ export function deriveDesignBuildStage(
 ): DesignBuildStage {
 	if (session.awaiting_input) return "needs-input";
 	if (session.state === "abandoned") return "failed";
-	if (head === null) return "understanding";
+	if (head === null) {
+		/* No orchestration event yet, but the session records a failed run
+		 * (a claim/pipeline death before the first transition): say the build
+		 * stopped rather than showing active-work copy over a dead run. */
+		return session.last_error_type === null ? "understanding" : "incomplete";
+	}
 	const state = head.state;
 	switch (state.kind) {
 		case "designing":

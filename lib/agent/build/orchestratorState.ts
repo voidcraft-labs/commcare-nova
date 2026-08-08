@@ -144,6 +144,11 @@ export async function appendOrchestrationEvent(args: {
 	readonly state: BuildOrchestratorState;
 	readonly expectedHead: OrchestrationHead | null;
 }): Promise<OrchestrationHead> {
+	/* Write-side admission: the fold strict-parses every stored payload, so a
+	 * state the schema rejects must fail HERE — before persistence — rather
+	 * than becoming a poisoned event that bricks every later read of this
+	 * session's chain (the head fold, the resume page, the designs list). */
+	const state = buildOrchestratorStateSchema.parse(args.state);
 	const db = await getAppDb();
 	const revision = (args.expectedHead?.revision ?? 0) + 1;
 	const eventId = crypto.randomUUID();
@@ -152,7 +157,7 @@ export async function appendOrchestrationEvent(args: {
 		revision,
 		eventId,
 		predecessorEventId: args.expectedHead?.eventId ?? null,
-		state: args.state,
+		state,
 	});
 	try {
 		await db
@@ -165,8 +170,8 @@ export async function appendOrchestrationEvent(args: {
 				predecessor_digest: args.expectedHead?.digest ?? null,
 				run_id: args.runId,
 				holder_nonce_digest: holderNonceDigest(args.holderNonce),
-				kind: args.state.kind,
-				payload: JSON.stringify(args.state),
+				kind: state.kind,
+				payload: JSON.stringify(state),
 			})
 			.execute();
 	} catch (err) {
@@ -175,7 +180,7 @@ export async function appendOrchestrationEvent(args: {
 		}
 		throw err;
 	}
-	return { revision, eventId, digest, state: args.state };
+	return { revision, eventId, digest, state };
 }
 
 /**

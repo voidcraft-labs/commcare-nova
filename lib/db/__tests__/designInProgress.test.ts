@@ -29,6 +29,7 @@ function row(
 		app_id: null,
 		state: "active",
 		awaiting_input: false,
+		last_error_type: null,
 		updated_at: new Date("2026-08-01T10:00:00.000Z"),
 		thread_summary: "Home visit tracking",
 		thread_updated_at: "2026-08-01T09:00:00.000Z",
@@ -74,6 +75,15 @@ describe("projectDesignInProgress", () => {
 
 	it("reports understanding for a session whose orchestration never started", () => {
 		expect(projectDesignInProgress(row(), null).stage).toBe("understanding");
+	});
+
+	it("says the build stopped when a run failed before any orchestration event", () => {
+		const summary = projectDesignInProgress(
+			row({ last_error_type: "provider_error" }),
+			null,
+		);
+		expect(summary.stage).toBe("incomplete");
+		expect(summary.recoverable).toBe(true);
 	});
 
 	it("reports the paused stage while the design waits on an answer", () => {

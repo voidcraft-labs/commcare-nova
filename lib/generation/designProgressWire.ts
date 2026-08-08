@@ -13,6 +13,8 @@
  * the caller ignores it rather than rendering a half-read projection.
  */
 
+import { z } from "zod";
+
 /** The truthful, non-percentage stages. Text, never a percentage, and never
  *  color alone (§15.13). */
 export const DESIGN_BUILD_STAGES = [
@@ -134,27 +136,25 @@ export interface DesignSessionSeed extends DesignSessionScope {
 }
 
 // ── Parsing ────────────────────────────────────────────────────────
+//
+// Zod is the one frame-admission idiom on the client (the same discipline
+// every other admitted wire shape uses); each parser FAILS CLOSED to `null`.
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const nonBlank = z
+	.string()
+	.min(1)
+	.refine((value) => value.trim().length > 0);
+const wholeCount = z.number().int().nonnegative();
 
-function nonBlankString(value: unknown): string | null {
-	return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function stringList(value: unknown): readonly string[] | null {
-	if (!Array.isArray(value)) return null;
-	return value.every((entry) => typeof entry === "string")
-		? (value as string[])
-		: null;
-}
-
-function wholeCount(value: unknown): number | null {
-	return typeof value === "number" && Number.isInteger(value) && value >= 0
-		? value
-		: null;
-}
+const envelopeSchema = z
+	.object({
+		eventVersion: z.literal(1),
+		designSessionId: nonBlank,
+		orchestrationEventId: z.string(),
+		orchestrationRevision: wholeCount,
+		data: z.unknown(),
+	})
+	.strict();
 
 /**
  * Unwrap one progress envelope for a KNOWN design session. A frame whose
@@ -165,129 +165,104 @@ export function designProgressPayload(
 	frame: unknown,
 	designSessionId: string,
 ): unknown | null {
-	if (!isRecord(frame)) return null;
-	if (frame.eventVersion !== 1) return null;
-	if (frame.designSessionId !== designSessionId) return null;
-	if (typeof frame.orchestrationEventId !== "string") return null;
-	if (wholeCount(frame.orchestrationRevision) === null) return null;
-	return frame.data ?? null;
+	const parsed = envelopeSchema.safeParse(frame);
+	if (!parsed.success) return null;
+	if (parsed.data.designSessionId !== designSessionId) return null;
+	return parsed.data.data ?? null;
 }
+
+const designSessionScopeSchema = z.object({
+	designSessionId: nonBlank,
+	materializedAppId: nonBlank.nullable(),
+});
 
 export function parseDesignSessionScope(
 	frame: unknown,
 ): DesignSessionScope | null {
-	if (!isRecord(frame)) return null;
-	const designSessionId = nonBlankString(frame.designSessionId);
-	if (designSessionId === null) return null;
-	const materialized = frame.materializedAppId;
-	if (materialized !== null && nonBlankString(materialized) === null) {
-		return null;
-	}
-	return {
-		designSessionId,
-		materializedAppId: materialized === null ? null : (materialized as string),
-	};
+	const parsed = designSessionScopeSchema.safeParse(frame);
+	return parsed.success ? parsed.data : null;
+}
+
+const designOutlineSchema = z.object({
+	objective: z.string(),
+	actors: z.array(z.string()),
+	tasks: z.array(z.string()),
+	records: z.array(z.string()),
+	readModels: z.array(z.string()),
+	assumptions: z.array(z.string()),
+	blockingQuestions: z.array(z.string()),
+	outOfScope: z.array(z.string()),
+	reviewed: z.boolean(),
+	findingCounts: z.object({
+		critical: wholeCount,
+		important: wholeCount,
+		advisory: wholeCount,
+	}),
+});
+
+const buildPlanSummarySchema = z.object({
+	sliceCount: wholeCount,
+	sliceNames: z.array(z.string()),
+	externalActionCount: wholeCount,
+});
+
+const buildSliceStartedSchema = z.object({
+	sliceId: nonBlank,
+	sliceName: nonBlank,
+});
+
+const buildSliceCommittedSchema = buildSliceStartedSchema.extend({
+	seq: wholeCount,
+});
+
+const buildCompletionSchema = z.object({
+	appId: nonBlank,
+	appSeq: wholeCount,
+	plannedSlices: wholeCount,
+});
+
+function parsePayload<T>(
+	frame: unknown,
+	designSessionId: string,
+	schema: z.ZodType<T>,
+): T | null {
+	const data = designProgressPayload(frame, designSessionId);
+	if (data === null) return null;
+	const parsed = schema.safeParse(data);
+	return parsed.success ? parsed.data : null;
 }
 
 export function parseDesignOutline(
 	frame: unknown,
 	designSessionId: string,
 ): DesignOutlineProjection | null {
-	const data = designProgressPayload(frame, designSessionId);
-	if (!isRecord(data)) return null;
-	const objective = typeof data.objective === "string" ? data.objective : null;
-	const actors = stringList(data.actors);
-	const tasks = stringList(data.tasks);
-	const records = stringList(data.records);
-	const readModels = stringList(data.readModels);
-	const assumptions = stringList(data.assumptions);
-	const blockingQuestions = stringList(data.blockingQuestions);
-	const outOfScope = stringList(data.outOfScope);
-	const counts = isRecord(data.findingCounts) ? data.findingCounts : null;
-	const critical = wholeCount(counts?.critical);
-	const important = wholeCount(counts?.important);
-	const advisory = wholeCount(counts?.advisory);
-	if (
-		objective === null ||
-		actors === null ||
-		tasks === null ||
-		records === null ||
-		readModels === null ||
-		assumptions === null ||
-		blockingQuestions === null ||
-		outOfScope === null ||
-		typeof data.reviewed !== "boolean" ||
-		critical === null ||
-		important === null ||
-		advisory === null
-	) {
-		return null;
-	}
-	return {
-		objective,
-		actors,
-		tasks,
-		records,
-		readModels,
-		assumptions,
-		blockingQuestions,
-		outOfScope,
-		reviewed: data.reviewed,
-		findingCounts: { critical, important, advisory },
-	};
+	return parsePayload(frame, designSessionId, designOutlineSchema);
 }
 
 export function parseBuildPlanSummary(
 	frame: unknown,
 	designSessionId: string,
 ): BuildPlanSummaryProjection | null {
-	const data = designProgressPayload(frame, designSessionId);
-	if (!isRecord(data)) return null;
-	const sliceCount = wholeCount(data.sliceCount);
-	const sliceNames = stringList(data.sliceNames);
-	const externalActionCount = wholeCount(data.externalActionCount);
-	if (
-		sliceCount === null ||
-		sliceNames === null ||
-		externalActionCount === null
-	)
-		return null;
-	return { sliceCount, sliceNames, externalActionCount };
+	return parsePayload(frame, designSessionId, buildPlanSummarySchema);
 }
 
 export function parseBuildSliceStarted(
 	frame: unknown,
 	designSessionId: string,
 ): BuildSliceStartedProjection | null {
-	const data = designProgressPayload(frame, designSessionId);
-	if (!isRecord(data)) return null;
-	const sliceId = nonBlankString(data.sliceId);
-	const sliceName = nonBlankString(data.sliceName);
-	if (sliceId === null || sliceName === null) return null;
-	return { sliceId, sliceName };
+	return parsePayload(frame, designSessionId, buildSliceStartedSchema);
 }
 
 export function parseBuildSliceCommitted(
 	frame: unknown,
 	designSessionId: string,
 ): BuildSliceCommittedProjection | null {
-	const started = parseBuildSliceStarted(frame, designSessionId);
-	if (started === null) return null;
-	const data = designProgressPayload(frame, designSessionId);
-	const seq = isRecord(data) ? wholeCount(data.seq) : null;
-	if (seq === null) return null;
-	return { ...started, seq };
+	return parsePayload(frame, designSessionId, buildSliceCommittedSchema);
 }
 
 export function parseBuildCompletion(
 	frame: unknown,
 	designSessionId: string,
 ): BuildCompletionProjection | null {
-	const data = designProgressPayload(frame, designSessionId);
-	if (!isRecord(data)) return null;
-	const appId = nonBlankString(data.appId);
-	const appSeq = wholeCount(data.appSeq);
-	const plannedSlices = wholeCount(data.plannedSlices);
-	if (appId === null || appSeq === null || plannedSlices === null) return null;
-	return { appId, appSeq, plannedSlices };
+	return parsePayload(frame, designSessionId, buildCompletionSchema);
 }

@@ -122,6 +122,26 @@ const CLAIM_WAIT_MAX_MS = 120_000;
 const CHUNK_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 let lastChunkPruneAt = 0;
 
+/** The refusal for a non-`complete` app with no bound design session: a
+ * pre-pipeline row the one-off lifecycle repair converges to `complete`
+ * (a valid app at rest), so the route never guesses a deleted build
+ * method. */
+const LEGACY_BUILD_REPAIR_MESSAGE =
+	"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.";
+
+/** Resolve an app-target BUILD turn's orchestration scope: the bound
+ * materialized design session, or null for a legacy pre-pipeline row. */
+async function resolveBoundBuildSession(appId: string): Promise<{
+	designSessionId: string;
+	proposedAppId: string;
+	materialized: true;
+} | null> {
+	const bound = await loadMaterializedSessionForApp(appId);
+	return bound === null
+		? null
+		: { designSessionId: bound.id, proposedAppId: appId, materialized: true };
+}
+
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
@@ -810,23 +830,15 @@ export async function POST(req: Request) {
 			 * lifecycle scan (a valid app at rest is `complete`), so the route
 			 * refuses rather than guessing a build method that no longer
 			 * exists. */
-			const bound = await loadMaterializedSessionForApp(appId);
+			const bound = await resolveBoundBuildSession(appId);
 			if (bound === null) {
 				return Response.json(
-					{
-						error:
-							"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.",
-						type: "invalid_request",
-					},
+					{ error: LEGACY_BUILD_REPAIR_MESSAGE, type: "invalid_request" },
 					{ status: 409 },
 				);
 			}
-			designSessionRun = {
-				designSessionId: bound.id,
-				proposedAppId: appId,
-				materialized: true,
-			};
-			designLineageSessionId = bound.id;
+			designSessionRun = bound;
+			designLineageSessionId = bound.designSessionId;
 		}
 		/* Deliberately NO second advisory balance read at the derived rate. On
 		 * the direct path the claim transaction's own affordability check
@@ -918,22 +930,17 @@ export async function POST(req: Request) {
 								directClaimMode === "build" &&
 								designSessionRun === undefined
 							) {
-								const bound = await loadMaterializedSessionForApp(appId);
+								const bound = await resolveBoundBuildSession(appId);
 								if (bound === null) {
 									return Response.json(
 										{
-											error:
-												"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.",
+											error: LEGACY_BUILD_REPAIR_MESSAGE,
 											type: "invalid_request",
 										},
 										{ status: 409 },
 									);
 								}
-								designSessionRun = {
-									designSessionId: bound.id,
-									proposedAppId: appId,
-									materialized: true,
-								};
+								designSessionRun = bound;
 								/* `designLineageSessionId` stays as admission derived it:
 								 * the thread this turn continues keeps its own target. */
 							}
@@ -1806,20 +1813,15 @@ export async function POST(req: Request) {
 								 * admission read resolves it. A sessionless non-complete
 								 * app is a legacy row awaiting the one-off repair. */
 								if (adopted === "build" && designSessionRun === undefined) {
-									const bound = await loadMaterializedSessionForApp(appId);
+									const bound = await resolveBoundBuildSession(appId);
 									if (bound === null) {
 										gateBail = {
 											type: "internal",
-											message:
-												"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.",
+											message: LEGACY_BUILD_REPAIR_MESSAGE,
 										};
 										break;
 									}
-									designSessionRun = {
-										designSessionId: bound.id,
-										proposedAppId: appId,
-										materialized: true,
-									};
+									designSessionRun = bound;
 									/* The thread this turn continues keeps its own target;
 									 * lineage is an admission-time binding. */
 								}
@@ -2200,6 +2202,13 @@ export async function POST(req: Request) {
 				 * lineage there). */
 				if (designSessionRun !== undefined && !appReady) {
 					const design = designSessionRun;
+					/* The orchestration's cancellation seam. The run deliberately
+					 * ignores browser disconnects (it drains server-side), so
+					 * nothing fires this mid-run; aborting when the branch settles
+					 * cancels any model call a throw left in flight, and the
+					 * orchestrator's own step/slice budgets remain the primary
+					 * runaway bound. */
+					const orchestrationAbort = new AbortController();
 					try {
 						const outcome = await runBuildOrchestration({
 							designSessionId: design.designSessionId,
@@ -2214,7 +2223,7 @@ export async function POST(req: Request) {
 							writer,
 							apiKey: keyResult.apiKey,
 							meter: usage,
-							signal: new AbortController().signal,
+							signal: orchestrationAbort.signal,
 							materializedAppId: design.materialized ? appId : null,
 							deps: {
 								logCommittedStages: (receipt, envelopes) => {
@@ -2319,9 +2328,31 @@ export async function POST(req: Request) {
 						}
 					} catch (error) {
 						/* An orchestration throw: infrastructure or lost scope. The
-						 * session's hold settles/refunds through the exact-holder
-						 * writer; a post-materialization throw takes the app funnel. */
-						if (design.materialized) {
+						 * settle must target whichever row holds the run NOW — a throw
+						 * AFTER this run materialized (a later-slice fault on a fresh
+						 * build) has already transferred the holder + reservation to
+						 * the APP row, so the admission-time `design.materialized`
+						 * binding is stale; settling the session there is a no-op that
+						 * strands the app `generating` with an unsettled charge until
+						 * the reaper. Re-read the session's authoritative state to
+						 * pick the funnel; a failed re-read fails toward the app
+						 * funnel (failRun's writers are exact-holder gated, so a wrong
+						 * guess touches nothing). */
+						let materializedNow = design.materialized;
+						if (!materializedNow) {
+							try {
+								const fresh = await loadDesignSession(design.designSessionId);
+								materializedNow = fresh?.state === "materialized";
+							} catch (err) {
+								log.error(
+									"[chat] design-session state re-read failed after throw",
+									err,
+									{ designSessionId: design.designSessionId },
+								);
+								materializedNow = true;
+							}
+						}
+						if (materializedNow) {
 							await failRun(error, "route:design-build-throw");
 						} else {
 							usage.markRunFailed();
@@ -2340,6 +2371,8 @@ export async function POST(req: Request) {
 							ctx.emitError(classifyError(error), "route:design-build-throw");
 							await finalizeRun(undefined, { heldApp: false });
 						}
+					} finally {
+						orchestrationAbort.abort();
 					}
 					return;
 				}

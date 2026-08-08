@@ -2828,7 +2828,7 @@ The row does not store an editable state-machine blob. Each transition is an app
 - event kind and strict payload;
 - timestamp.
 
-The current state is the strict fold of those events (`readOrchestrationHead` re-verifies contiguity, each predecessor id + digest, and kind-vs-payload agreement on every read). A unique predecessor constraint prevents two continuations from advancing the same state (`OrchestrationForkError`). This gives process-death recovery and makes “review was skipped” structurally detectable.
+The current state is the strict fold of those events (`readOrchestrationHead` re-verifies contiguity, each predecessor id + digest, and kind-vs-payload agreement on every read), and the APPEND admits its payload against the same schema — an unpersistable state fails before it can poison the chain. A unique predecessor constraint prevents two continuations from advancing the same state (`OrchestrationForkError`). This gives process-death recovery and makes “review was skipped” structurally detectable.
 
 ### 13.3 Slice execution attempt
 
@@ -3715,7 +3715,7 @@ Peer tabs see only those canonical commits and normal reload boundaries.
 When a blocking question is raised:
 
 - persist the exact `askQuestions` tool state in the transcript;
-- set `awaiting_input` under the exact target holder;
+- set `awaiting_input` under the exact target holder — the SESSION row pre-materialization, the APP row after (the pause stamps whichever row carries the run);
 - show `needs-input`;
 - do not create/materialize an app merely to host the pause;
 - on answer, reacquire the same design-session holder nonce using the target-polymorphic resume protocol;
