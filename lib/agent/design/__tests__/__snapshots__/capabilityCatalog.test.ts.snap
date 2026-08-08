@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "83140d40aa9c514c118906d0e00e3175ed78e5005f84891106332321103b0868",
+  "catalogDigest": "bbd4fc9b447a22c552448f5eb7d574f09bc9e55ded0a3e80a1750c1e77cd0677",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -21,6 +21,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "LOOKUP_HQ_EXPORT_CLOSED",
     "WORKER_PROVISIONING_NOT_SHIPPED",
     "LOCATION_OWNER_EXPORT_CLOSED",
+    "CASE_SEARCH_IS_LIVE_AND_ONLINE",
     "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
     "STANDARD_SCALAR_WRITERS_LIMITED",
     "CASE_NAME_REQUIRED_ON_CREATE",

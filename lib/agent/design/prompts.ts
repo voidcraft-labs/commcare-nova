@@ -25,10 +25,10 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	author: "design-author-v3",
-	reviewer: "design-reviewer-v3",
-	reviser: "design-reviser-v2",
-	planner: "design-planner-v2",
+	author: "design-author-v1",
+	reviewer: "design-reviewer-v1",
+	reviser: "design-reviser-v1",
+	planner: "design-planner-v1",
 } as const;
 
 /**
@@ -42,19 +42,28 @@ export const DESIGN_PROMPT_VERSIONS = {
 const DOMAIN_PREAMBLE = `## The domain
 
 Nova is an AI app builder for CommCare, Dimagi's platform for frontline
-data collection. A CommCare app runs on a field worker's Android phone or
-in a browser, usually offline: workers register people, places, and things
-as CASES, fill out forms against them over time, and work from case lists
-that show who needs attention next. A case carries durable properties
-written by form submissions; cases relate through parent/child
-hierarchies; a worker's day is "open a list, pick a case, do the task".
-CommCare is form-and-case shaped and one worker at a time — NOT a general
-app platform: no custom screens or code, no real-time collaboration, no
-push notifications, nothing beyond the constructible surface the
-capability catalog and constraint entries in this conversation describe.
-Nova's authoring model is its own — simpler and stricter than CommCare
-HQ's (the platform's web console, which appears in some constraint
-statements); HQ facts matter only where a constraint entry says so.
+data collection. A CommCare app is form-and-case shaped: workers register
+people, places, and things as CASES, fill out forms against them over
+time, and work from case lists that show who needs attention next. A case
+carries durable properties written by form submissions; cases relate
+through parent/child hierarchies.
+
+CommCare apps run in two delivery contexts, and real programs sit at both
+poles. Offline-first MOBILE: a field worker's Android phone carries a
+synced subset of cases and works without connectivity (rural community
+health, home visits). Online-first WEB APPS: a browser, always connected,
+leaning on live case search for near-real-time data (state programs like
+capacity tracking or central registries). In both, a worker sees only the
+cases synced to them or the ones a search finds — data visibility is a
+designed thing, never a given. Multi-worker programs coordinate through
+the case data itself (shared records, queues worked from lists and
+searches), never through live shared screens.
+
+CommCare is NOT a general app platform: no custom screens or code, no
+in-app notifications (messaging is SMS/email alerts the platform
+delivers, which Nova designs as automations), and nothing beyond the
+constructible surface the capability catalog and constraint entries in
+this conversation describe.
 
 Nova turns a user's plain-language description of their program into a
 working CommCare app. This pipeline is the DESIGN stage: a typed Design
@@ -148,10 +157,13 @@ ${IDENTITY_RULES}
 Raise a BLOCKING open question only when the answer materially changes
 architecture, safety, external effects, or a source-stated requirement.
 Prefer a recorded assumption (with its consequence-if-wrong) for anything a
-reasonable default covers. Respect the capability catalog and the platform
-constraints provided: design within the constructible surface, defer what
-they exclude, and say so — never design pretend structure for a catalogued
-gap.
+reasonable default covers. The delivery context matters: when the sources
+imply offline field work or an always-connected web program, design for it
+and record the assumption with its consequence-if-wrong; when they imply
+neither, prefer shapes that work in both. Respect the capability catalog
+and the platform constraints provided: design within the constructible
+surface, defer what they exclude, and say so — never design pretend
+structure for a catalogued gap.
 
 ${SOURCE_DATA_CONTRACT}`;
 
@@ -194,9 +206,11 @@ from the reviewed contract only.
 Requirement coverage (every explicit source claim represented or honestly
 deferred), workflow gaps (tasks with no read-back, transitions with no
 trigger, dead-end queues), data-model fit, read/write coherence, actor and
-access fit, privacy/sensitivity grading, usability of the worker
-experience, unsupported assumptions, unnecessary complexity, and platform
-violations against the catalog.
+access fit, delivery-context fit (an offline-first design gated behind
+live search, or a real-time program built on synced worklists), privacy/
+sensitivity grading, usability of the worker experience, unsupported
+assumptions, unnecessary complexity, and platform violations against the
+catalog.
 
 ${IDENTITY_RULES}
 
