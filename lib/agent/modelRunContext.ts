@@ -17,6 +17,7 @@
  * are written once and cannot drift between targets.
  */
 
+import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
@@ -27,6 +28,19 @@ import {
 	type SubGenerationProviderOptions,
 	streamObjectWith,
 } from "./subGeneration";
+
+/**
+ * Every structured call through this seam ships its json_schema response
+ * format NON-STRICT — the same stance every Nova tool surface takes. The
+ * design schemas are legitimately outside OpenAI's strict subset (optional
+ * slots, discriminated unions emitted as `oneOf`), and the strict validator
+ * rejects the request before the model runs. SDK-side Zod validation is the
+ * real gate either way: an invalid output is a null object the caller
+ * retries or surfaces, never an artifact.
+ */
+const NON_STRICT_STRUCTURED_OUTPUT = {
+	strictJsonSchema: false,
+} as const satisfies OpenAIResponsesProviderOptions;
 
 export interface StructuredModelRunArgs<T> {
 	schema: z.ZodType<T>;
@@ -93,7 +107,13 @@ export async function runStructuredWith<T>(
 		file: args.file,
 		images: args.images,
 		maxOutputTokens: args.maxOutputTokens,
-		providerOptions: args.providerOptions,
+		providerOptions: {
+			...args.providerOptions,
+			openai: {
+				...args.providerOptions?.openai,
+				...NON_STRICT_STRUCTURED_OUTPUT,
+			},
+		},
 		abortSignal: args.signal,
 	};
 	const result = args.onProgress

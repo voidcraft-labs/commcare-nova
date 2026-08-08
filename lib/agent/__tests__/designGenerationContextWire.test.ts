@@ -5,7 +5,10 @@
  * What must hold for every author/reviewer/reviser/planner call:
  * `store: false` (stateless, no provider retention, excluded from training
  * by API terms), the reasoning options riding the `openai` key, the exact
- * model id, and a live abort signal on the request — cancellation is part
+ * model id, a NON-STRICT json_schema response format (the design schemas
+ * carry optional slots and `oneOf` unions, which OpenAI's strict validator
+ * rejects with a 400 before the model runs — observed live; Zod is the real
+ * gate), and a live abort signal on the request — cancellation is part
  * of the §7.5 contract, not an afterthought. A successful body also proves
  * the shared adapter parses the object and meters usage.
  */
@@ -34,6 +37,9 @@ interface CapturedRequest {
 		store?: boolean;
 		reasoning?: { effort?: string; summary?: string };
 		max_output_tokens?: number;
+		text?: {
+			format?: { type?: string; strict?: boolean; schema?: unknown };
+		};
 	};
 	signal: AbortSignal | null | undefined;
 }
@@ -105,6 +111,11 @@ describe("DesignGenerationContext.runStructured wire body", () => {
 		expect(request.body.store).toBe(false);
 		expect(request.body.reasoning?.effort).toBe("high");
 		expect(request.body.max_output_tokens).toBe(500);
+		// Non-strict json_schema: the design schemas are outside OpenAI's
+		// strict subset, and a strict format 400s the request pre-model.
+		expect(request.body.text?.format?.type).toBe("json_schema");
+		expect(request.body.text?.format?.strict).toBe(false);
+		expect(request.body.text?.format?.schema).toBeDefined();
 		expect(request.signal).toBeInstanceOf(AbortSignal);
 
 		expect(tracked).toEqual([
