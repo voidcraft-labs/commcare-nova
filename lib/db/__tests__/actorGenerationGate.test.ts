@@ -115,6 +115,7 @@ describe("lifecycle lock order (§11.13)", () => {
 			"completeAndSettleDesignSessionRun",
 			"discardDesignSession",
 		],
+		"lib/agent/change-set/materializeGenesis.ts": ["materializeAppFromGenesis"],
 	};
 	const UNGATED: Record<string, string[]> = {
 		"lib/db/apps.ts": ["refreshEditLease", "refreshBuildLiveness"],

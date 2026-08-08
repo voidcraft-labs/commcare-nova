@@ -189,7 +189,7 @@ const SESSION_LEASE_SELECT = [
 	"updated_at",
 ] as const;
 
-type LockedSessionRow = DesignSessionLeaseRow & {
+export type LockedSessionRow = DesignSessionLeaseRow & {
 	id: string;
 	mode: string;
 	project_id: string;
@@ -199,7 +199,14 @@ type LockedSessionRow = DesignSessionLeaseRow & {
 	created_at: Date;
 };
 
-async function lockSessionRow(
+/**
+ * Lock one design-session row `FOR UPDATE` — the authority-carrier lock every
+ * session-first transaction takes (the lifecycle writers here, a genesis
+ * change set's stage/commit transactions, and the materialization transfer).
+ * Callers own the §11.13 ordering around it: lifecycle writers take the actor
+ * gate first; unchanged-holder staging takes no gate and leads with this row.
+ */
+export async function lockSessionRow(
 	tx: Transaction<AppDatabase>,
 	designSessionId: string,
 ): Promise<LockedSessionRow | undefined> {

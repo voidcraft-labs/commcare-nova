@@ -174,7 +174,13 @@ export interface AppStateTestDb {
 	 * digest-valid stubs (never read back through the artifact store); suites
 	 * whose subject is artifact CONTENT write through the real store instead.
 	 */
-	seedDesignLineage(opts?: SeedDesignSessionOptions): Promise<{
+	seedDesignLineage(
+		opts?: SeedDesignSessionOptions & {
+			/** Attach the artifact rows to an already-created session (one a
+			 *  suite claimed through the real protocol) instead of seeding one. */
+			existingSessionId?: string;
+		},
+	): Promise<{
 		designSessionId: string;
 		designRevisionId: string;
 		designRevisionDigest: string;
@@ -563,8 +569,11 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		return id;
 	}
 
-	async function seedDesignLineage(opts: SeedDesignSessionOptions = {}) {
-		const designSessionId = await seedDesignSession(opts);
+	async function seedDesignLineage(
+		opts: SeedDesignSessionOptions & { existingSessionId?: string } = {},
+	) {
+		const designSessionId =
+			opts.existingSessionId ?? (await seedDesignSession(opts));
 		const designRevisionId = crypto.randomUUID();
 		const buildPlanId = crypto.randomUUID();
 		const sliceId = crypto.randomUUID();

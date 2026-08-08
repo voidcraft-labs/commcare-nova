@@ -223,13 +223,9 @@ function typeCheckCreateAppOptions(): void {
 		// @ts-expect-error — "deleted" is not a valid creation status
 		void createExplicitBlankApp("u1", "proj", "rid", { status: "deleted" });
 		// @ts-expect-error — callers cannot author the name outside genesis
-		void createExplicitBlankApp("u1", "proj", "rid", {
-			appName: "parallel scalar",
-		});
+		void createExplicitBlankApp("u", "p", "r", { appName: "parallel" });
 		// @ts-expect-error — canonical genesis is mandatory, never caller-seeded
-		void createExplicitBlankApp("u1", "proj", "rid", {
-			seedMutations: () => [],
-		});
+		void createExplicitBlankApp("u", "p", "r", { seedMutations: () => [] });
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the
