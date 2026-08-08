@@ -178,7 +178,11 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
-	if (!parsed.data.appId && !parsed.data.expectedProjectId) {
+	if (
+		!parsed.data.appId &&
+		!parsed.data.designSessionId &&
+		!parsed.data.expectedProjectId
+	) {
 		return Response.json(
 			{
 				error:
@@ -392,15 +396,20 @@ export async function POST(req: Request) {
 	 * and reject. Without this ordering, two simultaneous requests could both
 	 * pass the check before either writes a doc (classic TOCTOU).
 	 */
-	let appId = parsed.data.appId;
-	/* The design-session scope this turn runs under — set for a fresh chat
-	 * build (a session is created + claimed in one gated transaction), a
-	 * presented `designSessionId` continuation, and an app-target BUILD claim
-	 * whose app has a bound materialized session (a re-drive of an
-	 * interrupted design build). `materialized` decides which authority row
-	 * the run holds: the session pre-app, the app after. The turn's ONE
-	 * generation target stays the design session either way — a build thread
-	 * remains session-targeted after materialization. */
+	/* A presented design session is the authoritative scope: it knows its own
+	 * app binding (or lack of one), so a stray `appId` beside it is ignored
+	 * rather than raced against the session's state. */
+	let appId =
+		parsed.data.designSessionId !== undefined ? undefined : parsed.data.appId;
+	/* The design-session scope this turn RUNS THE ORCHESTRATOR under — set for
+	 * a fresh chat build (a session is created + claimed in one gated
+	 * transaction), a presented `designSessionId` continuation still building,
+	 * and an app-target BUILD claim whose app has a bound materialized session
+	 * (a re-drive of an interrupted design build). `materialized` decides
+	 * which authority row the run holds: the session pre-app, the app after.
+	 * Undefined for an EDIT turn — including the edit continuation of a
+	 * materialized session's thread, whose lineage rides
+	 * `designLineageSessionId` below instead. */
 	let designSessionRun:
 		| {
 				designSessionId: string;
@@ -408,6 +417,14 @@ export async function POST(req: Request) {
 				materialized: boolean;
 		  }
 		| undefined;
+	/* The thread-lineage binding: set whenever this turn belongs to a design
+	 * session's conversation — every `designSessionRun` case PLUS the edit
+	 * continuation of a session that already materialized and completed. A
+	 * build thread stays design-session-targeted for its whole life
+	 * (`lib/db/threads.ts` guards rows by exact target), so the turn's
+	 * generation target derives from THIS binding, not from whether the
+	 * orchestrator runs. */
+	let designLineageSessionId: string | undefined;
 	/* The credit reservation this run booked: set atomically with the claim
 	 * (`claimAndReserveRun` / `createAndClaimDesignSessionRun`) pre-stream on
 	 * the free / first-claim paths, or inside `execute` after the
@@ -540,6 +557,7 @@ export async function POST(req: Request) {
 				}
 				throw err;
 			}
+			designLineageSessionId = session.id;
 			if (session.state === "materialized" && session.app_id !== null) {
 				/* The design already became an app; this turn continues against
 				 * it (the thread stays session-targeted, the app row is the run
@@ -697,6 +715,7 @@ export async function POST(req: Request) {
 					proposedAppId: created.proposedAppId,
 					materialized: false,
 				};
+				designLineageSessionId = created.designSessionId;
 				reservation = created.reservation;
 				holderNonce = created.holderNonce;
 			} catch (err) {
@@ -807,6 +826,7 @@ export async function POST(req: Request) {
 				proposedAppId: appId,
 				materialized: true,
 			};
+			designLineageSessionId = bound.id;
 		}
 		/* Deliberately NO second advisory balance read at the derived rate. On
 		 * the direct path the claim transaction's own affordability check
@@ -891,6 +911,32 @@ export async function POST(req: Request) {
 							directClaimMode = bindChargeableMode(
 								loadedApp.status === "complete",
 							);
+							/* A flip INTO build shape needs the build's orchestration
+							 * scope: the bound materialized session (the same resolution
+							 * the admission read performs on a non-complete app). */
+							if (
+								directClaimMode === "build" &&
+								designSessionRun === undefined
+							) {
+								const bound = await loadMaterializedSessionForApp(appId);
+								if (bound === null) {
+									return Response.json(
+										{
+											error:
+												"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.",
+											type: "invalid_request",
+										},
+										{ status: 409 },
+									);
+								}
+								designSessionRun = {
+									designSessionId: bound.id,
+									proposedAppId: appId,
+									materialized: true,
+								};
+								/* `designLineageSessionId` stays as admission derived it:
+								 * the thread this turn continues keeps its own target. */
+							}
 							continue;
 						}
 						if (err instanceof ClaimModeStaleError) {
@@ -1005,12 +1051,15 @@ export async function POST(req: Request) {
 	/* The run's ONE generation target, hoisted so every consumer below —
 	 * usage, the durable stream writer, all thread writers — books against
 	 * the same value. A design build's thread, stream, and summaries stay
-	 * SESSION-targeted even after materialization (one transcript lineage;
-	 * the target resolver delegates authority to the bound app). */
-	const target: GenerationTarget = designSessionRun
+	 * SESSION-targeted for the thread's whole life — through materialization
+	 * AND the edit turns that follow completion (one transcript lineage; the
+	 * target resolver delegates authority to the bound app), which is why
+	 * this keys on the LINEAGE binding, not on whether the orchestrator
+	 * runs. */
+	const target: GenerationTarget = designLineageSessionId
 		? {
 				kind: "design-session",
-				designSessionId: designSessionRun.designSessionId,
+				designSessionId: designLineageSessionId,
 			}
 		: { kind: "app", appId };
 	const usage = new UsageAccumulator({
@@ -1288,12 +1337,17 @@ export async function POST(req: Request) {
 				 * The app-creation receipt is no longer an early frame — the
 				 * strict `data-app-materialized` receipt lands only when the
 				 * first meaningful workflow commits. */
-				if (designSessionRun) {
+				if (designLineageSessionId !== undefined) {
 					writer.write({
 						type: "data-design-session",
 						data: {
-							designSessionId: designSessionRun.designSessionId,
-							materializedAppId: designSessionRun.materialized ? appId : null,
+							designSessionId: designLineageSessionId,
+							/* Null exactly while no app row exists; the id once the
+							 * session materialized (whether this turn builds or edits). */
+							materializedAppId:
+								designSessionRun === undefined || designSessionRun.materialized
+									? appId
+									: null,
 						},
 						transient: true,
 					});
@@ -1715,7 +1769,8 @@ export async function POST(req: Request) {
 									| "generation_in_progress"
 									| "out_of_credits"
 									| "access_revoked"
-									| "app_changed";
+									| "app_changed"
+									| "internal";
 								message: string;
 						  }
 						| undefined;
@@ -1745,7 +1800,29 @@ export async function POST(req: Request) {
 								 * downstream (`editing`, the heartbeat, the thread type,
 								 * `usage.configureRun`) reads these same bindings, so the
 								 * won claim and the run it starts cannot disagree. */
-								bindChargeableMode(err.statusMode === "edit");
+								const adopted = bindChargeableMode(err.statusMode === "edit");
+								/* A flip INTO build shape needs the build's orchestration
+								 * scope — the bound materialized session, exactly as the
+								 * admission read resolves it. A sessionless non-complete
+								 * app is a legacy row awaiting the one-off repair. */
+								if (adopted === "build" && designSessionRun === undefined) {
+									const bound = await loadMaterializedSessionForApp(appId);
+									if (bound === null) {
+										gateBail = {
+											type: "internal",
+											message:
+												"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.",
+										};
+										break;
+									}
+									designSessionRun = {
+										designSessionId: bound.id,
+										proposedAppId: appId,
+										materialized: true,
+									};
+									/* The thread this turn continues keeps its own target;
+									 * lineage is an admission-time binding. */
+								}
 								continue;
 							}
 							if (err instanceof AppProjectChangedError) {
@@ -2116,9 +2193,12 @@ export async function POST(req: Request) {
 				 * bounded design pipeline → slice executor → materialization →
 				 * later slices — and this branch owns its terminal mapping onto
 				 * the run/credit machinery. It returns before the SA seed below;
-				 * app-target turns (always edit-shaped after the cutover) continue
-				 * on the SA path unchanged. */
-				if (designSessionRun !== undefined) {
+				 * edit-shaped turns continue on the SA path unchanged — including
+				 * a serialize-wait that admitted as BUILD but won its claim as an
+				 * EDIT after the awaited build completed (`bindChargeableMode`
+				 * flipped `appReady`; the session binding survives only as thread
+				 * lineage there). */
+				if (designSessionRun !== undefined && !appReady) {
 					const design = designSessionRun;
 					try {
 						const outcome = await runBuildOrchestration({
