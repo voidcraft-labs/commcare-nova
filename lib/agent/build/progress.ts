@@ -69,6 +69,7 @@ export function deriveDesignBuildStage(
 		case "designing":
 			return "designing";
 		case "awaiting-user":
+		case "awaiting-user-questions":
 			return "needs-input";
 		case "planning":
 			return "planning";
@@ -151,25 +152,31 @@ export function deriveDesignOutline(
 	};
 }
 
-/** The four design-pipeline phases a pulse can name — the orchestrator's
- *  live "a model call is streaming right now" signal. Each maps onto one
- *  §15.2 stage, which is what makes the pulse a truthful stage source: the
- *  SERVER names the phase whose call is delivering tokens; the client only
- *  displays the latest. */
+/** The design phases a pulse can name: the live "a model call is
+ *  streaming right now" signal. `design` is the loop itself (reasoning,
+ *  talk, a contract submission streaming); `review` is the independent
+ *  reviewer's one-shot call (the loop's one silent stretch); `revise` and
+ *  `plan` are the loop streaming those submissions' arguments. Each maps
+ *  onto one §15.2 stage, which is what makes the pulse a truthful stage
+ *  source: the SERVER names the phase whose call is delivering tokens; the
+ *  client only displays the latest. */
 export const DESIGN_PULSE_PHASES = [
-	"author",
+	"design",
 	"review",
 	"revise",
 	"plan",
 ] as const;
 export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
 
-/** One live-activity pulse: the streaming phase and the cumulative character
- *  count (reasoning + output) its call has delivered so far. Volume, not
- *  content — no model prose ever rides a pulse. */
+/** One live-activity pulse: the streaming phase, the cumulative character
+ *  count (reasoning + output) it has delivered so far, and optionally the
+ *  sub-step label the key-order narrator derived from a submission's
+ *  streaming arguments. Volume and a canned label, not content; no model
+ *  prose ever rides a pulse. */
 export interface DesignPulseProjection {
 	readonly phase: DesignPulsePhase;
 	readonly chars: number;
+	readonly step?: string;
 }
 
 /** Minimum spacing between two live-activity pulses. Tighter buys nothing
@@ -196,14 +203,23 @@ export function createDesignPulseEmitter(
 	},
 	designSessionId: string,
 	head: () => OrchestrationHead | null,
-): (phase: DesignPulsePhase, deltaChars: number) => void {
+): (phase: DesignPulsePhase, deltaChars: number, step?: string) => void {
 	let activePhase: DesignPulsePhase | null = null;
+	let activeStep: string | undefined;
 	let totalChars = 0;
 	let lastEmitAt = 0;
-	return (phase, deltaChars) => {
+	return (phase, deltaChars, step) => {
 		if (phase !== activePhase) {
 			activePhase = phase;
+			activeStep = undefined;
 			totalChars = 0;
+			lastEmitAt = 0;
+		}
+		/* A new sub-step is a discrete narration change: announce it the
+		 * moment it starts, like a phase change; only same-step volume is
+		 * throttled. */
+		if (step !== undefined && step !== activeStep) {
+			activeStep = step;
 			lastEmitAt = 0;
 		}
 		totalChars += deltaChars;
@@ -215,9 +231,92 @@ export function createDesignPulseEmitter(
 			data: progressEnvelope(designSessionId, head(), {
 				phase,
 				chars: totalChars,
+				...(activeStep !== undefined && { step: activeStep }),
 			} satisfies DesignPulseProjection),
 			transient: true,
 		});
+	};
+}
+
+/* ------------------------------------------------------------------ */
+/* Submission step narration                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sub-step labels for a streaming submission's top-level keys. Strict-mode
+ * constrained decoding pins property order to schema order, so the keys of
+ * a contract or plan appear in a known sequence as the tool call's input
+ * streams, so watching the accumulated text for them yields honest sub-steps.
+ * Schema field order is a narration lever the repo already treats as
+ * load-bearing (`documentExtraction.ts`). Labels follow the design system's
+ * activity voice: sentence case, present tense, no punctuation.
+ */
+export const CONTRACT_STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
+	["sourceClaims", "Grounding the requirements"],
+	["actors", "Understanding who does what"],
+	["records", "Working out the records"],
+	["facts", "Detailing what gets tracked"],
+	["rules", "Writing the rules"],
+	["tasks", "Shaping the tasks"],
+	["transitions", "Mapping how records move"],
+	["readModels", "Designing the worklists"],
+	["accessPolicies", "Setting who sees what"],
+	["navigation", "Laying out navigation"],
+	["decisions", "Weighing the choices"],
+	["assumptions", "Recording assumptions"],
+	["openQuestions", "Noting open questions"],
+	["acceptanceScenarios", "Writing acceptance scenarios"],
+] as const;
+
+export const PLAN_STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
+	["slices", "Slicing the build"],
+	["externalActions", "Listing setup steps"],
+	["intentOwnership", "Assigning ownership"],
+] as const;
+
+export interface SubmissionStepNarrator {
+	/** Feed one input-delta's text; returns the current sub-step label. */
+	feed(deltaText: string): string | undefined;
+}
+
+/**
+ * Advisory-only key spotting over a submission's streaming arguments: a
+ * missed or out-of-order key mislabels a step, never corrupts state, and
+ * with no match the pulse degrades to its chars-only form. A small overlap
+ * window survives a key token split across two deltas.
+ */
+export function createSubmissionStepNarrator(
+	labels: ReadonlyArray<readonly [string, string]>,
+): SubmissionStepNarrator {
+	const remaining = labels.map(([key, label]) => ({
+		token: `"${key}"`,
+		label,
+	}));
+	const maxToken = remaining.reduce(
+		(max, entry) => Math.max(max, entry.token.length),
+		0,
+	);
+	let window = "";
+	let current: string | undefined;
+	return {
+		feed(deltaText: string): string | undefined {
+			window = (window + deltaText).slice(-(maxToken + deltaText.length));
+			/* Several keys can land in one delta (a fast stream); the current
+			 * step is the LATEST one appearing in the text. */
+			let bestPos = -1;
+			for (let i = remaining.length - 1; i >= 0; i -= 1) {
+				const entry = remaining[i];
+				if (entry === undefined) continue;
+				const pos = window.lastIndexOf(entry.token);
+				if (pos < 0) continue;
+				if (pos > bestPos) {
+					bestPos = pos;
+					current = entry.label;
+				}
+				remaining.splice(i, 1);
+			}
+			return current;
+		},
 	};
 }
 

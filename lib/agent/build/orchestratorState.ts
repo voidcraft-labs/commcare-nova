@@ -53,6 +53,17 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
+			/** The design agent paused on its own askQuestions round. The
+			 * questions live in the THREAD (the tool part the client renders),
+			 * not on an artifact, and a round can precede any contract — so
+			 * the arm carries the head revision only when one exists. */
+			kind: z.literal("awaiting-user-questions"),
+			designSessionId: z.string().uuid(),
+			designRevisionId: z.string().uuid().nullable(),
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal("planning"),
 			designRevisionId: z.string().uuid(),
 			designRevisionDigest: sha256Schema,

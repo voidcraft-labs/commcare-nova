@@ -2,9 +2,10 @@
  * DesignGenerationContext — the pre-app implementation of
  * `StructuredModelRunContext` (plan §7.5).
  *
- * A design session's author/reviewer/reviser/planner calls run here: no app
- * row, no SSE writer, no commit host — just the provider, the run identity,
- * the design-session target, and usage metering. Provider privacy and the
+ * A design session's structured calls (the independent reviewer) and the
+ * design agent's model resolution run here: no app row, no SSE writer, no
+ * commit host — just the provider, the run identity, the design-session
+ * target, and usage metering. Provider privacy and the
  * sanitized structured-output logging ride the shared adapter
  * (`lib/agent/modelRunContext.ts` over `subGeneration.ts`); this class
  * deliberately duplicates none of it.

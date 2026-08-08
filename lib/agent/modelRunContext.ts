@@ -2,8 +2,9 @@
  * StructuredModelRunContext — the app-independent structured-generation
  * seam (plan §7.5).
  *
- * The design pipeline's author/reviewer/reviser/planner calls need exactly
- * this much of a generation context: who is running (user/Project/run),
+ * The design method's structured calls (the independent reviewer; the
+ * retired pipeline's one-shots before it) need exactly this much of a
+ * generation context: who is running (user/Project/run),
  * WHAT scope it bills against (the closed `GenerationTarget` union), a
  * model resolver, one cancellation-aware structured call, and usage
  * metering. They must not need an app row, an SSE writer, or a commit host.

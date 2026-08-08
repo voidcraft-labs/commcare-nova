@@ -83,6 +83,9 @@ export interface DesignRevisionRecord {
 	contractDigest: string;
 	sourcePackageDigest: string;
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
+	/** The run that produced this artifact: the join key to its reasoning
+	 *  summaries and diagnostics in the run event log. */
+	createdByRunId: string;
 	createdAt: Date;
 }
 
@@ -94,6 +97,9 @@ export interface DesignReviewRecord {
 	reviewedRevisionDigest: string;
 	artifactDigest: string;
 	envelope: DesignArtifactEnvelope<DesignReview>;
+	/** The run that produced this artifact: the join key to its reasoning
+	 *  summaries and diagnostics in the run event log. */
+	createdByRunId: string;
 	createdAt: Date;
 }
 
@@ -461,6 +467,7 @@ async function readRevisionRowInTx(db: Db, id: string) {
 			"artifact_digest",
 			"contract_digest",
 			"source_package_digest",
+			"created_by_run_id",
 			"created_at",
 		])
 		.select(
@@ -513,6 +520,7 @@ async function readRevisionRecordInTx(
 		contractDigest: row.contract_digest,
 		sourcePackageDigest: row.source_package_digest,
 		envelope,
+		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
 }
@@ -615,6 +623,7 @@ async function readReviewRecordInTx(
 			"review_ordinal",
 			"reviewed_revision_digest",
 			"artifact_digest",
+			"created_by_run_id",
 			"created_at",
 		])
 		.select(
@@ -648,6 +657,7 @@ async function readReviewRecordInTx(
 		reviewedRevisionDigest: row.reviewed_revision_digest,
 		artifactDigest: row.artifact_digest,
 		envelope,
+		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
 }

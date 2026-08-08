@@ -13,8 +13,13 @@
  * locally); `--prod` targets the production instance over its public IP
  * (see `./lib/prodDb.ts`). Never writes.
  *
+ * `--reasoning` additionally prints each artifact's display-safe reasoning
+ * summaries from the run event log, joined by the run that produced it:
+ * the WHY beside the outcome, which is the record the design method's
+ * tuning reads.
+ *
  * Usage:
- *   npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--prod]
+ *   npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--reasoning] [--prod]
  */
 import "dotenv/config";
 import {
@@ -25,14 +30,44 @@ import {
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { loadDesignSession } from "@/lib/db/designSessions";
+import { readEvents } from "@/lib/log/reader";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
 function usage(): never {
 	console.log(
-		"Usage: npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--prod]",
+		"Usage: npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--reasoning] [--prod]",
 	);
 	process.exit(1);
+}
+
+/** The session's event-log app key: pre-app events are written under the
+ *  proposed app id, which becomes the real app id at materialization. */
+async function eventLogAppId(sessionId: string): Promise<string | null> {
+	const session = await loadDesignSession(sessionId);
+	return session?.app_id ?? session?.proposed_app_id ?? null;
+}
+
+async function printReasoning(
+	appId: string | null,
+	runId: string,
+	indent: string,
+): Promise<void> {
+	if (appId === null) return;
+	const events = await readEvents(appId, runId);
+	const summaries = events.flatMap((event) =>
+		event.kind === "conversation" &&
+		event.payload.type === "assistant-reasoning"
+			? [event.payload.text]
+			: [],
+	);
+	for (const summary of summaries) {
+		const flattened = summary.replace(/\s+/g, " ").trim();
+		console.log(
+			`${indent}reasoning: ${flattened.slice(0, 300)}${flattened.length > 300 ? "…" : ""}`,
+		);
+	}
 }
 
 async function main(): Promise<void> {
@@ -42,6 +77,8 @@ async function main(): Promise<void> {
 	const sessionFlag = argv.indexOf("--session");
 	const sessionId = sessionFlag >= 0 ? argv[sessionFlag + 1] : undefined;
 	if (!sessionId) usage();
+	const withReasoning = argv.includes("--reasoning");
+	const appId = withReasoning ? await eventLogAppId(sessionId) : null;
 
 	const revisions = await readDesignRevisionsForSession(sessionId);
 	if (revisions.length === 0) {
@@ -75,6 +112,9 @@ async function main(): Promise<void> {
 			console.log(
 				`  complexity ${complexity.score} → ${complexity.depth} (algorithm v${complexity.algorithmVersion})`,
 			);
+		}
+		if (withReasoning) {
+			await printReasoning(appId, revision.createdByRunId, "  ");
 		}
 		const reviews = await readDesignReviews(revision.id);
 		for (const review of reviews) {

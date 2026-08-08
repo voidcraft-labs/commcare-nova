@@ -76,6 +76,9 @@ export type ExecutorStepFn = (args: {
 }) => Promise<{
 	toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
 	text: string;
+	/** The step's display-safe reasoning summary, when the provider streamed
+	 *  one; persisted to the run event log by the loop's `onReasoning`. */
+	reasoningText?: string;
 	usage: LanguageModelUsage | undefined;
 	responseMessages: ModelMessage[];
 }>;
@@ -217,6 +220,7 @@ export function productionExecutorStep(
 				input: call.input,
 			})),
 			text: result.text,
+			...(result.reasoningText && { reasoningText: result.reasoningText }),
 			usage: result.usage,
 			responseMessages: result.responseMessages,
 		};
@@ -316,6 +320,10 @@ export async function runSliceExecutor(args: {
 	signal: AbortSignal;
 	/** Coarse, user-safe notes only ("Checking the app for problems"). */
 	onProgress?: (note: string) => void;
+	/** Each step's display-safe reasoning summary → the run event log, so
+	 *  the WHY behind an executor decision is readable beside its artifacts
+	 *  (no design table gains a reasoning column). */
+	onReasoning?: (text: string) => void;
 }): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
 	const tools = executorTools();
@@ -359,6 +367,7 @@ export async function runSliceExecutor(args: {
 			signal,
 		});
 		modelSteps += 1;
+		if (step.reasoningText) args.onReasoning?.(step.reasoningText);
 		messages = [...messages, ...step.responseMessages];
 
 		if (step.toolCalls.length === 0) {

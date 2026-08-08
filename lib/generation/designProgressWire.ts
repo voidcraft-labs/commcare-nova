@@ -41,8 +41,8 @@ const STAGE_LABELS: Record<DesignBuildStage, string> = {
 	understanding: "Working out what you need",
 	designing: "Designing your app",
 	"reviewing-design": "Reviewing the design",
-	"revising-design": "Revising the design",
-	planning: "Planning the build",
+	"revising-design": "Improving the design",
+	planning: "Planning your app",
 	"building-first-workflow": "Building the first workflow",
 	building: "Building your app",
 	"reviewing-implementation": "Reviewing what was built",
@@ -103,28 +103,33 @@ export interface BuildPlanSummaryProjection {
 	readonly externalActionCount: number;
 }
 
-/** The design-pipeline phases a live-activity pulse can name (restated from
- *  `lib/agent/build/progress.ts`, pinned by the wire test). */
+/** The design phases a live-activity pulse can name (restated from
+ *  `lib/agent/build/progress.ts`, pinned by the wire test): `design` is the
+ *  agent loop streaming, `review` the independent reviewer's call, `revise`
+ *  and `plan` those submissions' streaming arguments. */
 export const DESIGN_PULSE_PHASES = [
-	"author",
+	"design",
 	"review",
 	"revise",
 	"plan",
 ] as const;
 export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
 
-/** One live-activity pulse: which phase's model call is streaming and its
- *  cumulative delivered character count. Volume, never content. */
+/** One live-activity pulse: which phase is streaming, its cumulative
+ *  delivered character count, and optionally the sub-step label the server
+ *  derived from a submission's streaming keys ("Working out the records").
+ *  Volume and a canned label, never content. */
 export interface DesignPulseProjection {
 	readonly phase: DesignPulsePhase;
 	readonly chars: number;
+	readonly step?: string;
 }
 
 /** The §15.2 stage a streaming phase truthfully puts the build in — the
  *  server named the call it is running; the client only displays it. */
 export function designPulseStage(phase: DesignPulsePhase): DesignBuildStage {
 	switch (phase) {
-		case "author":
+		case "design":
 			return "designing";
 		case "review":
 			return "reviewing-design";
@@ -241,6 +246,7 @@ const buildPlanSummarySchema = z.object({
 const designPulseSchema = z.object({
 	phase: z.enum(DESIGN_PULSE_PHASES),
 	chars: wholeCount,
+	step: z.string().min(1).optional(),
 });
 
 const buildSliceStartedSchema = z.object({

@@ -111,6 +111,11 @@ function StageLine({ view }: { readonly view: DesignProgressView }) {
 				<p className="text-sm font-medium leading-5 text-nova-text">
 					{view.stageLabel}
 				</p>
+				{view.pulseStep && (
+					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
+						{view.pulseStep}
+					</p>
+				)}
 				{view.currentSliceName && (
 					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
 						Building {view.currentSliceName}

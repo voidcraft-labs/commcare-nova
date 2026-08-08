@@ -54,20 +54,26 @@ function classifyUnparseableText(
 	return "prose";
 }
 
-/** The failing PATHS and codes from a Zod validation failure — schema
- *  vocabulary (key names, indices, issue codes), never the model's text, so
- *  it is safe for the mirrored logs and it names exactly which fields
- *  failed. The ZodError rides the NoObjectGeneratedError's cause chain
- *  (directly, or wrapped in the SDK's TypeValidationError). */
+/** The failing PATHS from a Zod validation failure, each with its issue
+ *  code, and, for `custom` issues, the refinement MESSAGE itself: those are
+ *  Nova's own person-to-person prose (the schemas' superRefines), they name
+ *  the exact rule that failed, and without them a died run's diagnostics
+ *  say only that "something custom" rejected (the $3.49 lesson). Built-in
+ *  Zod messages stay as bare codes: they can embed received values, which
+ *  are the model's rendering of customer content and must stay out of the
+ *  mirrored logs. */
 function schemaIssueSummary(
 	err: NoObjectGeneratedError,
 ): readonly string[] | undefined {
 	let cause: unknown = err.cause;
 	for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
 		if (cause instanceof ZodError) {
-			return cause.issues
-				.slice(0, 20)
-				.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.code}`);
+			return cause.issues.slice(0, 20).map((issue) => {
+				const path = issue.path.join(".") || "<root>";
+				return issue.code === "custom"
+					? `${path}: ${issue.message.slice(0, 300)}`
+					: `${path}: ${issue.code}`;
+			});
 		}
 		cause = (cause as { cause?: unknown }).cause;
 	}
@@ -206,6 +212,11 @@ export interface SubGenerationObjectResult<T> {
 	usage: LanguageModelUsage | undefined;
 	warnings: CallWarning[] | undefined;
 	finishReason: FinishReason | undefined;
+	/** The call's display-safe reasoning SUMMARY text, accumulated from the
+	 *  streamed `reasoning-delta` parts (streaming path only; it requires
+	 *  `reasoningSummary: 'auto'` in the provider options). Callers that
+	 *  persist it write it to the run event log, never a design table. */
+	reasoningText?: string;
 }
 
 /**
@@ -425,9 +436,13 @@ export async function streamObjectWith<T>(opts: {
 		// is most of the work. `onProgress` is best-effort: a throwing callback (e.g.
 		// a write to a disconnected client) must NEVER break extraction — the model
 		// run persists regardless of who's listening — so it's swallowed here at the
-		// source rather than relied on at each call site.
+		// source rather than relied on at each call site. Reasoning deltas also
+		// accumulate into the result's `reasoningText`, the display-safe summary
+		// a caller may persist to the run event log.
+		let reasoningText = "";
 		for await (const part of result.stream) {
 			if (part.type === "reasoning-delta" || part.type === "text-delta") {
+				if (part.type === "reasoning-delta") reasoningText += part.text;
 				if (part.text.length > 0) {
 					try {
 						opts.onProgress?.(part.text.length);
@@ -477,7 +492,13 @@ export async function streamObjectWith<T>(opts: {
 				return null;
 			},
 		);
-		return { object, usage, warnings, finishReason };
+		return {
+			object,
+			usage,
+			warnings,
+			finishReason,
+			...(reasoningText.length > 0 && { reasoningText }),
+		};
 	} catch (err) {
 		// A stream-stopping error (transport failure) reaches here before the result
 		// promises are awaited and may reject them too. Observe each (wrapped, since

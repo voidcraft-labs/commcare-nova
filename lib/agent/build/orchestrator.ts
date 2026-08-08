@@ -1,22 +1,22 @@
 /**
  * The build orchestrator — the server-owned method behind a chat build
- * (§13.1): source resolution, the bounded design pipeline, accepted-artifact
- * selection, slice sequencing, user questions, and completion policy. The
- * model never decides whether review happened, which revision is accepted,
- * whether a slice may commit, or whether the build is complete — every
- * transition is a durable orchestration event, and every slice's only
- * completion authority is its committed receipt (genesis: the
- * materialization receipt).
+ * (§13.1): source resolution, the server-gated design agent loop
+ * (`designLoopRunner.ts`), accepted-artifact selection, slice sequencing,
+ * user questions, and completion policy. The model never decides whether
+ * review happened, which revision is accepted, whether a slice may commit,
+ * or whether the build is complete — every transition is a durable
+ * orchestration event, and every slice's only completion authority is its
+ * committed receipt (genesis: the materialization receipt).
  *
- * The orchestrator produces the turn's assistant message itself — synthetic
- * UIMessage chunks through the durable stream writer (deterministic
- * narrative derived from real artifacts; §15.5's coarse statements, never
- * private staging detail) — plus the §15.4 progress frames, each a
+ * The design agent speaks for itself in the transcript (its chunks stream
+ * through the loop runner); the orchestrator still narrates the SLICE
+ * phase with synthetic UIMessage chunks (deterministic statements derived
+ * from real artifacts; §15.5), plus the §15.4 progress frames, each a
  * projection of a durable row.
  *
- * Every model-facing seam (source-package deps, the pipeline, the executor
- * step) is injectable so the whole orchestration is testable offline; the
- * production defaults wire the real design pipeline and executor.
+ * Every model-facing seam (source-package deps, the design loop, the
+ * executor step) is injectable so the whole orchestration is testable
+ * offline; the production defaults wire the real loop and executor.
  */
 
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -45,12 +45,9 @@ import type {
 import { readDesignReviews } from "@/lib/agent/design/artifactStore";
 import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
-import { sourceClaimSchema } from "@/lib/agent/design/evidence";
 import { asDesignId } from "@/lib/agent/design/ids";
-import {
-	type DesignPipelineOutcome,
-	runDesignPipeline,
-} from "@/lib/agent/design/pipeline";
+import { seedClaimsFromAnsweredRounds } from "@/lib/agent/design/loop/claimSeeding";
+import type { DesignAgentStep } from "@/lib/agent/design/loop/designAgent";
 import type {
 	DesignSourcePackage,
 	SourceClaimSeed,
@@ -58,6 +55,7 @@ import type {
 import { buildDesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { productionSourcePackageDeps } from "@/lib/agent/design/sourcePackageDeps";
 import { createExtractionCondenser } from "@/lib/agent/documentExtraction";
+import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
@@ -68,9 +66,10 @@ import {
 } from "@/lib/db/designSessions";
 import { getAppDb } from "@/lib/db/pg";
 import { log } from "@/lib/logger";
-import { SA_BUILD_MODEL } from "@/lib/models";
+import { DESIGN_MODEL, SA_BUILD_MODEL } from "@/lib/models";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { budgetForSlice } from "./budgets";
+import { type DesignLoopOutcome, runDesignAgentLoop } from "./designLoopRunner";
 import {
 	briefDigest,
 	deriveSliceExecutionBrief,
@@ -89,7 +88,6 @@ import {
 	readOrchestrationHead,
 } from "./orchestratorState";
 import {
-	createDesignPulseEmitter,
 	deriveBuildPlanSummary,
 	deriveDesignOutline,
 	progressEnvelope,
@@ -139,7 +137,7 @@ export interface BuildOrchestrationDeps {
 		messages: readonly UIMessage[];
 		claims: readonly SourceClaimSeed[];
 	}) => Promise<DesignSourcePackage>;
-	readonly runPipeline: typeof runDesignPipeline;
+	readonly runDesignLoop: typeof runDesignAgentLoop;
 	readonly executorStep: ExecutorStepFn;
 	readonly materialize: typeof materializeAppFromGenesis;
 	readonly commitSlice: typeof commitDesignChangeSet;
@@ -151,6 +149,17 @@ export interface BuildOrchestrationDeps {
 		receipt: CommittedSliceReceipt,
 		envelopes: readonly CommittedStageEnvelope[],
 	) => void;
+	/** Step fan-out for the design agent's loop (usage accounting,
+	 *  conversation events, the awaiting-input latch); the route wires
+	 *  `GenerationContext.handleAgentStep`. */
+	readonly onAgentStep?: (step: DesignAgentStep) => void;
+	/** Display-safe reasoning summaries from the calls that never touch a
+	 *  thread (the independent reviewer, each executor step) → the run
+	 *  event log. */
+	readonly onReasoningSummary?: (text: string) => void;
+	/** A transient design-turn failure being redriven, rendered as a
+	 *  recoverable warning with the real classified type. */
+	readonly onRecoverableRetry?: (classified: ClassifiedError) => void;
 }
 
 export interface RunBuildOrchestrationArgs {
@@ -223,59 +232,6 @@ function emitQuestions(
 		input,
 	});
 	writer.write({ type: "finish-step" });
-}
-
-// ── Answered-question claim seeding ────────────────────────────────
-
-/**
- * An answered askQuestions round arrives as the trailing assistant message
- * whose tool part now carries the user's answers. Those answers are REAL
- * source material for the superseding design round: each becomes an
- * explicit claim citing the message that carries it.
- */
-export function seedClaimsFromAnsweredQuestions(
-	threadId: string,
-	messages: readonly UIMessage[],
-): SourceClaimSeed[] {
-	const trailing = messages.at(-1);
-	if (trailing?.role !== "assistant") return [];
-	const claims: SourceClaimSeed[] = [];
-	for (const [partIndex, part] of trailing.parts.entries()) {
-		if (
-			typeof part !== "object" ||
-			part === null ||
-			(part as { type?: unknown }).type !== "tool-askQuestions" ||
-			(part as { state?: unknown }).state !== "output-available"
-		) {
-			continue;
-		}
-		const input = (part as { input?: unknown }).input as
-			| { questions?: Array<{ question?: string }> }
-			| undefined;
-		const output = (part as { output?: unknown }).output as
-			| { answers?: unknown }
-			| unknown;
-		const statement = `The user answered the design questions ${JSON.stringify(
-			input?.questions?.map((question) => question.question) ?? [],
-		)} with ${JSON.stringify(output ?? null)}.`;
-		claims.push(
-			sourceClaimSchema.parse({
-				id: crypto.randomUUID(),
-				statement,
-				sourceRefs: [
-					{
-						kind: "message",
-						threadId,
-						messageId: trailing.id,
-						partIndex,
-					},
-				],
-				status: "explicit",
-				confidence: 1,
-			}),
-		);
-	}
-	return claims;
 }
 
 // ── Slice ordering ─────────────────────────────────────────────────
@@ -351,23 +307,21 @@ export async function runBuildOrchestration(
 	heartbeatTimer.unref?.();
 
 	try {
-		/* The turn's assistant message opens here: one identity, carried by
-		 * the start chunk upstream of the durable tee, exactly as the SA
-		 * stream names its answer. */
-		args.writer.write({ type: "start", messageId: args.responseMessageId });
+		/* The turn's assistant message opens here: one identity plus the
+		 * producing model, carried by the start chunk upstream of the durable
+		 * tee. The design agent's own start chunk is dropped by the loop
+		 * runner, so this stamp is what `sanitizeHistoricalReasoningParts`
+		 * reads on later turns. */
+		args.writer.write({
+			type: "start",
+			messageId: args.responseMessageId,
+			messageMetadata: { model: DESIGN_MODEL },
+		});
 		let head = await readOrchestrationHead(args.designSessionId);
 
 		/* ── Design ─────────────────────────────────────────────────── */
-		const claims = seedClaimsFromAnsweredQuestions(
-			args.threadId,
-			args.messages,
-		);
-		if (head === null) {
-			narrate(
-				args.writer,
-				"Let me make sure I understand what you need — I'm working through your requirements and designing the app before anything gets built.",
-			);
-		} else {
+		const claims = seedClaimsFromAnsweredRounds(args.threadId, args.messages);
+		if (head !== null && appId !== null) {
 			narrate(
 				args.writer,
 				"Picking this build back up from where it left off.",
@@ -380,7 +334,11 @@ export async function runBuildOrchestration(
 			messages: args.messages,
 			claims,
 		});
-		if (head === null || head.state.kind === "awaiting-user") {
+		if (
+			head === null ||
+			head.state.kind === "awaiting-user" ||
+			head.state.kind === "awaiting-user-questions"
+		) {
 			head = await appendOrchestrationEvent({
 				designSessionId: args.designSessionId,
 				runId: args.runId,
@@ -402,48 +360,82 @@ export async function runBuildOrchestration(
 			designSessionId: args.designSessionId,
 			...(args.meter !== undefined && { meter: args.meter }),
 		});
-		const pipelineOutcome: DesignPipelineOutcome = await deps.runPipeline({
-			ctx: designCtx,
+		const loopOutcome: DesignLoopOutcome = await deps.runDesignLoop({
+			designSessionId: args.designSessionId,
+			projectId: args.projectId,
+			threadId: args.threadId,
+			runId: args.runId,
+			responseMessageId: args.responseMessageId,
+			messages: args.messages,
 			pkg,
+			designCtx,
+			writer: args.writer,
 			signal: args.signal,
-			onModelActivity: createDesignPulseEmitter(
-				args.writer,
-				args.designSessionId,
-				() => head,
-			),
+			head: () => head,
+			packageDeps: productionSourcePackageDeps(createExtractionCondenser()),
+			...(deps.onAgentStep !== undefined && { onAgentStep: deps.onAgentStep }),
+			...(deps.onReasoningSummary !== undefined && {
+				onReviewerReasoning: deps.onReasoningSummary,
+			}),
+			...(deps.onRecoverableRetry !== undefined && {
+				onRecoverableRetry: deps.onRecoverableRetry,
+			}),
 		});
 		heartbeat();
 
-		if (pipelineOutcome.kind === "not-produced") {
+		if (loopOutcome.kind === "failed") {
 			head = await appendFailure(args, head, {
-				errorType: `design-${pipelineOutcome.stage}-${pipelineOutcome.reason}`,
-				recoverable: true,
+				errorType: loopOutcome.errorType,
+				recoverable: loopOutcome.recoverable,
 			});
 			return {
 				kind: "failed",
 				appId,
-				errorType: "provider_error",
-				message:
-					"The design step didn't come back usable this time. Nothing was built; send your message again to retry.",
-				recoverable: true,
+				errorType: loopOutcome.errorType,
+				message: loopOutcome.message,
+				recoverable: loopOutcome.recoverable,
 			};
 		}
 
-		if (pipelineOutcome.kind === "awaiting-input") {
-			return await pauseOnQuestions(
-				args,
-				head,
-				pipelineOutcome.revision,
-				appId,
-				pipelineOutcome.blockingQuestions.map((question) => ({
-					id: question.id as string,
-					question: question.question,
-					options: [],
-				})),
-			);
+		if (loopOutcome.kind === "awaiting-input") {
+			/* The agent's own askQuestions round already streamed through the
+			 * loop; only the durable pause remains: the event arm the stage
+			 * fold reads, and the awaiting-input flag on whichever row holds
+			 * the run. */
+			await appendOrchestrationEvent({
+				designSessionId: args.designSessionId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				state: {
+					kind: "awaiting-user-questions",
+					designSessionId: args.designSessionId,
+					designRevisionId: loopOutcome.headRevisionId,
+				},
+				expectedHead: head,
+			});
+			const pause =
+				appId === null
+					? await setDesignSessionAwaitingInput(
+							args.designSessionId,
+							args.runId,
+							args.holderNonce,
+							true,
+							args.actorUserId,
+							args.projectId,
+						)
+					: await setAwaitingInput(
+							appId,
+							args.runId,
+							args.holderNonce,
+							"build",
+							true,
+							args.actorUserId,
+							args.projectId,
+						);
+			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
 		}
 
-		const { revision, plan } = pipelineOutcome;
+		const { revision, plan } = loopOutcome;
 		await setDesignSessionActiveArtifacts(args.designSessionId, {
 			activeDesignRevisionId: revision.id,
 			activeBuildPlanId: plan.id,
@@ -477,7 +469,7 @@ export async function runBuildOrchestration(
 			narrate(
 				args.writer,
 				isGenesis
-					? `Building ${slice.name} — this first workflow becomes your app.`
+					? `Building ${slice.name}. This first workflow becomes your app.`
 					: `Adding ${slice.name}.`,
 			);
 			const brief = deriveSliceExecutionBrief({
@@ -563,7 +555,7 @@ export async function runBuildOrchestration(
 					});
 					narrate(
 						args.writer,
-						`Your app is live — ${slice.name} is real and ready to try in the preview.`,
+						`Your app is live. ${slice.name} is real and ready to try in the preview.`,
 					);
 				} else {
 					const sliceReceipt = receipt as CommittedSliceReceipt;
@@ -691,7 +683,16 @@ function productionDeps(
 					>[0]["messages"],
 					deps: productionSourcePackageDeps(createExtractionCondenser()),
 				})),
-		runPipeline: overrides.runPipeline ?? runDesignPipeline,
+		runDesignLoop: overrides.runDesignLoop ?? runDesignAgentLoop,
+		...(overrides.onAgentStep !== undefined && {
+			onAgentStep: overrides.onAgentStep,
+		}),
+		...(overrides.onReasoningSummary !== undefined && {
+			onReasoningSummary: overrides.onReasoningSummary,
+		}),
+		...(overrides.onRecoverableRetry !== undefined && {
+			onRecoverableRetry: overrides.onRecoverableRetry,
+		}),
 		executorStep:
 			overrides.executorStep ??
 			productionExecutorStep(
@@ -750,7 +751,7 @@ async function pauseOnQuestions(
 	}
 	narrate(
 		args.writer,
-		"A few decisions genuinely change how this app should be structured — your answers will shape the design.",
+		"A few decisions genuinely change how this app should be structured. Your answers will shape the design.",
 	);
 	emitQuestions(args.writer, questions);
 	await appendOrchestrationEvent({
@@ -814,10 +815,8 @@ async function emitDesignSummaries(
 		),
 		transient: true,
 	});
-	narrate(
-		args.writer,
-		`Here's the shape: ${outline.objective} I've designed it around ${outline.tasks.length === 1 ? "one workflow" : `${outline.tasks.length} workflows`} (${outline.tasks.join(", ")})${outline.reviewed ? ", and an independent review has already been folded in" : ""}. Building it now.`,
-	);
+	/* No templated narration here: the design agent already spoke for
+	 * itself in the transcript, and these frames feed the outline card. */
 }
 
 async function committedSliceIds(planId: string): Promise<Set<string>> {
@@ -994,5 +993,8 @@ async function executeOneSlice(
 				note,
 			});
 		},
+		...(deps.onReasoningSummary !== undefined && {
+			onReasoning: deps.onReasoningSummary,
+		}),
 	});
 }

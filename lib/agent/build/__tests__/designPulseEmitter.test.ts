@@ -37,7 +37,7 @@ describe("createDesignPulseEmitter", () => {
 		const writer = makeWriter();
 		const emit = createDesignPulseEmitter(writer, SESSION, () => null);
 
-		emit("author", 100);
+		emit("design", 100);
 		expect(writer.chunks).toHaveLength(1);
 		expect(writer.chunks[0]).toMatchObject({
 			type: "data-design-pulse",
@@ -45,21 +45,21 @@ describe("createDesignPulseEmitter", () => {
 			data: {
 				eventVersion: 1,
 				designSessionId: SESSION,
-				data: { phase: "author", chars: 100 },
+				data: { phase: "design", chars: 100 },
 			},
 		});
 
 		// Inside the throttle window: counted, not emitted.
-		emit("author", 50);
-		emit("author", 50);
+		emit("design", 50);
+		emit("design", 50);
 		expect(writer.chunks).toHaveLength(1);
 
 		// Past the window: one pulse carrying the cumulative count.
 		vi.setSystemTime(1_000_000 + DESIGN_PULSE_INTERVAL_MS);
-		emit("author", 25);
+		emit("design", 25);
 		expect(writer.chunks).toHaveLength(2);
 		expect(writer.chunks[1]?.data).toMatchObject({
-			data: { phase: "author", chars: 225 },
+			data: { phase: "design", chars: 225 },
 		});
 	});
 
@@ -67,7 +67,7 @@ describe("createDesignPulseEmitter", () => {
 		const writer = makeWriter();
 		const emit = createDesignPulseEmitter(writer, SESSION, () => null);
 
-		emit("author", 400);
+		emit("design", 400);
 		emit("review", 10);
 		expect(writer.chunks).toHaveLength(2);
 		expect(writer.chunks[1]?.data).toMatchObject({

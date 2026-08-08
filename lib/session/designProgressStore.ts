@@ -68,6 +68,10 @@ export interface DesignProgressState {
 	 *  which no durable frame does until the phase has finished. Cleared at
 	 *  every turn boundary — a pulse describes only the stream it rode. */
 	pulsePhase: DesignPulsePhase | null;
+	/** The pulse's sub-step label, when the server derived one from a
+	 *  streaming submission's keys ("Working out the records"). Lives and
+	 *  dies with `pulsePhase`. */
+	pulseStep: string | null;
 	/** The run paused on a blocking question round (§15.8). Observed from the
 	 *  transcript, which is the only place the pause is visible client-side. */
 	awaitingInput: boolean;
@@ -136,6 +140,7 @@ const EMPTY: Omit<
 	committedSlices: [],
 	completion: null,
 	pulsePhase: null,
+	pulseStep: null,
 	awaitingInput: false,
 	failure: null,
 	seededStage: null,
@@ -176,6 +181,7 @@ export function createDesignProgressStore() {
 				failure: null,
 				/* A pulse describes only the stream it rode on. */
 				pulsePhase: null,
+				pulseStep: null,
 				/* This turn is live; the page-load snapshot no longer describes it. */
 				seededStage: null,
 			});
@@ -200,7 +206,9 @@ export function createDesignProgressStore() {
 				case "data-design-pulse": {
 					if (sessionId === null) return true;
 					const pulse = parseDesignPulse(data, sessionId);
-					if (pulse !== null) set({ pulsePhase: pulse.phase });
+					if (pulse !== null) {
+						set({ pulsePhase: pulse.phase, pulseStep: pulse.step ?? null });
+					}
 					return true;
 				}
 				case "data-build-slice-started": {
@@ -361,6 +369,9 @@ export interface DesignProgressView {
 	readonly stageLabel: string | null;
 	/** Work is still moving — the spinner-vs-mark choice, never the meaning. */
 	readonly working: boolean;
+	/** The live sub-step under the stage line ("Working out the records"),
+	 *  present only while design-phase work is streaming. */
+	readonly pulseStep: string | null;
 	readonly outline: DesignOutlineProjection | null;
 	readonly plannedSliceNames: readonly string[];
 	readonly sliceProgress: { committed: number; planned: number } | null;
@@ -381,6 +392,10 @@ export function deriveDesignProgressView(
 		stage,
 		stageLabel: stage === null ? null : designStageLabel(stage),
 		working: stage !== null && designStageIsWorking(stage),
+		pulseStep:
+			state.pulsePhase !== null && stage !== null && designStageIsWorking(stage)
+				? state.pulseStep
+				: null,
 		outline: state.outline,
 		plannedSliceNames: state.plan?.sliceNames ?? [],
 		sliceProgress: deriveSliceProgress(state),

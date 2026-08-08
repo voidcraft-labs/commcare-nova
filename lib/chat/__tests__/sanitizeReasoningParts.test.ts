@@ -106,6 +106,50 @@ describe("sanitizeHistoricalReasoningParts", () => {
 		expect(out[1]).toBe(paused);
 	});
 
+	it("handles two consecutive question pauses: the earlier round strips, the trailing round keeps its reasoning", () => {
+		/* The design loop asks in rounds, and consecutive rounds land as
+		 * separate assistant messages when a fresh turn opens each. Only the
+		 * TRAILING answered round is the one whose function output this turn
+		 * submits, so only it needs (and keeps) its reasoning items. */
+		const earlier = assistant(
+			"a1",
+			[reasoning("first round"), askQuestions(true)],
+			{ model: MODEL },
+		);
+		const trailing = assistant(
+			"a2",
+			[reasoning("second round"), askQuestions(true)],
+			{ model: MODEL },
+		);
+		const out = sanitizeHistoricalReasoningParts(
+			[user("u1", "build it"), earlier, trailing],
+			MODEL,
+		);
+		expect(out[1]?.parts.map((p) => p.type)).toEqual(["tool-askQuestions"]);
+		expect(out[2]).toBe(trailing);
+	});
+
+	it("keeps a trailing message that stacked two answered rounds intact", () => {
+		/* A round answered mid-POST appends the next round to the SAME
+		 * assistant message; both answered parts ride the trailing message
+		 * whose output this turn submits. */
+		const stacked = assistant(
+			"a1",
+			[
+				reasoning("first round"),
+				askQuestions(true),
+				reasoning("second round"),
+				askQuestions(true),
+			],
+			{ model: MODEL },
+		);
+		const out = sanitizeHistoricalReasoningParts(
+			[user("u1", "build it"), stacked],
+			MODEL,
+		);
+		expect(out[1]).toBe(stacked);
+	});
+
 	it("textifies a trailing round whose producing model no longer matches", () => {
 		const messages = [
 			user("u1", "build it"),

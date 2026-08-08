@@ -110,14 +110,14 @@ export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
 	effort: "medium",
 };
 
-/** Model ID for the design pipeline's structured calls — author, reviewer,
- * reviser, and planner all run the SA build model: the design IS the
+/** Model ID for the design method's calls: the design agent loop and the
+ * independent reviewer both run the SA build model. The design IS the
  * hardest half of a ground-up build, and one model keeps pricing and
  * behavior aligned with the SA it feeds. */
 export const DESIGN_MODEL = "gpt-5.6-sol";
 
-/** The design author drafts the whole contract from raw sources — the same
- * quality-first ceiling as an SA build. */
+/** The design agent drafts, dispositions, and plans the whole contract in
+ * one growing context: the same quality-first ceiling as an SA build. */
 export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
@@ -127,18 +127,6 @@ export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
  * review earns the same ceiling as drafting. */
 export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
-};
-
-/** The reviser resolves enumerated findings against an existing draft —
- * narrower than authoring, wider than an ordinary edit. */
-export const DESIGN_REVISER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
-};
-
-/** The planner decomposes an accepted contract into slices — structural
- * work over already-validated intent. */
-export const DESIGN_PLANNER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
 };
 
 /**

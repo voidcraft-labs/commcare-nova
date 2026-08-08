@@ -126,7 +126,7 @@ describe("design progress stage fold", () => {
 
 		applyProgressFrame(
 			"data-design-pulse",
-			envelope(SESSION, { phase: "author", chars: 900 }, 1),
+			envelope(SESSION, { phase: "design", chars: 900 }, 1),
 		);
 		expect(view(store).stage).toBe("designing");
 
@@ -252,7 +252,7 @@ describe("design progress stage fold", () => {
 			designSessionId: SESSION,
 			orchestrationEventId: "event-1",
 			orchestrationRevision: 1,
-			data: { phase: "author", chars: 900 },
+			data: { phase: "design", chars: 900 },
 		});
 		expect(view(store).stage).toBe("designing");
 

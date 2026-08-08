@@ -1,16 +1,18 @@
 /**
- * Preview the design pipeline's EXACT artifacts for a described app — the
- * author's Design Contract, the independent review, the reviser's
- * dispositions, and the build plan — without a chat run, an app, or a
+ * Preview the design agent loop's EXACT artifacts for a described app: the
+ * agent's questions, its Design Contract, the independent review, the
+ * dispositions, and the build plan: without a chat run, an app, or a
  * database row.
  *
- * Drives the REAL calls (`runDesignAuthor` / `runDesignReviewer` /
- * `runDesignReviser` / `runDesignPlanner`: same prompts, same schemas, same
- * provider options the pipeline uses) over a synthetic in-memory source
- * package built from the request text you pass, then prints stage summaries
- * and writes each full artifact as JSON beside your output directory.
- * Nothing persists to Postgres — this previews artifact QUALITY, not the
- * durable pipeline (`lib/agent/design/pipeline.ts` owns that).
+ * Drives the REAL agent (same system prompt, same strict wire schemas, same
+ * provider options `lib/agent/design/loop` mounts) over a synthetic
+ * in-memory source package, with the submit tools re-executed in memory:
+ * every submission still parses through the exact schema factories, the
+ * requestReview tool still runs the real independent reviewer call, and
+ * askQuestions rounds pause for YOUR answers on stdin: so question
+ * behavior is checkable exactly as a user would meet it. Nothing persists
+ * to Postgres; the store discipline is the integration tests' job
+ * (`lib/agent/design/__tests__/designLoop.integration.test.ts`).
  *
  * Usage:
  *   npx tsx --conditions=react-server scripts/preview-app-design.ts \
@@ -18,42 +20,70 @@
  *
  * The `--conditions=react-server` flag is required, exactly as it is for
  * `npm run test:schema`: the capability catalog imports the shared tool
- * registry, whose graph reaches `server-only` — under plain Node its bare
+ * registry, whose graph reaches `server-only`: under plain Node its bare
  * default export throws before this script prints anything, while the
  * condition resolves it to the package's own no-op.
  *
  * Reads OPENAI_API_KEY from .env.
- * ⚠️ Cost: 2–4 live gpt-5.6-sol calls at high/xhigh reasoning — this is the
- * expensive half of a build. Ask before running it on a shared key.
+ * ⚠️ Cost: one xhigh agent loop plus one xhigh reviewer call: the design
+ * half of a build. Ask before running it on a shared key.
  */
 
 import "dotenv/config";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { runDesignAuthor } from "../lib/agent/design/author";
+import { createInterface } from "node:readline/promises";
+import type { ModelMessage } from "ai";
+import {
+	buildPlanDraftSchema,
+	buildPlanSchemaFor,
+} from "../lib/agent/design/buildPlan";
 import {
 	buildCapabilityCatalog,
 	renderCapabilityCatalog,
 } from "../lib/agent/design/capabilityCatalog";
+import type { AppDesignContract } from "../lib/agent/design/contract";
+import { appDesignContractSchema } from "../lib/agent/design/contract";
 import { DesignGenerationContext } from "../lib/agent/design/designGenerationContext";
-import { runDesignPlanner } from "../lib/agent/design/planner";
+import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
+import { createDesignLoopTools } from "../lib/agent/design/loop/tools";
 import { PLATFORM_CONSTRAINTS } from "../lib/agent/design/platformConstraints";
+import {
+	DESIGN_AGENT_SYSTEM,
+	renderPlatformConstraintsSection,
+} from "../lib/agent/design/prompts";
+import type { DesignReview } from "../lib/agent/design/review";
+import {
+	designRevisionResultSchemaFor,
+	validateSensitivityNotSilentlyLowered,
+} from "../lib/agent/design/review";
 import { runDesignReviewer } from "../lib/agent/design/reviewer";
-import { runDesignReviser } from "../lib/agent/design/reviser";
 import {
 	computeSourcePackageDigest,
 	type DesignSourcePackage,
 } from "../lib/agent/design/sourcePackage";
+import { stripNullProperties } from "../lib/agent/strictStructuredOutput";
+import { DESIGN_MODEL } from "../lib/models";
 
 function usage(): never {
 	console.log(
 		"Usage: npx tsx --conditions=react-server scripts/preview-app-design.ts " +
 			'[--out <dir>] "<request text>"\n' +
-			"(--conditions=react-server is required — the tool-registry import " +
+			"(--conditions=react-server is required: the tool-registry import " +
 			"graph reaches server-only)\n" +
-			"⚠️ Sends 2–4 live gpt-5.6-sol calls (the design half of a build).",
+			"⚠️ Runs a live xhigh design agent loop plus the xhigh reviewer.",
 	);
 	process.exit(1);
+}
+
+/** In-memory design state: the preview's stand-in for the artifact store.
+ *  The REAL gates live in `loop/gates.ts` over persisted rows; this mirror
+ *  is only strong enough to keep the preview honest about sequence. */
+interface PreviewState {
+	contract: AppDesignContract | null;
+	lifecycle: "draft" | "accepted" | null;
+	reviews: DesignReview[];
+	plan: unknown | null;
 }
 
 async function main(): Promise<void> {
@@ -72,7 +102,7 @@ async function main(): Promise<void> {
 	const request = rest.join(" ").trim();
 	if (!request) usage();
 	if (!process.env.OPENAI_API_KEY) {
-		console.error("OPENAI_API_KEY is not set — nothing was sent.");
+		console.error("OPENAI_API_KEY is not set: nothing was sent.");
 		process.exit(1);
 	}
 
@@ -139,76 +169,268 @@ async function main(): Promise<void> {
 	const signal = new AbortController().signal;
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
 
-	console.log("Authoring the Design Contract (xhigh reasoning — minutes)…");
-	const authored = await runDesignAuthor(ctx, pkg, catalogText, signal);
-	if (authored.kind !== "produced") {
-		console.error(`Author produced nothing: ${authored.reason}`);
-		process.exit(1);
-	}
-	let contract = authored.artifact;
-	write("contract-draft.json", contract);
-	console.log(
-		`  ${contract.actors.length} actors, ${contract.tasks.length} tasks, ${contract.records.length} records, ${contract.facts.length} facts, ${contract.openQuestions.length} open questions`,
-	);
+	const state: PreviewState = {
+		contract: null,
+		lifecycle: null,
+		reviews: [],
+		plan: null,
+	};
 
-	console.log("Reviewing (independent fresh context)…");
-	const reviewed = await runDesignReviewer(
+	/* The real tool factory supplies descriptions + strict wire schemas; the
+	 * executes are replaced with in-memory equivalents that keep the exact
+	 * schema parses and the real reviewer call. */
+	const realTools = createDesignLoopTools({
+		designSessionId: sessionId,
+		runId: "preview",
+		currentPkg: pkg,
+		catalogText,
 		ctx,
-		{ pkg, contract, catalogText },
 		signal,
-	);
-	if (reviewed.kind !== "produced") {
-		console.error(`Reviewer produced nothing: ${reviewed.reason}`);
-		process.exit(1);
-	}
-	write("review.json", reviewed.artifact);
-	const gated = reviewed.artifact.findings.filter(
-		(f) => f.severity !== "advisory",
-	);
-	console.log(
-		`  ${reviewed.artifact.findings.length} findings (${gated.length} critical/important)`,
-	);
+		repair: {
+			noteSchemaRejection() {},
+			noteSequenceError() {},
+			noteAccepted() {},
+			fatalError: () => undefined,
+		} as never,
+		loadAncestry: async () => {
+			throw new Error("The preview never touches the artifact store.");
+		},
+		rebuildPackageForDigest: async () => pkg,
+	});
 
-	if (gated.length > 0) {
-		console.log("Revising with dispositions…");
-		const revised = await runDesignReviser(
-			ctx,
-			{ pkg, contract, reviews: [reviewed.artifact], catalogText },
-			signal,
+	const issuesText = (error: {
+		issues: Array<{ path: PropertyKey[]; message: string }>;
+	}) =>
+		error.issues
+			.slice(0, 25)
+			.map((issue) => `- ${issue.path.join(".") || "<root>"}: ${issue.message}`)
+			.join("\n");
+
+	const tools = {
+		submitContract: {
+			...realTools.submitContract,
+			execute: async (input: unknown) => {
+				if (state.contract !== null && state.lifecycle === "draft") {
+					return {
+						error:
+							state.reviews.length > 0
+								? "The draft has review findings awaiting dispositions; use submitRevision."
+								: "A draft already exists; request its review with requestReview.",
+					};
+				}
+				const parsed = appDesignContractSchema.safeParse(
+					stripNullProperties(input),
+				);
+				if (!parsed.success) return { error: issuesText(parsed.error) };
+				state.contract = parsed.data;
+				state.lifecycle = "draft";
+				state.reviews = [];
+				write("contract-draft.json", parsed.data);
+				console.log(
+					`\n[submitContract] ${parsed.data.actors.length} actors, ${parsed.data.tasks.length} tasks, ${parsed.data.records.length} records, ${parsed.data.openQuestions.length} open questions`,
+				);
+				return {
+					ok: true,
+					revisionId: crypto.randomUUID(),
+					message:
+						"The draft persisted. Request its independent review with requestReview.",
+				};
+			},
+		},
+		requestReview: {
+			...realTools.requestReview,
+			execute: async () => {
+				if (state.contract === null || state.lifecycle !== "draft") {
+					return { error: "No unreviewed draft exists." };
+				}
+				console.log("\n[requestReview] running the independent reviewer…");
+				const reviewed = await runDesignReviewer(
+					ctx,
+					{ pkg, contract: state.contract, catalogText },
+					signal,
+				);
+				if (reviewed.kind !== "produced") {
+					return {
+						error: `The review did not come back (${reviewed.reason}).`,
+					};
+				}
+				state.reviews = [reviewed.artifact];
+				write("review.json", reviewed.artifact);
+				const gated = reviewed.artifact.findings.filter(
+					(finding) => finding.severity !== "advisory",
+				);
+				console.log(
+					`[requestReview] ${reviewed.artifact.findings.length} findings (${gated.length} gated)`,
+				);
+				if (gated.length === 0) {
+					state.lifecycle = "accepted";
+					return {
+						ok: true,
+						findings: reviewed.artifact.findings,
+						summary: reviewed.artifact.summary,
+						accepted: true,
+						message:
+							"No gated findings; the design is accepted. Submit the plan with submitPlan.",
+					};
+				}
+				return {
+					ok: true,
+					findings: reviewed.artifact.findings,
+					summary: reviewed.artifact.summary,
+					accepted: false,
+					message: `Disposition every critical and important finding with submitRevision.`,
+				};
+			},
+		},
+		submitRevision: {
+			...realTools.submitRevision,
+			execute: async (input: unknown) => {
+				if (state.contract === null || state.reviews.length === 0) {
+					return { error: "No reviewed draft exists to revise." };
+				}
+				const parsed = designRevisionResultSchemaFor(state.reviews).safeParse(
+					stripNullProperties(input),
+				);
+				if (!parsed.success) return { error: issuesText(parsed.error) };
+				const violations = validateSensitivityNotSilentlyLowered(
+					state.contract,
+					parsed.data,
+				);
+				if (violations.length > 0) {
+					return { error: violations.join("\n") };
+				}
+				state.contract = parsed.data.contract;
+				state.lifecycle = "accepted";
+				state.reviews = [];
+				write("contract-revised.json", parsed.data.contract);
+				write("dispositions.json", parsed.data.dispositions);
+				console.log("\n[submitRevision] accepted");
+				return {
+					ok: true,
+					revisionId: crypto.randomUUID(),
+					accepted: true,
+					message:
+						"The revision persisted as the accepted design. Submit the build plan with submitPlan.",
+				};
+			},
+		},
+		submitPlan: {
+			...realTools.submitPlan,
+			execute: async (input: unknown) => {
+				if (state.contract === null || state.lifecycle !== "accepted") {
+					return { error: "No accepted design exists to plan." };
+				}
+				const blocking = state.contract.openQuestions.filter(
+					(question) => question.blocking,
+				);
+				if (blocking.length > 0) {
+					return {
+						error:
+							"The accepted design carries blocking open questions; ask the user with askQuestions.",
+					};
+				}
+				const draft = buildPlanDraftSchema.safeParse(
+					stripNullProperties(input),
+				);
+				if (!draft.success) return { error: issuesText(draft.error) };
+				const composed = {
+					schemaVersion: 2 as const,
+					designRevisionId: crypto.randomUUID(),
+					designRevisionDigest: "0".repeat(64),
+					id: crypto.randomUUID(),
+					slices: draft.data.slices,
+					externalActions: draft.data.externalActions,
+					intentOwnership: draft.data.intentOwnership,
+				};
+				const plan = buildPlanSchemaFor(state.contract).safeParse(composed);
+				if (!plan.success) return { error: issuesText(plan.error) };
+				state.plan = plan.data;
+				write("build-plan.json", plan.data);
+				console.log(`\n[submitPlan] ${plan.data.slices.length} slices`);
+				return {
+					ok: true,
+					planId: composed.id,
+					message: "The design phase is complete.",
+				};
+			},
+		},
+	};
+
+	const agent = createDesignAgent({
+		model: ctx.model(DESIGN_MODEL),
+		tools: tools as never,
+		catalogText,
+		constraintsText: renderPlatformConstraintsSection(),
+		instructions: DESIGN_AGENT_SYSTEM,
+		promptCacheKey: `nova:design-preview:${sessionId}`,
+		fatalError: () => undefined,
+		onStepEnd: (step) => {
+			if (step.text) console.log(`\nNova: ${step.text}`);
+		},
+	});
+
+	const readline = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	let messages: ModelMessage[] = [
+		{
+			role: "user",
+			content: `<nova:source ref="message:preview">${request}</nova:source>`,
+		},
+	];
+
+	for (let turn = 0; turn < 8 && state.plan === null; turn += 1) {
+		const result = await agent.stream({ prompt: messages });
+		await result.consumeStream();
+		const response = await result.response;
+		messages = [...messages, ...response.messages];
+		const toolCalls = await result.toolCalls;
+		const pendingQuestions = toolCalls.filter(
+			(call) => call.toolName === "askQuestions",
 		);
-		if (revised.kind !== "produced") {
-			console.error(`Reviser produced nothing: ${revised.reason}`);
-			process.exit(1);
+		if (pendingQuestions.length === 0) break;
+		for (const call of pendingQuestions) {
+			const input = call.input as {
+				header?: string;
+				questions?: Array<{
+					question: string;
+					options?: Array<{ label: string }>;
+				}>;
+			};
+			console.log(`\n── ${input.header ?? "Questions"} ──`);
+			const answers: Record<string, string> = {};
+			for (const [index, question] of (input.questions ?? []).entries()) {
+				console.log(`\n${question.question}`);
+				for (const option of question.options ?? []) {
+					console.log(`  - ${option.label}`);
+				}
+				answers[String(index)] = await readline.question("> ");
+			}
+			messages = [
+				...messages,
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: call.toolCallId,
+							toolName: "askQuestions",
+							output: { type: "json", value: { answers } },
+						},
+					],
+				},
+			];
 		}
-		contract = revised.artifact.contract;
-		write("contract-revised.json", contract);
-		write("dispositions.json", revised.artifact.dispositions);
 	}
-
-	const blocking = contract.openQuestions.filter((q) => q.blocking);
-	if (blocking.length > 0) {
-		console.log(
-			`Stopping before the plan: ${blocking.length} blocking question(s) —`,
-		);
-		for (const q of blocking) console.log(`  - ${q.question}`);
-	} else {
-		console.log("Planning build slices…");
-		const planned = await runDesignPlanner(
-			ctx,
-			{ contract, catalogText },
-			signal,
-		);
-		if (planned.kind !== "produced") {
-			console.error(`Planner produced nothing: ${planned.reason}`);
-			process.exit(1);
-		}
-		write("build-plan-draft.json", planned.artifact);
-		console.log(`  ${planned.artifact.slices.length} slices`);
-	}
+	readline.close();
 
 	console.log(
-		`Done. Tokens: ${usageTotals.inputTokens.toLocaleString()} in / ${usageTotals.outputTokens.toLocaleString()} out.`,
+		`\nDone. Tokens: ${usageTotals.inputTokens.toLocaleString()} in / ${usageTotals.outputTokens.toLocaleString()} out.`,
 	);
+	if (state.plan === null) {
+		console.log("The loop ended without a plan: inspect the artifacts above.");
+	}
 }
 
 main().catch((error) => {

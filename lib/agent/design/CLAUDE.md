@@ -1,9 +1,10 @@
-# lib/agent/design — the Design Contract domain and review pipeline
+# lib/agent/design — the Design Contract domain and the design agent loop
 
 A typed, evidence-linked, NON-EXECUTABLE design layer: the vocabulary a
 chat-started app is designed in (actors/tasks/records/facts/rules/read
-models/lookup tables/access/navigation/decisions/scenarios), the independent
-review of that design, and the digest-bound slice plan that lowers it. Nothing here
+models/lookup tables/access/navigation/decisions/scenarios), the
+server-gated agent loop that authors it, the independent review of it, and
+the digest-bound slice plan that lowers it. Nothing here
 is a Blueprint phase: no wire emitter, no Preview, no export, no mutation
 authority — design artifacts influence a build brief and can do nothing
 else, and a stale or absent Design Contract never blocks a valid human or
@@ -76,38 +77,49 @@ direct MCP edit.
   only — no extract bodies, no transcripts, no image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any
-  meaning-bearing change. Every system prompt opens with the shared
-  `DOMAIN_PREAMBLE`: each call is a fresh context, so the preamble names
-  the domain (CommCare, Dimagi, what a case is, offline-first, NOT a
-  general app platform) to activate the model's real prior knowledge and
-  keep a design from drifting toward a web/mobile stack — without it
-  "Nova" is an undefined word. Source text renders inside fixed
-  `<nova:source>` delimiters with the source-is-data contract stated in
-  every system prompt.
-- `author.ts` / `reviewer.ts` / `reviser.ts` / `planner.ts` — thin
-  structured calls over `lib/agent/modelRunContext.ts` (the §7.5 seam;
-  `designGenerationContext.ts` is the pre-app implementation). ALL FOUR
-  calls receive the rendered capability catalog — the author designs
-  within the constructible surface rather than having the reviewer
-  discover the overrun a paid round later. The reviewer's independence
-  is unchanged: EXACTLY the source package, the proposed contract, and
-  the catalog — never author reasoning or prior reviewer prose, never
-  tool authority.
+  meaning-bearing change (`design-agent-v1` is a fresh key; the retired
+  author/reviser/planner keys stay attributed to their dogfooding
+  artifacts). Both prompts open with the shared `DOMAIN_PREAMBLE`: the
+  reviewer runs a fresh context and the agent's context is born per
+  session, so the preamble names the domain (CommCare, Dimagi, what a
+  case is, offline-first, NOT a general app platform) to activate the
+  model's real prior knowledge and keep a design from drifting toward a
+  web/mobile stack — without it "Nova" is an undefined word. Source text
+  renders inside fixed `<nova:source>` delimiters with the source-is-data
+  contract stated in every system prompt.
+- `loop/` — the design agent: ONE `ToolLoopAgent` (`designAgent.ts`) that
+  asks, drafts, dispositions, and plans through server-executed tools
+  (`tools.ts`), with legality decided from durable artifact ancestry
+  (`gates.ts`). `submitContract` opens a design cycle; `requestReview`
+  runs the independent reviewer over the draft's OWN package, re-rendered
+  from its persisted reference row when the digest has moved
+  (`packageRebuild.ts`) and refused honestly when the sources no longer
+  reproduce it; `submitRevision` proves disposition closure plus the
+  sensitivity pair rule inside execute; `submitPlan` lowers the accepted
+  revision. Rounds count persisted reviews along the OPEN cycle (above
+  the newest accepted revision), so a crash, a resume, or a question
+  round can never mint a free review, and answers to an accepted design's
+  blocking questions reopen a fresh reviewed cycle. Submissions register
+  the strict wire projection (`strict: true`) and run the exact schema
+  factories inside execute, so a rejection is a repairable tool result,
+  bounded at two consecutive per kind. `claimSeeding.ts` derives
+  cumulative deterministic claims from every answered question round
+  (name-based UUIDs over thread coordinates), which is what makes package
+  rebuilds byte-identical. `packageRender.ts` decomposes the package onto
+  the conversation (per-message source blocks; cumulative claims ride the
+  per-turn state message). The package is PURE — its stream/session
+  writers live in `lib/agent/build/designLoopRunner.ts` (invariant 6).
+- `reviewer.ts` — the one call that stays a fresh-context one-shot
+  structured call over `lib/agent/modelRunContext.ts` (the §7.5 seam;
+  `designGenerationContext.ts` is the pre-app implementation), because
+  fresh context IS its value. Its inputs are EXACTLY the source package,
+  the proposed contract, and the capability catalog — never agent
+  reasoning or prior reviewer prose, never tool authority.
 - `capabilityCatalog.ts` — generated from `SHARED_TOOL_REGISTRY`, the
   field/case-data vocabularies, and the constraint leaf; snapshot-pinned
   (`__tests__/capabilityCatalog.test.ts`), with gap codes pinned against
   the remaining `docs/plans/complex-app/` unit files. It explains
   capability; it cannot emit mutations.
-- `pipeline.ts` — the SERVER-OWNED bounded machine: source package →
-  draft → review → dispositions + accepted revision → plan, each
-  transition durable before the next call. Bounds: one author, one
-  review, one revision on gated findings, one second round only when the
-  first revision leaves a critical finding or changes architecture
-  (extended depth always re-reviews), no third loop. A failed review
-  leaves the draft persisted and UNREVIEWED; blocking questions on the
-  accepted revision short-circuit to `awaiting-input` with no plan;
-  rerunning with the same package converges on committed artifacts.
-  Models never decide whether a required phase happened.
 
 ## Invariants
 
@@ -137,14 +149,18 @@ direct MCP edit.
 coverage over the `fixtures.ts` contract/plan);
 `artifactStore.integration.test.ts` (digest binding, predecessor proofs,
 tamper/unknown-dialect fail-closed, disposition atomicity);
-`designPipeline.integration.test.ts` (the bounded machine over the real
-store with a scripted context); `sourcePackage.test.ts` (bounds, digest
+`loop/__tests__/gates.test.ts` (cycle legality, round derivation,
+budgets); `designLoop.integration.test.ts` (the loop's tools over the
+real store with a scripted context); `sourcePackage.test.ts` (bounds, digest
 content-binding, honest rejection); `capabilityCatalog.test.ts` (the
 drift tripwire). The wire pin for the calls is
 `lib/agent/__tests__/designGenerationContextWire.test.ts`.
 
 ## Scripts
 
-`scripts/preview-app-design.ts` (⚠️ live model calls — artifact-quality
-preview, no persistence) and `scripts/inspect-design-artifacts.ts`
-(read-only session inspector, `--prod` capable).
+`scripts/preview-app-design.ts` (⚠️ live model calls — a scripted
+in-memory loop preview: real agent prompt, real schemas, real reviewer,
+interactive question rounds, no persistence) and
+`scripts/inspect-design-artifacts.ts` (read-only session inspector,
+`--prod` capable; `--reasoning` prints each artifact's reasoning
+summaries from the run event log).

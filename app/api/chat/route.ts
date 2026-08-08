@@ -2238,6 +2238,39 @@ export async function POST(req: Request) {
 										}
 									}
 								},
+								/* The design agent's step fan-out: per-step usage on the
+								 * accumulator (steps count as steps), tool-call/result and
+								 * reasoning-summary conversation events, all through the
+								 * same handler the SA rides. */
+								onAgentStep: (step) =>
+									ctx.handleAgentStep(step, "Design agent"),
+								/* Reasoning summaries from the calls that never touch a
+								 * thread (the independent reviewer, executor steps) land
+								 * beside the run's other events, joined to artifacts by
+								 * run id. Never fatal. */
+								onReasoningSummary: (text) => {
+									try {
+										ctx.emitConversation({
+											type: "assistant-reasoning",
+											text,
+										});
+									} catch {
+										/* Event logging never fails the run. */
+									}
+								},
+								/* A transient design-turn fault being redriven renders as
+								 * a RECOVERABLE warning with the real classified type, the
+								 * same admin-inspect breadcrumb as an SA turn retry. */
+								onRecoverableRetry: (classified) => {
+									ctx.emitError(
+										{
+											...classified,
+											message: TURN_RETRY_MESSAGE,
+											recoverable: true,
+										},
+										"route:design-turn-retry",
+									);
+								},
 							},
 						});
 						if (outcome.kind === "completed") {
