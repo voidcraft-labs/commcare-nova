@@ -88,9 +88,7 @@ function fixtureEmptyDoc(): BlueprintDoc {
 
 describe("buildSolutionsArchitectPrompt", () => {
 	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
-		const sp = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
-		);
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Editing Mode");
 		expect(sp).toContain("full visibility");
 		/* The doc picks the branch and contributes nothing — an app name or
@@ -101,9 +99,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("teaches the user-identity bridge and explicit-clear contract", () => {
-		const sp = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
-		);
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("addUserProperties");
 		expect(sp).toContain("userPropertyUuid");
 		expect(sp).toContain("valuePatch");
@@ -112,7 +108,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
-		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Matching case counts belong only to Builder Preview");
 		expect(sp).not.toContain(
 			"counts the locally representable matching subset",
@@ -120,7 +116,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("teaches contextual automation host and message-property refusals", () => {
-		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain(
 			"advanced case operation can add a second extension relationship",
 		);
@@ -151,49 +147,15 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("edit prompt is byte-identical across different apps", () => {
-		const a = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
-		);
-		const b = buildSolutionsArchitectPrompt(
-			fixtureDoc("Household Census", "Households"),
-		);
+		const a = buildSolutionsArchitectPrompt();
+		const b = buildSolutionsArchitectPrompt();
 		expect(a).toBe(b);
 	});
 
-	it("no doc, or an empty doc, renders the build prompt", () => {
-		for (const sp of [
-			buildSolutionsArchitectPrompt(),
-			buildSolutionsArchitectPrompt(fixtureEmptyDoc()),
-		]) {
-			expect(sp).toContain("Initial Build");
-			expect(sp).toContain("canonical survey starter");
-			expect(sp).toContain("Never reconstruct the starter or guess its UUIDs");
-			expect(sp).toContain(
-				"remove the starter only after its replacement has landed",
-			);
-			expect(sp).not.toContain("Editing Mode");
-		}
-	});
-
-	it("declares custom worker information before every reference-bearing build step", () => {
-		const prompt = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
-		const nameApp = prompt.indexOf("**Name the app");
-		const workerInformation = prompt.indexOf(
-			"**Declare custom worker information",
-		);
-		const dataModel = prompt.indexOf("**Record the data model");
-		const modules = prompt.indexOf("**Execute the design");
-
-		expect(nameApp).toBeGreaterThan(-1);
-		expect(workerInformation).toBeGreaterThan(nameApp);
-		expect(dataModel).toBeGreaterThan(workerInformation);
-		expect(modules).toBeGreaterThan(workerInformation);
-		expect(prompt.slice(workerInformation, dataModel)).toContain(
-			"addUserProperties",
-		);
-		expect(prompt.slice(workerInformation, dataModel)).toContain(
-			"before any condition, calculation, module, or form",
-		);
+	it("has no build composition — the design pipeline owns new-app builds", () => {
+		const sp = buildSolutionsArchitectPrompt();
+		expect(sp).not.toContain("Initial Build");
+		expect(sp).toContain("Editing Mode");
 	});
 });
 

@@ -158,7 +158,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 	it("serializes parallel mutating tools so neither write to the SA's working doc is lost", async () => {
 		const doc = makeDoc();
 		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc, false);
+		const sa = createSolutionsArchitect(ctx, doc);
 
 		// Fire two `addFields` execute callbacks without awaiting between
 		// them — this matches what the AI SDK does when the model emits
@@ -198,7 +198,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// equivalent of the write-side data-loss race.
 		const doc = makeDoc();
 		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc, false);
+		const sa = createSolutionsArchitect(ctx, doc);
 
 		const inFlightWrite = runTool(sa, "addFields", {
 			moduleUuid: MOD,
@@ -262,7 +262,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 			organization: { revision: "3", locations: [] },
 		});
 		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc, false);
+		const sa = createSolutionsArchitect(ctx, doc);
 
 		const updateResult = await runTool(sa, "updateAutomation", {
 			automation,

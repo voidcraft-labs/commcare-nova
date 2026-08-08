@@ -99,10 +99,9 @@ const {
 function makeSa(
 	ctx: GenerationContext,
 	doc: BlueprintDoc,
-	appReady: boolean,
 ): ReturnType<typeof createSolutionsArchitect> {
 	seedServerDoc(doc);
-	return createSolutionsArchitect(ctx, doc, appReady);
+	return createSolutionsArchitect(ctx, doc);
 }
 
 // ── Forbidden legacy events ──────────────────────────────────────────────
@@ -305,7 +304,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("generateSchema commits the catalog in ONE gated batch, stage schema — and never touches the name", async () => {
-		const sa = makeSa(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc());
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
@@ -343,7 +342,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// The fixture's "patient" record carries an authored property (label
 		// "Full name" ≠ its name) — re-declaring would replace definitions
 		// fields were seeded from, so the whole call is rejected.
-		const sa = makeSa(ctx, makeFixtureDoc(), false);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
@@ -364,7 +363,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// Two same-named entries would silently merge into a chimera record
 		// (declare no-ops, properties first-wins, later parent link overwrites)
 		// — reject before any mutation is built.
-		const sa = makeSa(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc());
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
@@ -407,7 +406,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 				],
 			},
 		];
-		const sa = makeSa(ctx, doc, false);
+		const sa = makeSa(ctx, doc);
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
@@ -439,7 +438,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("updateApp emits one name-only data-mutations batch", async () => {
-		const sa = makeSa(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc());
 
 		await runTool(sa, "updateApp", {
 			name: "Vendor Visits",
@@ -454,7 +453,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 	it("configureConnect emits the complete UUID-addressed target in one batch", async () => {
 		const doc = makeFixtureDoc();
-		const sa = makeSa(ctx, doc, false);
+		const sa = makeSa(ctx, doc);
 
 		await runTool(sa, "configureConnect", {
 			mode: "deliver",
@@ -496,7 +495,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// authoring is the typed-AST replacement for the deleted
 		// `addModule` SA tool, so the fixture exercises one structured
 		// `Column` mutation at the same staging granularity.
-		const sa = makeSa(ctx, makeFixtureDoc(), false);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		await runTool(sa, "addCaseListColumns", {
 			moduleUuid: MOD_A,
@@ -510,7 +509,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		const fieldUuid = testUuid("sa-receipt-field");
 		const optionUuids = [
 			testUuid("sa-receipt-option-yes"),
@@ -584,7 +583,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		} as Field;
 		doc.fieldOrder[FORM_A] = [...doc.fieldOrder[FORM_A], VILLAGE];
 		doc.fieldParent[VILLAGE] = FORM_A;
-		const sa = makeSa(ctx, doc, true);
+		const sa = makeSa(ctx, doc);
 
 		await runTool(sa, "editField", {
 			moduleUuid: MOD_A,
@@ -617,7 +616,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("updateModule emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		await runTool(sa, "updateModule", {
 			moduleUuid: MOD_A,
@@ -631,7 +630,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("createForm emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		await runTool(sa, "createForm", {
 			moduleUuid: MOD_A,
@@ -658,7 +657,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("removeModule emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		await runTool(sa, "removeModule", { moduleUuid: MOD_B });
 
@@ -675,7 +674,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// event across the whole sweep. If a future change re-introduces
 		// a legacy emission, this test fails regardless of which tool it
 		// sneaked into.
-		const sa = makeSa(ctx, makeFixtureDoc(), false);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		// The planning tool (build mode only) — pure, but walked so a
 		// future regression that makes it emit shows up here.
@@ -825,16 +824,16 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 describe("solutionsArchitect — no finishing tool", () => {
 	it("completeBuild is absent from both tool sets", () => {
 		const { ctx } = buildCtx();
-		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
-		const editSa = makeSa(ctx, makeFixtureDoc(), true);
+		const buildSa = makeSa(ctx, makeEmptyDoc());
+		const editSa = makeSa(ctx, makeFixtureDoc());
 		expect("completeBuild" in buildSa.tools).toBe(false);
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
 	it("the data-model, app-name, and Connect target tools are shared in both modes", () => {
 		const { ctx } = buildCtx();
-		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
-		const editSa = makeSa(ctx, makeFixtureDoc(), true);
+		const buildSa = makeSa(ctx, makeEmptyDoc());
+		const editSa = makeSa(ctx, makeFixtureDoc());
 		// generateSchema commits catalog records, and a NEW case type enters
 		// an existing app through it — so it's in the edit-mode set too.
 		expect("generateSchema" in buildSa.tools).toBe(true);
@@ -851,7 +850,7 @@ describe("solutionsArchitect — no finishing tool", () => {
 
 	it("exposes the complete camelCase users and personas authoring surface", () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		for (const name of [
 			"getUsers",
 			"addUserProperties",
@@ -921,7 +920,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("catches a BlueprintCommitRejectedError escaping the tool, returns { error }, and reloads fresh for the next tool", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		const conflict =
 			'Saved parked data now occupies "village" on "patient". Review the rename conflicts and try again.';
 		// The guarded commit rejects (a peer changed the target); the tool's
@@ -968,7 +967,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("maps conflict-reload membership loss to one exact terminal CommitReauthError", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		commitGuardedBatchMock.mockRejectedValueOnce(
 			new BlueprintCommitRejectedError("Reload after a peer edit."),
 		);
@@ -1002,7 +1001,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("latches an exact AppProjectChangedError before reading or adopting a cross-Project snapshot", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		const readMovedBlueprint = vi.fn(() => reloadedDoc());
 		commitGuardedBatchMock.mockRejectedValueOnce(
 			new BlueprintCommitRejectedError("Reload after a peer edit."),
@@ -1036,7 +1035,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("propagates a conflict-reload database fault without adopting any snapshot", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		const databaseFault = new Error("snapshot database unavailable");
 		commitGuardedBatchMock.mockRejectedValueOnce(
 			new BlueprintCommitRejectedError("Reload after a peer edit."),
@@ -1069,7 +1068,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("propagates a terminal CommitReauthError past wrapMutating (no reload, fails the tool call)", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		// The tool's blanket catch re-throws CommitReauthError; wrapMutating does
 		// NOT catch it, so it escapes the tool's execute — terminal.
 		commitGuardedBatchMock.mockRejectedValueOnce(
@@ -1090,7 +1089,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("propagates AppProjectChangedError past wrapMutating without reload or retry", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 		const projectChanged = new AppProjectChangedError();
 		// The tool's blanket catch re-throws the scope signal. Unlike a document
 		// conflict, wrapMutating must not reload into a different Project inside
@@ -1120,7 +1119,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		"poisons queued same-step tools and the next model step after %s",
 		async (_label, makeScopeError) => {
 			const { ctx } = buildCtx();
-			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const sa = makeSa(ctx, makeFixtureDoc());
 			const scopeError = makeScopeError();
 			commitGuardedBatchMock.mockRejectedValueOnce(scopeError);
 
@@ -1160,7 +1159,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 	it("does NOT reload on a pre-commit validity finding (the tool returns { error }, commit never runs)", async () => {
 		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc());
 
 		// A duplicate sibling id is a pre-commit identifier finding — the tool
 		// returns `{ error }` before ever reaching the guarded commit.
@@ -1193,7 +1192,7 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 		"latches %s from removeMediaAsset and fences the next queued tool",
 		async (_label, makeScopeError, latchGetter) => {
 			const { ctx } = buildCtx();
-			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const sa = makeSa(ctx, makeFixtureDoc());
 			const scopeError = makeScopeError();
 			const execute = vi
 				.spyOn(removeMediaAssetTool, "execute")
