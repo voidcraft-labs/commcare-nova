@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseCreatedAppActivation } from "@/components/chat/ChatContainer";
+import { parseAppMaterializationReceipt } from "@/components/chat/ChatContainer";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -26,6 +26,7 @@ vi.mock("@/lib/db/appAccess", () => ({
 }));
 vi.mock("@/lib/db/appGenesis", () => ({
 	createExplicitBlankApp: mocks.createExplicitBlankApp,
+	genesisBatchId: (appId: string) => `genesis:${appId}`,
 }));
 
 import { createStarterApp } from "../actions";
@@ -56,6 +57,7 @@ function canonicalReceipt(appId: string) {
 	return {
 		appId,
 		baseSeq: 1 as const,
+		snapshotDigest: "ab".repeat(32),
 		blueprint: toPersistableDoc(verdict.nextDoc),
 		starter: {
 			moduleUuid: genesis.moduleUuid,
@@ -94,15 +96,15 @@ describe("createStarterApp Project binding", () => {
 		);
 	});
 
-	/* The blank-app path and the SA's `data-app-id` frame install the new app
-	 * through the same client-side boundary, so this action's return value has
-	 * to satisfy that boundary exactly. If they drift, the blank-app path stops
-	 * being able to open its own app. */
+	/* The blank-app path and the design build's `data-app-materialized` frame
+	 * install the new app through the same client-side boundary, so this
+	 * action's return value has to satisfy that boundary exactly. If they
+	 * drift, the blank-app path stops being able to open its own app. */
 	it("returns a receipt the client's creation boundary accepts", async () => {
 		const result = await createStarterApp("project-seeded-by-build-new");
 		if (!result.success) throw new Error(result.error);
 
-		const activation = parseCreatedAppActivation(
+		const activation = parseAppMaterializationReceipt(
 			result.receipt as unknown as Record<string, unknown>,
 		);
 		expect(activation).not.toBeNull();

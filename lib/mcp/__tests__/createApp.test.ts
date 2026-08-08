@@ -58,6 +58,7 @@ function genesisReceipt(appId: string): CreateAppReceipt {
 	return {
 		appId,
 		baseSeq: 1,
+		snapshotDigest: "a".repeat(64),
 		blueprint: {
 			appId,
 			appName: "Untitled",

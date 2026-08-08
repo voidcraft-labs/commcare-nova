@@ -352,6 +352,11 @@ export const threadMetaSchema = z.object({
 	run_id: z.string(),
 	active_stream_id: z.string().nullable(),
 	message_count: z.number().int().nonnegative(),
+	/** The design session this thread belongs to, when it is a build
+	 * lineage's conversation (thread rows are session-targeted for their
+	 * whole life). The client echoes it on every send so the route
+	 * continues the session scope; null for an app-born edit thread. */
+	design_session_id: z.string().nullable().optional(),
 });
 export type ThreadMeta = z.infer<typeof threadMetaSchema>;
 

@@ -16,7 +16,7 @@
  * hasn't counted, which is exactly the base class's cursor behavior
  * (`startIndex` = chunks received, from 0 when it got none). Setting
  * `initialStartIndex` on the constructor instead would rewind that path too
- * and permanently skip the receipts (`data-app-id`) and completed steps a
+ * and permanently skip the receipts (`data-app-materialized`) and completed steps a
  * mid-send client never received.
  */
 

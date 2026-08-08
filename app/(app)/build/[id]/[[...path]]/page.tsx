@@ -65,7 +65,7 @@ export default async function BuilderPage({
 	 * authority: creation targets the active Project. Resolve that role on the
 	 * server and seed `{ baseSeq: 0 }` so a viewer's first client frame is
 	 * truthfully read-only instead of defaulting to editor until the write route
-	 * refuses them. The reconciler remains dormant until `data-app-id`. */
+	 * refuses them. The reconciler remains dormant until `data-app-materialized`. */
 	if (id === "new") {
 		const projectId = await resolveActiveProjectId(session);
 		const access = await resolveProjectAccess(

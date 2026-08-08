@@ -519,7 +519,7 @@ export class GenerationContext
 	 *   - `data-done` — the route's drain-end build-finished signal,
 	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
-	 *   - `data-app-id` — the one-shot canonical genesis receipt that installs
+	 *   - `data-app-materialized` — the one-shot genesis receipt that installs
 	 *     the exact blueprint/cursor before driving the `/build/new` →
 	 *     `/build/{id}` URL swap and multiplayer activation.
 	 *   - `data-run-id` — server-minted run identifier the client echoes

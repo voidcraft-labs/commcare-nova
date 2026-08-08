@@ -274,7 +274,7 @@ export interface ReconcilerDeps {
 
 export interface ReconcilerInit {
 	/** The app id. `undefined` for a brand-new build — the reconciler mounts
-	 *  DORMANT and activates on `data-app-id`. */
+	 *  DORMANT and activates on `data-app-materialized`. */
 	appId?: string;
 	/** The head seq at mount (`app.mutation_seq`). 0 for a fresh app. */
 	baseSeq: number;
@@ -365,7 +365,7 @@ export interface Reconciler {
 	/** Set the tab's active run id (from `data-run-id`), before any frame. */
 	setSelfActiveRunId(runId: string | undefined): void;
 	/** Activate a dormant reconciler once the new build's server handoff arrives
-	 *  (`data-app-id`), including its authoritative starting cursor. */
+	 *  (`data-app-materialized`), including its authoritative starting cursor. */
 	activate(args: {
 		appId: string;
 		baseSeq: number;
@@ -1444,8 +1444,8 @@ export function createReconciler(
 		// bracket is still open at data-done; endAgentWrite runs only on stream
 		// close).
 		if (inert()) return;
-		// DORMANT data-done (a new build whose `data-app-id` hasn't activated the
-		// reconciler yet, or a build that emitted no `data-app-id`): there is no
+		// DORMANT data-done (a new build whose `data-app-materialized` hasn't
+		// activated the reconciler yet, or a build that emitted none): there is no
 		// stream, no `sentPending`, and `baseSeq` is meaningless — but the store
 		// must still reconcile to the run's final snapshot. Do it BRACKET-SAFE (a
 		// suppressed `commitDoc` + history clear, never `load()` — the agent

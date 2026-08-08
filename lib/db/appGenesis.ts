@@ -333,6 +333,10 @@ export interface CreateAppReceipt {
 	appId: string;
 	baseSeq: 1;
 	blueprint: PersistableDoc;
+	/** Canonical-JS digest of `blueprint` — the same identity a
+	 * materialization receipt carries, so the one client activation
+	 * boundary can digest-verify both birth paths. */
+	snapshotDigest: string;
 	starter: {
 		moduleUuid: Uuid;
 		formUuid: Uuid;
@@ -378,6 +382,7 @@ export async function createExplicitBlankApp(
 		appId,
 		baseSeq: 1,
 		blueprint: candidate.persistable,
+		snapshotDigest: candidate.candidateDigest,
 		starter: {
 			moduleUuid: genesis.moduleUuid,
 			formUuid: genesis.formUuid,

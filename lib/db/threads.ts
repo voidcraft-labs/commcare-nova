@@ -46,7 +46,7 @@
  * Action, so no client-callable RPC surface exists.
  */
 import type { UIMessage } from "ai";
-import { sql, type Transaction } from "kysely";
+import { type ExpressionBuilder, sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
@@ -394,6 +394,30 @@ function threadTargetSelect(
 	return target.kind === "app"
 		? base.where("app_id", "=", target.appId)
 		: base.where("design_session_id", "=", target.designSessionId);
+}
+
+/** The READ-side widening of an app target's thread scope: an app's
+ * conversations include the SESSION-targeted threads of its bound
+ * materialized design session — a build thread stays session-targeted for
+ * its whole life, and the app page is where the user finds it after
+ * materialization. Reads only: every WRITE stays guarded by the row's exact
+ * target columns (`threadRowMatchesTarget` / `threadTargetUpdate`), and run
+ * authority for those rows already delegates to the app
+ * (`lockThreadTargetAuthority`). */
+function appScopeThreadFilter(appId: string) {
+	return (eb: ExpressionBuilder<AppDatabase, "threads">) =>
+		eb.or([
+			eb("app_id", "=", appId),
+			eb(
+				"design_session_id",
+				"in",
+				eb
+					.selectFrom("design_sessions")
+					.select("design_sessions.id")
+					.where("design_sessions.app_id", "=", appId)
+					.where("design_sessions.state", "=", "materialized"),
+			),
+		]);
 }
 
 /**
@@ -1099,11 +1123,12 @@ export async function listThreadMetas(
 			"summary",
 			"run_id",
 			"active_stream_id",
+			"design_session_id",
 			sql<number>`jsonb_array_length(messages)`.as("message_count"),
 		]);
 	query =
 		target.kind === "app"
-			? query.where("app_id", "=", target.appId)
+			? query.where(appScopeThreadFilter(target.appId))
 			: query.where("design_session_id", "=", target.designSessionId);
 	const rows = await query
 		/* `thread_id` tiebreaks a same-millisecond `updated_at` (ISO text has
@@ -1133,7 +1158,12 @@ export async function loadThread(
 	actorUserId?: string,
 ): Promise<LoadedThread | null> {
 	const db = await getAppDb();
-	const row = await threadTargetSelect(db, target, threadId)
+	const base = db.selectFrom("threads").where("thread_id", "=", threadId);
+	const scoped =
+		target.kind === "app"
+			? base.where(appScopeThreadFilter(target.appId))
+			: base.where("design_session_id", "=", target.designSessionId);
+	const row = await scoped
 		.select([
 			"thread_id",
 			"created_at",
@@ -1143,6 +1173,7 @@ export async function loadThread(
 			"run_id",
 			"active_stream_id",
 			"active_holder_nonce",
+			"design_session_id",
 			"messages",
 		])
 		.executeTakeFirst();

@@ -134,7 +134,7 @@ export interface BuilderSessionState {
 
 	/** This session's app has a BUILD that never completed. Seeded true when
 	 *  the page loads a `generating` app or an interrupted build admitted for
-	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
+	 *  re-drive; latched true when this tab's materialization handoff
 	 *  lands; released by `markBuildFinished()` from two channels: this tab's
 	 *  own stream `onData` (`data-done`, or the doc-less `data-build-complete`
 	 *  a conversational build turn emits instead), and the reconciler's

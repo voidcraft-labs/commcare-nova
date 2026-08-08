@@ -69,6 +69,7 @@ import {
 import { getAppDb } from "@/lib/db/pg";
 import { log } from "@/lib/logger";
 import { SA_BUILD_MODEL } from "@/lib/models";
+import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { budgetForSlice } from "./budgets";
 import {
 	briefDigest,
@@ -791,7 +792,7 @@ async function appBaseTarget(appId: string) {
 	const { loadCanonicalBlueprintAtSequence } = await import(
 		"@/lib/agent/change-set/baseLoader"
 	);
-	const seq = Number(row.mutation_seq);
+	const seq = safePersistedSequence(row.mutation_seq, "apps.mutation_seq");
 	const folded = await loadCanonicalBlueprintAtSequence(db, {
 		appId,
 		seq,
