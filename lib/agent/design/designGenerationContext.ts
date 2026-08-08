@@ -10,7 +10,7 @@
  * deliberately duplicates none of it.
  */
 
-import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import type { OpenAIProvider } from "@ai-sdk/openai";
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import {
 	meterSubGenerationUsage,
@@ -19,6 +19,7 @@ import {
 	type StructuredModelRunContext,
 	type SubGenerationUsageMeter,
 } from "@/lib/agent/modelRunContext";
+import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
 
@@ -43,7 +44,7 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 	private readonly meter: SubGenerationUsageMeter | undefined;
 
 	constructor(opts: DesignGenerationContextOptions) {
-		this.openai = createOpenAI({ apiKey: opts.apiKey });
+		this.openai = createNovaOpenAI(opts.apiKey);
 		this.userId = opts.userId;
 		this.projectId = opts.projectId;
 		this.runId = opts.runId;

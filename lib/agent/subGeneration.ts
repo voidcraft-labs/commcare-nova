@@ -311,6 +311,10 @@ export async function streamObjectWith<T>(opts: {
 	 *  which propagates like any other non-object failure. */
 	abortSignal?: AbortSignal;
 }): Promise<SubGenerationObjectResult<T>> {
+	// A dead signal must not construct the stream machinery at all: streamText
+	// tees internal streams whose promises only settle by being consumed, and
+	// a call aborted before its first byte strands them all.
+	opts.abortSignal?.throwIfAborted();
 	// The result promises are consumed on the happy path; tracked here so the catch
 	// can observe any it didn't await (a stream-stopping error jumps to the catch
 	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
@@ -365,6 +369,11 @@ export async function streamObjectWith<T>(opts: {
 			result.warnings,
 			result.finishReason,
 		];
+		// `output` (and its siblings) are GETTERS minting a fresh promise per
+		// access, so the instances captured above are never the ones handled
+		// below — observe them NOW or an invalid object's rejection surfaces
+		// as an unhandled rejection even on the clean-drain path.
+		for (const p of pending) void Promise.resolve(p).catch(() => {});
 
 		// Draining `stream` advances generation; the result promises resolve once
 		// it's done. Feed progress from BOTH reasoning and output deltas — reasoning
