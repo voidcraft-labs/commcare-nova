@@ -2570,8 +2570,8 @@ Before app insertion, preparation proves:
 
 Inside the materialization transaction:
 
-- insert/upsert required `case_type_schemas` or equivalent runtime schema rows at `synced_seq = 1`;
-- insert durable pending index work;
+- insert/upsert required `case_type_schemas` rows at `synced_seq = 1` (`applySchemaChangePhaseA`, per case type);
+- record durable pending index work — the existing `index_pending_seq` convergence column, no new table;
 - do not run `CREATE INDEX CONCURRENTLY`.
 
 After commit:
@@ -4189,6 +4189,14 @@ Every read/write:
 - No private change-set API leaks before its lease/recovery contract exists.
 
 ## 18. Persistence and migrations
+
+The cutover's one data repair is operational, not schematic: a pre-cutover
+app stuck non-`complete` has no bound design session, so the route refuses
+to re-drive it and the one-off `scan-legacy-preplan-builds` /
+`migrate-legacy-preplan-builds` pair (committed for audit, deleted after the
+production run) converges holder-free rows to `complete` through the
+reviewed operator-recovery authority. Held rows wait for the reaper; empty
+rows get per-app operator decisions.
 
 ### 18.1 Final table inventory
 
