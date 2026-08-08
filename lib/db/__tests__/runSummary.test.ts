@@ -23,6 +23,7 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("run_summary_");
 const APP = "app-1";
+const TARGET = { kind: "app", appId: APP } as const;
 
 /** Seed the app row the `run_summaries` FK requires. */
 beforeEach(async () => {
@@ -109,8 +110,8 @@ describe("writeRunSummary", () => {
 
 	it("writes the full summary on the first call and reads it back verbatim", async () => {
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
-		await expect(writeRunSummary(APP, RUN, delta)).resolves.toBe("created");
-		expect(await loadRunSummary(APP, RUN)).toEqual(delta);
+		await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe("created");
+		expect(await loadRunSummary(TARGET, RUN)).toEqual(delta);
 	});
 
 	it("accumulates numerics, overwrites scalars, and pins the first write's identity fields", async () => {
@@ -132,10 +133,12 @@ describe("writeRunSummary", () => {
 		};
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
 
-		await writeRunSummary(APP, RUN, prev);
-		await expect(writeRunSummary(APP, RUN, delta)).resolves.toBe("incremented");
+		await writeRunSummary(TARGET, RUN, prev);
+		await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe(
+			"incremented",
+		);
 
-		expect(await loadRunSummary(APP, RUN)).toEqual({
+		expect(await loadRunSummary(TARGET, RUN)).toEqual({
 			runId: RUN,
 			// Pinned — the first write's values stand.
 			startedAt: prev.startedAt,
@@ -167,10 +170,10 @@ describe("writeRunSummary", () => {
 		};
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
 
-		await writeRunSummary(APP, RUN, prev);
-		await writeRunSummary(APP, RUN, later);
+		await writeRunSummary(TARGET, RUN, prev);
+		await writeRunSummary(TARGET, RUN, later);
 
-		const stored = await loadRunSummary(APP, RUN);
+		const stored = await loadRunSummary(TARGET, RUN);
 		expect(stored?.moduleCount).toBe(7);
 	});
 
@@ -198,10 +201,10 @@ describe("writeRunSummary", () => {
 		};
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
 
-		await writeRunSummary(APP, RUN, prev);
-		await writeRunSummary(APP, RUN, zeroDelta);
+		await writeRunSummary(TARGET, RUN, prev);
+		await writeRunSummary(TARGET, RUN, zeroDelta);
 
-		const stored = await loadRunSummary(APP, RUN);
+		const stored = await loadRunSummary(TARGET, RUN);
 		// finishedAt + moduleCount advance to the latest turn; counters are prev+0.
 		expect(stored?.finishedAt).toBe(zeroDelta.finishedAt);
 		expect(stored?.moduleCount).toBe(zeroDelta.moduleCount);
@@ -222,19 +225,21 @@ describe("writeRunSummary", () => {
 			}),
 		);
 		const { writeRunSummary } = await import("../runSummary");
-		await expect(writeRunSummary(APP, RUN, delta)).resolves.toBe("failed");
+		await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe("failed");
 	});
 
 	describe("write action result", () => {
 		it("returns 'created' when no prior row exists", async () => {
 			const { writeRunSummary } = await import("../runSummary");
-			await expect(writeRunSummary(APP, RUN, delta)).resolves.toBe("created");
+			await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe(
+				"created",
+			);
 		});
 
 		it("returns 'incremented' when a prior row exists", async () => {
 			const { writeRunSummary } = await import("../runSummary");
-			await writeRunSummary(APP, RUN, delta);
-			await expect(writeRunSummary(APP, RUN, delta)).resolves.toBe(
+			await writeRunSummary(TARGET, RUN, delta);
+			await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe(
 				"incremented",
 			);
 		});

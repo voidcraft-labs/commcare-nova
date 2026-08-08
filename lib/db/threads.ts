@@ -50,13 +50,27 @@ import { sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
-import { replaceExactMediaReferencesForApp } from "./apps";
+import { DESIGN_SESSION_LEASE_COLUMNS } from "./actorGenerationGate";
 import { RunHolderLostError } from "./commitGuard";
+import {
+	type GenerationTarget,
+	generationTargetColumns,
+	generationTargetFromColumns,
+} from "./generationTargets";
 import { LEASE_COLUMNS, type LeaseRow, leaseView } from "./leaseView";
-import { MediaReferenceProjectionError } from "./mediaAssets";
+import {
+	MediaReferenceProjectionError,
+	replaceExactThreadMediaReferences,
+} from "./mediaAssets";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { exactRunHolderMatches } from "./runHolderWrites";
-import { runLeaseState } from "./runLiveness";
+import {
+	type DesignSessionLease,
+	type DesignSessionLeaseRow,
+	designSessionLeaseState,
+	type RunLease,
+	runLeaseState,
+} from "./runLiveness";
 import { CHAT_STREAM_RETENTION_MS, streamChunkTail } from "./streamChunks";
 import {
 	type ThreadDoc,
@@ -64,6 +78,11 @@ import {
 	threadDocSchema,
 	threadMetaSchema,
 } from "./types";
+
+/** The conversation's generation target — an app, or a design session. A
+ * build thread stays design-session-targeted after materialization; run
+ * authority then delegates to the session's bound app (§11.6/§11.7). */
+export type ThreadTarget = GenerationTarget;
 
 /**
  * Loader projections carry DERIVED fields beyond the stored shape:
@@ -153,7 +172,7 @@ function admissibleHistory(
 	stored: StoredMessage[],
 	incoming: UIMessage[],
 	clawedBackIds: readonly string[],
-	ctx: { appId: string; threadId: string },
+	ctx: { target: ThreadTarget; threadId: string },
 ): UIMessage[] {
 	if (clawedBackIds.length === 0) return incoming;
 	const clawed = new Set(clawedBackIds);
@@ -200,7 +219,7 @@ function admissibleHistory(
  */
 function stripAssistantAttachmentMetadata(
 	message: UIMessage,
-	ctx: { appId: string; threadId: string },
+	ctx: { target: ThreadTarget; threadId: string },
 ): UIMessage {
 	const metadata = message.metadata as Record<string, unknown> | undefined;
 	if (!metadata || !("attachments" in metadata)) return message;
@@ -222,28 +241,27 @@ export class ThreadAttachmentUnavailableError extends Error {
 }
 
 /**
- * Replace the app's complete authored media projection in the same transaction
- * as the candidate transcript. The app lock serializes every Blueprint/thread
- * writer, while shared asset locks serialize admission against metadata
- * deletion, so a committed carrier and its exact reverse edge cannot diverge.
+ * Replace THIS thread's exact conversation media reference set
+ * (`thread_media_refs`) in the same transaction as the candidate transcript
+ * — the split half of the media projection: Blueprint commits own
+ * `media_asset_refs`, thread writes own only their thread's rows. The target
+ * lock (app or design-session row) serializes every writer of this thread,
+ * while shared asset locks serialize admission against metadata deletion, so
+ * a committed carrier and its exact reverse edge cannot diverge.
  */
 async function admitExactThreadMediaProjection(
 	tx: Transaction<AppDatabase>,
 	args: {
-		appId: string;
 		projectId: string;
 		candidateMessages: readonly unknown[];
 		threadId: string;
 	},
 ): Promise<void> {
 	try {
-		await replaceExactMediaReferencesForApp(tx, {
-			appId: args.appId,
+		await replaceExactThreadMediaReferences(tx, {
+			threadId: args.threadId,
 			projectId: args.projectId,
-			candidateThread: {
-				threadId: args.threadId,
-				messages: args.candidateMessages,
-			},
+			candidateMessages: args.candidateMessages,
 		});
 	} catch (error) {
 		if (error instanceof MediaReferenceProjectionError) {
@@ -251,6 +269,131 @@ async function admitExactThreadMediaProjection(
 		}
 		throw error;
 	}
+}
+
+// ── Target authority ───────────────────────────────────────────────
+
+/** The locked authority row behind one thread write, whichever target kind
+ * supplied it. `lease` speaks the matching liveness derivation; `holder`
+ * proofs go through {@link threadTargetHolderMatches}. */
+type LockedThreadAuthority =
+	| {
+			readonly kind: "app";
+			readonly projectId: string;
+			readonly lease: RunLease;
+	  }
+	| {
+			readonly kind: "design-session";
+			readonly projectId: string;
+			readonly lease: DesignSessionLease;
+	  };
+
+/**
+ * Lock one thread target's authority row — the first lock of every thread
+ * write (fixed order: authority row → thread row → media assets).
+ *
+ * App target: the app row `FOR UPDATE`, exactly as before. Design-session
+ * target: the session's app mapping is resolved WITHOUT a held lock first —
+ * a MATERIALIZED (or completed edit) session delegates authority to its
+ * bound app, whose row is then the one locked (the mapping is write-once, so
+ * the unlocked read cannot go stale in the direction that matters); an
+ * active pre-app session locks its own row (§11.7's lock order).
+ */
+async function lockThreadTargetAuthority(
+	tx: Transaction<AppDatabase>,
+	target: ThreadTarget,
+): Promise<LockedThreadAuthority | null> {
+	if (target.kind === "app") {
+		const app = await tx
+			.selectFrom("apps")
+			.select([...LEASE_COLUMNS, "project_id"])
+			.where("id", "=", target.appId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!app) return null;
+		return {
+			kind: "app",
+			projectId: app.project_id,
+			lease: runLeaseState(leaseView(app)),
+		};
+	}
+	const mapping = await tx
+		.selectFrom("design_sessions")
+		.select(["app_id"])
+		.where("id", "=", target.designSessionId)
+		.executeTakeFirst();
+	if (!mapping) return null;
+	if (mapping.app_id !== null) {
+		const app = await tx
+			.selectFrom("apps")
+			.select([...LEASE_COLUMNS, "project_id"])
+			.where("id", "=", mapping.app_id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!app) return null;
+		return {
+			kind: "app",
+			projectId: app.project_id,
+			lease: runLeaseState(leaseView(app)),
+		};
+	}
+	const session = await tx
+		.selectFrom("design_sessions")
+		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id"])
+		.where("id", "=", target.designSessionId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (!session) return null;
+	return {
+		kind: "design-session",
+		projectId: session.project_id,
+		lease: designSessionLeaseState(session),
+	};
+}
+
+/** Prove the admitted holder against the locked authority row — the app
+ * arm's `(mode, runId, nonce)` capability, or the session arm's
+ * `(build, runId, nonce)`. */
+function threadTargetHolderMatches(
+	authority: LockedThreadAuthority,
+	holder: { mode: "build" | "edit"; runId: string; nonce: string },
+): boolean {
+	return exactRunHolderMatches(authority.lease.holderIdentity, holder);
+}
+
+/** Whether a thread row belongs to `target` — the structural guard that
+ * keeps a forged/stale thread id from writing across targets. */
+function threadRowMatchesTarget(
+	row: { app_id: string | null; design_session_id: string | null },
+	target: ThreadTarget,
+): boolean {
+	return target.kind === "app"
+		? row.app_id === target.appId
+		: row.design_session_id === target.designSessionId;
+}
+
+/** An UPDATE builder pre-guarded by thread id + exact target columns. */
+function threadTargetUpdate(
+	tx: Transaction<AppDatabase>,
+	target: ThreadTarget,
+	threadId: string,
+) {
+	const base = tx.updateTable("threads").where("thread_id", "=", threadId);
+	return target.kind === "app"
+		? base.where("app_id", "=", target.appId)
+		: base.where("design_session_id", "=", target.designSessionId);
+}
+
+/** A SELECT builder pre-guarded by thread id + exact target columns. */
+function threadTargetSelect(
+	db: Pick<Transaction<AppDatabase>, "selectFrom">,
+	target: ThreadTarget,
+	threadId: string,
+) {
+	const base = db.selectFrom("threads").where("thread_id", "=", threadId);
+	return target.kind === "app"
+		? base.where("app_id", "=", target.appId)
+		: base.where("design_session_id", "=", target.designSessionId);
 }
 
 /**
@@ -328,7 +471,7 @@ export function mergeTranscript(
  * so no client-sent assistant content on it can be authentic.
  */
 export async function upsertThreadTurn(args: {
-	appId: string;
+	target: ThreadTarget;
 	threadId: string;
 	runId: string;
 	streamId: string;
@@ -343,64 +486,61 @@ export async function upsertThreadTurn(args: {
 	redrive?: boolean;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
+	const logCtx = { target: args.target, threadId: args.threadId };
 	const result = await withAppTx(async (tx) => {
-		// Fixed lock order: app row -> thread row. Every competing thread writer
-		// queues on the thread row, so proving the holder can never deadlock
-		// against another writer that already holds it.
-		const app = await tx
-			.selectFrom("apps")
-			.select([...LEASE_COLUMNS, "project_id"])
-			.where("id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (app?.project_id !== args.expectedProjectId) {
+		// Fixed lock order: authority row (app or design session) -> thread
+		// row. Every competing thread writer queues on the thread row, so
+		// proving the holder can never deadlock against another writer that
+		// already holds it.
+		const authority = await lockThreadTargetAuthority(tx, args.target);
+		if (!authority || authority.projectId !== args.expectedProjectId) {
 			throw new RunHolderLostError("released");
 		}
-		let holderLost: "superseded" | "released" | null = "released";
-		if (app) {
-			const lease = runLeaseState(leaseView(app));
-			holderLost = exactRunHolderMatches(lease.holderIdentity, {
+		const holderLost: "superseded" | "released" | null =
+			threadTargetHolderMatches(authority, {
 				mode: args.threadType,
 				runId: args.runId,
 				nonce: args.holderNonce,
 			})
 				? null
-				: lease.present
+				: authority.lease.present
 					? "superseded"
 					: "released";
-		}
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "messages", "active_stream_id", "clawed_back_ids"])
+			.select([
+				"app_id",
+				"design_session_id",
+				"messages",
+				"active_stream_id",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
+		const existingMatchesTarget =
+			existing !== undefined && threadRowMatchesTarget(existing, args.target);
 		if (holderLost !== null) {
-			if (existing?.app_id === args.appId) {
+			if (existingMatchesTarget) {
 				const stored = (existing.messages ?? []) as StoredMessage[];
 				const merged = mergeTranscript(
 					stored,
 					admissibleHistory(stored, args.messages, existing.clawed_back_ids, {
-						appId: args.appId,
-						threadId: args.threadId,
+						...logCtx,
 					}),
 				);
+				await threadTargetUpdate(tx, args.target, args.threadId)
+					.set({ updated_at: now, messages: JSON.stringify(merged) })
+					.execute();
 				await admitExactThreadMediaProjection(tx, {
-					appId: args.appId,
-					projectId: app.project_id,
+					projectId: authority.projectId,
 					candidateMessages: merged,
 					threadId: args.threadId,
 				});
-				await tx
-					.updateTable("threads")
-					.set({ updated_at: now, messages: JSON.stringify(merged) })
-					.where("thread_id", "=", args.threadId)
-					.where("app_id", "=", args.appId)
-					.execute();
 			}
 			return { holderLost } as const;
 		}
-		if (existing && existing.app_id !== args.appId) {
+		if (existing && !existingMatchesTarget) {
 			return false;
 		}
 		if (!existing) {
@@ -415,23 +555,16 @@ export async function upsertThreadTurn(args: {
 				log.warn(
 					"[threads] dropped assistant messages from a fresh thread's incoming history (no run has ever written to this thread, so no client copy is authentic)",
 					{
-						appId: args.appId,
-						threadId: args.threadId,
+						...logCtx,
 						dropped: args.messages.length - insertable.length,
 					},
 				);
 			}
-			await admitExactThreadMediaProjection(tx, {
-				appId: args.appId,
-				projectId: app.project_id,
-				candidateMessages: insertable,
-				threadId: args.threadId,
-			});
 			await tx
 				.insertInto("threads")
 				.values({
 					thread_id: args.threadId,
-					app_id: args.appId,
+					...generationTargetColumns(args.target),
 					created_at: now,
 					updated_at: now,
 					thread_type: args.threadType,
@@ -442,6 +575,14 @@ export async function upsertThreadTurn(args: {
 					messages: JSON.stringify(insertable),
 				})
 				.execute();
+			/* Row first, then the reference projection: `thread_media_refs`
+			 * rows are children of this thread row, and a validation failure
+			 * still rolls the whole insert back. */
+			await admitExactThreadMediaProjection(tx, {
+				projectId: authority.projectId,
+				candidateMessages: insertable,
+				threadId: args.threadId,
+			});
 			return true;
 		}
 		let stored = (existing.messages ?? []) as StoredMessage[];
@@ -468,19 +609,9 @@ export async function upsertThreadTurn(args: {
 		}
 		const merged = mergeTranscript(
 			stored,
-			admissibleHistory(stored, args.messages, clawedBackIds, {
-				appId: args.appId,
-				threadId: args.threadId,
-			}),
+			admissibleHistory(stored, args.messages, clawedBackIds, { ...logCtx }),
 		);
-		await admitExactThreadMediaProjection(tx, {
-			appId: args.appId,
-			projectId: app.project_id,
-			candidateMessages: merged,
-			threadId: args.threadId,
-		});
-		await tx
-			.updateTable("threads")
+		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
 				run_id: args.runId,
@@ -489,9 +620,12 @@ export async function upsertThreadTurn(args: {
 				messages: JSON.stringify(merged),
 				clawed_back_ids: JSON.stringify(clawedBackIds),
 			})
-			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
 			.execute();
+		await admitExactThreadMediaProjection(tx, {
+			projectId: authority.projectId,
+			candidateMessages: merged,
+			threadId: args.threadId,
+		});
 		return true;
 	});
 	if (typeof result === "object") {
@@ -514,49 +648,42 @@ export async function upsertThreadTurn(args: {
  * so there is nothing to continue) is NOT created here.
  */
 export async function mergeThreadTurnMessages(args: {
-	appId: string;
+	target: ThreadTarget;
 	threadId: string;
 	messages: UIMessage[];
 	expectedProjectId: string;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	return await withAppTx(async (tx) => {
-		const app = await tx
-			.selectFrom("apps")
-			.select("project_id")
-			.where("id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (!app || app.project_id !== args.expectedProjectId) {
+		const authority = await lockThreadTargetAuthority(tx, args.target);
+		if (!authority || authority.projectId !== args.expectedProjectId) {
 			return false;
 		}
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "messages", "clawed_back_ids"])
+			.select(["app_id", "design_session_id", "messages", "clawed_back_ids"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (!existing || existing.app_id !== args.appId) return false;
+		if (!existing || !threadRowMatchesTarget(existing, args.target)) {
+			return false;
+		}
 		const stored = (existing.messages ?? []) as StoredMessage[];
 		const merged = mergeTranscript(
 			stored,
 			admissibleHistory(stored, args.messages, existing.clawed_back_ids, {
-				appId: args.appId,
+				target: args.target,
 				threadId: args.threadId,
 			}),
 		);
+		await threadTargetUpdate(tx, args.target, args.threadId)
+			.set({ updated_at: now, messages: JSON.stringify(merged) })
+			.execute();
 		await admitExactThreadMediaProjection(tx, {
-			appId: args.appId,
-			projectId: app.project_id,
+			projectId: authority.projectId,
 			candidateMessages: merged,
 			threadId: args.threadId,
 		});
-		await tx
-			.updateTable("threads")
-			.set({ updated_at: now, messages: JSON.stringify(merged) })
-			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
-			.execute();
 		return true;
 	});
 }
@@ -604,7 +731,7 @@ export async function mergeThreadTurnMessages(args: {
  * the marker arm still applies.
  */
 export async function persistResponseSnapshot(args: {
-	appId: string;
+	target: ThreadTarget;
 	threadId: string;
 	streamId: string;
 	/** Project captured by chat admission — guards the MERGE arm only. */
@@ -618,14 +745,12 @@ export async function persistResponseSnapshot(args: {
 }): Promise<void> {
 	const now = new Date().toISOString();
 	await withAppTx(async (tx) => {
-		const app = await tx
-			.selectFrom("apps")
-			.select(["id", "project_id"])
-			.where("id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (!app) return;
-		const row = await tx
+		const authority = await lockThreadTargetAuthority(tx, args.target);
+		if (!authority) return;
+		/* Inline `selectFrom` + row lock (not the shared target-select helper):
+		 * the row-lock privilege scanner must statically prove the locked
+		 * table, and a builder returned from a helper has no provable target. */
+		const rowQuery = tx
 			.selectFrom("threads")
 			.select([
 				"messages",
@@ -634,9 +759,11 @@ export async function persistResponseSnapshot(args: {
 				"clawed_back_ids",
 			])
 			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
+			.forUpdate();
+		const row = await (args.target.kind === "app"
+			? rowQuery.where("app_id", "=", args.target.appId)
+			: rowQuery.where("design_session_id", "=", args.target.designSessionId)
+		).executeTakeFirst();
 		if (!row) return;
 		const clearMarker =
 			args.clearMarker && row.active_stream_id === args.streamId;
@@ -657,13 +784,13 @@ export async function persistResponseSnapshot(args: {
 			 * so only barrier merges stop here. */
 			responseMessage = null;
 		}
-		if (responseMessage && app.project_id !== args.expectedProjectId) {
+		if (responseMessage && authority.projectId !== args.expectedProjectId) {
 			// The app moved Projects mid-run: only the marker arm may proceed.
 			responseMessage = null;
 		}
 		if (responseMessage) {
 			responseMessage = stripAssistantAttachmentMetadata(responseMessage, {
-				appId: args.appId,
+				target: args.target,
 				threadId: args.threadId,
 			});
 		}
@@ -681,8 +808,7 @@ export async function persistResponseSnapshot(args: {
 			mergedId !== undefined && tombstones.includes(mergedId)
 				? tombstones.filter((id) => id !== mergedId)
 				: undefined;
-		await tx
-			.updateTable("threads")
+		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
 				...(clearMarker ? { active_stream_id: null } : {}),
@@ -694,8 +820,6 @@ export async function persistResponseSnapshot(args: {
 					? { clawed_back_ids: JSON.stringify(clearedTombstones) }
 					: {}),
 			})
-			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
 			.execute();
 	});
 }
@@ -729,7 +853,7 @@ export async function persistResponseSnapshot(args: {
  * a fold snapshot re-authors the id.
  */
 export async function clawBackThreadResponse(args: {
-	appId: string;
+	target: ThreadTarget;
 	threadId: string;
 	streamId: string;
 	/** The message id the run's fold owns — the only id this write may touch. */
@@ -739,26 +863,24 @@ export async function clawBackThreadResponse(args: {
 }): Promise<void> {
 	const now = new Date().toISOString();
 	await withAppTx(async (tx) => {
-		const app = await tx
-			.selectFrom("apps")
-			.select("id")
-			.where("id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (!app) return;
-		const row = await tx
+		const authority = await lockThreadTargetAuthority(tx, args.target);
+		if (!authority) return;
+		/* Inline for the row-lock scanner, as above. */
+		const rowQuery = tx
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "clawed_back_ids"])
 			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
-			.forUpdate()
-			.executeTakeFirst();
+			.forUpdate();
+		const row = await (args.target.kind === "app"
+			? rowQuery.where("app_id", "=", args.target.appId)
+			: rowQuery.where("design_session_id", "=", args.target.designSessionId)
+		).executeTakeFirst();
 		if (!row) return;
 		if (row.active_stream_id !== args.streamId) return;
 		const revertTo =
 			args.revertTo && args.revertTo.id === args.messageId
 				? stripAssistantAttachmentMetadata(args.revertTo, {
-						appId: args.appId,
+						target: args.target,
 						threadId: args.threadId,
 					})
 				: undefined;
@@ -767,8 +889,7 @@ export async function clawBackThreadResponse(args: {
 			if (msg.id !== args.messageId) return [msg];
 			return revertTo ? [revertTo as StoredMessage] : [];
 		});
-		await tx
-			.updateTable("threads")
+		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
 				active_stream_id: null,
@@ -778,8 +899,6 @@ export async function clawBackThreadResponse(args: {
 					withClawedBackId(row.clawed_back_ids ?? [], args.messageId),
 				),
 			})
-			.where("thread_id", "=", args.threadId)
-			.where("app_id", "=", args.appId)
 			.execute();
 	});
 }
@@ -829,29 +948,22 @@ async function reconcileDeadMarkers<
 		updated_at: string;
 	},
 >(
-	appId: string,
+	target: ThreadTarget,
 	rows: T[],
-	/** The caller's own fresh lease read, when it has one (`loadThread` shares
-	 * a single snapshot between this reconcile and its `run_paused`/nonce
-	 * projection, so the two stamps can never disagree about one moment). */
-	preReadLease?: { row: LeaseRow | undefined },
+	/** The caller's own fresh holder read, when it has one (`loadThread`
+	 * shares a single snapshot between this reconcile and its
+	 * `run_paused`/nonce projection, so the two stamps can never disagree
+	 * about one moment). `null` means the target row is missing. */
+	preReadHolder?: TargetHolderProjection | null,
 ): Promise<(T & { resume_interrupted?: boolean })[]> {
 	const marked = rows.filter((row) => row.active_stream_id !== null);
 	if (marked.length === 0) return rows;
-	if (preReadLease) {
-		const row = preReadLease.row;
-		if (row && runLeaseState(leaseView(row)).live) {
-			return rows;
-		}
+	if (preReadHolder !== undefined) {
+		if (preReadHolder?.live) return rows;
 	} else {
 		try {
-			const db = await getAppDb();
-			const row = await db
-				.selectFrom("apps")
-				.select(LEASE_COLUMNS)
-				.where("id", "=", appId)
-				.executeTakeFirst();
-			if (row && runLeaseState(leaseView(row)).live) return rows;
+			const projection = await readTargetHolderProjection(target);
+			if (projection?.live) return rows;
 		} catch {
 			return rows;
 		}
@@ -863,7 +975,7 @@ async function reconcileDeadMarkers<
 			try {
 				tail = await streamChunkTail(row.active_stream_id);
 			} catch {
-				/* Fail OPEN, like the lease read: a transient blip must not
+				/* Fail OPEN, like the holder read: a transient blip must not
 				 * stamp the destructive re-drive arm. The marker stays in the
 				 * projection; the reconnect endpoint's liveness fallback closes
 				 * any tail attempt, and the next load re-reads. */
@@ -881,7 +993,7 @@ async function reconcileDeadMarkers<
 					sealedFinished
 						? "[threads] stranded marker on a finished run (sealed stream); projecting it retired instead of interrupted"
 						: "[threads] stranded marker outlived its chunk-log evidence; projecting it retired instead of interrupted",
-					{ appId, threadId: row.thread_id, streamId: row.active_stream_id },
+					{ target, threadId: row.thread_id, streamId: row.active_stream_id },
 				);
 				return { ...row, active_stream_id: null };
 			}
@@ -890,7 +1002,7 @@ async function reconcileDeadMarkers<
 			 * re-drive retires the marker — bounded by page loads, and the
 			 * repetition is itself the "still unrecovered" signal. */
 			log.warn("[threads] detected a dead live-stream marker", {
-				appId,
+				target,
 				threadId: row.thread_id,
 				streamId: row.active_stream_id,
 			});
@@ -899,15 +1011,85 @@ async function reconcileDeadMarkers<
 	);
 }
 
+/** The unlocked holder posture of one thread target — the loaders' shared
+ * projection input (`resume_interrupted`, `run_paused`, and the actor-bound
+ * continuation nonce all derive from ONE of these per load). A
+ * design-session target with a bound app (materialized) reads the APP's
+ * holder — run authority delegated exactly as the writers delegate it. */
+interface TargetHolderProjection {
+	live: boolean;
+	paused: boolean;
+	holderIdentity: import("./runLiveness").RunHolderIdentity | null;
+	/** The holding actor, per the refund-actor rule (edit lock actor; build
+	 * marker actor falling back to owner). Null when no holder. */
+	holderActor: string | null;
+	pausedBy: (actorUserId: string) => boolean;
+}
+
+async function readTargetHolderProjection(
+	target: ThreadTarget,
+): Promise<TargetHolderProjection | null> {
+	const db = await getAppDb();
+	if (target.kind === "app") {
+		const app = await db
+			.selectFrom("apps")
+			.select([...LEASE_COLUMNS])
+			.where("id", "=", target.appId)
+			.executeTakeFirst();
+		if (!app) return null;
+		const lease = runLeaseState(leaseView(app as LeaseRow));
+		const holderActor =
+			lease.mode === "edit"
+				? app.lock_actor_user_id
+				: lease.mode === "build"
+					? (app.res_user_id ?? app.owner)
+					: null;
+		return {
+			live: lease.live,
+			paused: lease.paused,
+			holderIdentity: lease.holderIdentity,
+			holderActor,
+			pausedBy: lease.pausedBy,
+		};
+	}
+	const mapping = await db
+		.selectFrom("design_sessions")
+		.select(["app_id"])
+		.where("id", "=", target.designSessionId)
+		.executeTakeFirst();
+	if (!mapping) return null;
+	if (mapping.app_id !== null) {
+		return readTargetHolderProjection({ kind: "app", appId: mapping.app_id });
+	}
+	const session = await db
+		.selectFrom("design_sessions")
+		.select([...DESIGN_SESSION_LEASE_COLUMNS])
+		.where("id", "=", target.designSessionId)
+		.executeTakeFirst();
+	if (!session) return null;
+	const lease = designSessionLeaseState(session as DesignSessionLeaseRow);
+	return {
+		live: lease.live,
+		paused: lease.paused,
+		holderIdentity: lease.holderIdentity,
+		holderActor:
+			lease.holderIdentity !== null
+				? (session.run_actor_user_id ?? session.owner_user_id)
+				: null,
+		pausedBy: lease.pausedBy,
+	};
+}
+
 /**
- * Thread-list projection for an app, most recently active first. No
- * transcripts — the list stays cheap however long conversations get.
+ * Thread-list projection for one generation target, most recently active
+ * first. No transcripts — the list stays cheap however long conversations
+ * get. Authorization is the caller's job (the target resolver).
  */
 export async function listThreadMetas(
-	appId: string,
+	target: ThreadTarget,
 ): Promise<LoadedThreadMeta[]> {
 	const db = await getAppDb();
-	const rows = await db
+	let query = db
 		.selectFrom("threads")
 		.select([
 			"thread_id",
@@ -918,15 +1100,19 @@ export async function listThreadMetas(
 			"run_id",
 			"active_stream_id",
 			sql<number>`jsonb_array_length(messages)`.as("message_count"),
-		])
-		.where("app_id", "=", appId)
+		]);
+	query =
+		target.kind === "app"
+			? query.where("app_id", "=", target.appId)
+			: query.where("design_session_id", "=", target.designSessionId);
+	const rows = await query
 		/* `thread_id` tiebreaks a same-millisecond `updated_at` (ISO text has
 		 * ms precision) so the order — and "the most recent thread" a page
 		 * load opens — can't flap between reads. */
 		.orderBy("updated_at", "desc")
 		.orderBy("thread_id", "asc")
 		.execute();
-	const reconciled = await reconcileDeadMarkers(appId, rows);
+	const reconciled = await reconcileDeadMarkers(target, rows);
 	return reconciled.map((row) => {
 		const meta = threadMetaSchema.parse({
 			...row,
@@ -940,15 +1126,14 @@ export async function listThreadMetas(
 	});
 }
 
-/** One full thread (meta + transcript), or null. `appId` scopes the read. */
+/** One full thread (meta + transcript), or null. `target` scopes the read. */
 export async function loadThread(
-	appId: string,
+	target: ThreadTarget,
 	threadId: string,
 	actorUserId?: string,
 ): Promise<LoadedThread | null> {
 	const db = await getAppDb();
-	const row = await db
-		.selectFrom("threads")
+	const row = await threadTargetSelect(db, target, threadId)
 		.select([
 			"thread_id",
 			"created_at",
@@ -960,52 +1145,39 @@ export async function loadThread(
 			"active_holder_nonce",
 			"messages",
 		])
-		.where("app_id", "=", appId)
-		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
 	if (!row) return null;
-	/* ONE fresh lease read powers the dead-marker reconcile AND both
+	/* ONE fresh holder read powers the dead-marker reconcile AND both
 	 * projections below, so `resume_interrupted` and `run_paused` always
 	 * derive from the same snapshot — a claim or pause landing between two
 	 * separate reads would otherwise hand the client stamps that never
-	 * coexisted. `run_paused` reports the app's ACTUAL awaiting-input posture
-	 * for this thread's run (see `LoadedThread`) and needs no actor. The
-	 * continuation nonce is projected only to the actor who owns the run —
+	 * coexisted. `run_paused` reports the target's ACTUAL awaiting-input
+	 * posture for this thread's run (see `LoadedThread`) and needs no actor.
+	 * The continuation nonce is projected only to the actor who owns the run —
 	 * the paused round's answering actor, or a LIVE run's holding actor (a
 	 * cold-resume replay redacts the chunk that carried the nonce marker for
 	 * every other viewer, so the owner re-seeds it from here at activation).
 	 * A co-member who can view the same transcript receives no nonce. */
-	const app = await db
-		.selectFrom("apps")
-		.select(LEASE_COLUMNS)
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	const [reconciled] = await reconcileDeadMarkers(appId, [row], { row: app });
+	const holder = await readTargetHolderProjection(target);
+	const [reconciled] = await reconcileDeadMarkers(target, [row], holder);
 	const { active_holder_nonce: storedHolderNonce, ...publicRow } = reconciled;
 	const doc = threadDocSchema.parse(publicRow);
 	let holderNonce: string | undefined;
 	let runPaused = false;
-	if (app) {
-		const lease = runLeaseState(leaseView(app));
-		const identity = lease.holderIdentity;
-		const threadRunHoldsApp = identity?.runId === doc.run_id;
-		runPaused = lease.paused && threadRunHoldsApp;
+	if (holder) {
+		const identity = holder.holderIdentity;
+		const threadRunHoldsTarget = identity?.runId === doc.run_id;
+		runPaused = holder.paused && threadRunHoldsTarget;
 		if (
 			actorUserId !== undefined &&
 			identity &&
-			threadRunHoldsApp &&
+			threadRunHoldsTarget &&
 			identity.nonce !== null &&
 			storedHolderNonce === identity.nonce
 		) {
-			const holderActor =
-				lease.mode === "edit"
-					? app.lock_actor_user_id
-					: lease.mode === "build"
-						? (app.res_user_id ?? app.owner)
-						: null;
 			if (
-				(lease.paused && lease.pausedBy(actorUserId)) ||
-				(lease.live && holderActor === actorUserId)
+				(holder.paused && holder.pausedBy(actorUserId)) ||
+				(holder.live && holder.holderActor === actorUserId)
 			) {
 				holderNonce = identity.nonce;
 			}
@@ -1033,17 +1205,14 @@ export async function loadThread(
  * co-member replays receive `null`.
  */
 export async function loadHolderNonceForReplayMarker(args: {
-	appId: string;
+	target: ThreadTarget;
 	threadId: string;
 	holderDigest: string;
 	actorUserId: string;
 }): Promise<string | null> {
 	const db = await getAppDb();
-	const thread = await db
-		.selectFrom("threads")
+	const thread = await threadTargetSelect(db, args.target, args.threadId)
 		.select(["run_id", "active_holder_nonce"])
-		.where("app_id", "=", args.appId)
-		.where("thread_id", "=", args.threadId)
 		.executeTakeFirst();
 	if (!thread?.active_holder_nonce) return null;
 	if (
@@ -1052,48 +1221,37 @@ export async function loadHolderNonceForReplayMarker(args: {
 		return null;
 	}
 
-	const app = await db
-		.selectFrom("apps")
-		.select(LEASE_COLUMNS)
-		.where("id", "=", args.appId)
-		.executeTakeFirst();
-	if (!app) return null;
-	const lease = runLeaseState(leaseView(app));
-	const holderActor =
-		lease.mode === "edit"
-			? app.lock_actor_user_id
-			: lease.mode === "build"
-				? (app.res_user_id ?? app.owner)
-				: null;
-	return lease.holderIdentity?.runId === thread.run_id &&
-		lease.holderIdentity.nonce === thread.active_holder_nonce &&
-		holderActor === args.actorUserId
+	const holder = await readTargetHolderProjection(args.target);
+	if (!holder) return null;
+	return holder.holderIdentity?.runId === thread.run_id &&
+		holder.holderIdentity.nonce === thread.active_holder_nonce &&
+		holder.holderActor === args.actorUserId
 		? thread.active_holder_nonce
 		: null;
 }
 
 /**
- * Resolve a thread id to its app + live stream. Two consumers: the
- * reconnect endpoint (when a GET's id isn't a stream id) and the chat
+ * Resolve a thread id to its generation target + live stream. Two consumers:
+ * the reconnect endpoint (when a GET's id isn't a stream id) and the chat
  * route's pre-claim guard (a thread id under a different app 400s before
- * anything is charged). UNSCOPED BY DESIGN (neither caller has an app id
- * yet); the caller MUST authorize against the returned `appId` before
+ * anything is charged). UNSCOPED BY DESIGN (neither caller has a target
+ * yet); the caller MUST authorize against the returned target before
  * serving or writing anything.
  */
 export async function resolveThreadStream(threadId: string): Promise<{
-	appId: string;
+	target: ThreadTarget;
 	activeStreamId: string | null;
 	runId: string;
 } | null> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("threads")
-		.select(["app_id", "active_stream_id", "run_id"])
+		.select(["app_id", "design_session_id", "active_stream_id", "run_id"])
 		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
 	if (!row) return null;
 	return {
-		appId: row.app_id,
+		target: generationTargetFromColumns(row),
 		activeStreamId: row.active_stream_id,
 		runId: row.run_id,
 	};

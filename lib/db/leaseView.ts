@@ -77,6 +77,27 @@ export function rowRunLock(row: LeaseRow): AppRunLock | undefined {
 	};
 }
 
+/** The design-session row's reservation marker in the shared
+ *  `AppReservation` shape — present iff `res_period` is set. The session twin
+ *  of {@link rowReservation}, kept in this module because it member-reads the
+ *  raw reservation columns (the grep guard strips exactly these builders). */
+export function designSessionReservation(row: {
+	res_period: string | null;
+	res_reserved: number | null;
+	res_settled: boolean | null;
+	res_user_id: string | null;
+	res_run_id: string | null;
+}): AppReservation | undefined {
+	if (row.res_period === null) return undefined;
+	return {
+		period: row.res_period,
+		reserved: row.res_reserved ?? 0,
+		settled: !!row.res_settled,
+		...(row.res_user_id !== null && { userId: row.res_user_id }),
+		...(row.res_run_id !== null && { runId: row.res_run_id }),
+	};
+}
+
 /** The run-liveness slice `runLeaseState` reads, off a raw row. */
 export function leaseView(row: LeaseRow): Partial<AppDoc> {
 	return {

@@ -467,6 +467,11 @@ async function auditRuntimeMediaReferenceProjection(
 	args: { appId: string; projectId: string; doc: BlueprintDoc },
 ): Promise<number> {
 	try {
+		/* The projection is SPLIT by carrier family: `media_asset_refs` holds
+		 * exactly the Blueprint-AUTHORED references, and each thread's
+		 * conversation attachments hold exactly that thread's
+		 * `thread_media_refs` rows. Each family re-derives independently; a
+		 * thread attachment must never appear in the app-wide family. */
 		const requirements: Array<{
 			assetId: MediaAssetId;
 			expectedKind: AssetKind;
@@ -476,20 +481,6 @@ async function auditRuntimeMediaReferenceProjection(
 				assetId: asMediaAssetId(ref.assetId),
 				expectedKind: ref.slotKind,
 			}));
-		const threads = await tx
-			.selectFrom("threads")
-			.select("messages")
-			.where("app_id", "=", args.appId)
-			.orderBy("thread_id")
-			.execute();
-		for (const thread of threads) {
-			for (const attachment of collectThreadAttachments(thread.messages)) {
-				requirements.push({
-					assetId: attachment.assetId,
-					expectedKind: attachment.kind,
-				});
-			}
-		}
 		const expectedAssetIds = [
 			...new Set(requirements.map((requirement) => requirement.assetId)),
 		].sort();
@@ -513,11 +504,49 @@ async function auditRuntimeMediaReferenceProjection(
 		) {
 			return 1;
 		}
-		if (expectedAssetIds.length === 0) return 0;
+		const threads = await tx
+			.selectFrom("threads")
+			.select(["thread_id", "messages"])
+			.where("app_id", "=", args.appId)
+			.orderBy("thread_id")
+			.execute();
+		for (const thread of threads) {
+			const attachments = collectThreadAttachments(thread.messages);
+			for (const attachment of attachments) {
+				requirements.push({
+					assetId: attachment.assetId,
+					expectedKind: attachment.kind,
+				});
+			}
+			const expectedThreadAssetIds = [
+				...new Set(attachments.map((attachment) => attachment.assetId)),
+			].sort();
+			const storedThreadRefs = await tx
+				.selectFrom("thread_media_refs")
+				.select(["project_id", "asset_id"])
+				.where("thread_id", "=", thread.thread_id)
+				.orderBy("asset_id")
+				.execute();
+			if (
+				!deepEqual(
+					storedThreadRefs,
+					expectedThreadAssetIds.map((assetId) => ({
+						project_id: args.projectId,
+						asset_id: assetId,
+					})),
+				)
+			) {
+				return 1;
+			}
+		}
+		const requiredAssetIds = [
+			...new Set(requirements.map((requirement) => requirement.assetId)),
+		].sort();
+		if (requiredAssetIds.length === 0) return 0;
 		const assets = await tx
 			.selectFrom("media_assets")
 			.select(["id", "project_id", "status", "kind"])
-			.where("id", "in", expectedAssetIds)
+			.where("id", "in", requiredAssetIds)
 			.execute();
 		const byId = new Map(assets.map((asset) => [asset.id, asset]));
 		return requirements.every((requirement) => {

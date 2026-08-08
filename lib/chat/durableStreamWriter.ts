@@ -56,6 +56,7 @@
  */
 
 import type { UIMessageChunk, UIMessageStreamWriter } from "ai";
+import type { GenerationTarget } from "@/lib/db/generationTargets";
 import { appendStreamChunks } from "@/lib/db/streamChunks";
 import { log } from "@/lib/logger";
 import {
@@ -70,7 +71,10 @@ const FLUSH_CHUNK_COUNT = 64;
 
 export interface DurableStreamWriterOptions {
 	streamId: string;
-	appId: string;
+	/** The stream's generation scope — an app, or a pre-app design session.
+	 * Fixed for the life of the stream (a materialization mid-stream keeps
+	 * the design-session target). */
+	target: GenerationTarget;
 	runId: string;
 	threadId: string;
 	inner: UIMessageStreamWriter;
@@ -86,7 +90,7 @@ export interface DurableStreamWriterOptions {
 
 export class DurableStreamWriter implements UIMessageStreamWriter {
 	private readonly streamId: string;
-	private readonly appId: string;
+	private readonly target: GenerationTarget;
 	private readonly runId: string;
 	private readonly threadId: string;
 	private readonly inner: UIMessageStreamWriter;
@@ -112,7 +116,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 
 	constructor(options: DurableStreamWriterOptions) {
 		this.streamId = options.streamId;
-		this.appId = options.appId;
+		this.target = options.target;
 		this.runId = options.runId;
 		this.threadId = options.threadId;
 		this.inner = options.inner;
@@ -191,7 +195,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 				this.foldDead = true;
 				log.error("[durableStream] barrier fold write failed", err, {
 					streamId: this.streamId,
-					appId: this.appId,
+					target: this.target,
 				});
 			}
 		}
@@ -311,7 +315,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 		this.buffer = [];
 		const append = {
 			streamId: this.streamId,
-			appId: this.appId,
+			target: this.target,
 			runId: this.runId,
 			firstIndex: this.flushedCount,
 			chunks: chunks as unknown[],
@@ -330,7 +334,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 				this.buffer = [];
 				log.error("[durableStream] chunk append failed twice", err, {
 					streamId: this.streamId,
-					appId: this.appId,
+					target: this.target,
 				});
 				return;
 			}

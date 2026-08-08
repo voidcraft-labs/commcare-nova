@@ -334,7 +334,7 @@ Rules:
 - Do not store model reasoning.
 - A claim marked `explicit` must carry a user-message or attachment source.
 - A claim based only on Nova/CommCare capability knowledge uses `platform-constraint`, whose `code` is the closed vocabulary in `platformConstraints.ts` (enforced by the schema enum).
-- There is no image coordinate yet: a requirement visible only in an attached image cites the message that attached it, with the image bytes digest-bound in the source package. The image evidence arm ships with the new-build cutover (Unit E work item 20), so image-heavy designs gain exact citations before real builds rely on them.
+- There is no image coordinate yet: a requirement visible only in an attached image cites the message that attached it, with the image bytes digest-bound in the source package. The image evidence arm ships with the new-build cutover (Unit E work item 21), so image-heavy designs gain exact citations before real builds rely on them.
 - A reviewer cannot create a source-supported critical finding without a source reference.
 
 ### 6.4 UX-level design actor
@@ -413,7 +413,7 @@ const factDefinitionSchema = z.object({
 
 A fact's `source` is load-bearing. It is the basis for lowering direct field-to-case writes correctly and for identifying unjustified hidden writer fields.
 
-The `lookup` arm's intent ids name a design-level lookup vocabulary (table/column intents) the contract root does not carry yet, so they are the one reference family exempt from graph closure. That vocabulary — and the lifted exemption — ships with the new-build cutover (Unit E work item 19): a user-facing pipeline must be able to describe lookup-backed data as precisely as it validates everything else. Until then the canonical commit gate remains the full authority over real lookup references.
+The `lookup` arm's intent ids name a design-level lookup vocabulary (table/column intents) the contract root does not carry yet, so they are the one reference family exempt from graph closure. That vocabulary — and the lifted exemption — ships with the new-build cutover (Unit E work item 20): a user-facing pipeline must be able to describe lookup-backed data as precisely as it validates everything else. Until then the canonical commit gate remains the full authority over real lookup references.
 
 ### 6.6 Tasks, inputs, transitions, and read-back
 
@@ -1685,9 +1685,9 @@ Required constraints:
 - committed status requires sequence, batch ID, and committed snapshot digest;
 - only open rows may receive requests or attempt commit;
 - exact owner-attribution columns are non-null while open;
-- holder authority is verified on the locked design-session/app row, not duplicated on the change set (until the design-session unit lands its row, a genesis set's change-set row is the serialization point and its owner-attribution columns the ownership proof);
+- holder authority is verified on the locked design-session/app row, not duplicated on the change set;
 - digests are lower-hex SHA-256 over canonical JS JSON bytes — object keys recursively sorted by code point — computed and verified in JavaScript only; the SQL-computed fold-baseline digest is a separate domain, never compared against these;
-- design/plan identity columns are opaque non-null identities with no foreign keys until the design-session and orchestrator units land their tables and add them in their own migrations.
+- `design_session_id` is bound to `design_sessions(id)`; the remaining design/plan identity columns stay opaque non-null identities until the orchestrator unit lands its tables and adds their keys in its own migration.
 
 No durable `committing` state exists. Commit either atomically changes `open -> committed` beside the canonical write or rolls back to `open`. A lost response is resolved through the deterministic canonical batch ID and committed receipt, not through an intermediate lifecycle state.
 
@@ -1749,9 +1749,7 @@ Stage transaction:
 
 1. resolve the change set's authority target without holding a row lock;
 2. start the transaction and lock the authority carrier first:
-   - active pre-app build: design-session row (until the design-session
-     unit lands that row, the change-set row is the serialization point
-     and its owner-attribution columns the ownership proof);
+   - active pre-app build: design-session row;
    - materialized build or design-aware edit: app row;
 3. re-resolve target/Project mapping and prove exact user/run/holder ownership;
 4. lock the change-set row second, then re-prove fresh Project edit
@@ -2017,8 +2015,13 @@ interface ResolvedGenerationTarget {
 Add one resolver module:
 
 ```text
-lib/db/generationTargets.ts
+lib/db/generationTargetScope.ts
 ```
+
+(`lib/db/generationTargets.ts` stays the dependency-free type leaf holding
+the union and the nullable-column mappers — the resolver reaches the
+run-protocol stack, so it lives beside the leaf, not inside it, keeping
+every type-consumer's import graph free of `apps`/`designSessions`.)
 
 It is the only shared boundary for:
 
@@ -2131,19 +2134,7 @@ CREATE TABLE design_sessions (
 
 Use repository-native ID column types and foreign keys in the actual migration; the SQL above communicates the closed shape.
 
-Pre-app build sessions use the same run-liveness pure helpers as apps through an adapter:
-
-```ts
-interface RunLeaseCarrier {
-  holderIdentity: ExactRunHolderIdentity | null;
-  actorUserId: string | null;
-  awaitingInput: boolean;
-  leaseExpiresAt: Date | null;
-  updatedAt: Date;
-}
-```
-
-Do not copy timeout arithmetic into a second module.
+Pre-app build sessions derive liveness beside the app derivation in the SAME module (`runLiveness.ts::designSessionLeaseState` over the session's explicit `run_lease_expires_at` lease, whose deadline shares `MAX_GENERATION_MINUTES` through `designSessionLeaseDeadlineMs`). Sessions are deliberately simpler than apps: only a `build`-mode holder exists, the holder and reservation column groups travel whole, and a reservation can never outlive its holder — so every terminal writer settles/refunds and releases BOTH groups in one transaction (`designSessionAuthorityCleared`), a failed or reaped session stays `active` with `last_error_type` set (recoverable or discardable), and no reaper-signature/false-reap self-heal arm exists (the state it repairs on apps is unrepresentable here). Timeout arithmetic is never copied into a second module.
 
 ### 11.3 Atomic cross-target admission
 
@@ -2157,7 +2148,7 @@ async function withActorGenerationAdmissionGate<T>(
 ): Promise<T>;
 ```
 
-It takes a transaction-scoped advisory lock derived from an unambiguous versioned hash namespace plus actor user ID.
+It takes a transaction-scoped advisory lock in PostgreSQL's 64-bit keyspace (a different keyspace from the two-int32 Project-membership gate, so the two cannot interact): the key is the first 8 bytes of `SHA-256("nova:actor-generation-admission:v1:" + actorUserId)`, big-endian as a signed int64 (`actorGenerationGateKey`, golden-vector-pinned). A cross-actor hash collision only over-serializes and cannot affect correctness.
 
 Every function that can create/claim/reacquire a chargeable generation must take this gate before evaluating the one-active-generation rule:
 
@@ -2169,7 +2160,9 @@ Every function that can create/claim/reacquire a chargeable generation must take
 - stale run reapers before freeing/refunding;
 - any operator recovery that creates a live holder.
 
-For any transaction that **creates, releases, pauses, resumes, settles, refunds, reaps, or transfers** a holder/reservation, the actor gate is the first lock. It is followed by the authority row (`apps` or `design_sessions`) and then the existing membership/dependent-row order. Canonical app commits and read/write operations that merely verify an unchanged holder do not take the actor gate and retain app/session-row-first ordering.
+For any transaction that **creates, releases, pauses, resumes, settles, refunds, reaps, or transfers** a holder/reservation, the actor gate is the first lock. It is followed by the authority row (`apps` or `design_sessions`) and then the existing membership/dependent-row order. Canonical app commits and read/write operations that merely verify an unchanged holder (the liveness heartbeats) do not take the actor gate and retain app/session-row-first ordering.
+
+One gate per transaction, keyed as follows: admission-evaluating writers (claim, reserve, reacquire, pause) key on the calling actor; holder-releasing/settling/reaping writers, whose callers carry only the holder token, key on the HOLDER's actor derived from an unlocked pre-read of the authority row (`lockActorGenerationGateForAppHolder` / `ForSessionHolder` — build holds charge to `res_user_id` falling back to `owner`, edit holds to `lock_actor_user_id`), skipping the gate when no row exists. A pre-read that goes stale is harmless: the writer's exact-holder compare-and-set already no-ops, and deadlock freedom needs only the uniform gate-before-row order, which one gate per transaction preserves. A source-scan test (`actorGenerationGate.test.ts`) pins gate-before-row on every lifecycle writer and gate-absence on every heartbeat.
 
 This is a deliberate, narrow amendment to the current app-row-first run-lifecycle convention. Applying the gate after an app row on one path and before a design-session row on another would permit a gate↔row deadlock during cross-target reap/admission.
 
@@ -2310,9 +2303,11 @@ Rules:
 - Blueprint commits replace exact app/Blueprint media edges only.
 - Thread writes replace the exact edge set for that thread in the same transaction as transcript persistence.
 - Thread target resolution supplies Project tenancy.
-- Asset deletion checks both app references and thread references, including soft-deleted/recoverable app/thread policy.
-- Project move re-tenants/remaps thread references with transcript attachment IDs in the existing app-move transaction.
-- Existing app threads are backfilled from exact transcript carriers, then app-wide transcript projection code is removed in the same final-shape migration/cutover.
+- Asset deletion checks both app references and thread references, including soft-deleted/recoverable app/thread policy. Deletion is the one irreversible consumer (bytes purge post-commit), so when the per-thread projection shows no conversation reference it additionally re-proves absence against the transcripts themselves — a candidate whose transcript names the asset, or whose attachment metadata cannot be parsed to prove it doesn't, blocks.
+- Project move re-tenants/remaps thread references with transcript attachment IDs in the existing app-move transaction. The move's conversation set spans both thread target kinds: the app's own threads and the threads of its bound design sessions (an active pre-app session has no bound app and never enters the set).
+- The migrate Job's runtime probe audits the SPLIT shape: `media_asset_refs` re-derives from the Blueprint alone, each thread's `thread_media_refs` rows re-derive from its transcript, and asset readiness/kind/Project verdicts cover both families.
+- The migration's thread backfill is deliberately lenient where the runtime writers are strict — it crosses history the current admission rules never saw, and a deploy-blocking Job must not fail closed on it: an unparseable legacy transcript contributes nothing, a reference naming no asset row is skipped (the FK would reject it; vanished bytes guard nothing), and both skips are counted in the Job log. Threads page through a keyset loop so Job memory stays bounded.
+- Existing app threads are backfilled from exact transcript carriers INSIDE the design-session migration (the deletion guard reads `thread_media_refs` from its first request, and the migrate Job is the one point ordered before it), which also rebuilds every edge-bearing app's `media_asset_refs` to the Blueprint-only projection; the backfill imports the production walks rather than freezing copies, because a derived-projection rebuild must converge on the projection the current runtime maintains. A one-off scan/migrate script pair re-runs the same convergence after the old revision drains (its writers keep the app-wide shape through the deploy window), then is deleted. App-wide transcript projection code is removed in the same final-shape cutover.
 - Assistant-message attachment metadata remains forbidden.
 
 This removes the current accidental coupling where one thread write reprojects the app's complete media carrier set.
@@ -2336,7 +2331,7 @@ interface StreamChunkAppend {
 Database shape:
 
 - nullable `app_id`;
-- nullable `design_session_id`;
+- nullable `design_session_id` with a real `ON DELETE CASCADE` foreign key (a pruned operational log cascading with a physically deleted session is harmless and keeps §18.11's explicit-delete-behavior rule);
 - exact-one CHECK;
 - existing `(stream_id, first_index)` uniqueness;
 - existing terminal outcome and retention behavior.
@@ -2349,7 +2344,7 @@ Database shape:
 4. reads/tails by cursor;
 5. uses target liveness to decide whether an unsealed stream may still produce chunks.
 
-The stream remains design-session-targeted for the life of the POST even when materialization occurs midstream.
+The stream remains design-session-targeted for the life of the POST even when materialization occurs midstream — which is exactly why target liveness DELEGATES: a session carrying an `app_id` answers with the APP's liveness (`generationTargetHeldLive`), the same bound-app delegation the thread writers' lock order performs, so a reconnect after materialization never reads the terminal session row and cuts a still-live run's tail.
 
 ### 11.10 Run summaries and usage
 
@@ -3866,7 +3861,7 @@ It never edits Blueprint state. Sensitive source access remains separately autho
 
 ### 16.1 Authority model
 
-A design-aware edit creates a `design_sessions(mode = 'edit', app_id = ...)` artifact scope, but the **app row remains the only run/credit/mutation authority**.
+A design-aware edit creates a `design_sessions(mode = 'edit', app_id = ...)` artifact scope, but the **app row remains the only run/credit/mutation authority**. Creation holds the app row `FOR SHARE` and derives the session's Project from it, rejecting a caller whose authorization snapshot a concurrent Project move invalidated — the session's tenancy agrees with its app's by construction, because the move's re-tenanting UPDATE only reaches rows that exist when it runs.
 
 - Claim and reserve through the current app edit protocol.
 - Hold one exact app `(mode, runId, nonce)` capability.
@@ -4889,7 +4884,7 @@ Do not proceed past these gates on assertion alone:
 **Primary files:**
 
 - new `lib/db/designSessions.ts`
-- new `lib/db/generationTargets.ts`
+- new `lib/db/generationTargetScope.ts` (over the `generationTargets.ts` type leaf)
 - `app/api/chat/route.ts`
 - `app/api/chat/schema.ts`
 - `lib/chat/durableStreamWriter.ts`
@@ -4993,11 +4988,15 @@ Do not proceed past these gates on assertion alone:
 18. Mount the model-facing change-set tools (begin/stage/inspect/commit/
     discard/raiseDesignExecutionIssue) on the executor surface and wire
     per-stage envelope emission from `committedStageEnvelopes`.
-19. Add the design-level lookup-intent vocabulary (table/column intents in
+19. Re-home genesis staging authority onto the claimed design-session row:
+    a genesis set's stage/commit transactions lock the session row as the
+    authority carrier, retiring the change-set row's self-serialization
+    and its owner-attribution ownership proof.
+20. Add the design-level lookup-intent vocabulary (table/column intents in
     the contract root) and lift the graph-closure exemption on the `lookup`
     fact-source arm — a real chat build designs lookup-backed data on day
     one, so the exemption must not survive the cutover.
-20. Add the image evidence coordinate to the source-reference vocabulary
+21. Add the image evidence coordinate to the source-reference vocabulary
     (asset id + content digest) and route the author/reviewer prompts to
     cite it — retiring the cite-the-attaching-message interim rule.
 

@@ -23,7 +23,8 @@ import { describe, expect, it } from "vitest";
  * The sanctioned readers — exempt from the scan — are:
  *   - `lib/db/runLiveness.ts` in full (the ONE decision reader — it consumes the
  *     derived-view fields to compute the booleans everyone else branches on);
- *   - the row→view mapping helpers `leaseView` / `rowReservation` / `rowRunLock`
+ *   - the row→view mapping helpers `leaseView` / `rowReservation` / `rowRunLock` /
+ *     `designSessionReservation`
  *     (`lib/db/leaseView.ts`, shared by `apps.ts` + `credits.ts`), the ONLY
  *     sites that member-read
  *     the raw COLUMNS — to reassemble the nullable column groups into the
@@ -82,7 +83,7 @@ function stripComments(source: string): string {
  * never ends the strip early.
  */
 const SANCTIONED_READER =
-	/^(?:export\s+)?function\s+(?:leaseView|rowReservation|rowRunLock)\b/;
+	/^(?:export\s+)?function\s+(?:leaseView|rowReservation|rowRunLock|designSessionReservation)\b/;
 function stripSanctionedReaders(source: string): string {
 	const lines = source.split("\n");
 	const out: string[] = [];

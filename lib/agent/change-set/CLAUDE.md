@@ -14,9 +14,12 @@ gate, and integrity services every other write uses.
 
 - `store.ts` — the durable protocol. The STAGE TRANSACTION is the
   correctness spine: authority carrier first (an app-edit set's app row
-  `FOR SHARE`, holder capability proved on it; a genesis set has no
-  authority row until the design-session unit lands — its change-set row is
-  the serialization point and its owner columns the proof), fresh Project
+  `FOR SHARE`, holder capability proved on it; a genesis set's change-set
+  row remains its serialization point and its owner columns the proof —
+  `design_sessions` exists now with the FK bound, and Unit E's
+  materialization transaction is what re-homes genesis authority onto the
+  locked session row when it starts claiming sessions for real builds),
+  fresh Project
   `edit` membership, change-set row `FOR UPDATE` second, the idempotency-
   ledger replay, the exact-revision fence, then receipt + step + stage
   ranges + handle bindings + revision advance in ONE transaction. There is

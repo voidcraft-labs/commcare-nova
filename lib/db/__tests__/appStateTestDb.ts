@@ -31,6 +31,7 @@ import {
 } from "kysely";
 import type { Pool } from "pg";
 import { afterEach, beforeEach } from "vitest";
+import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -71,6 +72,28 @@ export interface SeedAppOptions {
 	reservation?: AppReservation | null;
 	/** The exclusive edit lease, or null/omitted for none. */
 	run_lock?: AppRunLock | null;
+}
+
+/** The design-session fixture a test controls, in the same optional-object
+ *  shape the app seeder uses — mapped onto the closed holder/reservation
+ *  column groups by {@link seedDesignSession}. */
+export interface SeedDesignSessionOptions {
+	id?: string;
+	mode?: "build" | "edit";
+	project_id?: string;
+	owner_user_id?: string;
+	proposed_app_id?: string | null;
+	app_id?: string | null;
+	state?: "active" | "materialized" | "completed" | "abandoned";
+	awaiting_input?: boolean;
+	run_id?: string | null;
+	run_holder_nonce?: string | null;
+	run_actor_user_id?: string | null;
+	run_lease_expires_at?: Date | null;
+	last_error_type?: string | null;
+	/** The credit-reservation marker, or null/omitted for none. */
+	reservation?: AppReservation | null;
+	updated_at?: Date;
 }
 
 export interface AppStateTestDb {
@@ -139,6 +162,18 @@ export interface AppStateTestDb {
 	readReservation(appId: string): Promise<AppReservation | undefined>;
 	/** Reassemble the run-lock off an `apps` row's `lock_*` columns. */
 	readRunLock(appId: string): Promise<AppRunLock | undefined>;
+	/** Insert a `design_sessions` row at a controlled run/credit state;
+	 *  returns its id. Seeds the owner's Project membership like the app
+	 *  seeder does. */
+	seedDesignSession(opts?: SeedDesignSessionOptions): Promise<string>;
+	/** Read the full `design_sessions` row (raw columns). */
+	readDesignSessionRow(
+		designSessionId: string,
+	): Promise<Record<string, unknown> | undefined>;
+	/** Reassemble the reservation marker off a session row's `res_*` columns. */
+	readDesignSessionReservation(
+		designSessionId: string,
+	): Promise<AppReservation | undefined>;
 }
 
 const DEFAULT_APP_ID = "app-under-test";
@@ -194,6 +229,10 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		});
 		__setAppDbForTests(injected);
 		__setAppPoolForTests(handle.pool);
+		/* The non-transactional membership reads (`projectRoleFor`, behind the
+		 * app/target scope resolvers) go through `getAuthDb`; point it at the
+		 * same per-test database, whose `auth_member` this harness creates. */
+		__setAuthDbForTests(injected as unknown as Kysely<AuthDatabase>);
 		await installAuthMemberSerialization(
 			injected as unknown as Kysely<unknown>,
 		);
@@ -202,6 +241,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 	afterEach(async () => {
 		__setAppDbForTests(null);
 		__setAppPoolForTests(null);
+		__setAuthDbForTests(null);
 		// The wrapper Kysely rides the per-test pool `setupPerTestDatabase`
 		// destroys in its own afterEach; destroying it here would double-close.
 		injected = null;
@@ -462,6 +502,84 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		};
 	}
 
+	async function seedDesignSession(
+		opts: SeedDesignSessionOptions = {},
+	): Promise<string> {
+		const id = opts.id ?? crypto.randomUUID();
+		const mode = opts.mode ?? "build";
+		const owner = opts.owner_user_id ?? "owner-test";
+		const projectId = opts.project_id ?? "project-test";
+		const reservation = opts.reservation ?? undefined;
+		await seedProjectMember(owner, projectId, "owner");
+		await db()
+			.insertInto("design_sessions")
+			.values({
+				id,
+				mode,
+				project_id: projectId,
+				owner_user_id: owner,
+				proposed_app_id:
+					opts.proposed_app_id !== undefined
+						? opts.proposed_app_id
+						: mode === "build"
+							? crypto.randomUUID()
+							: null,
+				app_id: opts.app_id ?? null,
+				state: opts.state ?? "active",
+				awaiting_input: opts.awaiting_input ?? false,
+				run_id: opts.run_id ?? null,
+				run_holder_nonce: opts.run_holder_nonce ?? null,
+				run_actor_user_id: opts.run_actor_user_id ?? null,
+				run_mode: opts.run_id != null ? "build" : null,
+				run_lease_expires_at: opts.run_lease_expires_at ?? null,
+				res_period: reservation?.period ?? null,
+				res_reserved: reservation?.reserved ?? null,
+				res_settled: reservation ? reservation.settled : null,
+				res_user_id: reservation?.userId ?? null,
+				res_run_id: reservation?.runId ?? null,
+				last_error_type: opts.last_error_type ?? null,
+				active_design_revision_id: null,
+				active_build_plan_id: null,
+				...(opts.updated_at && { updated_at: opts.updated_at }),
+			})
+			.execute();
+		return id;
+	}
+
+	async function readDesignSessionRow(
+		designSessionId: string,
+	): Promise<Record<string, unknown> | undefined> {
+		return (await db()
+			.selectFrom("design_sessions")
+			.selectAll()
+			.where("id", "=", designSessionId)
+			.executeTakeFirst()) as Record<string, unknown> | undefined;
+	}
+
+	async function readDesignSessionReservation(
+		designSessionId: string,
+	): Promise<AppReservation | undefined> {
+		const row = await db()
+			.selectFrom("design_sessions")
+			.select([
+				"res_period",
+				"res_reserved",
+				"res_settled",
+				"res_user_id",
+				"res_run_id",
+			])
+			.where("id", "=", designSessionId)
+			.executeTakeFirst();
+		if (!row || row.res_period === null) return undefined;
+		return {
+			period: row.res_period,
+			reserved: row.res_reserved ?? 0,
+			settled: !!row.res_settled,
+			...(row.res_user_id !== null && { userId: row.res_user_id }),
+			...(row.res_run_id !== null && { runId: row.res_run_id }),
+		};
+	}
+
 	return {
 		withTransaction: <T>(
 			body: (tx: Transaction<AppDatabase>) => Promise<T>,
@@ -479,5 +597,8 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		readAppRow,
 		readReservation,
 		readRunLock,
+		seedDesignSession,
+		readDesignSessionRow,
+		readDesignSessionReservation,
 	};
 }

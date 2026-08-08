@@ -32,7 +32,11 @@ describe("GET /api/apps/[id]/threads/[threadId]", () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(resolveAppScope).toHaveBeenCalledWith("app-1", "user-1", "view");
-		expect(loadThread).toHaveBeenCalledWith("app-1", "thread-1", "user-1");
+		expect(loadThread).toHaveBeenCalledWith(
+			{ kind: "app", appId: "app-1" },
+			"thread-1",
+			"user-1",
+		);
 		expect(await response.json()).toMatchObject({
 			thread: {
 				thread_id: "thread-1",

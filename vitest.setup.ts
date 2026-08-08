@@ -1,7 +1,7 @@
 /**
  * Global test setup — runs once per test file, before the tests themselves.
  *
- * It gates React `act(...)` discipline, then replaces three modules at the
+ * It gates React `act(...)` discipline, then replaces four modules at the
  * boundary. First of those: intercept the structured logger so
  * passing tests never print to stderr. Production code emits diagnostic
  * warnings and errors through `@/lib/logger` — replaying those emissions
@@ -115,6 +115,40 @@ vi.mock("@sentry/nextjs", () => ({
 	captureMessage: vi.fn(),
 	setTag: vi.fn(),
 	setUser: vi.fn(),
+}));
+
+/**
+ * Global stub for `@/lib/auth-client` (Better Auth's browser client),
+ * mirroring the logger mock above: replace one module at the boundary for
+ * the whole suite rather than per-test.
+ *
+ * WHY this is mocked globally and not per-test:
+ *
+ *   `authClient.useSession()` is a SUBSCRIPTION: the first component to
+ *   mount it starts a real `fetch("http://localhost:3000/api/auth/get-session")`
+ *   through happy-dom's network stack. No test run has a server on :3000,
+ *   and the fetch outlives the test that started it — vitest's environment
+ *   teardown then aborts it mid-flight, surfacing an UNHANDLED rejection
+ *   (an AbortError DOMException, or an `ECONNREFUSED` AggregateError when
+ *   the connect fails first) attributed to no test. Under parallel forks
+ *   that stray rejection can take the worker down and wedge the run — the
+ *   intermittent full-suite hang. Any rendering test whose tree reaches
+ *   `useAuth()` unmocked (presence, "Preview as me", the app chrome)
+ *   triggers it, so the boundary is the client module itself.
+ *
+ * FAITHFULNESS: no vitest test exercises real network auth — Playwright
+ * owns real UI verification. `useSession` is the client's ONLY mount-time
+ * fetcher (every other method fires on explicit user action), so the stub
+ * pins it to the stable signed-out, settled state; suites that need an
+ * authenticated view mock `@/lib/auth/hooks/useAuth` above this boundary,
+ * and their mocks are untouched by this one. Every other member resolves
+ * to `undefined` — a test that invokes a real client flow fails loudly at
+ * the call site rather than silently fetching.
+ */
+vi.mock("@/lib/auth-client", () => ({
+	authClient: {
+		useSession: () => ({ data: null, isPending: false, error: null }),
+	},
 }));
 
 /**

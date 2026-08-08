@@ -138,32 +138,10 @@ async function persistedAppReferencesInTransaction(
 					.whereRef("entity.app_id", "=", "app.id")
 					.orderBy("entity.uuid"),
 			).as("entities"),
-			jsonArrayFrom(
-				eb
-					.selectFrom("threads as thread")
-					.select("thread.messages")
-					.whereRef("thread.app_id", "=", "app.id")
-					.orderBy("thread.thread_id"),
-			).as("threads"),
 		])
 		.where("edge.project_id", "=", args.projectId)
 		.where("edge.asset_id", "=", args.assetId);
 	const apps = await appQuery.orderBy("app.id").execute();
-	if (apps.length === 0) return [];
-	const threadReferenceCountByApp = new Map<string, number>();
-	for (const app of apps) {
-		for (const thread of app.threads) {
-			const count = collectThreadAttachmentAssetIds(thread.messages).filter(
-				(assetId) => assetId === args.assetId,
-			).length;
-			if (count > 0) {
-				threadReferenceCountByApp.set(
-					app.id,
-					(threadReferenceCountByApp.get(app.id) ?? 0) + count,
-				);
-			}
-		}
-	}
 
 	const descriptions: string[] = [];
 	for (const app of apps) {
@@ -185,14 +163,6 @@ async function persistedAppReferencesInTransaction(
 					.map(describeCarrier),
 			),
 		];
-		const threadReferenceCount = threadReferenceCountByApp.get(app.id) ?? 0;
-		if (threadReferenceCount > 0) {
-			carriers.push(
-				threadReferenceCount === 1
-					? "a conversation attachment"
-					: `${threadReferenceCount} conversation attachments`,
-			);
-		}
 		if (
 			carriers.length > 0 &&
 			descriptions.length < REFERENCE_DESCRIPTION_LIMIT
@@ -204,6 +174,78 @@ async function persistedAppReferencesInTransaction(
 		if (carriers.length === 0) {
 			throw new Error(
 				`media_asset_refs is not an exact projection for app ${app.id} and asset ${args.assetId}`,
+			);
+		}
+	}
+
+	/* The CONVERSATION reference family — the split half of the projection.
+	 * One `thread_media_refs` row per referencing thread; the row is the
+	 * exact projection (the thread writers replace it transactionally), and
+	 * the walk above no longer sees transcripts, so this is the only place a
+	 * conversation attachment blocks deletion. */
+	const threadRefs = await tx
+		.selectFrom("thread_media_refs")
+		.select(["thread_id"])
+		.where("project_id", "=", args.projectId)
+		.where("asset_id", "=", args.assetId)
+		.orderBy("thread_id")
+		.execute();
+	if (threadRefs.length > 0) {
+		descriptions.push(
+			threadRefs.length === 1
+				? "a conversation attachment"
+				: `${threadRefs.length} conversation attachments`,
+		);
+	} else {
+		/* Defense-in-depth backstop: re-prove absence against the transcripts
+		 * themselves. The per-thread projection is the authority the thread
+		 * writers maintain, but deletion is the one IRREVERSIBLE consumer
+		 * (the bytes purge after commit), so a missing projection row — a
+		 * writer that predates the projection, a rollout window, a repair
+		 * mid-flight — must not authorize a purge the primary record
+		 * refutes. The containment prefilter narrows to candidate threads in
+		 * this Project; a candidate whose transcript names the asset — or
+		 * whose attachment metadata cannot be parsed to prove it doesn't —
+		 * blocks the deletion. */
+		const candidates = await tx
+			.selectFrom("threads")
+			.leftJoin("apps", "apps.id", "threads.app_id")
+			.leftJoin(
+				"design_sessions",
+				"design_sessions.id",
+				"threads.design_session_id",
+			)
+			.select(["threads.thread_id", "threads.messages"])
+			.where(
+				sql<boolean>`${sql.ref("threads.messages")}::text LIKE '%' || ${args.assetId} || '%'`,
+			)
+			.where((eb) =>
+				eb.or([
+					eb("apps.project_id", "=", args.projectId),
+					eb("design_sessions.project_id", "=", args.projectId),
+				]),
+			)
+			.orderBy("threads.thread_id")
+			.execute();
+		let referencingThreads = 0;
+		for (const candidate of candidates) {
+			try {
+				if (
+					collectThreadAttachmentAssetIds(candidate.messages).includes(
+						args.assetId,
+					)
+				) {
+					referencingThreads += 1;
+				}
+			} catch {
+				referencingThreads += 1;
+			}
+		}
+		if (referencingThreads > 0) {
+			descriptions.push(
+				referencingThreads === 1
+					? "a conversation attachment"
+					: `${referencingThreads} conversation attachments`,
 			);
 		}
 	}

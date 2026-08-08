@@ -130,14 +130,17 @@ const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
 async function upsertThreadTurn(
 	args: Omit<
 		Parameters<typeof persistOwnedThreadTurn>[0],
-		"expectedProjectId"
+		"expectedProjectId" | "target"
 	> & {
+		appId: string;
 		expectedProjectId?: string;
 	},
 ): Promise<boolean> {
+	const { appId: _appId, ...targetless } = args;
 	const admittedArgs = {
 		expectedProjectId: "project-test",
-		...args,
+		...targetless,
+		target: { kind: "app", appId: args.appId } as const,
 	};
 	const db = await getAppDb();
 	const original = await db
@@ -323,17 +326,27 @@ describe("thread attachment admission", () => {
 			messages: [attachmentMsg("message-document", assetId)],
 		});
 
+		/* The split projection: a conversation attachment lands in
+		 * `thread_media_refs` (keyed by its thread), never in the app-scoped
+		 * Blueprint projection. */
 		const edge = await h
 			.db()
-			.selectFrom("media_asset_refs")
-			.select(["project_id", "asset_id", "app_id"])
+			.selectFrom("thread_media_refs")
+			.select(["project_id", "asset_id", "thread_id"])
 			.where("asset_id", "=", assetId)
 			.executeTakeFirst();
 		expect(edge).toEqual({
 			project_id: "project-test",
 			asset_id: assetId,
-			app_id: APP,
+			thread_id: "thread-with-document",
 		});
+		const blueprintEdge = await h
+			.db()
+			.selectFrom("media_asset_refs")
+			.select("asset_id")
+			.where("asset_id", "=", assetId)
+			.executeTakeFirst();
+		expect(blueprintEdge).toBeUndefined();
 		await expect(
 			deleteMediaAssetForActor({
 				assetId,
@@ -363,7 +376,9 @@ describe("thread attachment admission", () => {
 				],
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
-		expect(await loadThread(APP, "thread-missing-document")).toBeNull();
+		expect(
+			await loadThread({ kind: "app", appId: APP }, "thread-missing-document"),
+		).toBeNull();
 	});
 
 	it("rejects an attachment whose stored asset kind does not match metadata", async () => {
@@ -387,7 +402,9 @@ describe("thread attachment admission", () => {
 				messages: [attachmentMsg("message-kind-mismatch", assetId)],
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
-		expect(await loadThread(APP, "thread-kind-mismatch")).toBeNull();
+		expect(
+			await loadThread({ kind: "app", appId: APP }, "thread-kind-mismatch"),
+		).toBeNull();
 	});
 });
 
@@ -404,7 +421,7 @@ describe("upsertThreadTurn", () => {
 		});
 		expect(written).toBe(true);
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.summary).toBe("a clinic registration app");
 		expect(doc?.thread_type).toBe("build");
 		expect(doc?.run_id).toBe("run-1");
@@ -426,14 +443,14 @@ describe("upsertThreadTurn", () => {
 		 * content: through the fold's snapshot writer. The next claim's history
 		 * then carries a message the store KNOWS. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("m2", "done"),
 			clearMarker: true,
 		});
-		const before = await loadThread(APP, T1);
+		const before = await loadThread({ kind: "app", appId: APP }, T1);
 
 		const written = await upsertThreadTurn({
 			appId: APP,
@@ -450,7 +467,7 @@ describe("upsertThreadTurn", () => {
 		});
 		expect(written).toBe(true);
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages).toHaveLength(3);
 		expect(doc?.run_id).toBe("run-2");
 		expect(doc?.active_stream_id).toBe("stream-2");
@@ -475,7 +492,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "first ask")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -483,7 +500,7 @@ describe("upsertThreadTurn", () => {
 			clearMarker: false,
 		});
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m-clawed",
@@ -503,7 +520,7 @@ describe("upsertThreadTurn", () => {
 			],
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 	});
 
@@ -536,7 +553,7 @@ describe("upsertThreadTurn", () => {
 			],
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m-lost", "m2"]);
 	});
 
@@ -563,7 +580,7 @@ describe("upsertThreadTurn", () => {
 			],
 		} as UIMessage;
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -571,7 +588,7 @@ describe("upsertThreadTurn", () => {
 			clearMarker: false,
 		});
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m2",
@@ -600,7 +617,7 @@ describe("upsertThreadTurn", () => {
 			],
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		const m2 = doc?.messages[1] as UIMessage | undefined;
 		expect(m2?.parts).toHaveLength(2);
 		expect(m2?.parts.map((p) => (p.type === "text" ? p.text : p.type))).toEqual(
@@ -619,7 +636,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "ask")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -627,7 +644,7 @@ describe("upsertThreadTurn", () => {
 			clearMarker: false,
 		});
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m2",
@@ -652,7 +669,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "ask")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-2",
 			expectedProjectId: "project-test",
@@ -685,7 +702,7 @@ describe("upsertThreadTurn", () => {
 		});
 		expect(written).toBe(true);
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		expect(doc?.summary).toBe("build it");
 	});
@@ -705,7 +722,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "first ask"), userMsg("m2", "session A's turn")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-a",
 			expectedProjectId: "project-test",
@@ -723,7 +740,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "first ask"), userMsg("m4", "session B's turn")],
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
 		expect(doc?.active_stream_id).toBe("stream-b");
 	});
@@ -739,7 +756,7 @@ describe("upsertThreadTurn", () => {
 			messages: [userMsg("m1", "ask")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-a",
 			expectedProjectId: "project-test",
@@ -769,7 +786,7 @@ describe("upsertThreadTurn", () => {
 			],
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages[1]?.parts).toHaveLength(2);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2", "m5"]);
 	});
@@ -797,10 +814,10 @@ describe("upsertThreadTurn", () => {
 		expect(written).toBe(false);
 
 		// The original row is untouched, and the other app gained nothing.
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.run_id).toBe("run-1");
 		expect(doc?.summary).toBe("mine");
-		expect(await loadThread(OTHER_APP, T1)).toBeNull();
+		expect(await loadThread({ kind: "app", appId: OTHER_APP }, T1)).toBeNull();
 	});
 
 	it("reports holder loss before a concurrently foreign thread id", async () => {
@@ -825,7 +842,7 @@ describe("upsertThreadTurn", () => {
 
 		await expect(
 			persistOwnedThreadTurn({
-				appId: OTHER_APP,
+				target: { kind: "app", appId: OTHER_APP },
 				threadId: T1,
 				runId: "run-stale",
 				streamId: "stream-stale",
@@ -839,7 +856,7 @@ describe("upsertThreadTurn", () => {
 			outcome: "superseded",
 		});
 
-		const ownerThread = await loadThread(APP, T1);
+		const ownerThread = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(ownerThread?.messages.map((message) => message.id)).toEqual(["m1"]);
 		expect(ownerThread?.active_stream_id).toBe("stream-owner");
 	});
@@ -860,21 +877,21 @@ describe("persistResponseSnapshot", () => {
 
 	it("grows the assistant message per barrier, leaving the run's marker live", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("m2", "step one"),
 			clearMarker: false,
 		});
-		let doc = await loadThread(APP, T1);
+		let doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.active_stream_id).toBe("stream-1");
 
 		/* Snapshots are cumulative: barrier 2 carries both steps' parts and
 		 * replaces the one-part copy via more-parts-wins. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -888,7 +905,7 @@ describe("persistResponseSnapshot", () => {
 			},
 			clearMarker: false,
 		});
-		doc = await loadThread(APP, T1);
+		doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.messages[1]?.parts).toHaveLength(2);
 		expect(doc?.active_stream_id).toBe("stream-1");
@@ -896,7 +913,7 @@ describe("persistResponseSnapshot", () => {
 
 	it("merges the final state and clears the live marker in one write at stream end", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -904,14 +921,14 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.active_stream_id).toBeNull();
 	});
 
 	it("clears the live marker even with no response to keep (a zero-step failure)", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -919,14 +936,14 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages).toHaveLength(1);
 		expect(doc?.active_stream_id).toBeNull();
 	});
 
 	it("never merges an empty-parts assistant shell", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -934,7 +951,7 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: false,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		expect(doc?.active_stream_id).toBe("stream-1");
 	});
@@ -964,7 +981,7 @@ describe("persistResponseSnapshot", () => {
 			],
 		};
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-2",
 			expectedProjectId: "project-test",
@@ -972,21 +989,21 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.messages[1]?.parts).toHaveLength(2);
 	});
 
 	it("is app-guarded like the upsert", async () => {
 		await persistResponseSnapshot({
-			appId: OTHER_APP,
+			target: { kind: "app", appId: OTHER_APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("mx", "hijack"),
 			clearMarker: true,
 		});
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages).toHaveLength(1);
 		expect(doc?.active_stream_id).toBe("stream-1");
 	});
@@ -997,7 +1014,7 @@ describe("persistResponseSnapshot", () => {
 		 * (a stranded marker reads as an instance death and re-drives a
 		 * finished turn). */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-somewhere-else",
@@ -1005,7 +1022,7 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		expect(doc?.active_stream_id).toBeNull();
 	});
@@ -1019,7 +1036,7 @@ describe("persistResponseSnapshot", () => {
 			},
 		} as UIMessage;
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -1027,7 +1044,7 @@ describe("persistResponseSnapshot", () => {
 			clearMarker: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		const stored = doc?.messages[1] as
 			| { metadata?: Record<string, unknown> }
 			| undefined;
@@ -1057,25 +1074,25 @@ describe("persistResponseSnapshot", () => {
 		});
 
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1", // the OLD run's stream — no longer the marker
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("m2-partial", "a zombie barrier"),
 			clearMarker: false,
 		});
-		let doc = await loadThread(APP, T1);
+		let doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m3"]);
 
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("m2", "the old run's finished answer"),
 			clearMarker: true,
 		});
-		doc = await loadThread(APP, T1);
+		doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m3", "m2"]);
 		// The newer run is still resumable — its marker survived.
 		expect(doc?.active_stream_id).toBe("stream-2");
@@ -1086,7 +1103,7 @@ describe("persistResponseSnapshot", () => {
 		const db = await getAppDb();
 
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId: appId },
 			threadId,
 			streamId,
 			expectedProjectId: "project-test",
@@ -1114,7 +1131,7 @@ describe("persistResponseSnapshot", () => {
 			messages: [userMsg("m-answer", "Patients")],
 		});
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId: appId },
 			threadId,
 			streamId: "wrong-stream",
 			expectedProjectId: "project-test",
@@ -1132,7 +1149,7 @@ describe("persistResponseSnapshot", () => {
 		});
 
 		await persistResponseSnapshot({
-			appId,
+			target: { kind: "app", appId: appId },
 			threadId,
 			streamId: "stream-successor",
 			expectedProjectId: "project-test",
@@ -1166,7 +1183,7 @@ describe("clawBackThreadResponse", () => {
 
 	it("deletes a failed turn's fresh partial and clears the marker in one write", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -1175,13 +1192,13 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m2",
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		expect(doc?.active_stream_id).toBeNull();
 		const db = await getAppDb();
@@ -1205,7 +1222,7 @@ describe("clawBackThreadResponse", () => {
 			messages: [userMsg("m1", "build me an app"), seed],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-2",
 			expectedProjectId: "project-test",
@@ -1221,14 +1238,14 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-2",
 			messageId: "m2",
 			revertTo: seed,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.messages[1]?.parts).toHaveLength(1);
 		expect(doc?.active_stream_id).toBeNull();
@@ -1236,7 +1253,7 @@ describe("clawBackThreadResponse", () => {
 
 	it("does nothing at all once a successor owns the thread", async () => {
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -1257,13 +1274,13 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1", // no longer the marker
 			messageId: "m2",
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
 		expect(doc?.active_stream_id).toBe("stream-2");
 	});
@@ -1275,7 +1292,7 @@ describe("clawBackThreadResponse", () => {
 		 * transcript — an unstripped seed would plant asset references the
 		 * media projection never admitted. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -1284,7 +1301,7 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m2",
@@ -1297,7 +1314,7 @@ describe("clawBackThreadResponse", () => {
 			} as UIMessage,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		const reverted = doc?.messages[1] as
 			| { metadata?: Record<string, unknown> }
 			| undefined;
@@ -1309,7 +1326,7 @@ describe("clawBackThreadResponse", () => {
 		 * containment is per-message — while the marker (the failed turn's)
 		 * still clears. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			expectedProjectId: "project-test",
@@ -1318,13 +1335,13 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		await clawBackThreadResponse({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-1",
 			messageId: "m-never-existed",
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.active_stream_id).toBeNull();
 	});
@@ -1344,7 +1361,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 		/* The dead run's barrier writes left a trailing partial, and the run
 		 * died before any terminal write. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-dead",
 			expectedProjectId: "project-test",
@@ -1368,7 +1385,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 			redrive: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		expect(doc?.active_stream_id).toBe("stream-redrive");
 	});
@@ -1388,7 +1405,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 			redrive: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 	});
 
@@ -1399,7 +1416,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 		 * the marker — the standing proof of an unrecovered interruption —
 		 * the client flag alone must not delete A's finished answer. */
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: T1,
 			streamId: "stream-dead",
 			expectedProjectId: "project-test",
@@ -1418,7 +1435,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 			redrive: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 	});
 
@@ -1449,7 +1466,7 @@ describe("re-drive claim claw-back (upsertThreadTurn redrive)", () => {
 			redrive: true,
 		});
 
-		const doc = await loadThread(APP, T1);
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
 		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2", "m4"]);
 	});
 });
@@ -1459,14 +1476,15 @@ describe("loaders", () => {
 		const { appId, threadId } = await seedPausedThread("actor");
 
 		expect(
-			(await loadThread(appId, threadId, PAUSED_ACTOR))?.holder_nonce,
+			(await loadThread({ kind: "app", appId: appId }, threadId, PAUSED_ACTOR))
+				?.holder_nonce,
 		).toBe(HOLDER_NONCE);
-		expect(await loadThread(appId, threadId, OTHER_ACTOR)).not.toHaveProperty(
-			"holder_nonce",
-		);
-		expect(await loadThread(appId, threadId)).not.toHaveProperty(
-			"holder_nonce",
-		);
+		expect(
+			await loadThread({ kind: "app", appId: appId }, threadId, OTHER_ACTOR),
+		).not.toHaveProperty("holder_nonce");
+		expect(
+			await loadThread({ kind: "app", appId: appId }, threadId),
+		).not.toHaveProperty("holder_nonce");
 	});
 
 	it("withholds a stored nonce that does not match fresh app authority", async () => {
@@ -1477,9 +1495,9 @@ describe("loaders", () => {
 			.where("thread_id", "=", threadId)
 			.execute();
 
-		expect(await loadThread(appId, threadId, PAUSED_ACTOR)).not.toHaveProperty(
-			"holder_nonce",
-		);
+		expect(
+			await loadThread({ kind: "app", appId: appId }, threadId, PAUSED_ACTOR),
+		).not.toHaveProperty("holder_nonce");
 	});
 
 	it("projects a LIVE run's nonce to its owning actor only, and never a reaped one's", async () => {
@@ -1510,14 +1528,27 @@ describe("loaders", () => {
 		});
 
 		expect(
-			(await loadThread(unpaused.appId, unpaused.threadId, PAUSED_ACTOR))
-				?.holder_nonce,
+			(
+				await loadThread(
+					{ kind: "app", appId: unpaused.appId },
+					unpaused.threadId,
+					PAUSED_ACTOR,
+				)
+			)?.holder_nonce,
 		).toBe(HOLDER_NONCE);
 		expect(
-			await loadThread(unpaused.appId, unpaused.threadId, OTHER_ACTOR),
+			await loadThread(
+				{ kind: "app", appId: unpaused.appId },
+				unpaused.threadId,
+				OTHER_ACTOR,
+			),
 		).not.toHaveProperty("holder_nonce");
 		expect(
-			await loadThread(reaped.appId, reaped.threadId, PAUSED_ACTOR),
+			await loadThread(
+				{ kind: "app", appId: reaped.appId },
+				reaped.threadId,
+				PAUSED_ACTOR,
+			),
 		).not.toHaveProperty("holder_nonce");
 	});
 
@@ -1525,10 +1556,13 @@ describe("loaders", () => {
 		const { appId, threadId } = await seedPausedThread("posture");
 
 		/* Genuinely paused: the posture rides the load, actor or not. */
-		expect((await loadThread(appId, threadId))?.run_paused).toBe(true);
-		expect((await loadThread(appId, threadId, OTHER_ACTOR))?.run_paused).toBe(
-			true,
-		);
+		expect(
+			(await loadThread({ kind: "app", appId: appId }, threadId))?.run_paused,
+		).toBe(true);
+		expect(
+			(await loadThread({ kind: "app", appId: appId }, threadId, OTHER_ACTOR))
+				?.run_paused,
+		).toBe(true);
 
 		/* Unpaused (the run resumed): the posture clears. */
 		const db = await getAppDb();
@@ -1537,7 +1571,9 @@ describe("loaders", () => {
 			.set({ awaiting_input: false })
 			.where("id", "=", appId)
 			.execute();
-		expect(await loadThread(appId, threadId)).not.toHaveProperty("run_paused");
+		expect(
+			await loadThread({ kind: "app", appId: appId }, threadId),
+		).not.toHaveProperty("run_paused");
 	});
 
 	it("listThreadMetas orders by recency and carries counts + live markers", async () => {
@@ -1551,7 +1587,7 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "older")],
 		});
 		await persistResponseSnapshot({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			threadId: "t-old",
 			streamId: "s1",
 			expectedProjectId: "project-test",
@@ -1577,7 +1613,7 @@ describe("loaders", () => {
 			.where("thread_id", "=", "t-old")
 			.execute();
 
-		const metas = await listThreadMetas(APP);
+		const metas = await listThreadMetas({ kind: "app", appId: APP });
 		expect(metas.map((m) => m.thread_id)).toEqual(["t-new", "t-old"]);
 		expect(metas[0].active_stream_id).toBe("s2");
 		expect(metas[0].message_count).toBe(1);
@@ -1597,7 +1633,7 @@ describe("loaders", () => {
 		});
 
 		expect(await resolveThreadStream(T1)).toEqual({
-			appId: APP,
+			target: { kind: "app", appId: APP },
 			activeStreamId: "stream-1",
 			runId: "run-1",
 		});
@@ -1623,7 +1659,7 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "a build the deploy killed")],
 		});
 
-		const metas = await listThreadMetas(deadApp);
+		const metas = await listThreadMetas({ kind: "app", appId: deadApp });
 		expect(metas[0].active_stream_id).toBeNull();
 		expect(metas[0].resume_interrupted).toBe(true);
 
@@ -1638,9 +1674,9 @@ describe("loaders", () => {
 
 		/* Level-triggered: EVERY subsequent load re-derives the signal until
 		 * an acting re-drive retires the marker through its own run. */
-		const again = await listThreadMetas(deadApp);
+		const again = await listThreadMetas({ kind: "app", appId: deadApp });
 		expect(again[0].resume_interrupted).toBe(true);
-		const doc = await loadThread(deadApp, "t-stranded");
+		const doc = await loadThread({ kind: "app", appId: deadApp }, "t-stranded");
 		expect(doc?.resume_interrupted).toBe(true);
 
 		/* A re-drive retires it: its claim's upsert overwrites the marker
@@ -1656,14 +1692,17 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "a build the deploy killed")],
 		});
 		await persistResponseSnapshot({
-			appId: deadApp,
+			target: { kind: "app", appId: deadApp },
 			threadId: "t-stranded",
 			streamId: "stream-redrive",
 			expectedProjectId: "project-test",
 			responseMessage: assistantMsg("m2", "recovered"),
 			clearMarker: true,
 		});
-		const recovered = await loadThread(deadApp, "t-stranded");
+		const recovered = await loadThread(
+			{ kind: "app", appId: deadApp },
+			"t-stranded",
+		);
 		expect(recovered?.active_stream_id).toBeNull();
 		expect(recovered?.resume_interrupted).toBeUndefined();
 	});
@@ -1680,7 +1719,10 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "an edit the deploy killed")],
 		});
 
-		const doc = await loadThread(deadApp, "t-stranded-2");
+		const doc = await loadThread(
+			{ kind: "app", appId: deadApp },
+			"t-stranded-2",
+		);
 		expect(doc?.active_stream_id).toBeNull();
 		expect(doc?.resume_interrupted).toBe(true);
 	});
@@ -1724,7 +1766,7 @@ describe("loaders", () => {
 		for (const threadId of ["t-done-build", "t-done-edit"]) {
 			await appendStreamChunks({
 				streamId: `stream-${threadId}`,
-				appId: doneApp,
+				target: { kind: "app", appId: doneApp },
 				runId: "run-done",
 				firstIndex: 0,
 				chunks: [{ type: "finish" }],
@@ -1734,11 +1776,11 @@ describe("loaders", () => {
 		}
 
 		for (const threadId of ["t-done-build", "t-done-edit"]) {
-			const doc = await loadThread(doneApp, threadId);
+			const doc = await loadThread({ kind: "app", appId: doneApp }, threadId);
 			expect(doc?.active_stream_id).toBeNull();
 			expect(doc?.resume_interrupted).toBeUndefined();
 		}
-		const metas = await listThreadMetas(doneApp);
+		const metas = await listThreadMetas({ kind: "app", appId: doneApp });
 		for (const meta of metas) {
 			expect(meta.resume_interrupted).toBeUndefined();
 		}
@@ -1777,7 +1819,7 @@ describe("loaders", () => {
 		await seedThread("t-dead-norows", "edit");
 		await appendStreamChunks({
 			streamId: "stream-t-dead-unsealed",
-			appId: doneApp,
+			target: { kind: "app", appId: doneApp },
 			runId: "run-x",
 			firstIndex: 0,
 			chunks: [{ type: "start" }],
@@ -1785,7 +1827,7 @@ describe("loaders", () => {
 		});
 		await appendStreamChunks({
 			streamId: "stream-t-dead-failed",
-			appId: doneApp,
+			target: { kind: "app", appId: doneApp },
 			runId: "run-x",
 			firstIndex: 0,
 			chunks: [{ type: "finish" }],
@@ -1798,9 +1840,10 @@ describe("loaders", () => {
 			"t-dead-failed",
 			"t-dead-norows",
 		]) {
-			expect((await loadThread(doneApp, threadId))?.resume_interrupted).toBe(
-				true,
-			);
+			expect(
+				(await loadThread({ kind: "app", appId: doneApp }, threadId))
+					?.resume_interrupted,
+			).toBe(true);
 		}
 	});
 
@@ -1831,7 +1874,7 @@ describe("loaders", () => {
 			})
 			.execute();
 
-		const doc = await loadThread(doneApp, "t-ancient");
+		const doc = await loadThread({ kind: "app", appId: doneApp }, "t-ancient");
 		expect(doc?.active_stream_id).toBeNull();
 		expect(doc?.resume_interrupted).toBeUndefined();
 	});
@@ -1854,7 +1897,7 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "build it")],
 		});
 		await persistResponseSnapshot({
-			appId: app,
+			target: { kind: "app", appId: app },
 			threadId: "t-bail",
 			streamId: "stream-owner",
 			expectedProjectId: "project-test",
@@ -1863,7 +1906,7 @@ describe("loaders", () => {
 		});
 
 		await mergeThreadTurnMessages({
-			appId: app,
+			target: { kind: "app", appId: app },
 			threadId: "t-bail",
 			messages: [
 				userMsg("m1", "build it"),
@@ -1905,7 +1948,7 @@ describe("loaders", () => {
 		/* Foreign app: writes nothing. */
 		const other = await h.seedApp({ id: "app-bail-2", status: "complete" });
 		await mergeThreadTurnMessages({
-			appId: other,
+			target: { kind: "app", appId: other },
 			threadId: "t-bail",
 			messages: [userMsg("mx", "cross-app forge")],
 			expectedProjectId: "project-test",
@@ -1924,7 +1967,7 @@ describe("loaders", () => {
 		/* Unknown thread id: update-only, never an insert (nothing ran, so
 		 * there is nothing to continue). */
 		await mergeThreadTurnMessages({
-			appId: app,
+			target: { kind: "app", appId: app },
 			threadId: "t-never-existed",
 			messages: [userMsg("m1", "hello")],
 			expectedProjectId: "project-test",
@@ -1954,7 +1997,7 @@ describe("loaders", () => {
 			messages: [userMsg("m1", "a build mid-flight")],
 		});
 
-		const doc = await loadThread(liveApp, "t-live");
+		const doc = await loadThread({ kind: "app", appId: liveApp }, "t-live");
 		expect(doc?.active_stream_id).toBe("stream-live");
 		expect(doc?.resume_interrupted).toBeUndefined();
 	});

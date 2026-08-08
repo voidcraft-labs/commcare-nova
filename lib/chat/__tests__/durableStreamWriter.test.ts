@@ -65,7 +65,7 @@ function makeWriter(
 ) {
 	return new DurableStreamWriter({
 		streamId: "stream-1",
-		appId: "app-1",
+		target: { kind: "app", appId: "app-1" },
 		runId: "run-1",
 		threadId: "thread-1",
 		inner,

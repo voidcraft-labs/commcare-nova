@@ -193,8 +193,10 @@ async function persistAcceptedRevision(): Promise<{
 	return { accepted, draft };
 }
 
-beforeEach(() => {
-	sessionId = crypto.randomUUID();
+beforeEach(async () => {
+	/* The design_sessions FK landed with the design-session unit: every
+	 * artifact row's session id must reference a real session row. */
+	sessionId = await h.seedDesignSession();
 });
 
 describe("source packages", () => {

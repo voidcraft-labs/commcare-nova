@@ -537,6 +537,62 @@ describe("database privilege convergence", () => {
 			);
 			__setAppDbForTests(null);
 
+			/* The SPLIT media projection under the probe: a conversation
+			 * attachment lives in the thread's `thread_media_refs` row and NOT
+			 * in `media_asset_refs` (which holds only Blueprint-authored
+			 * refs). The probe must read exactly that shape as zero
+			 * divergence — a probe that still expects the app-wide union
+			 * would fail every deploy whose conversations carry attachments
+			 * the Blueprint never authored (the normal case for chat
+			 * uploads). */
+			const probeAssetId = crypto.randomUUID();
+			const probeThreadId = crypto.randomUUID();
+			await sql`
+				INSERT INTO media_assets (
+					id, project_id, owner, content_hash, mime_type, extension,
+					size_bytes, dimensions, duration_ms, kind, gcs_object_key,
+					original_filename, display_name, status, extract
+				)
+				VALUES (
+					${probeAssetId}::uuid, ${probeProjectId}, ${probeUserId},
+					${probeAssetId.replaceAll("-", "").padEnd(64, "a").slice(0, 64)},
+					'application/pdf', '.pdf', 128, NULL, NULL, 'pdf',
+					${`projects/${probeProjectId}/${probeAssetId}.pdf`},
+					'requirements.pdf', 'Requirements', 'ready', NULL
+				)
+			`.execute(migration.db);
+			await sql`
+				INSERT INTO threads (
+					thread_id, app_id, created_at, updated_at, thread_type,
+					summary, run_id, messages
+				)
+				VALUES (
+					${probeThreadId}, ${probeApp.appId}, now()::text, now()::text,
+					'chat', 'Probe attachment thread', ${crypto.randomUUID()},
+					${JSON.stringify([
+						{
+							id: "m1",
+							role: "user",
+							parts: [{ type: "text", text: "Please read this" }],
+							metadata: {
+								attachments: [
+									{
+										assetId: probeAssetId,
+										kind: "pdf",
+										filename: "requirements.pdf",
+										mimeType: "application/pdf",
+									},
+								],
+							},
+						},
+					])}::jsonb
+				)
+			`.execute(migration.db);
+			await sql`
+				INSERT INTO thread_media_refs (thread_id, asset_id, project_id)
+				VALUES (${probeThreadId}, ${probeAssetId}::uuid, ${probeProjectId})
+			`.execute(migration.db);
+
 			const runtimeProbe = await runCanonicalRuntimeDatabaseProbe(
 				migration.db,
 				config.runtimeRole,
@@ -544,6 +600,7 @@ describe("database privilege convergence", () => {
 			expect(runtimeProbe).toMatchObject({
 				parsedAppCount: 1,
 				parserFindingCount: 0,
+				mediaReferenceProjectionFindingCount: 0,
 				rollbackVerified: true,
 			});
 			expect(runtimeProbe.snapshotDigest).toMatch(/^[0-9a-f]{64}$/);

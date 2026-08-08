@@ -162,10 +162,10 @@ export default async function BuilderPage({
 	let threads: LoadedThreadMeta[] = [];
 	let initialThread: LoadedThread | null = null;
 	try {
-		threads = await listThreadMetas(id);
+		threads = await listThreadMetas({ kind: "app", appId: id });
 		if (threads.length > 0) {
 			initialThread = await loadThread(
-				id,
+				{ kind: "app", appId: id },
 				threads[0].thread_id,
 				session.user.id,
 			);

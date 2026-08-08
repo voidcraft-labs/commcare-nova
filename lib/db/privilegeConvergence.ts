@@ -146,6 +146,7 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"app_deployments",
 	"app_deployment_resources",
 	"design_change_sets",
+	"design_sessions",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
@@ -175,6 +176,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"case_schema_index_deletions",
 	"media_asset_refs",
 	"app_location_references",
+	"thread_media_refs",
 ] as const;
 
 const RUNTIME_READ_ONLY_TABLES = ["app_change_fold_baselines"] as const;

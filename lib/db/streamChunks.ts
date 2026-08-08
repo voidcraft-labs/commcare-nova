@@ -17,6 +17,11 @@
 
 import { sql } from "kysely";
 import { log } from "@/lib/logger";
+import {
+	type GenerationTarget,
+	generationTargetColumns,
+	generationTargetFromColumns,
+} from "./generationTargets";
 import { getAppDb, notifyChatStream } from "./pg";
 
 /**
@@ -29,10 +34,13 @@ import { getAppDb, notifyChatStream } from "./pg";
  */
 export const CHAT_STREAM_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-/** One batched append — `chunks[0]` sits at `firstIndex` within the stream. */
+/** One batched append — `chunks[0]` sits at `firstIndex` within the stream.
+ * `target` is the stream's generation scope (an app, or a pre-app design
+ * session); it never changes for the life of a stream — a materialization
+ * mid-stream keeps the design-session target (§11.9). */
 export interface StreamChunkAppend {
 	streamId: string;
-	appId: string;
+	target: GenerationTarget;
 	runId: string;
 	firstIndex: number;
 	chunks: unknown[];
@@ -66,7 +74,7 @@ export async function appendStreamChunks(
 		.insertInto("chat_stream_chunks")
 		.values({
 			stream_id: append.streamId,
-			app_id: append.appId,
+			...generationTargetColumns(append.target),
 			run_id: append.runId,
 			first_index: append.firstIndex,
 			chunks: JSON.stringify(append.chunks),
@@ -176,19 +184,20 @@ export async function streamChunkTail(
 	};
 }
 
-/** The stream's owning app + run — the reconnect endpoint's auth anchor. */
+/** The stream's owning generation target + run — the reconnect endpoint's
+ * auth anchor. */
 export async function streamChunkMeta(
 	streamId: string,
-): Promise<{ appId: string; runId: string } | null> {
+): Promise<{ target: GenerationTarget; runId: string } | null> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("chat_stream_chunks")
-		.select(["app_id", "run_id"])
+		.select(["app_id", "design_session_id", "run_id"])
 		.where("stream_id", "=", streamId)
 		.limit(1)
 		.executeTakeFirst();
 	if (row === undefined) return null;
-	return { appId: row.app_id, runId: row.run_id };
+	return { target: generationTargetFromColumns(row), runId: row.run_id };
 }
 
 /**
