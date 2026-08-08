@@ -28,7 +28,7 @@ import {
 	refreshDesignSessionLiveness,
 	setDesignSessionAwaitingInput,
 } from "../designSessions";
-import { resolveGenerationTargetScope } from "../generationTargets";
+import { resolveGenerationTargetScope } from "../generationTargetScope";
 import { getCurrentPeriod } from "../period";
 import { setupAppStateTestDb } from "./appStateTestDb";
 

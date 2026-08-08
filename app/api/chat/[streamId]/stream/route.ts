@@ -63,10 +63,10 @@ import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
-	type GenerationTarget,
 	generationTargetHeldLive,
 	resolveGenerationTargetScope,
-} from "@/lib/db/generationTargets";
+} from "@/lib/db/generationTargetScope";
+import type { GenerationTarget } from "@/lib/db/generationTargets";
 import {
 	readStreamChunksFrom,
 	streamChunkMeta,

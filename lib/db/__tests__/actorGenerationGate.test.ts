@@ -155,6 +155,25 @@ describe("lifecycle lock order (§11.13)", () => {
 	});
 });
 
+describe("generationTargets stays a type leaf", () => {
+	/* The union + column mappers are imported across the whole protocol
+	 * layer (threads, streams, usage, run summaries, the agent contexts).
+	 * A runtime import added here lands in every one of those graphs —
+	 * pulling `designSessions`/`apps` (and through them the commit kernel)
+	 * in is the exact shape that deadlocked the agent media suites'
+	 * mocked-module factories under vitest (a `vi.mock` factory's dynamic
+	 * import re-entered a module still evaluating in the same graph). The
+	 * database-reading resolver belongs in `generationTargetScope.ts`. */
+	it("imports nothing but zod", () => {
+		const source = readFileSync(
+			join(process.cwd(), "lib/db/generationTargets.ts"),
+			"utf8",
+		);
+		const imports = [...source.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+		expect(imports).toEqual(["zod"]);
+	});
+});
+
 describe("scanActorGenerationTargets", () => {
 	const ACTOR = "scan-actor";
 	const NONCE = "00000000-0000-4000-8000-00000000aa01";

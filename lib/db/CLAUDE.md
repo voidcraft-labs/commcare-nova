@@ -409,10 +409,18 @@ arm to preserve. A failed or reaped session stays `active` with
 Liveness derives from the explicit lease column via
 `runLiveness.ts::designSessionLeaseState` (same module, same
 `MAX_GENERATION_MINUTES` horizon — never a second timeout arithmetic).
-`generationTargets.ts` is the ONE resolver boundary for target
+`generationTargetScope.ts` is the ONE resolver boundary for target
 authorization (`resolveGenerationTargetScope` — opaque
-`AppAccessError("not_found")` on every denial, exactly like app routes) and
-the closed `GenerationTarget` union every target-polymorphic table speaks:
+`AppAccessError("not_found")` on every denial, exactly like app routes);
+`generationTargets.ts` stays a dependency-free TYPE LEAF holding
+the closed `GenerationTarget` union every target-polymorphic table speaks
+plus the column mappers. Keep them split: the leaf is imported across the
+whole protocol layer, while the resolver reaches `apps` /
+`designSessions` (and through them the commit kernel) — folding the
+resolver into the leaf drags the run-protocol stack into every
+type-consumer's import graph, which is the exact shape that deadlocked
+the agent media suites' mocked-module factories under vitest.
+The tables:
 `threads`, `chat_stream_chunks`, and `run_summaries` each carry nullable
 `app_id` XOR `design_session_id` (exactly-one CHECKs; `run_summaries`
 replaced its PK with the two partial unique indexes). A build thread stays

@@ -2021,8 +2021,13 @@ interface ResolvedGenerationTarget {
 Add one resolver module:
 
 ```text
-lib/db/generationTargets.ts
+lib/db/generationTargetScope.ts
 ```
+
+(`lib/db/generationTargets.ts` stays the dependency-free type leaf holding
+the union and the nullable-column mappers — the resolver reaches the
+run-protocol stack, so it lives beside the leaf, not inside it, keeping
+every type-consumer's import graph free of `apps`/`designSessions`.)
 
 It is the only shared boundary for:
 
@@ -4883,7 +4888,7 @@ Do not proceed past these gates on assertion alone:
 **Primary files:**
 
 - new `lib/db/designSessions.ts`
-- new `lib/db/generationTargets.ts`
+- new `lib/db/generationTargetScope.ts` (over the `generationTargets.ts` type leaf)
 - `app/api/chat/route.ts`
 - `app/api/chat/schema.ts`
 - `lib/chat/durableStreamWriter.ts`
