@@ -117,9 +117,10 @@ direct MCP edit.
 5. Every digest is the shared canonical-JS discipline
    (`lib/utils/canonicalJson.ts`).
 6. Nothing here reaches a canonical store: no `app_changes`, no SSE, no
-   NOTIFY, no Blueprint mutation, no external write. Later units consume
-   the artifacts (change sets already strict-parse `DesignId`s; the
-   design-session/orchestrator units add the session table and runtime).
+   NOTIFY, no Blueprint mutation, no external write. The consumers live
+   outside the package: change sets strict-parse `DesignId`s, and
+   `lib/agent/build`'s orchestrator runs this pipeline behind the chat
+   route's design-session turns and executes its accepted plans.
 
 ## Tests
 

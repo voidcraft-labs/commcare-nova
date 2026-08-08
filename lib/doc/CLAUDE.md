@@ -43,18 +43,23 @@ Pure functions that read or produce a `BlueprintDoc` (or a subtree of one) live 
 - `fieldPath.ts` — path ↔ UUID projection (`resolveFieldByPath`, `getFieldPath`) for friendly XPath parsing/printing. The document, mutations, and SA/MCP tool addresses use UUIDs.
 - `scaffolds.ts` — atomic born-valid `Mutation[]` builders for the builder's in-tree "add module / add form" affordances (`caseListModuleMutations` / `surveyModuleMutations` / `formScaffoldMutations`). The UI twin of the SA's `createModule` / `createForm`: each lands the entity TOGETHER with the minimal contents the validator requires, so the whole batch passes the commit gate as one candidate. A case-list module is born as a VIEWER — a `caseListOnly` module with a `Name` column and its case type declared in the catalog, NO form (a name-only registration form is valid wire, so there's no reason to force one); a new case type is declared via `declareCaseTypeMutations` (the granular `declareCaseType` kind, idempotent), since a formless viewer has no `case_name` field to auto-register it. `scaffolds.ts` also owns the case-type DECLARATION CHOKEPOINT (`declareCaseTypeForField`): the reducer does not auto-create an absent type on a field write (which would clobber a concurrent declaration), so every `caseWrite`-setting surface — the SA add/edit assembly, the MCP field handlers, `useBlueprintMutations` add/edit, `caseListModuleMutations`, and `formScaffoldMutations` — prepends a `declareCaseType` for a field writing to an undeclared type, and the gate rejects a leftover writer via `CASE_WRITE_UNKNOWN_TYPE`. A per-surface test (`__tests__/multiplayerMerge.test.ts`) exercises each field-birth chokepoint against an absent-type doc so a new surface that skips the declare fails CI. A survey module is born WITH one survey form (a single text question) — NOT bare: a module with no forms and no case list is a hard, build-blocking error in CommCare (`NO_FORMS_OR_CASE_LIST`, regardless of case type), so the only valid formless shape is a `caseListOnly` viewer. `formScaffoldMutations` lands a form with its default first field (`registration` → an explicit `{ caseType, property: "case_name" }` writer; otherwise one text question). Dispatched through `useBlueprintMutations`' `createCaseListModule` / `createSurveyModule` / `createForm`.
 
-`scaffolds.ts` also owns `canonicalAppGenesis`, the one construction batch every
-persisted app is BORN from. It emits `setAppName` (trimmed requested name or the
-real persisted fallback `Untitled`) plus exactly the `surveyModuleMutations`
-shape, and returns the starter module/form/field UUIDs. This is not an optional
-template and its mutations are not replay history: `createApp` admits and
-prepares the batch exactly once outside its retryable transaction,
-unconditionally evaluates the absolute verdict and `exportReadinessFindings`
-under one locked lookup-definition context, then stores the result as the
-immutable Project-bearing sequence-one baseline beside the root, exact
-lookup/media projections, entities, and attributed `fold-baseline` app change.
-Chat, builder, MCP, tests, and construction fuzz consume that same shape or
-exact receipt. There is no persisted empty app, caller seed callback, parallel
+`scaffolds.ts` also owns `emptyBlueprintDoc` — the ONE canonical spelling of
+the empty document both app genesis and the change-set base loader reduce
+from (a duplicate literal would fork the genesis digest) — and
+`canonicalAppGenesis`, the construction batch the EXPLICIT-BLANK birth arm
+reduces: `setAppName` (trimmed requested name or the real persisted fallback
+`Untitled`) plus exactly the `surveyModuleMutations` shape, returning the
+starter module/form/field UUIDs. This is not an optional template and its
+mutations are not replay history: the genesis owner (`lib/db/appGenesis.ts`)
+admits and prepares a birth batch exactly once outside its retryable
+transaction, unconditionally evaluates the absolute verdict and
+`exportReadinessFindings` under one locked lookup-definition context, then
+stores the result as the immutable Project-bearing sequence-one baseline
+beside the root, exact lookup/media projections, entities, and attributed
+`fold-baseline` app change. A chat build's DESIGN-SLICE birth reduces its
+reviewed genesis change set through that same owner instead of this starter.
+Builder, MCP, tests, and construction fuzz consume the same shapes or exact
+receipts. There is no persisted empty app, caller seed callback, parallel
 direct-name authoring, or second starter reconstruction.
 - `mutations/sequence.ts`: the one sequence primitive every collection shares. **Sequence IS array position**: `moduleOrder` / `formOrder[m]` / `fieldOrder[p]`, the `columns` / `searchInputs` / `options` arrays, each form's `caseOperations`, each automation's addressable child arrays, and the six flat top-level collections' ordering arrays (users, organization levels, location properties, and automations) are the order, not a set to be sorted. So every add and every move is one operation: `spliceAfter(sequence, uuid, after)`, where `after` is the UUID this entity now follows, `null` means first and `undefined` means append. It is TOTAL and IDEMPOTENT, and both are load-bearing because reducers replay: it removes before re-inserting, so a re-applied move lands the same sequence, and an `after` naming an anchor a peer removed appends rather than throwing. `anchorForIndex` remains an internal UI translator where a local gesture begins with a rendered index; no external authoring boundary accepts a position as identity. `predecessorOf` reads what an entity currently follows. `sequenceMovesTo(before, after)` derives the moves between two states for the authoritative document diff.
 - `mutations/automations.ts`: the canonical automation grammar. Top-level add/update/remove/move is separate from `editAutomationItem`, whose collection discriminator covers criteria, setup guidance, updates, recipients, schedule events, and user-data filters. Schedule shape has its own set/update kinds. Full desired-state callers must use `automationChangesForUpdate` / `diffDocsToMutations`; those helpers preserve stable child identities and emit item-granular changes rather than replacing a whole automation over a peer edit. When one desired-state diff both adds and reorders automations or child items, its move pass compares against `arrivalsProjected(before, after)`, the exact sequence the preceding adds have produced, never the stale pre-add order. Event order is runtime-semantic, so replay equality here is a behavior contract, not cosmetic ordering. Every mutation validates target kind, global UUID admission, and sequence ownership before the reducer runs.
