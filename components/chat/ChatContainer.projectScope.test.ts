@@ -12,7 +12,7 @@ import {
 	chatGenerationCanWrite,
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
-	parseCreatedAppActivation,
+	parseAppMaterializationReceipt,
 	retireProjectAttachmentRefs,
 } from "./ChatContainer";
 
@@ -34,6 +34,7 @@ describe("authoritative thread activation", () => {
 			resume: true,
 			redrive: false,
 			buildResume: true,
+			designSessionId: null,
 		});
 		expect(
 			authoritativeThreadActivationOptions(
@@ -236,11 +237,16 @@ describe("new-app Project handoff", () => {
 		);
 		expect(verdict.ok).toBe(true);
 		const receipt = {
+			eventVersion: 1,
+			designSessionId: null,
 			appId: "app-1",
 			projectId: "project-1",
 			role: "editor",
 			canEdit: true,
-			baseSeq: 1,
+			seq: 1,
+			batchId: "genesis:app-1",
+			changeSetId: null,
+			snapshotDigest: "ab".repeat(32),
 			blueprint: toPersistableDoc(verdict.nextDoc),
 			starter: {
 				moduleUuid: genesis.moduleUuid,
@@ -249,19 +255,35 @@ describe("new-app Project handoff", () => {
 			},
 		};
 
-		expect(parseCreatedAppActivation(receipt)).toEqual(receipt);
+		expect(parseAppMaterializationReceipt(receipt)).toEqual(receipt);
 		expect(
-			parseCreatedAppActivation({ ...receipt, role: undefined }),
+			parseAppMaterializationReceipt({ ...receipt, role: undefined }),
 		).toBeNull();
-		expect(parseCreatedAppActivation({ ...receipt, baseSeq: 0 })).toBeNull();
+		expect(parseAppMaterializationReceipt({ ...receipt, seq: 0 })).toBeNull();
 		expect(
-			parseCreatedAppActivation({
+			parseAppMaterializationReceipt({
 				...receipt,
 				starter: { ...receipt.starter, fieldUuid: genesis.formUuid },
 			}),
 		).toBeNull();
 		expect(
-			parseCreatedAppActivation({ ...receipt, unexpected: true }),
+			parseAppMaterializationReceipt({ ...receipt, unexpected: true }),
+		).toBeNull();
+		/* A design-slice receipt has no starter and an arbitrary meaningful
+		 * blueprint; only identity + digest shape are asserted structurally. */
+		expect(
+			parseAppMaterializationReceipt({
+				...receipt,
+				designSessionId: "0b944e00-722d-48ab-8d4d-47e922970b5f",
+				changeSetId: "cs-1",
+				starter: null,
+			}),
+		).toMatchObject({ starter: null });
+		expect(
+			parseAppMaterializationReceipt({
+				...receipt,
+				snapshotDigest: "not-a-digest",
+			}),
 		).toBeNull();
 	});
 });

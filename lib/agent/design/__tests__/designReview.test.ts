@@ -14,7 +14,17 @@ import {
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { cloneContract, did, ids, makeContract, messageRef } from "./fixtures";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
+import {
+	cloneContract,
+	did,
+	FIXTURE_IMAGE_ASSET_ID,
+	FIXTURE_IMAGE_DIGEST,
+	ids,
+	imageRef,
+	makeContract,
+	messageRef,
+} from "./fixtures";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000700";
 
@@ -31,9 +41,17 @@ function makeSourcePackage(): DesignSourcePackage {
 		},
 		claims: [],
 		attachments: [],
-		images: [],
+		images: [
+			{
+				assetId: asMediaAssetId(FIXTURE_IMAGE_ASSET_ID),
+				mediaType: "image/png",
+				filename: "queue-mockup.png",
+				bytesDigest: FIXTURE_IMAGE_DIGEST,
+				dataUrl: "data:image/png;base64,AAAA",
+			},
+		],
 		platformConstraints: [],
-		sources: [{ ref: messageRef() }],
+		sources: [{ ref: messageRef() }, { ref: imageRef() }],
 	};
 }
 
@@ -91,6 +109,17 @@ describe("finding grounding (validateFindingEvidence)", () => {
 			evidenceRefs: [],
 		});
 		expect(result.success).toBe(false);
+	});
+
+	it("accepts an important source-supported finding grounded in an image", () => {
+		const result = designFindingSchema.safeParse({
+			...makeFinding(),
+			evidenceRefs: [imageRef()],
+		});
+		expect(
+			result.success,
+			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
+		).toBe(true);
 	});
 
 	it("rejects a platform-constraint finding without a catalogued code", () => {
@@ -154,6 +183,47 @@ describe("designReviewSchemaFor — cross-artifact binding", () => {
 		});
 		const result = schema.safeParse(makeReview([foreign]));
 		expect(result.success).toBe(false);
+	});
+
+	it("accepts a finding citing an image the package projected", () => {
+		const schema = designReviewSchemaFor(contract, pkg);
+		const finding = makeFinding({ evidenceRefs: [imageRef()] });
+		const result = schema.safeParse(makeReview([finding]));
+		expect(
+			result.success,
+			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
+		).toBe(true);
+	});
+
+	it("rejects an image citation whose digest is not the projected content", () => {
+		const schema = designReviewSchemaFor(contract, pkg);
+		const finding = makeFinding({
+			evidenceRefs: [imageRef(FIXTURE_IMAGE_ASSET_ID, "d".repeat(64))],
+		});
+		expect(schema.safeParse(makeReview([finding])).success).toBe(false);
+	});
+
+	it("rejects an image citation for an asset the package never projected", () => {
+		const schema = designReviewSchemaFor(contract, pkg);
+		const finding = makeFinding({
+			evidenceRefs: [
+				imageRef("00000000-0000-4000-8000-000000000889", FIXTURE_IMAGE_DIGEST),
+			],
+		});
+		expect(schema.safeParse(makeReview([finding])).success).toBe(false);
+	});
+
+	it("accepts a finding citing a lookup intent of the reviewed revision", () => {
+		const schema = designReviewSchemaFor(contract, pkg);
+		const finding = makeFinding({
+			claim: "The villages table carries no column for the assigned CHW.",
+			affectedIntentIds: [ids.lookupVillages, ids.lookupColClinic],
+		});
+		const result = schema.safeParse(makeReview([finding]));
+		expect(
+			result.success,
+			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
+		).toBe(true);
 	});
 
 	it("always allows catalogued platform references", () => {

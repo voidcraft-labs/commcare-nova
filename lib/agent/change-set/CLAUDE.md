@@ -14,12 +14,10 @@ gate, and integrity services every other write uses.
 
 - `store.ts` — the durable protocol. The STAGE TRANSACTION is the
   correctness spine: authority carrier first (an app-edit set's app row
-  `FOR SHARE`, holder capability proved on it; a genesis set's change-set
-  row remains its serialization point and its owner columns the proof —
-  `design_sessions` exists now with the FK bound, and Unit E's
-  materialization transaction is what re-homes genesis authority onto the
-  locked session row when it starts claiming sessions for real builds),
-  fresh Project
+  `FOR SHARE`, holder capability proved on it; a genesis set locks its
+  CLAIMED design-session row — state `active`, the presented chat-run
+  holder proved against the session lease — and the change-set owner
+  columns are attribution only), fresh Project
   `edit` membership, change-set row `FOR UPDATE` second, the idempotency-
   ledger replay, the exact-revision fence, then receipt + step + stage
   ranges + handle bindings + revision advance in ONE transaction. There is
@@ -48,8 +46,21 @@ gate, and integrity services every other write uses.
   `ChangeSetRebaseReport` (never a name/position retarget) with every step
   retained; a retry converges on the stored `design_committed_slices`
   receipt, and a canonical batch without that receipt is corruption, not a
-  commit. Genesis sets refuse this path — materialization is the prepared
-  genesis kernel's separate unit.
+  commit. Genesis sets refuse this path — their commit is
+  `materializeGenesis.ts`.
+- `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
+  birth: pre-read → committed-replay short-circuit (rebuilds the exact
+  receipt from `design_committed_slices` + the sequence-1 canonical fold) →
+  read-set preflight → ONE transaction ordering actor gate →
+  `lockSessionRow` (mode/state/Project/proposed-app/exact-holder verified)
+  → change-set row → step replay proved against the empty-genesis digest →
+  `prepareGenesisCandidate` → reservation check →
+  `writePreparedGenesisInTransaction` with the holder+reservation transfer
+  → commit sidecars (the change-set flip + committed-slice receipt at seq
+  1) → attempt `running → committed` → the session's atomic
+  `authority-cleared + materialized + app_id` flip (table CHECKs make a
+  partial transfer unrepresentable). Gate rejection rolls the whole
+  transaction back; pending case-index work drains post-commit.
 - `baseLoader.ts` / `runtime.ts` — the candidate is DERIVED, never stored:
   the exact canonical base (greatest fold baseline at-or-below the recorded
   sequence plus the admitted suffix, digest-proved via the gate-free
@@ -77,9 +88,15 @@ gate, and integrity services every other write uses.
 - `registry.ts` / `stageTools.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
   `forbidden`, plus the executor-only granular tools (`stageModule`,
-  `stageForm`, `moveStagedModule`) that create deliberately incomplete
-  private structure. External-effect tools are structurally absent from the
-  map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
+  `stageForm`) that create deliberately incomplete private structure —
+  INCOMPLETENESS is the only thing that earns a staging tool, so ordinary
+  reordering rides the shared canonical `moveModule`. Every shared body
+  reads `ctx.snapshot.doc`, so a dispatched read answers from the overlay's
+  own staged state; the organization-deriving tools keep only their PLACE
+  reads external (rows, not Blueprint), and `updateAutomation`'s zero-diff
+  arm proves its no-op from the overlay instead of adopting an
+  authoritative snapshot. External-effect tools are structurally absent from
+  the map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
   `retireCaseType`) fence at admission: such a batch owns its change set
   alone (`exclusive_kind` closes the set).
 
@@ -99,7 +116,11 @@ gate, and integrity services every other write uses.
    change-set row while waiting for an app row, and the membership gate is
    only ever taken while already holding the authority rows — membership
    writers never take change-set or app locks, so gate-after-row cannot
-   cycle (a genesis set has no app row yet; its change-set row leads). The
+   cycle. A GENESIS set has no app row: its authority carrier is the
+   CLAIMED design-session row, locked first (`lockSessionRow`, state
+   `active`, the presented chat-run holder proved against the session's
+   lease), then the change-set row — the session holder is the ownership
+   proof, and the change-set owner columns are attribution only. The
    staging ledgers are append-only at the privilege level; the row-locked
    authority table serializes them.
 5. `base_project_id` is captured scope, not live tenancy: a Project move

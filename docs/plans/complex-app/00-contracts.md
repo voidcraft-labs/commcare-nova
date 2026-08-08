@@ -53,17 +53,25 @@ suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history. A horizon expected to support later replay owns an
 immutable, complete Project-bearing persisted baseline keyed to its exact app
 sequence; a reload boundary by itself is never treated as reconstructable
-state. Every app created
-after such a baseline table exists is born in one mandatory canonical
-export-ready shape: a real nonblank name (`Untitled` when none was supplied),
-one survey module, one survey form, and one text question. The name and starter
-are one admitted construction batch; their complete immutable result is
-recorded atomically as the sequence-`1` genesis baseline beside the app root,
-entities, exact lookup/media edges, and an intentionally empty attributed
-`fold-baseline` app change. The construction batch is not replay history.
-Chat, builder, and MCP receive that exact blueprint plus its module/form/field
-UUIDs from the one creation owner; a persisted empty app, optional seed path, or
-independently reconstructed starter is forbidden.
+state. App birth is a CLOSED two-owner vocabulary — `explicit-blank |
+design-slice` — and both owners share one genesis writer with identical
+admission: the construction batch reduces from the canonical empty Blueprint,
+passes the absolute gate and full export readiness, and its complete
+immutable result is recorded atomically as the sequence-`1` genesis baseline
+beside the app root, entities, exact lookup/media edges, runtime case-schema
+rows, and an intentionally empty attributed `fold-baseline` app change. The
+construction batch is not replay history. `explicit-blank` (the builder's
+"blank app" action and MCP `create_app`) is born as the canonical starter: a
+real nonblank name (`Untitled` when none was supplied), one survey module,
+one survey form, and one text question. `design-slice` is a chat build's
+materialization: the app is born as its design's first meaningful reviewed
+workflow, with the run's holder and credit reservation transferred from the
+design session onto the app row in the same transaction. Every birth hands
+its surface the one strict activation receipt (identity, Project capability,
+the exact sequence-`1` blueprint, its canonical digest, and — on the blank
+path only — the starter UUIDs); a persisted empty app, optional seed path,
+independently reconstructed starter, or pre-app placeholder row is
+forbidden.
 
 The gate consumes the exact parsed JSON value persistence can replay. Before
 reduction, one shared admission boundary safely detaches a proposed live batch

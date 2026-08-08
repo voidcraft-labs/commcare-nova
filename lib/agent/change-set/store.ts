@@ -4,20 +4,21 @@
  *
  * One module owns every read and write of the change-set tables. The
  * correctness spine is the STAGE TRANSACTION: lock the authority carrier
- * first (an app-edit set's app row `FOR SHARE`; a genesis set has none until
- * the design-session unit lands its row), lock the change-set row
- * `FOR UPDATE` second, prove owner/run/holder/Project/status, replay the
+ * first (an app-edit set's app row `FOR SHARE`; a genesis set's claimed
+ * design-session row `FOR UPDATE` — the session is the run/credit authority
+ * a pre-app build holds, so its holder is the ownership proof), lock the
+ * change-set row second, prove owner/run/holder/Project/status, replay the
  * request ledger for an idempotent retry, then commit the request receipt,
  * step, stage ranges, handle bindings, and the revision advance as ONE
  * transaction. There is no durable in-progress state: a request either
  * committed everything it staged or nothing.
  *
- * Lock order (the plan's rule for existing-app staging): apps →
- * design_change_sets → membership gate/member row. No path holds a
- * change-set row while waiting for an app row, and the membership gate is
- * only ever taken while already holding the authority rows — membership
- * writers never take change-set or app locks, so gate-after-row cannot
- * cycle. (A genesis set has no app row yet; its change-set row leads.)
+ * Lock order (the plan's §11.13 staging rules): authority row (`apps`, or
+ * `design_sessions` for a genesis set) → design_change_sets → membership
+ * gate/member row. No path holds a change-set row while waiting for an
+ * authority row, and the membership gate is only ever taken while already
+ * holding the authority rows — membership writers never take change-set,
+ * app, or session locks, so gate-after-row cannot cycle.
  *
  * The staging ledgers (requests/steps/stages/handles) are append-only at the
  * database privilege level; this row-locked authority table is what
@@ -29,6 +30,7 @@ import type { DesignId } from "@/lib/agent/design/ids";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadAppInTransaction } from "@/lib/db/apps";
+import { lockSessionRow } from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import {
 	parsePersistedJsonText,
@@ -41,7 +43,7 @@ import {
 	exactRunHolderMatches,
 	updatedExactlyOne,
 } from "@/lib/db/runHolderWrites";
-import { runLeaseState } from "@/lib/db/runLiveness";
+import { designSessionLeaseState, runLeaseState } from "@/lib/db/runLiveness";
 import type {
 	AdmittedMutationBatch,
 	AdmittedMutationStageSlice,
@@ -264,7 +266,7 @@ export async function loadChangeSet(
 		: parseChangeSetRow(row as unknown as ChangeSetRow);
 }
 
-async function lockChangeSetRow(
+export async function lockChangeSetRow(
 	tx: Transaction<AppDatabase>,
 	id: string,
 ): Promise<DesignChangeSet | undefined> {
@@ -479,9 +481,11 @@ async function lockAndVerifyOpenChangeSet(
 	tx: Transaction<AppDatabase>,
 	args: {
 		readonly changeSetId: string;
-		/** From the unlocked pre-read — which authority row to lock FIRST.
-		 * The row's own immutable kind/app columns are re-proved after. */
+		/** From the unlocked pre-read — which authority row to lock FIRST
+		 * (`apps` for an app-edit set, `design_sessions` for genesis). The
+		 * row's own immutable kind/app columns are re-proved after. */
 		readonly appId: string | null;
+		readonly designSessionId: string | null;
 		readonly actorUserId: string;
 		readonly runId: string;
 		readonly chatRunHolder?: ChatRunHolderCapability;
@@ -526,10 +530,31 @@ async function lockAndVerifyOpenChangeSet(
 		verifyOpenOwnership(changeSet, args);
 		return changeSet;
 	}
-	/* Genesis arm: the design-session authority row ships with the
-	 * design-session unit; until then the change-set row is the serialization
-	 * point and its own owner-attribution columns are the ownership proof
-	 * (docs/plans/reviewed-intent-atomic-change-sets-plan.md §10.4). */
+	/* Genesis arm: the CLAIMED design-session row is the authority carrier —
+	 * locked first, exactly as the app row leads an app-edit set. The
+	 * session's live holder is the ownership proof (the run that claimed the
+	 * session is the run staging into its genesis set); the change-set row's
+	 * owner columns remain attribution, not authority. */
+	if (args.designSessionId === null) {
+		throw new ChangeSetIntegrityError(
+			`Change set ${args.changeSetId} resolved to no app and no design session before its lock.`,
+		);
+	}
+	const session = await lockSessionRow(tx, args.designSessionId);
+	if (session === undefined || session.state !== "active") {
+		throw new ChangeSetScopeLostError(
+			"This design session is no longer active, so its genesis change set can no longer be used.",
+		);
+	}
+	const sessionLease = designSessionLeaseState(session);
+	if (
+		args.chatRunHolder !== undefined &&
+		!exactRunHolderMatches(sessionLease.holderIdentity, args.chatRunHolder)
+	) {
+		throw new ChangeSetScopeLostError(
+			"A newer request took over this design, so this change set's run no longer holds it.",
+		);
+	}
 	const changeSet = await lockChangeSetRow(tx, args.changeSetId);
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
@@ -537,6 +562,16 @@ async function lockAndVerifyOpenChangeSet(
 	if (changeSet.appId !== null) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${args.changeSetId} resolved to no app before its lock but names app ${changeSet.appId} under it.`,
+		);
+	}
+	if (changeSet.designSessionId !== args.designSessionId) {
+		throw new ChangeSetIntegrityError(
+			`Change set ${args.changeSetId} resolved to design session ${args.designSessionId} before its lock but names ${changeSet.designSessionId} under it.`,
+		);
+	}
+	if (session.project_id !== changeSet.baseProjectId) {
+		throw new ChangeSetScopeLostError(
+			"This design session's Project no longer matches the change set's captured scope, so the change set can no longer be used.",
 		);
 	}
 	await assertEditMembership(tx, args.actorUserId, changeSet.baseProjectId);
@@ -844,6 +879,7 @@ async function stageInTransaction(
 	const changeSet = await lockAndVerifyOpenChangeSet(tx, {
 		changeSetId: args.changeSetId,
 		appId: preRead.appId,
+		designSessionId: preRead.appId === null ? preRead.designSessionId : null,
 		actorUserId: args.actorUserId,
 		runId: args.runId,
 		...(args.chatRunHolder !== undefined && {
@@ -1058,6 +1094,7 @@ async function transitionOpenChangeSet(
 		const changeSet = await lockAndVerifyOpenChangeSet(tx, {
 			changeSetId: args.changeSetId,
 			appId: preRead.appId,
+			designSessionId: preRead.appId === null ? preRead.designSessionId : null,
 			actorUserId: args.actorUserId,
 			runId: args.runId,
 		});

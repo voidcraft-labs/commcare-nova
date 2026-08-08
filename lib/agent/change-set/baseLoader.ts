@@ -27,8 +27,8 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
 import { ChangeSetIntegrityError } from "./errors";
@@ -144,24 +144,14 @@ export interface GenesisBase {
 }
 
 /**
- * The canonical empty in-memory Blueprint a genesis change set builds over.
- * Deterministic for one proposed app id; never persisted as an app row.
+ * The canonical empty in-memory Blueprint a genesis change set builds over —
+ * the ONE shared spelling (`lib/doc/scaffolds.ts::emptyBlueprintDoc`), so the
+ * digest a change set records is exactly the base the prepared genesis
+ * kernel replays from. Deterministic for one proposed app id; never
+ * persisted as an app row.
  */
 export function emptyGenesisBase(proposedAppId: string): GenesisBase {
-	const doc: BlueprintDoc = {
-		appId: proposedAppId,
-		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-	const snapshot = toPersistableDoc(doc);
+	const snapshot = toPersistableDoc(emptyBlueprintDoc(proposedAppId));
 	return {
 		doc: hydratePersistedBlueprint(snapshot),
 		snapshot,

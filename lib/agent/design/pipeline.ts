@@ -97,34 +97,57 @@ export type DesignPipelineOutcome =
 			reason: "length" | "invalid-structured-output" | "cancelled";
 	  };
 
+/** Live model-call activity: which pipeline phase is streaming, and how many
+ *  characters (reasoning + output) its call has just delivered. Fires per
+ *  streamed chunk; the caller owns throttling and any wire projection. */
+export type PipelineActivity = (
+	stage: DesignPipelineStage,
+	deltaChars: number,
+) => void;
+
 export interface DesignPipelineArgs {
 	ctx: StructuredModelRunContext;
 	pkg: DesignSourcePackage;
 	signal: AbortSignal;
+	onModelActivity?: PipelineActivity;
 }
 
 export async function runDesignPipeline(
 	args: DesignPipelineArgs,
 ): Promise<DesignPipelineOutcome> {
-	const { ctx, pkg, signal } = args;
+	const { ctx, pkg, signal, onModelActivity } = args;
 	await insertDesignSourcePackage({ pkg, runId: ctx.runId });
 
 	/* ---- resume: converge on what already exists --------------------- */
 	const latest = await readLatestDesignRevision(pkg.designSessionId);
 	if (latest && latest.sourcePackageDigest === pkg.packageDigest) {
 		if (latest.lifecycle === "accepted") {
-			return finishFromAccepted(ctx, pkg, latest, signal);
+			return finishFromAccepted(ctx, pkg, latest, signal, onModelActivity);
 		}
 		const round = await deriveRound(latest);
 		const priorReviews = await readDesignReviews(latest.id);
 		if (priorReviews.length === 0) {
-			return reviewRound(ctx, pkg, latest, round, signal);
+			return reviewRound(ctx, pkg, latest, round, signal, onModelActivity);
 		}
-		return continueFromReviews(ctx, pkg, latest, priorReviews, round, signal);
+		return continueFromReviews(
+			ctx,
+			pkg,
+			latest,
+			priorReviews,
+			round,
+			signal,
+			onModelActivity,
+		);
 	}
 
 	/* ---- author ------------------------------------------------------ */
-	const authored = await runDesignAuthor(ctx, pkg, signal);
+	const authored = await runDesignAuthor(
+		ctx,
+		pkg,
+		renderCapabilityCatalog(buildCapabilityCatalog()),
+		signal,
+		phaseActivity(onModelActivity, "author"),
+	);
 	if (authored.kind === "not-produced") {
 		return { kind: "not-produced", stage: "author", reason: authored.reason };
 	}
@@ -141,7 +164,15 @@ export async function runDesignPipeline(
 		lifecycle: "draft",
 		runId: ctx.runId,
 	});
-	return reviewRound(ctx, pkg, draft, 1, signal);
+	return reviewRound(ctx, pkg, draft, 1, signal, onModelActivity);
+}
+
+/** Bind the shared activity callback to one phase's model call. */
+function phaseActivity(
+	activity: PipelineActivity | undefined,
+	stage: DesignPipelineStage,
+): ((deltaChars: number) => void) | undefined {
+	return activity && ((deltaChars) => activity(stage, deltaChars));
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,12 +203,14 @@ async function reviewRound(
 	draft: DesignRevisionRecord,
 	round: 1 | 2,
 	signal: AbortSignal,
+	activity: PipelineActivity | undefined,
 ): Promise<DesignPipelineOutcome> {
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
 	const reviewed = await runDesignReviewer(
 		ctx,
 		{ pkg, contract: draft.envelope.payload, catalogText },
 		signal,
+		phaseActivity(activity, "review"),
 	);
 	if (reviewed.kind === "not-produced") {
 		/* The draft stays persisted and UNREVIEWED — nothing may label it
@@ -194,7 +227,15 @@ async function reviewRound(
 		designRevisionId: draft.id,
 		runId: ctx.runId,
 	});
-	return continueFromReviews(ctx, pkg, draft, [review], round, signal);
+	return continueFromReviews(
+		ctx,
+		pkg,
+		draft,
+		[review],
+		round,
+		signal,
+		activity,
+	);
 }
 
 /**
@@ -211,6 +252,7 @@ async function continueFromReviews(
 	reviews: readonly DesignReviewRecord[],
 	round: 1 | 2,
 	signal: AbortSignal,
+	activity: PipelineActivity | undefined,
 ): Promise<DesignPipelineOutcome> {
 	const gated = reviews
 		.flatMap((review) => review.envelope.payload.findings)
@@ -238,9 +280,9 @@ async function continueFromReviews(
 			runId: ctx.runId,
 			dispositions: [],
 		});
-		return finishFromAccepted(ctx, pkg, accepted, signal);
+		return finishFromAccepted(ctx, pkg, accepted, signal, activity);
 	}
-	return reviseRound(ctx, pkg, draft, reviews, round, signal);
+	return reviseRound(ctx, pkg, draft, reviews, round, signal, activity);
 }
 
 async function reviseRound(
@@ -250,12 +292,19 @@ async function reviseRound(
 	reviews: readonly DesignReviewRecord[],
 	round: 1 | 2,
 	signal: AbortSignal,
+	activity: PipelineActivity | undefined,
 ): Promise<DesignPipelineOutcome> {
 	const reviewPayloads = reviews.map((review) => review.envelope.payload);
 	const revised = await runDesignReviser(
 		ctx,
-		{ pkg, contract: draft.envelope.payload, reviews: reviewPayloads },
+		{
+			pkg,
+			contract: draft.envelope.payload,
+			reviews: reviewPayloads,
+			catalogText: renderCapabilityCatalog(buildCapabilityCatalog()),
+		},
 		signal,
+		phaseActivity(activity, "revise"),
 	);
 	if (revised.kind === "not-produced") {
 		return { kind: "not-produced", stage: "revise", reason: revised.reason };
@@ -290,14 +339,14 @@ async function reviseRound(
 		dispositions,
 	});
 	if (lifecycle === "accepted") {
-		return finishFromAccepted(ctx, pkg, revisionRecord, signal);
+		return finishFromAccepted(ctx, pkg, revisionRecord, signal, activity);
 	}
 	log.info("[designPipeline] second review round", {
 		designSessionId: pkg.designSessionId,
 		revision: revisionRecord.revision,
 		depth,
 	});
-	return reviewRound(ctx, pkg, revisionRecord, 2, signal);
+	return reviewRound(ctx, pkg, revisionRecord, 2, signal, activity);
 }
 
 async function finishFromAccepted(
@@ -305,6 +354,7 @@ async function finishFromAccepted(
 	pkg: DesignSourcePackage,
 	accepted: DesignRevisionRecord,
 	signal: AbortSignal,
+	activity: PipelineActivity | undefined,
 ): Promise<DesignPipelineOutcome> {
 	const contract = accepted.envelope.payload;
 	const blockingQuestions = contract.openQuestions.filter(
@@ -325,6 +375,7 @@ async function finishFromAccepted(
 		ctx,
 		{ contract, catalogText },
 		signal,
+		phaseActivity(activity, "plan"),
 	);
 	if (planned.kind === "not-produced") {
 		return { kind: "not-produced", stage: "plan", reason: planned.reason };

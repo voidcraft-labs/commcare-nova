@@ -189,7 +189,7 @@ const SESSION_LEASE_SELECT = [
 	"updated_at",
 ] as const;
 
-type LockedSessionRow = DesignSessionLeaseRow & {
+export type LockedSessionRow = DesignSessionLeaseRow & {
 	id: string;
 	mode: string;
 	project_id: string;
@@ -199,7 +199,14 @@ type LockedSessionRow = DesignSessionLeaseRow & {
 	created_at: Date;
 };
 
-async function lockSessionRow(
+/**
+ * Lock one design-session row `FOR UPDATE` — the authority-carrier lock every
+ * session-first transaction takes (the lifecycle writers here, a genesis
+ * change set's stage/commit transactions, and the materialization transfer).
+ * Callers own the §11.13 ordering around it: lifecycle writers take the actor
+ * gate first; unchanged-holder staging takes no gate and leads with this row.
+ */
+export async function lockSessionRow(
 	tx: Transaction<AppDatabase>,
 	designSessionId: string,
 ): Promise<LockedSessionRow | undefined> {
@@ -805,6 +812,33 @@ export async function discardDesignSession(
 	});
 }
 
+/**
+ * Point the session at its accepted design revision and active build plan —
+ * the explicit selection §18.4 requires (never "latest timestamp"). Not
+ * holder/reservation state: no actor gate, plain row-locked update.
+ */
+export async function setDesignSessionActiveArtifacts(
+	designSessionId: string,
+	artifacts: {
+		activeDesignRevisionId: string;
+		activeBuildPlanId: string;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		const row = await lockSessionRow(tx, designSessionId);
+		if (!row) return;
+		await tx
+			.updateTable("design_sessions")
+			.set({
+				active_design_revision_id: artifacts.activeDesignRevisionId,
+				active_build_plan_id: artifacts.activeBuildPlanId,
+				updated_at: new Date(),
+			})
+			.where("id", "=", designSessionId)
+			.execute();
+	});
+}
+
 // ── Loads ──────────────────────────────────────────────────────────
 
 /** Load one design session, or null. Authorization is the caller's job
@@ -842,6 +876,24 @@ export async function loadDesignSession(
 		created_at: row.created_at,
 		updated_at: row.updated_at,
 	};
+}
+
+/** The MATERIALIZED build session bound to an app, or null — how an
+ *  app-target build turn (a re-drive of an interrupted design build) finds
+ *  the orchestration scope its run resumes. At most one exists: `app_id` is
+ *  write-once at materialization. */
+export async function loadMaterializedSessionForApp(
+	appId: string,
+): Promise<DesignSessionDoc | null> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_sessions")
+		.select(["id"])
+		.where("app_id", "=", appId)
+		.where("state", "=", "materialized")
+		.executeTakeFirst();
+	if (!row) return null;
+	return loadDesignSession(row.id);
 }
 
 /** Whether ANY run currently holds this design session live — the stream

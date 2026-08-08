@@ -125,7 +125,9 @@ async function commitDesignChangeSetSidecar(
 		.selectFrom("design_change_sets")
 		.select([
 			"id",
+			"kind",
 			"app_id",
+			"proposed_app_id",
 			"status",
 			"revision",
 			"attempt_id",
@@ -144,9 +146,14 @@ async function commitDesignChangeSetSidecar(
 			`Change set ${sidecar.changeSetId} no longer exists, so this canonical commit cannot carry its receipt.`,
 		);
 	}
-	if (row.app_id !== commit.appId) {
+	/* A genesis set carries its app identity as `proposed_app_id` (its
+	 * `app_id` stays NULL by table CHECK — the app row it proposed is being
+	 * born in this very transaction); an app-edit set carries `app_id`. */
+	const committingAppId =
+		row.kind === "genesis" ? row.proposed_app_id : row.app_id;
+	if (committingAppId !== commit.appId) {
 		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} belongs to app ${row.app_id ?? "none"}, not the committing app ${commit.appId}.`,
+			`Change set ${sidecar.changeSetId} belongs to app ${committingAppId ?? "none"}, not the committing app ${commit.appId}.`,
 		);
 	}
 	if (row.status !== "open") {

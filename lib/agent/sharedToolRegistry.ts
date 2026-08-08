@@ -47,6 +47,7 @@ import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "@/lib/agent/tools/moveField";
+import { moveModuleTool } from "@/lib/agent/tools/moveModule";
 import {
 	addLocationPropertiesTool,
 	addOrganizationLevelsTool,
@@ -332,6 +333,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "moveField",
 		mcpName: "move_field",
 		tool: moveFieldTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "moveModule",
+		mcpName: "move_module",
+		tool: moveModuleTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

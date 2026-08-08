@@ -270,11 +270,6 @@ describe("automation shared tools", () => {
 				},
 			],
 		});
-		mocks.readAuthoring.mockResolvedValue({
-			blueprint: h.currentDoc(),
-			blueprintSeq: 2,
-			organization: { revision: "1", locations: [] },
-		});
 		const read = await h.runTool(getAutomationsTool, {});
 		expect(read.data).toEqual([
 			expect.objectContaining({
@@ -317,7 +312,7 @@ describe("automation shared tools", () => {
 		expect(h.currentDoc().automationOrder).toBeUndefined();
 	});
 
-	it("derives read guidance from the authorized organization snapshot", async () => {
+	it("reads the workspace's automations and guides them from the authorized place catalog", async () => {
 		const current = doc();
 		const locationUuid = testUuid("tool-automation-location");
 		const locatedRule: Automation = {
@@ -355,30 +350,29 @@ describe("automation shared tools", () => {
 		};
 		current.automations = { [RULE_UUID]: locatedRule };
 		current.automationOrder = [RULE_UUID];
-		mocks.readAuthoring.mockResolvedValue({
-			blueprint: current,
-			blueprintSeq: 3,
-			organization: {
-				revision: "2",
-				locations: [
-					{
-						id: locationUuid,
-						levelUuid: testUuid("tool-location-level"),
-						parentId: null,
-						siteCode: "north",
-						name: "North district",
-						externalId: null,
-						latitude: null,
-						longitude: null,
-						values: {},
-						archivedAt: null,
-						orderKey: "a0",
-					},
-				],
-			},
+		mocks.readOrganization.mockResolvedValue({
+			revision: "2",
+			locations: [
+				{
+					id: locationUuid,
+					levelUuid: testUuid("tool-location-level"),
+					parentId: null,
+					siteCode: "north",
+					name: "North district",
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+					archivedAt: null,
+					orderKey: "a0",
+				},
+			],
 		});
 
 		const read = await makeHarness(current).runTool(getAutomationsTool, {});
+		/* The document comes from the workspace snapshot; only the places are
+		 * read externally. */
+		expect(mocks.readAuthoring).not.toHaveBeenCalled();
 		expect(read.data).toEqual([
 			expect.objectContaining({
 				setupGuide: expect.objectContaining({

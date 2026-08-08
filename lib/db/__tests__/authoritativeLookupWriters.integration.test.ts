@@ -54,10 +54,10 @@ const {
 	appendSyntheticBatch,
 	commitAppProjectMove,
 	commitGuardedBatch: commitGuardedBatchOpaque,
-	createApp,
 	loadApp,
 	repairLookupReferenceEdges,
 } = await import("../apps");
+const { createExplicitBlankApp } = await import("../appGenesis");
 const commitGuardedBatch = (
 	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
 		mutations: unknown;
@@ -153,7 +153,7 @@ async function createTable(
 
 async function createTestApp(projectId = PROJECT_A): Promise<string> {
 	return (
-		await createApp(ACTOR, projectId, crypto.randomUUID(), {
+		await createExplicitBlankApp(ACTOR, projectId, crypto.randomUUID(), {
 			name: "Writer test",
 			status: "complete",
 		})
@@ -283,10 +283,15 @@ async function seedHistoricalLookupCarrier(
 
 describe("atomic creation", () => {
 	it("returns the exact committed canonical baseline and starter identities", async () => {
-		const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-			name: "  Born app  ",
-			status: "complete",
-		});
+		const receipt = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{
+				name: "  Born app  ",
+				status: "complete",
+			},
+		);
 		const loaded = await loadApp(receipt.appId);
 
 		expect(receipt.baseSeq).toBe(1);
@@ -354,7 +359,7 @@ describe("atomic creation", () => {
 			FOR EACH ROW EXECUTE FUNCTION reject_genesis_baseline();
 		`);
 		await expect(
-			createApp(ACTOR, PROJECT_A, runId, {
+			createExplicitBlankApp(ACTOR, PROJECT_A, runId, {
 				name: "Rollback proof",
 				status: "complete",
 			}),
@@ -765,10 +770,15 @@ describe("lookup materialization versus resource deletion", () => {
 		const table = await createTable(PROJECT_A, "Serialized delete first");
 		const column = table.columns[0];
 		if (column === undefined) throw new Error("lookup table has no column");
-		const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-			name: "Delete-first candidate",
-			status: "complete",
-		});
+		const receipt = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{
+				name: "Delete-first candidate",
+				status: "complete",
+			},
+		);
 		const appId = receipt.appId;
 		await h.pool().query(`
 			CREATE FUNCTION wait_authoritative_delete_race() RETURNS trigger
@@ -899,10 +909,15 @@ describe("lookup materialization versus resource deletion", () => {
 			[MISSING_TABLE_ID, MISSING_COLUMN_ID],
 			[foreign.id, foreignColumn.id],
 		] as const) {
-			const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-				name: "Unavailable candidate",
-				status: "complete",
-			});
+			const receipt = await createExplicitBlankApp(
+				ACTOR,
+				PROJECT_A,
+				crypto.randomUUID(),
+				{
+					name: "Unavailable candidate",
+					status: "complete",
+				},
+			);
 			const appId = receipt.appId;
 			const error = await commitGuardedBatch({
 				appId,

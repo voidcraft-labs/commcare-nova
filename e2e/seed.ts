@@ -37,12 +37,12 @@ import {
 	closeCaseStoreDatabase,
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import {
 	appendSyntheticBatch,
 	claimAndReserveRun,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
-	createApp,
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { persistResponseSnapshot, upsertThreadTurn } from "@/lib/db/threads";
@@ -438,7 +438,7 @@ async function main(): Promise<void> {
 
 	// App state → Postgres, via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
-	const { appId: openAppId } = await createApp(
+	const { appId: openAppId } = await createExplicitBlankApp(
 		SEED.userId,
 		seedProjectId,
 		randomUUID(),
@@ -450,7 +450,7 @@ async function main(): Promise<void> {
 	const organizationAppIds: string[] = [];
 	const organizationCaseChangeRoutes: string[] = [];
 	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
-		const { appId, baseSeq } = await createApp(
+		const { appId, baseSeq } = await createExplicitBlankApp(
 			SEED.userId,
 			seedProjectId,
 			randomUUID(),
@@ -486,7 +486,7 @@ async function main(): Promise<void> {
 	 * stores and written into seed.json for exact deep links. Materialize before
 	 * inserting so the fixture exercises the same schema gate as live case data. */
 	const { appId: caseWorkspaceAppId, baseSeq: caseWorkspaceGenesisSeq } =
-		await createApp(SEED.userId, seedProjectId, randomUUID(), {
+		await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
 			name: CASE_WORKSPACE_SEED.appName,
 			status: "complete",
 		});
@@ -615,7 +615,7 @@ async function main(): Promise<void> {
 	}[] = [];
 	for (let attempt = 0; attempt < CASE_CHANGES_FIXTURE_COUNT; attempt++) {
 		const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
-			await createApp(SEED.userId, seedProjectId, randomUUID(), {
+			await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
 				name: CASE_CHANGES_SEED.appName,
 				status: "complete",
 			});
@@ -681,12 +681,11 @@ async function main(): Promise<void> {
 	 * upsert + response append, live marker cleared) — exactly the rows finished
 	 * runs leave. The builder must hydrate the newest transcript on load and
 	 * switch to the older one without exposing the prior transcript. */
-	const { appId: threadsAppId, baseSeq: threadsGenesisSeq } = await createApp(
-		SEED.userId,
-		seedProjectId,
-		randomUUID(),
-		{ name: SEED.threadsAppName, status: "complete" },
-	);
+	const { appId: threadsAppId, baseSeq: threadsGenesisSeq } =
+		await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
+			name: SEED.threadsAppName,
+			status: "complete",
+		});
 	await appendSyntheticBatch({
 		appId: threadsAppId,
 		expectedBaseSeq: threadsGenesisSeq,
@@ -762,12 +761,11 @@ async function main(): Promise<void> {
 	 * upsert marks the thread live, and the response append (the assistant
 	 * message carrying the input-available tool part) retires the marker — so
 	 * opening it must not attempt a stream resume. */
-	const { appId: scrollAppId, baseSeq: scrollGenesisSeq } = await createApp(
-		SEED.userId,
-		seedProjectId,
-		randomUUID(),
-		{ name: SEED.scrollAppName, status: "complete" },
-	);
+	const { appId: scrollAppId, baseSeq: scrollGenesisSeq } =
+		await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
+			name: SEED.scrollAppName,
+			status: "complete",
+		});
 	await appendSyntheticBatch({
 		appId: scrollAppId,
 		expectedBaseSeq: scrollGenesisSeq,
@@ -911,7 +909,7 @@ async function main(): Promise<void> {
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
 			(
-				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
 					name: SEED.deleteAppName,
 					status: "complete",
 				})
@@ -927,7 +925,7 @@ async function main(): Promise<void> {
 	for (let i = 0; i < MOVE_APP_COUNT; i++) {
 		moveAppIds.push(
 			(
-				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
 					name: SEED.moveAppName,
 					status: "complete",
 				})

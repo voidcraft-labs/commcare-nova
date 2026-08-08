@@ -31,6 +31,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"WORKER_PROVISIONING_NOT_SHIPPED",
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
+	"CASE_SEARCH_IS_LIVE_AND_ONLINE",
 	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 	"STANDARD_SCALAR_WRITERS_LIMITED",
 	"CASE_NAME_REQUIRED_ON_CREATE",
@@ -102,6 +103,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"Typed location-based case ownership executes in Preview, but every export mode for it stays closed until the usercase/deployment work ships the persona-scoped locations fixture and HQ identity mapping.",
 		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+	},
+	CASE_SEARCH_IS_LIVE_AND_ONLINE: {
+		code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+		statement:
+			"Case search queries the server live: a Web Apps user is connected anyway, but on mobile a search (and the claim that follows selecting a result) fails without connectivity, so an offline-first design must not gate its primary workflow behind case search.",
+		sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
 	},
 	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: {
 		code: "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",

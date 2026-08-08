@@ -2,8 +2,8 @@
 
 A typed, evidence-linked, NON-EXECUTABLE design layer: the vocabulary a
 chat-started app is designed in (actors/tasks/records/facts/rules/read
-models/access/navigation/decisions/scenarios), the independent review of
-that design, and the digest-bound slice plan that lowers it. Nothing here
+models/lookup tables/access/navigation/decisions/scenarios), the independent
+review of that design, and the digest-bound slice plan that lowers it. Nothing here
 is a Blueprint phase: no wire emitter, no Preview, no export, no mutation
 authority — design artifacts influence a build brief and can do nothing
 else, and a stale or absent Design Contract never blocks a valid human or
@@ -15,11 +15,13 @@ direct MCP edit.
   Blueprint's authored `Uuid`. Never passes into a canonical mutation
   without an explicit implementation binding.
 - `evidence.ts` / `platformConstraints.ts` — source references are
-  POINTERS (message coordinate, attachment-extract coordinate, catalogued
-  constraint code), never copies; the constraint-code leaf is the closed
-  citable platform vocabulary (dependency-free so validators don't drag
-  the tool registry in). An explicit claim must cite a message/attachment
-  source — the claim schema enforces it.
+  POINTERS (message coordinate, attachment-extract coordinate, image
+  asset-id + bytes digest, catalogued constraint code), never copies; the
+  constraint-code leaf is the closed citable platform vocabulary
+  (dependency-free so validators don't drag the tool registry in). An
+  explicit claim must cite a message, attachment, or image source — the
+  claim schema enforces it, and an image citation is bound to the exact
+  bytes the model saw.
 - `contract.ts` + `graph.ts` — the contract collections and
   `validateDesignGraph`, which runs INSIDE the schema parse (id
   uniqueness across one namespace, kind-compatible reference closure,
@@ -27,9 +29,11 @@ direct MCP edit.
   record-bound transition writes, acyclic parent forests, blocking
   questions naming their intents, scenarios exercising the workflow). An
   incoherent contract is an invalid structured output, never an artifact.
-  The lookup fact-source arm's intent ids are exempt from closure until
-  the lookup-intent vocabulary ships (the plan's Unit E, work item 19);
-  the image evidence coordinate is likewise Unit E work item 20.
+  A `lookup` fact source names the contract's own `lookupIntents` — a table
+  intent and one of THAT table's columns — with no exemption; lookup
+  intents describe Project reference data an external action loads, so
+  they are deliberately absent from `implementableIntentIds` and no slice
+  owns one.
 - `review.ts` — findings (severity EARNED by basis: heuristic never
   critical, source-supported critical needs source refs,
   platform-critical needs a catalogued code), dispositions, and closure.
@@ -66,20 +70,29 @@ direct MCP edit.
   graph into a consumer) — the one boundary turning a caller-authorized
   transcript into model input: bounded labeled blocks, Project-verified
   attachments through the extraction store, image projections bound by
-  content digest, honest over-bound REJECTION (never silent clipping of a
-  source away), and a persisted payload of references + normalized claims
+  content digest (that digest is also the image's citable coordinate, in
+  the labeled `sources` index and on the rendered image label), honest
+  over-bound REJECTION (never silent clipping of a source away), and a persisted payload of references + normalized claims
   only — no extract bodies, no transcripts, no image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any
-  meaning-bearing change. Source text renders inside fixed
+  meaning-bearing change. Every system prompt opens with the shared
+  `DOMAIN_PREAMBLE`: each call is a fresh context, so the preamble names
+  the domain (CommCare, Dimagi, what a case is, offline-first, NOT a
+  general app platform) to activate the model's real prior knowledge and
+  keep a design from drifting toward a web/mobile stack — without it
+  "Nova" is an undefined word. Source text renders inside fixed
   `<nova:source>` delimiters with the source-is-data contract stated in
   every system prompt.
 - `author.ts` / `reviewer.ts` / `reviser.ts` / `planner.ts` — thin
   structured calls over `lib/agent/modelRunContext.ts` (the §7.5 seam;
-  `designGenerationContext.ts` is the pre-app implementation). The
-  reviewer receives EXACTLY the source package, the proposed contract,
-  and the capability catalog — never author reasoning or prior reviewer
-  prose, never tool authority.
+  `designGenerationContext.ts` is the pre-app implementation). ALL FOUR
+  calls receive the rendered capability catalog — the author designs
+  within the constructible surface rather than having the reviewer
+  discover the overrun a paid round later. The reviewer's independence
+  is unchanged: EXACTLY the source package, the proposed contract, and
+  the catalog — never author reasoning or prior reviewer prose, never
+  tool authority.
 - `capabilityCatalog.ts` — generated from `SHARED_TOOL_REGISTRY`, the
   field/case-data vocabularies, and the constraint leaf; snapshot-pinned
   (`__tests__/capabilityCatalog.test.ts`), with gap codes pinned against
@@ -112,9 +125,10 @@ direct MCP edit.
 5. Every digest is the shared canonical-JS discipline
    (`lib/utils/canonicalJson.ts`).
 6. Nothing here reaches a canonical store: no `app_changes`, no SSE, no
-   NOTIFY, no Blueprint mutation, no external write. Later units consume
-   the artifacts (change sets already strict-parse `DesignId`s; the
-   design-session/orchestrator units add the session table and runtime).
+   NOTIFY, no Blueprint mutation, no external write. The consumers live
+   outside the package: change sets strict-parse `DesignId`s, and
+   `lib/agent/build`'s orchestrator runs this pipeline behind the chat
+   route's design-session turns and executes its accepted plans.
 
 ## Tests
 

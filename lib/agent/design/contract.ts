@@ -86,10 +86,10 @@ export type RecordConcept = z.infer<typeof recordConceptSchema>;
  * app, and `constant` is fixed. The conformance analyzer compares this
  * declared source with the implementation to find unjustified hidden writers.
  *
- * The `lookup` arm's intent ids name a lookup-table/column intent vocabulary
- * that does not exist in the contract root yet; they are exempt from graph
- * closure until that vocabulary lands with the new-build cutover (the
- * reviewed-intent plan's Unit E, work item 19 — see `graph.ts`).
+ * The `lookup` arm's ids name the contract's own lookup vocabulary
+ * (`lookupIntents`): the table intent the value is read from, and one of THAT
+ * table's own column intents. The graph validator proves both, exactly like
+ * every other reference.
  */
 export const factSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("answer"), taskInputId: designIdSchema }).strict(),
@@ -103,7 +103,14 @@ export const factSourceSchema = z.discriminatedUnion("kind", [
 		})
 		.strict(),
 	z.object({ kind: z.literal("external") }).strict(),
-	z.object({ kind: z.literal("constant"), value: z.unknown() }).strict(),
+	z
+		.object({
+			kind: z.literal("constant"),
+			/** A fixed scalar — the only shape a constant fact can lower to (a
+			 *  fixed form value or case write). */
+			value: z.union([z.string(), z.number(), z.boolean()]),
+		})
+		.strict(),
 ]);
 export type FactSource = z.infer<typeof factSourceSchema>;
 
@@ -263,6 +270,40 @@ export const readModelSchema = z
 	.strict();
 export type ReadModel = z.infer<typeof readModelSchema>;
 
+/** One column of a lookup table intent — the design-level counterpart of a
+ *  data-table column. Column ids live in the contract's ONE id namespace, so
+ *  a fact can name the exact column its value is read from. */
+export const lookupColumnIntentSchema = z
+	.object({
+		id: designIdSchema,
+		name: z.string().min(1),
+		meaning: z.string().min(1),
+		evidence: evidenceSchema,
+	})
+	.strict();
+export type LookupColumnIntent = z.infer<typeof lookupColumnIntentSchema>;
+
+/**
+ * Reference data the workflow reads but does not collect — the design-level
+ * counterpart of a Project lookup table. A `lookup`-sourced fact names one of
+ * these tables and one of that table's columns.
+ *
+ * A lookup intent is deliberately NOT an implementable intent
+ * (`buildPlan.ts::implementableIntentIds`): it describes data that lives in
+ * the Project beside the app, loaded by an external action, not Blueprint
+ * structure a slice constructs. No slice owns one.
+ */
+export const lookupTableIntentSchema = z
+	.object({
+		id: designIdSchema,
+		name: z.string().min(1),
+		purpose: z.string().min(1),
+		columns: z.array(lookupColumnIntentSchema).min(1),
+		evidence: evidenceSchema,
+	})
+	.strict();
+export type LookupTableIntent = z.infer<typeof lookupTableIntentSchema>;
+
 /** Who may do what to which intents, and under what condition. */
 export const accessPolicySchema = z
 	.object({
@@ -390,6 +431,7 @@ const appDesignContractBaseSchema = z
 		tasks: z.array(taskSchema).min(1),
 		transitions: z.array(lifecycleTransitionSchema),
 		readModels: z.array(readModelSchema),
+		lookupIntents: z.array(lookupTableIntentSchema),
 		accessPolicies: z.array(accessPolicySchema),
 		navigation: z.array(navigationIntentSchema),
 		decisions: z.array(architectureDecisionSchema),

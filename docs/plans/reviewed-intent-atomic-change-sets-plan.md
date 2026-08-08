@@ -334,7 +334,7 @@ Rules:
 - Do not store model reasoning.
 - A claim marked `explicit` must carry a user-message or attachment source.
 - A claim based only on Nova/CommCare capability knowledge uses `platform-constraint`, whose `code` is the closed vocabulary in `platformConstraints.ts` (enforced by the schema enum).
-- There is no image coordinate yet: a requirement visible only in an attached image cites the message that attached it, with the image bytes digest-bound in the source package. The image evidence arm ships with the new-build cutover (Unit E work item 21), so image-heavy designs gain exact citations before real builds rely on them.
+- An image requirement cites the IMAGE evidence coordinate — asset id plus content digest — and the author/reviewer prompts teach that citation; the attaching message remains citable for conversational context, but an image-only requirement is never reduced to it.
 - A reviewer cannot create a source-supported critical finding without a source reference.
 
 ### 6.4 UX-level design actor
@@ -413,7 +413,7 @@ const factDefinitionSchema = z.object({
 
 A fact's `source` is load-bearing. It is the basis for lowering direct field-to-case writes correctly and for identifying unjustified hidden writer fields.
 
-The `lookup` arm's intent ids name a design-level lookup vocabulary (table/column intents) the contract root does not carry yet, so they are the one reference family exempt from graph closure. That vocabulary — and the lifted exemption — ships with the new-build cutover (Unit E work item 20): a user-facing pipeline must be able to describe lookup-backed data as precisely as it validates everything else. Until then the canonical commit gate remains the full authority over real lookup references.
+The `lookup` arm's intent ids name the contract root's design-level lookup vocabulary (table/column intents), and the arm participates in graph closure like every other reference family — a lookup fact naming an undeclared intent rejects the artifact. Lookup intents are design vocabulary, not claim ownership: a slice's `owningIntentIds` never name them, and the canonical commit gate remains the runtime authority over real lookup references.
 
 ### 6.6 Tasks, inputs, transitions, and read-back
 
@@ -969,7 +969,7 @@ Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interfa
 
 ### 7.6 Capability catalog
 
-The review/planner capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose.
+The capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose. Every pipeline call receives its rendered projection — author and reviser included, so the design is made inside the constructible surface rather than corrected against it a round later — and every pipeline system prompt opens with a shared domain preamble naming CommCare and the pipeline's place in Nova (each call is a fresh context; the preamble is what activates the model's prior platform knowledge).
 
 It contains:
 
@@ -1155,6 +1155,7 @@ interface SliceExecutionBrief {
   scenarios: AcceptanceScenario[];
   assumptions: Assumption[];
   externalActions: ExternalAction[];
+  lookupIntents: LookupTableIntent[];
   loweringConstraints: PlatformConstraint[];
 }
 ```
@@ -2240,7 +2241,7 @@ Refactor all thread functions around:
 type ThreadTarget = GenerationTarget;
 ```
 
-A build thread remains design-session-targeted after materialization. This preserves one transcript lineage and avoids rewriting a live row while a stream may be using it. The target resolver returns the materialized app when app authority is needed.
+A build thread remains design-session-targeted after materialization — including the EDIT turns that follow completion: the chat route derives the run's generation target from the thread's design LINEAGE (a presented `designSessionId`, or the app-target build claim's bound session), not from whether the orchestrator runs, so the same transcript row keeps its exact target for its whole life while thread writes stay exact-target-guarded. This preserves one transcript lineage and avoids rewriting a live row while a stream may be using it. The target resolver returns the materialized app when app authority is needed, thread READS on an app target additionally include its bound materialized session's rows (the app page is where the user finds the build conversation), and the wire thread meta carries `design_session_id` so the client echoes it on every send.
 
 ### 11.7 Preserve the complete transcript protocol
 
@@ -2569,8 +2570,8 @@ Before app insertion, preparation proves:
 
 Inside the materialization transaction:
 
-- insert/upsert required `case_type_schemas` or equivalent runtime schema rows at `synced_seq = 1`;
-- insert durable pending index work;
+- insert/upsert required `case_type_schemas` rows at `synced_seq = 1` (`applySchemaChangePhaseA`, per case type);
+- record durable pending index work — the existing `index_pending_seq` convergence column, no new table;
 - do not run `CREATE INDEX CONCURRENTLY`.
 
 After commit:
@@ -2614,6 +2615,8 @@ One retryable transaction:
 25. commit.
 
 Nothing exists if any pre-commit step fails.
+
+Step order within the transaction is rollback-equivalent: the shared genesis writer evaluates the absolute gate and export readiness against the prepared candidate after the app-row insert (the lookup-definition locks it needs follow the row), and a rejection aborts the whole transaction — "nothing exists on failure" is the invariant, not a particular statement order. A design-session claim conflict surfaces PRE-STREAM as the ordinary busy rejection: a session is single-author scope, so the conflicting holder is this user's own live run in another tab and there is nothing to serialize behind (the app path's serialize-with-wait stays app-only).
 
 The app event log begins at materialization. Private genesis steps are design provenance, not app replay history.
 
@@ -2774,8 +2777,11 @@ const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("awaiting-user"),
     designSessionId: z.string().uuid(),
-    questionArtifactId: z.string().uuid(),
-    holderNonce: z.string().uuid(),
+    // The blocking questions live ON the accepted revision, so the
+    // revision id is the question artifact's address; the paused holder
+    // itself rides the design-session row, never an event payload.
+    designRevisionId: z.string().uuid(),
+    blockingQuestionIds: z.array(designIdSchema).min(1),
   }),
   z.object({
     kind: z.literal("planning"),
@@ -2791,35 +2797,38 @@ const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
     attempt: z.number().int().positive(),
   }),
   z.object({
-    kind: z.literal("reviewing-implementation"),
-    appId: z.string().min(1),
-    appSeq: persistedSequenceSchema,
-    designRevisionId: z.string().uuid(),
-  }),
-  z.object({
     kind: z.literal("finished"),
     appId: z.string().min(1),
     appSeq: persistedSequenceSchema,
-    completionReportId: z.string().uuid(),
   }),
   z.object({
     kind: z.literal("failed"),
     failureId: z.string().uuid(),
     recoverable: z.boolean(),
+    errorType: z.string().min(1),
   }),
 ]);
 ```
+
+The `reviewing-implementation` arm and `finished`'s `completionReportId` are
+the conformance unit's additions: verification inserts its own event kinds
+between `executing-slice` and `finished` when it lands, and `finished` then
+carries the completion report it produced. Slice completion itself needs no
+event kind — a slice's only completion authority is its committed receipt
+(`design_committed_slices` / the materialization receipt), so the fold reads
+committed slices from their own table rather than from a duplicated event.
 
 The row does not store an editable state-machine blob. Each transition is an append-only orchestration event with:
 
 - event ID;
 - design session ID;
-- exact holder identity;
+- the holder's run id plus a SHA-256 digest of its nonce (the capability
+  itself never lands in an event row);
 - prior-event ID/digest;
 - event kind and strict payload;
 - timestamp.
 
-The current state is the strict fold of those events. A unique predecessor constraint prevents two continuations from advancing the same state. This gives process-death recovery and makes “review was skipped” structurally detectable.
+The current state is the strict fold of those events (`readOrchestrationHead` re-verifies contiguity, each predecessor id + digest, and kind-vs-payload agreement on every read), and the APPEND admits its payload against the same schema — an unpersistable state fails before it can poison the chain. A unique predecessor constraint prevents two continuations from advancing the same state (`OrchestrationForkError`). This gives process-death recovery and makes “review was skipped” structurally detectable.
 
 ### 13.3 Slice execution attempt
 
@@ -2851,7 +2860,7 @@ interface SliceExecutionAttempt {
 }
 ```
 
-Unique `(design_session_id, build_plan_id, slice_id, attempt)` and one-open-attempt constraints prevent duplicate workers. A resumed process loads the existing attempt and change set; it never starts a second overlay merely because the previous response was lost.
+`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and one-open-attempt constraints prevent duplicate workers. A resumed process loads the existing attempt and change set; it never starts a second overlay merely because the previous response was lost.
 
 ### 13.4 Execution brief
 
@@ -3040,17 +3049,13 @@ The executor prompt and deterministic checks enforce:
 
 ### 13.10 Granular staging tools
 
-The executor-only tool surface:
+The executor-only tool surface adds exactly:
 
-- `stageModule`;
-- `stageForm`;
-- `moveStagedModule`;
 - `inspectChangeSet`;
 - `commitChangeSet`;
-- `discardChangeSet`;
 - `raiseDesignExecutionIssue`.
 
-Field, case-list, and case-operation grains ride the shared granular tools over the overlay; there are no `stageFields`/`stageCaseListColumn`/`stageCaseOperation` twins.
+Module/form construction and reordering ride the SHARED granular tools over the overlay (`createModule`/`createForm`/`moveModule` stage exactly like every other stageable tool), so there are no `stageModule`/`stageForm`/`moveStagedModule` twins — and no `stageFields`/`stageCaseListColumn`/`stageCaseOperation` twins either. `discardChangeSet` is deliberately NOT model-facing: abandoning a slice is the orchestrator's decision (supersession, budget, escalation), never the executor's, so the discard writer exists only on the server surface.
 
 These tools reuse existing domain mutation builders where possible. They do not fork domain rules.
 
@@ -3122,13 +3127,15 @@ const designExecutionIssueSchema = z.object({
 }).strict();
 ```
 
-A raised issue ends the slice attempt's model loop. The orchestrator then does exactly one of:
+A raised issue ends the slice attempt's model loop. The orchestrator's full disposition vocabulary is:
 
 - answer from already accepted evidence and resume with a new immutable brief;
 - create and independently review a contract revision;
 - ask the user through the existing question protocol;
 - record a transparent deferred requirement and replan;
 - fail the build as unsupported.
+
+The new-build orchestrator exercises two of those arms today — `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure (the session stays claimable and the issue is durable on the attempt) — and the correction unit's completion loop is what adds the evidence-answer, revision, and replan dispositions.
 
 The executor cannot edit the Design Contract, disposition a reviewer finding, or select a new architecture.
 
@@ -3635,17 +3642,18 @@ The outline is informational. User approval is not a mandatory gate unless a que
 
 Server events:
 
-- `data-design-session`;
+- `data-design-session` — the turn's scope announce (`{designSessionId, materializedAppId}`; the one frame outside the envelope below, since it precedes any orchestration event);
+- `data-design-pulse` — the throttled live-activity signal while a design-phase model call streams (`{phase: author|review|revise|plan, chars}` — the phase from the server's own control flow plus the call's cumulative delivered character count; volume, never content). The pulse is what keeps the stage line truthful through the minutes a single call reasons silently, and it is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
 - `data-design-outline`;
-- `data-design-review-summary`;
 - `data-build-plan-summary`;
 - `data-build-slice-started`;
 - `data-build-slice-committed`;
-- `data-app-materialized`;
-- `data-conformance-summary`;
+- `data-app-materialized` — the strict activation receipt itself;
 - `data-build-completion`.
 
-Every event has:
+Review findings ride the outline projection (its status + finding counts) rather than a separate `data-design-review-summary` frame; `data-conformance-summary` is the conformance unit's addition.
+
+Every enveloped event has:
 
 ```ts
 interface DesignProgressEnvelope<T> {
@@ -3678,13 +3686,14 @@ The UI may show coarse statements such as “Building intake workflow” or “R
 
 When `data-app-materialized` arrives:
 
-1. strict-parse and digest-verify the receipt;
-2. install the complete sequence-`1` document atomically;
-3. promote the URL without a second history entry;
-4. initialize collaboration at sequence `1`;
-5. mount the normal builder;
-6. show the first coherent workflow;
-7. continue chat/build progress in place.
+1. strict-parse the receipt and install the complete sequence-`1` document atomically (install is synchronous — later frames in the same stream land on the installed doc — while the digest verifies concurrently over the shared canonical JSON text, WebCrypto against the server's `node:crypto` digest, surfacing the reload recovery on a mismatch);
+2. promote the URL without a second history entry;
+3. initialize collaboration at sequence `1`;
+4. mount the normal builder;
+5. show the first coherent workflow;
+6. continue chat/build progress in place.
+
+The explicit-blank action returns this exact receipt shape (null design lineage and change set, the starter UUIDs present), so one installer serves both births.
 
 There is no transient Survey/Question 1 flash. The design outline remains accessible from the conversation or later Design panel.
 
@@ -3707,7 +3716,7 @@ Peer tabs see only those canonical commits and normal reload boundaries.
 When a blocking question is raised:
 
 - persist the exact `askQuestions` tool state in the transcript;
-- set `awaiting_input` under the exact target holder;
+- set `awaiting_input` under the exact target holder — the SESSION row pre-materialization, the APP row after (the pause stamps whichever row carries the run);
 - show `needs-input`;
 - do not create/materialize an app merely to host the pause;
 - on answer, reacquire the same design-session holder nonce using the target-polymorphic resume protocol;
@@ -4181,6 +4190,14 @@ Every read/write:
 - No private change-set API leaks before its lease/recovery contract exists.
 
 ## 18. Persistence and migrations
+
+The cutover's one data repair is operational, not schematic: a pre-cutover
+app stuck non-`complete` has no bound design session, so the route refuses
+to re-drive it and the one-off `scan-legacy-preplan-builds` /
+`migrate-legacy-preplan-builds` pair (committed for audit, deleted after the
+production run) converges holder-free rows to `complete` through the
+reviewed operator-recovery authority. Held rows wait for the reaper; empty
+rows get per-app operator decisions.
 
 ### 18.1 Final table inventory
 

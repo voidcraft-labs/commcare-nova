@@ -85,8 +85,9 @@ export type DesignFinding = z.infer<typeof designFindingSchema>;
 /**
  * The self-contained grounding rules — severity is earned by basis:
  *  - a heuristic finding is never critical;
- *  - a source-supported critical/important finding carries a message or
- *    attachment reference;
+ *  - a source-supported critical/important finding carries a message,
+ *    attachment, or image reference — one of the three kinds that point at
+ *    what the user actually provided;
  *  - a platform-constraint finding carries a catalogued constraint
  *    reference (the code enum in `sourceRefSchema` closes the vocabulary);
  *  - a contract-internal critical finding names the contradicting intents;
@@ -113,14 +114,17 @@ export function validateFindingEvidence(
 	}
 	if (finding.basis === "source-supported" && gated) {
 		const sourced = finding.evidenceRefs.some(
-			(ref) => ref.kind === "message" || ref.kind === "attachment-extract",
+			(ref) =>
+				ref.kind === "message" ||
+				ref.kind === "attachment-extract" ||
+				ref.kind === "image",
 		);
 		if (!sourced) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["evidenceRefs"],
 				message:
-					"A source-supported critical or important finding must point at the message or attachment evidence that supports it.",
+					"A source-supported critical or important finding must point at the message, attachment, or image evidence that supports it.",
 			});
 		}
 	}
@@ -426,6 +430,10 @@ export function collectContractIds(
 		for (const write of transition.writes) ids.add(write.id);
 	}
 	for (const model of contract.readModels) ids.add(model.id);
+	for (const table of contract.lookupIntents) {
+		ids.add(table.id);
+		for (const column of table.columns) ids.add(column.id);
+	}
 	for (const policy of contract.accessPolicies) ids.add(policy.id);
 	for (const nav of contract.navigation) ids.add(nav.id);
 	for (const decision of contract.decisions) {
@@ -447,6 +455,8 @@ export function sourceRefKey(ref: SourceRef): string {
 			return `attachment:${ref.assetId}:${ref.extractorVersion}`;
 		case "platform-constraint":
 			return `platform:${ref.code}`;
+		case "image":
+			return `image:${ref.assetId}:${ref.bytesDigest}`;
 	}
 }
 

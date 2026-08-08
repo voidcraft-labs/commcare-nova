@@ -112,7 +112,7 @@ async function captureEditTurnBody(): Promise<CapturedBody> {
 
 	await generateText({
 		model: openai(SA_EDIT_MODEL),
-		system: buildSolutionsArchitectPrompt(doc),
+		system: buildSolutionsArchitectPrompt(),
 		messages: [...markStablePrefixBoundary(history), appState],
 		maxRetries: 0,
 		tools: {

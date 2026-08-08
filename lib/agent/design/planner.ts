@@ -32,6 +32,7 @@ export async function runDesignPlanner(
 	ctx: StructuredModelRunContext,
 	args: { contract: AppDesignContract; catalogText: string },
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<BuildPlanDraft>> {
 	const result = await ctx.runStructured({
 		schema: buildPlanDraftSchema,
@@ -41,6 +42,7 @@ export async function runDesignPlanner(
 		maxOutputTokens: DESIGN_PLANNER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_PLANNER_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	return toArtifactResult(result, signal);
 }

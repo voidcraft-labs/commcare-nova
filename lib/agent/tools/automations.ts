@@ -21,6 +21,7 @@ import {
 } from "@/lib/organization/service";
 import type {
 	OrganizationScope,
+	OrganizationSnapshot,
 	StoredLocation,
 } from "@/lib/organization/types";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -95,6 +96,27 @@ function scope(ctx: ToolInvocationContext): OrganizationScope {
 	};
 }
 
+/**
+ * The place catalog a setup guide resolves its location references against.
+ *
+ * Places are rows in the app's own store rather than Blueprint state, so this
+ * stays an external read even where the document itself comes from the
+ * workspace. A change set that has no app row yet cannot have a place row
+ * either, so an empty catalog at revision 0 — the same answer
+ * {@link readOrganization} gives an app that never created an organization —
+ * is the honest reading, not a lookup against an app id that does not exist.
+ *
+ * Guidance only. A committing arm still reads through {@link readOrganization}
+ * directly, because the revision it fences its write on must name real stored
+ * state; a synthesized 0 would fence against nothing.
+ */
+async function readPlacesForGuidance(
+	ctx: ToolInvocationContext,
+): Promise<OrganizationSnapshot> {
+	if (ctx.appId === null) return { revision: "0", locations: [] };
+	return readOrganization(scope(ctx));
+}
+
 function setupGuideResult(
 	doc: BlueprintDoc,
 	automation: z.infer<typeof automationSchema>,
@@ -132,16 +154,20 @@ export const getAutomationsTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
-			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
+			// The workspace owns the document, so the automations come from the
+			// snapshot this invocation reads. Re-reading the persisted app would
+			// answer from a document the caller never saw: a private change set's
+			// staged automations would be invisible to the executor that staged
+			// them, and a canonical call would silently jump ahead of its own
+			// working doc. Only the places stay external — they are rows, not
+			// Blueprint.
+			const doc = ctx.snapshot.doc;
+			const organization = await readPlacesForGuidance(ctx);
 			return {
 				kind: "read",
-				data: orderedAutomations(authoring.blueprint).map((automation) => ({
+				data: orderedAutomations(doc).map((automation) => ({
 					automation,
-					...setupGuideResult(
-						authoring.blueprint,
-						automation,
-						authoring.organization.locations,
-					),
+					...setupGuideResult(doc, automation, organization.locations),
 				})),
 			};
 		} catch (error) {
@@ -251,9 +277,31 @@ export const updateAutomationTool = {
 			});
 			const mutations = diffDocsToMutations(doc, next);
 			if (mutations.length === 0) {
-				// The invocation closure may trail a peer. Prove the no-op and derive
-				// guidance from one authoritative Blueprint-plus-organization read;
-				// otherwise stale target state could be reported as current.
+				if (ctx.snapshot.externalContextDigest !== undefined) {
+					/* A private change-set overlay (the one snapshot field only that
+					 * host sets). Its invocations are strictly serialized and it has
+					 * no peers, so the overlay IS the current state of this change
+					 * set: the snapshot itself proves the no-op, and there is no
+					 * fresher authority to adopt — which is exactly why
+					 * `adoptAuthoritativeSnapshot` is a protocol error here. */
+					const organization = await readPlacesForGuidance(ctx);
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							message: `Automation "${before.name}" already has the requested settings.`,
+							automationUuids: [before.uuid],
+							setupGuides: [
+								setupGuideResult(doc, before, organization.locations),
+							],
+							summary: { subject: before.name },
+						},
+					};
+				}
+				// A canonical invocation's closure may trail a peer. Prove the no-op
+				// and derive guidance from one authoritative Blueprint-plus-
+				// organization read; otherwise stale target state could be reported
+				// as current.
 				const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
 				const persistedAutomation = ownRecordValue(
 					authoring.blueprint.automations,

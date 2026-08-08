@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseCreatedAppActivation } from "@/components/chat/ChatContainer";
+import { parseAppMaterializationReceipt } from "@/components/chat/ChatContainer";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {}
 	return {
 		AppAccessError: MockAppAccessError,
-		createApp: vi.fn(),
+		createExplicitBlankApp: vi.fn(),
 		getSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
 		revalidatePath: vi.fn(),
@@ -24,11 +24,14 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: mocks.AppAccessError,
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
-vi.mock("@/lib/db/apps", () => ({ createApp: mocks.createApp }));
+vi.mock("@/lib/db/appGenesis", () => ({
+	createExplicitBlankApp: mocks.createExplicitBlankApp,
+	genesisBatchId: (appId: string) => `genesis:${appId}`,
+}));
 
 import { createStarterApp } from "../actions";
 
-/** What `createApp` really hands back: the canonical starter, admitted through
+/** What `createExplicitBlankApp` really hands back: the canonical starter, admitted through
  *  the same gate the database write runs behind. */
 function canonicalReceipt(appId: string) {
 	const empty: BlueprintDoc = {
@@ -54,6 +57,7 @@ function canonicalReceipt(appId: string) {
 	return {
 		appId,
 		baseSeq: 1 as const,
+		snapshotDigest: "ab".repeat(32),
 		blueprint: toPersistableDoc(verdict.nextDoc),
 		starter: {
 			moduleUuid: genesis.moduleUuid,
@@ -72,7 +76,7 @@ describe("createStarterApp Project binding", () => {
 			role: "editor",
 			actorUserId: "user-1",
 		});
-		mocks.createApp.mockResolvedValue(canonicalReceipt("app-1"));
+		mocks.createExplicitBlankApp.mockResolvedValue(canonicalReceipt("app-1"));
 	});
 
 	it("creates in the server-rendered Project even after another tab changes the active Project", async () => {
@@ -84,7 +88,7 @@ describe("createStarterApp Project binding", () => {
 			"project-seeded-by-build-new",
 			"edit",
 		);
-		expect(mocks.createApp).toHaveBeenCalledWith(
+		expect(mocks.createExplicitBlankApp).toHaveBeenCalledWith(
 			"user-1",
 			"project-seeded-by-build-new",
 			expect.any(String),
@@ -92,15 +96,15 @@ describe("createStarterApp Project binding", () => {
 		);
 	});
 
-	/* The blank-app path and the SA's `data-app-id` frame install the new app
-	 * through the same client-side boundary, so this action's return value has
-	 * to satisfy that boundary exactly. If they drift, the blank-app path stops
-	 * being able to open its own app. */
+	/* The blank-app path and the design build's `data-app-materialized` frame
+	 * install the new app through the same client-side boundary, so this
+	 * action's return value has to satisfy that boundary exactly. If they
+	 * drift, the blank-app path stops being able to open its own app. */
 	it("returns a receipt the client's creation boundary accepts", async () => {
 		const result = await createStarterApp("project-seeded-by-build-new");
 		if (!result.success) throw new Error(result.error);
 
-		const activation = parseCreatedAppActivation(
+		const activation = parseAppMaterializationReceipt(
 			result.receipt as unknown as Record<string, unknown>,
 		);
 		expect(activation).not.toBeNull();
@@ -122,11 +126,11 @@ describe("createStarterApp Project binding", () => {
 			success: false,
 			error: "You don't have permission to create apps in this Project.",
 		});
-		expect(mocks.createApp).not.toHaveBeenCalled();
+		expect(mocks.createExplicitBlankApp).not.toHaveBeenCalled();
 	});
 
 	it("maps a transaction-time access change without claiming creation succeeded", async () => {
-		mocks.createApp.mockRejectedValue(
+		mocks.createExplicitBlankApp.mockRejectedValue(
 			new CommitReauthError("Project access changed"),
 		);
 

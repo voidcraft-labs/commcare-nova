@@ -75,6 +75,7 @@ import {
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
+import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -160,6 +161,9 @@ interface BuilderContentAreaProps {
 	appGenerating?: boolean;
 	/** The signed-in user, for owner-scoped chat notices. */
 	currentUserId?: string;
+	/** A resumed pre-app design, passed straight through to the conversation
+	 *  that owns its progress region. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 export function BuilderContentArea({
@@ -169,6 +173,7 @@ export function BuilderContentArea({
 	initialThread,
 	appGenerating,
 	currentUserId,
+	initialDesignSession,
 }: BuilderContentAreaProps) {
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -745,6 +750,7 @@ export function BuilderContentArea({
 									initialThread={initialThread}
 									appGenerating={appGenerating}
 									currentUserId={currentUserId}
+									initialDesignSession={initialDesignSession}
 								/>
 							</ErrorBoundary>
 						</DrawerPopup>

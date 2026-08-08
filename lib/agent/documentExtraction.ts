@@ -18,12 +18,12 @@
 // from being re-condensed — or re-billed at the SA's input rate across dozens of
 // tool-loop steps — on every send.
 
-import { createOpenAI } from "@ai-sdk/openai";
 import AdmZip from "adm-zip";
 import { fileTypeFromBuffer } from "file-type";
 import mammoth, { type MammothImage } from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
+import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import {
 	type DocumentKind,
 	IMAGE_MIME_TYPES,
@@ -1252,7 +1252,7 @@ export function createExtractionCondenser(): AttachmentCondenser {
 			"OPENAI_API_KEY is unset. Document feature extraction needs the OpenAI key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
-	const model = createOpenAI({ apiKey })(CONDENSER_MODEL);
+	const model = createNovaOpenAI(apiKey)(CONDENSER_MODEL);
 	return {
 		async extractDocumentStructured(args) {
 			const r = await streamObjectWith({

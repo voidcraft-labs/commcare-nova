@@ -104,6 +104,43 @@ composer draft are deliberately retained.
 
 When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store for anything derivable from the existing base facts. A store field is only for a genuinely NEW base fact the derivations cannot reach — `buildUnfinished` is the example (the buffer it would derive from clears on every stream close), and it carries the burden that earned it: explicit seed, latch, and release channels documented on the field.
 
+## Design-build progress is its own store
+
+`designProgressStore.ts` is a SECOND, deliberately separate store: a chat build
+has no app until its first workflow commits, so everything BuilderSession
+describes (preview mode, sidebars, the run event buffer, `buildUnfinished`)
+is about a document that does not exist yet. It holds only the durable
+projections the build orchestrator streams — the reviewed-design outline, the
+build plan's slice names, which slices committed — plus the two facts only the
+client can see: a paused askQuestions round (read off the transcript) and a
+run-stopping stream error. BOTH error kinds stop the stage line — a
+recoverable error reads `incomplete` ("Stopped before it finished", inviting
+the retry its toast offered) and a fatal one `failed`; marking only fatal
+errors left the line spinning over a dead run, observed live.
+
+**Stage is derived, never stored.** `deriveDesignStage` folds "which frames
+have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree
+with the durable events that produced it, and the plan's ban on a client-only
+state machine holds. The live refinement inside the design span is the
+`data-design-pulse` frame — the SERVER naming which pipeline call is streaming
+right now (author/review/revise/plan) — which is the only source that can say
+`reviewing-design`/`revising-design` while those calls run; the store keeps
+just the latest phase (`pulsePhase`), outranked by any real progress frame and
+cleared at every turn boundary because a pulse describes only the stream it
+rode on. Two details are load-bearing: the FIRST slice commits as
+the `data-app-materialized` receipt and emits no `slice-committed` frame, so
+`markMaterialized` folds the active slice into the committed list (otherwise
+"0 of 5" shows over a working app); and `seededStage` carries the SERVER's
+load-time derivation for a resumed design (`/build/new?design=<id>`) so a cold
+load says where the design stopped, retired by `noteTurnOpened` the moment a
+new turn is in flight.
+
+One instance per mounted conversation, created and owned by `ChatContainer`
+(the frames arrive on its `onData`) and reset on every thread swap. Every frame
+is admitted through `lib/generation/designProgressWire`, which fails closed on
+an unknown `eventVersion` or a foreign design session. Consumers read it
+through `useDesignProgressView`, never an inline selector.
+
 ## Staged media uploads
 
 `stagedUploads` is why a slot upload is session state and not doc state: the doc must never reference an asset that isn't `ready`, so a picked file lives here — keyed by carrier slot, with progress and an error state — until its upload confirms and the slot dispatches the normal gated attach (`components/builder/media/useStagedUpload.ts` is the driver). Abort handles are functions, so they live in a factory-closure registry beside the store (the `docStoreRef` pattern), never in serializable state; `cancelStagedUpload` aborts through it and `reset()` aborts everything (a torn-down session must not let an orphaned upload attach into a dead store). Keying by slot identity (not component instance) is what lets a slot that unmounts mid-upload re-render its chip from the store on remount.

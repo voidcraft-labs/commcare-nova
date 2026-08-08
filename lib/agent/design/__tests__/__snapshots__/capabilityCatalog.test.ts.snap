@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "5ee228bfcb71a4fe985d8a01fd1ab2d4f7d94f79174ad54cb439dcd9fb11a510",
+  "catalogDigest": "bbd4fc9b447a22c552448f5eb7d574f09bc9e55ded0a3e80a1750c1e77cd0677",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -21,6 +21,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "LOOKUP_HQ_EXPORT_CLOSED",
     "WORKER_PROVISIONING_NOT_SHIPPED",
     "LOCATION_OWNER_EXPORT_CLOSED",
+    "CASE_SEARCH_IS_LIVE_AND_ONLINE",
     "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
     "STANDARD_SCALAR_WRITERS_LIMITED",
     "CASE_NAME_REQUIRED_ON_CREATE",
@@ -239,6 +240,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "mcpName": "move_location",
       "saName": "moveLocation",
       "staging": "forbidden",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "move_module",
+      "saName": "moveModule",
+      "staging": "allowed",
     },
     {
       "effect": "mutate-blueprint",

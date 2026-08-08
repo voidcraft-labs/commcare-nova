@@ -654,6 +654,59 @@ export interface DesignCommittedSlicesTable {
 }
 
 /**
+ * One append-only orchestration transition — the chain the build
+ * orchestrator folds into its current state (`lib/agent/build/`). Every
+ * event names its predecessor by id AND digest; the partial unique index on
+ * `(design_session_id, predecessor_event_id)` makes two continuations
+ * structurally unable to advance the same state. Raw holder nonces never
+ * land here — `holder_nonce_digest` is the safe audit projection.
+ */
+export interface DesignOrchestrationEventsTable {
+	design_session_id: string;
+	revision: BigIntColumn;
+	event_id: string;
+	predecessor_event_id: string | null;
+	predecessor_digest: string | null;
+	run_id: string;
+	holder_nonce_digest: string;
+	kind: string;
+	/** The strict per-kind state payload — read as `::text`, strict-parsed. */
+	payload: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/**
+ * One bounded executor run over one build slice — the mutable
+ * execution-control row (`lib/agent/build/executor.ts`). Input identities
+ * are immutable; only `status` (+ failure metadata and the once-set
+ * `change_set_id`) moves. A partial unique index permits one `running`
+ * attempt per `(design_session_id, build_plan_id, slice_id)`.
+ */
+export interface DesignSliceAttemptsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	slice_id: string;
+	attempt: number;
+	base_kind: string;
+	base_app_id: string | null;
+	base_proposed_app_id: string | null;
+	base_seq: BigIntColumn | null;
+	base_snapshot_digest: string;
+	change_set_id: string | null;
+	executor_model: string;
+	prompt_version: string;
+	brief_digest: string;
+	status: string;
+	failure_code: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/**
  * One persisted design source package — references, normalized claims, and
  * the canonical digest over the exact projection the models consumed
  * (`lib/agent/design/sourcePackage.ts`). Raw extracts and transcripts are
@@ -899,6 +952,8 @@ export interface AppDatabase {
 	design_review_dispositions: DesignReviewDispositionsTable;
 	design_build_plans: DesignBuildPlansTable;
 	design_sessions: DesignSessionsTable;
+	design_orchestration_events: DesignOrchestrationEventsTable;
+	design_slice_attempts: DesignSliceAttemptsTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }
 

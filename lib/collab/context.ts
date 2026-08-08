@@ -25,7 +25,7 @@ export interface ReconcilerContextValue {
 	 * lifetime that also starts at zero. */
 	readonly projectScopeId: string;
 	/** Activate a dormant reconciler from the server's new-app handoff
-	 *  (`data-app-id`): the provider stamps the app id on the network deps,
+	 *  (`data-app-materialized`): the provider stamps the app id on the network deps,
 	 *  seeds the reconciler at the authoritative cursor with the current doc,
 	 *  and opens the stream there. No-op if already active. */
 	activate: (appId: string, baseSeq: number) => void;

@@ -39,18 +39,26 @@ export async function runDesignReviser(
 		pkg: DesignSourcePackage;
 		contract: AppDesignContract;
 		reviews: readonly DesignReview[];
+		catalogText: string;
 	},
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<DesignRevisionResult>> {
 	const result = await ctx.runStructured({
 		schema: designRevisionResultSchemaFor(args.reviews),
 		modelId: DESIGN_MODEL,
 		system: DESIGN_REVISER_SYSTEM,
-		prompt: renderRevisePrompt(args.pkg, args.contract, args.reviews),
+		prompt: renderRevisePrompt(
+			args.pkg,
+			args.contract,
+			args.reviews,
+			args.catalogText,
+		),
 		images: sourcePackageImages(args.pkg),
 		maxOutputTokens: DESIGN_REVISER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_REVISER_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	const mapped = toArtifactResult(result, signal);
 	if (mapped.kind !== "produced") return mapped;

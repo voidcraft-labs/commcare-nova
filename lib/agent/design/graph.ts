@@ -13,8 +13,10 @@
  *     options) is unique across the whole contract;
  *  2. every reference resolves to an existing id of a compatible kind, and
  *     every `evidence` entry points to a source claim;
- *  3. a decision's selected option belongs to that decision, and option ids
- *     are referenced from nowhere else;
+ *  3. nested ids stay inside their parent: a decision's selected option
+ *     belongs to that decision (and option ids are referenced from nowhere
+ *     else), and a lookup-sourced fact's column belongs to the lookup table
+ *     that fact names;
  *  4. every explicit source claim is represented by at least one OWNING
  *     intent (record, fact, rule, task, transition, read model, or access
  *     policy listing it as evidence) or explicitly deferred;
@@ -29,11 +31,6 @@
  *     architecture decision;
  *  9. every acceptance scenario exercises at least one task, transition, or
  *     read model.
- *
- * The lookup fact-source arm's intent ids are exempt from closure: they name
- * a lookup-intent vocabulary the contract root does not carry yet. The
- * vocabulary and the lifted exemption ship with the new-build cutover (the
- * reviewed-intent plan's Unit E, work item 19).
  *
  * Sensitivity-lowering (§ the reviser rule) is a revision-PAIR property and
  * is enforced in the reviser call (`reviser.ts`), not here.
@@ -59,6 +56,8 @@ type DesignKind =
 	| "write intent"
 	| "transition"
 	| "read model"
+	| "lookup intent"
+	| "lookup column intent"
 	| "access policy"
 	| "navigation intent"
 	| "architecture decision"
@@ -79,6 +78,7 @@ const RELATABLE_KINDS: readonly DesignKind[] = [
 	"task input",
 	"transition",
 	"read model",
+	"lookup intent",
 	"access policy",
 	"navigation intent",
 	"architecture decision",
@@ -154,6 +154,18 @@ export function validateDesignGraph(
 	contract.readModels.forEach((model, i) => {
 		register(model.id, "read model", ["readModels", i, "id"]);
 	});
+	contract.lookupIntents.forEach((table, i) => {
+		register(table.id, "lookup intent", ["lookupIntents", i, "id"]);
+		table.columns.forEach((column, j) => {
+			register(column.id, "lookup column intent", [
+				"lookupIntents",
+				i,
+				"columns",
+				j,
+				"id",
+			]);
+		});
+	});
 	contract.accessPolicies.forEach((policy, i) => {
 		register(policy.id, "access policy", ["accessPolicies", i, "id"]);
 	});
@@ -222,6 +234,15 @@ export function validateDesignGraph(
 		refs(ids, ["source claim"], path, "An evidence entry");
 	};
 
+	/** Which lookup table each column intent belongs to — the oracle behind
+	 *  rule 3's containment law for lookup-sourced facts. */
+	const lookupTableByColumnId = new Map<string, string>();
+	for (const table of contract.lookupIntents) {
+		for (const column of table.columns) {
+			lookupTableByColumnId.set(column.id, table.id);
+		}
+	}
+
 	contract.actors.forEach((actor, i) => {
 		evidenceRefs(actor.evidence, ["actors", i, "evidence"]);
 	});
@@ -266,8 +287,31 @@ export function validateDesignGraph(
 				["facts", i, "source", "ruleId"],
 				"A derived fact's rule",
 			);
+		} else if (source.kind === "lookup") {
+			ref(
+				source.lookupIntentId,
+				["lookup intent"],
+				["facts", i, "source", "lookupIntentId"],
+				"A lookup-sourced fact's table",
+			);
+			ref(
+				source.columnIntentId,
+				["lookup column intent"],
+				["facts", i, "source", "columnIntentId"],
+				"A lookup-sourced fact's column",
+			);
+			/* ---- 3. the column belongs to the table this fact names ------ */
+			const owningTableId = lookupTableByColumnId.get(source.columnIntentId);
+			if (
+				owningTableId !== undefined &&
+				owningTableId !== source.lookupIntentId
+			) {
+				issue(
+					["facts", i, "source", "columnIntentId"],
+					`The fact "${fact.name}" reads a column that belongs to a different lookup table than the one it names. Point the fact at a column of that table, or name the table the column actually belongs to.`,
+				);
+			}
 		}
-		/* `lookup` intent ids are exempt from closure — see the module doc. */
 	});
 	contract.rules.forEach((rule, i) => {
 		evidenceRefs(rule.evidence, ["rules", i, "evidence"]);
@@ -422,6 +466,18 @@ export function validateDesignGraph(
 				"A read model's selection task",
 			);
 		}
+	});
+	contract.lookupIntents.forEach((table, i) => {
+		evidenceRefs(table.evidence, ["lookupIntents", i, "evidence"]);
+		table.columns.forEach((column, j) => {
+			evidenceRefs(column.evidence, [
+				"lookupIntents",
+				i,
+				"columns",
+				j,
+				"evidence",
+			]);
+		});
 	});
 	contract.accessPolicies.forEach((policy, i) => {
 		evidenceRefs(policy.evidence, ["accessPolicies", i, "evidence"]);

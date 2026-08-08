@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { asDesignId } from "@/lib/agent/design/ids";
-import { cloneContract, did, ids, makeContract } from "./fixtures";
+import { cloneContract, did, ids, imageRef, makeContract } from "./fixtures";
 
 function messagesOf(
 	result: ReturnType<typeof appDesignContractSchema.safeParse>,
@@ -71,7 +71,18 @@ describe("validateDesignGraph", () => {
 		];
 		const result = appDesignContractSchema.safeParse(contract);
 		expect(messagesOf(result).join("\n")).toContain(
-			"message or attachment source",
+			"message, attachment, or image source reference",
+		);
+	});
+
+	it("accepts an explicit claim grounded only in an attached image", () => {
+		const contract = cloneContract(makeContract());
+		const claim = contract.sourceClaims[0];
+		if (!claim) throw new Error("fixture has claims");
+		claim.sourceRefs = [imageRef()];
+		const result = appDesignContractSchema.safeParse(contract);
+		expect(result.success, JSON.stringify(messagesOf(result), null, 2)).toBe(
+			true,
 		);
 	});
 
@@ -209,6 +220,73 @@ describe("validateDesignGraph", () => {
 		expect(messagesOf(result).join("\n")).toContain(
 			"must exercise at least one task",
 		);
+	});
+
+	it("rejects a lookup-sourced fact naming a table that does not exist", () => {
+		const contract = cloneContract(makeContract());
+		const fact = contract.facts.find((f) => f.id === ids.factClinic);
+		if (fact?.source.kind !== "lookup") throw new Error("fixture has a lookup");
+		fact.source.lookupIntentId = did(9996);
+		const result = appDesignContractSchema.safeParse(contract);
+		expect(messagesOf(result).join("\n")).toContain("appears nowhere");
+	});
+
+	it("rejects a lookup-sourced fact whose column is not a lookup column", () => {
+		const contract = cloneContract(makeContract());
+		const fact = contract.facts.find((f) => f.id === ids.factClinic);
+		if (fact?.source.kind !== "lookup") throw new Error("fixture has a lookup");
+		fact.source.columnIntentId = ids.lookupVillages;
+		const result = appDesignContractSchema.safeParse(contract);
+		expect(messagesOf(result).join("\n")).toContain(
+			"must reference a lookup column intent",
+		);
+	});
+
+	it("rejects a column that belongs to a different lookup table", () => {
+		const contract = cloneContract(makeContract());
+		contract.lookupIntents.push({
+			id: did(9995),
+			name: "Clinics",
+			purpose: "Every clinic in the district.",
+			columns: [
+				{
+					id: did(9994),
+					name: "clinic_code",
+					meaning: "The clinic's district code.",
+					evidence: [],
+				},
+			],
+			evidence: [],
+		});
+		const fact = contract.facts.find((f) => f.id === ids.factClinic);
+		if (fact?.source.kind !== "lookup") throw new Error("fixture has a lookup");
+		// A real column of a real table — just not the table the fact names.
+		fact.source.columnIntentId = did(9994);
+		const result = appDesignContractSchema.safeParse(contract);
+		expect(messagesOf(result).join("\n")).toContain(
+			"belongs to a different lookup table",
+		);
+	});
+
+	it("rejects a duplicate nested lookup column id", () => {
+		const contract = cloneContract(makeContract());
+		const table = contract.lookupIntents[0];
+		const column = table?.columns[0];
+		if (!table || !column) throw new Error("fixture has a lookup table");
+		column.id = ids.lookupColClinic;
+		const result = appDesignContractSchema.safeParse(contract);
+		expect(messagesOf(result).join("\n")).toContain("already used by");
+	});
+
+	it("rejects lookup evidence pointing at a non-claim", () => {
+		const contract = cloneContract(makeContract());
+		const table = contract.lookupIntents[0];
+		if (!table) throw new Error("fixture has a lookup table");
+		table.evidence.push(ids.actorChw);
+		table.columns[0]?.evidence.push(did(9993));
+		const messages = messagesOf(appDesignContractSchema.safeParse(contract));
+		expect(messages.join("\n")).toContain("source claim");
+		expect(messages.join("\n")).toContain("appears nowhere");
 	});
 
 	it("rejects an access target of a non-targetable kind", () => {

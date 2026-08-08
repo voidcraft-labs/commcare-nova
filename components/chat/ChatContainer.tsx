@@ -36,6 +36,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { DesignProgressPanel } from "@/components/chat/DesignProgressPanel";
 import { StartFromScratch } from "@/components/chat/StartFromScratch";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -59,10 +60,19 @@ import {
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
 import {
+	type DesignSessionSeed,
+	parseDesignSessionScope,
+} from "@/lib/generation/designProgressWire";
+import {
 	applyStreamEvent,
 	conversationEventError,
 } from "@/lib/generation/streamDispatcher";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import {
+	createDesignProgressStore,
+	type DesignProgressStoreApi,
+	useDesignProgressView,
+} from "@/lib/session/designProgressStore";
 import {
 	deriveChatAppReady,
 	useAccessPhase,
@@ -73,6 +83,7 @@ import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 type ProjectToastEmitter = (
 	severity: ToastSeverity,
@@ -316,6 +327,7 @@ export function authoritativeThreadActivationOptions(
 		| "resume_interrupted"
 		| "run_paused"
 		| "messages"
+		| "design_session_id"
 	>,
 	buildUnfinished: boolean,
 	options?: { allowRedrive?: boolean },
@@ -329,6 +341,9 @@ export function authoritativeThreadActivationOptions(
 		resume,
 		redrive,
 		buildResume: (resume || redrive) && buildUnfinished,
+		/* The thread's design lineage rides every activation so the sends it
+		 * feeds keep addressing the session scope. */
+		designSessionId: thread.design_session_id ?? null,
 	};
 }
 
@@ -342,35 +357,60 @@ export function expectedProjectIdForChatRequest(session: {
 	return session.appId === undefined ? session.projectId : undefined;
 }
 
-export interface CreatedAppActivation {
+export interface AppMaterializationActivation {
+	readonly eventVersion: 1;
+	readonly designSessionId: string | null;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly baseSeq: 1;
+	readonly seq: 1;
+	readonly batchId: string;
+	readonly changeSetId: string | null;
+	readonly snapshotDigest: string;
 	readonly blueprint: PersistableDoc;
 	readonly starter: {
 		readonly moduleUuid: string;
 		readonly formUuid: string;
 		readonly fieldUuid: string;
-	};
+	} | null;
 }
 
-/** Strict boundary for the server's one-shot new-app handoff. Never activate
- * multiplayer from a partial event: app identity, Project capability, exact
- * sequence-1 blueprint, and starter identities are one authority. */
-export function parseCreatedAppActivation(
+/** Strict boundary for the server's one-shot app-birth handoff — the
+ * `data-app-materialized` frame (design-slice genesis) and the blank-app
+ * action's return value share this exact shape. Never activate multiplayer
+ * from a partial event: identity, Project capability, exact sequence-1
+ * blueprint, and its canonical digest are one authority. `starter` is
+ * non-null only on the explicit-blank path, where the blueprint must be
+ * exactly the canonical Survey/Form/Question starter; a design-slice
+ * blueprint is the first meaningful workflow and only its validity and
+ * identity are asserted here (the digest pins the exact bytes). */
+export function parseAppMaterializationReceipt(
 	data: Record<string, unknown>,
-): CreatedAppActivation | null {
+): AppMaterializationActivation | null {
 	if (
 		Object.keys(data).sort().join(",") !==
-		"appId,baseSeq,blueprint,canEdit,projectId,role,starter"
+		"appId,batchId,blueprint,canEdit,changeSetId,designSessionId,eventVersion,projectId,role,seq,snapshotDigest,starter"
 	) {
 		return null;
 	}
-	const { appId, projectId, role, canEdit, baseSeq, starter } = data;
+	const {
+		eventVersion,
+		designSessionId,
+		appId,
+		projectId,
+		role,
+		canEdit,
+		seq,
+		batchId,
+		changeSetId,
+		snapshotDigest,
+		starter,
+	} = data;
 	const parsedBlueprint = blueprintDocSchema.safeParse(data.blueprint);
 	if (
+		eventVersion !== 1 ||
+		seq !== 1 ||
 		typeof appId !== "string" ||
 		appId.trim().length === 0 ||
 		typeof projectId !== "string" ||
@@ -378,12 +418,52 @@ export function parseCreatedAppActivation(
 		typeof role !== "string" ||
 		role.trim().length === 0 ||
 		typeof canEdit !== "boolean" ||
-		baseSeq !== 1 ||
-		!parsedBlueprint.success ||
+		typeof batchId !== "string" ||
+		batchId.trim().length === 0 ||
+		!(
+			designSessionId === null ||
+			(typeof designSessionId === "string" && designSessionId.trim().length > 0)
+		) ||
+		!(
+			changeSetId === null ||
+			(typeof changeSetId === "string" && changeSetId.trim().length > 0)
+		) ||
+		typeof snapshotDigest !== "string" ||
+		!/^[0-9a-f]{64}$/.test(snapshotDigest) ||
+		!parsedBlueprint.success
+	) {
+		return null;
+	}
+	const blueprint = parsedBlueprint.data;
+	if (
+		blueprint.appId !== appId ||
+		blueprint.appName.trim().length === 0 ||
+		blueprint.moduleOrder.length === 0
+	) {
+		return null;
+	}
+	if (starter === null) {
+		return {
+			eventVersion: 1,
+			designSessionId,
+			appId,
+			projectId,
+			role,
+			canEdit,
+			seq: 1,
+			batchId,
+			changeSetId,
+			snapshotDigest,
+			blueprint,
+			starter: null,
+		};
+	}
+	if (
 		typeof starter !== "object" ||
-		starter === null ||
 		Array.isArray(starter) ||
-		Object.keys(starter).sort().join(",") !== "fieldUuid,formUuid,moduleUuid"
+		Object.keys(starter as object)
+			.sort()
+			.join(",") !== "fieldUuid,formUuid,moduleUuid"
 	) {
 		return null;
 	}
@@ -394,10 +474,7 @@ export function parseCreatedAppActivation(
 	if (!moduleUuid.success || !formUuid.success || !fieldUuid.success) {
 		return null;
 	}
-	const blueprint = parsedBlueprint.data;
 	if (
-		blueprint.appId !== appId ||
-		blueprint.appName.trim().length === 0 ||
 		blueprint.connectType !== null ||
 		blueprint.caseTypes !== null ||
 		blueprint.moduleOrder.length !== 1 ||
@@ -414,11 +491,16 @@ export function parseCreatedAppActivation(
 		return null;
 	}
 	return {
+		eventVersion: 1,
+		designSessionId,
 		appId,
 		projectId,
 		role,
 		canEdit,
-		baseSeq,
+		seq: 1,
+		batchId,
+		changeSetId,
+		snapshotDigest,
 		blueprint,
 		starter: {
 			moduleUuid: moduleUuid.data,
@@ -428,10 +510,50 @@ export function parseCreatedAppActivation(
 	};
 }
 
+/** Digest-verify an admitted receipt in the background: SHA-256 over the
+ * shared canonical JSON text, compared to the server's `snapshotDigest`. The
+ * install itself is synchronous (later frames in the same stream must land
+ * on the installed doc), so a mismatch — a should-never corruption signal —
+ * surfaces as the reload toast rather than blocking activation. Skipped
+ * where WebCrypto is unavailable. */
+function verifyActivationDigest(
+	activation: AppMaterializationActivation,
+	projectToast: ProjectToastEmitter,
+): void {
+	const subtle = globalThis.crypto?.subtle;
+	if (!subtle) return;
+	void subtle
+		.digest(
+			"SHA-256",
+			new TextEncoder().encode(canonicalJsonText(activation.blueprint)),
+		)
+		.then((bytes) => {
+			const hex = Array.from(new Uint8Array(bytes))
+				.map((b) => b.toString(16).padStart(2, "0"))
+				.join("");
+			if (hex !== activation.snapshotDigest) {
+				projectToast(
+					"error",
+					"Reload to finish opening this app",
+					"The app Nova sent this tab didn't verify against its receipt. Reload to fetch it fresh.",
+					{
+						persistent: true,
+						action: {
+							label: "Reload page",
+							onPress: () => window.location.reload(),
+						},
+					},
+				);
+			}
+		})
+		.catch(() => {});
+}
+
 /**
- * Land a validated creation receipt. Nova has two ways an app is born, the SA's
- * `data-app-id` frame and the blank-app action's return value, and both arrive
- * here, so a new app cannot land two different ways.
+ * Land a validated creation receipt. Nova has two ways an app is born, the
+ * design build's `data-app-materialized` frame and the blank-app action's
+ * return value, and both arrive here, so a new app cannot land two different
+ * ways.
  *
  * The order is the contract. Identity and capability first, then the exact
  * sequence-1 blueprint under a remote-apply bracket (which is what keeps this
@@ -454,7 +576,7 @@ export function parseCreatedAppActivation(
  * history stack.
  */
 function installCreatedApp(
-	activation: CreatedAppActivation,
+	activation: AppMaterializationActivation,
 	docApi: BlueprintDocStore,
 	sessionApi: BuilderSessionStoreApi,
 	reconcilerCtx: ReconcilerContextValue | null,
@@ -472,7 +594,7 @@ function installCreatedApp(
 		store.endRemoteApply();
 	}
 	pushBuilderHistory(`/build/${activation.appId}`, true);
-	reconcilerCtx?.activate(activation.appId, activation.baseSeq);
+	reconcilerCtx?.activate(activation.appId, activation.seq);
 	markAppListStale();
 }
 
@@ -492,6 +614,8 @@ function createChatInstance(
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	holderNonceRef: { current: string | undefined },
+	designSessionIdRef: { current: string | undefined },
+	designProgressStore: DesignProgressStoreApi,
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	autoResendFatalStrikesRef: { current: number },
@@ -528,6 +652,12 @@ function createChatInstance(
 			runId: runIdRef.current,
 			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
+			/* The thread's design lineage, when it has one: a build thread is
+			 * session-targeted for its whole life, so the route needs the id on
+			 * every send — the session resolves its own bound app. Learned from
+			 * the thread's own row on activation or from the stream's
+			 * `data-design-session` frame. */
+			designSessionId: designSessionIdRef.current,
 			expectedProjectId: expectedProjectIdForChatRequest(sessionState),
 			appReady: deriveChatAppReady(sessionState, hasData),
 		};
@@ -658,11 +788,32 @@ function createChatInstance(
 			 * evaluates `sendAutomaticallyWhen` the failed response has left no
 			 * message behind to tell this round apart from one that was never
 			 * tried. */
-			if (
-				type === "data-conversation-event" &&
-				conversationEventError(data)?.fatal === true
-			) {
-				autoResendFatalStrikesRef.current += 1;
+			if (type === "data-conversation-event") {
+				const error = conversationEventError(data);
+				if (error?.fatal === true) {
+					autoResendFatalStrikesRef.current += 1;
+					/* A design build's progress region has to say the run stopped:
+					 * the transcript's error toast is the only other signal, and a
+					 * stage line still reading "Building your app" over a dead run
+					 * is the exact dishonesty §15.12 forbids. */
+					designProgressStore
+						.getState()
+						.markFailed(error.message, { recoverable: false });
+				} else if (error !== null) {
+					/* A RECOVERABLE error stops the run just as dead — the server
+					 * settled and refunded; only a fresh send restarts it. Marking
+					 * only fatal errors left the stage line spinning "Designing
+					 * your app" over a toast that said retry (observed live). The
+					 * pre-materialization guard keeps an edit turn's transient
+					 * model error from halting a collapsed post-app region. */
+					const progress = designProgressStore.getState();
+					if (
+						progress.designSessionId !== null &&
+						progress.materializedAppId === null
+					) {
+						progress.markFailed(error.message, { recoverable: true });
+					}
+				}
 			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
@@ -704,10 +855,31 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* `data-app-id` is the one-shot authoritative creation handoff. It
-			 * carries identity, Project capability, and cursor together; a replay is
-			 * idempotent, while a partial or cross-scope frame must not activate the
-			 * dormant reconciler. */
+			/* The turn's design-session scope: the id this thread echoes on
+			 * every later send (the route continues the session's build, or the
+			 * edit of its materialized app), and — while `materializedAppId` is
+			 * null — the signal that a BUILD is in flight with no app yet, which
+			 * latches the store's unfinished-build read. A replay is
+			 * idempotent. */
+			if (type === "data-design-session") {
+				const scope = parseDesignSessionScope(data);
+				if (scope !== null) {
+					designSessionIdRef.current = scope.designSessionId;
+					designProgressStore.getState().beginSession(scope);
+					if (scope.materializedAppId === null) {
+						sessionStoreRef.current?.getState().markBuildUnfinished();
+					}
+				}
+				return;
+			}
+
+			/* The durable progress projections (§15.4). Each is validated
+			 * against this conversation's design session inside the store and
+			 * dropped when it doesn't match, so an out-of-scope or
+			 * unknown-version frame renders nothing rather than half a card. */
+			if (designProgressStore.getState().applyProgressFrame(type, data)) {
+				return;
+			}
 			/* The build finished: release the store's unfinished-build latch so
 			 * `deriveChatAppReady` reads edit-mode from here on. Without the
 			 * release, its `buildUnfinished && runCompletedAt === undefined`
@@ -728,8 +900,14 @@ function createChatInstance(
 				return;
 			}
 
-			if (type === "data-app-id") {
-				const activation = parseCreatedAppActivation(data);
+			/* `data-app-materialized` is the one-shot authoritative birth
+			 * handoff: the first meaningful workflow committed, and this frame
+			 * carries identity, Project capability, the exact sequence-1
+			 * blueprint, and its canonical digest together. A replay is
+			 * idempotent, while a partial or cross-scope frame must not
+			 * activate the dormant reconciler. */
+			if (type === "data-app-materialized") {
+				const activation = parseAppMaterializationReceipt(data);
 				const current = sessionApi.getState();
 				if (activation === null || current.projectId !== activation.projectId) {
 					projectToast(
@@ -746,13 +924,18 @@ function createChatInstance(
 					);
 					return;
 				}
+				/* Fold the genesis slice into the progress count before the early
+				 * return below: the first workflow's commit IS this receipt, and
+				 * it emits no `slice-committed` frame of its own. Idempotent. */
+				designProgressStore.getState().markMaterialized(activation.appId);
+				if (current.appId === activation.appId) return; // replayed frame
 				/* This tab now owns an UNFINISHED build. The RSC page only seeds
 				 * the latch for tabs that LOADED a generating app; a `/build/new`
-				 * tab must latch it at creation or its later sends read as
-				 * edit-mode the moment the phase derivation loses the run (an
+				 * tab must carry it from materialization or its later sends read
+				 * as edit-mode the moment the phase derivation loses the run (an
 				 * askQuestions pause clears the events buffer, and the committed
-				 * starter modules make the doc read Ready). `data-done` above is
-				 * the matching release. */
+				 * modules make the doc read Ready). `data-done` above is the
+				 * matching release. */
 				sessionApi.getState().markBuildUnfinished();
 				installCreatedApp(
 					activation,
@@ -760,6 +943,7 @@ function createChatInstance(
 					sessionApi,
 					reconcilerCtxRef.current,
 				);
+				verifyActivationDigest(activation, projectToast);
 				return;
 			}
 
@@ -808,6 +992,13 @@ interface ChatContainerProps {
 	/** The signed-in user: a replayed run's credit-refund notice is shown
 	 *  only to the actor who was actually charged. */
 	currentUserId?: string;
+	/** A cold load of an existing design session (`/build/new?design=<id>`).
+	 *  The stage is the SERVER's derivation over the durable session plus its
+	 *  orchestration head, so a resumed design says where it stopped instead
+	 *  of showing nothing until the next turn streams a frame. The outline and
+	 *  plan are not seeded: they exist only in the frames a run streams, and
+	 *  inventing them would be the fake-progress §15.1 rules out. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 export function ChatContainer({
@@ -817,6 +1008,7 @@ export function ChatContainer({
 	initialThread,
 	appGenerating,
 	currentUserId,
+	initialDesignSession,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -843,7 +1035,7 @@ export function ChatContainer({
 	ownUserIdRef.current = currentUserId;
 	/** The LIVE unfinished-build signal, read at decision time. It lives in
 	 *  the session store: seeded by the page's `initialBuildUnfinished`,
-	 *  latched by `data-app-id`, released by `data-done` /
+	 *  latched by a pre-app `data-design-session` frame, released by `data-done` /
 	 *  `data-build-complete` or by a remote `app-status: complete` frame. A
 	 *  component ref synced from the `appGenerating` prop cannot carry it:
 	 *  the prop is frozen at page load (`/build/new` promotes via the History
@@ -868,6 +1060,29 @@ export function ChatContainer({
 	const holderNonceRef = useRef<string | undefined>(
 		initialThread?.holder_nonce,
 	);
+	/** The active thread's design lineage: seeded from the loaded thread row,
+	 *  re-stamped on every thread activation, and updated by the stream's
+	 *  `data-design-session` frame. Undefined for app-born edit threads and
+	 *  for a fresh `/build/new` conversation until its first turn's frame
+	 *  arrives. A RESUMED design also seeds it from the page's own session, so
+	 *  a send continues that design even if its transcript came back empty
+	 *  rather than quietly starting a second one. */
+	const designSessionIdRef = useRef<string | undefined>(
+		initialThread?.design_session_id ??
+			initialDesignSession?.designSessionId ??
+			undefined,
+	);
+	/** This conversation's design-build progress: the stage, the reviewed
+	 *  design outline, and which planned workflows have committed. One store
+	 *  per mounted conversation, fed only by the durable frames the run
+	 *  streams (plus the page-load seed below), reset on every thread swap. */
+	const [designProgressStore] = useState(() => {
+		const store = createDesignProgressStore();
+		if (initialDesignSession)
+			store.getState().seedSession(initialDesignSession);
+		return store;
+	});
+	const designProgress = useDesignProgressView(designProgressStore);
 	/** Whether the SSE transport was open on the previous render, used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -972,19 +1187,27 @@ export function ChatContainer({
 				resume?: boolean;
 				buildResume?: boolean;
 				redrive?: boolean;
+				designSessionId?: string | null;
 			},
 		): Chat<NovaUIMessage> => {
 			runIdRef.current = opts?.runId;
 			holderNonceRef.current = opts?.holderNonce;
+			designSessionIdRef.current = opts?.designSessionId ?? undefined;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
+			/* A different conversation is a different design: its stage, outline,
+			 * and slice progress belong to the run that streamed them. The next
+			 * turn's `data-design-session` frame re-opens the scope. */
+			designProgressStore.getState().reset();
 			return createChatInstance(
 				init,
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
 				holderNonceRef,
+				designSessionIdRef,
+				designProgressStore,
 				reconcilerCtxRef,
 				ownUserIdRef,
 				autoResendFatalStrikesRef,
@@ -993,7 +1216,7 @@ export function ChatContainer({
 				scopeEpoch,
 			);
 		},
-		[projectToast, scopeEpoch],
+		[designProgressStore, projectToast, scopeEpoch],
 	);
 
 	/* The session store is recreated inside `BuilderSessionProvider` on every
@@ -1013,6 +1236,8 @@ export function ChatContainer({
 			sessionStoreRef,
 			runIdRef,
 			holderNonceRef,
+			designSessionIdRef,
+			designProgressStore,
 			reconcilerCtxRef,
 			ownUserIdRef,
 			autoResendFatalStrikesRef,
@@ -1046,6 +1271,19 @@ export function ChatContainer({
 	stopRef.current = stop;
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
+
+	/* A blocking question round parks the run (§15.8), and the transcript is
+	 * the only place that pause is visible from here: the stream closes and an
+	 * unanswered card is left standing. Report it so the progress region stops
+	 * claiming work is moving while it waits on a person. */
+	useEffect(() => {
+		const streamOpen = status === "submitted" || status === "streaming";
+		const store = designProgressStore.getState();
+		if (streamOpen) store.noteTurnOpened();
+		store.setAwaitingInput(
+			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+		);
+	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
@@ -1578,8 +1816,9 @@ export function ChatContainer({
 		 * user on `/build/new` with nothing. Re-arm the from-scratch path they were
 		 * offered a moment ago: the send had latched it shut, and without this
 		 * the only ways out are a reload or navigating away. A failure that got
-		 * far enough to mint an app already announced it via `data-app-id`, so
-		 * `appId` is set and the escape hatch correctly stays closed. */
+		 * far enough to materialize an app already announced it via
+		 * `data-app-materialized`, so `appId` is set and the escape hatch
+		 * correctly stays closed. */
 		if (!session.appId) {
 			agentEngagedRef.current = false;
 			setSendFailedBeforeApp(true);
@@ -1714,7 +1953,7 @@ export function ChatContainer({
 				 * the same reason: identity, capability, blueprint, and cursor are
 				 * one authority, and multiplayer must never be activated from a
 				 * partial one. */
-				const activation = parseCreatedAppActivation(
+				const activation = parseAppMaterializationReceipt(
 					result.receipt as unknown as Record<string, unknown>,
 				);
 				const docApi = docStoreRef.current;
@@ -1753,6 +1992,7 @@ export function ChatContainer({
 					sessionApi,
 					reconcilerCtxRef.current,
 				);
+				verifyActivationDigest(activation, projectToast);
 				release();
 			},
 			/* The action itself never rejects: it returns its failures. Landing
@@ -1835,6 +2075,17 @@ export function ChatContainer({
 			activeThreadId={chat.id}
 			onSelectThread={openThread}
 			onNewChat={startNewChat}
+			designProgress={
+				designProgress.active ? (
+					<DesignProgressPanel view={designProgress} />
+				) : undefined
+			}
+			/* Only while the app does not exist yet: from materialization on,
+			 * the builder's own activity row describes the run and this region
+			 * is one quiet sentence per committed workflow. */
+			activityStatusHidden={
+				designProgress.active && !designProgress.materialized
+			}
 		/>
 	);
 }

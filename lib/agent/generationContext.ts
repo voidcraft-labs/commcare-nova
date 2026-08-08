@@ -39,7 +39,7 @@
  * in one SSE burst share `ts`).
  */
 
-import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import type { OpenAIProvider } from "@ai-sdk/openai";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -109,6 +109,7 @@ import {
 	type StructuredModelRunArgs,
 	type StructuredModelRunContext,
 } from "./modelRunContext";
+import { createNovaOpenAI } from "./openaiProvider";
 import {
 	type SubGenerationObjectResult,
 	streamObjectWith,
@@ -310,7 +311,7 @@ export class GenerationContext
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
-		this.openai = createOpenAI({ apiKey: opts.apiKey });
+		this.openai = createNovaOpenAI(opts.apiKey);
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -519,7 +520,7 @@ export class GenerationContext
 	 *   - `data-done` — the route's drain-end build-finished signal,
 	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
-	 *   - `data-app-id` — the one-shot canonical genesis receipt that installs
+	 *   - `data-app-materialized` — the one-shot genesis receipt that installs
 	 *     the exact blueprint/cursor before driving the `/build/new` →
 	 *     `/build/{id}` URL swap and multiplayer activation.
 	 *   - `data-run-id` — server-minted run identifier the client echoes

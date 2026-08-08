@@ -9,7 +9,7 @@
  * metering. They must not need an app row, an SSE writer, or a commit host.
  *
  * There is ONE adapter over the provider (`runStructuredWith`, composing
- * `subGeneration.ts`'s `generateObjectWith`/`streamObjectWith`): both
+ * `subGeneration.ts`'s `streamObjectWith`): both
  * implementations — `GenerationContext` for an app-bound run and
  * `DesignGenerationContext` (`lib/agent/design/designGenerationContext.ts`)
  * for a pre-app design session — delegate here, so provider privacy
@@ -20,8 +20,8 @@
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import { strictStructuredSchema } from "./strictStructuredOutput";
 import {
-	generateObjectWith,
 	type SubGenerationImage,
 	type SubGenerationObjectResult,
 	type SubGenerationProviderOptions,
@@ -75,30 +75,34 @@ export interface StructuredModelRunContext {
 }
 
 /**
- * The one adapter both implementations delegate to. Streams when the caller
- * wants progress (reasoning deltas are where the wall-clock goes); blocks
- * otherwise. Usage is metered through `track` even when the model produced
- * no parseable object — spent tokens are spent.
+ * The one adapter both implementations delegate to. Every call STREAMS
+ * (a blocking Responses call sends no response headers until the whole
+ * generation finishes, so any call whose reasoning outruns undici's 300s
+ * `headersTimeout` dies on the transport — observed live killing the
+ * design author call on all three SDK attempts), and every call ships a
+ * STRICT wire schema through `strictStructuredSchema`: the provider
+ * grammar-enforces the structure during generation, and the original Zod
+ * schema (refinements included) remains the SDK-side gate. Usage is
+ * metered through `track` even when the model produced no parseable
+ * object — spent tokens are spent.
  */
 export async function runStructuredWith<T>(
 	model: LanguageModel,
 	args: StructuredModelRunArgs<T>,
 	track: (usage: LanguageModelUsage) => void,
 ): Promise<SubGenerationObjectResult<T>> {
-	const shared = {
+	const result = await streamObjectWith<T>({
 		model,
 		system: args.system,
-		schema: args.schema,
+		schema: strictStructuredSchema(args.schema),
 		prompt: args.prompt,
 		file: args.file,
 		images: args.images,
 		maxOutputTokens: args.maxOutputTokens,
 		providerOptions: args.providerOptions,
 		abortSignal: args.signal,
-	};
-	const result = args.onProgress
-		? await streamObjectWith<T>({ ...shared, onProgress: args.onProgress })
-		: await generateObjectWith<T>(shared);
+		onProgress: args.onProgress,
+	});
 	if (result.usage) track(result.usage);
 	return result;
 }

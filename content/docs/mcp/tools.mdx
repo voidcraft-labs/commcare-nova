@@ -456,6 +456,7 @@ its time of day.
 | `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. |
+| `move_module` | Reorder a module in the app's menu, addressed by `moduleUuid`. `after` names the module it should follow, `null` puts it first; the module keeps its identity and every reference to it. |
 | `get_module` | Read one module by `moduleUuid`, including form and field UUIDs, the structured case-list config, its display condition, and each menu tile's current icon and audio label. |
 
 ## Working on the case list

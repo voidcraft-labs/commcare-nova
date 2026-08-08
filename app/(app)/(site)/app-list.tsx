@@ -19,9 +19,11 @@ import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
+import { listDesignsInProgress } from "@/lib/db/designInProgress";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
+import { DesignsInProgress } from "./designs-in-progress";
 import { RefreshStaleAppList } from "./RefreshStaleAppList";
 
 interface AppListProps {
@@ -40,10 +42,15 @@ interface AppListProps {
 const PAGE_SIZE = 50;
 
 export async function AppList({ projectId, userId }: AppListProps) {
-	const [activeRes, deletedRes, projects] = await Promise.all([
+	const [activeRes, deletedRes, projects, designs] = await Promise.all([
 		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 		listUserProjects(userId),
+		/* A chat build has no app row until its first workflow commits, so a
+		 * design in flight is reachable only through its own section (§15.9).
+		 * These read different tables from the app lists and share no
+		 * read-after-write dependency, so they run together. */
+		listDesignsInProgress({ userId, projectId }),
 	]);
 
 	/* Placement is a governance act, so only members who hold it in BOTH Projects
@@ -76,6 +83,8 @@ export async function AppList({ projectId, userId }: AppListProps) {
 					</Button>
 				) : null}
 			</div>
+
+			<DesignsInProgress designs={designs} />
 
 			<AppListBody
 				active={activeRes.apps}

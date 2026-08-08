@@ -24,8 +24,8 @@ import {
 	TURN_RETRY_MESSAGE,
 	turnRetryDelayMs,
 } from "@/lib/agent";
+import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
@@ -43,19 +43,17 @@ import {
 import {
 	type ClaimedRun,
 	ClaimModeStaleError,
-	type CreateAppReceipt,
 	claimAndReserveRun,
 	clearRunLock,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
-	createApp,
 	failApp,
 	GenerationInProgressError,
+	loadApp,
 	loadAppHolder,
 	type ReacquireOutcome,
 	RunConflictError,
 	reacquireLease,
-	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import {
@@ -70,6 +68,16 @@ import {
 	type Reservation,
 	settleAndRelease,
 } from "@/lib/db/credits";
+import {
+	claimAndReserveDesignSessionRun,
+	createAndClaimDesignSessionRun,
+	type DesignSessionDoc,
+	DesignSessionStateError,
+	failAndRefundDesignSessionRun,
+	loadDesignSession,
+	loadMaterializedSessionForApp,
+	reacquireDesignSessionLease,
+} from "@/lib/db/designSessions";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
@@ -113,6 +121,26 @@ const CLAIM_WAIT_MAX_MS = 120_000;
  * no-dedicated-cron pattern as the run reapers). */
 const CHUNK_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
 let lastChunkPruneAt = 0;
+
+/** The refusal for a non-`complete` app with no bound design session: a
+ * pre-pipeline row the one-off lifecycle repair converges to `complete`
+ * (a valid app at rest), so the route never guesses a deleted build
+ * method. */
+const LEGACY_BUILD_REPAIR_MESSAGE =
+	"This app's build predates Nova's design pipeline and is being repaired. It will open as an editable app shortly; if this persists, contact support.";
+
+/** Resolve an app-target BUILD turn's orchestration scope: the bound
+ * materialized design session, or null for a legacy pre-pipeline row. */
+async function resolveBoundBuildSession(appId: string): Promise<{
+	designSessionId: string;
+	proposedAppId: string;
+	materialized: true;
+} | null> {
+	const bound = await loadMaterializedSessionForApp(appId);
+	return bound === null
+		? null
+		: { designSessionId: bound.id, proposedAppId: appId, materialized: true };
+}
 
 // ── Route Handler ──────────────────────────────────────────────────────
 
@@ -170,7 +198,11 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
-	if (!parsed.data.appId && !parsed.data.expectedProjectId) {
+	if (
+		!parsed.data.appId &&
+		!parsed.data.designSessionId &&
+		!parsed.data.expectedProjectId
+	) {
 		return Response.json(
 			{
 				error:
@@ -304,22 +336,24 @@ export async function POST(req: Request) {
 	const effectiveRunId = chatRunIdSchema.parse(runId ?? crypto.randomUUID());
 
 	/* Thread-identity guard: BEFORE any persistence work (a rejection here
-	 * must not mint an orphan app). `threadId` is client-minted, so an id that
-	 * already exists must belong to THIS app: on a new build no thread can
-	 * exist yet, and on an existing app a mismatch means a forged or stale id.
-	 * The write path re-enforces this structurally (`upsertThreadTurn` guards
-	 * `app_id`); this read just turns the failure into a clean 400. Fails
+	 * must not mint an orphan session). `threadId` is client-minted, so an id
+	 * that already exists must belong to THIS turn's target: an app-target
+	 * turn's thread must name that app, a design turn's thread must name that
+	 * session — and a fresh build (neither id) can have no thread yet. The
+	 * write path re-enforces this structurally (`upsertThreadTurn` guards the
+	 * target); this read just turns the failure into a clean 400. Fails
 	 * CLOSED on a read error: proceeding unguarded would let the later
 	 * guarded write silently drop the conversation instead. */
 	let existingThread: Awaited<ReturnType<typeof resolveThreadStream>> = null;
 	try {
 		existingThread = await resolveThreadStream(threadId);
-		if (
-			existingThread !== null &&
-			(!parsed.data.appId ||
-				existingThread.target.kind !== "app" ||
-				existingThread.target.appId !== parsed.data.appId)
-		) {
+		const threadMatchesTarget =
+			existingThread === null ||
+			(existingThread.target.kind === "app"
+				? existingThread.target.appId === parsed.data.appId
+				: existingThread.target.designSessionId ===
+					parsed.data.designSessionId);
+		if (!threadMatchesTarget) {
 			return Response.json(
 				{
 					error:
@@ -382,26 +416,45 @@ export async function POST(req: Request) {
 	 * and reject. Without this ordering, two simultaneous requests could both
 	 * pass the check before either writes a doc (classic TOCTOU).
 	 */
-	let appId = parsed.data.appId;
-	let appCreated = false;
-	let createdAppReceipt: CreateAppReceipt | undefined;
-	let createdAppAccess:
+	/* A presented design session is the authoritative scope: it knows its own
+	 * app binding (or lack of one), so a stray `appId` beside it is ignored
+	 * rather than raced against the session's state. */
+	let appId =
+		parsed.data.designSessionId !== undefined ? undefined : parsed.data.appId;
+	/* The design-session scope this turn RUNS THE ORCHESTRATOR under — set for
+	 * a fresh chat build (a session is created + claimed in one gated
+	 * transaction), a presented `designSessionId` continuation still building,
+	 * and an app-target BUILD claim whose app has a bound materialized session
+	 * (a re-drive of an interrupted design build). `materialized` decides
+	 * which authority row the run holds: the session pre-app, the app after.
+	 * Undefined for an EDIT turn — including the edit continuation of a
+	 * materialized session's thread, whose lineage rides
+	 * `designLineageSessionId` below instead. */
+	let designSessionRun:
 		| {
-				projectId: string;
-				role: string;
-				canEdit: boolean;
+				designSessionId: string;
+				proposedAppId: string;
+				materialized: boolean;
 		  }
 		| undefined;
+	/* The thread-lineage binding: set whenever this turn belongs to a design
+	 * session's conversation — every `designSessionRun` case PLUS the edit
+	 * continuation of a session that already materialized and completed. A
+	 * build thread stays design-session-targeted for its whole life
+	 * (`lib/db/threads.ts` guards rows by exact target), so the turn's
+	 * generation target derives from THIS binding, not from whether the
+	 * orchestrator runs. */
+	let designLineageSessionId: string | undefined;
 	/* The credit reservation this run booked: set atomically with the claim
-	 * (`claimAndReserveRun` / `reserveForNewBuild`) pre-stream on the free /
-	 * first-claim paths, or inside `execute` after the serialize-with-wait poll
-	 * loop. Threaded into the accumulator so a failed or no-op run refunds the
-	 * exact charge against the exact month. */
+	 * (`claimAndReserveRun` / `createAndClaimDesignSessionRun`) pre-stream on
+	 * the free / first-claim paths, or inside `execute` after the
+	 * serialize-with-wait poll loop. Threaded into the accumulator so a failed
+	 * or no-op run refunds the exact charge against the exact month. */
 	let reservation: Reservation | undefined;
 	/* The persisted app doc for an EXISTING-app request: captured off the
 	 * authorization read below so the SA's working doc seeds from the saved
-	 * blueprint with no extra load. Undefined for a new build, whose exact
-	 * canonical sequence-1 blueprint comes from `createdAppReceipt`. */
+	 * blueprint with no extra load. Undefined for a design turn, which owns no
+	 * document — the executor's change-set workspace does. */
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
@@ -476,120 +529,217 @@ export async function POST(req: Request) {
 		return claimMode;
 	};
 	if (!appId) {
-		const expectedProjectId = parsed.data.expectedProjectId;
-		if (expectedProjectId === undefined) {
-			return Response.json(
-				{
-					error:
-						"This new-app page is missing its Project scope. Reload the page and try again.",
-					type: "invalid_request",
-				},
-				{ status: 400 },
-			);
-		}
-		/* `/build/new` captured this Project in its server-rendered access tuple.
-		 * Another tab may have switched the session's active Project since then;
-		 * bind creation to the captured id and freshly authorize it at EDIT instead
-		 * of re-reading mutable session state. The client supplies no capability:
-		 * role/canEdit below come only from this server-side gate. */
-		try {
-			projectId = expectedProjectId;
-			const access = await resolveProjectAccess(userId, projectId, "edit");
-			projectRole = access.role;
-			createdAppAccess = {
-				projectId,
-				role: access.role,
-				canEdit: roleAllowsApp(access.role, "edit"),
-			};
-		} catch (err) {
-			if (err instanceof AppAccessError) {
-				return Response.json(
-					{
-						error: "You don't have permission to create apps in this Project.",
-						type: "forbidden",
-					},
-					{ status: 403 },
-				);
-			}
-			log.error("[chat] expected-Project authorization failed", err);
-			return Response.json(
-				{
-					error: "Unable to save app. Please try again shortly.",
-					type: "internal",
-				},
-				{ status: 503 },
-			);
-		}
-		try {
-			createdAppReceipt = await createApp(userId, projectId, effectiveRunId, {
-				runHolderNonce: holderNonce,
-			});
-			appId = createdAppReceipt.appId;
-			appCreated = true;
-		} catch (err) {
-			if (err instanceof CommitReauthError) {
-				return Response.json(
-					{
-						error: "You don't have permission to create apps in this Project.",
-						type: "forbidden",
-					},
-					{ status: 403 },
-				);
-			}
-			log.error("[chat] app creation failed", err);
-			return Response.json(
-				{
-					error: "Unable to save app. Please try again shortly.",
-					type: "internal",
-				},
-				{ status: 503 },
-			);
-		}
-		/* A brand-new app is a BUILD by definition: `appReady` stays false and
-		 * the charge is the build rate, whatever the client claimed. */
-		cost = chargeable ? chargeAmount(false) : 0;
-		/* Reserve the new build's credits: one transaction over the app row the
-		 * create just wrote (the row itself is the claim: `createApp` writes it
-		 * `generating` BEFORE this, so a second concurrent new build sees it in
-		 * the in-transaction concurrency scan). Every rejection is a rollback:
-		 * the concurrency cap and the out-of-credits arms fail the just-created
-		 * doc; an infrastructure fault leaves the row `generating` for the
-		 * reaper to refund-and-flip. */
-		if (chargeable) {
+		/* A chat build has NO app until its first meaningful workflow
+		 * materializes. The turn's durable scope is a DESIGN SESSION: a
+		 * presented `designSessionId` continues one (chargeable turns
+		 * re-claim it; an answered-question continuation re-acquires the
+		 * paused holder inside `execute`), and a fresh build creates and
+		 * claims one in a single gated transaction — creation, cross-target
+		 * concurrency, affordability, reservation, and holder commit together
+		 * or nothing does, so a rejected first turn leaves no orphan. */
+		const presentedSessionId = parsed.data.designSessionId;
+		if (presentedSessionId !== undefined) {
+			let session: DesignSessionDoc | null = null;
 			try {
-				reservation = await reserveForNewBuild(
-					appId,
-					userId,
-					cost,
-					effectiveRunId,
-					projectId,
-					holderNonce,
-				);
+				session = await loadDesignSession(presentedSessionId);
 			} catch (err) {
-				if (err instanceof AppProjectChangedError) {
-					await failApp(appId, effectiveRunId, holderNonce, "app_changed");
-					return Response.json(
-						{ error: MESSAGES.app_changed, type: "app_changed" },
-						{ status: 409 },
-					);
-				}
-				if (err instanceof CommitReauthError) {
-					await failApp(appId, effectiveRunId, holderNonce, "access_revoked");
+				log.error("[chat] design-session read failed", err);
+				return Response.json(
+					{
+						error: "Couldn't load this design. Please try again shortly.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+			if (session === null) {
+				return Response.json(
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
+				);
+			}
+			try {
+				const access = await resolveProjectAccess(
+					userId,
+					session.project_id,
+					"edit",
+				);
+				projectId = session.project_id;
+				projectRole = access.role;
+			} catch (err) {
+				if (err instanceof AppAccessError) {
+					/* Foreign/insufficient membership collapses to the same opaque
+					 * not-found every app route returns. */
 					return Response.json(
 						{ error: "App not found", type: "not_found" },
 						{ status: 404 },
 					);
 				}
-				if (err instanceof GenerationInProgressError) {
-					/* Awaited: the reserve rolled back, so this fresh `generating` row
-					 * carries no marker, until it flips to `error` it reads as the
-					 * user's own live build and blocks their next POST. */
-					await failApp(
-						appId,
-						effectiveRunId,
-						holderNonce,
-						"generation_in_progress",
+				throw err;
+			}
+			designLineageSessionId = session.id;
+			if (session.state === "materialized" && session.app_id !== null) {
+				/* The design already became an app; this turn continues against
+				 * it (the thread stays session-targeted, the app row is the run
+				 * authority). Falls through to the app admission below. */
+				appId = session.app_id;
+			} else if (session.state !== "active") {
+				return Response.json(
+					{
+						error:
+							"This design was discarded, so it can't continue. Start a new app to build again.",
+						type: "invalid_request",
+					},
+					{ status: 400 },
+				);
+			} else if (session.proposed_app_id === null) {
+				throw new Error(
+					"[chat] compiler invariant: an active build session carries no proposed app id",
+				);
+			} else {
+				designSessionRun = {
+					designSessionId: session.id,
+					proposedAppId: session.proposed_app_id,
+					materialized: false,
+				};
+				cost = chargeable ? chargeAmount(false) : 0;
+				if (chargeable) {
+					try {
+						const claimed = await claimAndReserveDesignSessionRun(
+							session.id,
+							effectiveRunId,
+							userId,
+							cost,
+							projectId,
+							holderNonce,
+						);
+						reservation = claimed.reservation;
+						holderNonce = claimed.holderNonce;
+					} catch (err) {
+						if (err instanceof RunConflictError) {
+							/* A design session is single-author scope: the conflicting
+							 * holder is this user's own live run in another tab, so a
+							 * pre-stream 429 is honest — nothing to serialize behind. */
+							return Response.json(
+								{
+									error: MESSAGES.generation_in_progress,
+									type: "generation_in_progress",
+								},
+								{ status: 429 },
+							);
+						}
+						if (err instanceof GenerationInProgressError) {
+							return Response.json(
+								{
+									error: MESSAGES.generation_in_progress,
+									type: "generation_in_progress",
+								},
+								{ status: 429 },
+							);
+						}
+						if (err instanceof OutOfCreditsError) {
+							return Response.json(
+								{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+								{ status: 429 },
+							);
+						}
+						if (
+							err instanceof DesignSessionStateError ||
+							err instanceof AppProjectChangedError ||
+							err instanceof CommitReauthError
+						) {
+							return Response.json(
+								{ error: "App not found", type: "not_found" },
+								{ status: 404 },
+							);
+						}
+						log.error("[chat] design-session claim failed", err);
+						return Response.json(
+							{
+								error: "Unable to start this run. Please try again shortly.",
+								type: "internal",
+							},
+							{ status: 503 },
+						);
+					}
+				} else {
+					/* A free answered-question continuation re-acquires the paused
+					 * SESSION holder inside `execute`, exactly like the app path. */
+					resumeMustCheckSupersede = true;
+				}
+			}
+		}
+		if (!appId && designSessionRun === undefined) {
+			const expectedProjectId = parsed.data.expectedProjectId;
+			if (expectedProjectId === undefined) {
+				return Response.json(
+					{
+						error:
+							"This new-app page is missing its Project scope. Reload the page and try again.",
+						type: "invalid_request",
+					},
+					{ status: 400 },
+				);
+			}
+			if (!chargeable) {
+				/* An answered round always names its design session; a free
+				 * continuation with neither target is a stale tab. */
+				return Response.json(
+					{
+						error:
+							"This answer round was superseded. Refresh to continue from the current conversation.",
+						type: "invalid_request",
+					},
+					{ status: 400 },
+				);
+			}
+			/* `/build/new` captured this Project in its server-rendered access
+			 * tuple. Another tab may have switched the session's active Project
+			 * since then; bind creation to the captured id and freshly authorize
+			 * it at EDIT instead of re-reading mutable session state. */
+			try {
+				projectId = expectedProjectId;
+				const access = await resolveProjectAccess(userId, projectId, "edit");
+				projectRole = access.role;
+			} catch (err) {
+				if (err instanceof AppAccessError) {
+					return Response.json(
+						{
+							error:
+								"You don't have permission to create apps in this Project.",
+							type: "forbidden",
+						},
+						{ status: 403 },
 					);
+				}
+				log.error("[chat] expected-Project authorization failed", err);
+				return Response.json(
+					{
+						error: "Unable to start this design. Please try again shortly.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+			cost = chargeAmount(false);
+			try {
+				const created = await createAndClaimDesignSessionRun({
+					projectId,
+					actorUserId: userId,
+					runId: effectiveRunId,
+					cost,
+					holderNonce,
+				});
+				designSessionRun = {
+					designSessionId: created.designSessionId,
+					proposedAppId: created.proposedAppId,
+					materialized: false,
+				};
+				designLineageSessionId = created.designSessionId;
+				reservation = created.reservation;
+				holderNonce = created.holderNonce;
+			} catch (err) {
+				if (err instanceof GenerationInProgressError) {
 					return Response.json(
 						{
 							error: MESSAGES.generation_in_progress,
@@ -599,16 +749,22 @@ export async function POST(req: Request) {
 					);
 				}
 				if (err instanceof OutOfCreditsError) {
-					await failApp(appId, effectiveRunId, holderNonce, "out_of_credits");
 					return Response.json(
 						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
 						{ status: 429 },
 					);
 				}
-				log.error("[chat] credit reservation failed", err);
-				/* Infrastructure, not a balance problem: the message must not send
-				 * the user chasing their allowance, and it asserts nothing about the
-				 * charge (the transaction rolled back). */
+				if (err instanceof CommitReauthError) {
+					return Response.json(
+						{
+							error:
+								"You don't have permission to create apps in this Project.",
+							type: "forbidden",
+						},
+						{ status: 403 },
+					);
+				}
+				log.error("[chat] design-session creation failed", err);
 				return Response.json(
 					{
 						error:
@@ -619,7 +775,8 @@ export async function POST(req: Request) {
 				);
 			}
 		}
-	} else {
+	}
+	if (appId) {
 		/* Project-membership gate (edit): apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
 		 * another Project's appId could drive a build against it. Authorization,
@@ -663,6 +820,25 @@ export async function POST(req: Request) {
 				derivedAppReady: appReady,
 				appStatus: loadedApp.status,
 			});
+		}
+		if (!appReady) {
+			/* An app-target BUILD turn is always the continuation of a design
+			 * build (a re-drive of an interrupted materialized session, or the
+			 * answer to its paused question round): the bound session is the
+			 * orchestration scope the run resumes. An app with no bound session
+			 * predates the design pipeline; its rows are repaired by the one-off
+			 * lifecycle scan (a valid app at rest is `complete`), so the route
+			 * refuses rather than guessing a build method that no longer
+			 * exists. */
+			const bound = await resolveBoundBuildSession(appId);
+			if (bound === null) {
+				return Response.json(
+					{ error: LEGACY_BUILD_REPAIR_MESSAGE, type: "invalid_request" },
+					{ status: 409 },
+				);
+			}
+			designSessionRun = bound;
+			designLineageSessionId = bound.designSessionId;
 		}
 		/* Deliberately NO second advisory balance read at the derived rate. On
 		 * the direct path the claim transaction's own affordability check
@@ -747,6 +923,27 @@ export async function POST(req: Request) {
 							directClaimMode = bindChargeableMode(
 								loadedApp.status === "complete",
 							);
+							/* A flip INTO build shape needs the build's orchestration
+							 * scope: the bound materialized session (the same resolution
+							 * the admission read performs on a non-complete app). */
+							if (
+								directClaimMode === "build" &&
+								designSessionRun === undefined
+							) {
+								const bound = await resolveBoundBuildSession(appId);
+								if (bound === null) {
+									return Response.json(
+										{
+											error: LEGACY_BUILD_REPAIR_MESSAGE,
+											type: "invalid_request",
+										},
+										{ status: 409 },
+									);
+								}
+								designSessionRun = bound;
+								/* `designLineageSessionId` stays as admission derived it:
+								 * the thread this turn continues keeps its own target. */
+							}
 							continue;
 						}
 						if (err instanceof ClaimModeStaleError) {
@@ -814,6 +1011,19 @@ export async function POST(req: Request) {
 			"[chat] compiler invariant: app admission completed without a Project scope",
 		);
 	}
+	/* One definite app-id binding for every downstream consumer. A design
+	 * turn's is the session's PROPOSED app id — the exact id materialization
+	 * mints, so the LogWriter's pre-app breadcrumbs become the app's admin
+	 * history at birth, and every post-materialization write (settle, fail,
+	 * heartbeat) already names the real row. */
+	if (appId === undefined) {
+		if (designSessionRun === undefined) {
+			throw new Error(
+				"[chat] compiler invariant: admission completed with neither an app nor a design session",
+			);
+		}
+		appId = designSessionRun.proposedAppId;
+	}
 
 	/* The paused-run resume's pause-flag clear does NOT happen pre-stream, it
 	 * moves INSIDE `execute`, folded into `reacquireLease`'s success transaction,
@@ -847,9 +1057,18 @@ export async function POST(req: Request) {
 	const logWriter = new LogWriter(appId, "chat");
 	/* The run's ONE generation target, hoisted so every consumer below —
 	 * usage, the durable stream writer, all thread writers — books against
-	 * the same value. Unit E's design-session cutover switches this single
-	 * binding, not nine scattered literals. */
-	const target: GenerationTarget = { kind: "app", appId };
+	 * the same value. A design build's thread, stream, and summaries stay
+	 * SESSION-targeted for the thread's whole life — through materialization
+	 * AND the edit turns that follow completion (one transcript lineage; the
+	 * target resolver delegates authority to the bound app), which is why
+	 * this keys on the LINEAGE binding, not on whether the orchestrator
+	 * runs. */
+	const target: GenerationTarget = designLineageSessionId
+		? {
+				kind: "design-session",
+				designSessionId: designLineageSessionId,
+			}
+		: { kind: "app", appId };
 	const usage = new UsageAccumulator({
 		target,
 		userId,
@@ -861,10 +1080,7 @@ export async function POST(req: Request) {
 		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
 		appReady,
-		moduleCount:
-			loadedApp?.module_count ??
-			createdAppReceipt?.blueprint.moduleOrder.length ??
-			0,
+		moduleCount: loadedApp?.module_count ?? 0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
 		 * continuation, which never reserves). On the NON-conflict path
@@ -1122,25 +1338,23 @@ export async function POST(req: Request) {
 					data: { runId: effectiveRunId },
 					transient: true,
 				});
-				/* Announce the freshly-minted app and its server-derived access tuple
-				 * to the client exactly once, on the request that created it, so a new
-				 * build can promote its URL
-				 * from `/build/new` to `/build/{appId}`. The client's handler for
-				 * this event unconditionally rewrites the URL to `/build/{appId}`;
-				 * emitting on edit requests would clobber any form/field selection
-				 * segments (e.g. `/build/{id}/{formUuid}/{fieldUuid}`) that the
-				 * user has already navigated into. This is a one-shot creation receipt;
-				 * per-mutation persistence happens silently server-side inside the
-				 * mutation tool handlers. */
-				if (appCreated && createdAppAccess && createdAppReceipt) {
+				/* Announce the turn's design-session scope to the client exactly
+				 * once per stream (replayed by reconnect): the id the client
+				 * echoes on continuations, and the signal that no app exists yet.
+				 * The app-creation receipt is no longer an early frame — the
+				 * strict `data-app-materialized` receipt lands only when the
+				 * first meaningful workflow commits. */
+				if (designLineageSessionId !== undefined) {
 					writer.write({
-						type: "data-app-id",
+						type: "data-design-session",
 						data: {
-							appId,
-							...createdAppAccess,
-							baseSeq: createdAppReceipt.baseSeq,
-							blueprint: createdAppReceipt.blueprint,
-							starter: createdAppReceipt.starter,
+							designSessionId: designLineageSessionId,
+							/* Null exactly while no app row exists; the id once the
+							 * session materialized (whether this turn builds or edits). */
+							materializedAppId:
+								designSessionRun === undefined || designSessionRun.materialized
+									? appId
+									: null,
 						},
 						transient: true,
 					});
@@ -1562,7 +1776,8 @@ export async function POST(req: Request) {
 									| "generation_in_progress"
 									| "out_of_credits"
 									| "access_revoked"
-									| "app_changed";
+									| "app_changed"
+									| "internal";
 								message: string;
 						  }
 						| undefined;
@@ -1592,7 +1807,24 @@ export async function POST(req: Request) {
 								 * downstream (`editing`, the heartbeat, the thread type,
 								 * `usage.configureRun`) reads these same bindings, so the
 								 * won claim and the run it starts cannot disagree. */
-								bindChargeableMode(err.statusMode === "edit");
+								const adopted = bindChargeableMode(err.statusMode === "edit");
+								/* A flip INTO build shape needs the build's orchestration
+								 * scope — the bound materialized session, exactly as the
+								 * admission read resolves it. A sessionless non-complete
+								 * app is a legacy row awaiting the one-off repair. */
+								if (adopted === "build" && designSessionRun === undefined) {
+									const bound = await resolveBoundBuildSession(appId);
+									if (bound === null) {
+										gateBail = {
+											type: "internal",
+											message: LEGACY_BUILD_REPAIR_MESSAGE,
+										};
+										break;
+									}
+									designSessionRun = bound;
+									/* The thread this turn continues keeps its own target;
+									 * lineage is an admission-time binding. */
+								}
 								continue;
 							}
 							if (err instanceof AppProjectChangedError) {
@@ -1770,7 +2002,9 @@ export async function POST(req: Request) {
 				if (resumeMustCheckSupersede) {
 					/* The server-derived mode: a paused build resumes as a BUILD even
 					 * when the answering tab's own phase read drifted (the exact drift
-					 * that once resumed answers as edits and bounced every one). */
+					 * that once resumed answers as edits and bounced every one). A
+					 * PRE-APP design resume re-acquires the SESSION's paused holder —
+					 * the same protocol, the session row as authority. */
 					const resumeMode = appReady ? "edit" : "build";
 					let reacquire:
 						| ReacquireOutcome
@@ -1779,14 +2013,23 @@ export async function POST(req: Request) {
 						| "app_changed"
 						| "failed" = "failed";
 					try {
-						const result = await reacquireLease(
-							appId,
-							effectiveRunId,
-							presentedHolderNonce,
-							resumeMode,
-							userId,
-							projectId,
-						);
+						const result =
+							designSessionRun !== undefined && !designSessionRun.materialized
+								? await reacquireDesignSessionLease(
+										designSessionRun.designSessionId,
+										effectiveRunId,
+										presentedHolderNonce,
+										userId,
+										projectId,
+									)
+								: await reacquireLease(
+										appId,
+										effectiveRunId,
+										presentedHolderNonce,
+										resumeMode,
+										userId,
+										projectId,
+									);
 						reacquire = result.outcome;
 						if (result.outcome === "owned") {
 							holderNonce = result.holderNonce;
@@ -1945,9 +2188,198 @@ export async function POST(req: Request) {
 				 * after the authoritative claim/reacquire and thread binding. */
 				writer.writePrivateHolderNonce(holderNonce);
 
-				/* Build the SA's working doc. For an existing app the seed is the
-				 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
-				 * no `fieldParent`), loaded off the authorization read above, never
+				/* ── The design-build turn ─────────────────────────────────────
+				 *
+				 * A design-session run never mounts the SA: the server-owned
+				 * BUILD ORCHESTRATOR is the whole method — source package →
+				 * bounded design pipeline → slice executor → materialization →
+				 * later slices — and this branch owns its terminal mapping onto
+				 * the run/credit machinery. It returns before the SA seed below;
+				 * edit-shaped turns continue on the SA path unchanged — including
+				 * a serialize-wait that admitted as BUILD but won its claim as an
+				 * EDIT after the awaited build completed (`bindChargeableMode`
+				 * flipped `appReady`; the session binding survives only as thread
+				 * lineage there). */
+				if (designSessionRun !== undefined && !appReady) {
+					const design = designSessionRun;
+					/* The orchestration's cancellation seam. The run deliberately
+					 * ignores browser disconnects (it drains server-side), so
+					 * nothing fires this mid-run; aborting when the branch settles
+					 * cancels any model call a throw left in flight, and the
+					 * orchestrator's own step/slice budgets remain the primary
+					 * runaway bound. */
+					const orchestrationAbort = new AbortController();
+					try {
+						const outcome = await runBuildOrchestration({
+							designSessionId: design.designSessionId,
+							proposedAppId: design.proposedAppId,
+							projectId,
+							actorUserId: userId,
+							runId: effectiveRunId,
+							holderNonce,
+							threadId,
+							messages,
+							responseMessageId,
+							writer,
+							apiKey: keyResult.apiKey,
+							meter: usage,
+							signal: orchestrationAbort.signal,
+							materializedAppId: design.materialized ? appId : null,
+							deps: {
+								logCommittedStages: (receipt, envelopes) => {
+									for (const envelope of envelopes) {
+										try {
+											ctx.emitConversation({
+												type: "assistant-text",
+												text: `Committed ${envelope.toolName}${envelope.stageName ? ` (${envelope.stageName})` : ""} at sequence ${receipt.seq}.`,
+											});
+										} catch {
+											/* Event logging never fails the run. */
+										}
+									}
+								},
+							},
+						});
+						if (outcome.kind === "completed") {
+							/* The finishing moves, in the build arm's exact order:
+							 * converge case-store schemas for anything later slices
+							 * added, flip `generating → complete` while settling the
+							 * kept charge, then emit `data-done` so the client's
+							 * reconciler adopts the final canonical snapshot. */
+							const finalApp = await loadApp(outcome.appId);
+							if (finalApp !== null) {
+								await materializeCaseStoreSchemas({
+									appId: outcome.appId,
+									blueprint: finalApp.blueprint,
+									syncedSeq: outcome.finalSeq,
+								});
+							}
+							const completionOutcome = await completeAndSettleRun(
+								outcome.appId,
+								effectiveRunId,
+								holderNonce,
+							);
+							if (completionOutcome !== "owned") {
+								throw new RunHolderLostError(completionOutcome);
+							}
+							if (finalApp !== null) {
+								ctx.emit("data-done", {
+									doc: finalApp.blueprint,
+									seq: outcome.finalSeq,
+									success: true,
+								});
+							}
+							await finalizeRun();
+						} else if (outcome.kind === "awaiting-input") {
+							if (!outcome.pauseOwned) {
+								ctx.emitError(
+									{
+										type: "run_released",
+										message:
+											"This design's question round could not pause safely. Refresh to get the latest state, then continue.",
+										recoverable: false,
+									},
+									"route:design-pause-lost",
+								);
+								await finalizeRun(undefined, { heldApp: false });
+							} else {
+								await finalizeRun(undefined, { paused: true });
+							}
+						} else {
+							/* Failed. Pre-app: settle+refund the SESSION's hold and end
+							 * honestly (no app exists; the session stays active and
+							 * recoverable). Post-materialization: the ordinary app
+							 * failure funnel — the transferred holder is on the app. */
+							if (design.materialized || outcome.appId !== null) {
+								await failRun(new Error(outcome.message), "route:design-build");
+							} else {
+								usage.markRunFailed();
+								let refunded = false;
+								try {
+									({ settled: refunded } = await failAndRefundDesignSessionRun(
+										design.designSessionId,
+										effectiveRunId,
+										holderNonce,
+										outcome.errorType,
+									));
+								} catch (err) {
+									log.error("[chat] design-session fail settle failed", err, {
+										designSessionId: design.designSessionId,
+									});
+								}
+								ctx.emitError(
+									{
+										type: "internal",
+										message: outcome.message,
+										recoverable: outcome.recoverable,
+									},
+									"route:design-build",
+								);
+								if (chargeable && refunded && !refundSignalled) {
+									refundSignalled = true;
+									writer.write({
+										type: "data-credit-refund",
+										data: { amount: cost, userId },
+										transient: true,
+									});
+								}
+								await finalizeRun(undefined, { heldApp: false });
+							}
+						}
+					} catch (error) {
+						/* An orchestration throw: infrastructure or lost scope. The
+						 * settle must target whichever row holds the run NOW — a throw
+						 * AFTER this run materialized (a later-slice fault on a fresh
+						 * build) has already transferred the holder + reservation to
+						 * the APP row, so the admission-time `design.materialized`
+						 * binding is stale; settling the session there is a no-op that
+						 * strands the app `generating` with an unsettled charge until
+						 * the reaper. Re-read the session's authoritative state to
+						 * pick the funnel; a failed re-read fails toward the app
+						 * funnel (failRun's writers are exact-holder gated, so a wrong
+						 * guess touches nothing). */
+						let materializedNow = design.materialized;
+						if (!materializedNow) {
+							try {
+								const fresh = await loadDesignSession(design.designSessionId);
+								materializedNow = fresh?.state === "materialized";
+							} catch (err) {
+								log.error(
+									"[chat] design-session state re-read failed after throw",
+									err,
+									{ designSessionId: design.designSessionId },
+								);
+								materializedNow = true;
+							}
+						}
+						if (materializedNow) {
+							await failRun(error, "route:design-build-throw");
+						} else {
+							usage.markRunFailed();
+							try {
+								await failAndRefundDesignSessionRun(
+									design.designSessionId,
+									effectiveRunId,
+									holderNonce,
+									classifyError(error).type,
+								);
+							} catch (err) {
+								log.error("[chat] design-session throw settle failed", err, {
+									designSessionId: design.designSessionId,
+								});
+							}
+							ctx.emitError(classifyError(error), "route:design-build-throw");
+							await finalizeRun(undefined, { heldApp: false });
+						}
+					} finally {
+						orchestrationAbort.abort();
+					}
+					return;
+				}
+
+				/* Build the SA's working doc: the SAVED blueprint
+				 * (`loadedApp.blueprint`, the persistable slice with no
+				 * `fieldParent`), loaded off the authorization read above, never
 				 * shipped per-turn from the client. We deep-clone so in-flight
 				 * mutations never touch the loaded doc, then rebuild the
 				 * reverse-parent index the SA's mutation helpers rely on.
@@ -1958,16 +2390,11 @@ export async function POST(req: Request) {
 				 * message-typing (longer than that), so a typed send always reads a
 				 * settled doc. A code path that fires a chat turn programmatically
 				 * IMMEDIATELY after an edit (with no typing in between) would be the
-				 * one case that could outrun the auto-save and need a flush.
-				 *
-				 * Brand-new builds use the exact canonical sequence-1 blueprint
-				 * returned by `createApp`; no client or server reconstructs a second
-				 * genesis shape. */
-				const persistedSessionBlueprint =
-					loadedApp?.blueprint ?? createdAppReceipt?.blueprint;
+				 * one case that could outrun the auto-save and need a flush. */
+				const persistedSessionBlueprint = loadedApp?.blueprint;
 				if (!persistedSessionBlueprint) {
 					throw new Error(
-						"Chat session has neither an authorized app snapshot nor a genesis receipt.",
+						"Chat session has no authorized app snapshot to edit.",
 					);
 				}
 				const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
@@ -2078,28 +2505,28 @@ export async function POST(req: Request) {
 				}
 
 				try {
-					/* Editing vs. build: determined by the server-derived appReady
-					 * alone (the app row's status at admission). A `complete` app
-					 * gets the editing prompt + medium reasoning effort; everything
-					 * else, including a paused build's answered askQuestions round
-					 * and a reaped build's re-drive, gets the build prompt at the
-					 * xhigh ceiling, so a build's follow-up turns keep build mode
-					 * mid-build whatever the client's own phase read says. */
-					const editing = appReady;
-					const saModel = editing ? SA_EDIT_MODEL : SA_BUILD_MODEL;
+					/* Every SA turn is EDIT-shaped after the design-pipeline cutover:
+					 * app-target build turns route to the orchestrator branch above,
+					 * so an app that reaches the SA is `complete` by admission. */
+					if (!appReady) {
+						throw new Error(
+							"[chat] compiler invariant: an app-target SA turn reached the executor without edit shape",
+						);
+					}
+					const saModel = SA_EDIT_MODEL;
 
 					/* Backfill the accumulator seed now that we know the real
 					 * editing signals. These fields land on the per-run
 					 * summary doc via `usage.flush()`: replaces the deleted
 					 * `logger.logConfig` call (ConfigEvent removed in T3). */
 					usage.configureRun({
-						promptMode: editing ? "edit" : "build",
-						appReady: editing,
+						promptMode: "edit",
+						appReady: true,
 						model: saModel,
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
-					const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
+					const sa = createSolutionsArchitect(ctx, sessionDoc);
 
 					/* Start the wall-clock run-lease heartbeat now the run is live, an
 					 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`
@@ -2496,7 +2923,7 @@ export async function POST(req: Request) {
 								appId,
 								effectiveRunId,
 								holderNonce,
-								editing ? "edit" : "build",
+								"edit",
 								true,
 								userId,
 								projectId,
@@ -2526,10 +2953,12 @@ export async function POST(req: Request) {
 								paused: false,
 							});
 						}
-					} else if (editing) {
-						/* Tripwire, not a gate: with every committed batch gated against
-						 * introducing findings, an edit run that ends with a NEW
-						 * completeness finding is unreachable except through a bug, the
+					} else {
+						/* Clean EDIT completion — the only SA shape after the design
+						 * cutover (a chat build finalizes in the orchestrator branch
+						 * above). Tripwire, not a gate: with every committed batch gated
+						 * against introducing findings, an edit run that ends with a NEW
+						 * completeness finding is unreachable except through a bug; the
 						 * warn is how one would surface in production. */
 						ctx.warnIfEditRunIncomplete();
 						/* An edit run can land case-type records (`generateSchema`
@@ -2565,91 +2994,6 @@ export async function POST(req: Request) {
 									appId,
 								});
 							}
-						}
-					} else {
-						/* BUILD finalization: the drain ended cleanly, so the run is
-						 * done and the app is at rest. There is no finishing tool: the
-						 * route owns the two finishing moves, in this order.
-						 *
-						 *  1. Materialize the case-store schemas for whatever the run
-						 *     persisted (awaited): a user-initiated case-store action
-						 *     sub-second after the celebration (sample-data populate,
-						 *     form submit, live preview) must see a synced Postgres
-						 *     schema. The case-store consumers don't gate on status, so
-						 *     this MUST precede `data-done`. Every commit was awaited
-						 *     inline through `commitGuardedBatch`, so the stored blueprint
-						 *     is already the run's final snapshot: no save chain to drain.
-						 *  2. Flip `generating → complete` AND settle the kept charge in
-						 *     ONE transaction (`completeAndSettleRun`), then emit `data-done`,
-						 *     the celebration + doc-reconciliation signal. The atomicity is
-						 *     load-bearing: status→complete is what makes the build claimable,
-						 *     so settling in the same commit closes the window where an edit
-						 *     POST landing between a separate flip + settle would claw back the
-						 *     build's KEPT charge via the unconditional leftover refund. The
-						 *     flip is still status-only for the blueprint (already persisted by
-						 *     the guarded commits), so it can't blind-overwrite a concurrent
-						 *     editor.
-						 *
-						 * A run that persisted nothing (a purely conversational build
-						 * turn) still flips to complete, its canonical starter remains
-						 * the valid persisted app and status never feeds gating, but
-						 * emits no `data-done`: the SA changed nothing, so there is
-						 * nothing to celebrate or reconcile.
-						 *
-						 * A throw out of any step funnels through `failRun`: the same
-						 * infrastructure arm a mid-run fault takes (the app flips to
-						 * `error`, the reservation refunds, the user sees the classified
-						 * error). */
-						try {
-							const finalDoc = ctx.latestPersistedDoc();
-							const finalSeq = ctx.latestCommittedSeq();
-							if (finalDoc) {
-								// `syncedSeq` is the committed seq of THIS doc: feeds the
-								// monotone `synced_seq` gate so a concurrent additive sync
-								// converges. `materializeCaseStoreSchemas` swallows a
-								// TRANSIENT per-type blip (`warn`; the point-of-use
-								// `withSchemaHeal` closes the gap) but RETHROWS a
-								// DETERMINISTIC fault: that throw funnels through the
-								// `failRun` below, so a build never completes-and-charges
-								// over a permanently-unusable schema.
-								await materializeCaseStoreSchemas({
-									appId,
-									blueprint: toPersistableDoc(finalDoc),
-									...(finalSeq !== undefined && { syncedSeq: finalSeq }),
-								});
-							}
-							const completionOutcome = await completeAndSettleRun(
-								appId,
-								effectiveRunId,
-								holderNonce,
-							);
-							if (completionOutcome !== "owned") {
-								throw new RunHolderLostError(completionOutcome);
-							}
-							if (finalDoc) {
-								ctx.emit("data-done", {
-									doc: toPersistableDoc(finalDoc),
-									seq: finalSeq,
-									success: true,
-								});
-							} else {
-								/* A conversational build turn: `completeAndSettleRun` above
-								 * still flipped the app to `complete`, so the client's
-								 * unfinished-build latch must release even though there is
-								 * no doc to celebrate or reconcile. Without this, the tab
-								 * keeps reading (and pricing) every later send as a build
-								 * against an app the server now runs as an edit. */
-								ctx.emit("data-build-complete", {});
-							}
-						} catch (error) {
-							/* `turnComplete`: the drain ended cleanly, so the answer the
-							 * user watched stream is done and every unit it narrates is
-							 * committed — this throw is finishing-move BOOKKEEPING
-							 * (schema materialization, the settle). The run still fails
-							 * (refund, `error` status, reaper backstops), but the
-							 * transcript keeps the completed answer instead of clawing
-							 * back a finished turn over a transient settle fault. */
-							await failRun(error, "route:finalize", { turnComplete: true });
 						}
 					}
 				} catch (error) {

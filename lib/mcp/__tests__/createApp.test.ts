@@ -8,7 +8,7 @@
  *   - A fresh server-minted run_id is persisted to the new app doc so
  *     the sliding-window derivation in subsequent MCP calls has an
  *     anchor to reuse (see `lib/mcp/runId.ts`).
- *   - `createApp` throws: surfaces as an MCP `isError: true` envelope
+ *   - `createExplicitBlankApp` throws: surfaces as an MCP `isError: true` envelope
  *     classified through the shared taxonomy.
  *
  * The MCP SDK is mocked at the boundary through the shared
@@ -17,16 +17,19 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { type CreateAppReceipt, createApp } from "@/lib/db/apps";
+import {
+	type CreateAppReceipt,
+	createExplicitBlankApp,
+} from "@/lib/db/appGenesis";
 import { proseText } from "@/lib/domain/prose";
 import { registerCreateApp } from "../tools/createApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
 /* Hoisted mock — installs before `../tools/createApp` resolves
- * `@/lib/db/apps`. Only `createApp` is replaced. */
-vi.mock("@/lib/db/apps", () => ({
-	createApp: vi.fn(),
+ * `@/lib/db/apps`. Only `createExplicitBlankApp` is replaced. */
+vi.mock("@/lib/db/appGenesis", () => ({
+	createExplicitBlankApp: vi.fn(),
 }));
 
 /* The tool resolves the caller's personal Project before creating; stub it so
@@ -55,6 +58,7 @@ function genesisReceipt(appId: string): CreateAppReceipt {
 	return {
 		appId,
 		baseSeq: 1,
+		snapshotDigest: "a".repeat(64),
 		blueprint: {
 			appId,
 			appName: "Untitled",
@@ -96,7 +100,7 @@ function genesisReceipt(appId: string): CreateAppReceipt {
 }
 
 beforeEach(() => {
-	vi.mocked(createApp).mockReset();
+	vi.mocked(createExplicitBlankApp).mockReset();
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -104,7 +108,7 @@ beforeEach(() => {
 describe("registerCreateApp — happy path with name", () => {
 	it("forwards the name and 'complete' status, returns the minted app_id", async () => {
 		const receipt = genesisReceipt("app-123");
-		vi.mocked(createApp).mockResolvedValueOnce(receipt);
+		vi.mocked(createExplicitBlankApp).mockResolvedValueOnce(receipt);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
@@ -113,9 +117,9 @@ describe("registerCreateApp — happy path with name", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		expect(createApp).toHaveBeenCalledTimes(1);
+		expect(createExplicitBlankApp).toHaveBeenCalledTimes(1);
 		const [owner, projectId, runId, opts] =
-			vi.mocked(createApp).mock.calls[0] ?? [];
+			vi.mocked(createExplicitBlankApp).mock.calls[0] ?? [];
 		expect(owner).toBe("u1");
 		/* The tool resolves the caller's personal Project (mocked). */
 		expect(projectId).toBe("proj-test");
@@ -143,28 +147,32 @@ describe("registerCreateApp — happy path with name", () => {
 
 describe("registerCreateApp — happy path without name", () => {
 	it("leaves fallback naming to canonical genesis", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-abc"));
+		vi.mocked(createExplicitBlankApp).mockResolvedValueOnce(
+			genesisReceipt("app-abc"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
 
 		await capture()({}, {});
 
-		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, , , opts] = vi.mocked(createExplicitBlankApp).mock.calls[0] ?? [];
 		expect(opts).toEqual({ name: undefined, status: "complete" });
 	});
 });
 
 describe("registerCreateApp — whitespace-only name", () => {
 	it("passes whitespace to canonical genesis instead of owning a second fallback", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-xyz"));
+		vi.mocked(createExplicitBlankApp).mockResolvedValueOnce(
+			genesisReceipt("app-xyz"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
 
 		await capture()({ app_name: "   " }, {});
 
-		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, , , opts] = vi.mocked(createExplicitBlankApp).mock.calls[0] ?? [];
 		expect(opts).toEqual({ name: "   ", status: "complete" });
 	});
 });
@@ -174,16 +182,20 @@ describe("registerCreateApp — run seed", () => {
 		/* Each create mints a fresh id — two back-to-back creates must
 		 * produce different seeds, since each is the anchor for its own
 		 * subsequent run. */
-		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-1"));
-		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-2"));
+		vi.mocked(createExplicitBlankApp).mockResolvedValueOnce(
+			genesisReceipt("app-1"),
+		);
+		vi.mocked(createExplicitBlankApp).mockResolvedValueOnce(
+			genesisReceipt("app-2"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
 		await capture()({}, {});
 		await capture()({}, {});
 
-		const [, , runIdA] = vi.mocked(createApp).mock.calls[0] ?? [];
-		const [, , runIdB] = vi.mocked(createApp).mock.calls[1] ?? [];
+		const [, , runIdA] = vi.mocked(createExplicitBlankApp).mock.calls[0] ?? [];
+		const [, , runIdB] = vi.mocked(createExplicitBlankApp).mock.calls[1] ?? [];
 		expect(runIdA).toMatch(UUID_RE);
 		expect(runIdB).toMatch(UUID_RE);
 		expect(runIdA).not.toBe(runIdB);
@@ -208,22 +220,24 @@ function typeCheckCreateAppOptions(): void {
 	const neverRun = false;
 	if (neverRun) {
 		// @ts-expect-error — "error" is not a valid creation status
-		void createApp("u1", "proj", "rid", { status: "error" });
+		void createExplicitBlankApp("u1", "proj", "rid", { status: "error" });
 		// @ts-expect-error — "deleted" is not a valid creation status
-		void createApp("u1", "proj", "rid", { status: "deleted" });
+		void createExplicitBlankApp("u1", "proj", "rid", { status: "deleted" });
 		// @ts-expect-error — callers cannot author the name outside genesis
-		void createApp("u1", "proj", "rid", { appName: "parallel scalar" });
+		void createExplicitBlankApp("u", "p", "r", { appName: "parallel" });
 		// @ts-expect-error — canonical genesis is mandatory, never caller-seeded
-		void createApp("u1", "proj", "rid", { seedMutations: () => [] });
+		void createExplicitBlankApp("u", "p", "r", { seedMutations: () => [] });
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the
  * directives inside are what the compiler enforces. */
 void typeCheckCreateAppOptions;
 
-describe("registerCreateApp — createApp throws", () => {
+describe("registerCreateApp — createExplicitBlankApp throws", () => {
 	it("surfaces as an MCP error envelope with populated error_type", async () => {
-		vi.mocked(createApp).mockRejectedValueOnce(new Error("db write failed"));
+		vi.mocked(createExplicitBlankApp).mockRejectedValueOnce(
+			new Error("db write failed"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 import { buildExpressionReference } from "../expressionReference";
 import { buildSolutionsArchitectPrompt } from "../prompts";
 import { addCaseListColumnsTool } from "../tools/case-list-config/addCaseListColumns";
@@ -315,30 +313,6 @@ const TOOL_CASES: readonly ToolBoundaryCase[] = [
 	},
 ];
 
-function editableDoc(): BlueprintDoc {
-	const moduleUuid = asUuid(MODULE_UUID);
-	return {
-		appId: "app-1",
-		appName: "Test",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[moduleUuid]: {
-				uuid: moduleUuid,
-				id: "patients",
-				name: "Patients",
-				caseType: "patient",
-			},
-		},
-		forms: {},
-		fields: {},
-		moduleOrder: [moduleUuid],
-		formOrder: { [moduleUuid]: [] },
-		fieldOrder: {},
-		fieldParent: {},
-	};
-}
-
 describe("lookup author identity boundary", () => {
 	for (const toolCase of TOOL_CASES) {
 		it(`${toolCase.name} accepts immutable UUID identities and rejects legacy projections`, () => {
@@ -413,7 +387,7 @@ describe("generated expression grammar", () => {
 	it("keeps UUID lookup guidance byte-identical across build/edit prompts", () => {
 		for (const prompt of [
 			buildSolutionsArchitectPrompt(),
-			buildSolutionsArchitectPrompt(editableDoc()),
+			buildSolutionsArchitectPrompt(),
 		]) {
 			expect(prompt).toContain("Project data identities");
 			expect(prompt).toContain("getLookupTables");

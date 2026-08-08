@@ -108,8 +108,8 @@ transaction. `project-move` carries `[]` or the nonempty media-remap batch and
 requires distinct nonblank source and destination Project ids. Runtime never
 updates or deletes either table. Its grants differ: `app_changes` is append-only
 runtime DML (`SELECT, INSERT`), while `app_change_fold_baselines` is a control
-table the runtime may only read. That is load-bearing — `createApp` reaches its
-genesis baseline through the `SECURITY DEFINER` routine
+table the runtime may only read. That is load-bearing — the genesis writer
+(`appGenesis.ts`) reaches its baseline through the `SECURITY DEFINER` routine
 `nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
 fails with `42501`. Every fixed public table is registered once by runtime
 capability in `privilegeConvergence.ts`; inventory, grants, owned-sequence
@@ -191,17 +191,26 @@ without a Project filter, and replaces complete sets child-delete/parent-delete
 then parent-insert/child-insert. Empty replacement can clear stale source-Project
 edges; missing/foreign targets share one opaque error.
 
-`apps.ts` is the authoritative protocol. Every `createApp`,
+`apps.ts` is the authoritative protocol for existing-app writes, and
+`appGenesis.ts` is the ONE closed birth owner (`explicit-blank |
+design-slice`): `prepareGenesisCandidate` reduces the construction batch from
+the canonical empty Blueprint (`lib/doc/scaffolds.ts::emptyBlueprintDoc`, the
+one spelling both genesis and change-set base loading share) exactly once
+outside the retryable transaction, and `writePreparedGenesisInTransaction`
+then asserts membership in-transaction, inserts the root (with the run's
+holder + reservation columns when a transfer rides the birth), locks/reads
+lookup definitions, evaluates the absolute verdict, checks full export
+readiness, admits media references, replaces exact edges, admits runtime
+case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
+work drains post-commit off `index_pending_seq`), and inserts entity rows,
+the sequence-one `fold-baseline` change, and immutable baseline atomically.
+`createExplicitBlankApp` (the builder action + MCP `create_app`) births the
+canonical survey starter `complete`; the design-slice arm is
+`lib/agent/change-set/materializeGenesis.ts`, which replays the genesis
+change set's committed steps and transfers the design session's holder +
+reservation onto the app row in that same transaction. Every
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
-transaction declares lookup writer v1 from the shared runtime manifest. Creation prepares
-the mandatory canonical name + survey/module/form/field genesis exactly once
-outside the retryable transaction, then takes the
-shared Project-membership advisory gate, authorizes, inserts the root,
-locks/reads lookup definitions, evaluates the absolute verdict, checks full
-export readiness, admits media references, replaces exact edges, and inserts
-entity rows, the sequence-one `fold-baseline` change, and immutable baseline
-atomically. It returns the exact committed blueprint, base sequence, and starter
-UUIDs; callers neither seed nor reconstruct birth state. Ordinary
+transaction declares lookup writer v1 from the shared runtime manifest. Ordinary
 commits lock the app, compare the caller's required `expectedProjectId`, check
 the dedup latch, take the shared membership gate,
 lock and authorize the actor's exact `auth_member` row in the SAME transaction,
@@ -431,8 +440,23 @@ so run authority delegates exactly as §11.7 orders the locks — and target
 LIVENESS delegates the same way (`generationTargetHeldLive`: a session
 carrying an `app_id` answers with the app's liveness, so a stream reconnect
 after materialization never reads the terminal session row as a dead run).
-No route mounts the session surface yet — the chat route serves app targets
-unchanged until Unit E's cutover.
+The chat route mounts the session surface: a fresh build creates+claims a
+session pre-stream, a presented `designSessionId` continues one, and an
+app-target BUILD turn resolves its bound `materialized` session (a
+sessionless non-complete app is a legacy row the route refuses pending the
+one-off repair). Materialization is one transfer transaction — app insert
+with the session's holder + reservation, verdicts, entities, baseline,
+sidecar receipts, then the session's atomic
+`authority-cleared + materialized + app_id` flip. Thread READS on an app
+target additionally include its bound materialized session's rows
+(`appScopeThreadFilter`) so the build conversation stays on the app page;
+every thread WRITE keeps the row's exact target guard.
+`designInProgress.ts` is the §15.9 list read: the caller's own active
+pre-app build sessions in the active Project, stage derived through
+`lib/agent/build`'s orchestration fold (a deliberate data→agent import —
+restating the fold here is how a list starts disagreeing with the
+conversation it links to; no runtime cycle, the fold reaches only `pg` +
+`persistedJson`).
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)

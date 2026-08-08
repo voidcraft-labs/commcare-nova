@@ -6,9 +6,13 @@
  * complete nested entities so one call reaches a valid state. In a PRIVATE
  * change set that completeness is unnecessary — no canonical write occurs —
  * so these tools expose the granular canonical mutation builders instead:
- * a bare module, a form without fields, a module reorder. The private
- * candidate may then carry `EMPTY_FORM`/`NO_FORMS_OR_CASE_LIST` findings as
- * diagnostics until later steps resolve them.
+ * a bare module, a form without fields. The private candidate may then carry
+ * `EMPTY_FORM`/`NO_FORMS_OR_CASE_LIST` findings as diagnostics until later
+ * steps resolve them.
+ *
+ * Only INCOMPLETENESS earns a staging tool. Reordering a module is complete
+ * either way, so it stays the shared canonical `moveModule` — a change set
+ * dispatches that one like any other stageable shared tool.
  *
  * They still enforce exact identity, valid parent topology for entities
  * that exist, canonical field/entity schemas, and deterministic mutation
@@ -197,42 +201,7 @@ export const stageFormTool: ChangeSetStageToolModule = {
 	},
 };
 
-// ── moveStagedModule ───────────────────────────────────────────────
-
-const moveStagedModuleInputSchema = z
-	.object({
-		moduleUuid: uuidSchema,
-		/** The module this one now follows; null means first. */
-		after: uuidSchema.nullable(),
-	})
-	.strict();
-
-export const moveStagedModuleTool: ChangeSetStageToolModule = {
-	description:
-		"Reorder one staged module — creation order is not final navigation order.",
-	inputSchema: moveStagedModuleInputSchema,
-	declaredHandles: () => [],
-	async execute(input, ctx) {
-		const parsed = moveStagedModuleInputSchema.parse(input);
-		const mutations: Mutation[] = [
-			{ kind: "moveModule", uuid: parsed.moduleUuid, after: parsed.after },
-		];
-		const commit = await guardedMutate(ctx, mutations);
-		if (!commit.ok)
-			return { kind: "mutate", mutations, result: { error: commit.error } };
-		return {
-			kind: "mutate",
-			mutations,
-			result: {
-				message: `Moved module ${parsed.moduleUuid} ${parsed.after === null ? "to the top" : `after ${parsed.after}`}.`,
-				...(commit.staged !== undefined && { receipt: commit.staged }),
-			},
-		};
-	},
-};
-
 export const CHANGE_SET_STAGE_TOOLS = [
 	{ name: "stageModule", tool: stageModuleTool },
 	{ name: "stageForm", tool: stageFormTool },
-	{ name: "moveStagedModule", tool: moveStagedModuleTool },
 ] as const;

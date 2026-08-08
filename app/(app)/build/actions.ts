@@ -12,30 +12,40 @@
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
-import { createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp, genesisBatchId } from "@/lib/db/appGenesis";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
 /**
- * The one-shot creation receipt, byte-identical in shape to the `data-app-id`
- * frame the chat route emits when the SA creates an app.
+ * The one-shot creation receipt, byte-identical in shape to the
+ * `data-app-materialized` frame the chat route emits when a design build's
+ * first meaningful workflow commits.
  *
- * Nova has exactly two ways an app is born, and both hand the client the same
+ * Nova has exactly two ways an app is born — `explicit-blank` (this action)
+ * and `design-slice` (materialization) — and both hand the client the same
  * thing: identity, the Project capability the SERVER resolved (never one the
- * client asserted), the exact sequence-1 blueprint, and the cursor multiplayer
- * must start from. Keeping one shape is what lets one client-side installer
- * serve both, so a new app can never land two different ways.
- * `ChatContainer.parseCreatedAppActivation` is the strict boundary that admits
- * it, and it accepts this key set exactly.
+ * client asserted), the exact sequence-1 blueprint with its canonical
+ * digest, and the cursor multiplayer must start from. Keeping one shape is
+ * what lets one client-side installer serve both, so a new app can never
+ * land two different ways. `ChatContainer.parseAppMaterializationReceipt`
+ * is the strict boundary that admits it, and it accepts this key set
+ * exactly. The blank path has no design lineage or change set, so those
+ * slots are explicit nulls, and `starter` names the canonical
+ * Survey/Form/Question identities only this path guarantees.
  */
 export interface CreatedAppReceiptPayload {
+	readonly eventVersion: 1;
+	readonly designSessionId: null;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly baseSeq: 1;
+	readonly seq: 1;
+	readonly batchId: string;
+	readonly changeSetId: null;
+	readonly snapshotDigest: string;
 	readonly blueprint: PersistableDoc;
 	readonly starter: {
 		readonly moduleUuid: string;
@@ -108,7 +118,7 @@ export async function createStarterApp(
 
 		let payload: CreatedAppReceiptPayload;
 		try {
-			const receipt = await createApp(
+			const receipt = await createExplicitBlankApp(
 				session.user.id,
 				expectedProjectId,
 				crypto.randomUUID(),
@@ -117,12 +127,17 @@ export async function createStarterApp(
 				},
 			);
 			payload = {
+				eventVersion: 1,
+				designSessionId: null,
 				appId: receipt.appId,
 				projectId: expectedProjectId,
 				role,
 				/* The capability the gate above resolved, never one the caller sent. */
 				canEdit: roleAllowsApp(role, "edit"),
-				baseSeq: receipt.baseSeq,
+				seq: receipt.baseSeq,
+				batchId: genesisBatchId(receipt.appId),
+				changeSetId: null,
+				snapshotDigest: receipt.snapshotDigest,
 				/* React Flight can't carry the null-prototype records the reducer
 				 * builds, and the client normalizes what it receives anyway. */
 				blueprint: toRscSerializableDoc(receipt.blueprint),

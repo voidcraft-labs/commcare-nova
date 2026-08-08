@@ -257,9 +257,12 @@ without rewriting the AST.
 ---`;
 
 // ── Build-mode interaction guidance ───────────────────────────────────
-// Only included when building a new app. Replaced by the edit preamble
-// in edit mode so the SA doesn't ask discovery questions about an app
-// that already exists.
+// ── MCP autonomous-build composition ────────────────────────────────
+// The chat SA never mounts these: a chat build runs the design pipeline
+// (`lib/agent/build/`). The MCP plugin's client-side build agent still
+// boots from this composition — direct canonical tools (`create_app` +
+// the shared tool set) remain an immediate, unreviewed surface, so its
+// prompt keeps the starter-refinement build method.
 
 const BUILD_INTERACTION = `## Initial Interaction
 
@@ -275,10 +278,6 @@ From there, understand how those things connect to each other, how they move thr
 
 Ask a question ONLY when the answer would change the app's structure — different entities, a different workflow, a different scope. Anything smaller, decide well and build; people would rather refine something real than answer another round of questions. When the user has framed the request narrowly enough to act on (an explicit "just X," a small tight scope, or you've converged through prior questions), design the app and build it.`;
 
-// ── Initial build stages ─────────────────────────────────────────────
-// Describes the shape of a first-pass app build. Only included in
-// build mode — edit mode doesn't have the build-flow guidance in its kit.
-
 const INITIAL_BUILD = `## Initial Build
 
 Design first, then execute. Reason the whole app through before you build — the design message you open your reply with is the record the build follows. The current app-state message contains the real canonical survey starter that every new app is born with: one module, one form, and one text field, all addressed by their returned UUIDs. Refine and reuse that structure when it fits the design. When it does not, create the complete replacement structure first and remove the starter only after the app can remain valid without it. Never reconstruct the starter or guess its UUIDs. Every mutation call is checked as it lands, so the app is valid at every step; creation only moves forward.
@@ -291,9 +290,15 @@ Design first, then execute. Reason the whole app through before you build — th
 6. **Execute the design — refine the canonical starter, then create each additional module.** Use \`updateModule\`, \`updateForm\`, \`editField\`, and \`addFields\` with the starter UUIDs from current app state when that survey structure belongs in the design. Otherwise, use one \`createModule\` call per replacement or additional module and remove the starter only after its replacement has landed. Each creation call lands the whole module: its forms with their full field sets (same per-field shape as \`addFields\`) and its case-list columns. A module lands complete or not at all. Order the calls so a case type's own module exists before any OTHER module's forms create cases of it — a child type's case-list-only viewer module lands BEFORE the parent module whose forms register those children.
 7. **Configure Connect once the forms exist — \`configureConnect\`.** Skip this for a standard app. For a learn or deliver app, pass the exact mode and the complete nonempty participant set, addressing every form by its returned UUID. The call sets the app mode and all matching form blocks atomically; every unlisted form is auxiliary and any old block on it is cleared.
 8. Refine each case-carrying module's case list where the design calls for more than its creation columns. Choose columns that let a user scan the list and pick the right case: lead with \`case_name\`, then the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful. Refinement runs through the case-list-config ops (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\`, \`setCaseListFilter\`, and the search-input family \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`). When a module needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\`. Search inputs always live on the case list's config (one source of truth across both screens) — author them through the case-list-config family, never inside the case-search tools. A case list can also read as a CARD instead of a row of columns — a name across the top, a status and a date beneath it — by laying it out as a tile with \`setCaseListTile\`; reach for one when the user describes a card, or when the fields they need only make sense side by side and stacked. The layout and every field's place ride ONE call: while the tile is on, every field shown in Results needs a place, and no two fields may share a square.
-9. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.
+9. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.`;
 
-When the workflow needs a scheduled case cleanup, case update, or message, use \`addAutomations\` after its referenced case types, properties, forms, organization, and worker information exist. Author the complete canonical rule with stable UUIDs for the automation and every nested criterion, update, recipient, event, and user-data filter. Setup-only criteria explicitly distinguish UCR filters from registered custom criteria. Recipient-filter values are structural exact literals or custom case-property references; empty/whitespace literals are meaningful, and brace-wrapped literals are refused because HQ executes them as references. Every triggering case must contain each referenced filter property because HQ directly indexes it and raises when missing. HQ filters only contacts that resolve to user accounts, so do not combine filters with case, parent/child-case, case-email, case-group, or registered custom recipients. After trimming, a case-property event-time value must begin with H:MM or HH:MM and the whole value must parse as a time. Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM. Use Nova standard property names; setup guidance projects supported names to HQ, while status, standard-datetime equality/regex, and standard properties in restart/event-time/filter-reference slots are refused. A host-scoped criterion, update target, update source, or message case-property part is refused when an advanced case operation can add a second extension relationship to the automation case type, because HQ does not define which extension becomes the host. Every host-scoped reference also requires exactly one live extension at runtime. Retained extra extension indices make the current-match count unavailable when a criterion reads the host, and HQ does not define which extension it chooses as the host. A message case-property part cannot use the custom property name \`owner\`, \`host\`, or \`last_modified_by\` in any case, parent, or host scope because HQ's formatter context shadows those names; rename the custom property or use a context-property part for the actual case-owner or recipient context. Email content chooses exactly one body: plain text targets a domain without Rich text emails, while rich text carries HTML source only, requires the toggle, and is sanitized by HQ with plaintext derived from it. Nova deliberately does not execute automations in Preview or install them during publish; it describes the locally representable matching subset and generates current manual CommCare HQ setup guidance, including target toggle and system-administrator prerequisites. Matching case counts belong only to Builder Preview. Use \`getAutomations\` before an edit, then \`updateAutomation\` with the complete desired state while preserving UUID identity. Never describe a saved Nova automation as active in CommCare HQ.
+// ── Authoring rules shared across modes ─────────────────────────────
+// Automation authoring and batch discipline govern every mutating turn
+// (the SA's edits today; the same rules the design executor's prompt
+// teaches in its own voice), so they live in the shared tail rather
+// than any mode-specific section.
+
+const AUTHORING_RULES = `When the workflow needs a scheduled case cleanup, case update, or message, use \`addAutomations\` after its referenced case types, properties, forms, organization, and worker information exist. Author the complete canonical rule with stable UUIDs for the automation and every nested criterion, update, recipient, event, and user-data filter. Setup-only criteria explicitly distinguish UCR filters from registered custom criteria. Recipient-filter values are structural exact literals or custom case-property references; empty/whitespace literals are meaningful, and brace-wrapped literals are refused because HQ executes them as references. Every triggering case must contain each referenced filter property because HQ directly indexes it and raises when missing. HQ filters only contacts that resolve to user accounts, so do not combine filters with case, parent/child-case, case-email, case-group, or registered custom recipients. After trimming, a case-property event-time value must begin with H:MM or HH:MM and the whole value must parse as a time. Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM. Use Nova standard property names; setup guidance projects supported names to HQ, while status, standard-datetime equality/regex, and standard properties in restart/event-time/filter-reference slots are refused. A host-scoped criterion, update target, update source, or message case-property part is refused when an advanced case operation can add a second extension relationship to the automation case type, because HQ does not define which extension becomes the host. Every host-scoped reference also requires exactly one live extension at runtime. Retained extra extension indices make the current-match count unavailable when a criterion reads the host, and HQ does not define which extension it chooses as the host. A message case-property part cannot use the custom property name \`owner\`, \`host\`, or \`last_modified_by\` in any case, parent, or host scope because HQ's formatter context shadows those names; rename the custom property or use a context-property part for the actual case-owner or recipient context. Email content chooses exactly one body: plain text targets a domain without Rich text emails, while rich text carries HTML source only, requires the toggle, and is sanitized by HQ with plaintext derived from it. Nova deliberately does not execute automations in Preview or install them during publish; it describes the locally representable matching subset and generates current manual CommCare HQ setup guidance, including target toggle and system-administrator prerequisites. Matching case counts belong only to Builder Preview. Use \`getAutomations\` before an edit, then \`updateAutomation\` with the complete desired state while preserving UUID identity. Never describe a saved Nova automation as active in CommCare HQ.
 
 ### Batch discipline
 
@@ -586,26 +591,26 @@ export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
 }
 
 /**
- * Build the SA system prompt by composing mode-specific sections:
+ * Build the SA system prompt: core + edit preamble + shared tail. The SA is
+ * the direct canonical EDIT executor — a chat BUILD is the design pipeline's
+ * orchestrator and executor (`lib/agent/build/`), which never mounts this
+ * prompt, so there is no build composition here.
  *
- * - **Build mode** (no doc passed, or an empty doc): core + build
- *   interaction + shared tail.
- * - **Edit mode** (doc with modules): core + edit preamble + shared tail.
- *
- * Both compositions are STATIC — the doc picks the branch and contributes
- * no bytes, so the rendered prompt is byte-identical across turns and the
- * provider's exact-prefix cache holds through doc mutations. The volatile
- * blueprint summary either mode consumes is delivered separately:
- * as a per-turn message on chat (`buildAppStateMessage`), or inlined
- * after the prompt body by the MCP renderer (`renderAgentPrompt`), which
- * hands a subagent its one-shot boot prompt where caching isn't in play.
+ * The composition is STATIC — the doc contributes no bytes, so the rendered
+ * prompt is byte-identical across turns and the provider's exact-prefix
+ * cache holds through doc mutations. The volatile blueprint summary is
+ * delivered separately: as a per-turn message on chat
+ * (`buildAppStateMessage`), or inlined after the prompt body by the MCP
+ * renderer (`renderAgentPrompt`), which hands a subagent its one-shot boot
+ * prompt where caching isn't in play.
  */
-export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
-	if (!isEditableDoc(doc)) {
-		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${SHARED_TAIL}`;
-	}
+/** The MCP build-agent boot prompt — see the MCP composition note above. */
+export function buildMcpAgentBuildPrompt(): string {
+	return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
+}
 
-	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${SHARED_TAIL}`;
+export function buildSolutionsArchitectPrompt(): string {
+	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
 }
 
 /**

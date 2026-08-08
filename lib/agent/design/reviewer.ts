@@ -39,6 +39,7 @@ export async function runDesignReviewer(
 		catalogText: string;
 	},
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<DesignReview>> {
 	const result = await ctx.runStructured({
 		schema: designReviewSchemaFor(args.contract, args.pkg),
@@ -49,6 +50,7 @@ export async function runDesignReviewer(
 		maxOutputTokens: DESIGN_REVIEWER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_REVIEWER_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	return toArtifactResult(result, signal);
 }

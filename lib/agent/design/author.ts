@@ -30,17 +30,20 @@ export const DESIGN_AUTHOR_MAX_OUTPUT_TOKENS = 100_000;
 export async function runDesignAuthor(
 	ctx: StructuredModelRunContext,
 	pkg: DesignSourcePackage,
+	catalogText: string,
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<AppDesignContract>> {
 	const result = await ctx.runStructured({
 		schema: appDesignContractSchema,
 		modelId: DESIGN_MODEL,
 		system: DESIGN_AUTHOR_SYSTEM,
-		prompt: renderAuthorPrompt(pkg),
+		prompt: renderAuthorPrompt(pkg, catalogText),
 		images: sourcePackageImages(pkg),
 		maxOutputTokens: DESIGN_AUTHOR_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_AUTHOR_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	return toArtifactResult(result, signal);
 }
