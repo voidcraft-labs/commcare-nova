@@ -122,11 +122,11 @@ export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
 
-/** The reviewer critiques an already-typed contract against the same
- * sources; high effort reads deeply without re-paying the drafting
- * ceiling. */
+/** The independent reviewer is the one fresh set of eyes and the last
+ * gate before a build spends money on the design — supervisor-shaped
+ * review earns the same ceiling as drafting. */
 export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
+	effort: "xhigh",
 };
 
 /** The reviser resolves enumerated findings against an existing draft —
