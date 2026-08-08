@@ -130,6 +130,9 @@ function classifyIdentity(
 	}
 
 	if (property === "moduleUuid") return "module";
+	/* `move_module` anchors on the module it now follows. The slot is named
+	 * for the mutation it emits, so the family comes from the tool. */
+	if (property === "after" && tool === "move_module") return "module";
 	if (property === "formUuid") return "form";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";

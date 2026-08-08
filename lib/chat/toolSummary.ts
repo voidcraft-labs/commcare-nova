@@ -39,6 +39,7 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	createModule: { doing: "Creating module", done: "Created module" },
 	updateModule: { doing: "Renaming module", done: "Renamed module" },
 	removeModule: { doing: "Removing module", done: "Removed module" },
+	moveModule: { doing: "Moving module", done: "Moved module" },
 	renameCaseProperties: {
 		doing: "Renaming case properties",
 		done: "Renamed case properties",

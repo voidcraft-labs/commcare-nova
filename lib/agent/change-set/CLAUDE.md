@@ -77,9 +77,15 @@ gate, and integrity services every other write uses.
 - `registry.ts` / `stageTools.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
   `forbidden`, plus the executor-only granular tools (`stageModule`,
-  `stageForm`, `moveStagedModule`) that create deliberately incomplete
-  private structure. External-effect tools are structurally absent from the
-  map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
+  `stageForm`) that create deliberately incomplete private structure —
+  INCOMPLETENESS is the only thing that earns a staging tool, so ordinary
+  reordering rides the shared canonical `moveModule`. Every shared body
+  reads `ctx.snapshot.doc`, so a dispatched read answers from the overlay's
+  own staged state; the organization-deriving tools keep only their PLACE
+  reads external (rows, not Blueprint), and `updateAutomation`'s zero-diff
+  arm proves its no-op from the overlay instead of adopting an
+  authoritative snapshot. External-effect tools are structurally absent from
+  the map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
   `retireCaseType`) fence at admission: such a batch owns its change set
   alone (`exclusive_kind` closes the set).
 

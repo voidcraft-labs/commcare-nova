@@ -25,6 +25,7 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetStagingRejectedError,
 } from "../errors";
+import { CHANGE_SET_TOOL_REGISTRY } from "../registry";
 import { changeSetHandleSchema } from "../schemas";
 import {
 	beginAppEditChangeSet,
@@ -284,22 +285,115 @@ describe("private staging isolation", () => {
 		).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
 	});
 
-	it("fences the not-yet-overlay-native tools out of the change-set registry", async () => {
-		const app = await createTestApp();
-		const { workspace } = await openWorkspace(app.appId);
+	it("dispatches the organization-deriving tools, whose reads answer from the overlay", async () => {
+		/* These three used to be fenced out of the registry because their
+		 * bodies read the persisted app instead of the workspace snapshot —
+		 * which would have made an executor's own staged state invisible to
+		 * its read-backs. They are overlay-native now, so membership alone is
+		 * not the claim: each read must SEE what this change set staged. */
 		for (const toolName of [
 			"getAutomations",
 			"getOrganization",
 			"updateAutomation",
 		]) {
-			await expect(
-				workspace.stageDispatch({
-					toolName,
-					requestId: `fence-${toolName}`,
-					input: {},
-				}),
-			).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
+			expect(CHANGE_SET_TOOL_REGISTRY.has(toolName)).toBe(true);
 		}
+
+		const app = await createTestApp();
+		const { workspace } = await openWorkspace(app.appId);
+
+		const levelUuid = asUuid(crypto.randomUUID());
+		const stagedLevel = await workspace.stageDispatch({
+			toolName: "addOrganizationLevels",
+			requestId: "add-level",
+			input: {
+				levels: [
+					{
+						uuid: levelUuid,
+						code: "district",
+						name: "District",
+						description: null,
+						parentLevelUuid: null,
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+				],
+			},
+		});
+		expect(stagedLevel.receipt?.disposition).toBe("staged");
+
+		const organization = await workspace.stageDispatch({
+			toolName: "getOrganization",
+			requestId: "read-organization",
+			input: { limit: 25 },
+		});
+		const organizationData = (
+			organization.result as { data: { levels: { uuid: string }[] } }
+		).data;
+		expect(organizationData.levels.map((level) => level.uuid)).toEqual([
+			levelUuid,
+		]);
+
+		const automationUuid = asUuid(crypto.randomUUID());
+		const stagedAutomation = await workspace.stageDispatch({
+			toolName: "addAutomations",
+			requestId: "add-automation",
+			input: {
+				automations: [
+					{
+						uuid: automationUuid,
+						kind: "case-update",
+						name: "Close stale visits",
+						caseType: "visit",
+						criteriaOperator: "all",
+						criteria: [],
+						setupOnlyCriteria: [],
+						updates: [],
+						closeCase: true,
+					},
+				],
+			},
+		});
+		expect(stagedAutomation.receipt?.disposition).toBe("staged");
+
+		const automations = await workspace.stageDispatch({
+			toolName: "getAutomations",
+			requestId: "read-automations",
+			input: {},
+		});
+		const automationData = (
+			automations.result as {
+				data: { automation: { uuid: string; name: string } }[];
+			}
+		).data;
+		expect(automationData.map((entry) => entry.automation.uuid)).toEqual([
+			automationUuid,
+		]);
+
+		/* The zero-diff arm: on a private overlay the snapshot itself is the
+		 * proof, so the no-op returns from the overlay with no adoption (which
+		 * the change-set workspace refuses outright). */
+		const noop = await workspace.stageDispatch({
+			toolName: "updateAutomation",
+			requestId: "update-automation-noop",
+			input: {
+				automation: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Close stale visits",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		});
+		expect(noop.result).toMatchObject({
+			mutations: [],
+			result: { message: expect.stringContaining("already has") },
+		});
 	});
 
 	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {

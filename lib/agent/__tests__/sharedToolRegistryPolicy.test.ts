@@ -114,6 +114,7 @@ describe("shared tool registry — execution policy coherence", () => {
 			getModule: "read-blueprint/allowed",
 			getCaseOperations: "read-blueprint/allowed",
 			moveField: "mutate-blueprint/allowed",
+			moveModule: "mutate-blueprint/allowed",
 			removeField: "mutate-blueprint/allowed",
 			removeForm: "mutate-blueprint/allowed",
 			removeModule: "mutate-blueprint/allowed",
