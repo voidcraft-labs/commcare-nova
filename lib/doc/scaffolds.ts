@@ -350,6 +350,29 @@ import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 export { APP_GENESIS_FALLBACK_NAME };
 
 /**
+ * The ONE canonical empty in-memory Blueprint every genesis path reduces
+ * from. Never persisted: it is the reducer input for the explicit-blank
+ * starter batch and the exact replay base a genesis change set records its
+ * digest over — which is why there is exactly one spelling. A drifted copy
+ * would silently split the digest a materialization proves against.
+ */
+export function emptyBlueprintDoc(appId: string): BlueprintDoc {
+	return {
+		appId,
+		appName: APP_GENESIS_FALLBACK_NAME,
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
+}
+
+/**
  * The one shape every persisted app is born with: a real non-blank name plus
  * one survey module, one survey form, and one text question.
  *

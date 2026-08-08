@@ -30,7 +30,8 @@
 
 import { randomBytes } from "node:crypto";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { appendSyntheticBatch, createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import { appendSyntheticBatch } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -339,7 +340,7 @@ export async function seedMultiplayerFixture(args: {
 	// validates them against that exact seq, updates denormalized counts, and
 	// advances the stream — the at-rest `complete` shape (no run markers) two
 	// collaborators open.
-	const { appId, baseSeq } = await createApp(
+	const { appId, baseSeq } = await createExplicitBlankApp(
 		MP_SEED.userA.id,
 		projectId,
 		"mp-seed",

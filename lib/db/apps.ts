@@ -49,7 +49,6 @@ import {
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
-	exportReadinessFindings,
 	prepareMutationCandidate,
 } from "../doc/commitVerdicts";
 import { deepEqual } from "../doc/deepEqual";
@@ -71,13 +70,11 @@ import {
 	admitMutationBatch,
 	encodeAdmittedMutationEnvelope,
 } from "../doc/mutationAdmission";
-import { canonicalAppGenesis } from "../doc/scaffolds";
 import type { Mutation } from "../doc/types";
-import {
-	APP_GENESIS_FALLBACK_NAME,
-	type BlueprintDoc,
-	type PersistableDoc,
-	type PersistedBlueprint,
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
 } from "../domain/blueprint";
 import {
 	asWalkableDoc,
@@ -89,14 +86,12 @@ import {
 	asMediaAssetId,
 	type MediaAssetId,
 } from "../domain/multimedia";
-import type { Uuid } from "../domain/uuid";
 import {
 	lockActorGenerationGate,
 	lockActorGenerationGateForAppHolder,
 	type ReapableGenerationTarget,
 	scanActorGenerationTargets,
 } from "./actorGenerationGate";
-import { decomposeBlueprint } from "./blueprintRows";
 import {
 	admitExactMediaReferences,
 	assertAppCapabilityInTransaction,
@@ -383,181 +378,13 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 
 // ── CRUD ───────────────────────────────────────────────────────────
 
-/** Optional lifecycle and naming inputs for `createApp`. */
-export interface CreateAppOptions {
-	/** Initial name authored by the canonical genesis mutation batch. An omitted
-	 *  or whitespace-only value becomes the real persisted name `Untitled`. */
-	name?: string;
-	/**
-	 * Initial lifecycle status. `"generating"` arms the staleness clock (the
-	 * chat build's run-liveness marker); `"complete"` is the at-rest default
-	 * for every other creation. `"error"` is excluded — a fresh
-	 * app has failed at nothing and soft-delete is out-of-band.
-	 */
-	status?: "generating" | "complete";
-	/** Internal chat lifecycle generation. The chat route mints this server-side
-	 * before creating a build; non-chat complete app creation leaves it null. */
-	runHolderNonce?: string;
-}
-
-/** Exact committed sequence-1 state and identities returned by app genesis. */
-export interface CreateAppReceipt {
-	appId: string;
-	baseSeq: 1;
-	blueprint: PersistableDoc;
-	starter: {
-		moduleUuid: Uuid;
-		formUuid: Uuid;
-		fieldUuid: Uuid;
-	};
-}
-
-/**
- * Create a new app in its one legal persisted birth state. The canonical name,
- * survey module, form, and field are prepared and admitted before the retryable
- * transaction; the app root, locked lookup verdict, media admission, lookup
- * edges, entities, empty sequence-1 fold-baseline change, and immutable baseline
- * then commit together or not at all.
+/*
+ * App CREATION lives in `lib/db/appGenesis.ts` — the closed
+ * `explicit-blank | design-slice` genesis owner. No generic `createApp`
+ * remains: every persisted app is born through `createExplicitBlankApp` or
+ * the design-slice materialization, and no caller inserts an app row and
+ * seeds it later.
  */
-export async function createApp(
-	owner: string,
-	projectId: string,
-	runId: string,
-	opts?: CreateAppOptions,
-): Promise<CreateAppReceipt> {
-	const appId = crypto.randomUUID();
-	const runHolderNonce =
-		(opts?.status ?? "generating") === "generating"
-			? (opts?.runHolderNonce ?? crypto.randomUUID())
-			: null;
-	const emptyDoc: BlueprintDoc = {
-		appId,
-		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-	// Atomic creation is the app-lock exception: a SQL retry may re-run the
-	// transaction closure, so UUID minting and the reducer stay outside it. The
-	// prepared canonical value is then safe to evaluate repeatedly under the
-	// transaction's locked Project lookup definition snapshot.
-	const genesis = canonicalAppGenesis(emptyDoc, opts?.name);
-	const genesisMutations = admitMutationBatch(genesis.mutations);
-	const prepared = prepareMutationCandidate(emptyDoc, genesisMutations);
-	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-	const persistable = toPersistableDoc(prepared.nextDoc);
-	const denorm = denormalize(persistable);
-	await withAppTx(async (tx) => {
-		await assertProjectCapabilityInTransaction(
-			tx,
-			owner,
-			projectId,
-			"edit",
-			"You no longer have edit access to this Project.",
-		);
-		await tx
-			.insertInto("apps")
-			.values({
-				id: appId,
-				owner,
-				project_id: projectId,
-				...denorm,
-				mutation_seq: 1,
-				status: opts?.status ?? "generating",
-				awaiting_input: false,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: runId,
-				run_holder_nonce: runHolderNonce,
-			})
-			.execute();
-		const lookupContext = await lookupContextForAuthoritativeWrite(
-			tx,
-			projectId,
-			candidateTargets,
-		);
-		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
-		if (!verdict.ok) {
-			throw new Error(
-				`App template is not valid by construction: ${describeCommitFindings(
-					verdict.findings,
-				)}`,
-			);
-		}
-		const notExportable = exportReadinessFindings(
-			verdict.nextDoc,
-			lookupContext,
-		);
-		if (notExportable.length > 0) {
-			throw new Error(
-				`App genesis must be export-ready, but the canonical starter could not be exported:\n${notExportable
-					.map((error) => `- ${error.message}`)
-					.join("\n")}`,
-			);
-		}
-		await admitExactMediaReferences(tx, {
-			appId,
-			projectId,
-			candidateDoc: verdict.nextDoc,
-		});
-		await replaceLookupReferenceEdges(tx, {
-			appId,
-			projectId,
-			targets: candidateTargets,
-		});
-		const rows = decomposeBlueprint(persistable);
-		if (rows.length > 0) {
-			await tx
-				.insertInto("blueprint_entities")
-				.values(
-					rows.map((r) => ({
-						app_id: appId,
-						uuid: r.uuid,
-						kind: r.kind,
-						parent_uuid: r.parent_uuid,
-						ordinal: r.ordinal,
-						data: JSON.stringify(r.data),
-					})),
-				)
-				.execute();
-		}
-		const baselineMutations = admitMutationBatch([]);
-		await tx
-			.insertInto("app_changes")
-			.values({
-				app_id: appId,
-				seq: 1,
-				batch_id: `genesis:${appId}`,
-				run_id: runId,
-				actor_id: owner,
-				kind: "fold-baseline",
-				mutations: encodeAdmittedMutationEnvelope(baselineMutations).json,
-				from_project_id: null,
-				to_project_id: null,
-			})
-			.execute();
-		await sql`SELECT nova_insert_app_change_genesis_fold_baseline(${appId})`.execute(
-			tx,
-		);
-	});
-	return {
-		appId,
-		baseSeq: 1,
-		blueprint: persistable,
-		starter: {
-			moduleUuid: genesis.moduleUuid,
-			formUuid: genesis.formUuid,
-			fieldUuid: genesis.fieldUuid,
-		},
-	};
-}
 
 // ── Committed-batch writer ──────────────────────────────────────────
 

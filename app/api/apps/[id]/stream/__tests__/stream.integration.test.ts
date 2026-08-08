@@ -152,9 +152,10 @@ const {
 	closeStreamListener,
 	subscribeLookupProject,
 } = await import("@/lib/db/streamListener");
-const { createApp, commitGuardedBatch, completeAndSettleRun } = await import(
+const { commitGuardedBatch, completeAndSettleRun } = await import(
 	"@/lib/db/apps"
 );
+const { createExplicitBlankApp } = await import("@/lib/db/appGenesis");
 const { createLookupTable } = await import("@/lib/lookup/service");
 
 const USER = "user-1";
@@ -206,7 +207,7 @@ function sessionFor(userId: string) {
  * logical 1 is durable sequence 2.
  */
 async function seedApp(head: number): Promise<string> {
-	const { appId } = await createApp(USER, PROJECT, "run-seed", {
+	const { appId } = await createExplicitBlankApp(USER, PROJECT, "run-seed", {
 		status: "complete",
 	});
 	await appDb.transaction().execute(async (tx) => {

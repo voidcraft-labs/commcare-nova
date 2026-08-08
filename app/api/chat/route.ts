@@ -41,14 +41,16 @@ import {
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
 import {
+	type CreateAppReceipt,
+	createExplicitBlankApp,
+} from "@/lib/db/appGenesis";
+import {
 	type ClaimedRun,
 	ClaimModeStaleError,
-	type CreateAppReceipt,
 	claimAndReserveRun,
 	clearRunLock,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
-	createApp,
 	failApp,
 	GenerationInProgressError,
 	loadAppHolder,
@@ -521,9 +523,12 @@ export async function POST(req: Request) {
 			);
 		}
 		try {
-			createdAppReceipt = await createApp(userId, projectId, effectiveRunId, {
-				runHolderNonce: holderNonce,
-			});
+			createdAppReceipt = await createExplicitBlankApp(
+				userId,
+				projectId,
+				effectiveRunId,
+				{ status: "generating", runHolderNonce: holderNonce },
+			);
 			appId = createdAppReceipt.appId;
 			appCreated = true;
 		} catch (err) {

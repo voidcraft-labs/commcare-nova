@@ -22,7 +22,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
@@ -56,27 +56,33 @@ const ACTOR = "actor-user";
 const PROJECT = "project-test";
 const RUN = "run-1";
 
-/* The design_sessions FK landed with the design-session unit: a change
- * set's session id must reference a real session row, so the lineage
- * helper seeds one. */
+/* Every change-set identity column is FK-bound (design_sessions with the
+ * design-session unit; revision/plan/attempt with the orchestrator unit),
+ * so the lineage helper seeds the whole FK-valid chain. */
 async function lineage(): Promise<ChangeSetLineage> {
+	const seeded = await h.seedDesignLineage();
 	return {
-		designSessionId: await h.seedDesignSession(),
-		designRevisionId: crypto.randomUUID(),
-		designRevisionDigest: canonicalJsonDigest("design"),
-		buildPlanId: crypto.randomUUID(),
-		buildPlanDigest: canonicalJsonDigest("plan"),
-		sliceId: asDesignId(crypto.randomUUID()),
-		attemptId: crypto.randomUUID(),
+		designSessionId: seeded.designSessionId,
+		designRevisionId: seeded.designRevisionId,
+		designRevisionDigest: seeded.designRevisionDigest,
+		buildPlanId: seeded.buildPlanId,
+		buildPlanDigest: seeded.buildPlanDigest,
+		sliceId: asDesignId(seeded.sliceId),
+		attemptId: seeded.attemptId,
 	};
 }
 
 async function createTestApp(): Promise<string> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
-	const receipt = await createApp(ACTOR, PROJECT, crypto.randomUUID(), {
-		name: "Change-set store app",
-		status: "complete",
-	});
+	const receipt = await createExplicitBlankApp(
+		ACTOR,
+		PROJECT,
+		crypto.randomUUID(),
+		{
+			name: "Change-set store app",
+			status: "complete",
+		},
+	);
 	return receipt.appId;
 }
 

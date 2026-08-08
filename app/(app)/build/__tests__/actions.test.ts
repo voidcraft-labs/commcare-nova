@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {}
 	return {
 		AppAccessError: MockAppAccessError,
-		createApp: vi.fn(),
+		createExplicitBlankApp: vi.fn(),
 		getSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
 		revalidatePath: vi.fn(),
@@ -24,11 +24,13 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: mocks.AppAccessError,
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
-vi.mock("@/lib/db/apps", () => ({ createApp: mocks.createApp }));
+vi.mock("@/lib/db/appGenesis", () => ({
+	createExplicitBlankApp: mocks.createExplicitBlankApp,
+}));
 
 import { createStarterApp } from "../actions";
 
-/** What `createApp` really hands back: the canonical starter, admitted through
+/** What `createExplicitBlankApp` really hands back: the canonical starter, admitted through
  *  the same gate the database write runs behind. */
 function canonicalReceipt(appId: string) {
 	const empty: BlueprintDoc = {
@@ -72,7 +74,7 @@ describe("createStarterApp Project binding", () => {
 			role: "editor",
 			actorUserId: "user-1",
 		});
-		mocks.createApp.mockResolvedValue(canonicalReceipt("app-1"));
+		mocks.createExplicitBlankApp.mockResolvedValue(canonicalReceipt("app-1"));
 	});
 
 	it("creates in the server-rendered Project even after another tab changes the active Project", async () => {
@@ -84,7 +86,7 @@ describe("createStarterApp Project binding", () => {
 			"project-seeded-by-build-new",
 			"edit",
 		);
-		expect(mocks.createApp).toHaveBeenCalledWith(
+		expect(mocks.createExplicitBlankApp).toHaveBeenCalledWith(
 			"user-1",
 			"project-seeded-by-build-new",
 			expect.any(String),
@@ -122,11 +124,11 @@ describe("createStarterApp Project binding", () => {
 			success: false,
 			error: "You don't have permission to create apps in this Project.",
 		});
-		expect(mocks.createApp).not.toHaveBeenCalled();
+		expect(mocks.createExplicitBlankApp).not.toHaveBeenCalled();
 	});
 
 	it("maps a transaction-time access change without claiming creation succeeded", async () => {
-		mocks.createApp.mockRejectedValue(
+		mocks.createExplicitBlankApp.mockRejectedValue(
 			new CommitReauthError("Project access changed"),
 		);
 

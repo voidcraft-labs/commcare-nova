@@ -96,7 +96,8 @@ const { holderNonceReplayDigest, PRIVATE_HOLDER_NONCE_CHUNK_TYPE } =
 const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
-const { claimAndReserveRun, createApp } = await import("@/lib/db/apps");
+const { claimAndReserveRun } = await import("@/lib/db/apps");
+const { createExplicitBlankApp } = await import("@/lib/db/appGenesis");
 const { persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
@@ -376,7 +377,12 @@ describe("live tail", () => {
 	});
 
 	it("rehydrates a private holder marker only for its actor and preserves the cursor for peers", async () => {
-		const { appId } = await createApp(USER, PROJECT, "run-private");
+		const { appId } = await createExplicitBlankApp(
+			USER,
+			PROJECT,
+			"run-private",
+			{ status: "generating" },
+		);
 		const app = await appDb
 			.selectFrom("apps")
 			.select("run_holder_nonce")
@@ -510,7 +516,9 @@ describe("dead-run fallback", () => {
 
 	it("keeps tailing while the app is held live", async () => {
 		// A real `generating` app row with a fresh `updated_at` → lease live.
-		const { appId } = await createApp(USER, PROJECT, "run-live");
+		const { appId } = await createExplicitBlankApp(USER, PROJECT, "run-live", {
+			status: "generating",
+		});
 		await seedRow("s7", 0, [delta(0)], { appId });
 
 		const { frames } = await collectUntil("s7", {
@@ -559,7 +567,12 @@ describe("auth posture", () => {
 	});
 
 	it("closes on a CONFIRMED mid-stream membership loss, not on a transient throw", async () => {
-		const { appId } = await createApp(USER, PROJECT, "run-revoke");
+		const { appId } = await createExplicitBlankApp(
+			USER,
+			PROJECT,
+			"run-revoke",
+			{ status: "generating" },
+		);
 		await seedRow("s9", 0, [delta(0)], { appId });
 
 		// Transient scope throws (pool blip) must NOT close the stream.
@@ -608,7 +621,9 @@ describe("thread resolution", () => {
 	 * instance's id), resolved through the thread row's `active_stream_id`
 	 * to the live POST's chunk log. */
 	it("resolves a thread id to its live stream and replays it", async () => {
-		const { appId } = await createApp(USER, PROJECT, "run-t1");
+		const { appId } = await createExplicitBlankApp(USER, PROJECT, "run-t1", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-live",
@@ -630,7 +645,9 @@ describe("thread resolution", () => {
 	});
 
 	it("answers a bare finish for a thread with nothing in flight", async () => {
-		const { appId } = await createApp(USER, PROJECT, "run-t2");
+		const { appId } = await createExplicitBlankApp(USER, PROJECT, "run-t2", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-idle",
@@ -661,7 +678,9 @@ describe("thread resolution", () => {
 	});
 
 	it("404s a thread scope denial identically to a missing id", async () => {
-		const { appId } = await createApp(USER, PROJECT, "run-t3");
+		const { appId } = await createExplicitBlankApp(USER, PROJECT, "run-t3", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-foreign",

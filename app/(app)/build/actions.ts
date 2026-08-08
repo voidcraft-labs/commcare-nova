@@ -12,7 +12,7 @@
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
-import { createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
@@ -108,7 +108,7 @@ export async function createStarterApp(
 
 		let payload: CreatedAppReceiptPayload;
 		try {
-			const receipt = await createApp(
+			const receipt = await createExplicitBlankApp(
 				session.user.id,
 				expectedProjectId,
 				crypto.randomUUID(),
