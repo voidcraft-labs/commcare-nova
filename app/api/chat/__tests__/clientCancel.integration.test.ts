@@ -1832,12 +1832,17 @@ describe("barrier persistence", () => {
 		);
 		feed.end();
 
-		const thread = await pollFor(async () => {
-			const row = await threadRowMaybe(THREAD);
-			return row?.active_stream_id === null ? row : undefined;
-		});
-		expect(thread.messages.map((m) => m.role)).toEqual(["user"]);
-		expect(thread.active_holder_nonce).toBeNull();
+		/* The stream closes only after finalize completes, and finalize runs
+		 * the claw-back and the settle+release as SEQUENTIAL transactions —
+		 * so the closed body is the one deterministic "every terminal write
+		 * landed" signal. Polling for the claw-back alone raced the lock
+		 * release on a loaded CI shard. */
+		await wirePromise;
+
+		const thread = await threadRowMaybe(THREAD);
+		expect(thread?.active_stream_id).toBeNull();
+		expect(thread?.messages.map((m) => m.role)).toEqual(["user"]);
+		expect(thread?.active_holder_nonce).toBeNull();
 
 		/* A failed EDIT releases its lock and refunds without touching the
 		 * committed app's status. */
@@ -1851,7 +1856,6 @@ describe("barrier persistence", () => {
 			error_type: null,
 			lock_run_id: null,
 		});
-		await wirePromise;
 	}, 30_000);
 
 	it("a bailed POST leaves the owning run's marker and transcript alone (merge-only)", async () => {
