@@ -163,16 +163,18 @@ export const MODEL_PRICING: Record<
 		cacheRead: 0.5,
 	},
 	"gpt-5.6-luna": {
-		input: 1,
-		output: 6,
-		cacheWrite: 1.25,
-		cacheRead: 0.1,
+		input: 0.2,
+		output: 1.2,
+		cacheWrite: 0.25,
+		cacheRead: 0.02,
 	},
 };
 
+/** gpt-5.6-terra's published card — the mid-family rate, so an unknown
+ * model id still produces a believable estimate. */
 export const DEFAULT_PRICING = {
-	input: 2.5,
-	output: 15,
-	cacheWrite: 3.125,
-	cacheRead: 0.25,
+	input: 2,
+	output: 12,
+	cacheWrite: 2.5,
+	cacheRead: 0.2,
 };
