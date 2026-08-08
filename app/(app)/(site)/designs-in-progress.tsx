@@ -191,11 +191,14 @@ function DesignRow({ design }: { readonly design: DesignInProgressSummary }) {
 						<AlertDialogTitle className="font-display tracking-tighter">
 							Discard this design?
 						</AlertDialogTitle>
+						{/* Says what discarding actually does. `discardDesignSession`
+						    marks the session abandoned and refunds an unsettled hold; it
+						    retains the transcript and design artifacts under the retention
+						    policy, so this must not promise a deletion. */}
 						<AlertDialogDescription className="text-left text-pretty">
-							Nova deletes the conversation and everything it worked out for “
-							{design.title}”. No app was created, so there is nothing to
-							restore, and any credits held for an unfinished run go back to
-							you.
+							“{design.title}” leaves this list and Nova takes it no further. No
+							app was created, so there is nothing to restore, and any credits
+							held for an unfinished run go back to you.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

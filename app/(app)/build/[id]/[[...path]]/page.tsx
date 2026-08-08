@@ -290,9 +290,10 @@ async function resumedDesignPage(
 			initialThread = await loadThread(target, threads[0].thread_id, userId);
 		}
 	} catch (err) {
-		/* The design is its conversation. Landing here with an empty transcript
-		 * would show a blank composer that starts a SECOND design on the next
-		 * send, so a failed hydration goes back to the list instead. */
+		/* A design IS its conversation — there is no tree, no Preview, and no
+		 * document to fall back on — so a failed hydration has nothing left to
+		 * render. Go back to the list, where the design is still listed and
+		 * still resumable, rather than showing an empty room. */
 		log.error("[build-page] design thread hydration failed", err, {
 			designSessionId,
 		});

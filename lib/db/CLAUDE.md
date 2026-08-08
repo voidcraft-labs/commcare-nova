@@ -451,6 +451,12 @@ sidecar receipts, then the session's atomic
 target additionally include its bound materialized session's rows
 (`appScopeThreadFilter`) so the build conversation stays on the app page;
 every thread WRITE keeps the row's exact target guard.
+`designInProgress.ts` is the §15.9 list read: the caller's own active
+pre-app build sessions in the active Project, stage derived through
+`lib/agent/build`'s orchestration fold (a deliberate data→agent import —
+restating the fold here is how a list starts disagreeing with the
+conversation it links to; no runtime cycle, the fold reaches only `pg` +
+`persistedJson`).
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)

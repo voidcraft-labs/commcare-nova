@@ -1048,9 +1048,13 @@ export function ChatContainer({
 	 *  re-stamped on every thread activation, and updated by the stream's
 	 *  `data-design-session` frame. Undefined for app-born edit threads and
 	 *  for a fresh `/build/new` conversation until its first turn's frame
-	 *  arrives. */
+	 *  arrives. A RESUMED design also seeds it from the page's own session, so
+	 *  a send continues that design even if its transcript came back empty
+	 *  rather than quietly starting a second one. */
 	const designSessionIdRef = useRef<string | undefined>(
-		initialThread?.design_session_id ?? undefined,
+		initialThread?.design_session_id ??
+			initialDesignSession?.designSessionId ??
+			undefined,
 	);
 	/** This conversation's design-build progress: the stage, the reviewed
 	 *  design outline, and which planned workflows have committed. One store
@@ -1258,11 +1262,11 @@ export function ChatContainer({
 	 * claiming work is moving while it waits on a person. */
 	useEffect(() => {
 		const streamOpen = status === "submitted" || status === "streaming";
-		designProgressStore
-			.getState()
-			.setAwaitingInput(
-				!streamOpen && trailingAskPosture(messages) === "awaiting-input",
-			);
+		const store = designProgressStore.getState();
+		if (streamOpen) store.noteTurnOpened();
+		store.setAwaitingInput(
+			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+		);
 	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);
 	chatRef.current = chat;

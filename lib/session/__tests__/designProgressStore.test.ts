@@ -193,6 +193,48 @@ describe("design progress stage fold", () => {
 	});
 });
 
+describe("resumed design seed", () => {
+	it("reports the server's load-time stage before any frame arrives", () => {
+		const store = createDesignProgressStore();
+		store.getState().seedSession({
+			designSessionId: SESSION,
+			materializedAppId: null,
+			stage: "needs-input",
+		});
+		expect(view(store).active).toBe(true);
+		expect(view(store).stage).toBe("needs-input");
+		/* Nothing else is reconstructed: the outline and plan exist only in the
+		 * frames a run streams. */
+		expect(view(store).outline).toBeNull();
+		expect(view(store).plannedSliceNames).toEqual([]);
+	});
+
+	it("stops reporting the load-time stage once a turn opens", () => {
+		const store = createDesignProgressStore();
+		store.getState().seedSession({
+			designSessionId: SESSION,
+			materializedAppId: null,
+			stage: "incomplete",
+		});
+		store.getState().noteTurnOpened();
+		expect(view(store).stage).toBe("understanding");
+	});
+
+	it("lets a live turn's frames supersede the seeded stage", () => {
+		const store = createDesignProgressStore();
+		store.getState().seedSession({
+			designSessionId: SESSION,
+			materializedAppId: null,
+			stage: "incomplete",
+		});
+		openSession(store);
+		store
+			.getState()
+			.applyProgressFrame("data-design-outline", envelope(SESSION, OUTLINE, 1));
+		expect(view(store).stage).toBe("designing");
+	});
+});
+
 describe("design progress frame admission", () => {
 	it("drops a frame naming a different design session", () => {
 		const store = createDesignProgressStore();

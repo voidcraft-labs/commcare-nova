@@ -92,6 +92,11 @@ export interface DesignProgressState {
 	applyProgressFrame: (type: string, data: unknown) => boolean;
 	/** The first workflow committed and the app exists. */
 	markMaterialized: (appId: string) => void;
+	/** A turn is on its way to the server. Retires the page-load snapshot the
+	 *  moment it stops describing the present, so a resumed design cannot keep
+	 *  saying "waiting on your answer" over an answer already being sent. The
+	 *  turn's own scope frame follows within the same stream. */
+	noteTurnOpened: () => void;
 	setAwaitingInput: (awaiting: boolean) => void;
 	markFailed: (message: string) => void;
 	reset: () => void;
@@ -103,6 +108,7 @@ const EMPTY: Omit<
 	| "beginSession"
 	| "applyProgressFrame"
 	| "markMaterialized"
+	| "noteTurnOpened"
 	| "setAwaitingInput"
 	| "markFailed"
 	| "reset"
@@ -218,6 +224,11 @@ export function createDesignProgressStore() {
 						? state.committedSlices
 						: appendSlice(state.committedSlices, state.activeSlice),
 			});
+		},
+
+		noteTurnOpened() {
+			if (get().seededStage === null) return;
+			set({ seededStage: null });
 		},
 
 		setAwaitingInput(awaiting: boolean) {

@@ -20,6 +20,12 @@ local unmount. And the builder's clusters arrive animated but leave instantly
 (no `AnimatePresence`): they go when app access stops being resolved, and a
 control mid-fade is still visible and still takes a click.
 
+**`/build/new` has a second form**: `?design=<designSessionId>` reopens a
+pre-app design from the Designs-in-progress list — still the app-less builder
+(conversation + derived progress stage, no tree, no Preview), hydrated with
+that design's session-targeted thread; a session that has since materialized
+redirects to its app.
+
 **`/build/new` claims nothing until a build starts.** No app exists there, so
 the screen is still the site with a composer on it and the nav, the Project
 switcher, and Help all still belong; the band changes hands at the moment the
@@ -54,11 +60,13 @@ chat's centered-to-docked morph are one gesture on one tick.
 
 ## Creation never navigates
 
-Both ways an app is born — the SA's `data-app-id` frame and the blank-app
-Server Action's return value — hand the client the SAME receipt (identity, the
-server-resolved Project capability, the exact sequence-1 blueprint, the cursor)
-and land it through ONE installer, `ChatContainer.installCreatedApp`, behind the
-same strict `parseCreatedAppActivation` boundary. It promotes `/build/new` to
+Both ways an app is born — the design build's `data-app-materialized` frame
+and the blank-app Server Action's return value — hand the client the SAME
+receipt (identity, the server-resolved Project capability, the exact
+sequence-1 blueprint and its canonical digest, the cursor) and land it
+through ONE installer, `ChatContainer.installCreatedApp`, behind the same
+strict `parseAppMaterializationReceipt` boundary (the digest verifies in the
+background over the shared canonical JSON text). It promotes `/build/new` to
 `/build/{id}` through `pushBuilderHistory`, the builder's own History-API path,
 never the Next router: a route change swaps `BuilderProvider`'s `key={buildId}`
 and rebuilds every store under it, severing a live run and discarding the
