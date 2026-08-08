@@ -103,7 +103,14 @@ export const factSourceSchema = z.discriminatedUnion("kind", [
 		})
 		.strict(),
 	z.object({ kind: z.literal("external") }).strict(),
-	z.object({ kind: z.literal("constant"), value: z.unknown() }).strict(),
+	z
+		.object({
+			kind: z.literal("constant"),
+			/** A fixed scalar — the only shape a constant fact can lower to (a
+			 *  fixed form value or case write). */
+			value: z.union([z.string(), z.number(), z.boolean()]),
+		})
+		.strict(),
 ]);
 export type FactSource = z.infer<typeof factSourceSchema>;
 

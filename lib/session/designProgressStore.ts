@@ -71,8 +71,14 @@ export interface DesignProgressState {
 	/** The run paused on a blocking question round (§15.8). Observed from the
 	 *  transcript, which is the only place the pause is visible client-side. */
 	awaitingInput: boolean;
-	/** A fatal error this turn reported. Cleared when the next turn opens. */
-	failure: string | null;
+	/** An error this turn reported — ANY design-run error stops the run, so
+	 *  either kind must halt the stage line (§15.12: a spinner over a dead
+	 *  run is the forbidden dishonesty — observed live on a recoverable
+	 *  failure whose toast said "retry" while the stage kept working).
+	 *  `recoverable` picks the stage: a retryable stop reads `incomplete`
+	 *  ("Stopped before it finished"), a fatal one `failed`. Cleared when
+	 *  the next turn opens. */
+	failure: { message: string; recoverable: boolean } | null;
 	/** The stage the SERVER derived when the page loaded a design session with
 	 *  no run in flight (`deriveDesignBuildStage` over the durable session +
 	 *  orchestration head). It is the floor the fold falls back to before any
@@ -107,7 +113,7 @@ export interface DesignProgressState {
 	 *  turn's own scope frame follows within the same stream. */
 	noteTurnOpened: () => void;
 	setAwaitingInput: (awaiting: boolean) => void;
-	markFailed: (message: string) => void;
+	markFailed: (message: string, opts: { recoverable: boolean }) => void;
 	reset: () => void;
 }
 
@@ -254,8 +260,11 @@ export function createDesignProgressStore() {
 			set({ awaitingInput: awaiting });
 		},
 
-		markFailed(message: string) {
-			set({ failure: message, activeSlice: null });
+		markFailed(message: string, opts: { recoverable: boolean }) {
+			set({
+				failure: { message, recoverable: opts.recoverable },
+				activeSlice: null,
+			});
 		},
 
 		reset() {
@@ -302,7 +311,11 @@ export function deriveDesignStage(
 	>,
 ): DesignBuildStage | null {
 	if (state.designSessionId === null) return null;
-	if (state.failure !== null) return "failed";
+	if (state.failure !== null) {
+		/* Both kinds STOP the line — a recoverable stop invites the retry the
+		 * toast offered; a fatal one says the design is done for. */
+		return state.failure.recoverable ? "incomplete" : "failed";
+	}
 	if (state.awaitingInput) return "needs-input";
 	if (state.completion !== null) return "ready";
 	if (state.activeSlice !== null || state.committedSlices.length > 0) {
@@ -374,7 +387,7 @@ export function deriveDesignProgressView(
 		currentSliceName: state.activeSlice?.sliceName ?? null,
 		committedSliceNames: state.committedSlices.map((slice) => slice.sliceName),
 		materialized: state.materializedAppId !== null,
-		failure: state.failure,
+		failure: state.failure?.message ?? null,
 	};
 }
 

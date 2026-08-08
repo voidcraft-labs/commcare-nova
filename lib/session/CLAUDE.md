@@ -113,7 +113,10 @@ is about a document that does not exist yet. It holds only the durable
 projections the build orchestrator streams — the reviewed-design outline, the
 build plan's slice names, which slices committed — plus the two facts only the
 client can see: a paused askQuestions round (read off the transcript) and a
-fatal stream error.
+run-stopping stream error. BOTH error kinds stop the stage line — a
+recoverable error reads `incomplete` ("Stopped before it finished", inviting
+the retry its toast offered) and a fatal one `failed`; marking only fatal
+errors left the line spinning over a dead run, observed live.
 
 **Stage is derived, never stored.** `deriveDesignStage` folds "which frames
 have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree

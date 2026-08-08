@@ -154,6 +154,54 @@ export function stripNullProperties(value: unknown): unknown {
 	return out;
 }
 
+/**
+ * Every position the wire treats as A SCHEMA must say what it admits:
+ * OpenAI's strict validator rejects a bare `{}` ("schema must have a
+ * 'type' key" — its live answer to `z.unknown()`, which the documented
+ * rules don't mention; learned from a rejected request). Walking the
+ * schema positions here turns that live 400 into an offline throw naming
+ * the untyped slot.
+ */
+function assertSchemaPositionsTyped(node: unknown, path: string): void {
+	if (!isObjectNode(node)) return;
+	const carriesShape =
+		"type" in node ||
+		"enum" in node ||
+		"const" in node ||
+		"$ref" in node ||
+		"anyOf" in node ||
+		"allOf" in node;
+	if (!carriesShape) {
+		throw new Error(
+			`The schema slot at ${path} admits anything (a z.unknown()/z.any() emission), which OpenAI's strict json_schema mode rejects — every slot must name a type. Give the slot a concrete shape.`,
+		);
+	}
+	if (isObjectNode(node.properties)) {
+		for (const [key, value] of Object.entries(node.properties)) {
+			assertSchemaPositionsTyped(value, `${path}.${key}`);
+		}
+	}
+	if (node.items !== undefined) {
+		assertSchemaPositionsTyped(node.items, `${path}.items`);
+	}
+	for (const carrier of ["anyOf", "allOf"] as const) {
+		const arms = node[carrier];
+		if (Array.isArray(arms)) {
+			arms.forEach((arm, index) => {
+				assertSchemaPositionsTyped(arm, `${path}.${carrier}[${index}]`);
+			});
+		}
+	}
+	for (const defs of ["$defs", "definitions"] as const) {
+		const entries = node[defs];
+		if (isObjectNode(entries)) {
+			for (const [name, def] of Object.entries(entries)) {
+				assertSchemaPositionsTyped(def, `${path}.${defs}.${name}`);
+			}
+		}
+	}
+}
+
 /** Project one Zod schema's wire emission into the strict subset. Exported
  *  for the tests that prove each production schema projects cleanly. */
 export function strictWireJsonSchema(schema: z.ZodType): JsonNode {
@@ -164,6 +212,7 @@ export function strictWireJsonSchema(schema: z.ZodType): JsonNode {
 			"OpenAI's strict json_schema mode requires an object at the schema root. Wrap this schema's payload in an object with named properties.",
 		);
 	}
+	assertSchemaPositionsTyped(projected, "$");
 	return projected;
 }
 

@@ -51,6 +51,20 @@ export function deriveDesignBuildStage(
 		return session.last_error_type === null ? "understanding" : "incomplete";
 	}
 	const state = head.state;
+	/* A mid-flight head kind describes the last event of a run that may since
+	 * have DIED: `last_error_type` is set by every failed/reaped settle and
+	 * cleared by every fresh claim, so while it stands, active-work copy over
+	 * that kind is a spinner over a dead run. The terminal kinds keep their
+	 * own answer (a finished app is ready regardless of a later edit turn's
+	 * error marker). */
+	if (
+		session.last_error_type !== null &&
+		(state.kind === "designing" ||
+			state.kind === "planning" ||
+			state.kind === "executing-slice")
+	) {
+		return "incomplete";
+	}
 	switch (state.kind) {
 		case "designing":
 			return "designing";

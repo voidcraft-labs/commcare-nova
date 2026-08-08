@@ -796,7 +796,23 @@ function createChatInstance(
 					 * the transcript's error toast is the only other signal, and a
 					 * stage line still reading "Building your app" over a dead run
 					 * is the exact dishonesty §15.12 forbids. */
-					designProgressStore.getState().markFailed(error.message);
+					designProgressStore
+						.getState()
+						.markFailed(error.message, { recoverable: false });
+				} else if (error !== null) {
+					/* A RECOVERABLE error stops the run just as dead — the server
+					 * settled and refunded; only a fresh send restarts it. Marking
+					 * only fatal errors left the stage line spinning "Designing
+					 * your app" over a toast that said retry (observed live). The
+					 * pre-materialization guard keeps an edit turn's transient
+					 * model error from halting a collapsed post-app region. */
+					const progress = designProgressStore.getState();
+					if (
+						progress.designSessionId !== null &&
+						progress.materializedAppId === null
+					) {
+						progress.markFailed(error.message, { recoverable: true });
+					}
 				}
 			}
 			if (type === "data-run-id") {

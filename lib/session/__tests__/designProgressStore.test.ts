@@ -230,10 +230,42 @@ describe("design progress stage fold", () => {
 	it("shows failed on a fatal error and clears it when the next turn opens", () => {
 		const store = createDesignProgressStore();
 		openSession(store);
-		store.getState().markFailed("The model provider stopped responding.");
+		store.getState().markFailed("The model provider stopped responding.", {
+			recoverable: false,
+		});
 		expect(view(store).stage).toBe("failed");
 		expect(view(store).failure).toBe("The model provider stopped responding.");
 
+		openSession(store);
+		expect(view(store).stage).toBe("understanding");
+		expect(view(store).failure).toBeNull();
+	});
+
+	it("shows a recoverable error as stopped, never as still working", () => {
+		/* Observed live: the run died with a retryable error, the toast said
+		 * "send again", and the stage line kept spinning "Designing your
+		 * app". A recoverable stop is still a STOP. */
+		const store = createDesignProgressStore();
+		openSession(store);
+		store.getState().applyProgressFrame("data-design-pulse", {
+			eventVersion: 1,
+			designSessionId: SESSION,
+			orchestrationEventId: "event-1",
+			orchestrationRevision: 1,
+			data: { phase: "author", chars: 900 },
+		});
+		expect(view(store).stage).toBe("designing");
+
+		store.getState().markFailed("The design step didn't come back usable.", {
+			recoverable: true,
+		});
+		expect(view(store).stage).toBe("incomplete");
+		expect(view(store).working).toBe(false);
+		expect(view(store).failure).toBe(
+			"The design step didn't come back usable.",
+		);
+
+		/* The retry send opens a new turn: the stop clears with it. */
 		openSession(store);
 		expect(view(store).stage).toBe("understanding");
 		expect(view(store).failure).toBeNull();
@@ -243,7 +275,9 @@ describe("design progress stage fold", () => {
 		const store = createDesignProgressStore();
 		openSession(store);
 		store.getState().setAwaitingInput(true);
-		store.getState().markFailed("The run was rejected before it started.");
+		store.getState().markFailed("The run was rejected before it started.", {
+			recoverable: false,
+		});
 		expect(view(store).stage).toBe("failed");
 	});
 });

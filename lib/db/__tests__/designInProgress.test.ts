@@ -86,6 +86,23 @@ describe("projectDesignInProgress", () => {
 		expect(summary.recoverable).toBe(true);
 	});
 
+	it("says the build stopped when a run died mid-phase, not the phase it died in", () => {
+		/* The head's last event says `designing`, but the session's error
+		 * marker (set by every failed settle, cleared by every fresh claim)
+		 * proves that run is dead — active-work copy here is a spinner over
+		 * a dead run, observed live on a failed author call. */
+		const summary = projectDesignInProgress(
+			row({ last_error_type: "provider_error" }),
+			head({
+				kind: "designing",
+				designSessionId: SESSION,
+				sourcePackageDigest: "b".repeat(64),
+			}),
+		);
+		expect(summary.stage).toBe("incomplete");
+		expect(summary.recoverable).toBe(true);
+	});
+
 	it("reports the paused stage while the design waits on an answer", () => {
 		const summary = projectDesignInProgress(
 			row({ awaiting_input: true }),

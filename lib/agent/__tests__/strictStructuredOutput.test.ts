@@ -149,6 +149,16 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 			strictWireJsonSchema(z.object({ bag: z.record(z.string(), z.number()) })),
 		).toThrow(/record|dictionary/i);
 	});
+
+	it("throws on an untyped slot (z.unknown) instead of emitting one strict rejects", () => {
+		// The live validator's answer to an empty schema is a 400 ("schema
+		// must have a 'type' key") — observed on the author schema's constant
+		// fact value. The projection must catch it offline, path included.
+		const { z } = require("zod") as typeof import("zod");
+		expect(() =>
+			strictWireJsonSchema(z.object({ facts: z.array(z.unknown()) })),
+		).toThrow(/facts\.items.*type|admits anything/i);
+	});
 });
 
 describe("the validation bridge", () => {
