@@ -65,7 +65,7 @@ interface AttemptRow {
 	base_kind: string;
 	base_app_id: string | null;
 	base_proposed_app_id: string | null;
-	base_seq: string | number | bigint | null;
+	base_seq: string | number | null;
 	base_snapshot_digest: string;
 	change_set_id: string | null;
 	executor_model: string;
