@@ -123,7 +123,7 @@ export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
 };
 
 /** The independent reviewer is the one fresh set of eyes and the last
- * gate before a build spends money on the design — supervisor-shaped
+ * gate before a build spends money on the design: supervisor-shaped
  * review earns the same ceiling as drafting. */
 export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
@@ -170,7 +170,7 @@ export const MODEL_PRICING: Record<
 	},
 };
 
-/** gpt-5.6-terra's published card — the mid-family rate, so an unknown
+/** gpt-5.6-terra's published card, the mid-family rate, so an unknown
  * model id still produces a believable estimate. */
 export const DEFAULT_PRICING = {
 	input: 2,
