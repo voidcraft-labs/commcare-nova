@@ -22,7 +22,7 @@
  * the schema via the provider's controlled generation.
  */
 
-import type { FinishReason, LanguageModelUsage } from "ai";
+import type { FinishReason, FlexibleSchema, LanguageModelUsage } from "ai";
 import {
 	type CallWarning,
 	generateObject,
@@ -31,7 +31,7 @@ import {
 	Output,
 	streamText,
 } from "ai";
-import type { ZodType } from "zod";
+import { ZodError } from "zod";
 import { log } from "@/lib/logger";
 
 /**
@@ -52,6 +52,49 @@ function classifyUnparseableText(
 	if (trimmed.startsWith("```")) return "fenced";
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json-like";
 	return "prose";
+}
+
+/** The failing PATHS and codes from a Zod validation failure — schema
+ *  vocabulary (key names, indices, issue codes), never the model's text, so
+ *  it is safe for the mirrored logs and it names exactly which fields
+ *  failed. The ZodError rides the NoObjectGeneratedError's cause chain
+ *  (directly, or wrapped in the SDK's TypeValidationError). */
+function schemaIssueSummary(
+	err: NoObjectGeneratedError,
+): readonly string[] | undefined {
+	let cause: unknown = err.cause;
+	for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
+		if (cause instanceof ZodError) {
+			return cause.issues
+				.slice(0, 20)
+				.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.code}`);
+		}
+		cause = (cause as { cause?: unknown }).cause;
+	}
+	return undefined;
+}
+
+/**
+ * Dev-only escape hatch: when `NOVA_DEBUG_STRUCTURED_OUTPUT_DIR` names a
+ * directory, the complete unparseable text is written there so a local
+ * smoke can be diagnosed exactly. Deliberately env-gated and best-effort:
+ * the PRODUCTION policy stands — model output is a rendering of customer
+ * content and never lands in Cloud Logging or Sentry.
+ */
+function debugDumpUnparseableText(err: NoObjectGeneratedError): void {
+	const dir = process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR;
+	if (!dir || !err.text) return;
+	void import("node:fs/promises")
+		.then((fs) =>
+			fs.writeFile(
+				`${dir}/unparseable-${err.response?.id ?? Date.now()}.json.txt`,
+				err.text ?? "",
+				"utf8",
+			),
+		)
+		.catch(() => {
+			// debugging aid only — never let it alter the failure path
+		});
 }
 
 /**
@@ -77,7 +120,9 @@ function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
 		outputTokens: err.usage?.outputTokens,
 		textLength: err.text?.length ?? 0,
 		textShape: classifyUnparseableText(err.text),
+		schemaIssues: schemaIssueSummary(err),
 	};
+	debugDumpUnparseableText(err);
 	if (err.finishReason === "length") {
 		log.warn(
 			"[subGeneration] structured output truncated at the output ceiling",
@@ -181,7 +226,7 @@ export interface SubGenerationObjectResult<T> {
 export async function generateObjectWith<T>(opts: {
 	model: LanguageModel;
 	system: string;
-	schema: ZodType<T>;
+	schema: FlexibleSchema<T>;
 	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
 	prompt?: string;
 	/** Native document block (PDF) the model reads directly. */
@@ -291,7 +336,7 @@ export async function generateObjectWith<T>(opts: {
 export async function streamObjectWith<T>(opts: {
 	model: LanguageModel;
 	system: string;
-	schema: ZodType<T>;
+	schema: FlexibleSchema<T>;
 	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
 	prompt?: string;
 	/** Native document block (PDF) the model reads directly. */

@@ -17,29 +17,16 @@
  * are written once and cannot drift between targets.
  */
 
-import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import { strictStructuredSchema } from "./strictStructuredOutput";
 import {
 	type SubGenerationImage,
 	type SubGenerationObjectResult,
 	type SubGenerationProviderOptions,
 	streamObjectWith,
 } from "./subGeneration";
-
-/**
- * Every structured call through this seam ships its json_schema response
- * format NON-STRICT — the same stance every Nova tool surface takes. The
- * design schemas are legitimately outside OpenAI's strict subset (optional
- * slots, discriminated unions emitted as `oneOf`), and the strict validator
- * rejects the request before the model runs. SDK-side Zod validation is the
- * real gate either way: an invalid output is a null object the caller
- * retries or surfaces, never an artifact.
- */
-const NON_STRICT_STRUCTURED_OUTPUT = {
-	strictJsonSchema: false,
-} as const satisfies OpenAIResponsesProviderOptions;
 
 export interface StructuredModelRunArgs<T> {
 	schema: z.ZodType<T>;
@@ -88,15 +75,16 @@ export interface StructuredModelRunContext {
 }
 
 /**
- * The one adapter both implementations delegate to. Every call STREAMS,
- * whether or not the caller wants progress: a blocking Responses call sends
- * no response headers until the whole generation finishes, so any call
- * whose reasoning outruns undici's 300s `headersTimeout` dies on the
- * transport with `Headers Timeout Error` — observed live killing the
- * design author call on all three SDK attempts. A streaming call receives
- * headers on acceptance and reasoning deltas throughout, so its liveness
- * matches the model's. Usage is metered through `track` even when the
- * model produced no parseable object — spent tokens are spent.
+ * The one adapter both implementations delegate to. Every call STREAMS
+ * (a blocking Responses call sends no response headers until the whole
+ * generation finishes, so any call whose reasoning outruns undici's 300s
+ * `headersTimeout` dies on the transport — observed live killing the
+ * design author call on all three SDK attempts), and every call ships a
+ * STRICT wire schema through `strictStructuredSchema`: the provider
+ * grammar-enforces the structure during generation, and the original Zod
+ * schema (refinements included) remains the SDK-side gate. Usage is
+ * metered through `track` even when the model produced no parseable
+ * object — spent tokens are spent.
  */
 export async function runStructuredWith<T>(
 	model: LanguageModel,
@@ -106,18 +94,12 @@ export async function runStructuredWith<T>(
 	const result = await streamObjectWith<T>({
 		model,
 		system: args.system,
-		schema: args.schema,
+		schema: strictStructuredSchema(args.schema),
 		prompt: args.prompt,
 		file: args.file,
 		images: args.images,
 		maxOutputTokens: args.maxOutputTokens,
-		providerOptions: {
-			...args.providerOptions,
-			openai: {
-				...args.providerOptions?.openai,
-				...NON_STRICT_STRUCTURED_OUTPUT,
-			},
-		},
+		providerOptions: args.providerOptions,
 		abortSignal: args.signal,
 		onProgress: args.onProgress,
 	});

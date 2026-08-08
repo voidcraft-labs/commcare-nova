@@ -6,28 +6,30 @@
  * call: `store: false` (stateless, no provider retention, excluded from
  * training by API terms), `stream: true` (a blocking call's headers wait
  * on the whole generation, which undici's 300s headersTimeout kills for
- * every long reasoning call — observed live), a NON-STRICT json_schema
- * response format (the design schemas carry optional slots and `oneOf`
- * unions, which OpenAI's strict validator rejects with a 400 before the
- * model runs — observed live; Zod is the real gate), the reasoning
- * options riding the `openai` key, the exact model id, and a live abort
- * signal on the request.
+ * every long reasoning call — observed live), a STRICT json_schema
+ * response format carrying the projected schema (grammar-enforced
+ * structure; a non-strict format let a complete 57k-char author response
+ * fail the Zod parse — observed live — and the raw schemas' `oneOf`
+ * spelling 400s strict mode, so the PROJECTION is what ships), the
+ * reasoning options riding the `openai` key, the exact model id, and a
+ * live abort signal on the request.
  *
  * The pin is SPLIT across two seams because a real `streamText` run —
  * success or failure — strands internal tee/stitch machinery the
- * async-leak gate flags: `modelRunContext.test.ts` proves Nova passes
- * these options to `streamText` (mocked seam), and this file proves the
- * provider maps them onto the wire body by invoking the model's
- * `doStream` directly — the full streaming request body is built and
- * captured, and the rejected fetch means no stream machinery exists to
- * strand. The abort contract stays at the full `runStructured` level,
- * which refuses a dead signal before any construction.
+ * async-leak gate flags: `modelRunContext.test.ts` proves Nova hands
+ * `streamText` the strict projection, and this file proves the provider
+ * maps it onto the wire body by invoking the model's `doStream` directly
+ * — the full streaming request body is built and captured, and the
+ * rejected fetch means no stream machinery exists to strand. The abort
+ * contract stays at the full `runStructured` level, which refuses a dead
+ * signal before any construction.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
+import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
 import { MODEL_DEFAULT, reasoningProviderOptions } from "@/lib/models";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000600";
@@ -62,7 +64,7 @@ afterEach(() => {
 });
 
 describe("design structured-call wire body", () => {
-	it("streams a store:false + non-strict json_schema request with reasoning options and the abort signal", async () => {
+	it("streams a store:false + STRICT json_schema request carrying the projection, reasoning options, and the abort signal", async () => {
 		let captured: CapturedRequest | null = null;
 		vi.stubGlobal("fetch", async (_url: unknown, init?: RequestInit) => {
 			captured = {
@@ -71,6 +73,19 @@ describe("design structured-call wire body", () => {
 			};
 			return new Response("captured", { status: 500 });
 		});
+
+		// The seam's projection of a design-shaped schema: a discriminated
+		// union (raw spelling: oneOf — the exact construct that 400'd live)
+		// plus an optional slot.
+		const projected = strictWireJsonSchema(
+			z.object({
+				answer: z.discriminatedUnion("kind", [
+					z.object({ kind: z.literal("text"), value: z.string() }).strict(),
+					z.object({ kind: z.literal("count"), value: z.number() }).strict(),
+				]),
+				note: z.string().optional(),
+			}),
+		);
 
 		const model = createNovaOpenAI("sk-fake-never-sent")(MODEL_DEFAULT);
 		const controller = new AbortController();
@@ -83,25 +98,10 @@ describe("design structured-call wire body", () => {
 				responseFormat: {
 					type: "json",
 					name: "response",
-					// A shape OpenAI's STRICT validator would reject (`oneOf`,
-					// non-required optional) — legal on the wire only because
-					// the format ships strict:false.
-					schema: {
-						type: "object",
-						properties: {
-							answer: {
-								oneOf: [{ type: "string" }, { type: "number" }],
-							},
-							note: { type: "string" },
-						},
-						required: ["answer"],
-					},
+					schema: projected as never,
 				},
 				providerOptions: {
-					openai: {
-						...reasoningProviderOptions("high").openai,
-						strictJsonSchema: false,
-					},
+					openai: reasoningProviderOptions("high").openai,
 				},
 				abortSignal: controller.signal,
 				includeRawChunks: false,
@@ -118,11 +118,15 @@ describe("design structured-call wire body", () => {
 		expect(request.body.stream).toBe(true);
 		expect(request.body.reasoning?.effort).toBe("high");
 		expect(request.body.max_output_tokens).toBe(500);
-		// Non-strict json_schema: the design schemas are outside OpenAI's
-		// strict subset, and a strict format 400s the request pre-model.
+		// STRICT json_schema (the provider default Nova keeps): the wire
+		// carries the projection — no oneOf, every property required.
 		expect(request.body.text?.format?.type).toBe("json_schema");
-		expect(request.body.text?.format?.strict).toBe(false);
-		expect(request.body.text?.format?.schema).toBeDefined();
+		expect(request.body.text?.format?.strict).toBe(true);
+		const wireSchema = request.body.text?.format?.schema as {
+			required?: string[];
+		};
+		expect(JSON.stringify(wireSchema)).not.toContain('"oneOf"');
+		expect(wireSchema.required).toEqual(["answer", "note"]);
 		expect(request.signal).toBeInstanceOf(AbortSignal);
 	});
 
