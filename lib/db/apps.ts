@@ -22,6 +22,7 @@
 
 import Fuse from "fuse.js";
 import {
+	type ExpressionBuilder,
 	type RawBuilder,
 	type Selectable,
 	sql,
@@ -943,6 +944,28 @@ async function assembleLockedProjectMoveDoc(
 	return { persisted: snapshot.app.blueprint, doc: snapshot.doc };
 }
 
+/* The move's conversation set spans BOTH thread target kinds: the app's own
+ * threads AND the threads of its bound design sessions (a build thread stays
+ * design-session-targeted after materialization; an active pre-app session
+ * has no bound app, so it never enters this set). Missing the session arm
+ * would strand source-Project asset ids in a moved app's design
+ * conversation and orphan its `thread_media_refs` rows in the source
+ * tenant. */
+function projectMoveThreadFilter(appId: string) {
+	return (eb: ExpressionBuilder<AppDatabase, "threads">) =>
+		eb.or([
+			eb("app_id", "=", appId),
+			eb(
+				"design_session_id",
+				"in",
+				eb
+					.selectFrom("design_sessions")
+					.select("id")
+					.where("app_id", "=", appId),
+			),
+		]);
+}
+
 async function readProjectMoveThreads(
 	tx: Transaction<AppDatabase>,
 	appId: string,
@@ -950,7 +973,7 @@ async function readProjectMoveThreads(
 	const rows = await tx
 		.selectFrom("threads")
 		.select(["thread_id", "messages"])
-		.where("app_id", "=", appId)
+		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.execute();
 	return rows.map((row) => ({
@@ -966,7 +989,7 @@ async function lockProjectMoveThreads(
 	const rows = await tx
 		.selectFrom("threads")
 		.select(["thread_id", "messages"])
-		.where("app_id", "=", appId)
+		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.forUpdate()
 		.execute();
@@ -1314,7 +1337,7 @@ export async function commitAppProjectMoveInTransaction(
 			await tx
 				.updateTable("threads")
 				.set({ messages: JSON.stringify(thread.messages) })
-				.where("app_id", "=", args.appId)
+				.where(projectMoveThreadFilter(args.appId))
 				.where("thread_id", "=", thread.threadId)
 				.execute();
 		}
@@ -1413,10 +1436,12 @@ export class RunConflictError extends Error {
 		readonly reapableStaleBuild = false,
 		readonly reapableStrandedEdit = false,
 		readonly reapableIdentity: ExactRunHolderIdentity | null = null,
+		/* The default names the app target; the design-session claim passes
+		 * its own wording — a pre-app conflict must not tell the user about
+		 * "this app" when no app exists yet. */
+		message = "Another request is already running on this app, only one run can work on an app at a time.",
 	) {
-		super(
-			"Another request is already running on this app, only one run can work on an app at a time.",
-		);
+		super(message);
 		this.name = "RunConflictError";
 	}
 }

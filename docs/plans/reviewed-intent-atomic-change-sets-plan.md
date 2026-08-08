@@ -2303,8 +2303,10 @@ Rules:
 - Blueprint commits replace exact app/Blueprint media edges only.
 - Thread writes replace the exact edge set for that thread in the same transaction as transcript persistence.
 - Thread target resolution supplies Project tenancy.
-- Asset deletion checks both app references and thread references, including soft-deleted/recoverable app/thread policy.
-- Project move re-tenants/remaps thread references with transcript attachment IDs in the existing app-move transaction.
+- Asset deletion checks both app references and thread references, including soft-deleted/recoverable app/thread policy. Deletion is the one irreversible consumer (bytes purge post-commit), so when the per-thread projection shows no conversation reference it additionally re-proves absence against the transcripts themselves — a candidate whose transcript names the asset, or whose attachment metadata cannot be parsed to prove it doesn't, blocks.
+- Project move re-tenants/remaps thread references with transcript attachment IDs in the existing app-move transaction. The move's conversation set spans both thread target kinds: the app's own threads and the threads of its bound design sessions (an active pre-app session has no bound app and never enters the set).
+- The migrate Job's runtime probe audits the SPLIT shape: `media_asset_refs` re-derives from the Blueprint alone, each thread's `thread_media_refs` rows re-derive from its transcript, and asset readiness/kind/Project verdicts cover both families.
+- The migration's thread backfill is deliberately lenient where the runtime writers are strict — it crosses history the current admission rules never saw, and a deploy-blocking Job must not fail closed on it: an unparseable legacy transcript contributes nothing, a reference naming no asset row is skipped (the FK would reject it; vanished bytes guard nothing), and both skips are counted in the Job log. Threads page through a keyset loop so Job memory stays bounded.
 - Existing app threads are backfilled from exact transcript carriers INSIDE the design-session migration (the deletion guard reads `thread_media_refs` from its first request, and the migrate Job is the one point ordered before it), which also rebuilds every edge-bearing app's `media_asset_refs` to the Blueprint-only projection; the backfill imports the production walks rather than freezing copies, because a derived-projection rebuild must converge on the projection the current runtime maintains. A one-off scan/migrate script pair re-runs the same convergence after the old revision drains (its writers keep the app-wide shape through the deploy window), then is deleted. App-wide transcript projection code is removed in the same final-shape cutover.
 - Assistant-message attachment metadata remains forbidden.
 
@@ -2342,7 +2344,7 @@ Database shape:
 4. reads/tails by cursor;
 5. uses target liveness to decide whether an unsealed stream may still produce chunks.
 
-The stream remains design-session-targeted for the life of the POST even when materialization occurs midstream.
+The stream remains design-session-targeted for the life of the POST even when materialization occurs midstream — which is exactly why target liveness DELEGATES: a session carrying an `app_id` answers with the APP's liveness (`generationTargetHeldLive`), the same bound-app delegation the thread writers' lock order performs, so a reconnect after materialization never reads the terminal session row and cuts a still-live run's tail.
 
 ### 11.10 Run summaries and usage
 
@@ -3859,7 +3861,7 @@ It never edits Blueprint state. Sensitive source access remains separately autho
 
 ### 16.1 Authority model
 
-A design-aware edit creates a `design_sessions(mode = 'edit', app_id = ...)` artifact scope, but the **app row remains the only run/credit/mutation authority**.
+A design-aware edit creates a `design_sessions(mode = 'edit', app_id = ...)` artifact scope, but the **app row remains the only run/credit/mutation authority**. Creation holds the app row `FOR SHARE` and derives the session's Project from it, rejecting a caller whose authorization snapshot a concurrent Project move invalidated — the session's tenancy agrees with its app's by construction, because the move's re-tenanting UPDATE only reaches rows that exist when it runs.
 
 - Claim and reserve through the current app edit protocol.
 - Hold one exact app `(mode, runId, nonce)` capability.

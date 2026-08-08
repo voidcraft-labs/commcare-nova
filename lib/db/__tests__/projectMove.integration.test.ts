@@ -635,6 +635,51 @@ describe("atomic Project move", () => {
 			]),
 		];
 		await seedThread(appId, "thread-atomic", originalMessages);
+		/* A build conversation stays design-session-targeted after
+		 * materialization — the move must carry ITS transcript and
+		 * conversation references exactly like the app-targeted thread's. */
+		const sessionId = await h.seedDesignSession({
+			project_id: SOURCE,
+			owner_user_id: ACTOR,
+			state: "materialized",
+			app_id: appId,
+		});
+		const sessionMessages = [
+			attachedMessage("session-message-1", [
+				{
+					assetId: sourceImage,
+					kind: "image",
+					filename: "design-sketch.png",
+					mimeType: "image/png",
+				},
+			]),
+		];
+		await h
+			.db()
+			.insertInto("threads")
+			.values({
+				thread_id: "thread-session-atomic",
+				app_id: null,
+				design_session_id: sessionId,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "build",
+				summary: "Design conversation",
+				run_id: "session-run",
+				active_stream_id: null,
+				active_holder_nonce: null,
+				messages: JSON.stringify(sessionMessages),
+			})
+			.execute();
+		await h
+			.db()
+			.insertInto("thread_media_refs")
+			.values({
+				thread_id: "thread-session-atomic",
+				asset_id: sourceImage,
+				project_id: SOURCE,
+			})
+			.execute();
 		await seedCase(appId, SOURCE);
 		await seedCase(appId, SOURCE);
 		await h
@@ -760,6 +805,32 @@ describe("atomic Project move", () => {
 				.sort()
 				.map((assetId) => ({ asset_id: assetId, project_id: DESTINATION })),
 		);
+		/* The SESSION-targeted thread moved exactly like the app-targeted one:
+		 * transcript remapped to destination ids, conversation references
+		 * re-tenanted, and the bound session itself re-homed. */
+		const sessionThread = await h
+			.db()
+			.selectFrom("threads")
+			.select("messages")
+			.where("thread_id", "=", "thread-session-atomic")
+			.executeTakeFirstOrThrow();
+		const expectedSessionMessages = structuredClone(sessionMessages) as Array<{
+			metadata: { attachments: Array<{ assetId: string }> };
+		}>;
+		expectedSessionMessages[0].metadata.attachments[0].assetId =
+			destinationImage;
+		expect(sessionThread.messages).toEqual(expectedSessionMessages);
+		expect(
+			await h
+				.db()
+				.selectFrom("thread_media_refs")
+				.select(["asset_id", "project_id"])
+				.where("thread_id", "=", "thread-session-atomic")
+				.execute(),
+		).toEqual([{ asset_id: destinationImage, project_id: DESTINATION }]);
+		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
+			project_id: DESTINATION,
+		});
 		const moveChange = await h
 			.db()
 			.selectFrom("app_changes")

@@ -70,6 +70,7 @@ import {
 	type Reservation,
 	settleAndRelease,
 } from "@/lib/db/credits";
+import type { GenerationTarget } from "@/lib/db/generationTargets";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
@@ -844,8 +845,13 @@ export async function POST(req: Request) {
 	 * with `source: "mcp"`; the writer is the single authority on the
 	 * surface tag so the two cannot drift. */
 	const logWriter = new LogWriter(appId, "chat");
+	/* The run's ONE generation target, hoisted so every consumer below —
+	 * usage, the durable stream writer, all thread writers — books against
+	 * the same value. Unit E's design-session cutover switches this single
+	 * binding, not nine scattered literals. */
+	const target: GenerationTarget = { kind: "app", appId };
 	const usage = new UsageAccumulator({
-		target: { kind: "app", appId },
+		target,
 		userId,
 		runId: effectiveRunId,
 		holderNonce,
@@ -1013,7 +1019,7 @@ export async function POST(req: Request) {
 					 * log's health. */
 					if (!(await writer.flushNow())) return;
 					await persistResponseSnapshot({
-						target: { kind: "app", appId },
+						target,
 						threadId,
 						streamId,
 						expectedProjectId: projectId,
@@ -1027,7 +1033,7 @@ export async function POST(req: Request) {
 					foldFinalMessage = responseMessage;
 					if (outcomeClawsBack(foldOutcome)) {
 						await clawBackThreadResponse({
-							target: { kind: "app", appId },
+							target,
 							threadId,
 							streamId,
 							messageId: responseMessage.id,
@@ -1037,7 +1043,7 @@ export async function POST(req: Request) {
 						return;
 					}
 					await persistResponseSnapshot({
-						target: { kind: "app", appId },
+						target,
 						threadId,
 						streamId,
 						expectedProjectId: projectId,
@@ -1086,7 +1092,7 @@ export async function POST(req: Request) {
 			 * the terminal row is durable before the response stream ends. */
 			const writer = new DurableStreamWriter({
 				streamId,
-				target: { kind: "app", appId },
+				target,
 				runId: effectiveRunId,
 				threadId,
 				inner: rawWriter,
@@ -1279,7 +1285,7 @@ export async function POST(req: Request) {
 							try {
 								if (clawBack && foldMessageId !== null) {
 									await clawBackThreadResponse({
-										target: { kind: "app", appId },
+										target,
 										threadId,
 										streamId,
 										messageId: foldMessageId,
@@ -1287,7 +1293,7 @@ export async function POST(req: Request) {
 									});
 								} else {
 									await persistResponseSnapshot({
-										target: { kind: "app", appId },
+										target,
 										threadId,
 										streamId,
 										expectedProjectId: projectId,
@@ -1479,7 +1485,7 @@ export async function POST(req: Request) {
 				const persistBailedHistory = async (): Promise<void> => {
 					try {
 						await mergeThreadTurnMessages({
-							target: { kind: "app", appId },
+							target,
 							threadId,
 							messages,
 							expectedProjectId: projectId,
@@ -1899,7 +1905,7 @@ export async function POST(req: Request) {
 				 * must terminate before publishing a stale continuation capability. */
 				try {
 					threadPersisted = await upsertThreadTurn({
-						target: { kind: "app", appId },
+						target,
 						threadId,
 						runId: effectiveRunId,
 						streamId,

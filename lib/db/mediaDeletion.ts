@@ -3,6 +3,7 @@
 import { sql, type Transaction } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { MediaAssetId } from "@/lib/domain";
 import {
@@ -195,6 +196,58 @@ async function persistedAppReferencesInTransaction(
 				? "a conversation attachment"
 				: `${threadRefs.length} conversation attachments`,
 		);
+	} else {
+		/* Defense-in-depth backstop: re-prove absence against the transcripts
+		 * themselves. The per-thread projection is the authority the thread
+		 * writers maintain, but deletion is the one IRREVERSIBLE consumer
+		 * (the bytes purge after commit), so a missing projection row — a
+		 * writer that predates the projection, a rollout window, a repair
+		 * mid-flight — must not authorize a purge the primary record
+		 * refutes. The containment prefilter narrows to candidate threads in
+		 * this Project; a candidate whose transcript names the asset — or
+		 * whose attachment metadata cannot be parsed to prove it doesn't —
+		 * blocks the deletion. */
+		const candidates = await tx
+			.selectFrom("threads")
+			.leftJoin("apps", "apps.id", "threads.app_id")
+			.leftJoin(
+				"design_sessions",
+				"design_sessions.id",
+				"threads.design_session_id",
+			)
+			.select(["threads.thread_id", "threads.messages"])
+			.where(
+				sql<boolean>`${sql.ref("threads.messages")}::text LIKE '%' || ${args.assetId} || '%'`,
+			)
+			.where((eb) =>
+				eb.or([
+					eb("apps.project_id", "=", args.projectId),
+					eb("design_sessions.project_id", "=", args.projectId),
+				]),
+			)
+			.orderBy("threads.thread_id")
+			.execute();
+		let referencingThreads = 0;
+		for (const candidate of candidates) {
+			try {
+				if (
+					collectThreadAttachmentAssetIds(candidate.messages).includes(
+						args.assetId,
+					)
+				) {
+					referencingThreads += 1;
+				}
+			} catch {
+				referencingThreads += 1;
+			}
+		}
+		if (referencingThreads > 0) {
+			descriptions.push(
+				referencingThreads === 1
+					? "a conversation attachment"
+					: `${referencingThreads} conversation attachments`,
+			);
+		}
 	}
 	return descriptions;
 }

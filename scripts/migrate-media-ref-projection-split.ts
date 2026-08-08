@@ -117,26 +117,52 @@ async function main(): Promise<void> {
 		.execute();
 	for (const { thread_id: threadId } of threadIds) {
 		const changed = await withAppTx(async (tx) => {
+			/* The runtime thread writers' lock order: resolve the thread's
+			 * authority target UNLOCKED, lock the AUTHORITY row first (a
+			 * session bound to an app delegates to the app row), then the
+			 * thread row — so this rebuild serializes against live thread
+			 * writers and Project moves, and the stamped project_id comes
+			 * off the locked authority, never a racing snapshot. */
+			const mapping = await tx
+				.selectFrom("threads")
+				.select(["app_id", "design_session_id"])
+				.where("thread_id", "=", threadId)
+				.executeTakeFirst();
+			if (!mapping) return false;
+			let authorityAppId = mapping.app_id;
+			if (authorityAppId === null && mapping.design_session_id !== null) {
+				const session = await tx
+					.selectFrom("design_sessions")
+					.select("app_id")
+					.where("id", "=", mapping.design_session_id)
+					.executeTakeFirst();
+				if (!session) return false;
+				authorityAppId = session.app_id;
+			}
+			const projectRow =
+				authorityAppId !== null
+					? await tx
+							.selectFrom("apps")
+							.select("project_id")
+							.where("id", "=", authorityAppId)
+							.forUpdate()
+							.executeTakeFirst()
+					: mapping.design_session_id !== null
+						? await tx
+								.selectFrom("design_sessions")
+								.select("project_id")
+								.where("id", "=", mapping.design_session_id)
+								.forUpdate()
+								.executeTakeFirst()
+						: undefined;
+			if (!projectRow) return false;
 			const thread = await tx
 				.selectFrom("threads")
-				.select(["thread_id", "app_id", "design_session_id", "messages"])
+				.select(["thread_id", "messages"])
 				.where("thread_id", "=", threadId)
 				.forUpdate()
 				.executeTakeFirst();
 			if (!thread) return false;
-			const projectRow =
-				thread.app_id !== null
-					? await tx
-							.selectFrom("apps")
-							.select("project_id")
-							.where("id", "=", thread.app_id)
-							.executeTakeFirst()
-					: await tx
-							.selectFrom("design_sessions")
-							.select("project_id")
-							.where("id", "=", thread.design_session_id ?? "")
-							.executeTakeFirst();
-			if (!projectRow) return false;
 			const expected = [
 				...new Set(
 					collectThreadAttachmentAssetIds(thread.messages).map(String),

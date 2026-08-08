@@ -248,9 +248,17 @@ describe("claimAndReserveDesignSessionRun", () => {
 				runId: "run-theirs",
 			},
 		});
-		await expect(
-			claimAndReserveDesignSessionRun(sessionId, "run-x", ACTOR, 100, PROJECT),
-		).rejects.toBeInstanceOf(RunConflictError);
+		/* The conflict speaks the DESIGN vocabulary — a pre-app session has
+		 * no app to name (the person-to-person error rule). */
+		const conflict = await claimAndReserveDesignSessionRun(
+			sessionId,
+			"run-x",
+			ACTOR,
+			100,
+			PROJECT,
+		).catch((error: unknown) => error);
+		expect(conflict).toBeInstanceOf(RunConflictError);
+		expect((conflict as Error).message).toContain("this design");
 	});
 
 	it("claim racing the reaper on a lapsed session: exactly one holder or none survives (§20.9)", async () => {
@@ -665,6 +673,31 @@ describe("discard (§11.12) and edit sessions", () => {
 		/* No app was ever created. */
 		const apps = await h.db().selectFrom("apps").select("id").execute();
 		expect(apps).toEqual([]);
+	});
+
+	it("an edit session cannot be born tenancy-diverged from its app", async () => {
+		/* The session's Project must agree with its bound app's BY
+		 * CONSTRUCTION: the Project move only re-tenants rows that exist, so
+		 * an insert from a stale pre-move snapshot would diverge forever.
+		 * The insert holds the app row FOR SHARE and rejects a caller whose
+		 * snapshot no longer matches. */
+		await seedActor();
+		const appId = await h.seedApp({ id: "app-edit-tenancy" });
+		await expect(
+			createEditDesignSession({
+				appId,
+				projectId: "project-moved-away",
+				actorUserId: ACTOR,
+			}),
+		).rejects.toMatchObject({ name: "AppProjectChangedError" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_sessions")
+				.select("id")
+				.where("app_id", "=", appId)
+				.executeTakeFirst(),
+		).toBeUndefined();
 	});
 
 	it("an edit design session carries no authority and the database rejects one that tries (§18.4)", async () => {

@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetId } from "@/lib/domain";
 import { RunHolderLostError } from "../commitGuard";
+import { generationTargetHeldLive } from "../generationTargetScope";
 import type { GenerationTarget } from "../generationTargets";
 import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { appendStreamChunks } from "../streamChunks";
@@ -588,6 +589,47 @@ describe("loaders on a design-session target", () => {
 		expect(retired?.active_stream_id).toBeNull();
 	});
 
+	it("generationTargetHeldLive follows a materialized session to its bound app", async () => {
+		/* A stream keeps its design-session target for its whole life, so the
+		 * reconnect endpoint's dead-run fallback asks THIS question after
+		 * materialization — the terminal session row alone would read dead
+		 * and cut a still-live run's tail. */
+		const liveAppId = await h.seedApp({
+			id: "app-heldlive-live",
+			owner: ACTOR,
+			status: "generating",
+			run_id: "run-hl",
+			run_holder_nonce: NONCE,
+		});
+		const liveSession = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			state: "materialized",
+			app_id: liveAppId,
+		});
+		expect(
+			await generationTargetHeldLive({
+				kind: "design-session",
+				designSessionId: liveSession,
+			}),
+		).toBe(true);
+		const idleAppId = await h.seedApp({
+			id: "app-heldlive-idle",
+			owner: ACTOR,
+			status: "complete",
+		});
+		const idleSession = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			state: "materialized",
+			app_id: idleAppId,
+		});
+		expect(
+			await generationTargetHeldLive({
+				kind: "design-session",
+				designSessionId: idleSession,
+			}),
+		).toBe(false);
+	});
+
 	it("a MATERIALIZED session's thread delegates authority to the bound app (§20.11 materialized resolution)", async () => {
 		/* Build the lineage: a session that materialized into an app whose row
 		 * now holds the live build. */
@@ -671,6 +713,43 @@ describe("pre-app thread media references (§20.12)", () => {
 				.executeTakeFirst(),
 		).toEqual({ thread_id: "ds-thread-media", project_id: PROJECT });
 		/* A pre-app conversation reference prevents deletion. */
+		await expect(
+			deleteMediaAssetForActor({
+				assetId,
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+			}),
+		).resolves.toMatchObject({
+			kind: "referenced",
+			references: [expect.stringContaining("conversation attachment")],
+		});
+	});
+
+	it("a transcript reference blocks deletion even with its projection row missing", async () => {
+		/* The deletion guard's defense-in-depth backstop: the per-thread
+		 * projection is the authority the writers maintain, but deletion is
+		 * irreversible (the bytes purge post-commit), so a missing
+		 * `thread_media_refs` row — a writer predating the projection, a
+		 * rollout window — must not authorize a purge the transcript itself
+		 * refutes. */
+		const assetId = testMediaAssetId("80000000-0000-4000-8000-000000000003");
+		await seedReadyDocument(assetId);
+		const { target, runId } = await seedHeldSession("backstop");
+		await upsertThreadTurn({
+			target,
+			threadId: "ds-thread-backstop",
+			runId,
+			streamId: "stream-backstop",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [attachmentMsg("m1", assetId)],
+			expectedProjectId: PROJECT,
+		});
+		await h
+			.db()
+			.deleteFrom("thread_media_refs")
+			.where("asset_id", "=", assetId)
+			.execute();
 		await expect(
 			deleteMediaAssetForActor({
 				assetId,

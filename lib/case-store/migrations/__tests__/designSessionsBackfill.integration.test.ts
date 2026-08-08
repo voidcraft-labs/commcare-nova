@@ -28,6 +28,7 @@ const handle = setupPerTestDatabase({ databaseNamePrefix: "ds_backfill_" });
 
 const LOGO_ASSET = "90000000-0000-4000-8000-000000000001";
 const THREAD_ASSET = "90000000-0000-4000-8000-000000000002";
+const MISSING_ASSET = "90000000-0000-4000-8000-00000000dead";
 const APP = "app-backfill";
 const PROJECT = "project-backfill";
 
@@ -120,10 +121,57 @@ async function seedOldShape(pool: Pool): Promise<void> {
 			[PROJECT, APP, asset],
 		);
 	}
+	/* Legacy hazards the backfill SKIPS rather than fails the deploy on: a
+	 * transcript whose attachment metadata never matched the canonical
+	 * shape, and a reference naming an asset row that no longer exists
+	 * (nothing to protect; the FK would reject it). */
+	await pool.query(
+		`INSERT INTO threads (thread_id, app_id, created_at, updated_at, thread_type,
+			summary, run_id, active_stream_id, messages)
+		 VALUES ('thread-malformed', $1, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z',
+			'build', 'legacy shape', 'run-m', NULL, $2)`,
+		[
+			APP,
+			JSON.stringify([
+				{
+					id: "m1",
+					role: "user",
+					parts: [],
+					metadata: { attachments: "not-an-array" },
+				},
+			]),
+		],
+	);
+	await pool.query(
+		`INSERT INTO threads (thread_id, app_id, created_at, updated_at, thread_type,
+			summary, run_id, active_stream_id, messages)
+		 VALUES ('thread-missing-asset', $1, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z',
+			'build', 'vanished asset', 'run-v', NULL, $2)`,
+		[
+			APP,
+			JSON.stringify([
+				{
+					id: "m1",
+					role: "user",
+					parts: [{ type: "text", text: "read this" }],
+					metadata: {
+						attachments: [
+							{
+								assetId: MISSING_ASSET,
+								kind: "pdf",
+								filename: "gone.pdf",
+								mimeType: "application/pdf",
+							},
+						],
+					},
+				},
+			]),
+		],
+	);
 }
 
 describe("design_sessions migration backfill", () => {
-	it("splits the projection: per-thread conversation refs land exactly, Blueprint edges rebuild blueprint-only, and replay converges", async () => {
+	it("splits the projection: per-thread refs land exactly, Blueprint edges rebuild blueprint-only, legacy hazards skip, and replay converges", async () => {
 		const migrationPool = new Pool({ connectionString: handle.uri, max: 2 });
 		const migrationDb = new Kysely<unknown>({
 			dialect: new PostgresDialect({

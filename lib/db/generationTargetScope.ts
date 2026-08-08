@@ -91,13 +91,23 @@ export async function resolveGenerationTargetScope(
  * Whether ANY run currently holds this target live — the stream endpoint's
  * dead-run fallback signal, target-polymorphic (`appHeldLive` /
  * `designSessionHeldLive`). Read-only.
+ *
+ * Run authority delegates to a bound app exactly as the thread writers'
+ * lock order does (§11.7): a session that carries an `app_id` — a
+ * materialized build whose run transferred its holder to the app row, or an
+ * edit session whose app was always the sole authority — answers with the
+ * APP's liveness. A stream keeps its design-session target for its whole
+ * life, so without the delegation a reconnect after materialization would
+ * read the terminal session row and cut a still-live run's tail.
  */
 export async function generationTargetHeldLive(
 	target: GenerationTarget,
 ): Promise<boolean> {
-	return target.kind === "app"
-		? appHeldLive(target.appId)
-		: designSessionHeldLive(target.designSessionId);
+	if (target.kind === "app") return appHeldLive(target.appId);
+	const session = await loadDesignSession(target.designSessionId);
+	if (!session) return false;
+	if (session.app_id !== null) return appHeldLive(session.app_id);
+	return designSessionHeldLive(target.designSessionId);
 }
 
 /** Load the design session behind a target, for callers that already

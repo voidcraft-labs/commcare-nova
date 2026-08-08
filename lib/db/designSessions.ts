@@ -339,6 +339,21 @@ export async function createEditDesignSession(args: {
 	const designSessionId = crypto.randomUUID();
 	await withAppTx(async (tx) => {
 		await lockActorGenerationGate(tx, args.actorUserId);
+		/* The session's tenancy must agree with its bound app's BY
+		 * CONSTRUCTION (§18.14 keeps them in lockstep on a Project move, but
+		 * the move's UPDATE only re-tenants rows that exist — a session
+		 * inserted from a pre-move authorization snapshot would be born
+		 * diverged and never repaired). Hold the app row FOR SHARE so a
+		 * concurrent move serializes against this insert, and reject a
+		 * caller whose snapshot the move already invalidated. */
+		const app = await tx
+			.selectFrom("apps")
+			.select(["id", "project_id"])
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (!app) throw new AppProjectChangedError();
+		if (app.project_id !== args.projectId) throw new AppProjectChangedError();
 		await assertProjectCapabilityInTransaction(
 			tx,
 			args.actorUserId,
@@ -411,6 +426,7 @@ export async function claimAndReserveDesignSessionRun(
 					lease.reapableStaleRun,
 					false,
 					toExactRunHolderIdentity(lease.holderIdentity),
+					"Another request is already working on this design, only one run can work on a design at a time.",
 				);
 			}
 			const scan = await scanActorGenerationTargets(tx, actorUserId, {

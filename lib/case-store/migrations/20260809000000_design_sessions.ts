@@ -332,41 +332,99 @@ interface AppProjectRow {
  * `thread_media_refs`. Convergent: `ON CONFLICT DO NOTHING` on replay, and a
  * re-run over a database whose runtime already writes the table only re-adds
  * what an old-revision writer skipped during the deploy window.
+ *
+ * Deliberately LENIENT where the runtime writers are strict — this walk
+ * crosses history the current admission rules never saw, and a deploy-blocking
+ * Job must not fail closed on it:
+ *  - a transcript whose attachment metadata does not parse contributes
+ *    nothing (there is no reference identity to protect) and is counted;
+ *  - an attachment naming an asset with no `media_assets` row is skipped
+ *    (the FK would reject it, and a reference to vanished bytes guards
+ *    nothing) and is counted.
+ * Threads page through a keyset loop so the Job's memory stays bounded by
+ * the batch, not the table.
  */
 async function backfillThreadMediaRefs(db: Kysely<unknown>): Promise<void> {
-	const threads = await sql<ThreadBackfillRow>`
-		SELECT thread_id, app_id, messages FROM threads
-	`.execute(db);
-	if (threads.rows.length === 0) return;
-	const appIds = [
-		...new Set(
-			threads.rows
-				.map((row) => row.app_id)
-				.filter((appId): appId is string => appId !== null),
-		),
-	];
-	const projectByApp = new Map<string, string>();
-	if (appIds.length > 0) {
-		const apps = await sql<AppProjectRow>`
-			SELECT id, project_id FROM apps
-			WHERE id IN (${sql.join(appIds.map((id) => sql`${id}`))})
+	const BATCH = 200;
+	let cursor = "";
+	let unparseableThreads = 0;
+	let missingAssetRefs = 0;
+	for (;;) {
+		const threads = await sql<ThreadBackfillRow>`
+			SELECT thread_id, app_id, messages FROM threads
+			WHERE thread_id > ${cursor}
+			ORDER BY thread_id
+			LIMIT ${BATCH}
 		`.execute(db);
-		for (const app of apps.rows) projectByApp.set(app.id, app.project_id);
-	}
-	for (const thread of threads.rows) {
-		const projectId =
-			thread.app_id === null ? null : (projectByApp.get(thread.app_id) ?? null);
-		if (projectId === null) continue;
-		const assetIds = [
-			...new Set(collectThreadAttachmentAssetIds(thread.messages)),
+		if (threads.rows.length === 0) break;
+		cursor = threads.rows[threads.rows.length - 1].thread_id;
+		const appIds = [
+			...new Set(
+				threads.rows
+					.map((row) => row.app_id)
+					.filter((appId): appId is string => appId !== null),
+			),
 		];
-		for (const assetId of assetIds) {
-			await sql`
-				INSERT INTO thread_media_refs (thread_id, asset_id, project_id)
-				VALUES (${thread.thread_id}, ${assetId}::uuid, ${projectId})
-				ON CONFLICT (thread_id, asset_id) DO NOTHING
+		const projectByApp = new Map<string, string>();
+		if (appIds.length > 0) {
+			const apps = await sql<AppProjectRow>`
+				SELECT id, project_id FROM apps
+				WHERE id IN (${sql.join(appIds.map((id) => sql`${id}`))})
 			`.execute(db);
+			for (const app of apps.rows) projectByApp.set(app.id, app.project_id);
 		}
+		const candidates: Array<{
+			threadId: string;
+			assetId: string;
+			projectId: string;
+		}> = [];
+		for (const thread of threads.rows) {
+			const projectId =
+				thread.app_id === null
+					? null
+					: (projectByApp.get(thread.app_id) ?? null);
+			if (projectId === null) continue;
+			let assetIds: string[];
+			try {
+				assetIds = [
+					...new Set(collectThreadAttachmentAssetIds(thread.messages)),
+				];
+			} catch {
+				unparseableThreads += 1;
+				continue;
+			}
+			for (const assetId of assetIds) {
+				candidates.push({ threadId: thread.thread_id, assetId, projectId });
+			}
+		}
+		if (candidates.length === 0) continue;
+		const candidateAssetIds = [...new Set(candidates.map((c) => c.assetId))];
+		const existing = await sql<{ id: string }>`
+			SELECT id::text AS id FROM media_assets
+			WHERE id IN (${sql.join(candidateAssetIds.map((id) => sql`${id}::uuid`))})
+		`.execute(db);
+		const existingIds = new Set(existing.rows.map((row) => row.id));
+		const inserts = candidates.filter((c) => existingIds.has(c.assetId));
+		missingAssetRefs += candidates.length - inserts.length;
+		if (inserts.length === 0) continue;
+		await sql`
+			INSERT INTO thread_media_refs (thread_id, asset_id, project_id)
+			VALUES ${sql.join(
+				inserts.map(
+					(c) => sql`(${c.threadId}, ${c.assetId}::uuid, ${c.projectId})`,
+				),
+			)}
+			ON CONFLICT (thread_id, asset_id) DO NOTHING
+		`.execute(db);
+	}
+	if (unparseableThreads > 0 || missingAssetRefs > 0) {
+		console.warn(
+			`design_sessions backfill: skipped ${unparseableThreads} thread(s) whose ` +
+				`attachment metadata did not parse and ${missingAssetRefs} attachment ` +
+				`reference(s) naming no media_assets row. Nothing was lost — those ` +
+				`references guard no stored bytes — but if the counts look wrong, ` +
+				`re-run scripts/scan-media-ref-projection-split.ts to inspect them.`,
+		);
 	}
 }
 

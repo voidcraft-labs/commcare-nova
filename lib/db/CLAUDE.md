@@ -427,8 +427,11 @@ replaced its PK with the two partial unique indexes). A build thread stays
 design-session-targeted after materialization; the thread/stream writers
 resolve a materialized session's bound app WITHOUT a held lock and then
 lock the APP row as the authority (`threads.ts::lockThreadTargetAuthority`),
-so run authority delegates exactly as §11.7 orders the locks. No route
-mounts the session surface yet — the chat route serves app targets
+so run authority delegates exactly as §11.7 orders the locks — and target
+LIVENESS delegates the same way (`generationTargetHeldLive`: a session
+carrying an `app_id` answers with the app's liveness, so a stream reconnect
+after materialization never reads the terminal session row as a dead run).
+No route mounts the session surface yet — the chat route serves app targets
 unchanged until Unit E's cutover.
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
@@ -927,9 +930,15 @@ can strand capture evidence in the source tenant.
 `edit`, locks the asset `FOR UPDATE`, then re-walks every persisted
 Blueprint carrier (including soft-deleted app rows) named by that asset's
 exact `media_asset_refs` candidates without taking app locks, checks the
-conversation family through the asset's exact `thread_media_refs` rows (the
-per-thread projection IS the authority — pre-app design-session threads
-included), and deletes metadata only when both families are empty.
+conversation family through the asset's exact `thread_media_refs` rows
+(pre-app design-session threads included), and deletes metadata only when
+both families are empty. The thread writers' per-thread projection is the
+family's authority, but deletion is the one IRREVERSIBLE consumer (the
+bytes purge post-commit), so when the projection shows no conversation
+reference the guard re-proves absence against the transcripts themselves —
+a Project-scoped containment prefilter narrows to candidate threads, and a
+candidate whose transcript names the asset, or whose attachment metadata
+cannot be parsed to prove it doesn't, blocks the deletion.
 Each app root, its normalized blueprint entities, and thread messages come from
 one correlated SQL statement snapshot, so an atomic carrier relocation cannot
 fall between separate READ COMMITTED reads.
