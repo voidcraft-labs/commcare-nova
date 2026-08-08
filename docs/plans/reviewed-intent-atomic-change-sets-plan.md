@@ -57,7 +57,7 @@ The repository already has a strong executable backend and a weak design fronten
 - `lib/db/applyBlueprintChange.ts::applyBlueprintChange` proves that some mutation classes have transaction-coupled storage work and post-commit convergence.
 - `lib/db/apps.ts::createApp` and `lib/doc/scaffolds.ts::canonicalAppGenesis` currently create the Survey starter and immutable sequence-`1` baseline.
 - `app/api/chat/route.ts`, `lib/db/threads.ts`, and `lib/db/streamChunks.ts` show that “the app” currently supplies run, credit, transcript, stream, and recovery scope.
-- `lib/agent/subGeneration.ts` and `lib/agent/generationContext.ts` already provide the provider-safe structured-generation and metering primitives needed by author/reviewer/reviser calls.
+- `lib/agent/subGeneration.ts` and `lib/agent/generationContext.ts` already provide the provider-safe structured-generation and metering primitives the design method's structured calls need.
 - `lib/domain/users.ts` already distinguishes user properties, user types, and Preview personas. The UX-level actor remains a separate upstream concept.
 
 The architectural move is therefore not “permit invalid apps while building.” It is:
@@ -175,19 +175,22 @@ User request + authorized source material
   usage, artifacts; no app exists yet)
                  │
                  ▼
-        Structured design author
+     Server-gated design agent loop
+ (askQuestions anytime; submitContract /
+  requestReview / submitRevision / submitPlan,
+  legality decided from artifact ancestry)
                  │
                  ▼
      Stateless structured reviewer
-                 │
-                 ▼
-       Structured design reviser
+      (one fresh-context call the
+       requestReview tool runs)
                  │
                  ▼
   Accepted Design Contract revision
                  │
                  ▼
-   Digest-bound build-slice planner
+   Digest-bound build-slice plan
+    (the loop's submitPlan tool)
                  │
                  ▼
      Slice-specific Tool Workspace
@@ -263,13 +266,17 @@ lib/agent/design/
   sourcePackageDeps.ts
   prompts.ts
   artifactResult.ts
-  author.ts
   reviewer.ts
-  reviser.ts
-  planner.ts
-  pipeline.ts
   capabilityCatalog.ts
   designGenerationContext.ts
+  loop/
+    designAgent.ts
+    tools.ts
+    gates.ts
+    artifacts.ts
+    claimSeeding.ts
+    packageRender.ts
+    packageRebuild.ts
   projection/
   conformance.ts   (Unit F)
   quality.ts       (Unit F)
@@ -280,7 +287,9 @@ lib/agent/design/
 validator and the capability catalog consume (dependency-free so the
 validator never drags the tool registry into its import graph); `graph.ts`
 holds `validateDesignGraph`; `envelope.ts`/`artifactStore.ts` are §6.12's
-persistence; `pipeline.ts` is §7.1/§7.3's bounded machine. `sourcePackageDeps.ts` holds the production resource seams separately, so the pure builder never drags the office-parser import graph (mammoth/bluebird) into a consumer.
+persistence; `loop/` is §7.1/§7.3's server-gated design agent (the tools,
+their legality gates, and the envelope sealing), and `reviewer.ts` is the
+one call that stays a fresh-context one-shot. `sourcePackageDeps.ts` holds the production resource seams separately, so the pure builder never drags the office-parser import graph (mammoth/bluebird) into a consumer.
 
 The Zod schemas are the authority. TypeScript types are inferred from them. Every persisted JSONB artifact round-trips through the same schema used by its producer and reader.
 
@@ -757,7 +766,7 @@ The builder:
 7. computes one canonical digest over the exact projected package;
 8. persists only source references and normalized claims (`design_source_packages.payload` — the digest, the claims, the labeled source index, and count/byte observability metadata; no extract bodies, transcripts, or image bytes). The row is a deterministic projection, so it carries no producer/prompt-version columns, and `(design_session_id, package_digest)` is unique — an identical rebuild converges on the stored row.
 
-The author/reviewer/reviser system prompts state that all source text is **quoted data**, not instruction. A source that says “ignore prior instructions,” requests credentials, asks the model to call tools, or declares itself a system message has no authority.
+The design agent's and reviewer's system prompts state that all source text is **quoted data**, not instruction. A source that says “ignore prior instructions,” requests credentials, asks the model to call tools, or declares itself a system message has no authority.
 
 ### 6.15 Stronger graph validation
 
@@ -775,7 +784,7 @@ The author/reviewer/reviser system prompts state that all source text is **quote
 - every blocking open question is referenced by at least one affected intent or architecture decision;
 - every non-deferred explicit in-scope claim has at least one OWNING intent — a record, fact, rule, task, transition, read model, or access policy citing it as evidence (actors, decisions, assumptions, and scenarios are context, not owners);
 - every acceptance scenario references at least one task/transition/read model;
-- sensitivity cannot be lowered by a reviser without a dispositioned finding naming the fact — a revision-PAIR property enforced in the reviser call (`validateSensitivityNotSilentlyLowered`), not in the single-graph validator.
+- sensitivity cannot be lowered by a revision without a dispositioned finding naming the fact — a revision-PAIR property enforced inside the submitRevision tool (`validateSensitivityNotSilentlyLowered`), not in the single-graph validator.
 
 Graph validation is deterministic and runs before review, after revision, before build planning, and on every persisted read (it lives inside the contract schema's parse). The lookup fact-source arm's intent ids are exempt from closure until a lookup-intent vocabulary joins the contract root.
 
@@ -783,37 +792,48 @@ Graph validation is deterministic and runs before review, after revision, before
 
 ### 7.1 Orchestration
 
-Replace “one model designs and builds in one context” with a server-owned state machine. Models produce typed artifacts; they do not choose whether required phases occur.
+The design turn is ONE server-gated agent: a `ToolLoopAgent`
+(`lib/agent/design/loop/`) that asks questions, drafts, dispositions
+review findings, and plans, in one growing context under a per-session
+prompt-cache key. The model still never chooses whether required phases
+occur: every phase transition is a server-executed tool whose legality the
+session's durable artifact ancestry decides (`loop/gates.ts`), and an
+illegal call is a tool error naming the legal next action, never a state
+change.
 
-```ts
-interface DesignPipeline {
-  draft(input: DesignSourcePackage, signal: AbortSignal): Promise<ArtifactResult<DesignDraft>>;
-  review(input: DesignReviewInput, signal: AbortSignal): Promise<ArtifactResult<DesignReview>>;
-  revise(input: DesignRevisionInput, signal: AbortSignal): Promise<ArtifactResult<DesignRevisionResult>>;
-}
+The tool surface:
 
-type ArtifactResult<T> =
-  | {
-      kind: "produced";
-      artifact: T;
-      usage: LanguageModelUsage | undefined;
-      finishReason: string | undefined;
-    }
-  | {
-      kind: "not-produced";
-      reason: "length" | "invalid-structured-output" | "cancelled";
-      usage?: LanguageModelUsage;
-    };
-```
+- `askQuestions`: the existing client pause tool, always legal, any
+  number of rounds; free-text questions carry an empty options list.
+- `submitContract`: the complete contract, parsed through the exact
+  schema and graph proof. Opens a design cycle; legal at session start
+  and again only when later user input reopened design work (a stale
+  unreviewed draft, or answers to an accepted design's blocking
+  questions). A rejection returns the refinement messages AS THE TOOL
+  RESULT: the in-loop repair, bounded at two consecutive rejections per
+  submission kind.
+- `requestReview`: the server runs the independent reviewer (§7.1 below)
+  over the draft's OWN package, re-rendered from its persisted reference
+  row when the digest has moved (`loop/packageRebuild.ts`) and refused
+  honestly when the sources no longer reproduce it. A review with no
+  gated findings is accepted by the server on the spot (the draft's
+  content re-issues as the accepted revision with empty dispositions).
+- `submitRevision`: revised contract plus dispositions, validated by
+  `designRevisionResultSchemaFor` plus the sensitivity-pair rule inside
+  execute; the server decides acceptance or a required second round.
+- `submitPlan`: the build plan, legal only once the accepted design
+  carries no blocking open questions.
 
-Provider/network failures are not results — they throw, and the caller
-classifies them as retriable operational errors. The cross-artifact
-grounding rules ride the structured-output schemas themselves
-(`designReviewSchemaFor`, `designRevisionResultSchemaFor`, and the graph
-proof inside the contract schema), so "parsed" already means
-"graph-validated and grounded".
+Submissions register the strict wire projection (`strict: true`
+constrained decoding); the exact factory schemas run inside execute, so a
+refinement failure is a repairable tool result rather than an SDK
+invalid-input abort. Provider/network failures are not results — they
+throw, and the design branch's bounded redrive
+(`lib/agent/build/designLoopRunner.ts`) re-drives the turn with a fresh
+content-bearing state message (the persisted contract and any findings
+awaiting disposition, whenever the thread does not already hold them).
 
-The orchestrator owns these durable transitions:
+The durable transitions are unchanged:
 
 ```text
 source package accepted
@@ -825,7 +845,7 @@ source package accepted
 
 No later state may exist without its exact predecessor and digest. A model response never advances state until the artifact has parsed, graph-validated, and committed.
 
-The same model family may be used initially, but review is a stateless call with a reviewer-specific system prompt. It receives:
+The same model family drives the loop and the review, but review is a stateless fresh-context call with a reviewer-specific system prompt. It receives:
 
 - the resolved, authorized source package;
 - the proposed Design Contract payload;
@@ -881,32 +901,51 @@ const designFindingSchema = z.object({
 - evidence refs belong to the reviewed source package;
 - a reviewer may flag missing intent with an empty `affectedIntentIds`, but must tie it to evidence.
 
-The reviewer cannot rewrite the contract. The reviser must persist one disposition for every critical/important finding.
+The reviewer cannot rewrite the contract. The revision that follows must persist one disposition for every critical/important finding.
 
 ### 7.3 Bounded review state machine
 
-Default limits:
+Default limits, per DESIGN CYCLE (a draft lineage from a `submitContract`
+to its accepted revision):
 
-- one author call;
-- one review call;
-- one revision call when critical/important findings exist;
-- one second review and one second revision only when the first revision leaves a critical finding (a critical dispositioned deferred, or rejected — the reviser overriding the reviewer on a critical deserves the second independent look) or changes architecture (the decision set or a selected option changed); extended depth always takes the second review — its impacted-scenario re-review;
-- no third automatic loop. A revision awaiting its second review persists as a `draft`; resume derives the round from durable ancestry (a draft whose parent, in the same source-package lineage, carries reviews is round 2), so a rerun can never grant an extra round — prompt versions move on deploys and are never round authority.
+- one review round;
+- one revision when critical/important findings exist;
+- one second review and one second revision only when the first revision leaves a critical finding (a critical dispositioned deferred, or rejected — the agent overriding the reviewer on a critical deserves the second independent look) or changes architecture (the decision set or a selected option changed); extended depth always takes the second review — its impacted-scenario re-review;
+- no third automatic loop. A revision awaiting its second review persists as a `draft`.
+
+Rounds derive digest-INDEPENDENTLY: the gates count persisted reviews
+along the open cycle's parent chain (the revisions above the session's
+newest accepted revision), whatever package digest each artifact bound.
+Answered question rounds and new messages move the digest, so a
+digest-scoped count would reset after every pause and mint free reviews;
+the ancestry count means a crash, a resume, or a question round between a
+review and its revision can never grant an extra round, and a cycle
+reopened by answered blocking questions starts a fresh budget — every
+cycle ends in its own reviewed acceptance.
 
 Terminal outcomes:
 
 | Outcome | Durable state | User/app consequence |
 | --- | --- | --- |
-| Accepted | Accepted contract revision | Planner may run — unless the accepted revision carries blocking open questions, which short-circuit to the blocking-source-question outcome before any plan. |
-| Blocking source question | `awaiting_input = true`, open question persisted | No app; ask through existing `askQuestions` transcript contract. |
-| Structured output truncated/invalid | Retriable design-session error | No app; preserve source package and artifacts already committed. |
-| Provider/network failure | Retriable design-session error | No app; settle/refund according to actual usage policy. |
+| Accepted | Accepted contract revision | `submitPlan` becomes legal — unless the accepted revision carries blocking open questions, which gate the plan; the agent asks them, and the answers reopen a fresh reviewed cycle (an accepted revision is immutable, so it never becomes plannable after the fact). |
+| Blocking source question | `awaiting_input = true`, the agent's own `askQuestions` round in the thread | No app; the loop resumes with its context intact when the answers arrive. |
+| Structured output rejected twice | Retriable design-session error carrying the refinement messages | No app; preserve source package and artifacts already committed. |
+| Provider/network failure | Retriable design-session error (after the bounded redrive) | No app; settle/refund according to actual usage policy. |
 | Critical platform impossibility | Accepted revision with explicit deferred/out-of-scope consequence, or user question | No silent workaround. |
 | Review call failed | Draft remains unreviewed | Never label reviewed or continue to build. |
 
-A terminal system failure does not manufacture a user question. It records a retriable operational error and ends the run honestly.
+A terminal system failure does not manufacture a user question, and a
+loop that simply stops emitting (no pause, no plan, no error) is a
+retriable design-session error — a silent stop can never present as
+success. It records a retriable operational error and ends the run
+honestly.
 
-Rerunning the pipeline with the same source package CONVERGES on the durable state: an existing draft resumes at review, a reviewed draft resumes at revision, an accepted revision skips to planning, and an existing plan returns outright — artifacts already committed are never re-produced (`pipeline.ts`).
+Resume is by ANCESTRY plus thread, never by digest convergence: a
+re-mounted loop's gates converge on the durable state (an existing draft
+resumes at review, a reviewed draft at revision, an accepted revision at
+planning, an existing plan returns outright), the thread carries the
+dialogue, and the per-turn state message carries content the thread may
+lack — so a retry message never invalidates completed work.
 
 ### 7.4 Proportional design depth
 
@@ -969,7 +1008,7 @@ Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interfa
 
 ### 7.6 Capability catalog
 
-The capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose. Every pipeline call receives its rendered projection — author and reviser included, so the design is made inside the constructible surface rather than corrected against it a round later — and every pipeline system prompt opens with a shared domain preamble naming CommCare and the pipeline's place in Nova (each call is a fresh context; the preamble is what activates the model's prior platform knowledge).
+The capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose. The design agent carries its rendered projection in its static instructions and the reviewer receives it in its prompt — the design is made inside the constructible surface rather than corrected against it a round later — and both system prompts open with a shared domain preamble naming CommCare and the design stage's place in Nova (the reviewer is a fresh context and the agent's context is born per session; the preamble is what activates the model's prior platform knowledge).
 
 It contains:
 
@@ -2401,11 +2440,13 @@ interface GenerationTelemetrySink {
 ```
 
 - Pre-app sink updates aggregate design-session metrics and safe milestone timestamps only.
-- The durable transcript stores user/assistant content.
+- The durable transcript stores user/assistant content, the design
+  agent's reasoning summaries included (the thread persists reasoning
+  parts exactly as the SA's does).
 - Design/review/build artifacts store typed work products.
 - Resumable chunks store transient wire replay.
 - After materialization, canonical mutation/conversation events may use the existing app `LogWriter`.
-- Raw Design Contracts, prompts, source extracts, reviewer text, and private mutation steps never enter Sentry or generic app events.
+- Raw Design Contracts, prompts, source extracts, and private mutation steps never enter Sentry or generic app events. Display-safe reasoning SUMMARIES are the one deliberate admission: the independent reviewer's and each executor step's summaries land in the run event log as `assistant-reasoning` events (the same elevated admin read surface as the run's other diagnostics), joined to their artifacts by `created_by_run_id`, because the WHY behind a design outcome is the record its tuning reads. A session that never materializes keeps those rows reachable through the session's run ids (`scripts/inspect-design-artifacts.ts --reasoning`), and they follow the design session's §11.12 retention and discard policy, never an app's.
 
 UI stage is derived from durable artifacts, not an event-log replay.
 
@@ -2756,12 +2797,12 @@ lib/agent/build/
 
 Responsibilities are intentionally unequal:
 
-- `BuildOrchestrator` owns the durable method: source resolution, design author/reviewer/reviser calls, accepted artifact selection, build-plan selection, slice sequencing, user questions, correction loops, and completion policy.
+- `BuildOrchestrator` owns the durable method: source resolution, the design agent loop (`designLoopRunner.ts`, which mounts the loop on the run's stream and owns its sanitizers, bounded redrive, and progress frames), accepted artifact selection, build-plan selection, slice sequencing, user questions, correction loops, and completion policy.
 - `BuildExecutor` is a bounded compiler worker for exactly one `BuildSlice` and one `AtomicChangeSet`.
 - `ToolWorkspace` owns the current private document and serial tool invocation.
 - the model never decides whether review happened, which design revision is accepted, whether a slice may commit, or whether the overall build is complete.
 
-Keep the existing `createSolutionsArchitect` as the direct canonical edit executor until design-aware edit mode ships. It moves to the same workspace/host plumbing in Unit A, but it does not inherit the design pipeline implicitly.
+Keep the existing `createSolutionsArchitect` as the direct canonical edit executor until design-aware edit mode ships. It moves to the same workspace/host plumbing in Unit A, but it does not inherit the design method implicitly.
 
 ### 13.2 Durable orchestrator state
 
@@ -2782,6 +2823,15 @@ const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
     // itself rides the design-session row, never an event payload.
     designRevisionId: z.string().uuid(),
     blockingQuestionIds: z.array(designIdSchema).min(1),
+  }),
+  z.object({
+    // The design agent paused on its own askQuestions round: the
+    // questions live in the THREAD (the tool part the client renders),
+    // and a round can precede any contract, so the head revision rides
+    // only when one exists.
+    kind: z.literal("awaiting-user-questions"),
+    designSessionId: z.string().uuid(),
+    designRevisionId: z.string().uuid().nullable(),
   }),
   z.object({
     kind: z.literal("planning"),
@@ -3643,7 +3693,7 @@ The outline is informational. User approval is not a mandatory gate unless a que
 Server events:
 
 - `data-design-session` — the turn's scope announce (`{designSessionId, materializedAppId}`; the one frame outside the envelope below, since it precedes any orchestration event);
-- `data-design-pulse` — the throttled live-activity signal while a design-phase model call streams (`{phase: author|review|revise|plan, chars}` — the phase from the server's own control flow plus the call's cumulative delivered character count; volume, never content). The pulse is what keeps the stage line truthful through the minutes a single call reasons silently, and it is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
+- `data-design-pulse` — the throttled live-activity signal while design-phase model work streams (`{phase: design|review|revise|plan, chars, step?}` — the phase from the server's own control flow, the cumulative delivered character count, and optionally the sub-step label the key-order narrator derived from a streaming submission's top-level keys, e.g. "Working out the records"; volume and a canned label, never content). The pulse is what keeps the stage line truthful through the reviewer's silent minutes, and it is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
 - `data-design-outline`;
 - `data-build-plan-summary`;
 - `data-build-slice-started`;
@@ -3713,14 +3763,17 @@ Peer tabs see only those canonical commits and normal reload boundaries.
 
 ### 15.8 Questions and pause
 
-When a blocking question is raised:
+The design agent asks whenever it has questions — early, fully, any
+number of rounds — through its own `askQuestions` calls. When a round
+pauses the run:
 
-- persist the exact `askQuestions` tool state in the transcript;
-- set `awaiting_input` under the exact target holder — the SESSION row pre-materialization, the APP row after (the pause stamps whichever row carries the run);
+- the exact `askQuestions` tool state persists in the transcript (the
+  agent's real call, not a synthesized part);
+- `awaiting_input` is set under the exact target holder — the SESSION row pre-materialization, the APP row after (the pause stamps whichever row carries the run) — and the `awaiting-user-questions` orchestration event names the state for the stage fold;
 - show `needs-input`;
 - do not create/materialize an app merely to host the pause;
-- on answer, reacquire the same design-session holder nonce using the target-polymorphic resume protocol;
-- when the answer supersedes the design, create a new reviewed design/build-plan revision and supersede obsolete open change sets.
+- on answer, reacquire the same design-session holder nonce using the target-polymorphic resume protocol; the loop resumes with its context intact (the answers seed cumulative deterministic claims, and no author re-run occurs);
+- answers to an ACCEPTED design's blocking questions reopen a fresh reviewed design cycle (§7.3), and a superseding acceptance supersedes obsolete open change sets.
 
 A stale tab with the wrong nonce receives the same refresh-required semantics as current app chat.
 
@@ -3777,7 +3830,7 @@ A browser disconnect is not cancellation; server work and durable stream behavio
 - it creates no Design Contract or design session;
 - its user-facing name may remain “blank app,” but implementation/documentation call it `explicit-blank`.
 
-Do not route this path through the design pipeline merely for architectural uniformity.
+Do not route this path through the design method merely for architectural uniformity.
 
 ### 15.12 Error and incomplete states
 
@@ -4865,7 +4918,7 @@ Do not proceed past these gates on assertion alone:
    - bounded extracts/images;
    - untrusted-data delimiters;
    - the source-is-data prompt statement.
-5. Implement author/reviewer/reviser calls with safe structured-output logging/metering.
+5. Implement the design agent loop's submit tools and the independent reviewer call with safe structured-output logging/metering.
 6. Implement immutable artifact persistence/digest verification.
 7. Implement review grounding/disposition validation and bounded loop.
 8. Implement deterministic complexity depth.
@@ -5592,7 +5645,7 @@ Store aggregate metrics in a design-session/run summary table or safe derived vi
 Record monotonic durations for:
 
 - source projection;
-- design author;
+- design agent steps;
 - design review;
 - design revision;
 - build planning;
