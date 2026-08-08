@@ -144,6 +144,7 @@ export async function runDesignPipeline(
 	const authored = await runDesignAuthor(
 		ctx,
 		pkg,
+		renderCapabilityCatalog(buildCapabilityCatalog()),
 		signal,
 		phaseActivity(onModelActivity, "author"),
 	);
@@ -296,7 +297,12 @@ async function reviseRound(
 	const reviewPayloads = reviews.map((review) => review.envelope.payload);
 	const revised = await runDesignReviser(
 		ctx,
-		{ pkg, contract: draft.envelope.payload, reviews: reviewPayloads },
+		{
+			pkg,
+			contract: draft.envelope.payload,
+			reviews: reviewPayloads,
+			catalogText: renderCapabilityCatalog(buildCapabilityCatalog()),
+		},
 		signal,
 		phaseActivity(activity, "revise"),
 	);

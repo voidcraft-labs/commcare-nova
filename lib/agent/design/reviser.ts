@@ -39,6 +39,7 @@ export async function runDesignReviser(
 		pkg: DesignSourcePackage;
 		contract: AppDesignContract;
 		reviews: readonly DesignReview[];
+		catalogText: string;
 	},
 	signal: AbortSignal,
 	onProgress?: (deltaChars: number) => void,
@@ -47,7 +48,12 @@ export async function runDesignReviser(
 		schema: designRevisionResultSchemaFor(args.reviews),
 		modelId: DESIGN_MODEL,
 		system: DESIGN_REVISER_SYSTEM,
-		prompt: renderRevisePrompt(args.pkg, args.contract, args.reviews),
+		prompt: renderRevisePrompt(
+			args.pkg,
+			args.contract,
+			args.reviews,
+			args.catalogText,
+		),
 		images: sourcePackageImages(args.pkg),
 		maxOutputTokens: DESIGN_REVISER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_REVISER_REASONING.effort),

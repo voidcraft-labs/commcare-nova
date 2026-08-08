@@ -140,7 +140,7 @@ async function main(): Promise<void> {
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
 
 	console.log("Authoring the Design Contract (xhigh reasoning — minutes)…");
-	const authored = await runDesignAuthor(ctx, pkg, signal);
+	const authored = await runDesignAuthor(ctx, pkg, catalogText, signal);
 	if (authored.kind !== "produced") {
 		console.error(`Author produced nothing: ${authored.reason}`);
 		process.exit(1);
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
 		console.log("Revising with dispositions…");
 		const revised = await runDesignReviser(
 			ctx,
-			{ pkg, contract, reviews: [reviewed.artifact] },
+			{ pkg, contract, reviews: [reviewed.artifact], catalogText },
 			signal,
 		);
 		if (revised.kind !== "produced") {

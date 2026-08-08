@@ -76,15 +76,23 @@ direct MCP edit.
   only — no extract bodies, no transcripts, no image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any
-  meaning-bearing change. Source text renders inside fixed
+  meaning-bearing change. Every system prompt opens with the shared
+  `DOMAIN_PREAMBLE`: each call is a fresh context, so the preamble names
+  the domain (CommCare, Dimagi, what a case is, offline-first, NOT a
+  general app platform) to activate the model's real prior knowledge and
+  keep a design from drifting toward a web/mobile stack — without it
+  "Nova" is an undefined word. Source text renders inside fixed
   `<nova:source>` delimiters with the source-is-data contract stated in
   every system prompt.
 - `author.ts` / `reviewer.ts` / `reviser.ts` / `planner.ts` — thin
   structured calls over `lib/agent/modelRunContext.ts` (the §7.5 seam;
-  `designGenerationContext.ts` is the pre-app implementation). The
-  reviewer receives EXACTLY the source package, the proposed contract,
-  and the capability catalog — never author reasoning or prior reviewer
-  prose, never tool authority.
+  `designGenerationContext.ts` is the pre-app implementation). ALL FOUR
+  calls receive the rendered capability catalog — the author designs
+  within the constructible surface rather than having the reviewer
+  discover the overrun a paid round later. The reviewer's independence
+  is unchanged: EXACTLY the source package, the proposed contract, and
+  the catalog — never author reasoning or prior reviewer prose, never
+  tool authority.
 - `capabilityCatalog.ts` — generated from `SHARED_TOOL_REGISTRY`, the
   field/case-data vocabularies, and the constraint leaf; snapshot-pinned
   (`__tests__/capabilityCatalog.test.ts`), with gap codes pinned against

@@ -969,7 +969,7 @@ Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interfa
 
 ### 7.6 Capability catalog
 
-The review/planner capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose.
+The capability catalog is generated from code-owned registries and versioned static constraints, not freehand prompt prose. Every pipeline call receives its rendered projection — author and reviser included, so the design is made inside the constructible surface rather than corrected against it a round later — and every pipeline system prompt opens with a shared domain preamble naming CommCare and the pipeline's place in Nova (each call is a fresh context; the preamble is what activates the model's prior platform knowledge).
 
 It contains:
 
