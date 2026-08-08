@@ -51,6 +51,12 @@ export const chatRequestSchema = z.object({
 	 * admission branch both key on it), so an empty string must be a parse
 	 * error rather than a value the two checks read differently. */
 	appId: z.string().min(1).optional(),
+	/** Design-session ID: the pre-app build scope this turn continues (an
+	 *  answered question round, a recoverable failed design's re-drive, or a
+	 *  resume from Designs in progress). A fresh build sends neither this nor
+	 *  `appId` — the route creates and claims a new session. Never sent
+	 *  beside `appId`; a materialized session's turns address the app. */
+	designSessionId: z.string().uuid().optional(),
 	/** Project captured by the server-rendered `/build/new` page. New-app
 	 *  creation targets this exact Project after a fresh server-side edit gate;
 	 *  it never re-resolves the session's mutable active Project mid-request. */
