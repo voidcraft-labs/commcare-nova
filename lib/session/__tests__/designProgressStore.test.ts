@@ -118,6 +118,61 @@ describe("design progress stage fold", () => {
 		expect(view(store).working).toBe(false);
 	});
 
+	it("walks the design span phase by phase on live pulses", () => {
+		const store = createDesignProgressStore();
+		const { applyProgressFrame } = store.getState();
+		openSession(store);
+		expect(view(store).stage).toBe("understanding");
+
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "author", chars: 900 }, 1),
+		);
+		expect(view(store).stage).toBe("designing");
+
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "review", chars: 300 }, 1),
+		);
+		expect(view(store).stage).toBe("reviewing-design");
+
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "revise", chars: 100 }, 1),
+		);
+		expect(view(store).stage).toBe("revising-design");
+
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "plan", chars: 50 }, 1),
+		);
+		expect(view(store).stage).toBe("planning");
+
+		/* Progress outranks the pulse: a started slice means the design span
+		 * is over, whatever pulse arrived last. */
+		applyProgressFrame(
+			"data-build-slice-started",
+			envelope(SESSION, { sliceId: "s1", sliceName: "Register" }, 2),
+		);
+		expect(view(store).stage).toBe("building-first-workflow");
+	});
+
+	it("clears a stale pulse at the next turn boundary", () => {
+		const store = createDesignProgressStore();
+		const { applyProgressFrame } = store.getState();
+		openSession(store);
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "review", chars: 300 }, 1),
+		);
+		expect(view(store).stage).toBe("reviewing-design");
+
+		/* The stream died and a new turn opened: the pulse described only the
+		 * stream it rode on, so the stage falls back to the durable fold. */
+		openSession(store);
+		expect(view(store).stage).toBe("understanding");
+	});
+
 	it("counts the materialized first slice, which never emits a committed frame", () => {
 		const store = createDesignProgressStore();
 		openSession(store);

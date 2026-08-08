@@ -12,20 +12,25 @@ import type {
 	BuildPlanSummaryProjection as ServerBuildPlanSummary,
 	DesignBuildStage as ServerDesignBuildStage,
 	DesignOutlineProjection as ServerDesignOutline,
+	DesignPulseProjection as ServerDesignPulse,
 	DesignProgressEnvelope as ServerEnvelope,
 } from "@/lib/agent/build/progress";
 import {
 	type BuildPlanSummaryProjection,
 	DESIGN_BUILD_STAGES,
+	DESIGN_PULSE_PHASES,
 	type DesignBuildStage,
 	type DesignOutlineProjection,
 	type DesignProgressEnvelope,
+	type DesignPulseProjection,
+	designPulseStage,
 	designStageIsWorking,
 	designStageLabel,
 	parseBuildCompletion,
 	parseBuildPlanSummary,
 	parseBuildSliceCommitted,
 	parseDesignOutline,
+	parseDesignPulse,
 	parseDesignSessionScope,
 } from "@/lib/generation/designProgressWire";
 
@@ -41,6 +46,7 @@ const envelopeMatches: Exact<
 	DesignProgressEnvelope<string>,
 	ServerEnvelope<string>
 > = true;
+const pulseMatches: Exact<DesignPulseProjection, ServerDesignPulse> = true;
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 
@@ -56,9 +62,39 @@ function envelope(data: unknown, designSessionId = SESSION) {
 
 describe("design progress wire", () => {
 	it("restates the server's shapes exactly", () => {
-		expect([stagesMatch, outlineMatches, planMatches, envelopeMatches]).toEqual(
-			[true, true, true, true],
-		);
+		expect([
+			stagesMatch,
+			outlineMatches,
+			planMatches,
+			envelopeMatches,
+			pulseMatches,
+		]).toEqual([true, true, true, true, true]);
+	});
+
+	it("maps every pulse phase onto a working stage", () => {
+		for (const phase of DESIGN_PULSE_PHASES) {
+			const stage = designPulseStage(phase);
+			expect(DESIGN_BUILD_STAGES).toContain(stage);
+			expect(designStageIsWorking(stage)).toBe(true);
+		}
+	});
+
+	it("reads a pulse frame and refuses a malformed one", () => {
+		expect(
+			parseDesignPulse(envelope({ phase: "review", chars: 1200 }), SESSION),
+		).toEqual({ phase: "review", chars: 1200 });
+		expect(
+			parseDesignPulse(envelope({ phase: "compile", chars: 1 }), SESSION),
+		).toBeNull();
+		expect(
+			parseDesignPulse(envelope({ phase: "author", chars: -1 }), SESSION),
+		).toBeNull();
+		expect(
+			parseDesignPulse(
+				envelope({ phase: "author", chars: 5 }, "other"),
+				SESSION,
+			),
+		).toBeNull();
 	});
 
 	it("labels every stage in the union", () => {

@@ -41,6 +41,7 @@ export async function runDesignReviser(
 		reviews: readonly DesignReview[];
 	},
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<DesignRevisionResult>> {
 	const result = await ctx.runStructured({
 		schema: designRevisionResultSchemaFor(args.reviews),
@@ -51,6 +52,7 @@ export async function runDesignReviser(
 		maxOutputTokens: DESIGN_REVISER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_REVISER_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	const mapped = toArtifactResult(result, signal);
 	if (mapped.kind !== "produced") return mapped;

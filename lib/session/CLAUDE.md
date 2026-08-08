@@ -118,7 +118,13 @@ fatal stream error.
 **Stage is derived, never stored.** `deriveDesignStage` folds "which frames
 have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree
 with the durable events that produced it, and the plan's ban on a client-only
-state machine holds. Two details are load-bearing: the FIRST slice commits as
+state machine holds. The live refinement inside the design span is the
+`data-design-pulse` frame — the SERVER naming which pipeline call is streaming
+right now (author/review/revise/plan) — which is the only source that can say
+`reviewing-design`/`revising-design` while those calls run; the store keeps
+just the latest phase (`pulsePhase`), outranked by any real progress frame and
+cleared at every turn boundary because a pulse describes only the stream it
+rode on. Two details are load-bearing: the FIRST slice commits as
 the `data-app-materialized` receipt and emits no `slice-committed` frame, so
 `markMaterialized` folds the active slice into the committed list (otherwise
 "0 of 5" shows over a working app); and `seededStage` carries the SERVER's

@@ -89,6 +89,7 @@ import {
 	readOrchestrationHead,
 } from "./orchestratorState";
 import {
+	createDesignPulseEmitter,
 	deriveBuildPlanSummary,
 	deriveDesignOutline,
 	progressEnvelope,
@@ -405,6 +406,11 @@ export async function runBuildOrchestration(
 			ctx: designCtx,
 			pkg,
 			signal: args.signal,
+			onModelActivity: createDesignPulseEmitter(
+				args.writer,
+				args.designSessionId,
+				() => head,
+			),
 		});
 		heartbeat();
 

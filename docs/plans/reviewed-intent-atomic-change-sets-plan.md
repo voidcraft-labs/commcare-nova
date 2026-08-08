@@ -3643,6 +3643,7 @@ The outline is informational. User approval is not a mandatory gate unless a que
 Server events:
 
 - `data-design-session` — the turn's scope announce (`{designSessionId, materializedAppId}`; the one frame outside the envelope below, since it precedes any orchestration event);
+- `data-design-pulse` — the throttled live-activity signal while a design-phase model call streams (`{phase: author|review|revise|plan, chars}` — the phase from the server's own control flow plus the call's cumulative delivered character count; volume, never content). The pulse is what keeps the stage line truthful through the minutes a single call reasons silently, and it is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
 - `data-design-outline`;
 - `data-build-plan-summary`;
 - `data-build-slice-started`;

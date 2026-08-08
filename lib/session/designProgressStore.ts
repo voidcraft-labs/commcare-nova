@@ -28,7 +28,9 @@ import {
 	type BuildSliceStartedProjection,
 	type DesignBuildStage,
 	type DesignOutlineProjection,
+	type DesignPulsePhase,
 	type DesignSessionScope,
+	designPulseStage,
 	designStageIsWorking,
 	designStageLabel,
 	parseBuildCompletion,
@@ -36,6 +38,7 @@ import {
 	parseBuildSliceCommitted,
 	parseBuildSliceStarted,
 	parseDesignOutline,
+	parseDesignPulse,
 } from "@/lib/generation/designProgressWire";
 
 // ── State ──────────────────────────────────────────────────────────
@@ -59,6 +62,12 @@ export interface DesignProgressState {
 	 *  count would read "0 of 5" with a working app on screen. */
 	committedSlices: readonly BuildSliceStartedProjection[];
 	completion: BuildCompletionProjection | null;
+	/** The design-pipeline phase whose model call the server last reported
+	 *  streaming (`data-design-pulse`). The live refinement of the design
+	 *  span: it names reviewing/revising/planning while those calls run,
+	 *  which no durable frame does until the phase has finished. Cleared at
+	 *  every turn boundary — a pulse describes only the stream it rode. */
+	pulsePhase: DesignPulsePhase | null;
 	/** The run paused on a blocking question round (§15.8). Observed from the
 	 *  transcript, which is the only place the pause is visible client-side. */
 	awaitingInput: boolean;
@@ -120,6 +129,7 @@ const EMPTY: Omit<
 	activeSlice: null,
 	committedSlices: [],
 	completion: null,
+	pulsePhase: null,
 	awaitingInput: false,
 	failure: null,
 	seededStage: null,
@@ -158,6 +168,8 @@ export function createDesignProgressStore() {
 				materializedAppId: scope.materializedAppId ?? current.materializedAppId,
 				awaitingInput: false,
 				failure: null,
+				/* A pulse describes only the stream it rode on. */
+				pulsePhase: null,
 				/* This turn is live; the page-load snapshot no longer describes it. */
 				seededStage: null,
 			});
@@ -177,6 +189,12 @@ export function createDesignProgressStore() {
 					if (sessionId === null) return true;
 					const plan = parseBuildPlanSummary(data, sessionId);
 					if (plan !== null) set({ plan });
+					return true;
+				}
+				case "data-design-pulse": {
+					if (sessionId === null) return true;
+					const pulse = parseDesignPulse(data, sessionId);
+					if (pulse !== null) set({ pulsePhase: pulse.phase });
 					return true;
 				}
 				case "data-build-slice-started": {
@@ -277,6 +295,7 @@ export function deriveDesignStage(
 		| "activeSlice"
 		| "committedSlices"
 		| "completion"
+		| "pulsePhase"
 		| "awaitingInput"
 		| "failure"
 		| "seededStage"
@@ -291,6 +310,10 @@ export function deriveDesignStage(
 			? "building-first-workflow"
 			: "building";
 	}
+	/* A live pulse is the server naming the model call it is running RIGHT
+	 * NOW — the only source that can say reviewing/revising/planning while
+	 * the call streams (the durable frames land only after a phase ends). */
+	if (state.pulsePhase !== null) return designPulseStage(state.pulsePhase);
 	if (state.plan !== null) return "planning";
 	if (state.outline !== null) return "designing";
 	/* No frame has said anything yet: the server's load-time derivation, or

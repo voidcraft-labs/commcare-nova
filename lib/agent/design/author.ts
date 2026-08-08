@@ -31,6 +31,7 @@ export async function runDesignAuthor(
 	ctx: StructuredModelRunContext,
 	pkg: DesignSourcePackage,
 	signal: AbortSignal,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<AppDesignContract>> {
 	const result = await ctx.runStructured({
 		schema: appDesignContractSchema,
@@ -41,6 +42,7 @@ export async function runDesignAuthor(
 		maxOutputTokens: DESIGN_AUTHOR_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_AUTHOR_REASONING.effort),
 		signal,
+		...(onProgress && { onProgress }),
 	});
 	return toArtifactResult(result, signal);
 }

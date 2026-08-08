@@ -137,6 +137,76 @@ export function deriveDesignOutline(
 	};
 }
 
+/** The four design-pipeline phases a pulse can name — the orchestrator's
+ *  live "a model call is streaming right now" signal. Each maps onto one
+ *  §15.2 stage, which is what makes the pulse a truthful stage source: the
+ *  SERVER names the phase whose call is delivering tokens; the client only
+ *  displays the latest. */
+export const DESIGN_PULSE_PHASES = [
+	"author",
+	"review",
+	"revise",
+	"plan",
+] as const;
+export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
+
+/** One live-activity pulse: the streaming phase and the cumulative character
+ *  count (reasoning + output) its call has delivered so far. Volume, not
+ *  content — no model prose ever rides a pulse. */
+export interface DesignPulseProjection {
+	readonly phase: DesignPulsePhase;
+	readonly chars: number;
+}
+
+/** Minimum spacing between two live-activity pulses. Tighter buys nothing
+ *  (the panel shows a phase, not a token counter); looser re-opens dead
+ *  air. Pulses ride the ordinary chunk path — logged for reconnect replay
+ *  like every other transient frame — so the spacing also bounds their
+ *  chunk-log volume. */
+export const DESIGN_PULSE_INTERVAL_MS = 2_000;
+
+/**
+ * Throttled `data-design-pulse` frames: while a design-phase model call
+ * streams, the frame names the phase whose call is delivering tokens and
+ * the cumulative characters (reasoning + output) it has produced. This is
+ * what keeps the progress region truthful through the minutes a single
+ * xhigh call reasons with no other observable output — the phase comes
+ * from the server's own control flow, never a client inference, and no
+ * model prose rides the frame. A phase change resets the count and emits
+ * immediately, so every phase announces itself the moment it starts
+ * streaming.
+ */
+export function createDesignPulseEmitter(
+	writer: {
+		write(chunk: { type: string; data: unknown; transient?: boolean }): void;
+	},
+	designSessionId: string,
+	head: () => OrchestrationHead | null,
+): (phase: DesignPulsePhase, deltaChars: number) => void {
+	let activePhase: DesignPulsePhase | null = null;
+	let totalChars = 0;
+	let lastEmitAt = 0;
+	return (phase, deltaChars) => {
+		if (phase !== activePhase) {
+			activePhase = phase;
+			totalChars = 0;
+			lastEmitAt = 0;
+		}
+		totalChars += deltaChars;
+		const now = Date.now();
+		if (now - lastEmitAt < DESIGN_PULSE_INTERVAL_MS) return;
+		lastEmitAt = now;
+		writer.write({
+			type: "data-design-pulse",
+			data: progressEnvelope(designSessionId, head(), {
+				phase,
+				chars: totalChars,
+			} satisfies DesignPulseProjection),
+			transient: true,
+		});
+	};
+}
+
 /** The plan summary frame's payload — counts and names only. */
 export interface BuildPlanSummaryProjection {
 	readonly sliceCount: number;

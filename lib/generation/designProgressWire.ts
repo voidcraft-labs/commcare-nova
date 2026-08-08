@@ -103,6 +103,38 @@ export interface BuildPlanSummaryProjection {
 	readonly externalActionCount: number;
 }
 
+/** The design-pipeline phases a live-activity pulse can name (restated from
+ *  `lib/agent/build/progress.ts`, pinned by the wire test). */
+export const DESIGN_PULSE_PHASES = [
+	"author",
+	"review",
+	"revise",
+	"plan",
+] as const;
+export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
+
+/** One live-activity pulse: which phase's model call is streaming and its
+ *  cumulative delivered character count. Volume, never content. */
+export interface DesignPulseProjection {
+	readonly phase: DesignPulsePhase;
+	readonly chars: number;
+}
+
+/** The §15.2 stage a streaming phase truthfully puts the build in — the
+ *  server named the call it is running; the client only displays it. */
+export function designPulseStage(phase: DesignPulsePhase): DesignBuildStage {
+	switch (phase) {
+		case "author":
+			return "designing";
+		case "review":
+			return "reviewing-design";
+		case "revise":
+			return "revising-design";
+		case "plan":
+			return "planning";
+	}
+}
+
 export interface BuildSliceStartedProjection {
 	readonly sliceId: string;
 	readonly sliceName: string;
@@ -206,6 +238,11 @@ const buildPlanSummarySchema = z.object({
 	externalActionCount: wholeCount,
 });
 
+const designPulseSchema = z.object({
+	phase: z.enum(DESIGN_PULSE_PHASES),
+	chars: wholeCount,
+});
+
 const buildSliceStartedSchema = z.object({
 	sliceId: nonBlank,
 	sliceName: nonBlank,
@@ -244,6 +281,13 @@ export function parseBuildPlanSummary(
 	designSessionId: string,
 ): BuildPlanSummaryProjection | null {
 	return parsePayload(frame, designSessionId, buildPlanSummarySchema);
+}
+
+export function parseDesignPulse(
+	frame: unknown,
+	designSessionId: string,
+): DesignPulseProjection | null {
+	return parsePayload(frame, designSessionId, designPulseSchema);
 }
 
 export function parseBuildSliceStarted(
