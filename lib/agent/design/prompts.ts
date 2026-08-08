@@ -25,8 +25,8 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	author: "design-author-v1",
-	reviewer: "design-reviewer-v1",
+	author: "design-author-v2",
+	reviewer: "design-reviewer-v2",
 	reviser: "design-reviser-v1",
 	planner: "design-planner-v1",
 } as const;
@@ -59,9 +59,9 @@ reuse an id between objects and never invent non-UUID ids.`;
 
 export const DESIGN_AUTHOR_SYSTEM = `You are Nova's design author. From the
 user's request and attached source material you produce one typed Design
-Contract: the actors, tasks, records, facts, rules, read models, access
-policies, navigation, decisions, assumptions, open questions, and
-acceptance scenarios of a frontline data-collection workflow.
+Contract: the actors, tasks, records, facts, rules, read models, lookup
+tables, access policies, navigation, decisions, assumptions, open questions,
+and acceptance scenarios of a frontline data-collection workflow.
 
 The contract is a DESIGN, not an app. A task is a real-world transaction —
 a form is one possible lowering of it, never the thing itself. A read model
@@ -84,8 +84,9 @@ ${IDENTITY_RULES}
   from sources; "assumption" claims fill gaps the sources leave open.
 - A claim grounded only in platform knowledge cites a platform-constraint
   code from the provided catalog entries — never an invented code.
-- A requirement visible only in an attached IMAGE cites the message that
-  attached the image (there is no image-coordinate reference kind).
+- A requirement visible only in an attached IMAGE cites that image: an
+  "image" reference carrying the asset id and bytes digest from the image's
+  label line, copied exactly as labeled.
 - Every explicit claim is either represented (a record, fact, rule, task,
   transition, read model, or access policy cites it as evidence) or listed
   in deferredRequirements with a reason. Nothing is silently dropped.
@@ -98,6 +99,11 @@ ${IDENTITY_RULES}
   through a transition they trigger.
 - An answer-sourced fact and its capturing task input point at each other
   (fact.source.taskInputId ↔ input.factId).
+- A fact whose value comes from Project reference data is "lookup"-sourced:
+  declare that table in lookupIntents with its columns, and point the fact's
+  source at that table intent and one of THAT table's own columns. Lookup
+  tables are data the workflow reads and never collects — the app does not
+  build them.
 - A transition's writes target facts of its target record only.
 - Record parents and navigation parents form forests — no cycles.
 - A decision's selectedOptionId is one of its own options.
@@ -133,8 +139,9 @@ each one.
 ## Severity is earned by basis
 
 - basis "source-supported": the sources prove the issue. Critical or
-  important findings on this basis MUST cite the exact message/attachment
-  references that prove it — references from the provided package only.
+  important findings on this basis MUST cite the exact message, attachment,
+  or image references that prove it — references from the provided package
+  only, with an image cited by the asset id and bytes digest on its label.
 - basis "contract-internal": the contract contradicts itself. A critical
   finding names the contradicting intents in affectedIntentIds.
 - basis "platform-constraint": a catalogued platform fact makes the design
@@ -321,7 +328,10 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 	if (pkg.images.length > 0) {
 		lines.push("");
 		lines.push(
-			`## Attached images (${pkg.images.length}) — provided as image parts, each preceded by its filename label`,
+			`## Attached images (${pkg.images.length}) — provided as image parts, each preceded by a label carrying its citable coordinate`,
+		);
+		lines.push(
+			'Cite a requirement visible in an image with an "image" source reference: the asset id and the FULL bytes digest exactly as its label spells them.',
 		);
 	}
 	if (pkg.claims.length > 0) {
@@ -337,14 +347,19 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 	return lines.join("\n");
 }
 
-/** The package's images as model input parts, labeled by filename. */
+/**
+ * The package's images as model input parts. Each label carries the image's
+ * filename and its full citable coordinate — the asset id and complete bytes
+ * digest an `image` source reference is made of, so the model can copy it
+ * exactly instead of reconstructing it.
+ */
 export function sourcePackageImages(
 	pkg: DesignSourcePackage,
 ): SubGenerationImage[] {
 	return pkg.images.map((image) => ({
 		mediaType: image.mediaType,
 		data: image.dataUrl,
-		label: `Attached image: ${neutralizeSourceDelimiters(image.filename)}`,
+		label: `Attached image: ${neutralizeSourceDelimiters(image.filename)} (image:${image.assetId}:${image.bytesDigest})`,
 	}));
 }
 

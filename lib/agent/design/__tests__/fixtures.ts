@@ -4,10 +4,11 @@
  * a readable coordinate.
  *
  * The contract exercises every collection: two actors, a parent/child record
- * pair, answer/derived facts with coherent writer sets, a rule, two tasks
- * (one creating the parent, one creating the child through a transition), a
- * read model, an access policy, navigation, a decision, an assumption, an
- * open question, and two scenarios. Tests clone-and-break it per rule.
+ * pair, answer/derived/lookup facts with coherent writer sets, a rule, two
+ * tasks (one creating the parent, one creating the child through a
+ * transition), a read model, a lookup table intent the lookup fact reads, an
+ * access policy, navigation, a decision, an assumption, an open question, and
+ * two scenarios. Tests clone-and-break it per rule.
  */
 
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
@@ -16,6 +17,7 @@ import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { SourceRef } from "@/lib/agent/design/evidence";
 import { asDesignId, type DesignId } from "@/lib/agent/design/ids";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 
 /** Deterministic design id: `did(5)` → `00000000-0000-4000-8000-000000000005`. */
 export function did(n: number): DesignId {
@@ -26,12 +28,28 @@ export function did(n: number): DesignId {
 
 export const FIXTURE_THREAD_ID = "00000000-0000-4000-8000-999999999999";
 
+/** The image the source-package fixtures project — asset id plus the digest
+ *  of the exact bytes the model was shown. */
+export const FIXTURE_IMAGE_ASSET_ID = "00000000-0000-4000-8000-000000000880";
+export const FIXTURE_IMAGE_DIGEST = "c".repeat(64);
+
 export function messageRef(partIndex = 0) {
 	return {
 		kind: "message" as const,
 		threadId: FIXTURE_THREAD_ID,
 		messageId: "m1",
 		partIndex,
+	} satisfies SourceRef;
+}
+
+export function imageRef(
+	assetId: string = FIXTURE_IMAGE_ASSET_ID,
+	bytesDigest: string = FIXTURE_IMAGE_DIGEST,
+) {
+	return {
+		kind: "image" as const,
+		assetId: asMediaAssetId(assetId),
+		bytesDigest,
 	} satisfies SourceRef;
 }
 
@@ -47,6 +65,7 @@ export const ids = {
 	factAge: did(31),
 	factRisk: did(32),
 	factVisitSummary: did(33),
+	factClinic: did(34),
 	ruleRisk: did(40),
 	inputName: did(50),
 	inputAge: did(51),
@@ -69,6 +88,9 @@ export const ids = {
 	question: did(140),
 	scenarioRegister: did(150),
 	scenarioQueue: did(151),
+	lookupVillages: did(160),
+	lookupColVillageName: did(161),
+	lookupColClinic: did(162),
 	sliceRegister: did(200),
 	sliceVisit: did(201),
 	planId: "00000000-0000-4000-8000-000000000900",
@@ -199,6 +221,24 @@ export function makeContract(): AppDesignContract {
 				readerIds: [],
 				evidence: [ids.claimVisits],
 			},
+			{
+				/* Reference data: read from the Project's village table, so no
+				 * task writes it. */
+				id: ids.factClinic,
+				recordId: ids.recPatient,
+				name: "catchment_clinic",
+				meaning: "The clinic that covers the patient's village.",
+				dataShape: "text",
+				source: {
+					kind: "lookup",
+					lookupIntentId: ids.lookupVillages,
+					columnIntentId: ids.lookupColClinic,
+				},
+				sensitivity: "ordinary",
+				writerTaskIds: [],
+				readerIds: [ids.rmPatients],
+				evidence: [ids.claimVisits],
+			},
 		],
 		rules: [
 			{
@@ -320,10 +360,38 @@ export function makeContract(): AppDesignContract {
 				filters: ["Active patients only"],
 				sortIntent: ["Highest risk first"],
 				scanFactIds: [ids.factName, ids.factRisk],
-				detailFactIds: [ids.factName, ids.factAge, ids.factRisk],
+				detailFactIds: [
+					ids.factName,
+					ids.factAge,
+					ids.factRisk,
+					ids.factClinic,
+				],
 				searchFactIds: [ids.factName],
 				selectionTaskId: ids.taskVisit,
 				emptyStateMeaning: "No registered patients yet.",
+				evidence: [ids.claimVisits],
+			},
+		],
+		lookupIntents: [
+			{
+				id: ids.lookupVillages,
+				name: "Villages",
+				purpose:
+					"The catchment villages a CHW covers and the clinic each reports to.",
+				columns: [
+					{
+						id: ids.lookupColVillageName,
+						name: "village_name",
+						meaning: "The village's name as workers know it.",
+						evidence: [ids.claimVisits],
+					},
+					{
+						id: ids.lookupColClinic,
+						name: "clinic_name",
+						meaning: "The clinic covering that village.",
+						evidence: [ids.claimVisits],
+					},
+				],
 				evidence: [ids.claimVisits],
 			},
 		],
@@ -440,6 +508,7 @@ export function makeBuildPlan(): BuildPlan {
 					ids.factName,
 					ids.factAge,
 					ids.factRisk,
+					ids.factClinic,
 					ids.ruleRisk,
 					ids.taskRegister,
 					ids.transCreatePatient,
@@ -452,6 +521,7 @@ export function makeBuildPlan(): BuildPlan {
 					ids.factName,
 					ids.factAge,
 					ids.factRisk,
+					ids.factClinic,
 					ids.ruleRisk,
 					ids.taskRegister,
 					ids.transCreatePatient,
@@ -516,6 +586,11 @@ export function makeBuildPlan(): BuildPlan {
 			},
 			{
 				intentId: ids.factRisk,
+				owningSliceId: ids.sliceRegister,
+				contributingSliceIds: [],
+			},
+			{
+				intentId: ids.factClinic,
 				owningSliceId: ids.sliceRegister,
 				contributingSliceIds: [],
 			},

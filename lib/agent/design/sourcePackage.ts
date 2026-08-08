@@ -157,8 +157,10 @@ export interface DesignSourcePackage {
 	attachments: AuthorizedAttachmentProjection[];
 	images: AuthorizedImage[];
 	platformConstraints: PlatformConstraint[];
-	/** The labeled index of every projected source — the closed set of
-	 *  references a reviewer may cite (plus catalog constraints). */
+	/** The labeled index of every projected source — request blocks, document
+	 *  extracts, and images — as the closed set of references a reviewer may
+	 *  cite (plus catalog constraints). An image's entry carries the digest of
+	 *  the exact bytes projected, so a citation binds to that content. */
 	sources: Array<{ ref: z.infer<typeof sourceRefSchema> }>;
 }
 
@@ -425,6 +427,13 @@ export async function buildDesignSourcePackage(
 					assetId: attachment.assetId,
 					extractorVersion: attachment.extractorVersion,
 					sectionPath: [],
+				},
+			})),
+			...images.map((image) => ({
+				ref: {
+					kind: "image" as const,
+					assetId: image.assetId,
+					bytesDigest: image.bytesDigest,
 				},
 			})),
 		],

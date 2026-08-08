@@ -2,8 +2,8 @@
 
 A typed, evidence-linked, NON-EXECUTABLE design layer: the vocabulary a
 chat-started app is designed in (actors/tasks/records/facts/rules/read
-models/access/navigation/decisions/scenarios), the independent review of
-that design, and the digest-bound slice plan that lowers it. Nothing here
+models/lookup tables/access/navigation/decisions/scenarios), the independent
+review of that design, and the digest-bound slice plan that lowers it. Nothing here
 is a Blueprint phase: no wire emitter, no Preview, no export, no mutation
 authority — design artifacts influence a build brief and can do nothing
 else, and a stale or absent Design Contract never blocks a valid human or
@@ -15,11 +15,13 @@ direct MCP edit.
   Blueprint's authored `Uuid`. Never passes into a canonical mutation
   without an explicit implementation binding.
 - `evidence.ts` / `platformConstraints.ts` — source references are
-  POINTERS (message coordinate, attachment-extract coordinate, catalogued
-  constraint code), never copies; the constraint-code leaf is the closed
-  citable platform vocabulary (dependency-free so validators don't drag
-  the tool registry in). An explicit claim must cite a message/attachment
-  source — the claim schema enforces it.
+  POINTERS (message coordinate, attachment-extract coordinate, image
+  asset-id + bytes digest, catalogued constraint code), never copies; the
+  constraint-code leaf is the closed citable platform vocabulary
+  (dependency-free so validators don't drag the tool registry in). An
+  explicit claim must cite a message, attachment, or image source — the
+  claim schema enforces it, and an image citation is bound to the exact
+  bytes the model saw.
 - `contract.ts` + `graph.ts` — the contract collections and
   `validateDesignGraph`, which runs INSIDE the schema parse (id
   uniqueness across one namespace, kind-compatible reference closure,
@@ -27,9 +29,11 @@ direct MCP edit.
   record-bound transition writes, acyclic parent forests, blocking
   questions naming their intents, scenarios exercising the workflow). An
   incoherent contract is an invalid structured output, never an artifact.
-  The lookup fact-source arm's intent ids are exempt from closure until
-  the lookup-intent vocabulary ships (the plan's Unit E, work item 19);
-  the image evidence coordinate is likewise Unit E work item 20.
+  A `lookup` fact source names the contract's own `lookupIntents` — a table
+  intent and one of THAT table's columns — with no exemption; lookup
+  intents describe Project reference data an external action loads, so
+  they are deliberately absent from `implementableIntentIds` and no slice
+  owns one.
 - `review.ts` — findings (severity EARNED by basis: heuristic never
   critical, source-supported critical needs source refs,
   platform-critical needs a catalogued code), dispositions, and closure.
@@ -66,8 +70,9 @@ direct MCP edit.
   graph into a consumer) — the one boundary turning a caller-authorized
   transcript into model input: bounded labeled blocks, Project-verified
   attachments through the extraction store, image projections bound by
-  content digest, honest over-bound REJECTION (never silent clipping of a
-  source away), and a persisted payload of references + normalized claims
+  content digest (that digest is also the image's citable coordinate, in
+  the labeled `sources` index and on the rendered image label), honest
+  over-bound REJECTION (never silent clipping of a source away), and a persisted payload of references + normalized claims
   only — no extract bodies, no transcripts, no image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any

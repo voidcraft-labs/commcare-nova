@@ -33,12 +33,10 @@ import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
  * - `platform-constraint` — a catalogued Nova/CommCare platform fact. The
  *   `code` is closed (`platformConstraints.ts`); `sourceAnchor` names the
  *   repository/doc anchor that states the constraint.
- *
- * There is no image-coordinate kind YET: a requirement visible only in an
- * attached image is cited through the MESSAGE that attached it, and the
- * source package binds the image bytes by content digest. The image
- * evidence arm ships with the new-build cutover (the reviewed-intent
- * plan's Unit E, work item 20), which retires this interim rule.
+ * - `image` — one projected image, named by its asset id and the digest of
+ *   the exact bytes the model was shown. A requirement visible only in an
+ *   attached image cites the image itself; the digest binds the citation to
+ *   that content, so re-projected or replaced bytes never inherit it.
  */
 export const sourceRefSchema = z.discriminatedUnion("kind", [
 	z
@@ -65,6 +63,15 @@ export const sourceRefSchema = z.discriminatedUnion("kind", [
 			sourceAnchor: z.string().min(1),
 		})
 		.strict(),
+	z
+		.object({
+			kind: z.literal("image"),
+			assetId: mediaAssetIdSchema,
+			/** SHA-256 of the exact projected image bytes — binds the citation to
+			 *  the content the model actually saw. */
+			bytesDigest: z.string().regex(/^[a-f0-9]{64}$/),
+		})
+		.strict(),
 ]);
 export type SourceRef = z.infer<typeof sourceRefSchema>;
 
@@ -73,10 +80,11 @@ export type SourceRef = z.infer<typeof sourceRefSchema>;
  * requirement in Nova's own words — never a raw excerpt, unless an exact
  * label/choice/value is itself the requirement. `status` is the epistemic
  * grade: `explicit` claims restate what the source says and MUST carry a
- * message or attachment reference (the graph validator proves it);
- * `inferred` claims are derived from source material; `assumption` claims
- * fill a gap the source leaves open. A claim grounded only in platform
- * knowledge uses a `platform-constraint` reference.
+ * message, attachment, or image reference — the three kinds that point at
+ * what the user actually provided; `inferred` claims are derived from source
+ * material; `assumption` claims fill a gap the source leaves open. A claim
+ * grounded only in platform knowledge uses a `platform-constraint`
+ * reference.
  */
 export const sourceClaimSchema = z
 	.object({
@@ -91,14 +99,17 @@ export const sourceClaimSchema = z
 		if (
 			claim.status === "explicit" &&
 			!claim.sourceRefs.some(
-				(ref) => ref.kind === "message" || ref.kind === "attachment-extract",
+				(ref) =>
+					ref.kind === "message" ||
+					ref.kind === "attachment-extract" ||
+					ref.kind === "image",
 			)
 		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["sourceRefs"],
 				message:
-					"An explicit claim restates what the user said, so it needs a message or attachment source reference — a platform-constraint reference alone supports an inferred claim or an assumption, not an explicit one.",
+					"An explicit claim restates what the user provided, so it needs a message, attachment, or image source reference — a platform-constraint reference alone supports an inferred claim or an assumption, not an explicit one.",
 			});
 		}
 	});

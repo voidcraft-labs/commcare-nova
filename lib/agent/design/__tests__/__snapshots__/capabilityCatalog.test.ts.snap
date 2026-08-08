@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "5ee228bfcb71a4fe985d8a01fd1ab2d4f7d94f79174ad54cb439dcd9fb11a510",
+  "catalogDigest": "83140d40aa9c514c118906d0e00e3175ed78e5005f84891106332321103b0868",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -239,6 +239,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "mcpName": "move_location",
       "saName": "moveLocation",
       "staging": "forbidden",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "move_module",
+      "saName": "moveModule",
+      "staging": "allowed",
     },
     {
       "effect": "mutate-blueprint",

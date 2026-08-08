@@ -19,9 +19,9 @@ describe("computeDesignComplexity", () => {
 
 	it("scores the fixture as standard", () => {
 		// records>=2 (+1), hierarchy (+1), actors>=2 (+1), access>0 (+1),
-		// sensitive fact (+1) = 5.
+		// lookup fact (+1), sensitive fact (+1) = 6.
 		const evidence = computeDesignComplexity(makeContract());
-		expect(evidence.score).toBe(5);
+		expect(evidence.score).toBe(6);
 		expect(evidence.depth).toBe("standard");
 	});
 

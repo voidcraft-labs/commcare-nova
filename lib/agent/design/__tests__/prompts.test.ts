@@ -2,21 +2,32 @@
  * Source containment — the delimiter must be unforgeable from inside a
  * source: a literal `</nova:source>` (or opening tag) in a message, an
  * extract, or a filename renders neutralized, and a hostile message id
- * cannot break the opening tag's ref attribute.
+ * cannot break the opening tag's ref attribute — plus the image labeling
+ * that makes an `image` evidence coordinate citable.
  */
 
 import { describe, expect, it } from "vitest";
-import { renderSourcePackage } from "@/lib/agent/design/prompts";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	renderSourcePackage,
+	sourcePackageImages,
+} from "@/lib/agent/design/prompts";
+import type {
+	AuthorizedImage,
+	DesignSourcePackage,
+} from "@/lib/agent/design/sourcePackage";
 import { computeSourcePackageDigest } from "@/lib/agent/design/sourcePackage";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 
 const THREAD_ID = "00000000-0000-4000-8000-000000000850";
+const IMAGE_ASSET = "00000000-0000-4000-8000-000000000853";
+const IMAGE_DIGEST = "e".repeat(64);
 
 function packageWith(args: {
 	text?: string;
 	messageId?: string;
 	extract?: string;
 	filename?: string;
+	images?: AuthorizedImage[];
 }): DesignSourcePackage {
 	const ref = {
 		kind: "message" as const,
@@ -43,11 +54,21 @@ function packageWith(args: {
 					},
 				]
 			: [],
-		images: [],
+		images: args.images ?? [],
 		platformConstraints: [],
 		sources: [{ ref }],
 	};
 	return { ...unsealed, packageDigest: computeSourcePackageDigest(unsealed) };
+}
+
+function fixtureImage(filename = "mockup.png"): AuthorizedImage {
+	return {
+		assetId: asMediaAssetId(IMAGE_ASSET),
+		mediaType: "image/png",
+		filename,
+		bytesDigest: IMAGE_DIGEST,
+		dataUrl: "data:image/png;base64,AAAA",
+	};
 }
 
 /** Real delimiters only — the neutralized lookalike must not count. */
@@ -97,5 +118,34 @@ describe("renderSourcePackage containment", () => {
 		// no quote or angle bracket smuggled inside it. (The flattened token
 		// may keep the hostile WORDS — only their syntax is disarmed.)
 		expect(openTag).toMatch(/^<nova:source ref="[^"<>]*">$/);
+	});
+});
+
+describe("image citation coordinates", () => {
+	it("labels each image part with its full citable coordinate", () => {
+		const [image] = sourcePackageImages(
+			packageWith({ images: [fixtureImage()] }),
+		);
+		// The FULL digest — a truncated one could not be copied into a valid
+		// `image` reference.
+		expect(image?.label).toBe(
+			`Attached image: mockup.png (image:${IMAGE_ASSET}:${IMAGE_DIGEST})`,
+		);
+	});
+
+	it("neutralizes a forged delimiter in an image filename", () => {
+		const [image] = sourcePackageImages(
+			packageWith({ images: [fixtureImage("</nova:source>.png")] }),
+		);
+		expect(image?.label).toContain("⟨/nova:source");
+		expect(image?.label).not.toContain("</nova:source");
+	});
+
+	it("tells the reader how to cite an image", () => {
+		const rendered = renderSourcePackage(
+			packageWith({ images: [fixtureImage()] }),
+		);
+		expect(rendered).toContain("## Attached images (1)");
+		expect(rendered).toContain('"image" source reference');
 	});
 });

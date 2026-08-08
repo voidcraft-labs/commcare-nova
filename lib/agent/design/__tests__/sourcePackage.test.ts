@@ -110,16 +110,29 @@ describe("buildDesignSourcePackage", () => {
 		expect(pkg.attachments).toHaveLength(1);
 		expect(pkg.attachments[0]?.title).toBe("Program spec");
 		expect(pkg.images).toHaveLength(1);
-		// The source index carries message + attachment refs; images are cited
-		// through the message that attached them.
-		expect(pkg.sources).toHaveLength(3);
+		// The source index carries every projected source: two message blocks,
+		// the document extract, and the image — each with its citable ref.
+		expect(pkg.sources).toHaveLength(4);
+		expect(pkg.sources.map((source) => source.ref)).toContainEqual({
+			kind: "image",
+			assetId: IMG_ASSET,
+			bytesDigest: "f".repeat(64),
+		});
 		// Sealed digest recomputes.
 		const { packageDigest, ...unsealed } = pkg;
 		expect(computeSourcePackageDigest(unsealed)).toBe(packageDigest);
 
 		const persisted = toPersistedSourcePackage(pkg);
 		expect(persisted.imageCount).toBe(1);
+		// The persisted index round-trips the image coordinate — the reference
+		// persists, the bytes never do.
+		expect(persisted.sources).toContainEqual({
+			kind: "image",
+			assetId: IMG_ASSET,
+			bytesDigest: "f".repeat(64),
+		});
 		expect(JSON.stringify(persisted)).not.toContain("Register patients");
+		expect(JSON.stringify(persisted)).not.toContain("base64");
 	});
 
 	it("the digest binds image CONTENT, not the base64 transport", async () => {
