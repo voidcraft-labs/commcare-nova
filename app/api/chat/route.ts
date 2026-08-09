@@ -335,6 +335,57 @@ export async function POST(req: Request) {
 	 * persistence so failure paths below can still surface it if needed. */
 	const effectiveRunId = chatRunIdSchema.parse(runId ?? crypto.randomUUID());
 
+	/* A pre-app design session is owner-private even inside a shared Project.
+	 * Resolve and authorize a presented session BEFORE consulting any thread
+	 * identity: otherwise the thread target/run guards become an oracle that
+	 * distinguishes another owner's private session from an ordinary miss.
+	 * The admitted row and role are reused below, so one request never reasons
+	 * from two different session snapshots. */
+	let presentedDesignSession: DesignSessionDoc | undefined;
+	let presentedDesignSessionRole: string | undefined;
+	const presentedSessionId = parsed.data.designSessionId;
+	if (presentedSessionId !== undefined) {
+		let session: DesignSessionDoc | null;
+		try {
+			session = await loadDesignSession(presentedSessionId);
+		} catch (err) {
+			log.error("[chat] design-session read failed", err);
+			return Response.json(
+				{
+					error: "Couldn't load this design. Please try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+		if (
+			session === null ||
+			(session.app_id === null && session.owner_user_id !== userId)
+		) {
+			return Response.json(
+				{ error: "App not found", type: "not_found" },
+				{ status: 404 },
+			);
+		}
+		try {
+			const access = await resolveProjectAccess(
+				userId,
+				session.project_id,
+				"edit",
+			);
+			presentedDesignSession = session;
+			presentedDesignSessionRole = access.role;
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
+				);
+			}
+			throw err;
+		}
+	}
+
 	/* Thread-identity guard: BEFORE any persistence work (a rejection here
 	 * must not mint an orphan session). `threadId` is client-minted, so an id
 	 * that already exists must belong to THIS turn's target: an app-target
@@ -537,56 +588,15 @@ export async function POST(req: Request) {
 		 * claims one in a single gated transaction — creation, cross-target
 		 * concurrency, affordability, reservation, and holder commit together
 		 * or nothing does, so a rejected first turn leaves no orphan. */
-		const presentedSessionId = parsed.data.designSessionId;
 		if (presentedSessionId !== undefined) {
-			let session: DesignSessionDoc | null = null;
-			try {
-				session = await loadDesignSession(presentedSessionId);
-			} catch (err) {
-				log.error("[chat] design-session read failed", err);
-				return Response.json(
-					{
-						error: "Couldn't load this design. Please try again shortly.",
-						type: "internal",
-					},
-					{ status: 503 },
+			const session = presentedDesignSession;
+			if (session === undefined || presentedDesignSessionRole === undefined) {
+				throw new Error(
+					"[chat] compiler invariant: a presented design session was not admitted",
 				);
 			}
-			if (session === null) {
-				return Response.json(
-					{ error: "App not found", type: "not_found" },
-					{ status: 404 },
-				);
-			}
-			/* A pre-app design session is owner-private even inside a shared
-			 * Project. Enforce that before revealing lifecycle state or touching its
-			 * thread; once materialized, the bound app becomes the Project-shared
-			 * authority boundary and ordinary app admission applies below. */
-			if (session.app_id === null && session.owner_user_id !== userId) {
-				return Response.json(
-					{ error: "App not found", type: "not_found" },
-					{ status: 404 },
-				);
-			}
-			try {
-				const access = await resolveProjectAccess(
-					userId,
-					session.project_id,
-					"edit",
-				);
-				projectId = session.project_id;
-				projectRole = access.role;
-			} catch (err) {
-				if (err instanceof AppAccessError) {
-					/* Foreign/insufficient membership collapses to the same opaque
-					 * not-found every app route returns. */
-					return Response.json(
-						{ error: "App not found", type: "not_found" },
-						{ status: 404 },
-					);
-				}
-				throw err;
-			}
+			projectId = session.project_id;
+			projectRole = presentedDesignSessionRole;
 			designLineageSessionId = session.id;
 			if (session.state === "materialized" && session.app_id !== null) {
 				/* The design already became an app; this turn continues against

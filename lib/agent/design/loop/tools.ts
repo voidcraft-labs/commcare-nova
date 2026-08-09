@@ -392,16 +392,24 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				return { error: renderZodIssues(draftParsed.error) };
 			}
 			const composed = composePlan(accepted, draftParsed.data);
+			/* Blocking-action producer policy is deliberately outside the
+			 * persisted schema so historical plans remain readable. Still compute
+			 * it before returning structural refinements: one rejected submission
+			 * must expose every independently visible repair, or a newly revealed
+			 * policy message can consume the final repair attempt. */
+			const unsupportedActions = unsupportedBlockingActionMessages(composed);
 			const planParsed = buildPlanSchemaFor(
 				accepted.envelope.payload,
 			).safeParse(composed);
 			if (!planParsed.success) {
 				deps.repair.noteSchemaRejection("submitPlan");
-				return { error: renderZodIssues(planParsed.error) };
+				return {
+					error: [
+						renderZodIssues(planParsed.error),
+						...unsupportedActions,
+					].join("\n"),
+				};
 			}
-			const unsupportedActions = unsupportedBlockingActionMessages(
-				planParsed.data,
-			);
 			if (unsupportedActions.length > 0) {
 				deps.repair.noteSchemaRejection("submitPlan");
 				return { error: unsupportedActions.join("\n") };

@@ -293,16 +293,29 @@ describe("design-session build turns", () => {
 		const first = await POST(buildRequest());
 		expect(first.status).toBe(200);
 		await first.text();
-		const session = await sessionRow();
 		const before = await threadRow();
 
 		await appDb
-			.updateTable("design_sessions")
-			.set({ owner_user_id: "other-project-member" })
-			.where("id", "=", session.id)
+			.insertInto("design_sessions")
+			.values({
+				id: "52ac7038-bf76-4cb0-9f82-374609c7652a",
+				mode: "build",
+				project_id: PROJECT,
+				owner_user_id: "other-project-member",
+				proposed_app_id: "private-proposed-app",
+				app_id: null,
+				state: "active",
+				awaiting_input: false,
+			})
 			.execute();
 
-		const denied = await POST(buildRequest({ designSessionId: session.id }));
+		/* THREAD belongs to the first session. The private-session admission must
+		 * win before that mismatch can produce the thread guard's distinct 400. */
+		const denied = await POST(
+			buildRequest({
+				designSessionId: "52ac7038-bf76-4cb0-9f82-374609c7652a",
+			}),
+		);
 		expect(denied.status).toBe(404);
 		expect(await denied.json()).toEqual({
 			error: "App not found",

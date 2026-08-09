@@ -297,6 +297,52 @@ describe("clean path: contract → clean review → server acceptance → plan",
 		const plan = await readLatestDesignBuildPlanForRevision(accepted?.id ?? "");
 		expect(plan).not.toBeNull();
 	});
+
+	it("reports blocking-action policy with structural plan errors so one repair can address both", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools, repair } = mountTools({ pkg });
+		await call(tools.submitContract, makeContract());
+		await call(tools.requestReview);
+
+		const invalid = makeBuildPlan();
+		const actionId = did(998);
+		const slice = invalid.slices[1];
+		if (slice === undefined)
+			throw new Error("Fixture is missing its second slice.");
+		slice.prerequisiteSliceIds = [did(999)];
+		slice.externalActionIds = [actionId];
+		invalid.externalActions = [
+			{
+				id: actionId,
+				kind: "manual",
+				timing: "before-slice",
+				requiredFor: "construction",
+				description: "Complete an external prerequisite.",
+				idempotencyOwner: "user",
+				completionEvidence: "The prerequisite is complete.",
+			},
+		];
+		const rejected = await call(tools.submitPlan, {
+			slices: invalid.slices,
+			externalActions: invalid.externalActions,
+			intentOwnership: invalid.intentOwnership,
+		});
+		expect(String(rejected.error)).toContain("prerequisite");
+		expect(String(rejected.error)).toContain(
+			"no registered completion producer",
+		);
+		expect(repair.fatalError()).toBeUndefined();
+
+		const repaired = makeBuildPlan();
+		const planned = await call(tools.submitPlan, {
+			slices: repaired.slices,
+			externalActions: repaired.externalActions,
+			intentOwnership: repaired.intentOwnership,
+		});
+		expect(planned).toMatchObject({ ok: true });
+		expect(repair.fatalError()).toBeUndefined();
+	});
 });
 
 describe("findings path and the second round", () => {
