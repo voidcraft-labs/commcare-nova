@@ -466,6 +466,13 @@ restating the fold here is how a list starts disagreeing with the
 conversation it links to; no runtime cycle, the fold reaches only `pg` +
 `persistedJson`).
 
+The legacy pre-plan cutover scanner reads app snapshots through the lock-free
+repeatable-read inspection loader, so the production scan identity needs no
+write privilege. Its writer sibling handles a stale build holder only through
+the result-bearing exact run/nonce reaper, re-reads the app after that locked
+transition, and then invokes holder-free operator recovery. Live holders wait;
+stale holders without an exact identity fail closed for operator inspection.
+
 Discard is one cleanup transaction after its owner/busy checks: refund the
 unsettled reservation, abandon open change sets, supersede running slice
 attempts, clear thread stream-holder markers, clear session authority, and

@@ -8,10 +8,13 @@
  * at-rest state for those rows is `complete`. This scan classifies each
  * candidate:
  *
- *   - `repairable` — holder-free with modules → run
+ *   - `repairable` — holder-free, or carrying an exactly provable stale
+ *     build holder, with modules → run
  *     `migrate-legacy-preplan-builds.ts`
- *   - `held`       — a run currently holds the row; wait for it (or the
- *     reaper) and re-scan
+ *   - `held`       — a live/recent run currently holds the row; wait for it
+ *     and re-scan
+ *   - `blocked`    — a stale legacy holder lacks an exact run/nonce token;
+ *     operator inspection is required
  *   - `empty`      — zero modules persisted; recovery refuses these, and
  *     each needs an operator decision (likely soft-delete)
  *
@@ -23,8 +26,9 @@
 import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { loadApp } from "@/lib/db/apps";
+import { loadAppForInspection } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
+import { toExactRunHolderIdentity } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
 import { tsToISO } from "./lib/format";
 import { runMain } from "./lib/main";
@@ -65,30 +69,41 @@ async function main(): Promise<void> {
 
 		let repairable = 0;
 		let held = 0;
+		let blocked = 0;
 		let empty = 0;
 		for (const candidate of candidates) {
-			const app = await loadApp(candidate.id);
+			const app = await loadAppForInspection(candidate.id);
 			if (!app) continue;
-			const holder = runLeaseState(app).holderIdentity;
+			const lease = runLeaseState(app);
+			const holder = lease.holderIdentity;
+			const exactHolder = toExactRunHolderIdentity(holder);
 			const kind =
 				app.module_count === 0
 					? "empty"
-					: holder !== null
-						? "held"
-						: "repairable";
+					: lease.reapableStaleBuild && exactHolder === null
+						? "blocked"
+						: holder !== null && !lease.reapableStaleBuild
+							? "held"
+							: "repairable";
 			if (kind === "empty") empty++;
 			else if (kind === "held") held++;
+			else if (kind === "blocked") blocked++;
 			else repairable++;
 			console.log(
 				`${kind.padEnd(10)} ${candidate.id}  status=${app.status} error=${app.error_type ?? "-"} modules=${app.module_count} updated=${tsToISO(app.updated_at)} holder=${holder ? `${holder.mode}:${holder.runId ?? "?"}` : "none"}  "${app.app_name}"`,
 			);
 		}
 		console.log(
-			`\n${candidates.length} legacy pre-plan build(s): ${repairable} repairable, ${held} held, ${empty} empty.`,
+			`\n${candidates.length} legacy pre-plan build(s): ${repairable} repairable, ${held} held, ${blocked} blocked, ${empty} empty.`,
 		);
 		if (held > 0) {
 			console.log(
-				"Held rows: wait for the run to finish or the reaper to settle it, then re-scan.",
+				"Held rows: wait for the live/recent run to finish, then re-scan.",
+			);
+		}
+		if (blocked > 0) {
+			console.log(
+				"Blocked rows: the stale holder lacks an exact run/nonce identity; inspect each before any recovery.",
 			);
 		}
 		if (empty > 0) {

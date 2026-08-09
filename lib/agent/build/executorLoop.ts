@@ -89,8 +89,8 @@ export type ExecutorStepFn = (args: {
 	responseMessages: ModelMessage[];
 }>;
 
-/** What the server-owned commit answered. `committed` is terminal; the other
- *  three are reports the executor may correct against. */
+/** What the server-owned commit answered. `committed` and `rebase-conflict`
+ *  end this private attempt; the other reports can be corrected in place. */
 export type SliceCommitResult =
 	| {
 			kind: "committed";
@@ -105,6 +105,7 @@ export type SliceExecutionOutcome =
 			kind: "committed";
 			receipt: CommittedSliceReceipt | AppMaterializationReceipt;
 	  }
+	| { kind: "rebase-conflict"; report: unknown }
 	| { kind: "design-issue"; issue: DesignExecutionIssue }
 	| {
 			kind: "budget-exhausted";
@@ -391,7 +392,6 @@ export async function runSliceExecutor(args: {
 	let modelSteps = 0;
 	let stagedRequests = 0;
 	let commitAttempts = 0;
-	let rebaseAttempts = 0;
 	let consecutiveEmptySteps = 0;
 
 	const spent = () => ({ modelSteps, stagedRequests });
@@ -609,14 +609,11 @@ export async function runSliceExecutor(args: {
 					continue;
 				}
 				if (result.kind === "rebase-conflict") {
-					rebaseAttempts += 1;
-					if (rebaseAttempts > budget.maxRebaseAttempts) return exhausted();
-					answer({
-						error:
-							"The app changed underneath this change set, so the commit was replayed and conflicted. Read the report, correct the affected steps, and request the commit again.",
-						report: result.report,
-					});
-					continue;
+					/* Admitted steps are append-only. A semantic conflict cannot be
+					 * repaired by appending after the invalid step because replay would
+					 * still execute it. The orchestrator owns bounded supersession and
+					 * restarts from the fresh canonical base. */
+					return { kind: "rebase-conflict", report: result.report };
 				}
 				answer({
 					error:

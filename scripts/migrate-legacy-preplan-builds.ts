@@ -4,11 +4,13 @@
  *
  * The migrate sibling of `scan-legacy-preplan-builds.ts`: for each
  * non-`complete`, non-deleted app with NO bound design session, a nonzero
- * module count, and no present run holder, it delegates to
- * `recoverAppStatus(appId, null)` — the same reviewed operator-recovery
+ * module count, and either no present run holder or an exactly provable stale
+ * build holder, it first reaps that stale holder when necessary and delegates
+ * to `recoverAppStatus(appId, null)` — the same reviewed operator-recovery
  * authority `recover-app.ts` uses, which re-proves the free row under the
- * app lock, flips status → `complete`, and clears `error_type`. Held and
- * empty rows are skipped and reported (the scan explains each).
+ * app lock, flips status → `complete`, and clears `error_type`. Live-held,
+ * unprovable stale-holder, and empty rows are skipped and reported (the scan
+ * explains each).
  *
  * Dry-run by default; nothing writes without `--execute`. Run the scan
  * first for sizing, execute against the intended environment, then re-run
@@ -18,8 +20,9 @@
 import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { loadApp, recoverAppStatus } from "@/lib/db/apps";
+import { loadApp, reapStaleRun, recoverAppStatus } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
+import { toExactRunHolderIdentity } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
 import { runMain } from "./lib/main";
 
@@ -67,13 +70,48 @@ async function main(): Promise<void> {
 		let recovered = 0;
 		let skipped = 0;
 		for (const candidate of candidates) {
-			const app = await loadApp(candidate.id);
+			let app = await loadApp(candidate.id);
 			if (!app) continue;
-			const holder = runLeaseState(app).holderIdentity;
-			if (app.module_count === 0 || holder !== null) {
+			let lease = runLeaseState(app);
+			let holder = lease.holderIdentity;
+			if (app.module_count === 0) {
+				skipped++;
+				console.log(`skip     ${candidate.id}  zero modules`);
+				continue;
+			}
+			if (lease.reapableStaleBuild) {
+				const exactHolder = toExactRunHolderIdentity(holder);
+				if (exactHolder === null) {
+					skipped++;
+					console.log(
+						`skip     ${candidate.id}  stale holder has no exact run/nonce identity`,
+					);
+					continue;
+				}
+				if (opts.execute !== true) {
+					recovered++;
+					console.log(
+						`would reap ${candidate.id}  holder=${exactHolder.mode}:${exactHolder.runId}, then recover "${app.app_name}"`,
+					);
+					continue;
+				}
+				const reap = await reapStaleRun(candidate.id, exactHolder);
+				app = await loadApp(candidate.id);
+				if (!app) continue;
+				lease = runLeaseState(app);
+				holder = lease.holderIdentity;
+				if (reap !== "reaped" && holder !== null) {
+					skipped++;
+					console.log(
+						`skip     ${candidate.id}  holder changed while the stale reap was locking`,
+					);
+					continue;
+				}
+			}
+			if (holder !== null) {
 				skipped++;
 				console.log(
-					`skip     ${candidate.id}  ${app.module_count === 0 ? "zero modules" : `held by ${holder?.mode}:${holder?.runId ?? "?"}`}`,
+					`skip     ${candidate.id}  held by ${holder.mode}:${holder.runId ?? "?"}`,
 				);
 				continue;
 			}

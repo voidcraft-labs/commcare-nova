@@ -20,6 +20,9 @@ import { Button } from "@/components/shadcn/button";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { listDesignsInProgress } from "@/lib/db/designInProgress";
+import { loadMaterializedSessionForApp } from "@/lib/db/designSessions";
+import { listThreadMetas } from "@/lib/db/threads";
+import { log } from "@/lib/logger";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
@@ -66,6 +69,34 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		: [];
 	const canCreateApp = Boolean(active && roleAllowsApp(active.role, "edit"));
 	const canDeleteApp = Boolean(active && roleAllowsApp(active.role, "delete"));
+	/* The build page admits only error apps whose newest thread proves an
+	 * interrupted stream or whose materialized design session preserves a
+	 * valid earlier revision. Derive that same rule server-side so an error
+	 * card never advertises a URL that immediately redirects back here. */
+	const resumableErrorAppIds = (
+		await Promise.all(
+			activeRes.apps
+				.filter((app) => app.status === "error")
+				.map(async (app) => {
+					try {
+						const [threads, designSession] = await Promise.all([
+							listThreadMetas({ kind: "app", appId: app.id }),
+							loadMaterializedSessionForApp(app.id),
+						]);
+						return threads[0]?.resume_interrupted === true ||
+							designSession !== null
+							? app.id
+							: null;
+					} catch (error) {
+						log.warn("[app-list] error-app resumability read failed", {
+							appId: app.id,
+							error: error instanceof Error ? error.message : String(error),
+						});
+						return null;
+					}
+				}),
+		)
+	).filter((id): id is string => id !== null);
 
 	return (
 		<>
@@ -92,6 +123,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				canDeleteApp={canDeleteApp}
 				canMoveApp={canMoveApp}
 				moveTargets={moveTargets}
+				resumableErrorAppIds={resumableErrorAppIds}
 			/>
 		</>
 	);

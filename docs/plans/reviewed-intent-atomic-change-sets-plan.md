@@ -2106,8 +2106,11 @@ Rules:
 
 - Rebase never retargets by name, position, or “closest match.”
 - A clean replay over a newer app may commit.
-- A conflict leaves the change set open with all steps retained.
-- The orchestrator may append explicit corrections or supersede it.
+- The commit request returns a conflict while the change set is still open;
+  the new-build orchestrator then atomically supersedes that set and its
+  running attempt.
+- A bounded retry opens a new attempt against the fresh canonical sequence and
+  digest. It never appends after a step that already failed semantic replay.
 - Project change and lost authorization/holder are terminal for the run.
 - An exclusive migration requires the exact base preconditions named by its existing saga.
 
@@ -3026,7 +3029,7 @@ interface SliceExecutionAttempt {
 }
 ```
 
-`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests; an exact match reuses the row, while drift supersedes it before a fresh attempt opens. Terminal replay is idempotent only when status and failure metadata agree.
+`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests. A bound open set is recoverable only when its owner actor/run matches the current delegated holder; holder drift or artifact drift atomically supersedes both the private set and attempt before a fresh attempt opens. Terminal replay is idempotent only when status and failure metadata agree.
 
 ### 13.4 Execution brief
 
@@ -3166,7 +3169,8 @@ server checks commit preconditions
         ▼
 commit/materialize
         │
-        ├─ rebase report ──────────► continue or replan by policy
+        ├─ rebase report ──────────► supersede set + attempt
+        │                              └─► fresh-base attempt (bounded)
         │
         └─ committed ──────────────► record slice receipt
 ```
@@ -3202,7 +3206,8 @@ interface SliceExecutionBudget {
 
 Budgets derive from slice complexity and risk, with hard global ceilings. Exceeding a budget:
 
-- leaves the private change set open or marks it superseded according to retry policy;
+- leaves fixable gate findings in the current private change set, while a
+  semantic rebase conflict supersedes the set and attempt before retry;
 - persists a safe failure artifact;
 - settles/refunds according to actual billable work and current run rules;
 - never commits a partial canonical prefix;
@@ -3359,24 +3364,14 @@ The executor cannot edit the Design Contract, disposition a reviewer finding, or
 
 ### 13.13 Rebase policy
 
-A commit-time replay conflict is classified, not flattened to a string:
-
-```ts
-type RebaseDecision =
-  | { kind: "clean-replay"; freshSeq: number }
-  | { kind: "retryable-anchor"; coordinates: ImplementationCoordinate[] }
-  | { kind: "semantic-conflict"; affectedIntentIds: DesignId[] }
-  | { kind: "scope-lost" }
-  | { kind: "exclusive-conflict" };
-```
-
-Policy:
-
-- `clean-replay`: the transaction commits;
-- `retryable-anchor`: keep the change set open, refresh the workspace base, and allow a bounded amendment;
-- `semantic-conflict`: stop and replan/review affected intent;
-- `scope-lost`: terminal for the run;
-- `exclusive-conflict`: supersede the attempt and schedule an isolated exclusive slice.
+A clean replay over the current canonical app commits. A structured
+`ChangeSetRebaseReport` identifies the exact failed step/mutation boundary and
+conflict code when replay is no longer semantic. Because staged steps are
+append-only, a correction appended to that same set cannot remove the failed
+step. The executor therefore ends the attempt; the orchestrator atomically
+supersedes its open change set and running attempt, reloads the current
+sequence/digest, and opens a fresh attempt. `maxRebaseAttempts` bounds those
+fresh-base restarts. Scope or holder loss is terminal rather than a retry.
 
 The executor never silently retargets a missing entity by name, position, or similarity.
 
@@ -4009,7 +4004,10 @@ Rules:
 
 - active pre-app sessions appear here;
 - materialized sessions normally resolve to the app and leave this list;
-- a materialized session with a recoverable interrupted build may show a resume affordance associated with the app, not a duplicate app card;
+- a materialized session with a recoverable interrupted build may show a
+  resume affordance associated with the app, not a duplicate app card; the app
+  card links only when its newest thread carries an interrupted-stream marker
+  or its materialized design session proves a valid earlier revision;
 - discarded/expired sessions disappear from ordinary lists but follow retention policy;
 - active pre-app sessions are owner-private even to Project co-members;
 - list/search/resume/discard require exact owner identity plus current Project
@@ -4468,11 +4466,15 @@ Every read/write:
 ## 18. Persistence and migrations
 
 The repository carries one operational legacy repair pair:
-`scan-legacy-preplan-builds` is read-only, and
-`migrate-legacy-preplan-builds` converges holder-free non-`complete` apps that
-have no design-session lineage through the reviewed operator-recovery
-authority. Held rows wait for the reaper; empty rows require per-app operator
-decisions. The deployment packages the writer as the dormant, dry-run-default
+`scan-legacy-preplan-builds` is read-only and uses lock-free repeatable-read
+inspection snapshots. `migrate-legacy-preplan-builds` converges non-`complete`
+apps that have modules and no design-session lineage through the reviewed
+operator-recovery authority. Holder-free rows recover directly. An exactly
+provable stale build holder is reaped under its locked run/nonce capability,
+then re-read and recovered; a live/recent holder waits, and a stale holder with
+no exact identity is blocked for operator inspection. Empty rows require
+per-app operator decisions. The deployment packages the writer as the dormant,
+dry-run-default
 `commcare-nova-legacy-preplan-repair` Cloud Run Job pinned to the deployed
 image. It runs after a green deploy without a traffic drain because each repair
 locks the app and refuses a live holder; a production scan before and after the
@@ -4959,7 +4961,12 @@ the contracts in Sections 1–13 and 18:
    New plans keep each slice within the 30-owned-intent admission bound, while
    historical plans remain readable. On-device date lowering uses only
    supported fixed durations and never substitutes hand-built calendar math.
-6. **Recovery and UI:** a fresh design immediately acquires a durable `/build/new?design=<id>` recovery URL; a materialized scope resolves to the authoritative app. Active designs participate in the Project empty-state decision, and a materialized build is reachable from its app card.
+6. **Recovery and UI:** a fresh design immediately acquires a durable
+   `/build/new?design=<id>` recovery URL; a materialized scope resolves to the
+   authoritative app. Active designs participate in the Project empty-state
+   decision, and a materialized build with durable continuation evidence is
+   reachable from its app card; a terminal error card does not advertise a URL
+   the build page refuses.
 7. **Explicit blank and direct editors:** explicit blank creation remains the immediate Survey/Form/Question path. Direct builder and shared MCP tools remain immediate canonical editors and do not require design metadata.
 
 These are maintained invariants, not remaining work. Unit F may add reporting

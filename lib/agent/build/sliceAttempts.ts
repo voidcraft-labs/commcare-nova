@@ -14,6 +14,7 @@
 
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
+import { updatedExactlyOne } from "@/lib/db/runHolderWrites";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
 export type SliceAttemptStatus =
@@ -230,12 +231,110 @@ async function assertAttemptAuthority(
 	});
 }
 
+interface BoundChangeSetRow {
+	id: string;
+	attempt_id: string;
+	design_session_id: string;
+	owner_user_id: string;
+	owner_run_id: string;
+	status: string;
+}
+
+async function lockBoundChangeSet(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	attempt: SliceAttempt,
+): Promise<BoundChangeSetRow | null> {
+	if (attempt.changeSetId === null) return null;
+	const row = await tx
+		.selectFrom("design_change_sets")
+		.select([
+			"id",
+			"attempt_id",
+			"design_session_id",
+			"owner_user_id",
+			"owner_run_id",
+			"status",
+		])
+		.where("id", "=", attempt.changeSetId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (row === undefined) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} is bound to a missing change set.`,
+		);
+	}
+	if (
+		row.attempt_id !== attempt.id ||
+		row.design_session_id !== attempt.designSessionId
+	) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} is bound to a change set from different lineage.`,
+		);
+	}
+	return row;
+}
+
+async function supersedeRunningAttempt(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	attempt: SliceAttempt,
+	failureCode: string,
+	lockedBound?: BoundChangeSetRow | null,
+): Promise<void> {
+	const bound =
+		lockedBound === undefined
+			? await lockBoundChangeSet(tx, attempt)
+			: lockedBound;
+	if (bound?.status === "committed") {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} is still running after its change set committed.`,
+		);
+	}
+	if (bound?.status === "open") {
+		const changeSetUpdate = await tx
+			.updateTable("design_change_sets")
+			.set({ status: "superseded", updated_at: new Date() })
+			.where("id", "=", bound.id)
+			.where("attempt_id", "=", attempt.id)
+			.where("status", "=", "open")
+			.executeTakeFirst();
+		if (!updatedExactlyOne(changeSetUpdate)) {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${attempt.id}'s change set changed during supersession.`,
+			);
+		}
+	} else if (
+		bound !== null &&
+		bound.status !== "superseded" &&
+		bound.status !== "abandoned"
+	) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} has unknown change-set status "${bound.status}".`,
+		);
+	}
+	const attemptUpdate = await tx
+		.updateTable("design_slice_attempts")
+		.set({
+			status: "superseded",
+			failure_code: failureCode,
+			updated_at: new Date(),
+		})
+		.where("id", "=", attempt.id)
+		.where("design_session_id", "=", attempt.designSessionId)
+		.where("status", "=", "running")
+		.executeTakeFirst();
+	if (!updatedExactlyOne(attemptUpdate)) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} changed during supersession.`,
+		);
+	}
+}
+
 /**
- * Begin one attempt, or RECOVER the running one. A running attempt whose
- * design/plan/brief digests still match is the resumed worker's own row; a
- * running attempt derived under superseded artifacts is marked `superseded`
- * and a fresh attempt begins. The one-running partial unique index closes
- * the race between two continuations.
+ * Begin one attempt, or RECOVER the running one. Matching immutable inputs
+ * are not enough once a change set is bound: its actor/run owner must also
+ * match the current delegated holder. Holder or artifact drift supersedes
+ * the running attempt and its open set before a fresh attempt begins. The
+ * one-running partial unique index closes the race between continuations.
  */
 export async function beginOrRecoverSliceAttempt(
 	args: CreateSliceAttemptArgs & SliceAttemptAuthority,
@@ -253,19 +352,24 @@ export async function beginOrRecoverSliceAttempt(
 			.executeTakeFirst();
 		if (running !== undefined) {
 			const attempt = rowToAttempt(running as AttemptRow);
-			if (sameAttemptInputs(attempt, args)) {
+			const bound = await lockBoundChangeSet(tx, attempt);
+			if (
+				sameAttemptInputs(attempt, args) &&
+				(bound === null ||
+					(bound.status === "open" &&
+						bound.owner_user_id === args.actorUserId &&
+						bound.owner_run_id === args.runId))
+			) {
 				return { attempt, recovered: true };
 			}
-			await tx
-				.updateTable("design_slice_attempts")
-				.set({
-					status: "superseded",
-					failure_code: "artifact-superseded",
-					updated_at: new Date(),
-				})
-				.where("id", "=", attempt.id)
-				.where("status", "=", "running")
-				.executeTakeFirstOrThrow();
+			await supersedeRunningAttempt(
+				tx,
+				attempt,
+				sameAttemptInputs(attempt, args)
+					? "holder-superseded"
+					: "artifact-superseded",
+				bound,
+			);
 		}
 		const prior = await tx
 			.selectFrom("design_slice_attempts")
@@ -306,6 +410,48 @@ export async function beginOrRecoverSliceAttempt(
 			.returning([...ATTEMPT_COLUMNS])
 			.executeTakeFirstOrThrow();
 		return { attempt: rowToAttempt(created as AttemptRow), recovered: false };
+	});
+}
+
+/**
+ * End a running attempt and its bound private change set together. The
+ * current delegated holder, not the change set's historical owner columns,
+ * authorizes this control transition. Exact replay is idempotent.
+ */
+export async function supersedeSliceAttempt(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly failureCode: string;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const row = await tx
+			.selectFrom("design_slice_attempts")
+			.select([...ATTEMPT_COLUMNS])
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${args.attemptId} no longer exists.`,
+			);
+		}
+		const attempt = rowToAttempt(row as AttemptRow);
+		if (
+			attempt.status === "superseded" &&
+			attempt.failureCode === args.failureCode
+		) {
+			return;
+		}
+		if (attempt.status !== "running") {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${args.attemptId} was already terminated by another transition.`,
+			);
+		}
+		await supersedeRunningAttempt(tx, attempt, args.failureCode);
 	});
 }
 

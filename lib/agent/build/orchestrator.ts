@@ -109,6 +109,7 @@ import {
 	countDesignIssueAttempts,
 	markSliceAttempt,
 	type SliceAttempt,
+	supersedeSliceAttempt,
 } from "./sliceAttempts";
 
 // ── Public contract ────────────────────────────────────────────────
@@ -473,7 +474,6 @@ export async function runBuildOrchestration(
 		let lastSeq = 1;
 		for (const slice of ordered) {
 			if (committedSlices.has(slice.id as string)) continue;
-			const isGenesis = appId === null;
 			const budget = budgetForSlice(slice);
 			const priorDesignIssues = await countDesignIssueAttempts({
 				designSessionId: args.designSessionId,
@@ -525,180 +525,212 @@ export async function runBuildOrchestration(
 					recoverable: true,
 				};
 			}
-			const { attempt } = await beginOrRecoverSliceAttempt({
-				designSessionId: args.designSessionId,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				expectedProjectId: args.projectId,
-				designRevisionId: revision.id,
-				designRevisionDigest: revision.artifactDigest,
-				buildPlanId: plan.id,
-				buildPlanDigest: plan.artifactDigest,
-				sliceId: slice.id as string,
-				baseTarget: isGenesis
-					? {
-							kind: "empty-genesis",
-							proposedAppId: args.proposedAppId,
-							digest: emptyGenesisBase(args.proposedAppId).digest,
-						}
-					: await appBaseTarget(appId as string),
-				executorModel: DESIGN_EXECUTOR_MODEL,
-				promptVersion: EXECUTOR_PROMPT_VERSION,
-				briefDigest: digest,
-			});
-			const changeSetId = await ensureChangeSet(
-				args,
-				attempt,
-				revision,
-				plan,
-				isGenesis,
-			);
-			args.writer.write({
-				type: "data-build-slice-started",
-				data: progressEnvelope(args.designSessionId, head, {
-					sliceId: slice.id,
-					sliceName: slice.name,
-				}),
-				transient: true,
-			});
-			if (
-				head.state.kind !== "executing-slice" ||
-				head.state.changeSetId !== changeSetId
-			) {
-				head = await appendOrchestrationEvent({
+			let rebaseAttempts = 0;
+			for (;;) {
+				const isGenesis = appId === null;
+				const { attempt } = await beginOrRecoverSliceAttempt({
 					designSessionId: args.designSessionId,
+					actorUserId: args.actorUserId,
 					runId: args.runId,
 					holderNonce: args.holderNonce,
-					actorUserId: args.actorUserId,
 					expectedProjectId: args.projectId,
-					state: {
-						kind: "executing-slice",
-						designRevisionId: revision.id,
-						buildPlanId: plan.id,
-						sliceId: slice.id,
-						changeSetId,
-						attempt: attempt.attempt,
-					},
-					expectedHead: head,
+					designRevisionId: revision.id,
+					designRevisionDigest: revision.artifactDigest,
+					buildPlanId: plan.id,
+					buildPlanDigest: plan.artifactDigest,
+					sliceId: slice.id as string,
+					baseTarget: isGenesis
+						? {
+								kind: "empty-genesis",
+								proposedAppId: args.proposedAppId,
+								digest: emptyGenesisBase(args.proposedAppId).digest,
+							}
+						: await appBaseTarget(appId as string),
+					executorModel: DESIGN_EXECUTOR_MODEL,
+					promptVersion: EXECUTOR_PROMPT_VERSION,
+					briefDigest: digest,
 				});
-			}
-
-			const outcome = await executeOneSlice(args, deps, {
-				attempt,
-				changeSetId,
-				brief,
-				slice,
-				isGenesis,
-				appId,
-				budget,
-			});
-			heartbeat();
-			if (outcome.kind === "committed") {
-				const receipt = outcome.receipt;
-				if (isGenesis) {
-					const materialization = receipt as AppMaterializationReceipt;
-					appId = materialization.appId;
-					lastSeq = 1;
-					/* Genesis is a canonical slice commit too. Project it through
-					 * the same progress vocabulary as every later slice before the
-					 * strict activation receipt transfers the UI to app scope. */
-					args.writer.write({
-						type: "data-build-slice-committed",
-						data: progressEnvelope(args.designSessionId, head, {
+				const changeSetId = await ensureChangeSet(
+					args,
+					attempt,
+					revision,
+					plan,
+					isGenesis,
+				);
+				args.writer.write({
+					type: "data-build-slice-started",
+					data: progressEnvelope(args.designSessionId, head, {
+						sliceId: slice.id,
+						sliceName: slice.name,
+					}),
+					transient: true,
+				});
+				if (
+					head.state.kind !== "executing-slice" ||
+					head.state.changeSetId !== changeSetId
+				) {
+					head = await appendOrchestrationEvent({
+						designSessionId: args.designSessionId,
+						runId: args.runId,
+						holderNonce: args.holderNonce,
+						actorUserId: args.actorUserId,
+						expectedProjectId: args.projectId,
+						state: {
+							kind: "executing-slice",
+							designRevisionId: revision.id,
+							buildPlanId: plan.id,
 							sliceId: slice.id,
-							sliceName: slice.name,
-							seq: 1,
-						}),
-						transient: true,
-					});
-					args.writer.write({
-						type: "data-app-materialized",
-						data: materialization,
-						transient: true,
-					});
-				} else {
-					const sliceReceipt = receipt as CommittedSliceReceipt;
-					lastSeq = sliceReceipt.seq;
-					const steps = await loadChangeSetSteps(sliceReceipt.changeSetId);
-					deps.logCommittedStages(sliceReceipt, committedStageEnvelopes(steps));
-					args.writer.write({
-						type: "data-build-slice-committed",
-						data: progressEnvelope(args.designSessionId, head, {
-							sliceId: slice.id,
-							sliceName: slice.name,
-							seq: sliceReceipt.seq,
-						}),
-						transient: true,
+							changeSetId,
+							attempt: attempt.attempt,
+						},
+						expectedHead: head,
 					});
 				}
-				continue;
-			}
-			if (outcome.kind === "design-issue") {
+
+				const outcome = await executeOneSlice(args, deps, {
+					attempt,
+					changeSetId,
+					brief,
+					slice,
+					isGenesis,
+					appId,
+					budget,
+				});
+				heartbeat();
+				if (outcome.kind === "committed") {
+					const receipt = outcome.receipt;
+					if (isGenesis) {
+						const materialization = receipt as AppMaterializationReceipt;
+						appId = materialization.appId;
+						lastSeq = 1;
+						/* Genesis is a canonical slice commit too. Project it through
+						 * the same progress vocabulary as every later slice before the
+						 * strict activation receipt transfers the UI to app scope. */
+						args.writer.write({
+							type: "data-build-slice-committed",
+							data: progressEnvelope(args.designSessionId, head, {
+								sliceId: slice.id,
+								sliceName: slice.name,
+								seq: 1,
+							}),
+							transient: true,
+						});
+						args.writer.write({
+							type: "data-app-materialized",
+							data: materialization,
+							transient: true,
+						});
+					} else {
+						const sliceReceipt = receipt as CommittedSliceReceipt;
+						lastSeq = sliceReceipt.seq;
+						const steps = await loadChangeSetSteps(sliceReceipt.changeSetId);
+						deps.logCommittedStages(
+							sliceReceipt,
+							committedStageEnvelopes(steps),
+						);
+						args.writer.write({
+							type: "data-build-slice-committed",
+							data: progressEnvelope(args.designSessionId, head, {
+								sliceId: slice.id,
+								sliceName: slice.name,
+								seq: sliceReceipt.seq,
+							}),
+							transient: true,
+						});
+					}
+					break;
+				}
+				if (outcome.kind === "rebase-conflict") {
+					await supersedeSliceAttempt({
+						designSessionId: args.designSessionId,
+						attemptId: attempt.id,
+						failureCode: "rebase-conflict",
+						actorUserId: args.actorUserId,
+						runId: args.runId,
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+					});
+					rebaseAttempts += 1;
+					if (rebaseAttempts <= budget.maxRebaseAttempts) continue;
+					head = await appendFailure(args, head, {
+						errorType: "rebase-budget-exhausted",
+						recoverable: true,
+					});
+					return {
+						kind: "failed",
+						appId,
+						errorType: "internal",
+						message:
+							"This workflow kept conflicting with newer app changes. Everything already committed is safe; send your message again to continue from the current app.",
+						recoverable: true,
+					};
+				}
+				if (outcome.kind === "design-issue") {
+					await markSliceAttempt({
+						designSessionId: args.designSessionId,
+						attemptId: attempt.id,
+						to: "design-issue",
+						failureCode: outcome.issue.category,
+						actorUserId: args.actorUserId,
+						runId: args.runId,
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+					});
+					if (outcome.issue.category === "missing-information") {
+						/* One decision, one question: the explanation is what needs
+						 * answering and the proposed options are its choices. */
+						return await pauseOnQuestions(args, head, revision, appId, [
+							{
+								id: outcome.issue.id as string,
+								question: outcome.issue.explanation,
+								options: outcome.issue.proposedOptions,
+							},
+						]);
+					}
+					head = await appendFailure(args, head, {
+						errorType: `design-issue-${outcome.issue.category}`,
+						recoverable: true,
+					});
+					return {
+						kind: "failed",
+						appId,
+						errorType: "internal",
+						message: `Building ${slice.name} surfaced a design gap (${outcome.issue.category}): ${outcome.issue.explanation} Nothing invalid was saved; adjust the request and try again.`,
+						recoverable: true,
+					};
+				}
+				/* budget-exhausted / protocol-failure */
 				await markSliceAttempt({
 					designSessionId: args.designSessionId,
 					attemptId: attempt.id,
-					to: "design-issue",
-					failureCode: outcome.issue.category,
+					to: "failed",
+					failureCode:
+						outcome.kind === "budget-exhausted"
+							? "budget-exhausted"
+							: outcome.code,
 					actorUserId: args.actorUserId,
 					runId: args.runId,
 					holderNonce: args.holderNonce,
 					expectedProjectId: args.projectId,
 				});
-				if (outcome.issue.category === "missing-information") {
-					/* One decision, one question: the explanation is what needs
-					 * answering and the proposed options are its choices. */
-					return await pauseOnQuestions(args, head, revision, appId, [
-						{
-							id: outcome.issue.id as string,
-							question: outcome.issue.explanation,
-							options: outcome.issue.proposedOptions,
-						},
-					]);
-				}
 				head = await appendFailure(args, head, {
-					errorType: `design-issue-${outcome.issue.category}`,
+					errorType:
+						outcome.kind === "budget-exhausted"
+							? "execution-budget-exhausted"
+							: outcome.code,
 					recoverable: true,
 				});
 				return {
 					kind: "failed",
 					appId,
 					errorType: "internal",
-					message: `Building ${slice.name} surfaced a design gap (${outcome.issue.category}): ${outcome.issue.explanation} Nothing invalid was saved; adjust the request and try again.`,
+					message:
+						outcome.kind === "budget-exhausted"
+							? `Building ${slice.name} ran past its execution budget. Everything already committed is safe; send your message again to continue from there.`
+							: outcome.message,
 					recoverable: true,
 				};
 			}
-			/* budget-exhausted / protocol-failure */
-			await markSliceAttempt({
-				designSessionId: args.designSessionId,
-				attemptId: attempt.id,
-				to: "failed",
-				failureCode:
-					outcome.kind === "budget-exhausted"
-						? "budget-exhausted"
-						: outcome.code,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				expectedProjectId: args.projectId,
-			});
-			head = await appendFailure(args, head, {
-				errorType:
-					outcome.kind === "budget-exhausted"
-						? "execution-budget-exhausted"
-						: outcome.code,
-				recoverable: true,
-			});
-			return {
-				kind: "failed",
-				appId,
-				errorType: "internal",
-				message:
-					outcome.kind === "budget-exhausted"
-						? `Building ${slice.name} ran past its execution budget. Everything already committed is safe; send your message again to continue from there.`
-						: outcome.message,
-				recoverable: true,
-			};
 		}
 
 		/* ── Finished ───────────────────────────────────────────────── */

@@ -20,6 +20,7 @@ import {
 	countDesignIssueAttempts,
 	loadRunningSliceAttempt,
 	markSliceAttempt,
+	supersedeSliceAttempt,
 } from "../sliceAttempts";
 
 const h = setupAppStateTestDb("orchestrator_state_");
@@ -312,33 +313,40 @@ describe("slice attempts", () => {
 		};
 	}
 
-	it("opens and binds a change set under the exact holder in one transaction", async () => {
-		const sessionId = await seedHeldSession();
-		const args = await attemptArgs(sessionId);
-		const { attempt } = await beginOrRecoverSliceAttempt(args);
+	async function openGenesisForAttempt(
+		args: Awaited<ReturnType<typeof attemptArgs>>,
+		attemptId: string,
+	) {
 		if (args.baseTarget.kind !== "empty-genesis") {
 			throw new Error("fixture is not genesis");
 		}
-		const changeSet = await beginGenesisChangeSet({
+		return beginGenesisChangeSet({
 			proposedAppId: args.baseTarget.proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: args.baseTarget.digest,
 			lineage: {
-				designSessionId: sessionId,
+				designSessionId: args.designSessionId,
 				designRevisionId: args.designRevisionId,
 				designRevisionDigest: args.designRevisionDigest,
 				buildPlanId: args.buildPlanId,
 				buildPlanDigest: args.buildPlanDigest,
 				sliceId: asDesignId(args.sliceId),
-				attemptId: attempt.id,
+				attemptId,
 			},
-			ownerUserId: ACTOR,
-			ownerRunId: RUN,
+			ownerUserId: args.actorUserId,
+			ownerRunId: args.runId,
 			attemptAuthority: {
-				holderNonce: NONCE,
+				holderNonce: args.holderNonce,
 				expectedProjectId: PROJECT,
 			},
 		});
+	}
+
+	it("opens and binds a change set under the exact holder in one transaction", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		const changeSet = await openGenesisForAttempt(args, attempt.id);
 		expect(
 			await h
 				.db()
@@ -358,6 +366,7 @@ describe("slice attempts", () => {
 		expect(first.recovered).toBe(false);
 		expect(first.attempt.attempt).toBe(1);
 		expect(first.attempt.status).toBe("running");
+		const firstChangeSet = await openGenesisForAttempt(args, first.attempt.id);
 
 		const recovered = await beginOrRecoverSliceAttempt(args);
 		expect(recovered.recovered).toBe(true);
@@ -379,6 +388,90 @@ describe("slice attempts", () => {
 			.execute();
 		expect(rows.map((row) => row.status)).toEqual(["superseded", "running"]);
 		expect(rows[0]?.failure_code).toBe("artifact-superseded");
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", firstChangeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded" });
+	});
+
+	it("supersedes a recovered change set owned by a prior run", async () => {
+		const sessionId = await seedHeldSession();
+		const oldArgs = await attemptArgs(sessionId);
+		const first = await beginOrRecoverSliceAttempt(oldArgs);
+		const firstChangeSet = await openGenesisForAttempt(
+			oldArgs,
+			first.attempt.id,
+		);
+		const nextRunId = "run-orch-next";
+		const nextNonce = "7b0b35b4-1111-4222-8333-944445555666";
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({
+				run_id: nextRunId,
+				res_run_id: nextRunId,
+				run_holder_nonce: nextNonce,
+				run_lease_expires_at: new Date(Date.now() + 60_000),
+			})
+			.where("id", "=", sessionId)
+			.execute();
+
+		const next = await beginOrRecoverSliceAttempt({
+			...oldArgs,
+			runId: nextRunId,
+			holderNonce: nextNonce,
+		});
+		expect(next.recovered).toBe(false);
+		expect(next.attempt.attempt).toBe(2);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", first.attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded", failure_code: "holder-superseded" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", firstChangeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded" });
+	});
+
+	it("supersedes the attempt and private set before a semantic rebase retry", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const first = await beginOrRecoverSliceAttempt(args);
+		const firstChangeSet = await openGenesisForAttempt(args, first.attempt.id);
+		await supersedeSliceAttempt({
+			...args,
+			attemptId: first.attempt.id,
+			failureCode: "rebase-conflict",
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", first.attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded", failure_code: "rebase-conflict" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", firstChangeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded" });
+		expect((await beginOrRecoverSliceAttempt(args)).attempt.attempt).toBe(2);
 	});
 
 	it("terminal marks are running-only compare-and-sets", async () => {

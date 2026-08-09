@@ -2143,7 +2143,7 @@ export async function reapStaleGenerating(
 ): Promise<void> {
 	try {
 		if (expectedIdentity.mode !== "build") return;
-		await refundStaleGeneration(appId, expectedIdentity);
+		await reapStaleRun(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleGenerating] stale-build reap failed", err, { appId });
 	}
@@ -2162,7 +2162,7 @@ export async function reapStaleReservation(
 ): Promise<void> {
 	try {
 		if (expectedIdentity.mode !== "edit") return;
-		await refundStaleReservation(appId, expectedIdentity);
+		await reapStaleRun(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {
 			appId,
@@ -2171,17 +2171,29 @@ export async function reapStaleReservation(
 }
 
 /**
- * Result-bearing canonical reaper used by the Project-move orchestrator. Unlike
- * the scan-side wrappers above, storage failures propagate and a stale identity
- * returns `state_changed`; neither can be mistaken for a successful release.
+ * Result-bearing canonical reaper for callers that must prove convergence.
+ * Storage failures propagate and a stale identity returns `state_changed`, so
+ * neither can be mistaken for a successful release. The credit writers lock
+ * the authority row and re-prove the exact holder plus staleness themselves.
  */
-export async function normalizeReapableRunForProjectMove(
+export async function reapStaleRun(
 	appId: string,
 	expectedIdentity: ExactRunHolderIdentity,
 ): Promise<StaleRunReapOutcome> {
 	return expectedIdentity.mode === "build"
 		? refundStaleGeneration(appId, expectedIdentity)
 		: refundStaleReservation(appId, expectedIdentity);
+}
+
+/**
+ * Project-move spelling retained at that boundary; it delegates to the one
+ * result-bearing exact-holder reaper above.
+ */
+export async function normalizeReapableRunForProjectMove(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<StaleRunReapOutcome> {
+	return reapStaleRun(appId, expectedIdentity);
 }
 
 // ── Soft delete / restore ───────────────────────────────────────────

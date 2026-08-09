@@ -20,15 +20,20 @@ vi.mock("@/components/ui/AppCard", () => ({
 	AppCard: ({
 		app,
 		onDelete,
+		href,
 	}: ComponentProps<"button"> & {
 		app: AppSummary;
 		onDelete?: unknown;
+		href?: string;
 	}) => (
-		<button
-			type="button"
-			aria-label={`Delete ${app.app_name}`}
-			hidden={!onDelete}
-		/>
+		<>
+			<div data-testid={`href-${app.id}`}>{href ?? "disabled"}</div>
+			<button
+				type="button"
+				aria-label={`Delete ${app.app_name}`}
+				hidden={!onDelete}
+			/>
+		</>
 	),
 }));
 
@@ -69,14 +74,18 @@ const DELETED_APP: DeletedAppSummary = {
 	recoverable_until: "2026-08-20T00:00:00.000Z",
 };
 
-function renderList(canDeleteApp: boolean) {
+function renderList(
+	canDeleteApp: boolean,
+	args: { active?: AppSummary[]; resumableErrorAppIds?: string[] } = {},
+) {
 	return render(
 		<AppListBody
-			active={[ACTIVE_APP]}
+			active={args.active ?? [ACTIVE_APP]}
 			deleted={[DELETED_APP]}
 			canDeleteApp={canDeleteApp}
 			canMoveApp={false}
 			moveTargets={[]}
+			resumableErrorAppIds={args.resumableErrorAppIds ?? []}
 		/>,
 	);
 }
@@ -104,5 +113,34 @@ describe("AppListBody Project capability affordances", () => {
 		expect(
 			screen.getByRole("button", { name: "Restore Deleted app" }),
 		).toBeTruthy();
+	});
+
+	it("links only error apps with server-proven recovery state", () => {
+		const resumable = {
+			...ACTIVE_APP,
+			id: "resumable-error",
+			app_name: "Resumable error",
+			status: "error" as const,
+		};
+		const terminal = {
+			...ACTIVE_APP,
+			id: "terminal-error",
+			app_name: "Terminal error",
+			status: "error" as const,
+		};
+		renderList(false, {
+			active: [ACTIVE_APP, resumable, terminal],
+			resumableErrorAppIds: [resumable.id],
+		});
+
+		expect(screen.getByTestId("href-active-app").textContent).toBe(
+			"/build/active-app",
+		);
+		expect(screen.getByTestId("href-resumable-error").textContent).toBe(
+			"/build/resumable-error",
+		);
+		expect(screen.getByTestId("href-terminal-error").textContent).toBe(
+			"disabled",
+		);
 	});
 });

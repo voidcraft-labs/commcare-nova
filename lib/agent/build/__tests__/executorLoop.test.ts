@@ -439,31 +439,23 @@ describe("runSliceExecutor — commit is a request", () => {
 		expect(workspace.inspectCalls).toBe(1);
 	});
 
-	it("feeds a rebase conflict back and commits on the next request", async () => {
-		const receipt = { id: "receipt-2" } as never;
+	it("returns a rebase conflict so the orchestrator can restart from a fresh base", async () => {
 		const workspace = fakeWorkspace({ inspect: async () => diagnostics() });
-		let attempt = 0;
-		const commit = async (): Promise<SliceCommitResult> => {
-			attempt += 1;
-			return attempt === 1
-				? { kind: "rebase-conflict", report: { steps: ["s1"] } }
-				: { kind: "committed", receipt };
-		};
-		const { step, seen } = scriptedStep([
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({
+				kind: "rebase-conflict",
+				report: { steps: ["s1"] },
+			}),
+		);
+		const { step } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
-			{ calls: [{ toolCallId: "b", toolName: "commitChangeSet" }] },
 		]);
 
 		expect(await run({ workspace, step, commit })).toEqual({
-			kind: "committed",
-			receipt,
+			kind: "rebase-conflict",
+			report: { steps: ["s1"] },
 		});
-		const conflict = toolResults(seen[1] ?? [])[0]?.value as {
-			error: string;
-			report: unknown;
-		};
-		expect(conflict.error).toContain("conflicted");
-		expect(conflict.report).toEqual({ steps: ["s1"] });
+		expect(commit).toHaveBeenCalledTimes(1);
 	});
 
 	it("projects bounded diagnostics for inspectChangeSet", async () => {
