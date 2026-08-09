@@ -488,13 +488,40 @@ describe("repairs", () => {
 		const rejected = await call(tools.submitContract, broken);
 		expect(String(rejected.error)).toContain("acceptanceScenarios");
 		const repaired = await call(tools.submitContract, {
-			repair: { acceptanceScenarios: original.acceptanceScenarios },
+			/* Exact strict-wire shape observed locally: nullable full-contract
+			 * slots strip away, but the model can preserve the fixed v1 marker
+			 * both outside and inside the repair envelope. */
+			schemaVersion: 1,
+			id: null,
+			facts: null,
+			repair: {
+				schemaVersion: 1,
+				acceptanceScenarios: original.acceptanceScenarios,
+			},
 		});
 		expect(repaired).toMatchObject({ ok: true });
 		expect(repair.fatalError()).toBeUndefined();
 
 		const persisted = await readLatestDesignRevision(sessionId);
 		expect(persisted?.envelope.payload).toEqual(original);
+	});
+
+	it("still rejects an authored full-contract field beside a repair", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools } = mountTools({ pkg });
+		const original = makeContract();
+		const broken = cloneContract(original);
+		broken.acceptanceScenarios = [];
+		await call(tools.submitContract, broken);
+
+		const mixed = await call(tools.submitContract, {
+			title: "A second full submission",
+			repair: { acceptanceScenarios: original.acceptanceScenarios },
+		});
+		expect(String(mixed.error)).toContain(
+			"either a complete contract or one repair object",
+		);
 	});
 
 	it("returns refinement messages and latches the budget after two rejections", async () => {

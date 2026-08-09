@@ -114,7 +114,10 @@ direct MCP edit.
   bounded at two consecutive per kind. The immediately preceding rejected
   contract/revision stays only in that live loop; a retry may replace named
   top-level contract sections (or the revision's complete disposition set),
-  after which the full graph and cross-artifact proofs run again. A second
+  after which the full graph and cross-artifact proofs run again. On a contract
+  repair the strict wire's fixed `schemaVersion: 1` sibling is envelope
+  scaffolding, not a second authored form; every other full-contract sibling
+  remains an illegal mixed submission. A second
   review is evidence-based: unresolved critical risk, at least two critical
   first-pass findings, or critical feedback that changed architecture; depth
   alone is not a trigger. `claimSeeding.ts` derives

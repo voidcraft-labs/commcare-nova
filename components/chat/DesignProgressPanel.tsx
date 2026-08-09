@@ -85,7 +85,7 @@ function StageLine({ view }: { readonly view: DesignProgressView }) {
 			role="status"
 			aria-live="polite"
 			aria-atomic="true"
-			className="flex items-start gap-2"
+			className="flex min-h-10 shrink-0 items-start gap-2 px-4 py-2"
 		>
 			{view.working ? (
 				<Spinner

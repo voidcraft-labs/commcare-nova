@@ -146,6 +146,20 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 		: null;
 }
 
+/** A contract repair is one closed envelope. The strict wire makes every
+ * optional property explicit, and the model may preserve the contract's
+ * fixed v1 marker instead of emitting null for that slot. Treat that marker
+ * as wire scaffolding while still rejecting any authored full-contract field
+ * beside `repair`. */
+function contractRepairHasAuthoredFullFields(
+	raw: Readonly<Record<string, unknown>>,
+): boolean {
+	return Object.entries(raw).some(
+		([key, value]) =>
+			key !== "repair" && !(key === "schemaVersion" && value === 1),
+	);
+}
+
 async function gatesFor(deps: DesignLoopToolDeps): Promise<DesignGateState> {
 	return evaluateDesignGates(await deps.loadAncestry());
 }
@@ -178,7 +192,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const raw = recordValue(stripped);
 			let candidate: unknown = stripped;
 			if (raw && "repair" in raw) {
-				if (Object.keys(raw).some((key) => key !== "repair")) {
+				if (contractRepairHasAuthoredFullFields(raw)) {
 					deps.repair.noteSchemaRejection("submitContract");
 					return {
 						error:

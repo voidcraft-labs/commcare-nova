@@ -202,7 +202,9 @@ export function AskQuestionsCard({
 				{isWaiting && (
 					<div className="px-3.5 py-2 border-t border-nova-violet/10">
 						<span className="text-xs text-nova-text-muted">
-							or type your answer below
+							{(questions[currentIndex]?.options.length ?? 0) > 0
+								? "or type your answer below"
+								: "Type your answer below"}
 						</span>
 					</div>
 				)}

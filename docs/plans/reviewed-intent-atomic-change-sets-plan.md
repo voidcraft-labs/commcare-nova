@@ -815,7 +815,10 @@ The tool surface:
   carry a top-level repair that replaces only the invalid or dependent
   sections; the server merges it over that rejected candidate and reruns
   the complete schema and graph proof before anything persists. The repair
-  remains bounded at two consecutive rejections per submission kind.
+  remains bounded at two consecutive rejections per submission kind. The
+  strict wire's fixed `schemaVersion: 1` marker may accompany that repair as
+  envelope scaffolding; any authored full-contract field beside the repair
+  is still a mixed submission and is rejected.
 - `requestReview`: the server runs the independent reviewer (§7.1 below)
   over the draft's OWN package, re-rendered from its persisted reference
   row when the digest has moved (`loop/packageRebuild.ts`) and refused
