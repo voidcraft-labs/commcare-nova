@@ -73,6 +73,12 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 	const tools = createDesignLoopTools({
 		designSessionId: pkg.designSessionId,
 		runId: "run-1",
+		authority: {
+			actorUserId: "u",
+			runId: "run-1",
+			holderNonce: "00000000-0000-4000-8000-000000000003",
+			expectedProjectId: "p",
+		},
 		currentPkg: pkg,
 		catalogText: "CATALOG",
 		ctx: {

@@ -788,6 +788,8 @@ export interface StageChangeSetRequestArgs {
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly chatRunHolder?: ChatRunHolderCapability;
+	/** Absolute executor deadline. The stage transaction cannot commit past it. */
+	readonly deadlineAt?: number;
 	readonly outcome: StageRequestOutcome;
 }
 
@@ -852,7 +854,12 @@ export async function stageChangeSetRequest(
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
 	}
 	try {
-		return await withAppTx(async (tx) => stageInTransaction(tx, args, preRead));
+		return await withAppTx(
+			async (tx) => stageInTransaction(tx, args, preRead),
+			args.deadlineAt === undefined
+				? undefined
+				: { deadlineAt: args.deadlineAt },
+		);
 	} catch (err) {
 		if (!isUniqueViolation(err)) throw err;
 		/* A concurrent identical request raced past the in-transaction ledger

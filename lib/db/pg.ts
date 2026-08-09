@@ -706,6 +706,19 @@ export interface DesignSliceAttemptsTable {
 	updated_at: Timestamp;
 }
 
+export interface DesignExternalActionReceiptsTable {
+	id: string;
+	design_session_id: string;
+	build_plan_id: string;
+	external_action_id: string;
+	project_id: string;
+	app_id: string | null;
+	action_digest: string;
+	outcome: string;
+	evidence: JSONColumnType<Record<string, unknown>>;
+	completed_at: Timestamp;
+}
+
 /**
  * One persisted design source package — references, normalized claims, and
  * the canonical digest over the exact projection the models consumed
@@ -954,6 +967,7 @@ export interface AppDatabase {
 	design_sessions: DesignSessionsTable;
 	design_orchestration_events: DesignOrchestrationEventsTable;
 	design_slice_attempts: DesignSliceAttemptsTable;
+	design_external_action_receipts: DesignExternalActionReceiptsTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }
 
@@ -1025,16 +1039,36 @@ const TX_RETRY_DELAYS_MS = [50, 150, 400];
  */
 export async function withAppTx<T>(
 	body: (tx: Transaction<AppDatabase>) => Promise<T>,
-	options?: { readonly isolationLevel?: IsolationLevel },
+	options?: {
+		readonly isolationLevel?: IsolationLevel;
+		/** Absolute wall-clock deadline for this transaction. PostgreSQL 18's
+		 * transaction timeout is the rollback authority; retry attempts consume
+		 * the same deadline rather than receiving a fresh budget. */
+		readonly deadlineAt?: number;
+	},
 ): Promise<T> {
 	const db = await getAppDb();
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const transaction = db.transaction();
+			const executeBody = async (tx: Transaction<AppDatabase>): Promise<T> => {
+				if (options?.deadlineAt !== undefined) {
+					const remainingMs = Math.floor(options.deadlineAt - Date.now());
+					if (remainingMs <= 0) {
+						throw new Error(
+							"The transaction deadline expired before it began.",
+						);
+					}
+					await sql`SELECT set_config('transaction_timeout', ${`${remainingMs}ms`}, true)`.execute(
+						tx,
+					);
+				}
+				return body(tx);
+			};
 			return await (options?.isolationLevel === undefined
 				? transaction
 				: transaction.setIsolationLevel(options.isolationLevel)
-			).execute(body);
+			).execute(executeBody);
 		} catch (err) {
 			if (attempt === TX_RETRY_DELAYS_MS.length || !isRetryableTxError(err)) {
 				throw err;

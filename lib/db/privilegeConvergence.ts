@@ -148,6 +148,7 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"design_change_sets",
 	"design_sessions",
 	"design_slice_attempts",
+	"design_external_action_receipts",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;

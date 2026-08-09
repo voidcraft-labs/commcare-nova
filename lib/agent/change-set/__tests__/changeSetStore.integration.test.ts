@@ -184,6 +184,20 @@ describe("beginChangeSet", () => {
 });
 
 describe("stage request idempotency", () => {
+	it("cannot persist a staging side effect after its absolute deadline", async () => {
+		const appId = await createTestApp();
+		const changeSet = await openAppEditSet(appId);
+
+		await expect(
+			stageChangeSetRequest(
+				stageArgs(changeSet.id, { deadlineAt: Date.now() - 1 }),
+			),
+		).rejects.toThrow("transaction deadline expired");
+		expect(await lookupStageRequest(changeSet.id, "req-1")).toBeUndefined();
+		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(0);
+		expect((await loadChangeSet(changeSet.id))?.revision).toBe(0);
+	});
+
 	it("stages once, then replays the identical receipt for the same request", async () => {
 		const appId = await createTestApp();
 		const changeSet = await openAppEditSet(appId);

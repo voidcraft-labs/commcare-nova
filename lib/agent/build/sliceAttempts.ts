@@ -291,3 +291,21 @@ export async function loadRunningSliceAttempt(
 		.executeTakeFirst();
 	return row === undefined ? null : rowToAttempt(row as AttemptRow);
 }
+
+/** Persisted across-attempt escalation count for one exact planned slice. */
+export async function countDesignIssueAttempts(args: {
+	readonly designSessionId: string;
+	readonly buildPlanId: string;
+	readonly sliceId: string;
+}): Promise<number> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_slice_attempts")
+		.select((eb) => eb.fn.countAll<string>().as("count"))
+		.where("design_session_id", "=", args.designSessionId)
+		.where("build_plan_id", "=", args.buildPlanId)
+		.where("slice_id", "=", args.sliceId)
+		.where("status", "=", "design-issue")
+		.executeTakeFirst();
+	return Number(row?.count ?? 0);
+}

@@ -38,7 +38,6 @@ import {
 	prepareGenesisCandidate,
 	writePreparedGenesisInTransaction,
 } from "@/lib/db/appGenesis";
-import type { IntentProvenanceRow } from "@/lib/db/canonicalCommitSidecars";
 import { executeCanonicalCommitSidecars } from "@/lib/db/canonicalCommitSidecars";
 import { type LockedSessionRow, lockSessionRow } from "@/lib/db/designSessions";
 import { designSessionReservation } from "@/lib/db/leaseView";
@@ -61,6 +60,10 @@ import {
 	loadCanonicalBlueprintAtSequence,
 } from "./baseLoader";
 import { ChangeSetIntegrityError, ChangeSetScopeLostError } from "./errors";
+import {
+	type ProvenIntentCoverage,
+	proveIntentCoverage,
+} from "./intentCoverage";
 import type { ReadSetStatus } from "./readSets";
 import { evaluateReadSetCurrency, normalizeReadSet } from "./readSets";
 import { loadChangeSet, loadChangeSetSteps, lockChangeSetRow } from "./store";
@@ -95,7 +98,8 @@ export interface MaterializeGenesisArgs {
 	readonly expectedProjectId: string;
 	readonly expectedRevision: number;
 	readonly owningIntentIds: readonly DesignId[];
-	readonly intentProvenance?: readonly IntentProvenanceRow[];
+	/** Absolute executor wall-clock deadline; direct callers omit it. */
+	readonly deadlineAt?: number;
 }
 
 /**
@@ -107,6 +111,7 @@ export interface MaterializeGenesisArgs {
 export async function materializeAppFromGenesis(
 	args: MaterializeGenesisArgs,
 ): Promise<MaterializeGenesisOutcome> {
+	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
 	const preRead = await loadChangeSet(args.changeSetId);
 	if (preRead === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
@@ -130,6 +135,7 @@ export async function materializeAppFromGenesis(
 	 * authority; a race between this read and the transaction surfaces as a
 	 * gate rejection there. */
 	const steps = await loadChangeSetSteps(args.changeSetId);
+	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
 	if (steps.length === 0) {
 		return {
 			kind: "gate-rejected",
@@ -137,11 +143,26 @@ export async function materializeAppFromGenesis(
 				"This change set has no staged steps, so there is nothing to materialize.",
 		};
 	}
+	let intentCoverage: ProvenIntentCoverage;
+	try {
+		intentCoverage = proveIntentCoverage({
+			changeSet: preRead,
+			steps,
+			expectedOwningIntentIds: args.owningIntentIds,
+			appId: proposedAppId,
+		});
+	} catch (error) {
+		return {
+			kind: "gate-rejected",
+			message: error instanceof Error ? error.message : String(error),
+		};
+	}
 	const readSet = normalizeReadSet(steps.flatMap((step) => step.readSet));
 	const readSetStatus = await evaluateReadSetCurrency({
 		appId: null,
 		dependencies: readSet,
 	});
+	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
 	const stale = readSetStatus.filter((status) => status.state !== "current");
 	if (stale.length > 0) {
 		return { kind: "read-set-stale", stale };
@@ -157,184 +178,184 @@ export async function materializeAppFromGenesis(
 	};
 
 	try {
-		const receipt = await withAppTx(async (tx) => {
-			await lockActorGenerationGate(tx, args.actorUserId);
-			const session = await lockSessionRow(tx, preRead.designSessionId);
-			if (session === undefined) {
-				throw new ChangeSetScopeLostError(
-					"This design session no longer exists.",
-				);
-			}
-			verifySessionForTransfer(session, args, holder, proposedAppId);
+		const receipt = await withAppTx(
+			async (tx) => {
+				await lockActorGenerationGate(tx, args.actorUserId);
+				const session = await lockSessionRow(tx, preRead.designSessionId);
+				if (session === undefined) {
+					throw new ChangeSetScopeLostError(
+						"This design session no longer exists.",
+					);
+				}
+				verifySessionForTransfer(session, args, holder, proposedAppId);
 
-			const changeSet = await lockChangeSetRow(tx, args.changeSetId);
-			if (changeSet === undefined) {
-				throw new ChangeSetScopeLostError("This change set no longer exists.");
-			}
-			verifyOpenGenesisSet(changeSet, preRead, args);
+				const changeSet = await lockChangeSetRow(tx, args.changeSetId);
+				if (changeSet === undefined) {
+					throw new ChangeSetScopeLostError(
+						"This change set no longer exists.",
+					);
+				}
+				verifyOpenGenesisSet(changeSet, preRead, args);
 
-			/* Rehydrate the candidate under the locks: the canonical empty base
-			 * (digest-proved against what the opener recorded) plus every
-			 * admitted step in ordinal order, concatenated into ONE batch
-			 * through the byte-faithful envelope round trip. */
-			const lockedSteps = await loadChangeSetSteps(args.changeSetId, tx);
-			if (lockedSteps.length !== changeSet.nextOrdinal) {
-				throw new ChangeSetIntegrityError(
-					`Change set ${args.changeSetId} records ${changeSet.nextOrdinal} step(s) but ${lockedSteps.length} are stored.`,
+				/* Rehydrate the candidate under the locks: the canonical empty base
+				 * (digest-proved against what the opener recorded) plus every
+				 * admitted step in ordinal order, concatenated into ONE batch
+				 * through the byte-faithful envelope round trip. */
+				const lockedSteps = await loadChangeSetSteps(args.changeSetId, tx);
+				if (lockedSteps.length !== changeSet.nextOrdinal) {
+					throw new ChangeSetIntegrityError(
+						`Change set ${args.changeSetId} records ${changeSet.nextOrdinal} step(s) but ${lockedSteps.length} are stored.`,
+					);
+				}
+				const base = emptyGenesisBase(proposedAppId);
+				if (base.digest !== changeSet.baseSnapshotDigest) {
+					throw new ChangeSetIntegrityError(
+						`Change set ${args.changeSetId} recorded base digest ${changeSet.baseSnapshotDigest}, but the canonical empty base derives ${base.digest}.`,
+					);
+				}
+				const batch = parsePersistedMutationBatchText(
+					encodeAdmittedMutationEnvelope(
+						lockedSteps.flatMap((step) => [...step.mutations]),
+					).json,
+					`change set ${args.changeSetId} concatenated genesis batch`,
 				);
-			}
-			const base = emptyGenesisBase(proposedAppId);
-			if (base.digest !== changeSet.baseSnapshotDigest) {
-				throw new ChangeSetIntegrityError(
-					`Change set ${args.changeSetId} recorded base digest ${changeSet.baseSnapshotDigest}, but the canonical empty base derives ${base.digest}.`,
-				);
-			}
-			const batch = parsePersistedMutationBatchText(
-				encodeAdmittedMutationEnvelope(
-					lockedSteps.flatMap((step) => [...step.mutations]),
-				).json,
-				`change set ${args.changeSetId} concatenated genesis batch`,
-			);
-			const candidate = prepareGenesisCandidate({
-				appId: proposedAppId,
-				projectId: changeSet.baseProjectId,
-				mutations: batch,
-			});
+				const candidate = prepareGenesisCandidate({
+					appId: proposedAppId,
+					projectId: changeSet.baseProjectId,
+					mutations: batch,
+				});
 
-			/* A value COPY for the transfer, not a liveness decision — the exact
-			 * session holder was already proved through the one lease reader in
-			 * `verifySessionForTransfer`. */
-			const sessionHold = designSessionReservation(session);
-			if (
-				sessionHold === undefined ||
-				sessionHold.settled ||
-				sessionHold.userId === undefined ||
-				sessionHold.runId === undefined
-			) {
-				throw new ChangeSetScopeLostError(
-					"This design session's run no longer carries an unsettled reservation, so its hold cannot transfer to the new app.",
-				);
-			}
+				/* A value COPY for the transfer, not a liveness decision — the exact
+				 * session holder was already proved through the one lease reader in
+				 * `verifySessionForTransfer`. */
+				const sessionHold = designSessionReservation(session);
+				if (
+					sessionHold === undefined ||
+					sessionHold.settled ||
+					sessionHold.userId === undefined ||
+					sessionHold.runId === undefined
+				) {
+					throw new ChangeSetScopeLostError(
+						"This design session's run no longer carries an unsettled reservation, so its hold cannot transfer to the new app.",
+					);
+				}
 
-			/* The shared genesis write tail: membership reauthorization, the app
-			 * row carrying the TRANSFERRED holder + reservation, the absolute
-			 * gate + export readiness under the locked lookup context, exact
-			 * media/lookup projections, entities, the fold-baseline change +
-			 * immutable baseline, and transactional case-schema admission. */
-			await writePreparedGenesisInTransaction(tx, {
-				candidate,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				status: "generating",
-				holderTransfer: {
-					runHolderNonce: args.holderNonce,
-					reservation: {
-						period: sessionHold.period,
-						reserved: sessionHold.reserved,
-						userId: sessionHold.userId,
-						runId: sessionHold.runId,
+				/* The shared genesis write tail: membership reauthorization, the app
+				 * row carrying the TRANSFERRED holder + reservation, the absolute
+				 * gate + export readiness under the locked lookup context, exact
+				 * media/lookup projections, entities, the fold-baseline change +
+				 * immutable baseline, and transactional case-schema admission. */
+				await writePreparedGenesisInTransaction(tx, {
+					candidate,
+					actorUserId: args.actorUserId,
+					runId: args.runId,
+					status: "generating",
+					holderTransfer: {
+						runHolderNonce: args.holderNonce,
+						reservation: {
+							period: sessionHold.period,
+							reserved: sessionHold.reserved,
+							userId: sessionHold.userId,
+							runId: sessionHold.runId,
+						},
 					},
-				},
-			});
+				});
 
-			/* The committed-slice receipt + `open → committed` flip + intent
-			 * provenance ride the same closed sidecar vocabulary every canonical
-			 * commit uses — one implementation, kernel-authoritative identities. */
-			const batchId = genesisBatchId(proposedAppId);
-			await executeCanonicalCommitSidecars(tx, {
-				appId: proposedAppId,
-				seq: 1,
-				batchId,
-				committedSnapshot: candidate.persistable,
-				sidecars: [
-					{
-						kind: "commit-design-change-set",
-						changeSetId: changeSet.id,
-						expectedRevision: changeSet.revision,
-						receiptId,
-						sliceAttemptId: changeSet.attemptId,
-						designSessionId: changeSet.designSessionId,
-						designRevisionId: changeSet.designRevisionId,
-						designRevisionDigest: changeSet.designRevisionDigest,
-						buildPlanId: changeSet.buildPlanId,
-						buildPlanDigest: changeSet.buildPlanDigest,
-						sliceId: changeSet.sliceId,
-						owningIntentIds: [...args.owningIntentIds],
-						mutationCount: batch.length,
-					},
-					...(args.intentProvenance !== undefined &&
-					args.intentProvenance.length > 0
-						? [
-								{
-									kind: "write-intent-provenance" as const,
-									rows: args.intentProvenance,
-								},
-							]
-						: []),
-				],
-			});
+				/* The committed-slice receipt + `open → committed` flip + intent
+				 * provenance ride the same closed sidecar vocabulary every canonical
+				 * commit uses — one implementation, kernel-authoritative identities. */
+				const batchId = genesisBatchId(proposedAppId);
+				await executeCanonicalCommitSidecars(tx, {
+					appId: proposedAppId,
+					seq: 1,
+					batchId,
+					committedSnapshot: candidate.persistable,
+					sidecars: [
+						{
+							kind: "commit-design-change-set",
+							changeSetId: changeSet.id,
+							expectedRevision: changeSet.revision,
+							receiptId,
+							sliceAttemptId: changeSet.attemptId,
+							designSessionId: changeSet.designSessionId,
+							designRevisionId: changeSet.designRevisionId,
+							designRevisionDigest: changeSet.designRevisionDigest,
+							buildPlanId: changeSet.buildPlanId,
+							buildPlanDigest: changeSet.buildPlanDigest,
+							sliceId: changeSet.sliceId,
+							owningIntentIds: [...intentCoverage.owningIntentIds],
+							mutationCount: batch.length,
+						},
+						{
+							kind: "write-intent-provenance" as const,
+							rows: intentCoverage.provenance,
+						},
+					],
+				});
 
-			/* Mark the attempt committed while its row is still `running`. */
-			await tx
-				.updateTable("design_slice_attempts")
-				.set({
-					status: "committed",
-					change_set_id: changeSet.id,
-					updated_at: new Date(),
-				})
-				.where("id", "=", changeSet.attemptId)
-				.where("status", "=", "running")
-				.execute();
+				/* The holder transfer's session half: ONE atomic update — the table
+				 * CHECKs force `materialized` to carry the bound app and a complete
+				 * authority clear, so a partial transfer is unrepresentable. The
+				 * exact-holder predicate is belt over the held lock. */
+				const transfer = await tx
+					.updateTable("design_sessions")
+					.set({
+						...designSessionAuthorityCleared(),
+						state: "materialized",
+						app_id: proposedAppId,
+						last_error_type: null,
+						updated_at: new Date(),
+					})
+					.where("id", "=", session.id)
+					.where(expectedDesignSessionHolderPredicate(holder))
+					.executeTakeFirst();
+				if (!updatedExactlyOne(transfer)) {
+					throw new ChangeSetScopeLostError(
+						"This design session's holder changed underneath its own locked materialization.",
+					);
+				}
 
-			/* The holder transfer's session half: ONE atomic update — the table
-			 * CHECKs force `materialized` to carry the bound app and a complete
-			 * authority clear, so a partial transfer is unrepresentable. The
-			 * exact-holder predicate is belt over the held lock. */
-			const transfer = await tx
-				.updateTable("design_sessions")
-				.set({
-					...designSessionAuthorityCleared(),
-					state: "materialized",
-					app_id: proposedAppId,
-					last_error_type: null,
-					updated_at: new Date(),
-				})
-				.where("id", "=", session.id)
-				.where(expectedDesignSessionHolderPredicate(holder))
-				.executeTakeFirst();
-			if (!updatedExactlyOne(transfer)) {
-				throw new ChangeSetScopeLostError(
-					"This design session's holder changed underneath its own locked materialization.",
+				const role = await projectRoleForInTransaction(
+					tx,
+					args.actorUserId,
+					changeSet.baseProjectId,
 				);
-			}
-
-			const role = await projectRoleForInTransaction(
-				tx,
-				args.actorUserId,
-				changeSet.baseProjectId,
-			);
-			return buildReceipt({
-				designSessionId: changeSet.designSessionId,
-				appId: proposedAppId,
-				projectId: changeSet.baseProjectId,
-				role: role ?? "viewer",
-				batchId,
-				changeSetId: changeSet.id,
-				snapshotDigest: candidate.candidateDigest,
-				blueprint: candidate.persistable,
-			});
-		});
+				if (role === null) {
+					throw new ChangeSetScopeLostError(
+						"This materialized app is no longer available in your Project scope.",
+					);
+				}
+				return buildReceipt({
+					designSessionId: changeSet.designSessionId,
+					appId: proposedAppId,
+					projectId: changeSet.baseProjectId,
+					role,
+					batchId,
+					changeSetId: changeSet.id,
+					snapshotDigest: candidate.candidateDigest,
+					blueprint: candidate.persistable,
+				});
+			},
+			args.deadlineAt === undefined
+				? undefined
+				: { deadlineAt: args.deadlineAt },
+		);
 
 		/* Post-commit: converge the performance indexes the schema admission
 		 * recorded as durable pending work. Idempotent; a transient failure
 		 * leaves the work durable for the next drain/heal — never a partial
 		 * app, never a validity signal. */
-		await drainPendingCaseSchemaIndexes(proposedAppId).catch((err) => {
-			log.warn("[materializeGenesis] pending index drain failed (transient)", {
-				appId: proposedAppId,
-				err: err instanceof Error ? err.message : String(err),
+		if (args.deadlineAt === undefined) {
+			await drainPendingCaseSchemaIndexes(proposedAppId).catch((err) => {
+				log.warn(
+					"[materializeGenesis] pending index drain failed (transient)",
+					{
+						appId: proposedAppId,
+						err: err instanceof Error ? err.message : String(err),
+					},
+				);
 			});
-		});
+		}
 
 		return { kind: "materialized", receipt, replayed: false };
 	} catch (error) {
@@ -350,6 +371,17 @@ export async function materializeAppFromGenesis(
 		}
 		throw error;
 	}
+}
+
+function deadlineExpired(deadlineAt: number | undefined): boolean {
+	return deadlineAt !== undefined && Date.now() >= deadlineAt;
+}
+
+function deadlineRejection(): MaterializeGenesisOutcome {
+	return {
+		kind: "gate-rejected",
+		message: "The slice execution deadline expired before materialization.",
+	};
 }
 
 /** The lost-response replay arm: a session already `materialized` onto this
@@ -384,6 +416,11 @@ async function replayIfMaterialized(
 	const role = await withAppTx((tx) =>
 		projectRoleForInTransaction(tx, args.actorUserId, folded.projectId),
 	);
+	if (role === null) {
+		throw new ChangeSetScopeLostError(
+			"This materialized app is no longer available in your Project scope.",
+		);
+	}
 	return {
 		kind: "materialized",
 		replayed: true,
@@ -391,7 +428,7 @@ async function replayIfMaterialized(
 			designSessionId: changeSet.designSessionId,
 			appId: stored.app_id,
 			projectId: folded.projectId,
-			role: role ?? "viewer",
+			role,
 			batchId: stored.batch_id,
 			changeSetId: changeSet.id,
 			snapshotDigest: stored.committed_snapshot_digest,

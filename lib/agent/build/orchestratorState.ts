@@ -20,8 +20,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
-import { getAppDb } from "@/lib/db/pg";
+import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
@@ -152,6 +153,8 @@ export async function appendOrchestrationEvent(args: {
 	readonly designSessionId: string;
 	readonly runId: string;
 	readonly holderNonce: string;
+	readonly actorUserId: string;
+	readonly expectedProjectId: string;
 	readonly state: BuildOrchestratorState;
 	readonly expectedHead: OrchestrationHead | null;
 }): Promise<OrchestrationHead> {
@@ -160,7 +163,6 @@ export async function appendOrchestrationEvent(args: {
 	 * than becoming a poisoned event that bricks every later read of this
 	 * session's chain (the head fold, the resume page, the designs list). */
 	const state = buildOrchestratorStateSchema.parse(args.state);
-	const db = await getAppDb();
 	const revision = (args.expectedHead?.revision ?? 0) + 1;
 	const eventId = crypto.randomUUID();
 	const digest = orchestrationEventDigest({
@@ -171,20 +173,32 @@ export async function appendOrchestrationEvent(args: {
 		state,
 	});
 	try {
-		await db
-			.insertInto("design_orchestration_events")
-			.values({
-				design_session_id: args.designSessionId,
-				revision,
-				event_id: eventId,
-				predecessor_event_id: args.expectedHead?.eventId ?? null,
-				predecessor_digest: args.expectedHead?.digest ?? null,
-				run_id: args.runId,
-				holder_nonce_digest: holderNonceDigest(args.holderNonce),
-				kind: state.kind,
-				payload: JSON.stringify(state),
-			})
-			.execute();
+		await withAppTx(async (tx) => {
+			await assertDesignSessionRunAuthorityInTransaction(tx, {
+				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.expectedProjectId,
+				holder: {
+					mode: "build",
+					runId: args.runId,
+					nonce: args.holderNonce,
+				},
+			});
+			await tx
+				.insertInto("design_orchestration_events")
+				.values({
+					design_session_id: args.designSessionId,
+					revision,
+					event_id: eventId,
+					predecessor_event_id: args.expectedHead?.eventId ?? null,
+					predecessor_digest: args.expectedHead?.digest ?? null,
+					run_id: args.runId,
+					holder_nonce_digest: holderNonceDigest(args.holderNonce),
+					kind: state.kind,
+					payload: JSON.stringify(state),
+				})
+				.execute();
+		});
 	} catch (err) {
 		if ((err as { code?: unknown })?.code === "23505") {
 			throw new OrchestrationForkError();

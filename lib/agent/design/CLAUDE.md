@@ -66,6 +66,12 @@ direct MCP edit.
   `lib/case-store/migrations/20260808000000_design_artifacts.ts`
   (`design_session_id` bound to `design_sessions(id)` by the
   design-session unit's migration).
+  Every insert first locks the session's live authority carrier (the session
+  before genesis, its delegated app afterwards), proves the exact build
+  `(runId, holderNonce)` and fresh Project edit membership in that transaction,
+  then verifies artifact ancestry before inserting. Selecting the active
+  revision/plan uses the same authority proof and accepts only an accepted
+  revision plus a same-session plan that targets it.
 - `sourcePackage.ts` (+ `sourcePackageDeps.ts`, the production resource
   seams split out so the pure builder never drags the office-parser import
   graph into a consumer) — the one boundary turning a caller-authorized

@@ -16,7 +16,14 @@ import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import type {
+	Automation,
+	BlueprintDoc,
+	Field,
+	Form,
+	Module,
+	Uuid,
+} from "@/lib/domain";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
 import { commitDesignChangeSet } from "../commit";
@@ -115,6 +122,12 @@ async function openWorkspace(appId: string) {
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
 	});
+	await h
+		.db()
+		.updateTable("design_slice_attempts")
+		.set({ change_set_id: changeSet.id })
+		.where("id", "=", changeSet.attemptId)
+		.execute();
 	const workspace = await ChangeSetMutationWorkspace.open(host, changeSet.id);
 	return { changeSet, workspace };
 }
@@ -536,6 +549,41 @@ describe("private staging isolation", () => {
 });
 
 describe("genesis staging", () => {
+	it("stages automation writes against the honest revision-zero place snapshot", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const proposedAppId = crypto.randomUUID();
+		const changeSet = await beginGenesisChangeSet({
+			proposedAppId,
+			projectId: PROJECT,
+			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
+			lineage: await lineage(),
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		const workspace = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const automation: Automation = {
+			uuid: asUuid(crypto.randomUUID()),
+			kind: "case-update",
+			name: "Close stale visits",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [],
+			closeCase: true,
+		};
+		const staged = await workspace.stageDispatch({
+			toolName: "addAutomations",
+			requestId: "genesis-automation",
+			input: { automations: [automation] },
+			intentIds: [asDesignId(crypto.randomUUID())],
+		});
+		expect(staged.receipt?.disposition).toBe("staged");
+		expect((await loadChangeSetSteps(changeSet.id))[0]?.readSet).toEqual([
+			{ kind: "organization", projectId: PROJECT, revision: "0" },
+		]);
+	});
+
 	it("builds a private candidate over the empty base and reaches export readiness", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const proposedAppId = crypto.randomUUID();
@@ -622,11 +670,13 @@ describe("genesis staging", () => {
 
 describe("commitDesignChangeSet", () => {
 	async function stageCompleteWorkflow(appId: string, donor: TestApp) {
+		const intentId = asDesignId(crypto.randomUUID());
 		const { changeSet, workspace } = await openWorkspace(appId);
 		await workspace.stageDispatch({
 			toolName: "stageModule",
 			requestId: "c-1",
 			input: { moduleUuid: { handle: "@m" }, name: "Committed module" },
+			intentIds: [intentId],
 		});
 		const form = await workspace.stageDispatch({
 			toolName: "stageForm",
@@ -637,6 +687,7 @@ describe("commitDesignChangeSet", () => {
 				name: "Committed form",
 				type: "survey",
 			},
+			intentIds: [intentId],
 		});
 		const field = starterFieldClone(donor.doc, donor.starter.fieldUuid);
 		const formUuid = form.receipt?.handles[changeSetHandleSchema.parse("@f")];
@@ -651,14 +702,15 @@ describe("commitDesignChangeSet", () => {
 						{ kind: "addField", parentUuid: formUuid, field },
 					] satisfies Mutation[],
 					stage: "fields",
+					intentIds: [intentId],
 				}),
 		});
-		return { changeSet, workspace };
+		return { changeSet, workspace, intentId };
 	}
 
 	it("commits all steps as ONE canonical batch with the receipt sidecar, atomically", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 		const before = await canonicalTableCounts(app.appId);
 
 		const outcome = await commitDesignChangeSet({
@@ -667,7 +719,7 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 3,
-			owningIntentIds: [asDesignId(crypto.randomUUID())],
+			owningIntentIds: [intentId],
 		});
 		expect(outcome.kind).toBe("committed");
 		if (outcome.kind !== "committed") throw new Error("unreachable");
@@ -685,6 +737,13 @@ describe("commitDesignChangeSet", () => {
 		expect(row?.status).toBe("committed");
 		expect(row?.committedSeq).toBe(outcome.receipt.seq);
 		expect(row?.committedBatchId).toBe(outcome.receipt.batchId);
+		const attempt = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.select("status")
+			.where("change_set_id", "=", changeSet.id)
+			.executeTakeFirst();
+		expect(attempt?.status).toBe("committed");
 
 		/* A commit retry converges on the stored receipt. */
 		const retry = await commitDesignChangeSet({
@@ -702,9 +761,50 @@ describe("commitDesignChangeSet", () => {
 		expect(await canonicalTableCounts(app.appId)).toEqual(after);
 	});
 
-	it("merges cleanly over a newer canonical head (clean replay)", async () => {
+	it("refuses copied plan ownership unless durable mutation steps prove exact coverage", async () => {
+		const app = await createTestApp();
+		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
+		const missingIntent = asDesignId(crypto.randomUUID());
+		const before = await canonicalTableCounts(app.appId);
+		const outcome = await commitDesignChangeSet({
+			changeSetId: changeSet.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			kind: "mcp",
+			expectedRevision: 3,
+			owningIntentIds: [intentId, missingIntent],
+		});
+		expect(outcome).toMatchObject({
+			kind: "gate-rejected",
+			message: expect.stringMatching(
+				/does not cover every intent owned by this slice/,
+			),
+		});
+		expect(await canonicalTableCounts(app.appId)).toEqual(before);
+		expect((await loadChangeSet(changeSet.id))?.status).toBe("open");
+	});
+
+	it("refuses a durable step that claims an intent outside the slice", async () => {
 		const app = await createTestApp();
 		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const outcome = await commitDesignChangeSet({
+			changeSetId: changeSet.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			kind: "mcp",
+			expectedRevision: 3,
+			owningIntentIds: [asDesignId(crypto.randomUUID())],
+		});
+		expect(outcome).toMatchObject({
+			kind: "gate-rejected",
+			message: expect.stringMatching(/which this slice does not own/),
+		});
+		expect((await loadChangeSet(changeSet.id))?.status).toBe("open");
+	});
+
+	it("merges cleanly over a newer canonical head (clean replay)", async () => {
+		const app = await createTestApp();
+		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 
 		await commitGuardedBatch({
 			appId: app.appId,
@@ -723,7 +823,7 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 3,
-			owningIntentIds: [],
+			owningIntentIds: [intentId],
 		});
 		expect(outcome.kind).toBe("committed");
 		if (outcome.kind !== "committed") throw new Error("unreachable");
@@ -763,6 +863,7 @@ describe("commitDesignChangeSet", () => {
 		});
 
 		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const intentId = asDesignId(crypto.randomUUID());
 		const staged = await workspace.invoke({
 			toolName: "removeField-direct",
 			requestId: "r-1",
@@ -772,6 +873,7 @@ describe("commitDesignChangeSet", () => {
 					mutations: [
 						{ kind: "removeField", uuid: field2.uuid },
 					] satisfies Mutation[],
+					intentIds: [intentId],
 				}),
 		});
 		expect(staged.ok).toBe(true);
@@ -793,7 +895,7 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 1,
-			owningIntentIds: [],
+			owningIntentIds: [intentId],
 		});
 		expect(outcome.kind).toBe("rebase-conflict");
 		if (outcome.kind !== "rebase-conflict") throw new Error("unreachable");
@@ -809,6 +911,7 @@ describe("commitDesignChangeSet", () => {
 	it("rejects a candidate the fresh gate refuses, retaining amendable steps", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const intentId = asDesignId(crypto.randomUUID());
 
 		/* Removing the starter question leaves EMPTY_FORM — stageable
 		 * privately, refused canonically. */
@@ -821,6 +924,7 @@ describe("commitDesignChangeSet", () => {
 					mutations: [
 						{ kind: "removeField", uuid: app.starter.fieldUuid },
 					] satisfies Mutation[],
+					intentIds: [intentId],
 				}),
 		});
 		expect(staged.ok).toBe(true);
@@ -832,7 +936,7 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 1,
-			owningIntentIds: [],
+			owningIntentIds: [intentId],
 		});
 		expect(outcome.kind).toBe("gate-rejected");
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
@@ -842,7 +946,7 @@ describe("commitDesignChangeSet", () => {
 
 	it("is terminal after a Project move", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 		await h.seedProjectMember(ACTOR, "project-b", "owner");
 		await h.moveAppToProject(app.appId, "project-b", ACTOR);
 
@@ -853,15 +957,14 @@ describe("commitDesignChangeSet", () => {
 				runId: RUN,
 				kind: "mcp",
 				expectedRevision: 3,
-				owningIntentIds: [],
+				owningIntentIds: [intentId],
 			}),
 		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
 	});
 
 	it("writes intent provenance rows in the commit transaction", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
-		const intentId = crypto.randomUUID();
+		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 
 		const outcome = await commitDesignChangeSet({
 			changeSetId: changeSet.id,
@@ -869,17 +972,7 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 3,
-			owningIntentIds: [asDesignId(intentId)],
-			intentProvenance: [
-				{
-					designSessionId: changeSet.designSessionId,
-					designRevisionId: changeSet.designRevisionId,
-					buildPlanId: changeSet.buildPlanId,
-					sliceId: changeSet.sliceId,
-					intentId,
-					coordinate: { kind: "app", appId: app.appId },
-				},
-			],
+			owningIntentIds: [intentId],
 		});
 		expect(outcome.kind).toBe("committed");
 		if (outcome.kind !== "committed") throw new Error("unreachable");
@@ -890,6 +983,21 @@ describe("commitDesignChangeSet", () => {
 			.select(["intent_id", "coordinate_kind"])
 			.where("app_id", "=", app.appId)
 			.execute();
-		expect(rows).toEqual([{ intent_id: intentId, coordinate_kind: "app" }]);
+		expect(rows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					intent_id: intentId,
+					coordinate_kind: "module",
+				}),
+				expect.objectContaining({
+					intent_id: intentId,
+					coordinate_kind: "form",
+				}),
+				expect.objectContaining({
+					intent_id: intentId,
+					coordinate_kind: "field",
+				}),
+			]),
+		);
 	});
 });

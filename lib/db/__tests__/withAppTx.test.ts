@@ -78,6 +78,18 @@ describe("withAppTx retry", () => {
 		expect(execute).toHaveBeenCalledTimes(2);
 	});
 
+	it("does not refresh an expired absolute transaction deadline", async () => {
+		const { db, execute } = fakeDb([]);
+		__setAppDbForTests(db);
+		const body = vi.fn(async () => "must not run");
+
+		await expect(
+			withAppTx(body, { deadlineAt: Date.now() - 1 }),
+		).rejects.toThrow("transaction deadline expired");
+		expect(body).not.toHaveBeenCalled();
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
 	it("propagates a non-retryable SQLSTATE (23505 unique violation) on the first attempt", async () => {
 		// The guarded-commit dedup converges a concurrent unique violation itself, so
 		// `withAppTx` must NOT retry a 23505 — it propagates immediately.

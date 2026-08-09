@@ -131,6 +131,28 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			WHERE status = 'running'
 	`.execute(db);
 
+	await sql`
+		CREATE TABLE IF NOT EXISTS design_external_action_receipts (
+			id uuid PRIMARY KEY,
+			design_session_id uuid NOT NULL
+				REFERENCES design_sessions(id) ON DELETE CASCADE,
+			build_plan_id uuid NOT NULL REFERENCES design_build_plans(id),
+			external_action_id uuid NOT NULL,
+			project_id text NOT NULL,
+			app_id text REFERENCES apps(id) ON DELETE CASCADE,
+			action_digest text NOT NULL
+				CHECK (action_digest ~ ${sql.raw(SHA256_HEX)}),
+			outcome text NOT NULL
+				CHECK (outcome IN ('completed', 'manual-confirmed')),
+			evidence jsonb NOT NULL CHECK (jsonb_typeof(evidence) = 'object'),
+			completed_at timestamptz(3) NOT NULL DEFAULT now(),
+			CONSTRAINT design_external_action_receipts_scope_unique
+				UNIQUE NULLS NOT DISTINCT (
+					design_session_id, build_plan_id, external_action_id, app_id
+				)
+		)
+	`.execute(db);
+
 	// Bind the change-set tables' opaque identity columns. Drop-before-add
 	// keeps the replay idempotent (Postgres has no ADD CONSTRAINT IF NOT
 	// EXISTS).
@@ -193,6 +215,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 				DROP CONSTRAINT IF EXISTS ${sql.raw(constraint)}
 		`.execute(db);
 	}
+	await sql`DROP TABLE IF EXISTS design_external_action_receipts`.execute(db);
 	await sql`DROP TABLE IF EXISTS design_slice_attempts`.execute(db);
 	await sql`DROP TABLE IF EXISTS design_orchestration_events`.execute(db);
 }

@@ -48,6 +48,13 @@ gate, and integrity services every other write uses.
   receipt, and a canonical batch without that receipt is corruption, not a
   commit. Genesis sets refuse this path — their commit is
   `materializeGenesis.ts`.
+- `intentCoverage.ts` — the commit-time proof that every mutation-bearing
+  durable step names only intents owned by the slice and that their union
+  covers every owned intent. Executor calls supply `implementedIntentIds`;
+  the runtime strips that executor-only field before canonical tool parsing,
+  persists the IDs on the step, and derives implementation coordinates from
+  the admitted mutations. A plan's ownership list is never copied into a
+  receipt as proof of implementation.
 - `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
   birth: pre-read → committed-replay short-circuit (rebuilds the exact
   receipt from `design_committed_slices` + the sequence-1 canonical fold) →
@@ -56,8 +63,8 @@ gate, and integrity services every other write uses.
   → change-set row → step replay proved against the empty-genesis digest →
   `prepareGenesisCandidate` → reservation check →
   `writePreparedGenesisInTransaction` with the holder+reservation transfer
-  → commit sidecars (the change-set flip + committed-slice receipt at seq
-  1) → attempt `running → committed` → the session's atomic
+  → commit sidecars (the exact attempt `running → committed`, change-set flip,
+  committed-slice receipt, and intent provenance at seq 1) → the session's atomic
   `authority-cleared + materialized + app_id` flip (table CHECKs make a
   partial transfer unrepresentable). Gate rejection rolls the whole
   transaction back; pending case-index work drains post-commit.
@@ -129,6 +136,9 @@ gate, and integrity services every other write uses.
 6. Every digest is the shared canonical-JS discipline
    (`lib/utils/canonicalJson.ts`); fold-baseline SQL digests are a separate
    domain, never compared against these.
+7. A canonical design commit accepts only the exact bound slice attempt in
+   `running` state and transitions that attempt in the same transaction as
+   the canonical revision, committed-slice receipt, and provenance.
 
 ## Tests
 

@@ -30,10 +30,7 @@ import {
 } from "@/lib/db/applyBlueprintChange";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadApp } from "@/lib/db/apps";
-import {
-	CanonicalCommitSidecarError,
-	type IntentProvenanceRow,
-} from "@/lib/db/canonicalCommitSidecars";
+import { CanonicalCommitSidecarError } from "@/lib/db/canonicalCommitSidecars";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -63,6 +60,10 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "./errors";
+import {
+	type ProvenIntentCoverage,
+	proveIntentCoverage,
+} from "./intentCoverage";
 import { type ExternalReadDependency, intentIdsSchema } from "./schemas";
 import { loadChangeSet, loadChangeSetSteps } from "./store";
 import {
@@ -124,7 +125,8 @@ export interface CommitDesignChangeSetArgs {
 	readonly kind: ClientAppChangeKind;
 	readonly expectedRevision: number;
 	readonly owningIntentIds: readonly DesignId[];
-	readonly intentProvenance?: readonly IntentProvenanceRow[];
+	/** Absolute executor wall-clock deadline; direct callers omit it. */
+	readonly deadlineAt?: number;
 }
 
 /**
@@ -134,6 +136,7 @@ export interface CommitDesignChangeSetArgs {
 export async function commitDesignChangeSet(
 	args: CommitDesignChangeSetArgs,
 ): Promise<CommitDesignChangeSetOutcome> {
+	if (deadlineExpired(args.deadlineAt)) return deadlineRejection(0);
 	const changeSet = await loadChangeSet(args.changeSetId);
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
@@ -170,6 +173,9 @@ export async function commitDesignChangeSet(
 		);
 	}
 	const steps = await loadChangeSetSteps(args.changeSetId);
+	if (deadlineExpired(args.deadlineAt)) {
+		return deadlineRejection(changeSet.baseSeq ?? 0);
+	}
 	if (steps.length !== changeSet.nextOrdinal) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${args.changeSetId} records ${changeSet.nextOrdinal} step(s) but ${steps.length} are stored.`,
@@ -180,6 +186,21 @@ export async function commitDesignChangeSet(
 			kind: "gate-rejected",
 			message:
 				"This change set has no staged steps, so there is nothing to commit.",
+			currentSeq: changeSet.baseSeq ?? 0,
+		};
+	}
+	let intentCoverage: ProvenIntentCoverage;
+	try {
+		intentCoverage = proveIntentCoverage({
+			changeSet,
+			steps,
+			expectedOwningIntentIds: args.owningIntentIds,
+			appId: changeSet.appId,
+		});
+	} catch (error) {
+		return {
+			kind: "gate-rejected",
+			message: error instanceof Error ? error.message : String(error),
 			currentSeq: changeSet.baseSeq ?? 0,
 		};
 	}
@@ -222,6 +243,9 @@ export async function commitDesignChangeSet(
 		steps,
 		organizationRevision,
 	});
+	if (deadlineExpired(args.deadlineAt)) {
+		return deadlineRejection(changeSet.baseSeq ?? 0);
+	}
 	if (preflight !== undefined) {
 		const committed = await committedReplayIfWon(changeSet);
 		return committed ?? preflight;
@@ -242,6 +266,7 @@ export async function commitDesignChangeSet(
 			}),
 			batchId,
 			kind: args.kind,
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			guard: { mutations: batch },
 			sidecars: [
 				{
@@ -256,18 +281,13 @@ export async function commitDesignChangeSet(
 					buildPlanId: changeSet.buildPlanId,
 					buildPlanDigest: changeSet.buildPlanDigest,
 					sliceId: changeSet.sliceId,
-					owningIntentIds: [...args.owningIntentIds],
+					owningIntentIds: [...intentCoverage.owningIntentIds],
 					mutationCount: batch.length,
 				},
-				...(args.intentProvenance !== undefined &&
-				args.intentProvenance.length > 0
-					? [
-							{
-								kind: "write-intent-provenance" as const,
-								rows: args.intentProvenance,
-							},
-						]
-					: []),
+				{
+					kind: "write-intent-provenance" as const,
+					rows: intentCoverage.provenance,
+				},
 			],
 		});
 		const receipt = await requireStoredReceipt(changeSet);
@@ -341,6 +361,18 @@ export async function commitDesignChangeSet(
 			currentSeq: await currentAppSeq(changeSet.appId),
 		};
 	}
+}
+
+function deadlineExpired(deadlineAt: number | undefined): boolean {
+	return deadlineAt !== undefined && Date.now() >= deadlineAt;
+}
+
+function deadlineRejection(currentSeq: number): CommitDesignChangeSetOutcome {
+	return {
+		kind: "gate-rejected",
+		message: "The slice execution deadline expired before commit.",
+		currentSeq,
+	};
 }
 
 /** The concurrent-duplicate check: when the change set has meanwhile

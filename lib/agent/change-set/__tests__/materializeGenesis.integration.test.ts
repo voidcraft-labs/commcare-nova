@@ -17,6 +17,7 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	createAndClaimDesignSessionRun,
 	setDesignSessionAwaitingInput,
@@ -28,6 +29,7 @@ import {
 	emptyBlueprintDoc,
 } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
@@ -80,6 +82,7 @@ interface ClaimedGenesisFixture {
 	readonly proposedAppId: string;
 	readonly holderNonce: string;
 	readonly changeSetId: string;
+	readonly intentId: ReturnType<typeof asDesignId>;
 }
 
 /** Claim a real design session through the production protocol, seed its
@@ -111,11 +114,18 @@ async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
 	});
+	await h
+		.db()
+		.updateTable("design_slice_attempts")
+		.set({ change_set_id: changeSet.id })
+		.where("id", "=", lineage.attemptId)
+		.execute();
 	return {
 		designSessionId: claimed.designSessionId,
 		proposedAppId: claimed.proposedAppId,
 		holderNonce: claimed.holderNonce,
 		changeSetId: changeSet.id,
+		intentId: asDesignId(crypto.randomUUID()),
 	};
 }
 
@@ -123,6 +133,7 @@ async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 async function stageBatch(
 	changeSetId: string,
 	mutations: readonly Mutation[],
+	intentId: ReturnType<typeof asDesignId>,
 	requestId = "genesis-stage-1",
 ): Promise<void> {
 	const admitted = admitMutationBatch(mutations);
@@ -143,7 +154,7 @@ async function stageBatch(
 			mutations: admitted,
 			stageSlices: [],
 			handles: [],
-			intentIds: [asDesignId(crypto.randomUUID())],
+			intentIds: [intentId],
 			readSet: [],
 			exclusiveKind: null,
 			diagnostics: {
@@ -169,7 +180,7 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 		holderNonce: fixture.holderNonce,
 		expectedProjectId: PROJECT,
 		expectedRevision: 1,
-		owningIntentIds: [asDesignId(crypto.randomUUID())],
+		owningIntentIds: [fixture.intentId],
 	};
 }
 
@@ -179,6 +190,7 @@ describe("materializeAppFromGenesis", () => {
 		await stageBatch(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
+			fixture.intentId,
 		);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
@@ -275,6 +287,7 @@ describe("materializeAppFromGenesis", () => {
 		await stageBatch(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
+			fixture.intentId,
 		);
 		const first = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (first.kind !== "materialized") throw new Error(first.kind);
@@ -295,17 +308,73 @@ describe("materializeAppFromGenesis", () => {
 		expect(apps).toHaveLength(1);
 	});
 
+	it("denies a lost-response replay after current Project membership is revoked", async () => {
+		const fixture = await claimedGenesisFixture();
+		await stageBatch(
+			fixture.changeSetId,
+			exportReadyBatch(fixture.proposedAppId),
+			fixture.intentId,
+		);
+		const first = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (first.kind !== "materialized") throw new Error(first.kind);
+		await h
+			.pool()
+			.query(
+				`DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2`,
+				[ACTOR, PROJECT],
+			);
+		await expect(
+			materializeAppFromGenesis(materializeArgs(fixture)),
+		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+	});
+
+	it("applies organization integrity before persisting sequence one", async () => {
+		const fixture = await claimedGenesisFixture();
+		const missingLocation = asUuid(crypto.randomUUID());
+		await stageBatch(
+			fixture.changeSetId,
+			[
+				...exportReadyBatch(fixture.proposedAppId),
+				{
+					kind: "addPersona",
+					persona: {
+						uuid: asUuid(crypto.randomUUID()),
+						name: "Asha",
+						locations: { primaryUuid: missingLocation },
+					},
+				},
+			],
+			fixture.intentId,
+		);
+		await expect(
+			materializeAppFromGenesis(materializeArgs(fixture)),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(await h.readAppRow(fixture.proposedAppId)).toBeUndefined();
+		expect(
+			await h
+				.db()
+				.selectFrom("app_location_references")
+				.select("location_id")
+				.where("app_id", "=", fixture.proposedAppId)
+				.execute(),
+		).toEqual([]);
+	});
+
 	it("a gate-rejected candidate materializes NOTHING — the crash-window proof", async () => {
 		const fixture = await claimedGenesisFixture();
 		/* A lone module with neither forms nor case list is a gating finding
 		 * (NO_FORMS_OR_CASE_LIST): the verdict runs AFTER the app-row insert,
 		 * so the rejection proves the whole transaction rolled back. */
-		await stageBatch(fixture.changeSetId, [
-			{ kind: "setAppName", name: "Half-built" },
-			...caseListModuleMutations(emptyBlueprintDoc(fixture.proposedAppId), {
-				caseType: "client",
-			}).mutations.slice(0, 1),
-		]);
+		await stageBatch(
+			fixture.changeSetId,
+			[
+				{ kind: "setAppName", name: "Half-built" },
+				...caseListModuleMutations(emptyBlueprintDoc(fixture.proposedAppId), {
+					caseType: "client",
+				}).mutations.slice(0, 1),
+			],
+			fixture.intentId,
+		);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		expect(outcome.kind).toBe("gate-rejected");
@@ -333,10 +402,14 @@ describe("materializeAppFromGenesis", () => {
 	it("admits runtime case-schema rows transactionally at synced_seq 1", async () => {
 		const fixture = await claimedGenesisFixture();
 		const emptyDoc = emptyBlueprintDoc(fixture.proposedAppId);
-		await stageBatch(fixture.changeSetId, [
-			...canonicalAppGenesis(emptyDoc).mutations,
-			...caseListModuleMutations(emptyDoc, { caseType: "client" }).mutations,
-		]);
+		await stageBatch(
+			fixture.changeSetId,
+			[
+				...canonicalAppGenesis(emptyDoc).mutations,
+				...caseListModuleMutations(emptyDoc, { caseType: "client" }).mutations,
+			],
+			fixture.intentId,
+		);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (outcome.kind !== "materialized") {
@@ -359,6 +432,7 @@ describe("materializeAppFromGenesis", () => {
 		await stageBatch(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
+			fixture.intentId,
 		);
 
 		await expect(
@@ -392,6 +466,7 @@ describe("materializeAppFromGenesis", () => {
 		await stageBatch(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
+			fixture.intentId,
 		);
 		await expect(
 			materializeAppFromGenesis({

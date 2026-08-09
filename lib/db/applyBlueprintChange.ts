@@ -96,6 +96,8 @@ export interface ApplyBlueprintChangeArgs {
 	 * them (the original commit ran them).
 	 */
 	readonly sidecars?: readonly CanonicalCommitSidecar[];
+	/** Absolute build-executor deadline. Ordinary canonical writers omit it. */
+	readonly deadlineAt?: number;
 }
 
 /**
@@ -205,10 +207,14 @@ export async function applyBlueprintChange(
 			},
 		});
 		if (deduped || prepared === undefined) {
+			if (args.deadlineAt !== undefined) return result;
 			await drainRenameIndexesBestEffort(store, args.appId, result.seq);
 			return result;
 		}
 
+		if (args.deadlineAt !== undefined) {
+			return { ...result, migration: renameOutcome(prepared.report) };
+		}
 		await completeRenameIndexes(args.appId, result, prepared);
 		return { ...result, migration: renameOutcome(prepared.report) };
 	}
@@ -240,6 +246,7 @@ export async function applyBlueprintChange(
 		},
 	});
 	if (deduped) {
+		if (args.deadlineAt !== undefined) return result;
 		const explicitlyRetired = guard.mutations.flatMap((mutation) =>
 			mutation.kind === "retireCaseType" ? [mutation.caseType] : [],
 		);
@@ -259,6 +266,11 @@ export async function applyBlueprintChange(
 			"[applyBlueprintChange] guarded writer committed without running its fresh classification hook",
 		);
 	}
+	/* Executor-owned commits end at the canonical transaction. Runtime-schema
+	 * Phase A is already atomic; every Phase-B/index/sync operation below is
+	 * derived, idempotent convergence and must not outlive the slice deadline.
+	 * Point-of-use schema healing drains the durable lag. */
+	if (args.deadlineAt !== undefined) return result;
 	if (entries.length === 0) return result;
 	if (preparedRetirement !== undefined) {
 		await completeRetirementIndexes(args.appId, result, preparedRetirement);
@@ -320,6 +332,7 @@ async function persistBlueprint(
 		{
 			...hooks,
 			...(args.sidecars !== undefined && { sidecars: args.sidecars }),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 		},
 	);
 	return {

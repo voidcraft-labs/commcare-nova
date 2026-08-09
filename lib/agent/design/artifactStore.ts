@@ -47,6 +47,7 @@ import {
 	persistedSourcePackageSchema,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -56,6 +57,30 @@ import { safePersistedSequence } from "@/lib/utils/persistedSequence";
  *  read something the artifact discipline forbids. */
 export class DesignArtifactStoreError extends Error {
 	readonly name = "DesignArtifactStoreError";
+}
+
+export interface DesignArtifactWriteAuthority {
+	readonly actorUserId: string;
+	readonly runId: string;
+	readonly holderNonce: string;
+	readonly expectedProjectId: string;
+}
+
+async function authorizeArtifactWrite(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+	authority: DesignArtifactWriteAuthority,
+): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId,
+		actorUserId: authority.actorUserId,
+		expectedProjectId: authority.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: authority.runId,
+			nonce: authority.holderNonce,
+		},
+	});
 }
 
 const contractEnvelopeSchema = designArtifactEnvelopeSchema(
@@ -142,9 +167,9 @@ export interface DispositionRecord {
  */
 export async function insertDesignSourcePackage(args: {
 	pkg: DesignSourcePackage;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignSourcePackageRecord> {
-	const { pkg, runId } = args;
+	const { pkg, authority } = args;
 	const { packageDigest: claimedDigest, ...unsealed } = pkg;
 	if (computeSourcePackageDigest(unsealed) !== claimedDigest) {
 		throw new DesignArtifactStoreError(
@@ -154,6 +179,12 @@ export async function insertDesignSourcePackage(args: {
 	const payload = toPersistedSourcePackage(pkg);
 	const id = crypto.randomUUID();
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, pkg.designSessionId, authority);
+		if (pkg.projectId !== authority.expectedProjectId) {
+			throw new DesignArtifactStoreError(
+				"The source package Project does not match its authorized design session.",
+			);
+		}
 		await tx
 			.insertInto("design_source_packages")
 			.values({
@@ -161,7 +192,7 @@ export async function insertDesignSourcePackage(args: {
 				design_session_id: pkg.designSessionId,
 				project_id: pkg.projectId,
 				package_digest: pkg.packageDigest,
-				created_by_run_id: runId,
+				created_by_run_id: authority.runId,
 				payload: JSON.stringify(payload),
 			})
 			.onConflict((oc) =>
@@ -256,7 +287,7 @@ async function readSourcePackageInTx(
 export async function insertDesignRevision(args: {
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
 	lifecycle: RevisionLifecycle;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 	/** Required for an accepted revision: every disposition plus the review
 	 *  row ids whose findings they close. */
 	dispositions?: ReadonlyArray<{
@@ -264,12 +295,13 @@ export async function insertDesignRevision(args: {
 		disposition: FindingDisposition;
 	}>;
 }): Promise<DesignRevisionRecord> {
-	const { envelope, lifecycle, runId } = args;
+	const { envelope, lifecycle, authority } = args;
 	const parsed = contractEnvelopeSchema.parse(envelope);
 	verifyArtifactEnvelope(parsed);
 	const contractDigest = canonicalJsonDigest(parsed.payload);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, authority);
 		const pkg = await tx
 			.selectFrom("design_source_packages")
 			.select(["id"])
@@ -351,7 +383,7 @@ export async function insertDesignRevision(args: {
 				source_package_digest: parsed.sourcePackageDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: runId,
+				created_by_run_id: authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
@@ -537,12 +569,13 @@ async function readRevisionRecordInTx(
 export async function insertDesignReview(args: {
 	envelope: DesignArtifactEnvelope<DesignReview>;
 	designRevisionId: string;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignReviewRecord> {
 	const parsed = reviewEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, args.authority);
 		const revision = await readRevisionRowInTx(tx, args.designRevisionId);
 		if (!revision || revision.design_session_id !== parsed.designSessionId) {
 			throw new DesignArtifactStoreError(
@@ -577,7 +610,7 @@ export async function insertDesignReview(args: {
 				artifact_digest: parsed.artifactDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: args.runId,
+				created_by_run_id: args.authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
@@ -702,7 +735,7 @@ export async function readDispositions(
  */
 export async function insertDesignBuildPlan(args: {
 	envelope: DesignArtifactEnvelope<BuildPlan>;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignBuildPlanRecord> {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
@@ -710,6 +743,7 @@ export async function insertDesignBuildPlan(args: {
 	const planDigest = canonicalJsonDigest(plan);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, args.authority);
 		const revision = await readRevisionRowInTx(tx, plan.designRevisionId);
 		if (!revision || revision.design_session_id !== parsed.designSessionId) {
 			throw new DesignArtifactStoreError(
@@ -743,7 +777,7 @@ export async function insertDesignBuildPlan(args: {
 				artifact_digest: parsed.artifactDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: args.runId,
+				created_by_run_id: args.authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();

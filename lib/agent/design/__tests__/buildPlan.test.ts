@@ -61,6 +61,18 @@ describe("buildPlanSchema (structural)", () => {
 		);
 	});
 
+	it("rejects a materialization root with a prerequisite before persistence", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		const later = plan.slices[1];
+		if (!root || !later) throw new Error("fixture has two slices");
+		later.prerequisiteSliceIds = [];
+		root.prerequisiteSliceIds = [later.id];
+		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
+			"materialization root cannot name prerequisite slices",
+		);
+	});
+
 	it("rejects an unknown prerequisite and self-prerequisite", () => {
 		const plan = makeBuildPlan();
 		plan.slices[1]?.prerequisiteSliceIds.push(did(8888));

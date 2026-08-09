@@ -8,12 +8,13 @@ import { sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	DesignArtifactStoreError,
+	type DesignArtifactWriteAuthority,
 	type DesignBuildPlanRecord,
 	type DesignRevisionRecord,
-	insertDesignBuildPlan,
-	insertDesignReview,
-	insertDesignRevision,
-	insertDesignSourcePackage,
+	insertDesignBuildPlan as insertDesignBuildPlanAuthorized,
+	insertDesignReview as insertDesignReviewAuthorized,
+	insertDesignRevision as insertDesignRevisionAuthorized,
+	insertDesignSourcePackage as insertDesignSourcePackageAuthorized,
 	readDesignBuildPlan,
 	readDesignReviews,
 	readDesignRevision,
@@ -39,7 +40,76 @@ import { did, ids, makeBuildPlan, makeContract, messageRef } from "./fixtures";
 const h = setupAppStateTestDb("design_artifacts_");
 
 const RUN_ID = "run-unit-c-test";
+const ACTOR = "owner-test";
+const PROJECT = "proj-1";
+const NONCE = "6a0a35a4-1111-4222-8333-944445555667";
 let sessionId: string;
+
+function authority(runId: string): DesignArtifactWriteAuthority {
+	return {
+		actorUserId: ACTOR,
+		runId,
+		holderNonce: NONCE,
+		expectedProjectId: PROJECT,
+	};
+}
+
+async function insertDesignSourcePackage(
+	args: Omit<
+		Parameters<typeof insertDesignSourcePackageAuthorized>[0],
+		"authority"
+	> & {
+		runId: string;
+	},
+) {
+	const { runId, ...rest } = args;
+	return insertDesignSourcePackageAuthorized({
+		...rest,
+		authority: authority(runId),
+	});
+}
+
+async function insertDesignRevision(
+	args: Omit<
+		Parameters<typeof insertDesignRevisionAuthorized>[0],
+		"authority"
+	> & {
+		runId: string;
+	},
+) {
+	const { runId, ...rest } = args;
+	return insertDesignRevisionAuthorized({
+		...rest,
+		authority: authority(runId),
+	});
+}
+
+async function insertDesignReview(
+	args: Omit<
+		Parameters<typeof insertDesignReviewAuthorized>[0],
+		"authority"
+	> & {
+		runId: string;
+	},
+) {
+	const { runId, ...rest } = args;
+	return insertDesignReviewAuthorized({ ...rest, authority: authority(runId) });
+}
+
+async function insertDesignBuildPlan(
+	args: Omit<
+		Parameters<typeof insertDesignBuildPlanAuthorized>[0],
+		"authority"
+	> & {
+		runId: string;
+	},
+) {
+	const { runId, ...rest } = args;
+	return insertDesignBuildPlanAuthorized({
+		...rest,
+		authority: authority(runId),
+	});
+}
 
 function makePackage(): DesignSourcePackage {
 	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
@@ -196,10 +266,36 @@ async function persistAcceptedRevision(): Promise<{
 beforeEach(async () => {
 	/* The design_sessions FK landed with the design-session unit: every
 	 * artifact row's session id must reference a real session row. */
-	sessionId = await h.seedDesignSession();
+	sessionId = await h.seedDesignSession({
+		owner_user_id: ACTOR,
+		project_id: PROJECT,
+		run_id: RUN_ID,
+		run_holder_nonce: NONCE,
+		run_actor_user_id: ACTOR,
+		run_lease_expires_at: new Date(Date.now() + 60_000),
+		reservation: {
+			period: "2026-08",
+			reserved: 1,
+			settled: false,
+			userId: ACTOR,
+			runId: RUN_ID,
+		},
+	});
 });
 
 describe("source packages", () => {
+	it("refuses a write from a run whose holder nonce was superseded", async () => {
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({ run_holder_nonce: crypto.randomUUID() })
+			.where("id", "=", sessionId)
+			.execute();
+		await expect(
+			insertDesignSourcePackage({ pkg: makePackage(), runId: RUN_ID }),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+	});
+
 	it("persists references + claims and converges on an identical rebuild", async () => {
 		const pkg = makePackage();
 		const first = await insertDesignSourcePackage({ pkg, runId: RUN_ID });
@@ -218,6 +314,20 @@ describe("source packages", () => {
 		await expect(
 			insertDesignSourcePackage({ pkg, runId: RUN_ID }),
 		).rejects.toThrow(DesignArtifactStoreError);
+	});
+
+	it("refuses a validly sealed package for a foreign Project", async () => {
+		const { packageDigest: _oldDigest, ...base } = makePackage();
+		const unsealed = { ...base, projectId: "proj-2" };
+		const pkg: DesignSourcePackage = {
+			...unsealed,
+			packageDigest: computeSourcePackageDigest(unsealed),
+		};
+		await expect(
+			insertDesignSourcePackage({ pkg, runId: RUN_ID }),
+		).rejects.toThrow(
+			"The source package Project does not match its authorized design session.",
+		);
 	});
 });
 

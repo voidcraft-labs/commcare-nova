@@ -719,6 +719,10 @@ export interface CanonicalCommitTransactionHooks {
 
 export interface CanonicalCommitKernelOptions
 	extends CanonicalCommitTransactionHooks {
+	/** Absolute executor deadline. The transaction wrapper installs the
+	 * matching PostgreSQL transaction timeout so a canonical write cannot
+	 * commit after the slice's wall-clock authority expires. */
+	readonly deadlineAt?: number;
 	/**
 	 * Existing transaction used only by infrastructure probes that must exercise
 	 * the exact guarded writer and then roll the surrounding transaction back.
@@ -985,7 +989,11 @@ export async function commitCanonicalBatch(
 	};
 	const commitOnce = (): Promise<CanonicalCommitReceipt> =>
 		internalOptions.transaction === undefined
-			? withAppTx(commitInTransaction)
+			? withAppTx(commitInTransaction, {
+					...(internalOptions.deadlineAt !== undefined && {
+						deadlineAt: internalOptions.deadlineAt,
+					}),
+				})
 			: commitInTransaction(internalOptions.transaction);
 
 	let result: CanonicalCommitReceipt;

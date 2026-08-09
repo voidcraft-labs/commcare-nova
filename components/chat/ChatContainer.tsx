@@ -868,6 +868,20 @@ function createChatInstance(
 					designProgressStore.getState().beginSession(scope);
 					if (scope.materializedAppId === null) {
 						sessionStoreRef.current?.getState().markBuildUnfinished();
+						if (window.location.pathname === "/build/new") {
+							pushBuilderHistory(
+								`/build/new?design=${encodeURIComponent(scope.designSessionId)}`,
+								true,
+							);
+						}
+					} else if (
+						sessionStoreRef.current?.getState().appId !==
+						scope.materializedAppId
+					) {
+						/* The session says genesis committed but this tab missed the
+						 * activation receipt. Reload the authoritative app instead of
+						 * leaving `/build/new` able to start a duplicate design. */
+						window.location.replace(`/build/${scope.materializedAppId}`);
 					}
 				}
 				return;

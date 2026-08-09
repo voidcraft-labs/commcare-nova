@@ -1,17 +1,19 @@
 # Valid Revisions, Reviewed Intent
 
-## Hardened executable implementation plan for design-driven builds and Atomic Change Sets in CommCare Nova
+## Current architecture and remaining implementation plan for design-driven builds and Atomic Change Sets in CommCare Nova
 
-**Status:** Proposed implementation plan, adversarially reviewed and repository-grounded  
-**Repository:** `voidcraft-labs/commcare-nova`  
-**Repository snapshot inspected:** `main` at `21ad3e49d4ebff81ac20c5f241dcc1f4fdf3aaba`  
 **Primary goal:** Improve app design quality, worker UX, and agent authoring ergonomics without weakening valid-by-construction, multiplayer safety, transcript durability, run/credit authority, Preview truthfulness, case-store coherence, or export guarantees.
 
 Repository references use stable `file::symbol` names rather than line numbers.
+Sections 1–13 describe the current foundation and label their Unit F
+completion extensions inline. Section 14 and §15.15 specify remaining Unit F;
+Sections 16–17 specify remaining Unit G. Section 18 labels current persistence
+separately from the rows Unit F adds. Section 19 is the only delivery sequence:
+Unit F followed by Unit G.
 
 ## 1. Decision
 
-Nova will preserve the current absolute whole-document commit gate and add two non-canonical state spaces around it:
+Nova preserves the absolute whole-document commit gate and uses two non-canonical state spaces around it:
 
 1. A **typed, non-executable Design Contract**, authored and independently reviewed before construction.
 2. A **private Atomic Change Set**, where one slice executor can assemble a dependency-closed workflow across multiple idempotent staging calls before attempting one canonical commit.
@@ -46,19 +48,18 @@ The build orchestrator may make a completion assertion about intent coverage and
 
 ## 2. Why this is the right boundary
 
-The repository already has a strong executable backend and a weak design frontend.
+The repository has the non-executable design frontend and private compiler workspace around its canonical backend.
 
-- `lib/agent/solutionsArchitect.ts::createSolutionsArchitect` gives one `ToolLoopAgent` responsibility for conversation, design, construction, retry, and self-review.
-- `lib/agent/prompts.ts` asks the model to plan in reasoning, but the durable record is only conversation prose.
-- `lib/agent/tools/generateSchema.ts` is called planning but commits the case catalog immediately.
-- `lib/agent/tools/createModule.ts` and `createForm.ts` make valid construction reachable by requiring complete nested entities in one call.
-- `lib/agent/tools/common.ts::guardedMutate` performs optimistic preparation before persistence and therefore cannot, unchanged, become a durable private workspace.
-- `lib/db/apps.ts::commitGuardedBatch` is the real canonical authority. It is not a replaceable save callback.
-- `lib/db/applyBlueprintChange.ts::applyBlueprintChange` proves that some mutation classes have transaction-coupled storage work and post-commit convergence.
-- `lib/db/apps.ts::createApp` and `lib/doc/scaffolds.ts::canonicalAppGenesis` currently create the Survey starter and immutable sequence-`1` baseline.
-- `app/api/chat/route.ts`, `lib/db/threads.ts`, and `lib/db/streamChunks.ts` show that “the app” currently supplies run, credit, transcript, stream, and recovery scope.
-- `lib/agent/subGeneration.ts` and `lib/agent/generationContext.ts` already provide the provider-safe structured-generation and metering primitives the design method's structured calls need.
-- `lib/domain/users.ts` already distinguishes user properties, user types, and Preview personas. The UX-level actor remains a separate upstream concept.
+- `lib/agent/workspace` gives shared tools one workspace-owned snapshot and serialized mutation host; direct chat/MCP edits still commit immediately through the canonical host.
+- `lib/agent/change-set` persists admitted private steps, local handles, read sets, diagnostics, exact intent coverage, and all-or-nothing canonical commits.
+- `lib/agent/design` owns strict, immutable, digest-bound source packages, contracts, independent reviews, dispositions, and build plans.
+- `lib/agent/design/loop` runs design as one server-gated agent loop whose durable artifact ancestry, not transcript prose, decides what is legal next.
+- `lib/db/designSessions.ts`, target-polymorphic threads/streams/summaries, and `app/api/chat/route.ts` provide pre-app run, credit, conversation, pause, resume, and recovery scope.
+- `lib/agent/build` derives slice briefs, enforces bounded one-call executor steps, blocks on receipted external prerequisites, and folds an append-only orchestration chain under the exact live holder.
+- `lib/agent/change-set/materializeGenesis.ts` and `lib/db/appGenesis.ts` create the first meaningful export-ready app revision atomically, including organization/media/lookup/runtime-schema integrity and holder transfer.
+- `lib/db/canonicalCommitSidecars.ts` commits the exact running slice attempt, receipt, and staged implementation provenance with the canonical revision.
+- The explicit blank path still creates the canonical Survey/Form/Question starter through the same genesis owner; design-driven chat never flashes that starter.
+- `lib/domain/users.ts` distinguishes user properties, user types, and Preview personas. The UX-level actor remains a separate design concept until Unit G binds amended intent to current implementation.
 
 The architectural move is therefore not “permit invalid apps while building.” It is:
 
@@ -248,7 +249,7 @@ The fourth row is deliberately not another application state. It is derived data
 
 ### 6.1 Package layout
 
-Create a new server-safe package:
+The server-safe package is:
 
 ```text
 lib/agent/design/
@@ -656,7 +657,7 @@ Rules:
 - Raw prompts, raw model output, hidden reasoning, provider response bodies, and source documents are not stored in the envelope.
 - An artifact row is insert-only. `accepted`, `superseded`, and `active` are relationships or pointers stored separately, not mutations of the artifact body. Acceptance of a reviewed draft is therefore a NEW `accepted` revision row (parent = the draft, inputs binding the review digest) — even when the content is unchanged — never a lifecycle flip on the draft row.
 - A contract envelope additionally carries the deterministic complexity evidence (§7.4) as an optional `complexity` field, so the depth decision persists with the draft it graded.
-- `active_design_revision` on `design_sessions` points only to a fully parsed accepted contract revision.
+- `active_design_revision` on `design_sessions` points only to a fully parsed accepted contract revision, and `active_build_plan` targets that exact revision in the same session. Selection locks the live session/app authority carrier, proves the exact holder and current Project edit membership, and verifies the lineage in the same transaction.
 - Every read parses both envelope and payload through the current exact schema. Unknown keys fail closed.
 - Prompt/schema version changes require a new artifact revision; they never silently reinterpret an old JSONB body.
 
@@ -689,7 +690,7 @@ interface DesignReviewRow {
 
 ### 6.13 Review dispositions
 
-V1 required dispositions but did not define their persisted shape. Add:
+Review dispositions use this persisted shape:
 
 ```ts
 const findingDispositionSchema = z.object({
@@ -731,7 +732,7 @@ const designRevisionResultSchema = z.object({
 
 ### 6.14 Evidence authorization and source-package construction
 
-Create `lib/agent/design/sourcePackage.ts` as the only boundary that turns thread messages and attachments into model input.
+`lib/agent/design/sourcePackage.ts` is the only boundary that turns thread messages and attachments into model input.
 
 ```ts
 interface DesignSourcePackage {
@@ -1004,7 +1005,7 @@ Implementations:
 - `AppGenerationContext` for an app-bound SA/edit run;
 - one shared adapter over `streamObjectWith`/`generateObjectWith`, provider privacy settings, safe structured-output logging, and usage metering.
 
-Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interface plus the ONE adapter over `subGeneration.ts`'s `generateObjectWith`/`streamObjectWith` (which carry `abortSignal` pass-through), so `store: false`/training-disallow behavior, the sanitized structured-output logging, and cancellation are written once and cannot drift between targets. `lib/db/generationTargets.ts` lands the closed `app | design-session` union as a type leaf; the design-session unit builds its resolver (§11.1) around it — the same landed-early pattern as `design/ids.ts`. The offline wire pin is `lib/agent/__tests__/designGenerationContextWire.test.ts`.
+Do not duplicate provider code: `lib/agent/modelRunContext.ts` holds the interface plus the ONE adapter over `subGeneration.ts`'s `generateObjectWith`/`streamObjectWith` (which carry `abortSignal` pass-through), so `store: false`/training-disallow behavior, the sanitized structured-output logging, and cancellation are written once and cannot drift between targets. `lib/db/generationTargets.ts` holds the closed `app | design-session` union as a type leaf, and the design-session resolver (§11.1) builds around it; `design/ids.ts` follows the same dependency-leaf pattern. The offline wire pin is `lib/agent/__tests__/designGenerationContextWire.test.ts`.
 
 ### 7.6 Capability catalog
 
@@ -1104,7 +1105,7 @@ const buildPlanSchema = z.object({
 1. Slices are organized around actor tasks and observable outcomes, not modules.
 2. The DAG is acyclic and every prerequisite resolves.
 3. Exactly one slice has `role = "materialization-root"`.
-4. The materialization root's transitive prerequisite closure contains no post-materialization external action — every action referenced there is timed `before-materialization` or `manual-setup` — and forms one useful export-ready app (the export-readiness half is proved by genesis, not the plan validator).
+4. The materialization root has no prerequisite slices, directly owns the first useful app, and references only `before-materialization` or `manual-setup` external actions. Export readiness is proved by genesis, not asserted by the plan validator.
 5. Every non-deferred in-scope intent has exactly one owning slice — the implementable intents of the accepted contract (records, facts, rules, tasks, transitions, read models, access policies, navigation; intents present in the accepted contract are by construction the non-deferred in-scope set, deferral happening at claim level before intents exist), covered EXACTLY by `intentOwnership` and mirrored in the slices' `ownedIntentIds`.
 6. An intent may contribute to later slices, but completion is not double-counted.
 7. Every acceptance scenario belongs to at least one owning slice.
@@ -1136,7 +1137,7 @@ It must not include unrelated deferred workflows merely to reduce later commits.
 
 ### 8.4 External action policy
 
-Pre-app design is read-only against external Project resources in v2's first implementation.
+Pre-app design is read-only against external Project resources.
 
 Allowed before materialization:
 
@@ -1155,16 +1156,16 @@ Disallowed before materialization:
 - mutating HQ;
 - writing sample cases or submissions.
 
-A future pre-app external writer requires a separate approved contract for ownership, idempotency, cleanup, abandonment, Project move, materialization transfer, and compensation. It is not implied by Atomic Change Sets.
+A pre-app external writer requires a separate approved contract for ownership, idempotency, cleanup, abandonment, Project move, materialization transfer, and compensation. Atomic Change Sets imply no such authority, and the current build runtime registers no generic external-action writer.
 
-The orchestrator schedules actions outside an open change set:
+The current orchestrator consumes external-action state outside an open change set:
 
-- `before-materialization`: satisfied before the genesis change set starts; in the initial release this is user/shared-resource evidence, not a Nova pre-app write;
-- `before-slice`: execute and receipt before opening the dependent slice's change set, then capture fresh external read sets;
-- `after-slice`: execute only after the canonical slice receipt exists;
-- `manual-setup`: never auto-execute; completion reports it honestly.
+- `before-materialization`: an exact typed durable receipt must exist before the genesis attempt opens; it is user/shared-resource or producer-specific evidence, not a Nova pre-app write;
+- `before-slice`: an exact typed durable receipt must exist before the dependent attempt opens, after which staging captures fresh external read sets;
+- `after-slice`: remains typed plan metadata and is never mounted on the slice executor; a producer-specific adapter may act only after the canonical receipt exists;
+- `manual-setup`: never auto-executes.
 
-A failed `before-*` action prevents the dependent change set from opening. A failed `after-slice` action leaves the already committed Blueprint valid, records the failure, and prevents any completion claim that requires that action.
+A missing, stale, or mismatched `before-*` receipt fails recoverably before the dependent change set opens. No server path can invent or weaken the receipt. Unit F consumes outstanding `after-slice` and `manual-setup` metadata in its completion report and prevents a completion claim that depends on unfinished external work; neither category changes canonical validity.
 
 ### 8.5 Slice execution brief
 
@@ -1205,7 +1206,7 @@ The orchestrator verifies both digests before every executor call. A mismatch su
 
 ## 9. Tool Workspace and canonical mutation refactor
 
-The current blocker is deeper than where `guardedMutate` calls persistence. The current SA also owns a mutable closure document, while tool bodies receive that document separately from persistence authority. V2 replaces both with a single workspace abstraction.
+Tool execution uses one workspace abstraction rather than splitting a mutable closure document from persistence authority. `guardedMutate` is only the adapter into that workspace-owned boundary.
 
 ### 9.1 Final tool execution shape
 
@@ -1350,7 +1351,7 @@ For the existing canonical SA:
 
 ### 9.4 Mutation helper
 
-`lib/agent/tools/common.ts` becomes a pure admission/error adapter:
+`lib/agent/tools/common.ts` is a pure admission/error adapter:
 
 ```ts
 export async function guardedMutate(
@@ -1369,7 +1370,7 @@ The final code removes `recordMutations` and `recordMutationStages` from the sha
 
 ### 9.5 Canonical transaction kernel
 
-Promote the current guarded write into one internal service rather than copying it:
+The guarded write is centralized in one internal service:
 
 ```ts
 interface CanonicalCommitRequest {
@@ -1399,7 +1400,7 @@ callers compose the kernel through its transaction-hook seam
 rides). Typed `sidecars` on those hooks are that seam's closed vocabulary
 (`lib/db/canonicalCommitSidecars.ts`).
 
-Implement the service by extracting/promoting, not rewriting, these existing contracts from `lib/db/apps.ts::commitGuardedBatch` and `lib/db/applyBlueprintChange.ts::applyBlueprintChange`:
+The service owns these contracts from `lib/db/apps.ts::commitGuardedBatch` and `lib/db/applyBlueprintChange.ts::applyBlueprintChange`:
 
 1. app-row lock;
 2. persisted batch-ID/fingerprint deduplication;
@@ -1445,7 +1446,7 @@ type CanonicalCommitSidecar =
   | { kind: "write-intent-provenance"; rows: IntentProvenanceRow[] };
 ```
 
-The `commit-design-change-set` sidecar locks the change-set row (AFTER the kernel's app lock — the canonical order), verifies status/revision/lineage, flips `open -> committed`, and inserts the immutable committed-slice receipt using the kernel's authoritative sequence, batch ID, and committed snapshot digest. Sidecars run in the same retryable transaction AFTER the committed-batch write tail — a provenance row's foreign key onto the fresh `app_changes` row is then immediately checkable, and a lost holder compare-and-set has already aborted — and must be deterministic, idempotent, and free of network/object-store effects. They cannot alter the candidate Blueprint or bypass the gate, and a dedup hit skips them entirely: the original commit ran them, and a canonical batch without its receipt is corruption for the caller to detect, never a new commit.
+The `commit-design-change-set` sidecar locks the change-set row and its exact bound slice-attempt row (AFTER the kernel's app lock — the canonical order), verifies status/revision/lineage, flips the attempt `running -> committed` and the set `open -> committed`, and inserts the immutable committed-slice receipt using the kernel's authoritative sequence, batch ID, and committed snapshot digest. Sidecars run in the same retryable transaction AFTER the committed-batch write tail — a provenance row's foreign key onto the fresh `app_changes` row is then immediately checkable, and a lost holder compare-and-set has already aborted — and must be deterministic, idempotent, and free of network/object-store effects. They cannot alter the candidate Blueprint or bypass the gate, and a dedup hit skips them entirely: the original commit ran them, and a canonical batch without its receipt is corruption for the caller to detect, never a new commit.
 
 ### 9.6 CanonicalMutationWorkspace
 
@@ -1592,7 +1593,7 @@ For example, an automation staged using location-derived setup guidance carries 
 
 ### 9.10 Structural bypass guards
 
-Add source tests that fail when:
+Source tests fail when:
 
 - a shared tool imports `commitGuardedBatch`, `applyBlueprintChange`, `saveBlueprint`, external organization/media/lookup/deployment writers, or app event emitters outside an approved adapter;
 - a tool-facing context exposes canonical persistence methods;
@@ -1742,7 +1743,7 @@ For an app edit, `beginChangeSet` records:
 - canonical snapshot digest;
 - design/build-plan digests.
 
-Add:
+The base loader is:
 
 ```ts
 async function loadCanonicalBlueprintAtSequence(args: {
@@ -1852,7 +1853,7 @@ This is a private symbol table, not a second authored identity system.
 
 ### 10.6 Staging schema projection
 
-Add `lib/agent/change-set/stagingProjection.ts`.
+`lib/agent/change-set/stagingProjection.ts` owns the executor-facing schema projection.
 
 The projection is a reviewed classification per identity FAMILY over the same identity-pointer registry the identity-parity tests derive from (`lib/agent/identityPointerRegistry.ts`):
 
@@ -1868,11 +1869,10 @@ A source test fails when an identity family is added without a projection decisi
 
 ### 10.7 Executor-only staging tools
 
-Register only for `ChangeSetMutationWorkspace`. The genuinely new grain is incomplete structure creation and reorder, shipped as executor-only tool modules with the runtime:
+The executor-only structural tools are registered only for `ChangeSetMutationWorkspace`. They represent incomplete structure creation and reorder in the runtime:
 
 - `stageModule`
 - `stageForm`
-- `moveStagedModule`
 
 `beginChangeSet`, `commitChangeSet`, `inspectChangeSet`, `discardChangeSet`, and `raiseDesignExecutionIssue` are server functions (`beginAppEditChangeSet`/`beginGenesisChangeSet`, `commitDesignChangeSet`, `ChangeSetMutationWorkspace.inspect()`, `abandonChangeSet`/`supersedeChangeSet`) whose model-facing tool wrappers mount with the executor. There are no separate `stageFields`/`stageCaseListColumn` twins: field, case-list, and case-operation grains ride the existing shared granular tools over the overlay once targets exist.
 
@@ -1890,7 +1890,7 @@ The builders still enforce:
 
 Existing shared granular edit tools operate on the overlay once targets exist. Canonical `createModule`/`createForm` retain complete convenience semantics for direct chat/MCP/builder use.
 
-The shared canonical module reorder tool (backed by the existing `moveModule` mutation — creation order is not final navigation order) ships with the executor cutover; `moveStagedModule` covers change-set reordering until then.
+Module reordering rides the shared canonical `moveModule` tool over the overlay; there is no private reorder twin.
 
 ### 10.8 Diagnostics
 
@@ -1930,7 +1930,7 @@ Diagnostic calculation:
    supplies the owning-intent set; until then `sliceIntentCoverage` is the
    informational per-intent step count.)
 
-Full validator findings are not duplicated into every row. Persist compact stable fingerprints/counts on the request receipt; `inspectChangeSet` recomputes full current details.
+Full validator findings are not duplicated into every row. Request receipts persist compact stable fingerprints/counts; `inspectChangeSet` recomputes full current details.
 
 Diagnostics are advisory until canonical commit. They never redefine validity.
 
@@ -1968,14 +1968,17 @@ Genesis is deliberately different: sequence `1` remains the protected empty `fol
 10. reject target/anchor/exclusive/read-set conflicts with a structured rebase report;
 11. run the guarded case-schema-coupled writer (`applyBlueprintChange`, composing the canonical transaction kernel) so rename/retirement Phase A, ordinary case-type sweeps, and the current lookup/media/organization/case-schema rules keep their exact semantics;
 12. write one `app_changes` row and entity diff;
-13. write intent provenance;
-14. mark the change set committed with sequence/batch ID via canonical sidecars;
+13. prove that mutation-bearing durable steps name only owned intents, collectively cover every owned intent, and derive implementation coordinates from those admitted mutations;
+14. write the derived intent provenance and atomically mark the exact running attempt plus change set committed via canonical sidecars;
 15. commit;
 16. run returned post-commit index/schema convergence;
 17. build per-stage event-log envelopes from the stored step-stage ranges (`committedStageEnvelopes` — the executor surface owns emission) and emit/log only after commit;
 18. emit user-facing app mutation/progress frames only after commit.
 
-Older conformance reports become stale by exact sequence/digest comparison; no report row is mutated. Event-log delivery remains post-commit and is not a transaction sidecar.
+When Unit F adds conformance reports, a later canonical sequence derives an
+older report as stale by exact sequence/digest comparison; no report row is
+mutated. Event-log delivery remains post-commit and is not a transaction
+sidecar.
 
 No success path performs a second transaction to mark the change set committed.
 
@@ -2035,7 +2038,7 @@ Genesis uses the same request/idempotency/change-set protocol but a dedicated pr
 
 ## 11. Pre-app design sessions and target-polymorphic chat
 
-The current app row supplies four early authorities—run ownership, credit reservation, thread scope, and stream-resume authorization—and the current thread protocol contains more semantics than a foreign-key migration. V2 introduces a closed generation-target abstraction and preserves the protocol.
+App and design-session targets share a closed generation-target abstraction for run ownership, credit reservation, thread scope, and stream-resume authorization. The abstraction preserves the complete thread protocol rather than treating target polymorphism as only a foreign-key concern.
 
 ### 11.1 Generation target
 
@@ -2052,7 +2055,7 @@ interface ResolvedGenerationTarget {
 }
 ```
 
-Add one resolver module:
+The shared resolver module is:
 
 ```text
 lib/db/generationTargetScope.ts
@@ -2178,7 +2181,7 @@ Pre-app build sessions derive liveness beside the app derivation in the SAME mod
 
 ### 11.3 Atomic cross-target admission
 
-A simple `SELECT` across `apps` and `design_sessions` is race-prone. Add:
+A simple `SELECT` across `apps` and `design_sessions` is race-prone. The cross-target admission boundary is:
 
 ```ts
 async function withActorGenerationAdmissionGate<T>(
@@ -2220,7 +2223,7 @@ Two concurrent new-design requests for the same actor cannot both create active 
 
 ### 11.4 Run and credit functions
 
-Add target-specific wrappers over shared policy:
+Target-specific wrappers expose the shared policy:
 
 - `claimAndReserveDesignSessionRun`
 - `reacquireDesignSessionLease`
@@ -2423,13 +2426,13 @@ Preserve:
 - non-blocking summary storage failure;
 - monthly usage keyed by user, unchanged.
 
-Add design metrics separately; do not overload the existing run summary with full contracts or findings.
+Design metrics remain separate; the existing run summary is not overloaded with full contracts or findings.
 
 ### 11.11 Pre-app event/log behavior
 
 Do not create a pre-app dialect of `app_changes` or the app event log.
 
-Introduce a small interface:
+Generation telemetry uses this small interface:
 
 ```ts
 interface GenerationTelemetrySink {
@@ -2452,7 +2455,7 @@ UI stage is derived from durable artifacts, not an event-log replay.
 
 ### 11.12 Designs-in-progress UX and recovery
 
-Design sessions do not appear as apps. Add a **Designs in progress** collection with:
+Design sessions do not appear as apps. A **Designs in progress** collection provides:
 
 - title from accepted/draft contract or first user message;
 - last activity;
@@ -2487,13 +2490,13 @@ Document and test:
 9. No path may hold a change-set or thread row while waiting for an existing app row.
 10. Append-only/read-only tables are never row-locked, preserving runtime privilege contracts.
 
-Add a lock-order test matrix that composes run claim/reap/finalize, canonical commit, staging, materialization, thread writes, membership mutation, and Project move. The actor gate key derivation has versioned golden vectors.
+A lock-order test matrix composes run claim/reap/finalize, canonical commit, staging, materialization, thread writes, membership mutation, and Project move. The actor gate key derivation has versioned golden vectors.
 
 ## 12. Meaningful app materialization
 
 ### 12.1 One closed genesis owner
 
-Replace generic `createApp` with:
+App creation has one closed genesis interface:
 
 ```ts
 type PreparedAppGenesis =
@@ -2543,7 +2546,7 @@ Call-site contract:
 
 ### 12.2 Prepared genesis kernel
 
-Create:
+The prepared genesis kernel is:
 
 ```text
 lib/db/appGenesis.ts
@@ -2752,24 +2755,25 @@ A client disconnect between commit and frame emission creates one complete app, 
 
 The app remains `generating` while later build slices execute. Each later slice is a valid canonical revision.
 
-Only the run's existing exact-holder finalization may mark the app `complete` and settle the kept build charge, after:
+Only the run's existing exact-holder finalization may mark the app `complete` and settle the kept build charge. The current foundation requires:
 
 - no open change set remains;
-- required conformance/completion policy is satisfied or an honest incomplete outcome is being returned according to product policy;
 - required runtime schema admission is current;
 - pending performance-index work does not block status.
 
+Unit F inserts its sequence-bound conformance/correction/completion decision
+before that same finalization. A grounded unresolved blocker prevents the
+completion claim, not use of the valid materialized app.
+
 A failed later slice never makes earlier canonical revisions invalid. The run failure/refund policy follows current build semantics.
 
-### 12.10 Binding contract amendment
+### 12.10 Binding contract
 
-Update `docs/plans/complex-app/00-contracts.md` in the same cutover:
-
-- retain one genesis owner, immutable sequence-`1` baseline, exact admission, and no empty persisted app;
-- replace mandatory one-shape genesis with closed `explicit-blank | design-slice` provenance;
-- state that chat design builds have no app until meaningful genesis commits;
-- state that Design Contracts/change sets are non-executable and not Blueprint phases;
-- permit private handles only when resolved before original tool-schema and mutation admission;
+`docs/plans/complex-app/00-contracts.md` binds the current closed
+`explicit-blank | design-slice` genesis owner, immutable meaningful sequence-1
+baseline, non-executable Design Contracts/change sets, exact live-holder
+authority, external-action receipt boundary, and private handles that resolve
+before original tool-schema and mutation admission.
 - require target-polymorphic transcript/run/credit semantics;
 - distinguish transactional runtime schema admission from post-commit index convergence;
 - retain the repository's direct final-shape delivery discipline.
@@ -2778,7 +2782,7 @@ Update `docs/plans/complex-app/00-contracts.md` in the same cutover:
 
 ### 13.1 Separate method ownership from tool execution
 
-Create:
+The build package is:
 
 ```text
 lib/agent/build/
@@ -2802,11 +2806,11 @@ Responsibilities are intentionally unequal:
 - `ToolWorkspace` owns the current private document and serial tool invocation.
 - the model never decides whether review happened, which design revision is accepted, whether a slice may commit, or whether the overall build is complete.
 
-Keep the existing `createSolutionsArchitect` as the direct canonical edit executor until design-aware edit mode ships. It moves to the same workspace/host plumbing in Unit A, but it does not inherit the design method implicitly.
+`createSolutionsArchitect` remains the direct canonical edit executor. It already uses the shared workspace/host plumbing and does not inherit the design method implicitly; Unit G adds an explicit reviewed-edit workflow beside it.
 
 ### 13.2 Durable orchestrator state
 
-Do not infer the control state solely from the chat transcript. Persist append-only attempts and derive one current state:
+Control state is not inferred solely from the chat transcript. Append-only attempts persist and derive one current state:
 
 ```ts
 const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
@@ -2914,7 +2918,7 @@ interface SliceExecutionAttempt {
 
 ### 13.4 Execution brief
 
-Derive one immutable `SliceExecutionBrief` from the accepted design and build plan. Persist its digest on the attempt.
+One immutable `SliceExecutionBrief` derives from the accepted design and build plan. Its digest persists on the attempt.
 
 ```ts
 interface SliceExecutionBrief {
@@ -2970,20 +2974,21 @@ The executor receives:
 - no app lifecycle/finalization tool;
 - no user-facing final-answer tool.
 
-Every executable call uses the AI SDK's stable `toolCallId` as the `stagingRequestId`:
+Every executable call uses the AI SDK's stable `toolCallId` as the `stagingRequestId`. Every mutating call also carries executor-only `implementedIntentIds`; the dispatcher verifies that each ID belongs to the slice, removes that field before the canonical tool schema parses, and persists the IDs beside the admitted step:
 
 ```ts
 interface ExecutorToolRequest {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  implementedIntentIds?: DesignId[];
   expectedWorkspaceRevision: WorkspaceRevision;
 }
 ```
 
 The server computes the exact input digest. Replaying the same `toolCallId` with the same tool, revision, and digest returns the stored receipt. Reusing it with different content is a terminal executor protocol error.
 
-The model never supplies a batch ID, ordinal, canonical UUID, holder nonce, Project identity, or commit authority.
+The model never supplies a batch ID, ordinal, holder nonce, Project identity, or commit authority. It uses handles for handle-capable structural entities; tools that deliberately expose no handle support, including automations, personas, user types, organization levels, location properties, and their nested authored items, require fresh canonical UUIDs in their schemas.
 
 ### 13.6 No parallel mutation semantics
 
@@ -2999,13 +3004,14 @@ Enforce this at the response/tool-dispatch boundary:
 
 This removes dependency on the current `ToolLoopAgent` microtask behavior.
 
-For the legacy canonical SA during Unit A:
+For the direct canonical SA:
 
 - allocate an invocation ordinal synchronously at wrapper entry, before any await;
 - queue by that ordinal;
 - pass one workspace revision into the invocation;
-- add a source/runtime test that a future async hook cannot reorder calls;
-- migrate it to the one-call-per-step protocol when the new executor replaces build mode.
+- retain source/runtime coverage proving an async hook cannot reorder calls.
+
+The direct canonical SA may emit multiple serialized tools in one model turn. The stricter one-call-per-step protocol belongs only to the design-slice executor, where durable private-step replay requires an unambiguous step boundary.
 
 ### 13.7 Executor state machine
 
@@ -3077,6 +3083,17 @@ Budgets derive from slice complexity and risk, with hard global ceilings. Exceed
 - never commits a partial canonical prefix;
 - never reports completion.
 
+The wall-clock budget is an absolute deadline, not a between-step check. The
+executor races provider, staging, and inspection awaits against one combined
+abort signal and checks the deadline before every side-effect boundary. Both
+the private staging transaction and canonical commit receive the same absolute
+timestamp and install PostgreSQL `transaction_timeout` for the remaining
+duration, so a detached or slow write rolls back instead of committing after
+executor authority expires. Executor-owned commit paths return after the
+transaction and leave idempotent post-commit schema/index convergence to its
+durable drain or point-of-use heal; they never start that derived work outside
+the slice budget. Transaction retries consume the original deadline.
+
 There is no unbounded “amend until valid” loop.
 
 ### 13.9 New build discipline
@@ -3085,27 +3102,31 @@ The executor prompt and deterministic checks enforce:
 
 1. implement the accepted slice, not a module-by-module sketch;
 2. begin or recover one change set;
-3. use local handles for new entity references;
-4. stage at natural semantic grain;
-5. use granular private creation rather than canonical completeness scaffolds;
-6. prefer direct answer-to-case writes when source semantics allow;
-7. inspect after meaningful groups and before commit;
-8. append corrections; do not reconstruct successful prior steps;
-9. raise a design issue rather than silently changing architecture;
-10. do not call unavailable external effects;
-11. do not say staged work is saved;
-12. commit once per successful slice boundary;
-13. do not continue after holder loss, Project movement, access loss, or artifact supersession.
+3. attach the exact implemented owned-intent IDs to every mutating call;
+4. use local handles for new structural entity references and canonical UUIDs
+   for authorable families whose schemas do not expose handles;
+5. stage at natural semantic grain;
+6. use granular private creation rather than canonical completeness scaffolds;
+7. prefer direct answer-to-case writes when source semantics allow;
+8. inspect after meaningful groups and before commit;
+9. append corrections; do not reconstruct successful prior steps;
+10. raise a design issue rather than silently changing architecture;
+11. do not call unavailable external effects;
+12. do not say staged work is saved;
+13. commit once per successful slice boundary;
+14. do not continue after holder loss, Project movement, access loss, or artifact supersession.
 
 ### 13.10 Granular staging tools
 
-The executor-only tool surface adds exactly:
+The executor's closed model-facing surface combines staging-allowed shared tools with:
 
+- `stageModule`;
+- `stageForm`;
 - `inspectChangeSet`;
 - `commitChangeSet`;
 - `raiseDesignExecutionIssue`.
 
-Module/form construction and reordering ride the SHARED granular tools over the overlay (`createModule`/`createForm`/`moveModule` stage exactly like every other stageable tool), so there are no `stageModule`/`stageForm`/`moveStagedModule` twins — and no `stageFields`/`stageCaseListColumn`/`stageCaseOperation` twins either. `discardChangeSet` is deliberately NOT model-facing: abandoning a slice is the orchestrator's decision (supersession, budget, escalation), never the executor's, so the discard writer exists only on the server surface.
+`stageModule` and `stageForm` are the only private creation grains: they permit an incomplete initial structure. Complete module/form creation and module reordering ride the shared `createModule`/`createForm`/`moveModule` tools over the overlay. There is no `moveStagedModule`, `stageFields`, `stageCaseListColumn`, or `stageCaseOperation` twin. `discardChangeSet` is deliberately not model-facing: abandoning a slice is the orchestrator's decision (supersession, budget, escalation), never the executor's, so the discard writer exists only on the server surface.
 
 These tools reuse existing domain mutation builders where possible. They do not fork domain rules.
 
@@ -3119,7 +3140,7 @@ A granular tool may permit a private intermediate object that the canonical help
 
 ### 13.11 Direct-write lowering rule
 
-Create `lib/agent/design/directCaseWrite.ts`:
+`lib/agent/design/directCaseWrite.ts` owns direct-write lowering:
 
 ```ts
 function directCaseWritePlan(args: {
@@ -3153,7 +3174,7 @@ Use a calculated/hidden writer only for additional semantics:
 - multiple destinations;
 - a blank/update behavior not expressible by the visible field.
 
-Persist lowering provenance from Design IDs to implementation coordinates so conformance can distinguish an intentional calculated writer from accidental identity copying.
+Lowering provenance from Design IDs to implementation coordinates persists with the canonical slice so conformance can distinguish an intentional calculated writer from accidental identity copying.
 
 ### 13.12 Design issue escalation
 
@@ -3185,7 +3206,7 @@ A raised issue ends the slice attempt's model loop. The orchestrator's full disp
 - record a transparent deferred requirement and replan;
 - fail the build as unsupported.
 
-The new-build orchestrator exercises two of those arms today — `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure (the session stays claimable and the issue is durable on the attempt) — and the correction unit's completion loop is what adds the evidence-answer, revision, and replan dispositions.
+The current new-build orchestrator exercises two of those arms: `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure (the session stays claimable and the issue is durable on the attempt). Unit F adds the evidence-answer, revision, and replan dispositions through its bounded correction loop.
 
 The executor cannot edit the Design Contract, disposition a reviewer finding, or select a new architecture.
 
@@ -3263,7 +3284,13 @@ The receipt is immutable provenance and the only input by which the orchestrator
 - Commit authority remains server-owned.
 - A committed receipt names the exact canonical sequence and digest.
 
-## 14. Conformance and quality
+## 14. Conformance and quality — Unit F (remaining)
+
+This section is the implementation contract for Unit F. The current foundation
+already persists slice-owned intent IDs and mutation-derived implementation
+coordinates beside canonical commits; conformance/quality analyzers, reports,
+correction orchestration, completion reports, and their read surfaces do not
+exist until this unit is complete.
 
 ### 14.1 Keep validity, conformance, and quality separate
 
@@ -3892,7 +3919,7 @@ The orchestrator gains:
 - bounded correction loops;
 - honest completion artifacts.
 
-### 15.15 Design history after build
+### 15.15 Design history after build — Unit F (remaining)
 
 After the pipeline is stable, add a read-only **Design** surface:
 
@@ -3919,7 +3946,12 @@ It never edits Blueprint state. Sensitive source access remains separately autho
 - Private change-set details never enter user or peer surfaces.
 - Screen-reader and keyboard paths cover design, question, activation, and recovery states.
 
-## 16. Design-aware edit mode
+## 16. Design-aware edit mode — Unit G (remaining)
+
+No reviewed app-edit workflow is active in the current foundation. Direct
+builder, chat edit, and MCP mutations remain immediate canonical edits. This
+section specifies the reviewed edit workflow Unit G adds after Unit F supplies
+projection, conformance, and correction primitives.
 
 ### 16.1 Authority model
 
@@ -4087,7 +4119,11 @@ Pause/reacquire uses the app's exact edit holder. The design session records the
 - Current canonical state is always the rebase authority.
 - A valid app never becomes unusable because design metadata is stale.
 
-## 17. MCP surface
+## 17. MCP surface — direct tools current; reviewed workflow Unit G remaining
+
+Section 17.1 is the current MCP contract. Sections 17.2–17.9 are Unit G's
+remaining high-level workflow contract; none of those workflow tools is
+registered until Unit G ships them together.
 
 ### 17.1 Preserve direct canonical tools
 
@@ -4244,17 +4280,16 @@ Every read/write:
 
 ## 18. Persistence and migrations
 
-The cutover's one data repair is operational, not schematic: a pre-cutover
-app stuck non-`complete` has no bound design session, so the route refuses
-to re-drive it and the one-off `scan-legacy-preplan-builds` /
-`migrate-legacy-preplan-builds` pair (committed for audit, deleted after the
-production run) converges holder-free rows to `complete` through the
-reviewed operator-recovery authority. Held rows wait for the reaper; empty
-rows get per-app operator decisions.
+The repository carries one operational legacy repair pair:
+`scan-legacy-preplan-builds` is read-only, and
+`migrate-legacy-preplan-builds` converges holder-free non-`complete` apps that
+have no design-session lineage through the reviewed operator-recovery
+authority. Held rows wait for the reaper; empty rows require per-app operator
+decisions. This is not a second runtime reader or persistence dialect.
 
-### 18.1 Final table inventory
+### 18.1 Table inventory
 
-New tables:
+The current reviewed-build foundation owns:
 
 - `design_sessions`
 - `design_source_packages`
@@ -4272,9 +4307,12 @@ New tables:
 - `design_change_set_handles`
 - `design_external_action_receipts`
 - `app_change_intents`
+- `thread_media_refs`
+
+Unit F adds exactly:
+
 - `design_conformance_reports`
 - `design_completion_reports`
-- `thread_media_refs`
 
 Existing-table changes:
 
@@ -4314,8 +4352,8 @@ Additional exact bindings:
 - `design_reviews`: reviewed revision ID/digest (proved against the stored revision at insert), per-revision `review_ordinal`, reviewer call metadata; the review's source package must be the revision's;
 - `design_review_dispositions`: `(review_id, finding_id)` primary key, status, resulting revision, and the exact `FindingDisposition` payload — inserted in the SAME transaction as the revision that carries them;
 - `design_build_plans`: accepted design revision/digest (a plan over a draft is unpersistable), plan digest;
-- `design_conformance_reports`: app ID/sequence/snapshot digest and projection/rule versions;
-- `design_completion_reports`: exact current design/plan/app/report identities.
+- Unit F `design_conformance_reports`: app ID/sequence/snapshot digest and projection/rule versions;
+- Unit F `design_completion_reports`: exact current design/plan/app/report identities.
 
 Use unique constraints so one accepted revision or active build plan is selected explicitly, not by “latest timestamp” ambiguity.
 
@@ -4553,24 +4591,21 @@ Deleting/superseding a design artifact does not delete provenance for a live app
 interface ExternalActionReceipt {
   id: string;
   designSessionId: string;
-  designRevisionId: string;
   buildPlanId: string;
   externalActionId: DesignId;
-  targetProjectId: string;
+  projectId: string;
   appId: string | null;
-  idempotencyKey: string;
-  inputDigest: Sha256;
-  outcome:
-    | "completed"
-    | "manual-confirmed"
-    | "deferred"
-    | "failed";
-  evidence: ExternalActionEvidence;
-  completedAt: string | null;
+  actionDigest: Sha256;
+  outcome: "completed" | "manual-confirmed";
+  evidence:
+    | { kind: "nova-operation"; operationId: string; resultDigest: Sha256 }
+    | { kind: "user-confirmation"; confirmationId: string; confirmedByUserId: string }
+    | { kind: "external-system"; referenceDigest: Sha256; resultDigest: Sha256 };
+  completedAt: string;
 }
 ```
 
-External actions do not masquerade as Blueprint commits. Their receipts may satisfy build-plan dependencies and completion policy.
+External actions do not masquerade as Blueprint commits. Before opening a dependent change set, the orchestrator requires the exact session/plan/action/Project/app scope, re-digests the current action, strict-parses its evidence, and verifies that the evidence kind matches the completion outcome and idempotency owner. Materialized receipts follow their app in a Project move; pre-app receipts never move.
 
 ### 18.11 Thread/stream target migrations
 
@@ -4627,7 +4662,7 @@ Register every table with its final runtime capability:
 
 Do not add row-lock clauses to tables whose runtime role lacks the PostgreSQL `UPDATE` privilege required by those clauses.
 
-The change-set tables' concrete policy: `design_change_sets` is the one read-write authority row (row-locked to serialize its ledgers); the request/step/stage/handle ledgers, `design_committed_slices`, and `app_change_intents` are append-only (`SELECT, INSERT`) and never row-locked. No realtime channel exists for any of them — private staging never pokes a stream.
+The change-set tables' concrete policy: `design_change_sets` is the one read-write authority row (row-locked to serialize its ledgers); the request/step/stage/handle ledgers, `design_committed_slices`, and `app_change_intents` are append-only (`SELECT, INSERT`) and never row-locked. External-action receipts are read-write only because an app Project move re-tenants their Project key in the same app-locked transaction. No realtime channel exists for any of them — private staging never pokes a stream.
 
 ### 18.14 Project movement
 
@@ -4650,11 +4685,12 @@ Open change sets deliberately do NOT re-tenant on a move: `base_project_id` is t
 
 ### 18.15 Soft delete and physical delete
 
-Soft-deleted apps retain:
+Soft-deleted apps retain the current app-bound lineage:
 
 - canonical history/baseline;
 - design provenance;
-- accepted design/review/build/conformance/completion artifacts;
+- accepted design/review/build artifacts (Unit F adds conformance/completion
+  artifacts to the same retention set);
 - thread/media references required for exact restore;
 - materialized design session linkage.
 
@@ -4664,7 +4700,9 @@ Physical deletion cascades or explicitly removes app-bound lineage according to 
 
 ### 18.16 Retention
 
-- Accepted design revisions, reviews, dispositions, plans, committed slice receipts, provenance, conformance, and completion reports are durable app lineage.
+- Accepted design revisions, reviews, dispositions, plans, committed slice
+  receipts, and provenance are durable app lineage. Unit F's conformance and
+  completion reports join that same durable lineage.
 - Raw model reasoning is never stored.
 - Source packages store normalized claims/pointers, not duplicated raw attachments.
 - Open/superseded/abandoned staging steps may be pruned only after no live run, retry receipt, audit, or support policy references them.
@@ -4716,381 +4754,36 @@ Every PR must:
 
 Internal final-shape modules may land before they are reachable. Do not create a temporary public path or temporary database dialect merely to split review.
 
-### 19.2 Cross-unit review gates
+### 19.2 Current implementation baseline
 
-Do not proceed past these gates on assertion alone:
+The current foundation that Units F and G extend is enforced by the code and
+the contracts in Sections 1–13 and 18:
 
-1. **Canonical parity gate:** Unit A proves ordinary chat/MCP/builder mutations are behaviorally unchanged.
-2. **Private-state isolation gate:** Unit B proves staged state cannot reach any canonical/read/stream surface.
-3. **Artifact integrity gate:** Unit C proves strict/digest-bound design artifacts and independent review.
-4. **Target protocol gate:** Unit D proves app-target behavior is unchanged and design-session behavior has the same transcript/run/credit semantics.
-5. **Materialization cutover gate:** Unit E proves one complete sequence-`1` app or no app across crash points.
-6. **Completion truth gate:** Unit F proves conformance can block wording without blocking valid app use.
-7. **Editor symmetry gate:** Unit G proves direct builder/MCP behavior remains immediate.
+1. **Canonical workspace and commit kernel:** shared tools execute against a workspace-owned snapshot; canonical chat, MCP, and builder mutations retain one admission, authorization, holder, integrity, history, notification, and post-commit convergence path.
+2. **Atomic Change Sets:** private candidates persist exact admitted steps, handles, read sets, diagnostics, and idempotency receipts. Staged state reaches no canonical reader or stream. Commit replays the complete candidate and writes the canonical revision, exact running-attempt transition, committed-slice receipt, and implementation provenance in one transaction.
+3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry and persists every artifact under the exact live holder and current Project membership.
+4. **Pre-app generation target:** build design sessions carry run, reservation, thread, stream, pause, resume, failure, and reaper semantics before an app exists. Materialization transfers that authority once to the app; all later writers lock and authorize the delegated app holder.
+5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. The bounded executor stages exact per-step intent ownership, blocks on required external-action receipts, and commits each later slice as one canonical revision. The app remains reopenable after a later recoverable slice failure.
+6. **Recovery and UI:** a fresh design immediately acquires a durable `/build/new?design=<id>` recovery URL; a materialized scope resolves to the authoritative app. Active designs participate in the Project empty-state decision, and a materialized build is reachable from its app card.
+7. **Explicit blank and direct editors:** explicit blank creation remains the immediate Survey/Form/Question path. Direct builder and shared MCP tools remain immediate canonical editors and do not require design metadata.
 
-### Unit A — Tool Workspace and canonical commit kernel
+These are maintained invariants, not remaining work. Unit F may add reporting
+and corrections around them; Unit G may add reviewed edit orchestration.
+Neither unit may reopen the current persistence shapes or introduce a second
+validity/authority regime.
 
-**Contract:** Shared tools execute through a workspace-owned snapshot and mutation host. Canonical commits retain every current authorization, concurrency, validity, schema, result, event, and wire behavior.
+### 19.3 Remaining dependency order and review gates
 
-**Primary files:**
+Only two units remain, in this order:
 
-- `lib/agent/toolExecutionContext.ts`
-- `lib/agent/tools/common.ts`
-- `lib/agent/solutionsArchitect.ts`
-- `lib/agent/generationContext.ts`
-- `lib/mcp/context.ts`
-- `lib/mcp/adapters/sharedToolAdapter.ts`
-- `lib/agent/sharedToolRegistry.ts`
-- `lib/db/apps.ts`
-- `lib/db/applyBlueprintChange.ts`
-- new `lib/agent/workspace/*`
-- new/refactored `lib/db/canonicalCommitKernel.ts`
-- current canonical/mutation tests
+1. **Unit F — Completion truth gate.** Deterministic, sequence-bound conformance and grounded quality review may block a completion claim, never valid app use or direct canonical editing.
+2. **Unit G — Editor symmetry gate.** Reviewed app edits and high-level MCP reuse the same artifacts, change sets, holder authority, idempotency, and correction machinery while direct builder/MCP mutation paths remain immediate.
 
-**Work:**
-
-1. Add characterization tests around:
-   - `guardedMutate`;
-   - `recordMutations` and stages;
-   - conflict reload;
-   - no-op proof;
-   - expected organization revision;
-   - exclusive rename/retirement;
-   - parked-value notes;
-   - event/SSE ordering;
-   - MCP response shapes.
-
-2. Introduce `ToolWorkspace`:
-   - owns the current snapshot/revision;
-   - supplies immutable invocation snapshots;
-   - serializes reads/writes;
-   - rejects stale revisions;
-   - supports canonical and change-set hosts.
-
-3. Remove `prevDoc` from the host API and eliminate independent mutable document ownership in shared tool bodies.
-
-4. Refactor shared tool execution:
-   - original schema parse remains first/last canonical authority;
-   - canonical SA/MCP wrappers adopt host result snapshots;
-   - no tool imports persistence writers directly.
-
-5. Add exhaustive registry policy:
-   - effect kind;
-   - stageability;
-   - exclusivity;
-   - required external read sets;
-   - required capabilities.
-
-6. Extract/promote the canonical transaction kernel from `commitGuardedBatch` and `applyBlueprintChange`:
-   - preserve current public wrappers;
-   - expose transaction hooks/sidecars only to server-owned callers;
-   - keep exclusive case-store phase-A logic;
-   - keep post-commit phase-B/index convergence.
-
-7. Allocate canonical SA invocation order synchronously and add a regression test that an async hook cannot reorder the workspace.
-
-8. Add structural source guards:
-   - shared tool modules cannot import `apps.ts`, `applyBlueprintChange`, external write services, or event writers except through declared capability adapters;
-   - the tool-facing invocation context exposes no direct persistence methods.
-
-**Acceptance:**
-
-- Existing chat, MCP, builder, collaboration, construction-fuzz, case-schema, and media suites remain green.
-- Golden admitted batches and result envelopes are unchanged for every shared tool.
-- Canonical mutation events occur only after durable commit.
-- Conflict reload adopts one authorized current snapshot.
-- Removing/bypassing the canonical host makes parity tests fail.
-- No correctness path depends on a caller `prevDoc` or promise microtask order.
-- Direct persistence bypass fails source tests.
-
-**Reviewer focus:** semantic parity, not just type compatibility.
-
-### Unit B — Atomic Change Set runtime
-
-**Depends on:** Unit A.
-
-**Contract:** A private, durable workspace stages exact canonical mutations across idempotent calls, survives process death, tracks external read sets, and commits all-or-nothing through the canonical kernel.
-
-**Primary files:**
-
-- new `lib/agent/change-set/*`
-- new `lib/db/canonicalCommitSidecars.ts` + `lib/utils/canonicalJson.ts`
-- new `lib/agent/design/ids.ts` + `lib/agent/design/projection/coordinates.ts`
-  (the identity and closed-coordinate leaves the change-set tables
-  strict-parse through; Units C/F build the rest of those packages around
-  them)
-- new change-set migrations/types/persisted parsers
-- `lib/agent/sharedToolRegistry.ts`
-- `lib/db/canonicalMutationFold.ts`
-- `lib/db/apps.ts`
-- `lib/db/applyBlueprintChange.ts`
-- case-schema/lookup/media/organization integrity modules
-- new property/integration/fuzz tests
-
-**Work:**
-
-1. Add final-shape change-set, request, step, stage, and handle tables.
-2. Implement exact base loading:
-   - empty genesis base;
-   - canonical app at sequence using the baseline/suffix fold (no final
-     lookup-context gate — the recorded base digest is the identity proof);
-   - base digest and base-Project verification.
-3. Implement row-locked `ChangeSetWorkspace`, extending the shared tool
-   execution shape where its durable state gives the extensions content:
-   `ToolInvocationContext.appId` widens to `string | null` (a genesis change
-   set has no app row), `WorkspaceSnapshot` gains `externalContextDigest`,
-   and `applyBatch`/`applyStages` gain `intentIds`/`readSet` arguments
-   recorded with each staged step.
-4. Implement durable request idempotency:
-   - stable request ID;
-   - exact input digest;
-   - expected revision;
-   - atomic handle/step/result persistence.
-5. Implement structural staging schema projection and second canonical parse.
-6. Implement local handle binding with server-minted UUIDs.
-7. Implement ordinary/exclusive/external-effect policy enforcement: the
-   registry's per-tool staging policy plus the mutation-kind fence — a batch
-   carrying `renameCaseProperties` or `retireCaseType` is batch-exclusive and
-   must own its change set alone.
-8. Implement explicit external read sets and policy-driven refresh/fence behavior.
-9. Implement diagnostics and introduced/resolved identity.
-10. Implement existing-app commit:
-    - deterministic batch ID;
-    - fresh replay;
-    - the guarded case-schema-coupled writer (`applyBlueprintChange`
-      composing the canonical kernel);
-    - typed `CanonicalCommitSidecar` request variants (change-set receipt,
-      intent provenance) over the kernel's transaction-hook seam;
-    - structured rebase reports, with concurrent-duplicate convergence on
-      the stored receipt and every kernel failure mapped into the closed
-      change-set taxonomy.
-11. Implement genesis rehydration/diagnostics, but do not expose materialization yet.
-12. Add granular private structure/reorder tools.
-
-**Acceptance:**
-
-- Private candidates may contain `EMPTY_FORM`/`NO_FORMS_OR_CASE_LIST` while canonical state is untouched.
-- Repeated request after a simulated lost response returns identical UUIDs, mutations, diagnostics, and workspace revision.
-- Two process continuations cannot allocate the same/inverted ordinal.
-- Candidate replay is deterministic from base + steps.
-- A stale workspace revision rejects before staging.
-- External revision drift is detected according to tool policy.
-- One successful existing-app commit writes one canonical batch or nothing.
-- Rejected commits retain amendable steps.
-- No staged data appears in app entities, `app_changes`, event log, SSE, Preview, references, case schema, organization rows, or peer tabs.
-- Exclusive commands cannot share a change set.
-- External-effect imports/capabilities are absent from the change-set executor.
-
-**Reviewer focus:** idempotency, authority, replay, and side-effect isolation.
-
-### Unit C — Design Contract, artifacts, and independent review
-
-**May run in parallel with Unit B after shared structured-generation seams are agreed. Ships before Unit E.**
-
-**Contract:** Nova produces, independently reviews, dispositions, and durably versions a typed evidence-linked design and a digest-bound slice plan.
-
-**Primary files:**
-
-- `lib/agent/design/*` (schemas, validators, envelope, store, source
-  package, prompts, calls, pipeline, catalog — its `CLAUDE.md` is the
-  contract)
-- `lib/case-store/migrations/20260808000000_design_artifacts.ts` +
-  `lib/db/pg.ts` + `lib/db/privilegeConvergence.ts` (the five append-only
-  artifact tables, `design_session_id` opaque until Unit D's FK)
-- `lib/agent/modelRunContext.ts` + `lib/db/generationTargets.ts` (the §7.5
-  seam + target-union leaf) over `lib/agent/generationContext.ts` /
-  `lib/agent/subGeneration.ts`
-- attachment/source extraction modules (consumed through
-  `sourcePackage.ts`'s injectable seams)
-- `scripts/preview-app-design.ts` (⚠️ live calls) +
-  `scripts/inspect-design-artifacts.ts` (read-only)
-- design fixtures/tests (`lib/agent/design/__tests__/*`,
-  `lib/agent/__tests__/designGenerationContextWire.test.ts`)
-
-**Work:**
-
-1. Add Design ID, source package, contract, review, disposition, plan, artifact-envelope schemas.
-2. Implement `validateDesignGraph` and `validateSlicePlan`.
-3. Extract the app-independent `StructuredModelRunContext` without duplicating provider code (one adapter; `DesignGenerationContext` + `GenerationContext` both implement it).
-4. Implement source package projection:
-   - normalized claims;
-   - source pointers;
-   - bounded extracts/images;
-   - untrusted-data delimiters;
-   - the source-is-data prompt statement.
-5. Implement the design agent loop's submit tools and the independent reviewer call with safe structured-output logging/metering.
-6. Implement immutable artifact persistence/digest verification.
-7. Implement review grounding/disposition validation and bounded loop.
-8. Implement deterministic complexity depth.
-9. Implement build planner:
-   - exact intent ownership;
-   - one materialization root;
-   - dependency DAG;
-   - external actions;
-   - plan digest.
-10. Add a versioned capability catalog derived from actual domain/tool support.
-11. Add fixture preview/inspection scripts (`preview-app-design.ts` drives the real calls with no persistence; `inspect-design-artifacts.ts` re-verifies a session's stored artifacts).
-
-**Acceptance:**
-
-- Reviewer receives source projection + proposed contract + capability catalog, not author reasoning/history.
-- Source material remains data: it cannot redefine orchestration policy or tool authority, and secrets never enter the source call.
-- Every critical/important finding satisfies grounding rules.
-- Every critical/important finding has one disposition.
-- Accepted revision and plan verify all parent digests.
-- Every non-deferred intent has one owning slice.
-- Exactly one materialization root exists and is dependency-closed.
-- Structured generation failure creates no app and cannot be labeled reviewed.
-- Artifact logs contain only safe metadata.
-
-**Reviewer focus:** graph closure, evidence truth, source-material data discipline, artifact immutability.
-
-### Unit D — Design-session target and full chat protocol
-
-**Depends on:** Unit C artifact identity; can begin after Unit A.
-
-**Contract:** Nova can claim, bill, converse, pause, stream, recover, and retain attachments against a pre-app design session without weakening existing app-target semantics.
-
-**Primary files:**
-
-- new `lib/db/designSessions.ts`
-- new `lib/db/generationTargetScope.ts` (over the `generationTargets.ts` type leaf)
-- `app/api/chat/route.ts`
-- `app/api/chat/schema.ts`
-- `lib/chat/durableStreamWriter.ts`
-- `lib/db/apps.ts` run/credit helpers
-- `lib/db/threads.ts`
-- `lib/db/streamChunks.ts`
-- `lib/db/runSummary.ts`
-- `lib/db/usage.ts`
-- `lib/db/mediaAssets.ts`
-- media deletion/reference modules
-- `lib/db/pg.ts`, `types.ts`, privileges
-- reconnect routes and chat tests
-
-**Work:**
-
-1. Add final design-session table and holder/reservation constraints.
-2. Add the per-actor cross-target admission advisory gate and amend run-lifecycle lock order so the gate precedes the target authority row.
-3. Factor shared liveness policy over app/design carriers.
-4. Implement pre-app claim/reserve/reacquire/pause/finalize/fail/reap.
-5. Generalize thread, stream, and run-summary targets.
-6. Preserve the entire barrier fold/claw-back/tombstone protocol.
-7. Split `thread_media_refs` from app Blueprint references.
-8. Generalize `DurableStreamWriter` and resume authorization.
-9. Generalize `UsageAccumulator` target while preserving reservation/refund arithmetic.
-10. Add target-resolved transcript loaders and opaque cross-tenant failures.
-11. Add internal create/resume/discard design-session APIs needed by Unit E.
-12. Update one-active-generation scans/claims to the atomic union.
-
-**Acceptance:**
-
-- Every existing app-target chat/transcript/stream test remains behaviorally unchanged.
-- Two concurrent new design sessions for one actor cannot both reserve/hold.
-- A question-only design session leaves no app.
-- Barrier snapshots, terminal seals, failed-response claw-back, tombstones, and continuation identity work on both targets.
-- Refresh resumes the exact stream/transcript.
-- Cross-Project IDs collapse to opaque not-found.
-- Attachment deletion races serialize against exact thread refs.
-- Pause, abort, retry, stale reap, refund, and settle remain exact.
-- Edit design sessions use app authority and cannot duplicate a holder.
-
-**Reviewer focus:** lock order, exact holder predicates, transcript equivalence, billing.
-
-### Unit E — Final new-build cutover: meaningful genesis, orchestrator, executor, and UX
-
-**Depends on:** Units A–D. This is the one user-facing cutover PR/train landing atomically under the repository's deployment discipline.
-
-**Contract:** Chat builds start as design sessions and materialize one meaningful export-ready sequence-`1` app. Later slices arrive as ordinary valid canonical commits.
-
-**Primary files:**
-
-- new `lib/db/appGenesis.ts`
-- `lib/db/apps.ts`
-- `lib/doc/scaffolds.ts`
-- new `lib/agent/build/*`
-- `lib/agent/solutionsArchitect.ts`
-- `lib/agent/prompts.ts`
-- `app/api/chat/route.ts`
-- `app/api/chat/schema.ts`
-- `lib/generation/streamDispatcher.ts`
-- `components/chat/ChatContainer.tsx`
-- builder new-page/app-list components
-- `app/(app)/build/actions.ts`
-- `docs/plans/complex-app/00-contracts.md`
-- applicable subtree docs
-
-**Work:**
-
-1. Implement closed `explicit-blank | design-slice` genesis preparation.
-2. Extract a single genesis writer with:
-   - fresh Project authorization;
-   - exact source replay;
-   - absolute gate/export readiness;
-   - exact media/lookup/organization integrity;
-   - runtime case-schema admission;
-   - app/entities/edges/fold baseline;
-   - change-set/provenance;
-   - holder/reservation transfer.
-3. Record pending case-index convergence transactionally and drain post-commit.
-4. Implement durable orchestrator event fold.
-5. Implement one-call slice executor and execution budgets.
-6. Implement direct-write lowering and design-issue escalation.
-7. Replace chat build startup:
-   - no early `createApp`;
-   - create/claim design session;
-   - design/review/plan;
-   - execute first slice;
-   - materialize.
-8. Replace `data-app-id` with strict `data-app-materialized`.
-9. Add idempotent client activation and lost-event recovery.
-10. Keep explicit blank immediate through the same genesis/activation owner.
-11. Add Designs in progress list, outline, progress, resume/discard UX.
-12. Remove build-mode starter/mega-call prompt discipline.
-13. Keep canonical edit prompt/tools intact.
-14. Update current-state contracts/docs in the same cutover.
-15. Delete obsolete early-app build code; do not retain a fallback path.
-16. Make `getAutomations`/`getOrganization`/`updateAutomation` overlay-native
-    (bodies read `ctx.snapshot.doc`) and remove the change-set registry's
-    readiness fence.
-17. Add the shared canonical module reorder tool backed by the existing
-    `moveModule` mutation.
-18. Mount the model-facing change-set tools (begin/stage/inspect/commit/
-    discard/raiseDesignExecutionIssue) on the executor surface and wire
-    per-stage envelope emission from `committedStageEnvelopes`.
-19. Re-home genesis staging authority onto the claimed design-session row:
-    a genesis set's stage/commit transactions lock the session row as the
-    authority carrier, retiring the change-set row's self-serialization
-    and its owner-attribution ownership proof.
-20. Add the design-level lookup-intent vocabulary (table/column intents in
-    the contract root) and lift the graph-closure exemption on the `lookup`
-    fact-source arm — a real chat build designs lookup-backed data on day
-    one, so the exemption must not survive the cutover.
-21. Add the image evidence coordinate to the source-reference vocabulary
-    (asset id + content digest) and route the author/reviewer prompts to
-    cite it — retiring the cite-the-attaching-message interim rule.
-
-**Acceptance:**
-
-- New chat request may converse/review without an app.
-- No app card/tree/Preview exists before materialization.
-- First visible app contains only meaningful user-relevant structure.
-- Sequence `1` is valid, export-ready, Project-bearing, and fold-replay exact.
-- Runtime schema rows required by first use exist at activation.
-- Pending concurrent index work cannot create a partial/missing app and does not define validity.
-- Explicit blank still creates Survey/Form/Question immediately.
-- Duplicate/lost activation frames are safe.
-- Process death at every materialization statement boundary yields no app or one complete app.
-- Later slices each appear as one canonical sequence.
-- Peer tabs never see staging.
-- Credits/holder authority transfer exactly once.
-- Old early `data-app-id` build path is gone.
-
-**Reviewer focus:** transaction completeness, crash windows, client activation, final cutover deletion.
+Unit G depends on Unit F's implementation projection, provenance readers, conformance vocabulary, and correction path. They are not parallel units.
 
 ### Unit F — Conformance, quality, correction, and Design history
 
-**Depends on:** Units C and E.
+**Builds on:** The current reviewed-artifact, provenance, change-set, and materialization foundation.
 
 **Contract:** Nova verifies accepted intent and workflow quality without changing canonical validity or direct-editor permissions.
 
@@ -5165,7 +4858,7 @@ Do not proceed past these gates on assertion alone:
 
 **Reviewer focus:** authority separation and editor symmetry.
 
-### 19.3 Coding-agent checklist per unit
+### 19.4 Coding-agent checklist per remaining unit
 
 Before changing code:
 
@@ -5187,6 +4880,13 @@ Before declaring the unit done:
 8. confirm no temporary compatibility code remains.
 
 ## 20. Verification matrix
+
+This matrix combines maintained foundation coverage with the acceptance work
+for the two remaining units. Sections 20.1–20.16 and 20.18 primarily protect
+the current foundation. Section 20.17 is Unit F. The Design-history,
+design-aware-edit, high-level-MCP, and final completion assertions in the
+browser journey are owned by Unit F or G according to Section 19; they are not
+a third delivery unit.
 
 ### 20.1 Design schema and artifact integrity
 
@@ -5210,7 +4910,7 @@ Before declaring the unit done:
 
 - DAG is acyclic.
 - Exactly one materialization-root slice exists.
-- Materialization root includes its full prerequisite closure.
+- Materialization root has no prerequisite slices and directly owns everything required for the first export-ready app.
 - Every non-deferred intent has exactly one owning slice.
 - Dependency references do not count as ownership.
 - Every acceptance scenario belongs to at least one slice (a corrective slice may carry none — scenarios are contract objects a plan covers, not per-slice inventions).
@@ -5567,6 +5267,13 @@ Unit/browser tests:
    - Minimal app appears immediately without a design session.
 
 ## 21. Observability and metrics
+
+The opaque-ID and no-customer-content rules in this section already bind the
+current build path. Unit F adds the conformance, quality, correction, and
+completion fields; Unit G adds reviewed-edit and high-level-MCP workflow
+projections. Each remaining unit supplies the counters and spans for the
+behavior it activates, so this section defines the final operational view
+without creating another delivery unit.
 
 ### 21.1 Correlation model
 
@@ -5952,153 +5659,64 @@ They do not store secret credentials or raw source/model content.
 
 User deletion and operator retention paths document what is removed, retained for app history, or retained for compliance/support. A pre-app session deletion cannot erase an app it later materialized.
 
-## 23. Documentation changes
+## 23. Documentation contract
 
-Update documentation in the same unit that changes behavior.
+Documentation describes present behavior and moves in the same unit as that
+behavior. It does not preserve rollout history.
 
-### 23.1 Repository contracts
+### 23.1 Current documentation surfaces
 
-- root `CLAUDE.md`
-  - “valid revisions, reviewed intent” boundary;
-  - three state spaces;
-  - no Blueprint drafts/release mutation;
-  - final-shape delivery/cutover.
+- Root `CLAUDE.md` / `AGENTS.md` map the reviewed design pipeline, build
+  orchestrator, slice executor, meaningful genesis, and immediate direct MCP
+  editor.
+- `lib/agent/CLAUDE.md`, `lib/agent/design/CLAUDE.md`, and
+  `lib/agent/change-set/CLAUDE.md` own model, artifact, authority, staging,
+  intent-coverage, and commit contracts.
+- `lib/db/CLAUDE.md` owns design-session run/credit scope, canonical sidecars,
+  materialization, Project movement, and runtime privileges.
+- `components/CLAUDE.md` and `components/builder/CLAUDE.md` own pre-app,
+  activation, URL recovery, and canonical-only rendering behavior.
+- `docs/plans/complex-app/00-contracts.md` binds meaningful/explicit-blank
+  genesis, non-executable design/change-set state, external-action separation,
+  and direct-editor validity.
+- `content/docs/building-with-nova.mdx` explains the current reviewed build,
+  designs-in-progress recovery, meaningful first workflow, later-slice
+  recovery, explicit blank path, and external prerequisites in user language.
 
-- `lib/agent/CLAUDE.md`
-  - orchestrator vs executor;
-  - artifact envelopes/digests;
-  - Tool Workspace;
-  - one-call executor protocol;
-  - reviewer independence;
-  - capability/effect policy;
-  - no external writes from change sets.
+Stable `file::symbol` references are used instead of line numbers. Ordinary
+help never exposes holder nonces, transaction sidecars, admitted mutations, or
+private change-set handles.
 
-- `lib/doc/CLAUDE.md`
-  - private steps are canonical admitted mutations but not app history;
-  - handles resolve before admission;
-  - base replay/digest;
-  - change sets do not weaken fold/gate laws.
+### 23.2 Unit F documentation
 
-- `lib/db/CLAUDE.md`
-  - design-session holder/reservation;
-  - actor admission advisory gate;
-  - target-polymorphic thread/stream/summary;
-  - complete lock order;
-  - canonical commit kernel/sidecars;
-  - materialization transaction;
-  - schema admission vs concurrent index convergence;
-  - privileges/retention/Project move.
+Unit F updates the design/agent/database/builder contracts with deterministic
+projection, report freshness, correction authority, and Design history. Public
+documentation adds the Design panel, assumptions, review results, conformance
+status, and external setup only when those surfaces exist. Operational docs add
+report inspection and correction fault codes.
 
-- `lib/collab/CLAUDE.md`
-  - private state never enters app stream;
-  - sequence-`1` activation;
-  - later slice commits/reload boundaries.
+### 23.3 Unit G documentation
 
-- `components/builder/CLAUDE.md`
-  - pre-app UX;
-  - strict activation receipt;
-  - no tree/Preview before materialization;
-  - lost-frame recovery;
-  - Design history surface.
+Unit G updates the agent/build/MCP contracts with amendments, recovered legacy
+snapshots, app-target design sessions, high-level workflow idempotency, and
+question/resume semantics. MCP reference and narrative guides clearly separate:
 
-- `components/chat/CLAUDE.md` or nearest existing chat contract
-  - durable progress projection;
-  - target-polymorphic transcript;
-  - question/pause/recovery;
-  - no raw private artifacts.
-
-- case-store subtree docs
-  - transactional runtime schema admission;
-  - durable post-commit index convergence;
-  - no concurrent index DDL inside genesis transaction.
-
-### 23.2 Binding contract
-
-Amend `docs/plans/complex-app/00-contracts.md` in the cutover unit:
-
-- closed `explicit-blank | design-slice` genesis;
-- no app before meaningful chat genesis;
-- immutable sequence-`1` baseline remains mandatory;
-- one genesis owner;
-- Design Contract/change set are non-executable;
-- private handle exception is compiler-local and resolves before canonical admission;
-- target-polymorphic run/transcript semantics;
-- external action separation;
-- completion assertion is not validity;
-- direct builder/MCP edits remain immediate.
-
-Use stable `file::symbol` references, not line numbers.
-
-### 23.3 Public product documentation
-
-Explain in user language:
-
-- Nova first understands/reviews a described workflow;
-- unfinished conversational designs appear separately from apps;
-- the first app view is a coherent workflow;
-- “Start with a blank app” remains available;
-- later improvements appear as valid updates;
-- Design history shows assumptions/review/external setup;
-- manual CommCare HQ setup is named explicitly;
-- Preview does not execute unsupported external automation.
-
-Do not expose internal terms such as transaction sidecar, admitted mutation, holder nonce, or change-set handle in ordinary help content.
-
-### 23.4 MCP documentation
-
-Separate:
-
-- direct canonical mutation tools;
+- immediate direct canonical mutation tools;
 - explicit blank `create_app`;
 - high-level reviewed workflow tools;
-- question/resume states;
-- idempotency request IDs;
 - artifact/report getters;
-- absence of generic public staging transactions.
+- the deliberate absence of a generic public staging transaction.
 
-Callable references include exact schemas/identities. Narrative guides explain the workflow.
+The copied `nova-plugin` documentation changes in the same PR whenever Unit G
+changes a model-visible MCP contract.
 
-### 23.5 Operational documentation
+### 23.4 Documentation verification
 
-Ship:
-
-- migration advisory scan and maintenance cutover runbook;
-- rollback/restore decision;
-- stale design-session/run reaper operations;
-- retention/deletion policy;
-- pending case-index convergence inspection/retry;
-- safe admin artifact inspection;
-- fault-code guide;
-- no-content logging policy.
-
-### 23.6 Implementation documentation
-
-Each new package includes a concise `CLAUDE.md` naming:
-
-- authority;
-- invariants;
-- lock order;
-- persistence ownership;
-- forbidden imports/effects;
-- exact tests;
-- adjacent package boundaries.
-
-Document present state only. The v2 plan remains the implementation roadmap; subtree docs do not preserve the historical migration story once the end state ships.
-
-### 23.7 Documentation verification
-
-Add source tests where valuable:
-
-- every shared tool registry entry declares policy;
-- forbidden persistence/external imports;
-- all target-union writers use the resolver;
-- all new tables appear in privilege/Project-move/delete inventories;
-- old `data-app-id` build path absent;
-- old generic `createApp` call sites absent after cutover;
-- no docs claim transactional `CREATE INDEX CONCURRENTLY`;
-- public docs do not say staged work is saved/reviewed/complete.
-
-The program is not done until code, contracts, subtree docs, public docs, operational docs, and MCP reference describe the same end state.
+Source tests continue to pin registry policy, forbidden imports/effects,
+target-union writers, privilege/Project-move/delete inventories, removal of old
+build paths, and no-content logging. The program is complete only when code,
+contracts, subtree docs, public docs, operational docs, MCP reference, and the
+plugin describe the same end state.
 
 ## 24. Definition of done
 
@@ -6125,7 +5743,7 @@ The program is complete only when all of the following are true.
 ### Planning and execution
 
 13. Every non-deferred intent has exactly one owning slice.
-14. Exactly one dependency-closed materialization root exists.
+14. Exactly one materialization root exists, has no prerequisite slices, and directly owns everything required for the first export-ready app.
 15. External actions are typed, idempotent, and separately receipted.
 16. The executor receives one immutable slice brief and one private workspace.
 17. One executor step executes at most one tool call.

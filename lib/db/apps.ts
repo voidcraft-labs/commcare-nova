@@ -1202,6 +1202,14 @@ export async function commitAppProjectMoveInTransaction(
 		.set({ project_id: args.toProjectId, updated_at: new Date() })
 		.where("app_id", "=", args.appId)
 		.execute();
+	/* Completed external prerequisites are Project-scoped evidence. They follow
+	 * their materialized app in the same move transaction; pre-app receipts
+	 * have no app id and therefore never move. */
+	await tx
+		.updateTable("design_external_action_receipts")
+		.set({ project_id: args.toProjectId })
+		.where("app_id", "=", args.appId)
+		.execute();
 	const fullTx = tx as unknown as Transaction<AppDatabase & CaseDatabase>;
 	await retenantAppCasesOn(fullTx.$pickTables<keyof CaseDatabase>(), {
 		appId: args.appId,

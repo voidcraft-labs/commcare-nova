@@ -182,6 +182,12 @@ async function main(): Promise<void> {
 	const realTools = createDesignLoopTools({
 		designSessionId: sessionId,
 		runId: "preview",
+		authority: {
+			actorUserId: "preview",
+			runId: "preview",
+			holderNonce: "00000000-0000-4000-8000-000000000004",
+			expectedProjectId: pkg.projectId,
+		},
 		currentPkg: pkg,
 		catalogText,
 		ctx,

@@ -5,7 +5,10 @@ lookup tables, and settings lives in Postgres tables on the shared Cloud SQL poo
 owns the wire: `getAppDb()` (a `Kysely<AppDatabase>` on the pool
 `lib/case-store/postgres/connection.ts` owns), `withAppTx` (the one
 transaction entry point — bounded deadlock/serialization retry; a body re-runs
-from scratch on retry, so it stays pure of side effects), the table types
+from scratch on retry, so it stays pure of side effects; a build-slice commit
+may also supply one absolute deadline, which every retry converts to
+PostgreSQL 18 `transaction_timeout` so the transaction cannot commit after
+executor authority expires), the table types
 (lock-stepped with the DDL in `lib/case-store/migrations/`), and the
 LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
@@ -200,7 +203,8 @@ outside the retryable transaction, and `writePreparedGenesisInTransaction`
 then asserts membership in-transaction, inserts the root (with the run's
 holder + reservation columns when a transfer rides the birth), locks/reads
 lookup definitions, evaluates the absolute verdict, checks full export
-readiness, admits media references, replaces exact edges, admits runtime
+readiness, applies organization cross-store integrity, admits media references,
+replaces exact edges, admits runtime
 case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
 work drains post-commit off `index_pending_seq`), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
@@ -270,8 +274,9 @@ owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
 and both be empty. The final transaction locks threads and destination assets,
 remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
-purges presence, flips `project_id`, appends one attributed `project-move`
-change, and
+purges presence, flips `project_id`, re-tenants the app's materialized design
+sessions and Project-scoped external-action receipts, appends one attributed
+`project-move` change, and
 emits app/presence notifications atomically. Media byte copies are the only
 non-destructive pre-transaction work. Exact same-Project recovery instead locks
 the app, derives its fresh Project, and repairs only case tenancy: no migration

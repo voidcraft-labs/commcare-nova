@@ -83,6 +83,10 @@ import {
 } from "./executorLoop";
 import { EXECUTOR_PROMPT_VERSION } from "./executorPrompt";
 import {
+	assertRequiredExternalActionsSatisfied,
+	ExternalActionRequiredError,
+} from "./externalActions";
+import {
 	appendOrchestrationEvent,
 	type OrchestrationHead,
 	readOrchestrationHead,
@@ -95,6 +99,7 @@ import {
 import {
 	beginOrRecoverSliceAttempt,
 	bindSliceAttemptChangeSet,
+	countDesignIssueAttempts,
 	markSliceAttempt,
 	type SliceAttempt,
 } from "./sliceAttempts";
@@ -343,6 +348,8 @@ export async function runBuildOrchestration(
 				designSessionId: args.designSessionId,
 				runId: args.runId,
 				holderNonce: args.holderNonce,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
 				state: {
 					kind: "designing",
 					designSessionId: args.designSessionId,
@@ -365,6 +372,8 @@ export async function runBuildOrchestration(
 			projectId: args.projectId,
 			threadId: args.threadId,
 			runId: args.runId,
+			actorUserId: args.actorUserId,
+			holderNonce: args.holderNonce,
 			responseMessageId: args.responseMessageId,
 			messages: args.messages,
 			pkg,
@@ -406,6 +415,8 @@ export async function runBuildOrchestration(
 				designSessionId: args.designSessionId,
 				runId: args.runId,
 				holderNonce: args.holderNonce,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
 				state: {
 					kind: "awaiting-user-questions",
 					designSessionId: args.designSessionId,
@@ -436,7 +447,12 @@ export async function runBuildOrchestration(
 		}
 
 		const { revision, plan } = loopOutcome;
-		await setDesignSessionActiveArtifacts(args.designSessionId, {
+		await setDesignSessionActiveArtifacts({
+			designSessionId: args.designSessionId,
+			actorUserId: args.actorUserId,
+			runId: args.runId,
+			holderNonce: args.holderNonce,
+			expectedProjectId: args.projectId,
 			activeDesignRevisionId: revision.id,
 			activeBuildPlanId: plan.id,
 		});
@@ -449,6 +465,8 @@ export async function runBuildOrchestration(
 				designSessionId: args.designSessionId,
 				runId: args.runId,
 				holderNonce: args.holderNonce,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
 				state: {
 					kind: "planning",
 					designRevisionId: revision.id,
@@ -466,6 +484,26 @@ export async function runBuildOrchestration(
 		for (const slice of ordered) {
 			if (committedSlices.has(slice.id as string)) continue;
 			const isGenesis = appId === null;
+			const budget = budgetForSlice(slice);
+			const priorDesignIssues = await countDesignIssueAttempts({
+				designSessionId: args.designSessionId,
+				buildPlanId: plan.id,
+				sliceId: slice.id as string,
+			});
+			if (priorDesignIssues >= budget.maxDesignIssueEscalations) {
+				head = await appendFailure(args, head, {
+					errorType: "design-issue-budget-exhausted",
+					recoverable: true,
+				});
+				return {
+					kind: "failed",
+					appId,
+					errorType: "internal",
+					message:
+						"This slice reached its persisted design-issue limit and needs a revised design plan before execution can continue.",
+					recoverable: true,
+				};
+			}
 			narrate(
 				args.writer,
 				isGenesis
@@ -480,6 +518,29 @@ export async function runBuildOrchestration(
 				sliceId: slice.id,
 			});
 			const digest = briefDigest(brief);
+			try {
+				await assertRequiredExternalActionsSatisfied({
+					designSessionId: args.designSessionId,
+					projectId: args.projectId,
+					appId,
+					plan: plan.envelope.payload,
+					slice,
+				});
+			} catch (error) {
+				if (!(error instanceof ExternalActionRequiredError)) throw error;
+				head = await appendFailure(args, head, {
+					errorType: "external-action-required",
+					recoverable: true,
+				});
+				return {
+					kind: "failed",
+					appId,
+					errorType: "internal",
+					message:
+						"A required external prerequisite is still outstanding. Complete it before continuing this build.",
+					recoverable: true,
+				};
+			}
 			const { attempt } = await beginOrRecoverSliceAttempt({
 				designSessionId: args.designSessionId,
 				designRevisionId: revision.id,
@@ -521,6 +582,8 @@ export async function runBuildOrchestration(
 					designSessionId: args.designSessionId,
 					runId: args.runId,
 					holderNonce: args.holderNonce,
+					actorUserId: args.actorUserId,
+					expectedProjectId: args.projectId,
 					state: {
 						kind: "executing-slice",
 						designRevisionId: revision.id,
@@ -540,6 +603,7 @@ export async function runBuildOrchestration(
 				slice,
 				isGenesis,
 				appId,
+				budget,
 			});
 			heartbeat();
 			if (outcome.kind === "committed") {
@@ -643,6 +707,8 @@ export async function runBuildOrchestration(
 			designSessionId: args.designSessionId,
 			runId: args.runId,
 			holderNonce: args.holderNonce,
+			actorUserId: args.actorUserId,
+			expectedProjectId: args.projectId,
 			state: { kind: "finished", appId, appSeq: lastSeq },
 			expectedHead: head,
 		});
@@ -720,6 +786,8 @@ async function appendFailure(
 		designSessionId: args.designSessionId,
 		runId: args.runId,
 		holderNonce: args.holderNonce,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.projectId,
 		state: {
 			kind: "failed",
 			failureId: crypto.randomUUID(),
@@ -758,6 +826,8 @@ async function pauseOnQuestions(
 		designSessionId: args.designSessionId,
 		runId: args.runId,
 		holderNonce: args.holderNonce,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.projectId,
 		state: {
 			kind: "awaiting-user",
 			designSessionId: args.designSessionId,
@@ -923,6 +993,7 @@ async function executeOneSlice(
 		slice: BuildSlice;
 		isGenesis: boolean;
 		appId: string | null;
+		budget: ReturnType<typeof budgetForSlice>;
 	},
 ): Promise<SliceExecutionOutcome> {
 	const host: ChangeSetWorkspaceHost = {
@@ -944,10 +1015,22 @@ async function executeOneSlice(
 		host,
 		slice.changeSetId,
 	);
-	const commit = async () => {
+	const commit = async (signal: AbortSignal, deadlineAt: number) => {
+		if (signal.aborted || Date.now() >= deadlineAt) {
+			return {
+				kind: "gate-rejected" as const,
+				message: "The slice execution deadline expired before commit.",
+			};
+		}
 		const fresh = await loadChangeSet(slice.changeSetId);
 		if (fresh === undefined) {
 			throw new Error("This change set no longer exists.");
+		}
+		if (signal.aborted || Date.now() >= deadlineAt) {
+			return {
+				kind: "gate-rejected" as const,
+				message: "The slice execution deadline expired before commit.",
+			};
 		}
 		if (slice.isGenesis) {
 			const outcome = await deps.materialize({
@@ -958,6 +1041,7 @@ async function executeOneSlice(
 				expectedProjectId: args.projectId,
 				expectedRevision: fresh.revision,
 				owningIntentIds: slice.slice.ownedIntentIds,
+				deadlineAt,
 			});
 			if (outcome.kind === "materialized") {
 				return { kind: "committed" as const, receipt: outcome.receipt };
@@ -977,20 +1061,22 @@ async function executeOneSlice(
 			kind: "chat",
 			expectedRevision: fresh.revision,
 			owningIntentIds: slice.slice.ownedIntentIds,
+			deadlineAt,
 		});
 		return outcome;
 	};
 	return runSliceExecutor({
 		workspace,
 		brief: slice.brief,
-		budget: budgetForSlice(slice.slice),
+		budget: slice.budget,
 		step: deps.executorStep,
 		commit,
 		signal: args.signal,
-		onProgress: (note) => {
+		onProgress: (phase) => {
 			log.info("[buildOrchestrator] slice progress", {
 				designSessionId: args.designSessionId,
-				note,
+				sliceId: slice.slice.id,
+				phase,
 			});
 		},
 		...(deps.onReasoningSummary !== undefined && {

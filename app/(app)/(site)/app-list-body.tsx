@@ -88,7 +88,7 @@ export function AppListBody({
 								<AppCard
 									app={app}
 									index={i}
-									href={app.status === "error" ? undefined : `/build/${app.id}`}
+									href={`/build/${app.id}`}
 									onDelete={canDeleteApp ? deleteApp : undefined}
 									projectMove={projectMove}
 								/>

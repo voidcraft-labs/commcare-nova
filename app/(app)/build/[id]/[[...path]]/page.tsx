@@ -46,7 +46,10 @@ import {
 	resolveAuthorizedAppSnapshot,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
-import { loadDesignSession } from "@/lib/db/designSessions";
+import {
+	loadDesignSession,
+	loadMaterializedSessionForApp,
+} from "@/lib/db/designSessions";
 import { resolveGenerationTargetScope } from "@/lib/db/generationTargetScope";
 import {
 	type CommCareSettingsPublic,
@@ -110,15 +113,12 @@ export default async function BuilderPage({
 		if (err instanceof AppAccessError) notFound();
 		throw err;
 	}
-	/* `complete` apps open normally, and so does a `generating` build, the
+	/* `complete` apps open normally, and so does a `generating` build: the
 	 * builder hydrates its thread and reconnects to the live stream, so a
 	 * refresh mid-build resumes instead of locking the user out. `error`
-	 * builds are decided BELOW, off the thread load: a build whose run died
-	 * mid-flight (instance kill: the reaper flipped it to `error`, the
-	 * thread heal just stripped its dead stream marker) is admitted so the
-	 * client can auto-re-drive the interrupted turn; every other error app
-	 * still redirects: there is no run to rejoin and no usable app behind
-	 * it. */
+	 * builds are decided BELOW, from both thread state and durable design
+	 * lineage: an interrupted turn can be re-driven, while a materialized
+	 * design remains a usable earlier revision even when a later slice failed. */
 	if (
 		app.status !== "complete" &&
 		app.status !== "generating" &&
@@ -169,16 +169,27 @@ export default async function BuilderPage({
 		if (app.status !== "complete") redirect("/");
 	}
 
-	/* An `error` app earns admission ONLY as an interrupted build: the
-	 * hydrated thread carries a dead live-stream marker (`loadThread` derives
-	 * `resume_interrupted` itself: the detection is level-triggered, so it
-	 * doesn't matter which loader read the row first, and a NON-most-recent
-	 * interrupted thread keeps its own signal for the Conversations list to
-	 * act on). Anything else: a build that failed and finalized cleanly, a
-	 * faulted hydration: keeps the old redirect. */
+	/* An `error` app is reachable when either its hydrated thread carries a
+	 * dead live-stream marker (`loadThread` derives `resume_interrupted`) or a
+	 * materialized design session proves sequence 1 already committed. The
+	 * former may auto-redrive; the latter simply preserves the usable earlier
+	 * revision and its ordinary user-driven continuation path. Other error
+	 * apps keep the existing redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
-	if (app.status === "error" && !buildInterrupted) redirect("/");
+	const failedMaterializedDesign =
+		app.status === "error" ? await loadMaterializedSessionForApp(id) : null;
+	if (
+		app.status === "error" &&
+		!buildInterrupted &&
+		failedMaterializedDesign === null
+	) {
+		redirect("/");
+	}
+	const buildUnfinished =
+		app.status === "generating" ||
+		buildInterrupted ||
+		failedMaterializedDesign !== null;
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
 	const previewProjectSpace = await previewProjectSpacePromise;
@@ -193,7 +204,7 @@ export default async function BuilderPage({
 			 * Seeds the session store's `buildUnfinished` latch, the same
 			 * value the `appGenerating` prop below carries for mount-time
 			 * thread-activation decisions. */
-			initialBuildUnfinished={app.status === "generating" || buildInterrupted}
+			initialBuildUnfinished={buildUnfinished}
 			initialProjectSpace={previewProjectSpace}
 			userId={session.user.id}
 		>
@@ -202,7 +213,7 @@ export default async function BuilderPage({
 				commcareSettings={commcareSettings}
 				threads={threads}
 				initialThread={initialThread}
-				appGenerating={app.status === "generating" || buildInterrupted}
+				appGenerating={buildUnfinished}
 				currentUserId={session.user.id}
 			/>
 		</BuilderProvider>

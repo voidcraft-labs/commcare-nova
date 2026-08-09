@@ -54,6 +54,7 @@ import { canonicalAppGenesis, emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import type { Uuid } from "@/lib/domain/uuid";
+import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { decomposeBlueprint } from "./blueprintRows";
 import {
@@ -224,6 +225,11 @@ export async function writePreparedGenesisInTransaction(
 				.join("\n")}`,
 		);
 	}
+	await applyOrganizationCommitIntegrity(tx, {
+		appId,
+		previousDoc: emptyBlueprintDoc(appId),
+		candidateDoc: verdict.nextDoc,
+	});
 	await admitExactMediaReferences(tx, {
 		appId,
 		projectId,

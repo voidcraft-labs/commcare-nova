@@ -8,13 +8,14 @@ import { describe, expect, it } from "vitest";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
-	appendOrchestrationEvent,
+	appendOrchestrationEvent as appendOrchestrationEventAuthorized,
 	type BuildOrchestratorState,
 	OrchestrationForkError,
 	readOrchestrationHead,
 } from "../orchestratorState";
 import {
 	beginOrRecoverSliceAttempt,
+	countDesignIssueAttempts,
 	loadRunningSliceAttempt,
 	markSliceAttempt,
 } from "../sliceAttempts";
@@ -23,15 +24,82 @@ const h = setupAppStateTestDb("orchestrator_state_");
 
 const RUN = "run-orch";
 const NONCE = "6a0a35a4-1111-4222-8333-944445555666";
+const ACTOR = "owner-test";
+const PROJECT = "project-test";
 const DIGEST = "a".repeat(64);
+
+function appendOrchestrationEvent(
+	args: Omit<
+		Parameters<typeof appendOrchestrationEventAuthorized>[0],
+		"actorUserId" | "expectedProjectId"
+	>,
+) {
+	return appendOrchestrationEventAuthorized({
+		...args,
+		actorUserId: ACTOR,
+		expectedProjectId: PROJECT,
+	});
+}
+
+function seedHeldSession(): Promise<string> {
+	return h.seedDesignSession({
+		owner_user_id: ACTOR,
+		project_id: PROJECT,
+		run_id: RUN,
+		run_holder_nonce: NONCE,
+		run_actor_user_id: ACTOR,
+		run_lease_expires_at: new Date(Date.now() + 60_000),
+		reservation: {
+			period: "2026-08",
+			reserved: 1,
+			settled: false,
+			userId: ACTOR,
+			runId: RUN,
+		},
+	});
+}
 
 function designing(designSessionId: string): BuildOrchestratorState {
 	return { kind: "designing", designSessionId, sourcePackageDigest: DIGEST };
 }
 
 describe("orchestration event chain", () => {
+	it("refuses a stale holder before it can consume the next revision", async () => {
+		const sessionId = await seedHeldSession();
+		await expect(
+			appendOrchestrationEvent({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: crypto.randomUUID(),
+				state: designing(sessionId),
+				expectedHead: null,
+			}),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+		expect(await readOrchestrationHead(sessionId)).toBeNull();
+	});
+
+	it("refuses an append after current Project membership is revoked", async () => {
+		const sessionId = await seedHeldSession();
+		await h
+			.pool()
+			.query(
+				`DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2`,
+				[ACTOR, PROJECT],
+			);
+		await expect(
+			appendOrchestrationEvent({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				state: designing(sessionId),
+				expectedHead: null,
+			}),
+		).rejects.toThrow(/edit access/);
+		expect(await readOrchestrationHead(sessionId)).toBeNull();
+	});
+
 	it("appends, folds, and refuses a forked continuation", async () => {
-		const sessionId = await h.seedDesignSession();
+		const sessionId = await seedHeldSession();
 		expect(await readOrchestrationHead(sessionId)).toBeNull();
 
 		const first = await appendOrchestrationEvent({
@@ -81,7 +149,7 @@ describe("orchestration event chain", () => {
 	});
 
 	it("the fold fails closed on a tampered payload", async () => {
-		const sessionId = await h.seedDesignSession();
+		const sessionId = await seedHeldSession();
 		const first = await appendOrchestrationEvent({
 			designSessionId: sessionId,
 			runId: RUN,
@@ -174,5 +242,19 @@ describe("slice attempts", () => {
 		 * slice has none. */
 		const running = await loadRunningSliceAttempt(sessionId);
 		expect(running?.sliceId).not.toBe(args.sliceId);
+	});
+
+	it("counts persisted design-issue attempts for the slice budget", async () => {
+		const sessionId = await h.seedDesignSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		await markSliceAttempt(attempt.id, "design-issue", "platform-gap");
+		expect(
+			await countDesignIssueAttempts({
+				designSessionId: sessionId,
+				buildPlanId: args.buildPlanId,
+				sliceId: args.sliceId,
+			}),
+		).toBe(1);
 	});
 });

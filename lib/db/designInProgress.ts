@@ -62,6 +62,26 @@ export const UNTITLED_DESIGN_TITLE = "Untitled design";
  *  abandoned a long tail of them. */
 const DEFAULT_LIMIT = 20;
 
+/** Cheap empty-state probe using the same ownership/scope as the list. */
+export async function userHasDesignsInProgress(args: {
+	userId: string;
+	projectId: string;
+}): Promise<boolean> {
+	if (!(await userInProject(args.userId, args.projectId, "view"))) return false;
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_sessions")
+		.select("id")
+		.where("mode", "=", "build")
+		.where("state", "=", "active")
+		.where("app_id", "is", null)
+		.where("owner_user_id", "=", args.userId)
+		.where("project_id", "=", args.projectId)
+		.limit(1)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
 /** The persisted shape the projection reads — spelled out so the pure
  *  projection below can be exercised without a database. */
 export interface DesignInProgressRow {

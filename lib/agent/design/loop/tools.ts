@@ -26,6 +26,7 @@
 import { jsonSchema } from "ai";
 import { type ZodError, z } from "zod";
 import {
+	type DesignArtifactWriteAuthority,
 	insertDesignBuildPlan,
 	insertDesignReview,
 	insertDesignRevision,
@@ -68,6 +69,7 @@ import {
 export interface DesignLoopToolDeps {
 	readonly designSessionId: string;
 	readonly runId: string;
+	readonly authority: DesignArtifactWriteAuthority;
 	/** THIS turn's source package: already persisted by the loop runner. */
 	readonly currentPkg: DesignSourcePackage;
 	readonly catalogText: string;
@@ -161,7 +163,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					finishReason: null,
 				}),
 				lifecycle: "draft",
-				runId: deps.runId,
+				authority: deps.authority,
 			});
 			deps.repair.noteAccepted("submitContract");
 			return {
@@ -225,7 +227,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					finishReason: reviewed.finishReason,
 				}),
 				designRevisionId: draft.id,
-				runId: deps.runId,
+				authority: deps.authority,
 			});
 			deps.repair.noteAccepted("requestReview");
 			const findings = review.envelope.payload.findings;
@@ -250,7 +252,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 						finishReason: draft.envelope.producer.finishReason,
 					}),
 					lifecycle: "accepted",
-					runId: deps.runId,
+					authority: deps.authority,
 					dispositions: [],
 				});
 				const blocking = accepted.envelope.payload.openQuestions.filter(
@@ -341,7 +343,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					finishReason: null,
 				}),
 				lifecycle,
-				runId: deps.runId,
+				authority: deps.authority,
 				dispositions,
 			});
 			deps.repair.noteAccepted("submitRevision");
@@ -402,7 +404,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					plan: planParsed.data,
 					finishReason: null,
 				}),
-				runId: deps.runId,
+				authority: deps.authority,
 			});
 			deps.repair.noteAccepted("submitPlan");
 			return {

@@ -447,7 +447,9 @@ export function AppCard({
 
 	const cardClass =
 		"relative p-4 bg-nova-surface border border-nova-border rounded-lg";
-	const openHref = !isFailed && interactive ? href : undefined;
+	/* A materialized design remains a valid, resumable app when a later slice
+	 * fails. Its error status changes the card treatment, not its reachability. */
+	const openHref = interactive ? href : undefined;
 	const linkClass = `${cardClass} hover:border-nova-border-bright transition-colors group`;
 	const dimmedClass = `${cardClass} opacity-60`;
 
@@ -458,7 +460,15 @@ export function AppCard({
 			transition={{ delay: index * 0.03 }}
 		>
 			<div
-				className={isFailed ? dimmedClass : openHref ? linkClass : cardClass}
+				className={
+					isFailed
+						? openHref
+							? `${linkClass} opacity-60`
+							: dimmedClass
+						: openHref
+							? linkClass
+							: cardClass
+				}
 			>
 				{openHref && (
 					<Link

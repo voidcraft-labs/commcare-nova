@@ -91,6 +91,13 @@ Animate with `motion/react` (never `framer-motion`). Time-bounded animations cle
 
 Pages are Server Components; the server layout is the auth gate (`requireAuth` / `requireAdminAccess` in an RSC parent, props down). Client code must NEVER re-gate on session state, push `'use client'` down to small leaves. The Better Auth client disables refetch-on-focus (the default briefly nulls session data on tab switch, which a re-gating client would misread as signed-out).
 
+Build recovery is URL-backed. The first `data-design-session` scope on
+`/build/new` immediately replaces the URL with `/build/new?design=<id>`; a
+scope that already names a materialized app reloads `/build/<appId>` when the
+activation receipt was missed. Failed app cards remain links; the authorized
+build page admits interrupted builds and apps with materialized design lineage,
+because a later-slice failure does not invalidate the sequence-one app.
+
 A client leaf that branches its render on `useAuth().isPending` will hydration-mismatch: the auth client resolves the session synchronously client-side (`isPending` false on first paint) while SSR has none (`isPending` true), so server and client first-render differ. Gate the first render on a `mounted` flag (see `AccountMenu`).
 
 ## Theme

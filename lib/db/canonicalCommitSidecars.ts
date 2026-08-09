@@ -73,9 +73,6 @@ export type CanonicalCommitSidecar =
 
 export class CanonicalCommitSidecarError extends Error {
 	readonly name = "CanonicalCommitSidecarError";
-	constructor(message: string) {
-		super(message);
-	}
 }
 
 /**
@@ -179,6 +176,37 @@ async function commitDesignChangeSetSidecar(
 			`Change set ${sidecar.changeSetId} no longer matches the design/plan lineage this commit was derived under.`,
 		);
 	}
+	const attempt = await tx
+		.selectFrom("design_slice_attempts")
+		.select([
+			"id",
+			"design_session_id",
+			"design_revision_id",
+			"design_revision_digest",
+			"build_plan_id",
+			"build_plan_digest",
+			"slice_id",
+			"change_set_id",
+			"status",
+		])
+		.where("id", "=", sidecar.sliceAttemptId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (
+		attempt === undefined ||
+		attempt.status !== "running" ||
+		attempt.design_session_id !== sidecar.designSessionId ||
+		attempt.design_revision_id !== sidecar.designRevisionId ||
+		attempt.design_revision_digest !== sidecar.designRevisionDigest ||
+		attempt.build_plan_id !== sidecar.buildPlanId ||
+		attempt.build_plan_digest !== sidecar.buildPlanDigest ||
+		attempt.slice_id !== sidecar.sliceId ||
+		attempt.change_set_id !== sidecar.changeSetId
+	) {
+		throw new CanonicalCommitSidecarError(
+			`Slice attempt ${sidecar.sliceAttemptId} is not the exact running attempt bound to change set ${sidecar.changeSetId}.`,
+		);
+	}
 	const committedSnapshotDigest = canonicalJsonDigest(commit.committedSnapshot);
 	const flip = await tx
 		.updateTable("design_change_sets")
@@ -196,6 +224,18 @@ async function commitDesignChangeSetSidecar(
 	if (!updatedExactlyOne(flip)) {
 		throw new CanonicalCommitSidecarError(
 			`Change set ${sidecar.changeSetId} could not flip to committed under its own lock.`,
+		);
+	}
+	const attemptFlip = await tx
+		.updateTable("design_slice_attempts")
+		.set({ status: "committed", failure_code: null, updated_at: new Date() })
+		.where("id", "=", sidecar.sliceAttemptId)
+		.where("status", "=", "running")
+		.where("change_set_id", "=", sidecar.changeSetId)
+		.executeTakeFirst();
+	if (!updatedExactlyOne(attemptFlip)) {
+		throw new CanonicalCommitSidecarError(
+			`Slice attempt ${sidecar.sliceAttemptId} could not flip from running to committed under its own lock.`,
 		);
 	}
 	await tx

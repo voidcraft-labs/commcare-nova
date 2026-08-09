@@ -45,6 +45,7 @@ import {
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import { designIdSchema } from "@/lib/agent/design/ids";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import type { SliceExecutionBudget } from "./budgets";
@@ -146,9 +147,25 @@ function buildExecutorTools(): Record<
 		{ description: string; inputSchema: JSONSchema7 }
 	> = {};
 	for (const [name, entry] of CHANGE_SET_TOOL_REGISTRY) {
+		const inputSchema = executorWireToolSchema(name, entry.tool.inputSchema);
+		if (entry.policy.effect === "mutate-blueprint") {
+			inputSchema.properties ??= {};
+			const properties = inputSchema.properties;
+			properties.implementedIntentIds = {
+				type: "array",
+				items: { type: "string", format: "uuid" },
+				minItems: 1,
+				uniqueItems: true,
+				description:
+					"The exact owned design intent ids this staged mutation call implements.",
+			};
+			inputSchema.required = [
+				...new Set([...(inputSchema.required ?? []), "implementedIntentIds"]),
+			];
+		}
 		tools[name] = {
 			description: entry.tool.description,
-			inputSchema: executorWireToolSchema(name, entry.tool.inputSchema),
+			inputSchema,
 		};
 	}
 	for (const [name, definition] of Object.entries(SERVER_TOOLS)) {
@@ -316,10 +333,12 @@ export async function runSliceExecutor(args: {
 	 * `canCommit` (the model's `commitChangeSet` call is a REQUEST, never
 	 * authority).
 	 */
-	commit: () => Promise<SliceCommitResult>;
+	commit: (
+		signal: AbortSignal,
+		deadlineAt: number,
+	) => Promise<SliceCommitResult>;
 	signal: AbortSignal;
-	/** Coarse, user-safe notes only ("Checking the app for problems"). */
-	onProgress?: (note: string) => void;
+	onProgress?: (phase: "building" | "validating" | "committing") => void;
 	/** Each step's display-safe reasoning summary → the run event log, so
 	 *  the WHY behind an executor decision is readable beside its artifacts
 	 *  (no design table gains a reasoning column). */
@@ -328,6 +347,17 @@ export async function runSliceExecutor(args: {
 	const { workspace, brief, budget, signal } = args;
 	const tools = executorTools();
 	const startedAt = Date.now();
+	const deadlineAt = startedAt + budget.maxWallClockMs;
+	const deadline = new AbortController();
+	const deadlineTimer = setTimeout(
+		() =>
+			deadline.abort(new Error("Slice execution wall-clock budget expired.")),
+		Math.max(0, deadlineAt - Date.now()),
+	);
+	deadlineTimer.unref?.();
+	const boundedSignal = AbortSignal.any([signal, deadline.signal]);
+	const deadlineExceeded = () =>
+		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
 
 	let modelSteps = 0;
 	let stagedRequests = 0;
@@ -347,160 +377,289 @@ export async function runSliceExecutor(args: {
 		),
 	];
 
-	args.onProgress?.(`Building ${brief.slice.name}`);
+	args.onProgress?.("building");
 
-	for (;;) {
-		if (signal.aborted) {
-			return {
-				kind: "protocol-failure",
-				code: "aborted",
-				message: "This slice attempt was cancelled before it finished.",
-			};
-		}
-		if (modelSteps >= budget.maxModelSteps) return exhausted();
-		if (Date.now() - startedAt >= budget.maxWallClockMs) return exhausted();
-
-		const step = await args.step({
-			system: EXECUTOR_SYSTEM,
-			messages,
-			tools,
-			signal,
-		});
-		modelSteps += 1;
-		if (step.reasoningText) args.onReasoning?.(step.reasoningText);
-		messages = [...messages, ...step.responseMessages];
-
-		if (step.toolCalls.length === 0) {
-			consecutiveEmptySteps += 1;
-			if (consecutiveEmptySteps > 2) {
+	try {
+		for (;;) {
+			if (signal.aborted) {
 				return {
 					kind: "protocol-failure",
-					code: "no-tool-call",
-					message:
-						"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
+					code: "aborted",
+					message: "This slice attempt was cancelled before it finished.",
 				};
 			}
-			messages = [...messages, userMessage(CONTINUE_NUDGE)];
-			continue;
-		}
-		consecutiveEmptySteps = 0;
+			if (modelSteps >= budget.maxModelSteps) return exhausted();
+			if (Date.now() >= deadlineAt || deadline.signal.aborted)
+				return exhausted();
 
-		if (step.toolCalls.length > 1) {
-			/* §13.6.3: execute none, answer every call deterministically. */
-			messages = [
-				...messages,
-				...step.toolCalls.map((call) =>
-					toolMessage(call.toolCallId, call.toolName, ONE_CALL_PROTOCOL_RESULT),
-				),
-			];
-			continue;
-		}
-
-		const call = step.toolCalls[0];
-		if (call === undefined) continue;
-		const answer = (value: unknown): void => {
-			messages = [
-				...messages,
-				toolMessage(call.toolCallId, call.toolName, value),
-			];
-		};
-
-		if (CHANGE_SET_TOOL_REGISTRY.has(call.toolName)) {
-			stagedRequests += 1;
-			if (stagedRequests > budget.maxStagedRequests) return exhausted();
+			let step: Awaited<ReturnType<ExecutorStepFn>>;
 			try {
-				const dispatched = await workspace.stageDispatch({
-					toolName: call.toolName,
-					requestId: call.toolCallId,
-					input: call.input,
-				});
-				answer(projectToolResult(dispatched.result));
+				step = await awaitWithAbort(
+					args.step({
+						system: EXECUTOR_SYSTEM,
+						messages,
+						tools,
+						signal: boundedSignal,
+					}),
+					boundedSignal,
+				);
 			} catch (error) {
-				if (error instanceof ChangeSetStagingRejectedError) {
-					/* An ordinary refusal — the model self-corrects. */
-					answer({ error: error.message });
+				/* The provider observes the deadline-bound signal while it is awaited.
+				 * Convert only OUR deadline abort to the durable budget outcome; caller
+				 * cancellation keeps its existing abort semantics. */
+				if (deadlineExceeded()) return exhausted();
+				throw error;
+			}
+			if (Date.now() >= deadlineAt || deadline.signal.aborted)
+				return exhausted();
+			modelSteps += 1;
+			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
+			messages = [...messages, ...step.responseMessages];
+
+			if (step.toolCalls.length === 0) {
+				consecutiveEmptySteps += 1;
+				if (consecutiveEmptySteps > 2) {
+					return {
+						kind: "protocol-failure",
+						code: "no-tool-call",
+						message:
+							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
+					};
+				}
+				messages = [...messages, userMessage(CONTINUE_NUDGE)];
+				continue;
+			}
+			consecutiveEmptySteps = 0;
+
+			if (step.toolCalls.length > 1) {
+				/* §13.6.3: execute none, answer every call deterministically. */
+				messages = [
+					...messages,
+					...step.toolCalls.map((call) =>
+						toolMessage(
+							call.toolCallId,
+							call.toolName,
+							ONE_CALL_PROTOCOL_RESULT,
+						),
+					),
+				];
+				continue;
+			}
+
+			const call = step.toolCalls[0];
+			if (call === undefined) continue;
+			const answer = (value: unknown): void => {
+				messages = [
+					...messages,
+					toolMessage(call.toolCallId, call.toolName, value),
+				];
+			};
+
+			if (CHANGE_SET_TOOL_REGISTRY.has(call.toolName)) {
+				stagedRequests += 1;
+				if (stagedRequests > budget.maxStagedRequests) return exhausted();
+				try {
+					if (Date.now() >= deadlineAt || deadline.signal.aborted)
+						return exhausted();
+					const entry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
+					const projected =
+						entry?.policy.effect === "mutate-blueprint"
+							? extractStagingInput(call.input, brief)
+							: { input: call.input, intentIds: [] as const };
+					const dispatched = await awaitWithAbort(
+						workspace.stageDispatch({
+							toolName: call.toolName,
+							requestId: call.toolCallId,
+							input: projected.input,
+							intentIds: projected.intentIds,
+							deadlineAt,
+						}),
+						boundedSignal,
+					);
+					answer(projectToolResult(dispatched.result));
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					if (signal.aborted) {
+						return {
+							kind: "protocol-failure",
+							code: "aborted",
+							message: "This slice attempt was cancelled before it finished.",
+						};
+					}
+					if (error instanceof ChangeSetStagingRejectedError) {
+						/* An ordinary refusal — the model self-corrects. */
+						answer({ error: error.message });
+						continue;
+					}
+					const terminal = terminalProtocolCode(error);
+					if (terminal === null) throw error;
+					return {
+						kind: "protocol-failure",
+						code: terminal,
+						message: (error as Error).message,
+					};
+				}
+				continue;
+			}
+
+			if (call.toolName === INSPECT_TOOL) {
+				if (Date.now() >= deadlineAt || deadline.signal.aborted)
+					return exhausted();
+				args.onProgress?.("validating");
+				try {
+					answer(
+						projectDiagnostics(
+							await awaitWithAbort(workspace.inspect(), boundedSignal),
+						),
+					);
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				continue;
+			}
+
+			if (call.toolName === COMMIT_TOOL) {
+				if (Date.now() >= deadlineAt || deadline.signal.aborted)
+					return exhausted();
+				let diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>;
+				try {
+					diagnostics = await awaitWithAbort(
+						workspace.inspect(),
+						boundedSignal,
+					);
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				if (Date.now() >= deadlineAt || deadline.signal.aborted)
+					return exhausted();
+				if (!diagnostics.canCommit) {
+					/* A blocked request is not an attempt — nothing was tried. */
+					answer({
+						error: `The change set cannot commit yet: ${describeBlockers(diagnostics)}`,
+					});
 					continue;
 				}
-				const terminal = terminalProtocolCode(error);
-				if (terminal === null) throw error;
-				return {
-					kind: "protocol-failure",
-					code: terminal,
-					message: (error as Error).message,
-				};
-			}
-			continue;
-		}
-
-		if (call.toolName === INSPECT_TOOL) {
-			args.onProgress?.("Checking the app for problems");
-			answer(projectDiagnostics(await workspace.inspect()));
-			continue;
-		}
-
-		if (call.toolName === COMMIT_TOOL) {
-			const diagnostics = await workspace.inspect();
-			if (!diagnostics.canCommit) {
-				/* A blocked request is not an attempt — nothing was tried. */
-				answer({
-					error: `The change set cannot commit yet: ${describeBlockers(diagnostics)}`,
-				});
-				continue;
-			}
-			commitAttempts += 1;
-			if (commitAttempts > budget.maxCommitAttempts) return exhausted();
-			args.onProgress?.(`Saving ${brief.slice.name}`);
-			const result = await args.commit();
-			if (result.kind === "committed") {
-				return { kind: "committed", receipt: result.receipt };
-			}
-			if (result.kind === "gate-rejected") {
-				answer({ error: result.message });
-				continue;
-			}
-			if (result.kind === "rebase-conflict") {
-				rebaseAttempts += 1;
-				if (rebaseAttempts > budget.maxRebaseAttempts) return exhausted();
+				commitAttempts += 1;
+				if (commitAttempts > budget.maxCommitAttempts) return exhausted();
+				args.onProgress?.("committing");
+				let result: SliceCommitResult;
+				try {
+					result = await awaitWithAbort(
+						args.commit(boundedSignal, deadlineAt),
+						boundedSignal,
+					);
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				if (result.kind === "committed") {
+					return { kind: "committed", receipt: result.receipt };
+				}
+				if (result.kind === "gate-rejected") {
+					answer({ error: result.message });
+					continue;
+				}
+				if (result.kind === "rebase-conflict") {
+					rebaseAttempts += 1;
+					if (rebaseAttempts > budget.maxRebaseAttempts) return exhausted();
+					answer({
+						error:
+							"The app changed underneath this change set, so the commit was replayed and conflicted. Read the report, correct the affected steps, and request the commit again.",
+						report: result.report,
+					});
+					continue;
+				}
 				answer({
 					error:
-						"The app changed underneath this change set, so the commit was replayed and conflicted. Read the report, correct the affected steps, and request the commit again.",
-					report: result.report,
+						"External data this change set read has changed since it was staged. Re-read what changed, correct the affected steps, and request the commit again.",
+					stale: result.stale,
 				});
 				continue;
 			}
+
+			if (call.toolName === RAISE_ISSUE_TOOL) {
+				const parsed = designExecutionIssueSchema.safeParse(call.input);
+				if (!parsed.success) {
+					answer({
+						error: `That design issue could not be recorded: ${parsed.error.issues
+							.map(
+								(issue) =>
+									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+							)
+							.join(
+								"; ",
+							)}. Re-send it with schemaVersion 1, a fresh id, one of the listed categories, at least one affected design intent id, an explanation, a local or architecture structural impact, and at most three proposed options.`,
+					});
+					continue;
+				}
+				/* An escalation ends the loop, so `maxDesignIssueEscalations` is an
+				 * ACROSS-attempt budget the orchestrator enforces when it decides
+				 * whether to resume this slice with a new brief. */
+				return { kind: "design-issue", issue: parsed.data };
+			}
+
 			answer({
-				error:
-					"External data this change set read has changed since it was staged. Re-read what changed, correct the affected steps, and request the commit again.",
-				stale: result.stale,
+				error: `There is no tool named ${call.toolName}. The tools available are: ${Object.keys(tools).join(", ")}.`,
 			});
-			continue;
 		}
-
-		if (call.toolName === RAISE_ISSUE_TOOL) {
-			const parsed = designExecutionIssueSchema.safeParse(call.input);
-			if (!parsed.success) {
-				answer({
-					error: `That design issue could not be recorded: ${parsed.error.issues
-						.map(
-							(issue) =>
-								`${issue.path.join(".") || "(root)"}: ${issue.message}`,
-						)
-						.join(
-							"; ",
-						)}. Re-send it with schemaVersion 1, a fresh id, one of the listed categories, at least one affected design intent id, an explanation, a local or architecture structural impact, and at most three proposed options.`,
-				});
-				continue;
-			}
-			/* An escalation ends the loop, so `maxDesignIssueEscalations` is an
-			 * ACROSS-attempt budget the orchestrator enforces when it decides
-			 * whether to resume this slice with a new brief. */
-			return { kind: "design-issue", issue: parsed.data };
-		}
-
-		answer({
-			error: `There is no tool named ${call.toolName}. The tools available are: ${Object.keys(tools).join(", ")}.`,
-		});
+	} finally {
+		clearTimeout(deadlineTimer);
 	}
+}
+
+/** Bound an awaited operation even when its implementation fails to observe
+ * the supplied signal. Production canonical commits additionally install a
+ * database transaction timeout before this race, so timeout cannot leave a
+ * detached canonical write running toward commit. */
+function awaitWithAbort<T>(
+	promise: Promise<T>,
+	signal: AbortSignal,
+): Promise<T> {
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		promise.then(resolve, reject).finally(() => {
+			signal.removeEventListener("abort", abort);
+		});
+	});
+}
+
+function extractStagingInput(
+	input: unknown,
+	brief: SliceExecutionBrief,
+): { input: unknown; intentIds: readonly z.infer<typeof designIdSchema>[] } {
+	if (input === null || typeof input !== "object" || Array.isArray(input)) {
+		throw new ChangeSetStagingRejectedError(
+			"STAGING_FORBIDDEN",
+			"A staged mutation call must be an object with implementedIntentIds.",
+		);
+	}
+	const { implementedIntentIds, ...toolInput } = input as Record<
+		string,
+		unknown
+	>;
+	const parsed = z
+		.array(designIdSchema)
+		.min(1)
+		.refine((ids) => new Set(ids).size === ids.length)
+		.safeParse(implementedIntentIds);
+	if (!parsed.success) {
+		throw new ChangeSetStagingRejectedError(
+			"STAGING_FORBIDDEN",
+			"A staged mutation call must name at least one valid implemented intent id.",
+		);
+	}
+	const owned = new Set<string>(brief.owningIntentIds);
+	if (parsed.data.some((id) => !owned.has(id))) {
+		throw new ChangeSetStagingRejectedError(
+			"STAGING_FORBIDDEN",
+			"A staged mutation call may name only intents owned by this slice.",
+		);
+	}
+	return { input: toolInput, intentIds: parsed.data };
 }
 
 /** The terminal change-set errors, mapped to their stable observability codes.

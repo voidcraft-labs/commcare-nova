@@ -263,6 +263,13 @@ export function validateSlicePlanStructure(
 	 * data migration before an app exists. */
 	const root = roots[0];
 	if (root !== undefined) {
+		if (root.prerequisiteSliceIds.length > 0) {
+			const rootIndex = plan.slices.findIndex((slice) => slice.id === root.id);
+			issue(
+				["slices", rootIndex, "prerequisiteSliceIds"],
+				"The materialization root cannot name prerequisite slices. Everything needed for the first export-ready app must be owned and lowered atomically by the root itself.",
+			);
+		}
 		const closure = new Set<string>();
 		const queue = [root.id];
 		while (queue.length > 0) {

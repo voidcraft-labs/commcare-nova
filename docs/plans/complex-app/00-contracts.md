@@ -328,6 +328,39 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ## Architecture contracts
 
+### Reviewed design and atomic construction
+
+Chat builds begin as Project-scoped design sessions, not app rows. Their source
+packages, Design Contracts, independent reviews, dispositions, and build plans
+are immutable, strict-parsed, digest-bound artifacts. They are non-executable:
+Preview, export, deployment, collaboration, and ordinary app reads consume only
+canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
+canonical edits and never require design metadata.
+
+Every holder-owned design-artifact or orchestration write authorizes the exact live
+`(run_id, holder_nonce)` carrier and current Project membership in the same
+transaction as the write. Before materialization that carrier is the locked
+design-session row; afterward it is the locked app row reached through the
+session's immutable materialization mapping. Artifact selection additionally
+proves that the accepted revision and build plan belong to the same session and
+that the plan targets that revision.
+
+A persisted build plan has exactly one materialization root, and that root has
+no prerequisite slices: it directly owns the complete first export-ready app.
+Required external actions are separate effects with typed, digest-bound durable
+receipts; the orchestrator proves the exact receipt before opening a dependent
+change set. Every mutation-bearing staged step names the slice-owned intents it
+implements. Canonical commit proves complete intent coverage from those steps,
+derives implementation coordinates from the admitted mutations, and writes the
+exact `running -> committed` slice-attempt transition, committed-slice receipt,
+and provenance beside the Blueprint revision in one transaction.
+
+Materialization applies the same lookup, media, organization, runtime-schema,
+and export-readiness integrity as every later canonical commit. Once sequence
+`1` exists, it remains reachable even if a later slice fails: the design-session
+recovery URL resolves to the authoritative app, and the app is a usable earlier
+valid revision rather than a discarded partial build.
+
 ### One Postgres system
 
 All persistent state uses the Cloud SQL Postgres pool and the Kysely migration

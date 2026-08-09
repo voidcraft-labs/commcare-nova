@@ -106,9 +106,9 @@ function scope(ctx: ToolInvocationContext): OrganizationScope {
  * {@link readOrganization} gives an app that never created an organization —
  * is the honest reading, not a lookup against an app id that does not exist.
  *
- * Guidance only. A committing arm still reads through {@link readOrganization}
- * directly, because the revision it fences its write on must name real stored
- * state; a synthesized 0 would fence against nothing.
+ * Revision zero is also the real organization fence for genesis: no app row
+ * or place row exists yet, and the materialization transaction proves that
+ * empty snapshot before it creates either one.
  */
 async function readPlacesForGuidance(
 	ctx: ToolInvocationContext,
@@ -223,7 +223,7 @@ export const addAutomationsTool = {
 			// Guidance needs the external location catalog. Resolve it before the
 			// authoritative write so no fallible read can turn a successful commit
 			// into an error-shaped tool result and invite a duplicate retry.
-			const organization = await readOrganization(scope(ctx));
+			const organization = await readPlacesForGuidance(ctx);
 			const commit = await guardedMutate(ctx, mutations, "automations", {
 				expectedOrganizationRevision: organization.revision,
 			});
@@ -342,7 +342,7 @@ export const updateAutomationTool = {
 			}
 			// Keep every fallible external projection before the write. The guide
 			// is pure over this authorized snapshot plus the committed document.
-			const organization = await readOrganization(scope(ctx));
+			const organization = await readPlacesForGuidance(ctx);
 			const commit = await guardedMutate(ctx, mutations, "automations", {
 				expectedOrganizationRevision: organization.revision,
 			});

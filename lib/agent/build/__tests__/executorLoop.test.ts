@@ -25,6 +25,7 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetStagingRejectedError,
 } from "@/lib/agent/change-set/errors";
+import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import {
 	ids,
 	makeBuildPlan,
@@ -50,6 +51,20 @@ const EMPTY_DOC = {
 	forms: {},
 	fields: {},
 } as unknown as BlueprintDoc;
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+	let resolve: ((value: T) => void) | undefined;
+	const promise = new Promise<T>((settle) => {
+		resolve = settle;
+	});
+	return {
+		promise,
+		resolve: (value) => {
+			if (resolve === undefined) throw new Error("deferred promise not ready");
+			resolve(value);
+		},
+	};
+}
 
 function diagnostics(
 	overrides: Partial<ChangeSetDiagnostics> = {},
@@ -85,6 +100,7 @@ function fakeWorkspace(options?: {
 		toolName: string;
 		requestId: string;
 		input: unknown;
+		deadlineAt?: number;
 	}) => Promise<unknown>;
 }): FakeWorkspace {
 	const staged: FakeWorkspace["staged"] = [];
@@ -100,7 +116,11 @@ function fakeWorkspace(options?: {
 			};
 		},
 		async stageDispatch(args) {
-			staged.push(args);
+			staged.push({
+				toolName: args.toolName,
+				requestId: args.requestId,
+				input: args.input,
+			});
 			const result = options?.stage
 				? await options.stage(args)
 				: {
@@ -127,6 +147,16 @@ type ScriptedStep =
 	| { text: string }
 	| { calls: { toolCallId: string; toolName: string; input?: unknown }[] };
 
+function scriptedInput(call: { toolName: string; input?: unknown }): unknown {
+	const input = call.input ?? {};
+	const entry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
+	if (entry?.policy.effect !== "mutate-blueprint") return input;
+	return {
+		...(input as Record<string, unknown>),
+		implementedIntentIds: [brief().owningIntentIds[0]],
+	};
+}
+
 /** A scripted model: one entry per step, then it keeps repeating the last. */
 function scriptedStep(script: ScriptedStep[]): {
 	step: ExecutorStepFn;
@@ -151,7 +181,7 @@ function scriptedStep(script: ScriptedStep[]): {
 			toolCalls: entry.calls.map((call) => ({
 				toolCallId: call.toolCallId,
 				toolName: call.toolName,
-				input: call.input ?? {},
+				input: scriptedInput(call),
 			})),
 			text: "",
 			usage: undefined,
@@ -162,7 +192,7 @@ function scriptedStep(script: ScriptedStep[]): {
 						type: "tool-call" as const,
 						toolCallId: call.toolCallId,
 						toolName: call.toolName,
-						input: call.input ?? {},
+						input: scriptedInput(call),
 					})),
 				},
 			],
@@ -262,6 +292,22 @@ describe("runSliceExecutor — the one-call law", () => {
 });
 
 describe("runSliceExecutor — staged dispatch", () => {
+	it("passes the absolute slice deadline into the staging write", async () => {
+		const stage = vi.fn(async (_args: { deadlineAt?: number }) => ({
+			kind: "mutate",
+			mutations: [],
+		}));
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "a", toolName: "stageModule" }] },
+			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+		]);
+
+		await run({ workspace: fakeWorkspace({ stage }), step });
+
+		expect(stage).toHaveBeenCalledOnce();
+		expect(stage.mock.calls[0]?.[0].deadlineAt).toEqual(expect.any(Number));
+	});
+
 	it("dispatches with the tool call id as the staging request id", async () => {
 		const workspace = fakeWorkspace();
 		const { step, seen } = scriptedStep([
@@ -519,6 +565,64 @@ describe("runSliceExecutor — design issue escalation", () => {
 });
 
 describe("runSliceExecutor — budgets", () => {
+	it("bounds a provider step even when the provider ignores abort", async () => {
+		const plan = makeBuildPlan();
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("fixture slice missing");
+		const pendingStep = deferred<Awaited<ReturnType<ExecutorStepFn>>>();
+		const step: ExecutorStepFn = () => pendingStep.promise;
+		const outcome = await runSliceExecutor({
+			workspace: fakeWorkspace(),
+			brief: brief(),
+			budget: { ...budgetForSlice(slice), maxWallClockMs: 10 },
+			step,
+			commit: async () => {
+				throw new Error("commit must not be called");
+			},
+			signal: new AbortController().signal,
+		});
+		expect(outcome).toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 0, stagedRequests: 0 },
+		});
+		pendingStep.resolve({
+			toolCalls: [],
+			text: "",
+			usage: undefined,
+			responseMessages: [],
+		});
+		await pendingStep.promise;
+		await Promise.resolve();
+	});
+
+	it("bounds an awaited commit even when the callback ignores abort", async () => {
+		const plan = makeBuildPlan();
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("fixture slice missing");
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "commit", toolName: "commitChangeSet" }] },
+		]);
+		const pendingCommit = deferred<SliceCommitResult>();
+		const outcome = await runSliceExecutor({
+			workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+			brief: brief(),
+			budget: { ...budgetForSlice(slice), maxWallClockMs: 10 },
+			step,
+			commit: async () => pendingCommit.promise,
+			signal: new AbortController().signal,
+		});
+		expect(outcome).toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 1, stagedRequests: 0 },
+		});
+		pendingCommit.resolve({
+			kind: "gate-rejected",
+			message: "settled after deadline",
+		});
+		await pendingCommit.promise;
+		await Promise.resolve();
+	});
+
 	it("exhausts on model steps without claiming completion", async () => {
 		const workspace = fakeWorkspace();
 		const { step } = scriptedStep([
@@ -615,11 +719,7 @@ describe("runSliceExecutor — plumbing", () => {
 			onProgress: (note) => notes.push(note),
 		});
 
-		expect(notes).toEqual([
-			"Building Patient registration and queue",
-			"Checking the app for problems",
-			"Saving Patient registration and queue",
-		]);
+		expect(notes).toEqual(["building", "validating", "committing"]);
 		for (const note of notes) {
 			expect(note).not.toMatch(/changeSet|stageModule|uuid/i);
 		}

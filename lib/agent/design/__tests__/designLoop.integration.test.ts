@@ -27,6 +27,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	type DesignArtifactWriteAuthority,
 	insertDesignSourcePackage,
 	readDesignReviews,
 	readDesignRevisionsForSession,
@@ -70,8 +71,32 @@ import {
 const h = setupAppStateTestDb("design_loop_");
 
 let sessionId: string;
+const RUN_ID = "run-1";
+const ACTOR = "owner-test";
+const PROJECT = "proj-1";
+const NONCE = "6a0a35a4-1111-4222-8333-944445555668";
+const authority: DesignArtifactWriteAuthority = {
+	actorUserId: ACTOR,
+	runId: RUN_ID,
+	holderNonce: NONCE,
+	expectedProjectId: PROJECT,
+};
 beforeEach(async () => {
-	sessionId = await h.seedDesignSession();
+	sessionId = await h.seedDesignSession({
+		owner_user_id: ACTOR,
+		project_id: PROJECT,
+		run_id: RUN_ID,
+		run_holder_nonce: NONCE,
+		run_actor_user_id: ACTOR,
+		run_lease_expires_at: new Date(Date.now() + 60_000),
+		reservation: {
+			period: "2026-08",
+			reserved: 1,
+			settled: false,
+			userId: ACTOR,
+			runId: RUN_ID,
+		},
+	});
 });
 
 function makePackage(text = "Track CHW visits."): DesignSourcePackage {
@@ -196,7 +221,8 @@ function mountTools(args: {
 	const ctx = scriptedCtx(args.reviewer ?? { review: cleanReview });
 	const tools = createDesignLoopTools({
 		designSessionId: sessionId,
-		runId: "run-1",
+		runId: RUN_ID,
+		authority,
 		currentPkg: args.pkg,
 		catalogText: "CATALOG",
 		ctx,
@@ -212,7 +238,7 @@ function mountTools(args: {
 }
 
 async function persistPackage(pkg: DesignSourcePackage): Promise<void> {
-	await insertDesignSourcePackage({ pkg, runId: "run-1" });
+	await insertDesignSourcePackage({ pkg, authority });
 }
 
 type ToolResult = Record<string, unknown>;

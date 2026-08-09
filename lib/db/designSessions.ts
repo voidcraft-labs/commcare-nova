@@ -50,7 +50,7 @@ import {
 	reapStaleGenerating,
 } from "./apps";
 import { assertProjectCapabilityInTransaction } from "./canonicalCommitKernel";
-import { AppProjectChangedError } from "./commitGuard";
+import { AppProjectChangedError, RunHolderLostError } from "./commitGuard";
 import {
 	debitForDesignSessionReservation,
 	type Reservation,
@@ -58,7 +58,11 @@ import {
 	refundToMonthInTransaction,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
-import { designSessionReservation } from "./leaseView";
+import {
+	designSessionReservation,
+	LEASE_COLUMNS,
+	leaseView,
+} from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import {
@@ -74,6 +78,7 @@ import {
 	type DesignSessionLeaseRow,
 	designSessionLeaseDeadlineMs,
 	designSessionLeaseState,
+	runLeaseState,
 } from "./runLiveness";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -216,6 +221,78 @@ export async function lockSessionRow(
 		.where("id", "=", designSessionId)
 		.forUpdate()
 		.executeTakeFirst()) as LockedSessionRow | undefined;
+}
+
+/**
+ * Lock and prove the exact live authority carrier for a build design session.
+ * Before materialization the session row carries the holder; afterwards its
+ * write-once app mapping delegates authority to the app row. Membership and
+ * Project scope are reauthorized under the same transaction and lock.
+ */
+export async function assertDesignSessionRunAuthorityInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly designSessionId: string;
+		readonly actorUserId: string;
+		readonly expectedProjectId: string;
+		readonly holder: ExactRunHolderIdentity;
+	},
+): Promise<{ appId: string | null }> {
+	const mapping = await tx
+		.selectFrom("design_sessions")
+		.select(["app_id"])
+		.where("id", "=", args.designSessionId)
+		.executeTakeFirst();
+	if (mapping === undefined) throw new RunHolderLostError("released");
+	if (mapping.app_id !== null) {
+		const app = await tx
+			.selectFrom("apps")
+			.select([...LEASE_COLUMNS, "project_id"])
+			.where("id", "=", mapping.app_id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (app === undefined || app.project_id !== args.expectedProjectId) {
+			throw new RunHolderLostError("released");
+		}
+		await assertProjectCapabilityInTransaction(
+			tx,
+			args.actorUserId,
+			app.project_id,
+			"edit",
+			"You no longer have edit access to this design's Project.",
+		);
+		const lease = runLeaseState(leaseView(app));
+		if (
+			!lease.live ||
+			!exactRunHolderMatches(lease.holderIdentity, args.holder)
+		) {
+			throw new RunHolderLostError();
+		}
+		return { appId: mapping.app_id };
+	}
+	const session = await lockSessionRow(tx, args.designSessionId);
+	if (
+		session === undefined ||
+		session.app_id !== null ||
+		session.project_id !== args.expectedProjectId
+	) {
+		throw new RunHolderLostError("released");
+	}
+	await assertProjectCapabilityInTransaction(
+		tx,
+		args.actorUserId,
+		session.project_id,
+		"edit",
+		"You no longer have edit access to this design's Project.",
+	);
+	const lease = designSessionLeaseState(session);
+	if (
+		!lease.live ||
+		!exactRunHolderMatches(lease.holderIdentity, args.holder)
+	) {
+		throw new RunHolderLostError();
+	}
+	return { appId: null };
 }
 
 function assertExpectedSessionProject(
@@ -814,27 +891,61 @@ export async function discardDesignSession(
 
 /**
  * Point the session at its accepted design revision and active build plan —
- * the explicit selection §18.4 requires (never "latest timestamp"). Not
- * holder/reservation state: no actor gate, plain row-locked update.
+ * the explicit selection §18.4 requires (never "latest timestamp"). The
+ * delegated session/app authority carrier, current membership, and complete
+ * same-session accepted lineage are proved in the update transaction.
  */
-export async function setDesignSessionActiveArtifacts(
-	designSessionId: string,
-	artifacts: {
-		activeDesignRevisionId: string;
-		activeBuildPlanId: string;
-	},
-): Promise<void> {
+export async function setDesignSessionActiveArtifacts(args: {
+	designSessionId: string;
+	actorUserId: string;
+	runId: string;
+	holderNonce: string;
+	expectedProjectId: string;
+	activeDesignRevisionId: string;
+	activeBuildPlanId: string;
+}): Promise<void> {
 	await withAppTx(async (tx) => {
-		const row = await lockSessionRow(tx, designSessionId);
-		if (!row) return;
+		await assertDesignSessionRunAuthorityInTransaction(tx, {
+			designSessionId: args.designSessionId,
+			actorUserId: args.actorUserId,
+			expectedProjectId: args.expectedProjectId,
+			holder: {
+				mode: "build",
+				runId: args.runId,
+				nonce: args.holderNonce,
+			},
+		});
+		const revision = await tx
+			.selectFrom("design_revisions")
+			.select(["id", "design_session_id", "lifecycle"])
+			.where("id", "=", args.activeDesignRevisionId)
+			.executeTakeFirst();
+		const plan = await tx
+			.selectFrom("design_build_plans")
+			.select(["id", "design_session_id", "design_revision_id"])
+			.where("id", "=", args.activeBuildPlanId)
+			.executeTakeFirst();
+		if (
+			revision === undefined ||
+			revision.design_session_id !== args.designSessionId ||
+			revision.lifecycle !== "accepted" ||
+			plan === undefined ||
+			plan.design_session_id !== args.designSessionId ||
+			plan.design_revision_id !== revision.id
+		) {
+			throw new DesignSessionStateError(
+				"not_found",
+				"The selected design revision and build plan do not form one accepted lineage in this session.",
+			);
+		}
 		await tx
 			.updateTable("design_sessions")
 			.set({
-				active_design_revision_id: artifacts.activeDesignRevisionId,
-				active_build_plan_id: artifacts.activeBuildPlanId,
+				active_design_revision_id: args.activeDesignRevisionId,
+				active_build_plan_id: args.activeBuildPlanId,
 				updated_at: new Date(),
 			})
-			.where("id", "=", designSessionId)
+			.where("id", "=", args.designSessionId)
 			.execute();
 	});
 }

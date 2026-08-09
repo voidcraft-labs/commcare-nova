@@ -26,6 +26,7 @@ import {
 	failAndRefundDesignSessionRun,
 	reacquireDesignSessionLease,
 	refreshDesignSessionLiveness,
+	setDesignSessionActiveArtifacts,
 	setDesignSessionAwaitingInput,
 } from "../designSessions";
 import { resolveGenerationTargetScope } from "../generationTargetScope";
@@ -37,6 +38,71 @@ const ACTOR = "owner-test";
 const PROJECT = "project-test";
 const PERIOD = getCurrentPeriod();
 const NONCE = "00000000-0000-4000-8000-0000000000d1";
+
+describe("active design artifact selection", () => {
+	it("requires the exact holder and one accepted same-session lineage", async () => {
+		const runId = "run-active-artifacts";
+		const sessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+			run_id: runId,
+			run_holder_nonce: NONCE,
+			run_actor_user_id: ACTOR,
+			run_lease_expires_at: new Date(Date.now() + 60_000),
+		});
+		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
+		await setDesignSessionActiveArtifacts({
+			designSessionId: sessionId,
+			actorUserId: ACTOR,
+			runId,
+			holderNonce: NONCE,
+			expectedProjectId: PROJECT,
+			activeDesignRevisionId: lineage.designRevisionId,
+			activeBuildPlanId: lineage.buildPlanId,
+		});
+		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
+			active_design_revision_id: lineage.designRevisionId,
+			active_build_plan_id: lineage.buildPlanId,
+		});
+
+		const foreignSessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+		});
+		const foreign = await h.seedDesignLineage({
+			existingSessionId: foreignSessionId,
+		});
+		await expect(
+			setDesignSessionActiveArtifacts({
+				designSessionId: sessionId,
+				actorUserId: ACTOR,
+				runId,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+				activeDesignRevisionId: foreign.designRevisionId,
+				activeBuildPlanId: foreign.buildPlanId,
+			}),
+		).rejects.toBeInstanceOf(DesignSessionStateError);
+
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({ run_holder_nonce: crypto.randomUUID() })
+			.where("id", "=", sessionId)
+			.execute();
+		await expect(
+			setDesignSessionActiveArtifacts({
+				designSessionId: sessionId,
+				actorUserId: ACTOR,
+				runId,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+				activeDesignRevisionId: lineage.designRevisionId,
+				activeBuildPlanId: lineage.buildPlanId,
+			}),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+	});
+});
 
 async function seedActor(balance = 2000): Promise<void> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");

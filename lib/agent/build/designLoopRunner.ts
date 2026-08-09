@@ -99,6 +99,8 @@ export interface DesignLoopRunnerArgs {
 	readonly projectId: string;
 	readonly threadId: string;
 	readonly runId: string;
+	readonly actorUserId: string;
+	readonly holderNonce: string;
 	readonly responseMessageId: string;
 	readonly messages: readonly UIMessage[];
 	readonly pkg: DesignSourcePackage;
@@ -122,7 +124,13 @@ export interface DesignLoopRunnerArgs {
 export async function runDesignAgentLoop(
 	args: DesignLoopRunnerArgs,
 ): Promise<DesignLoopOutcome> {
-	await insertDesignSourcePackage({ pkg: args.pkg, runId: args.runId });
+	const authority = {
+		actorUserId: args.actorUserId,
+		runId: args.runId,
+		holderNonce: args.holderNonce,
+		expectedProjectId: args.projectId,
+	};
+	await insertDesignSourcePackage({ pkg: args.pkg, authority });
 
 	const loadAncestry = () =>
 		loadDesignAncestry(args.designSessionId, args.pkg.packageDigest);
@@ -149,6 +157,7 @@ export async function runDesignAgentLoop(
 	const tools = createDesignLoopTools({
 		designSessionId: args.designSessionId,
 		runId: args.runId,
+		authority,
 		currentPkg: args.pkg,
 		catalogText,
 		ctx: args.designCtx,

@@ -118,6 +118,8 @@ interface DispatchArgs<T> {
 	 * idempotency digest); optional in the type only so the shared
 	 * `ToolWorkspace` contract remains satisfied. */
 	readonly input?: unknown;
+	readonly intentIds?: readonly DesignId[];
+	readonly deadlineAt?: number;
 	execute(ctx: ToolInvocationContext, resolvedInput?: unknown): Promise<T>;
 }
 
@@ -208,6 +210,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly toolName: string;
 		readonly requestId: string;
 		readonly input: unknown;
+		readonly intentIds?: readonly DesignId[];
+		/** Absolute executor deadline. Direct/non-executor callers omit it. */
+		readonly deadlineAt?: number;
 	}): Promise<StageDispatchResult<unknown>> {
 		const entry = changeSetToolEntry(args.toolName);
 		if (entry === undefined) {
@@ -220,6 +225,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			toolName: args.toolName,
 			requestId: args.requestId,
 			input: args.input,
+			...(args.intentIds !== undefined && { intentIds: args.intentIds }),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			execute: async (ctx, resolvedInput) => {
 				const parsed = entry.tool.inputSchema.parse(resolvedInput);
 				return entry.tool.execute(parsed, ctx);
@@ -281,7 +288,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				const replayDigest = stagingInputDigest({
 					toolName: args.toolName,
 					expectedWorkspaceRevision: stored.expectedRevision,
-					projectedInput: args.input,
+					projectedInput: {
+						input: args.input,
+						intentIds: args.intentIds ?? [],
+					},
 				});
 				if (
 					stored.toolName !== args.toolName ||
@@ -300,7 +310,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			const inputDigest = stagingInputDigest({
 				toolName: args.toolName,
 				expectedWorkspaceRevision: expectedRevision,
-				projectedInput: args.input,
+				projectedInput: { input: args.input, intentIds: args.intentIds ?? [] },
 			});
 
 			/* Handle declaration + structural resolution, against a SCRATCH
@@ -336,6 +346,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 					expectedRevision,
 					code: error.code,
 					message: error.message,
+					...(args.deadlineAt !== undefined && {
+						deadlineAt: args.deadlineAt,
+					}),
 				});
 				return {
 					replayed: false,
@@ -358,6 +371,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				allocations,
 				scratch,
 				state: invocationState,
+				intentIds: args.intentIds ?? [],
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			});
 			const result = await args.execute(ctx, resolvedInput);
 			return {
@@ -386,6 +401,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		allocations: readonly StageHandleAllocation[];
 		scratch: HandleTable;
 		state: InvocationWriteState;
+		intentIds: readonly DesignId[];
+		deadlineAt?: number;
 	}): ToolInvocationContext {
 		const snapshot = this.currentSnapshot();
 		const { state } = args;
@@ -422,6 +439,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				allocations: args.allocations,
 				scratch: args.scratch,
 				lookupCaptures: state.lookupCaptures,
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 				...staged,
 			});
 			if (outcome.kind === "staged") {
@@ -488,6 +506,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						expectedRevision: args.expectedRevision,
 						code: "WIRE_CANONICALITY_INVALID",
 						message: error.message,
+						...(args.deadlineAt !== undefined && {
+							deadlineAt: args.deadlineAt,
+						}),
 					});
 					return { ok: false, error: error.message };
 				}
@@ -502,7 +523,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 							policy.expectedOrganizationRevision,
 						),
 					}),
-					...(intentIds !== undefined && { intentIds }),
+					intentIds: args.intentIds.length > 0 ? args.intentIds : intentIds,
 					...(readSet !== undefined && { readSet }),
 				});
 			},
@@ -520,13 +541,16 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						expectedRevision: args.expectedRevision,
 						code: "WIRE_CANONICALITY_INVALID",
 						message: error.message,
+						...(args.deadlineAt !== undefined && {
+							deadlineAt: args.deadlineAt,
+						}),
 					});
 					return { ok: false, error: error.message };
 				}
 				return stage({
 					mutations: admitted.batch,
 					slices: admitted.slices,
-					...(intentIds !== undefined && { intentIds }),
+					intentIds: args.intentIds.length > 0 ? args.intentIds : intentIds,
 					...(readSet !== undefined && { readSet }),
 				});
 			},
@@ -592,6 +616,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly expectedRevision: number;
 		readonly code: ChangeSetStageErrorCode;
 		readonly message: string;
+		readonly deadlineAt?: number;
 	}): Promise<StageRequestReceipt> {
 		const { receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
@@ -604,6 +629,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(this.host.chatRunHolder !== undefined && {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			outcome: { kind: "reject", code: args.code, message: args.message },
 		});
 		return receipt;
@@ -638,6 +664,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly allocations: readonly StageHandleAllocation[];
 		readonly scratch: HandleTable;
 		readonly lookupCaptures: readonly ExternalReadDependency[];
+		readonly deadlineAt?: number;
 		readonly mutations: AdmittedMutationBatch;
 		readonly slices: readonly AdmittedMutationStageSlice[];
 		readonly policyOrganizationRevision?: string;
@@ -672,6 +699,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				expectedRevision: args.expectedRevision,
 				code,
 				message,
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			}),
 			message,
 		});
@@ -873,6 +901,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(this.host.chatRunHolder !== undefined && {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			outcome: {
 				kind: "stage",
 				mutations: args.mutations,
