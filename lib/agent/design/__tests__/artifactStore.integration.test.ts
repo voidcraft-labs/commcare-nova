@@ -494,6 +494,147 @@ describe("reviews", () => {
 });
 
 describe("build plans", () => {
+	it("retires a historical plan's open attempt and change set with its replacement draft", async () => {
+		const { accepted } = await persistAcceptedRevision();
+		const storedPlan = await insertDesignBuildPlan({
+			envelope: planEnvelope(accepted),
+			runId: RUN_ID,
+		});
+		const slice = storedPlan.envelope.payload.slices[0];
+		if (slice === undefined) throw new Error("fixture plan has no root slice");
+		const attemptId = crypto.randomUUID();
+		const changeSetId = crypto.randomUUID();
+		const proposedAppId = crypto.randomUUID();
+		const digest = "a".repeat(64);
+		await h
+			.db()
+			.transaction()
+			.execute(async (tx) => {
+				await tx
+					.updateTable("design_sessions")
+					.set({ proposed_app_id: proposedAppId })
+					.where("id", "=", sessionId)
+					.execute();
+				await tx
+					.insertInto("design_slice_attempts")
+					.values({
+						id: attemptId,
+						design_session_id: sessionId,
+						design_revision_id: accepted.id,
+						design_revision_digest: accepted.artifactDigest,
+						build_plan_id: storedPlan.id,
+						build_plan_digest: storedPlan.artifactDigest,
+						slice_id: slice.id,
+						attempt: 1,
+						base_kind: "empty-genesis",
+						base_app_id: null,
+						base_proposed_app_id: proposedAppId,
+						base_seq: null,
+						base_snapshot_digest: digest,
+						change_set_id: null,
+						executor_model: "gpt-test",
+						prompt_version: "build-executor-v1",
+						brief_digest: digest,
+						status: "running",
+						failure_code: null,
+					})
+					.execute();
+				await tx
+					.insertInto("design_change_sets")
+					.values({
+						id: changeSetId,
+						design_session_id: sessionId,
+						design_revision_id: accepted.id,
+						design_revision_digest: accepted.artifactDigest,
+						build_plan_id: storedPlan.id,
+						build_plan_digest: storedPlan.artifactDigest,
+						slice_id: slice.id,
+						attempt_id: attemptId,
+						kind: "genesis",
+						app_id: null,
+						proposed_app_id: proposedAppId,
+						base_seq: null,
+						base_project_id: PROJECT,
+						base_snapshot_digest: digest,
+						exclusive_kind: null,
+						owner_user_id: ACTOR,
+						owner_run_id: RUN_ID,
+						status: "open",
+						committed_seq: null,
+						committed_batch_id: null,
+						committed_snapshot_digest: null,
+					})
+					.execute();
+				await tx
+					.updateTable("design_slice_attempts")
+					.set({ change_set_id: changeSetId })
+					.where("id", "=", attemptId)
+					.execute();
+			});
+
+		const { packageDigest: _currentDigest, ...current } = makePackage();
+		const replacementUnsealed: Omit<DesignSourcePackage, "packageDigest"> = {
+			...current,
+			request: {
+				blocks: [
+					{
+						ref: messageRef(2),
+						text: "Also track referrals.",
+						truncated: false,
+					},
+				],
+			},
+		};
+		const replacementPkg: DesignSourcePackage = {
+			...replacementUnsealed,
+			packageDigest: computeSourcePackageDigest(replacementUnsealed),
+		};
+		await insertDesignSourcePackage({ pkg: replacementPkg, runId: RUN_ID });
+		await insertDesignRevision({
+			envelope: sealArtifactEnvelope({
+				artifactType: "design-contract",
+				artifactSchemaVersion: 1,
+				artifactId: crypto.randomUUID(),
+				designSessionId: sessionId,
+				revision: accepted.revision + 1,
+				parentArtifactId: accepted.id,
+				sourcePackageDigest: replacementPkg.packageDigest,
+				inputArtifactDigests: [accepted.artifactDigest],
+				promptVersion: "design-agent-v1",
+				producer: {
+					provider: "openai",
+					modelId: "gpt-test",
+					finishReason: "stop",
+				},
+				createdAt: new Date().toISOString(),
+				payload: makeContract(),
+			}),
+			lifecycle: "draft",
+			runId: RUN_ID,
+			supersedeUncommittedExecution: true,
+		});
+
+		const [attempt, changeSet] = await Promise.all([
+			h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", attemptId)
+				.executeTakeFirstOrThrow(),
+			h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", changeSetId)
+				.executeTakeFirstOrThrow(),
+		]);
+		expect(attempt).toEqual({
+			status: "superseded",
+			failure_code: "artifact-superseded",
+		});
+		expect(changeSet.status).toBe("superseded");
+	});
+
 	it("persists a plan over the accepted revision and reads it back digest-verified", async () => {
 		const { accepted } = await persistAcceptedRevision();
 		const stored = await insertDesignBuildPlan({

@@ -573,7 +573,6 @@ describe("runSliceExecutor — budgets", () => {
 		if (slice === undefined) throw new Error("fixture slice missing");
 		const pendingStep = deferred<Awaited<ReturnType<ExecutorStepFn>>>();
 		const step: ExecutorStepFn = () => pendingStep.promise;
-		const metered: unknown[] = [];
 		const outcome = await runSliceExecutor({
 			workspace: fakeWorkspace(),
 			brief: brief(),
@@ -583,26 +582,18 @@ describe("runSliceExecutor — budgets", () => {
 				throw new Error("commit must not be called");
 			},
 			signal: new AbortController().signal,
-			onUsage: (usage) => metered.push(usage),
 		});
 		expect(outcome).toEqual({
 			kind: "budget-exhausted",
 			spent: { modelSteps: 0, stagedRequests: 0 },
 		});
-		const usage = {
-			inputTokens: 3,
-			outputTokens: 2,
-			totalTokens: 5,
-		} as never;
 		pendingStep.resolve({
 			toolCalls: [],
 			text: "",
-			usage,
+			usage: undefined,
 			responseMessages: [],
 		});
 		await pendingStep.promise;
-		await Promise.resolve();
-		expect(metered).toEqual([usage]);
 	});
 
 	it("bounds an awaited commit even when the callback ignores abort", async () => {

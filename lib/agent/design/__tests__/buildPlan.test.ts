@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
+	unsupportedBlockingActionMessages,
 } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
@@ -158,7 +159,7 @@ describe("buildPlanSchema (structural)", () => {
 		expect(result.success, messages(result)).toBe(true);
 	});
 
-	it("rejects blocking external actions while no receipt producer is registered", () => {
+	it("keeps historical blocking actions parseable but rejects them for new admission", () => {
 		for (const timing of ["before-materialization", "before-slice"] as const) {
 			const plan = makeBuildPlan();
 			plan.externalActions.push({
@@ -170,7 +171,11 @@ describe("buildPlanSchema (structural)", () => {
 				idempotencyOwner: "user",
 				completionEvidence: "The prerequisite is complete.",
 			});
-			expect(messages(buildPlanSchema.safeParse(plan))).toContain(
+			if (timing === "before-materialization") {
+				plan.slices[0]?.externalActionIds.push(did(503));
+			}
+			expect(buildPlanSchema.safeParse(plan).success).toBe(true);
+			expect(unsupportedBlockingActionMessages(plan).join("\n")).toContain(
 				"no registered completion producer",
 			);
 		}

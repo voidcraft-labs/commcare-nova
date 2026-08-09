@@ -6,11 +6,9 @@
  * Versioning is load-bearing: every artifact envelope records the prompt
  * version that produced it (`DESIGN_PROMPT_VERSIONS`), and a meaning-bearing
  * prompt change bumps its version so an old artifact is never silently
- * reinterpreted as the product of a prompt it predates. `design-agent-v1`
- * is a NEW key: dogfooding artifacts stamped `design-author-v1` /
- * `design-reviser-v1` / `design-planner-v1` exist, and reusing a retired
- * key across different prompt text is exactly the misattribution the
- * version discipline exists to prevent.
+ * reinterpreted as the product of a prompt it predates. Once a prompt version
+ * has shipped, reusing its key across meaningfully different prompt text is
+ * exactly the misattribution this discipline exists to prevent.
  *
  * Source material is UNTRUSTED DATA. Every source block rides inside fixed
  * `<nova:source>` delimiters, and each system prompt states the contract

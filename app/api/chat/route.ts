@@ -558,6 +558,16 @@ export async function POST(req: Request) {
 					{ status: 404 },
 				);
 			}
+			/* A pre-app design session is owner-private even inside a shared
+			 * Project. Enforce that before revealing lifecycle state or touching its
+			 * thread; once materialized, the bound app becomes the Project-shared
+			 * authority boundary and ordinary app admission applies below. */
+			if (session.app_id === null && session.owner_user_id !== userId) {
+				return Response.json(
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
+				);
+			}
 			try {
 				const access = await resolveProjectAccess(
 					userId,

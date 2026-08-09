@@ -974,6 +974,10 @@ async function ensureChangeSet(
 					lineage,
 					ownerUserId: args.actorUserId,
 					ownerRunId: args.runId,
+					attemptAuthority: {
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+					},
 				})
 			: await beginAppEditChangeSet({
 					appId:
@@ -982,6 +986,10 @@ async function ensureChangeSet(
 					lineage,
 					ownerUserId: args.actorUserId,
 					ownerRunId: args.runId,
+					attemptAuthority: {
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+					},
 				});
 		await bindSliceAttemptChangeSet({
 			designSessionId: args.designSessionId,
@@ -997,13 +1005,37 @@ async function ensureChangeSet(
 		/* The one-open-set-per-attempt fence names a reopenable set: recover
 		 * it by attempt id. */
 		const db = await getAppDb();
-		const open = await db
+		const openRow = await db
 			.selectFrom("design_change_sets")
 			.select(["id"])
 			.where("attempt_id", "=", attempt.id)
 			.where("status", "=", "open")
 			.executeTakeFirst();
-		if (open !== undefined) {
+		const open =
+			openRow === undefined ? undefined : await loadChangeSet(openRow.id, db);
+		if (
+			open !== undefined &&
+			open.designSessionId === lineage.designSessionId &&
+			open.designRevisionId === lineage.designRevisionId &&
+			open.designRevisionDigest === lineage.designRevisionDigest &&
+			open.buildPlanId === lineage.buildPlanId &&
+			open.buildPlanDigest === lineage.buildPlanDigest &&
+			open.sliceId === lineage.sliceId &&
+			open.attemptId === lineage.attemptId &&
+			open.ownerUserId === args.actorUserId &&
+			open.ownerRunId === args.runId &&
+			open.baseProjectId === args.projectId &&
+			(isGenesis
+				? open.kind === "genesis" &&
+					open.proposedAppId === args.proposedAppId &&
+					open.baseSnapshotDigest ===
+						emptyGenesisBase(args.proposedAppId).digest
+				: open.kind === "app-edit" &&
+					attempt.baseTarget.kind === "app" &&
+					open.appId === attempt.baseTarget.appId &&
+					open.baseSeq === attempt.baseTarget.seq &&
+					open.baseSnapshotDigest === attempt.baseTarget.digest)
+		) {
 			await bindSliceAttemptChangeSet({
 				designSessionId: args.designSessionId,
 				attemptId: attempt.id,

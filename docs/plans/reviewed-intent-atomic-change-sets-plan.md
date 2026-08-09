@@ -1161,11 +1161,12 @@ Disallowed before materialization:
 
 A pre-app external writer requires a separate approved contract for ownership, idempotency, cleanup, abandonment, Project move, materialization transfer, and compensation. Atomic Change Sets imply no such authority, and the current build runtime registers no generic external-action writer or receipt producer.
 
-The timing vocabulary retains the producer-bound `before-materialization` and
-`before-slice` arms, and the orchestrator's fail-closed receipt verifier proves
+The persisted timing vocabulary retains the producer-bound
+`before-materialization` and `before-slice` arms so every valid stored envelope
+remains readable, and the orchestrator's fail-closed receipt verifier proves
 their exact session/plan/action/Project/app digest and typed evidence before an
-attempt can open. Because no production receipt producer is registered, current
-build-plan admission rejects both blocking timings instead of persisting an
+attempt can open. Because no production receipt producer is registered, new
+build-plan insertion rejects both blocking timings instead of persisting an
 unresumable plan. Current plans use:
 
 - `after-slice`: remains typed plan metadata and is never mounted on the slice executor; a producer-specific adapter may act only after the canonical receipt exists;
@@ -2928,7 +2929,7 @@ interface SliceExecutionAttempt {
 }
 ```
 
-`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, once-only change-set binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the attempt write. Recovery compares every immutable identity above, not only artifact digests; an exact match reuses the row, while drift supersedes it before a fresh attempt opens. Terminal replay is idempotent only when status and failure metadata agree.
+`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests; an exact match reuses the row, while drift supersedes it before a fresh attempt opens. Terminal replay is idempotent only when status and failure metadata agree.
 
 ### 13.4 Execution brief
 
@@ -4787,7 +4788,7 @@ the contracts in Sections 1–13 and 18:
 2. **Atomic Change Sets:** private candidates persist exact admitted steps, handles, read sets, diagnostics, and idempotency receipts. Staged state reaches no canonical reader or stream. Commit replays the complete candidate and writes the canonical revision, exact running-attempt transition, committed-slice receipt, and implementation provenance in one transaction.
 3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
 4. **Pre-app generation target:** owner-private build design sessions carry run, reservation, thread, stream, pause, resume, failure, discard cleanup, and reaper semantics before an app exists. Materialization transfers that authority once to the Project-shared app; all later writers lock and authorize the delegated app holder.
-5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. The bounded executor stages exact per-step intent ownership, admits no blocking external action without a registered receipt producer, meters every provider call, and commits each later slice as one canonical revision. Attempt-control writes use the same exact-holder transaction as their lifecycle transition. The app remains reopenable after a later recoverable slice failure.
+5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. The bounded executor stages exact per-step intent ownership, admits no blocking external action without a registered receipt producer, meters every provider response observed before its post-await deadline decision, and commits each later slice as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. The app remains reopenable after a later recoverable slice failure.
 6. **Recovery and UI:** a fresh design immediately acquires a durable `/build/new?design=<id>` recovery URL; a materialized scope resolves to the authoritative app. Active designs participate in the Project empty-state decision, and a materialized build is reachable from its app card.
 7. **Explicit blank and direct editors:** explicit blank creation remains the immediate Survey/Form/Question path. Direct builder and shared MCP tools remain immediate canonical editors and do not require design metadata.
 

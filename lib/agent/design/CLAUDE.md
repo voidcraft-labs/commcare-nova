@@ -83,10 +83,9 @@ direct MCP edit.
   only — no extract bodies, no transcripts, no image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any
-  meaning-bearing change (`design-agent-v1` is a fresh key; the retired
-  author/reviser/planner keys stay attributed to their dogfooding
-  artifacts). Both prompts open with the shared `DOMAIN_PREAMBLE`: the
-  reviewer runs a fresh context and the agent's context is born per
+  meaning-bearing change after the prompt has shipped; one version key never
+  describes two production prompt contracts. Both prompts open with the shared
+  `DOMAIN_PREAMBLE`: the reviewer runs a fresh context and the agent's context is born per
   session, so the preamble names the domain (CommCare, Dimagi, what a
   case is, offline-first, NOT a general app platform) to activate the
   model's real prior knowledge and keep a design from drifting toward a

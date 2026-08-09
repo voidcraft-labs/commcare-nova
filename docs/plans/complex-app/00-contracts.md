@@ -354,10 +354,11 @@ drive execution.
 A persisted build plan has exactly one materialization root, and that root has
 no prerequisite slices: it directly owns the complete first export-ready app.
 External actions are separate from Blueprint effects. Current plan admission
-allows `manual-setup` and `after-slice`; it rejects blocking `before-*` timings
-until a typed durable receipt producer is registered. The orchestrator retains
-the fail-closed exact receipt verifier at the consumer boundary. Every
-mutation-bearing staged step names the slice-owned intents it
+allows `manual-setup` and `after-slice`; new-plan insertion rejects blocking
+`before-*` timings until a typed durable receipt producer is registered, while
+the persisted schema remains able to read the full timing vocabulary. The
+orchestrator retains the fail-closed exact receipt verifier at the consumer
+boundary. Every mutation-bearing staged step names the slice-owned intents it
 implements. Canonical commit proves complete intent coverage from those steps,
 derives implementation coordinates from the admitted mutations, and writes the
 exact `running -> committed` slice-attempt transition, committed-slice receipt,

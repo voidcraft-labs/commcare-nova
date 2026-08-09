@@ -118,6 +118,10 @@ export interface DesignGateState {
 	readonly openCycleReviews: number;
 	readonly blockingQuestions: readonly string[];
 	readonly plan: DesignBuildPlanRecord | null;
+	/** True when this turn's newer source package deactivates a persisted plan.
+	 * The replacement draft atomically retires that plan's open execution
+	 * carriers when it is inserted. */
+	readonly supersedesPlanExecution: boolean;
 	readonly verdicts: Readonly<Record<DesignLoopToolName, GateVerdict>>;
 	/** One sentence for tool results and the state message: what the server
 	 *  expects next. */
@@ -288,6 +292,8 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		openCycleReviews,
 		blockingQuestions,
 		plan: activePlan,
+		supersedesPlanExecution:
+			plan !== null && activePlan === null && newerUserContent,
 		verdicts,
 		expectedNext: deriveExpectedNext(verdicts, blockingQuestions, activePlan),
 	};

@@ -23,7 +23,10 @@ gate, and integrity services every other write uses.
   ranges + handle bindings + revision advance in ONE transaction. There is
   no durable in-progress state; a concurrent duplicate converges through
   the `(change_set_id, request_id)` primary key. Fault injection rides
-  `__setStageTransactionFaultHookForTests`.
+  `__setStageTransactionFaultHookForTests`. Production slice creation also
+  locks the exact delegated holder and running attempt, inserts the change
+  set, and binds its id onto that attempt in one transaction; recovery may
+  adopt only an open set whose complete lineage, owner, kind, and base match.
 - `workspace.ts` — `ChangeSetMutationWorkspace`, the same tool-facing
   contract as the canonical workspace (`lib/agent/workspace/types.ts`) over
   durable staging. It owns: serialized synchronous ordinals, one write per

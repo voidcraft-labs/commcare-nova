@@ -24,7 +24,10 @@
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
-import { buildPlanSchema } from "@/lib/agent/design/buildPlan";
+import {
+	buildPlanSchema,
+	unsupportedBlockingActionMessages,
+} from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
@@ -288,6 +291,9 @@ export async function insertDesignRevision(args: {
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
 	lifecycle: RevisionLifecycle;
 	authority: DesignArtifactWriteAuthority;
+	/** A newer source package is replacing a planned design. Retire every open
+	 * carrier from the historical plan in this same authority-locked write. */
+	supersedeUncommittedExecution?: boolean;
 	/** Required for an accepted revision: every disposition plus the review
 	 *  row ids whose findings they close. */
 	dispositions?: ReadonlyArray<{
@@ -302,6 +308,25 @@ export async function insertDesignRevision(args: {
 
 	return withAppTx(async (tx) => {
 		await authorizeArtifactWrite(tx, parsed.designSessionId, authority);
+		if (args.supersedeUncommittedExecution) {
+			const now = new Date();
+			await tx
+				.updateTable("design_change_sets")
+				.set({ status: "superseded", updated_at: now })
+				.where("design_session_id", "=", parsed.designSessionId)
+				.where("status", "=", "open")
+				.execute();
+			await tx
+				.updateTable("design_slice_attempts")
+				.set({
+					status: "superseded",
+					failure_code: "artifact-superseded",
+					updated_at: now,
+				})
+				.where("design_session_id", "=", parsed.designSessionId)
+				.where("status", "=", "running")
+				.execute();
+		}
 		const pkg = await tx
 			.selectFrom("design_source_packages")
 			.select(["id"])
@@ -740,6 +765,10 @@ export async function insertDesignBuildPlan(args: {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
 	const plan = parsed.payload;
+	const unsupportedActions = unsupportedBlockingActionMessages(plan);
+	if (unsupportedActions.length > 0) {
+		throw new DesignArtifactStoreError(unsupportedActions.join("\n"));
+	}
 	const planDigest = canonicalJsonDigest(plan);
 
 	return withAppTx(async (tx) => {

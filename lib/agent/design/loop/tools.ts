@@ -34,6 +34,7 @@ import {
 import {
 	buildPlanDraftSchema,
 	buildPlanSchemaFor,
+	unsupportedBlockingActionMessages,
 } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
@@ -164,6 +165,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}),
 				lifecycle: "draft",
 				authority: deps.authority,
+				supersedeUncommittedExecution: gates.supersedesPlanExecution,
 			});
 			deps.repair.noteAccepted("submitContract");
 			return {
@@ -396,6 +398,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (!planParsed.success) {
 				deps.repair.noteSchemaRejection("submitPlan");
 				return { error: renderZodIssues(planParsed.error) };
+			}
+			const unsupportedActions = unsupportedBlockingActionMessages(
+				planParsed.data,
+			);
+			if (unsupportedActions.length > 0) {
+				deps.repair.noteSchemaRejection("submitPlan");
+				return { error: unsupportedActions.join("\n") };
 			}
 			const plan = await insertDesignBuildPlan({
 				envelope: planEnvelope({

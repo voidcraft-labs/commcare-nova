@@ -30,7 +30,10 @@ import type { DesignId } from "@/lib/agent/design/ids";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadAppInTransaction } from "@/lib/db/apps";
-import { lockSessionRow } from "@/lib/db/designSessions";
+import {
+	assertDesignSessionRunAuthorityInTransaction,
+	lockSessionRow,
+} from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import {
 	parsePersistedJsonText,
@@ -606,6 +609,131 @@ export interface BeginChangeSetCommonArgs {
 	readonly lineage: ChangeSetLineage;
 	readonly ownerUserId: string;
 	readonly ownerRunId: string;
+	/** Production slice execution supplies the exact delegated holder. The
+	 * opener then binds the new set to its running attempt atomically. Direct
+	 * store fixtures may omit this only to exercise the lower-level store. */
+	readonly attemptAuthority?: {
+		readonly holderNonce: string;
+		readonly expectedProjectId: string;
+	};
+}
+
+async function assertAuthorizedAttemptForBegin(
+	tx: Transaction<AppDatabase>,
+	args: BeginChangeSetCommonArgs,
+	target:
+		| {
+				readonly kind: "genesis";
+				readonly proposedAppId: string;
+				readonly digest: string;
+		  }
+		| {
+				readonly kind: "app";
+				readonly appId: string;
+				readonly seq: number;
+				readonly digest: string;
+		  },
+): Promise<void> {
+	const authority = args.attemptAuthority;
+	if (authority === undefined) return;
+	const carrier = await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: args.lineage.designSessionId,
+		actorUserId: args.ownerUserId,
+		expectedProjectId: authority.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: args.ownerRunId,
+			nonce: authority.holderNonce,
+		},
+	});
+	if (
+		(target.kind === "genesis" && carrier.appId !== null) ||
+		(target.kind === "app" && carrier.appId !== target.appId)
+	) {
+		throw new ChangeSetScopeLostError(
+			"The design session no longer delegates to this change set's base target.",
+		);
+	}
+	if (target.kind === "genesis") {
+		const session = await tx
+			.selectFrom("design_sessions")
+			.select("proposed_app_id")
+			.where("id", "=", args.lineage.designSessionId)
+			.executeTakeFirst();
+		if (session?.proposed_app_id !== target.proposedAppId) {
+			throw new ChangeSetScopeLostError(
+				"The design session no longer names this proposed app for genesis.",
+			);
+		}
+	}
+	const attempt = await tx
+		.selectFrom("design_slice_attempts")
+		.select([
+			"design_revision_id",
+			"design_revision_digest",
+			"build_plan_id",
+			"build_plan_digest",
+			"slice_id",
+			"base_kind",
+			"base_app_id",
+			"base_proposed_app_id",
+			"base_seq",
+			"base_snapshot_digest",
+			"change_set_id",
+			"status",
+		])
+		.where("id", "=", args.lineage.attemptId)
+		.where("design_session_id", "=", args.lineage.designSessionId)
+		.forUpdate()
+		.executeTakeFirst();
+	const baseMatches =
+		target.kind === "genesis"
+			? attempt?.base_kind === "empty-genesis" &&
+				attempt.base_app_id === null &&
+				attempt.base_proposed_app_id === target.proposedAppId &&
+				attempt.base_seq === null &&
+				attempt.base_snapshot_digest === target.digest
+			: attempt?.base_kind === "app" &&
+				attempt.base_app_id === target.appId &&
+				attempt.base_proposed_app_id === null &&
+				Number(attempt.base_seq) === target.seq &&
+				attempt.base_snapshot_digest === target.digest;
+	if (
+		attempt === undefined ||
+		attempt.status !== "running" ||
+		attempt.change_set_id !== null ||
+		attempt.design_revision_id !== args.lineage.designRevisionId ||
+		attempt.design_revision_digest !== args.lineage.designRevisionDigest ||
+		attempt.build_plan_id !== args.lineage.buildPlanId ||
+		attempt.build_plan_digest !== args.lineage.buildPlanDigest ||
+		attempt.slice_id !== args.lineage.sliceId ||
+		!baseMatches
+	) {
+		throw new ChangeSetScopeLostError(
+			"The slice attempt no longer authorizes a new change set over this exact base.",
+		);
+	}
+}
+
+async function bindAuthorizedAttemptAfterBegin(
+	tx: Transaction<AppDatabase>,
+	args: BeginChangeSetCommonArgs,
+	changeSetId: string,
+): Promise<void> {
+	if (args.attemptAuthority === undefined) return;
+	const result = await tx
+		.updateTable("design_slice_attempts")
+		.set({ change_set_id: changeSetId, updated_at: new Date() })
+		.where("id", "=", args.lineage.attemptId)
+		.where("design_session_id", "=", args.lineage.designSessionId)
+		.where("status", "=", "running")
+		.where("change_set_id", "is", null)
+		.executeTakeFirst();
+	if (!updatedExactlyOne(result)) {
+		throw new ChangeSetScopeLostError(
+			"The slice attempt stopped authorizing this change set before it could bind.",
+		);
+	}
 }
 
 /**
@@ -633,8 +761,16 @@ export async function beginAppEditChangeSet(
 					"This app moved to a different Project, so no change set can open against the captured scope.",
 				);
 			}
-			await assertEditMembership(tx, args.ownerUserId, app.project_id);
 			const digest = canonicalJsonDigest(app.blueprint);
+			await assertAuthorizedAttemptForBegin(tx, args, {
+				kind: "app",
+				appId: args.appId,
+				seq: safePersistedSequence(app.mutation_seq, "apps.mutation_seq"),
+				digest,
+			});
+			if (args.attemptAuthority === undefined) {
+				await assertEditMembership(tx, args.ownerUserId, app.project_id);
+			}
 			await tx
 				.insertInto("design_change_sets")
 				.values({
@@ -661,6 +797,7 @@ export async function beginAppEditChangeSet(
 					committed_snapshot_digest: null,
 				})
 				.execute();
+			await bindAuthorizedAttemptAfterBegin(tx, args, id);
 			const created = await loadChangeSet(id, tx);
 			if (created === undefined) {
 				throw new ChangeSetIntegrityError(
@@ -687,7 +824,14 @@ export async function beginGenesisChangeSet(
 	const id = crypto.randomUUID();
 	return beginWithOpenAttemptFence(args.lineage.attemptId, () =>
 		withAppTx(async (tx) => {
-			await assertEditMembership(tx, args.ownerUserId, args.projectId);
+			await assertAuthorizedAttemptForBegin(tx, args, {
+				kind: "genesis",
+				proposedAppId: args.proposedAppId,
+				digest: args.baseSnapshotDigest,
+			});
+			if (args.attemptAuthority === undefined) {
+				await assertEditMembership(tx, args.ownerUserId, args.projectId);
+			}
 			await tx
 				.insertInto("design_change_sets")
 				.values({
@@ -714,6 +858,7 @@ export async function beginGenesisChangeSet(
 					committed_snapshot_digest: null,
 				})
 				.execute();
+			await bindAuthorizedAttemptAfterBegin(tx, args, id);
 			const created = await loadChangeSet(id, tx);
 			if (created === undefined) {
 				throw new ChangeSetIntegrityError(

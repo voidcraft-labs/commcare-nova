@@ -343,8 +343,8 @@ export async function runSliceExecutor(args: {
 	 *  the WHY behind an executor decision is readable beside its artifacts
 	 *  (no design table gains a reasoning column). */
 	onReasoning?: (text: string) => void;
-	/** Meter spent provider usage immediately when a step returns, including a
-	 * response that arrives just after the wall-clock deadline. */
+	/** Meter spent provider usage as soon as an awaited response returns and
+	 * before the post-await deadline decision. */
 	onUsage?: (usage: LanguageModelUsage) => void;
 }): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
@@ -397,21 +397,15 @@ export async function runSliceExecutor(args: {
 
 			let step: Awaited<ReturnType<ExecutorStepFn>>;
 			try {
-				const stepPromise = args
-					.step({
+				step = await awaitWithAbort(
+					args.step({
 						system: EXECUTOR_SYSTEM,
 						messages,
 						tools,
 						signal: boundedSignal,
-					})
-					.then((result) => {
-						/* Observe usage on the provider promise itself. A provider that
-						 * ignores abort may settle after the deadline race returned, but
-						 * its spent tokens still belong to this run. */
-						if (result.usage) args.onUsage?.(result.usage);
-						return result;
-					});
-				step = await awaitWithAbort(stepPromise, boundedSignal);
+					}),
+					boundedSignal,
+				);
 			} catch (error) {
 				/* The provider observes the deadline-bound signal while it is awaited.
 				 * Convert only OUR deadline abort to the durable budget outcome; caller
@@ -419,6 +413,10 @@ export async function runSliceExecutor(args: {
 				if (deadlineExceeded()) return exhausted();
 				throw error;
 			}
+			/* Meter an observed response before deciding that it arrived too late.
+			 * A provider that ignores abort stays detached after the deadline, with
+			 * no callback allowed to mutate a finalized run accumulator later. */
+			if (step.usage) args.onUsage?.(step.usage);
 			if (Date.now() >= deadlineAt || deadline.signal.aborted)
 				return exhausted();
 			modelSteps += 1;

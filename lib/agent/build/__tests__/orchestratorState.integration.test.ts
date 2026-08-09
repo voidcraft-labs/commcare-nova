@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -196,6 +197,15 @@ describe("orchestration event chain", () => {
 describe("slice attempts", () => {
 	async function attemptArgs(sessionId: string) {
 		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
+		const session = await h
+			.db()
+			.selectFrom("design_sessions")
+			.select("proposed_app_id")
+			.where("id", "=", sessionId)
+			.executeTakeFirstOrThrow();
+		if (session.proposed_app_id === null) {
+			throw new Error("held build session has no proposed app");
+		}
 		return {
 			designSessionId: sessionId,
 			actorUserId: ACTOR,
@@ -209,7 +219,7 @@ describe("slice attempts", () => {
 			sliceId: asDesignId(crypto.randomUUID()) as string,
 			baseTarget: {
 				kind: "empty-genesis" as const,
-				proposedAppId: crypto.randomUUID(),
+				proposedAppId: session.proposed_app_id,
 				digest: DIGEST,
 			},
 			executorModel: "test-model",
@@ -217,6 +227,43 @@ describe("slice attempts", () => {
 			briefDigest: DIGEST,
 		};
 	}
+
+	it("opens and binds a change set under the exact holder in one transaction", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		if (args.baseTarget.kind !== "empty-genesis") {
+			throw new Error("fixture is not genesis");
+		}
+		const changeSet = await beginGenesisChangeSet({
+			proposedAppId: args.baseTarget.proposedAppId,
+			projectId: PROJECT,
+			baseSnapshotDigest: args.baseTarget.digest,
+			lineage: {
+				designSessionId: sessionId,
+				designRevisionId: args.designRevisionId,
+				designRevisionDigest: args.designRevisionDigest,
+				buildPlanId: args.buildPlanId,
+				buildPlanDigest: args.buildPlanDigest,
+				sliceId: asDesignId(args.sliceId),
+				attemptId: attempt.id,
+			},
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+			attemptAuthority: {
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+			},
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select("change_set_id")
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ change_set_id: changeSet.id });
+	});
 
 	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {
 		const sessionId = await seedHeldSession();

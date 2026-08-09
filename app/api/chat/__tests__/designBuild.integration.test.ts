@@ -92,13 +92,16 @@ const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_design_" });
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
 
-function buildRequest(): Request {
+function buildRequest(args: { designSessionId?: string } = {}): Request {
 	return new Request("http://localhost/api/chat", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			threadId: THREAD,
 			expectedProjectId: PROJECT,
+			...(args.designSessionId
+				? { designSessionId: args.designSessionId }
+				: {}),
 			messages: [
 				{
 					id: "u1",
@@ -271,6 +274,45 @@ afterEach(async () => {
 });
 
 describe("design-session build turns", () => {
+	it("hides an unmaterialized session from Project co-members before touching its thread", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "start-step" });
+			args.writer.write({ type: "text-start", id: "owner-private" });
+			args.writer.write({
+				type: "text-delta",
+				id: "owner-private",
+				delta: "Designing your app.",
+			});
+			args.writer.write({ type: "text-end", id: "owner-private" });
+			args.writer.write({ type: "finish-step" });
+			args.writer.write({ type: "finish" });
+			return { kind: "awaiting-input", pauseOwned: true };
+		});
+		const first = await POST(buildRequest());
+		expect(first.status).toBe(200);
+		await first.text();
+		const session = await sessionRow();
+		const before = await threadRow();
+
+		await appDb
+			.updateTable("design_sessions")
+			.set({ owner_user_id: "other-project-member" })
+			.where("id", "=", session.id)
+			.execute();
+
+		const denied = await POST(buildRequest({ designSessionId: session.id }));
+		expect(denied.status).toBe(404);
+		expect(await denied.json()).toEqual({
+			error: "App not found",
+			type: "not_found",
+		});
+		const after = await threadRow();
+		expect(after.messages).toEqual(before.messages);
+		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(1);
+	}, 30_000);
+
 	it("creates + claims a session pre-stream, announces it on the wire, and pauses holding the reservation", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			/* A real pipeline meters its model calls; the paused hold survives
