@@ -17,6 +17,13 @@ import type { AppDesignContract } from "@/lib/agent/design/contract";
 
 export type DesignDepth = "compact" | "standard" | "extended";
 
+/** Conservative user-facing estimate for each deterministic effort level. */
+export const DESIGN_EFFORT_TIME_ESTIMATES: Record<DesignDepth, string> = {
+	compact: "about 25 minutes",
+	standard: "about 45 minutes",
+	extended: "about 75 minutes",
+};
+
 export interface DesignComplexityEvidence {
 	score: number;
 	components: Record<string, number | boolean>;

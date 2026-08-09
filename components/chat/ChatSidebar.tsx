@@ -101,11 +101,11 @@ interface ChatSidebarProps {
 	onSelectThread?: (threadId: string) => Promise<boolean>;
 	/** Start a fresh conversation. */
 	onNewChat?: () => void;
-	/** The design-build progress region (stage line + reviewed-design
-	 *  outline), rendered at the foot of the transcript so a long outline
-	 *  scrolls with the conversation it belongs to and the conversation stays
-	 *  primary (§15.1). Absent for every ordinary app conversation. */
-	designProgress?: ReactNode;
+	/** Reviewed-design and planned-work cards. They scroll with the transcript. */
+	designProgressDetails?: ReactNode;
+	/** The design stage line. Like every live activity row, it stays directly
+	 * above the composer instead of moving upward as transcript cards arrive. */
+	designProgressStatus?: ReactNode;
 	/** Suppress the generic activity row while `designProgress` owns the
 	 *  status. The design stage line is a live region of its own and says the
 	 *  same thing more precisely; announcing both reads as a stutter. */
@@ -165,7 +165,8 @@ export function ChatSidebar({
 	activeThreadId,
 	onSelectThread,
 	onNewChat,
-	designProgress,
+	designProgressDetails,
+	designProgressStatus,
 	activityStatusHidden = false,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
@@ -678,7 +679,7 @@ export function ChatSidebar({
 							 *  design build's progress and outline belong to the
 							 *  conversation, and stick-to-bottom keeps them in view
 							 *  while the build runs. */}
-							{designProgress}
+							{designProgressDetails}
 						</ConversationContent>
 						<ConversationScrollButton />
 					</Conversation>
@@ -729,6 +730,9 @@ export function ChatSidebar({
 				{shortChatFallback && (
 					<ShortChatFallback onCollapse={() => setSidebarOpen("chat", false)} />
 				)}
+
+				{/* The live design state is the final line before the input. */}
+				{!shortInspectorDock && !shortChatFallback && designProgressStatus}
 
 				{/* Input: absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or

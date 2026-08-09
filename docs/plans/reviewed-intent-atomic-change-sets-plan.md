@@ -810,9 +810,12 @@ The tool surface:
   schema and graph proof. Opens a design cycle; legal at session start
   and again only when later user input reopened design work (a stale
   unreviewed draft, or answers to an accepted design's blocking
-  questions). A rejection returns the refinement messages AS THE TOOL
-  RESULT: the in-loop repair, bounded at two consecutive rejections per
-  submission kind.
+  questions). A rejection keeps that candidate only in the live loop and
+  returns the refinement messages AS THE TOOL RESULT. Its next call may
+  carry a top-level repair that replaces only the invalid or dependent
+  sections; the server merges it over that rejected candidate and reruns
+  the complete schema and graph proof before anything persists. The repair
+  remains bounded at two consecutive rejections per submission kind.
 - `requestReview`: the server runs the independent reviewer (§7.1 below)
   over the draft's OWN package, re-rendered from its persisted reference
   row when the digest has moved (`loop/packageRebuild.ts`) and refused
@@ -821,7 +824,10 @@ The tool surface:
   content re-issues as the accepted revision with empty dispositions).
 - `submitRevision`: revised contract plus dispositions, validated by
   `designRevisionResultSchemaFor` plus the sensitivity-pair rule inside
-  execute; the server decides acceptance or a required second round.
+  execute. A rejected revision has the same live top-level repair protocol:
+  contract sections may be replaced independently, while dispositions are
+  replaced as one closed set, and every cross-artifact proof reruns. The
+  server decides acceptance or a required second round.
 - `submitPlan`: the build plan, legal only once the accepted design
   carries no blocking open questions.
 
@@ -911,7 +917,10 @@ to its accepted revision):
 
 - one review round;
 - one revision when critical/important findings exist;
-- one second review and one second revision only when the first revision leaves a critical finding (a critical dispositioned deferred, or rejected — the agent overriding the reviewer on a critical deserves the second independent look) or changes architecture (the decision set or a selected option changed); extended depth always takes the second review — its impacted-scenario re-review;
+- one second review and one second revision only when the first revision
+  leaves a critical finding, the first review raised at least two critical
+  findings, or critical feedback caused an architecture change (the decision
+  set or a selected option changed);
 - no third automatic loop. A revision awaiting its second review persists as a `draft`.
 
 Rounds derive digest-INDEPENDENTLY: the gates count persisted reviews
@@ -966,11 +975,14 @@ interface DesignComplexityEvidence {
 }
 ```
 
-- `compact`, score `0–2`: one draft and one review; revise only for critical/important findings.
-- `standard`, score `3–6`: full contract, one review, required revision for important findings.
-- `extended`, score `7+`: full contract, explicit architecture decisions, review, revision, and impacted-scenario re-review.
+- `compact`, score `0–2`: one draft and one review; revise only for critical/important findings; user expectation `about 25 minutes`.
+- `standard`, score `3–6`: full contract, one review, required revision for important findings; user expectation `about 45 minutes`.
+- `extended`, score `7+`: full contract, explicit architecture decisions, review, and required revision for important findings; user expectation `about 75 minutes`.
 
-The score controls process depth, not Blueprint features, model authority, or validity.
+The score controls process depth and the rough elapsed-time expectation, not
+Blueprint features, model authority, or validity. The estimates deliberately
+lean long. Extended depth alone does not create a second review; the first
+review's critical evidence does.
 
 ### 7.5 Structured-generation seam
 
@@ -1119,6 +1131,11 @@ const buildPlanSchema = z.object({
 12. New place rows, lookup rows/schemas, deployments, workers, and media bytes are not represented as Blueprint mutations.
 13. No slice references a Design Contract revision other than the plan's exact digest.
 14. A contract revision supersedes all uncommitted plans/change sets derived from the prior digest.
+15. A newly admitted slice owns at most 30 implementable intents. This is an
+    admission bound rather than a persisted-schema reinterpretation, so older
+    plans remain readable. The materialization root keeps the minimal complete
+    first workflow and leaves downstream queues or status workflows to later
+    task-complete slices.
 
 ### 8.3 Materialization-root quality
 
@@ -3137,6 +3154,9 @@ The executor prompt and deterministic checks enforce:
 12. do not say staged work is saved;
 13. commit once per successful slice boundary;
 14. do not continue after holder loss, Project movement, access loss, or artifact supersession.
+15. use fixed date durations only where on-device lowering preserves them;
+    never hand-build leap-year or calendar-month arithmetic, and raise a design
+    issue when the accepted intent requires unsupported calendar semantics.
 
 ### 13.10 Granular staging tools
 
@@ -3723,7 +3743,7 @@ The outline card is a safe projection, not the raw Design Contract. It includes:
 - key handoffs and access boundaries;
 - important assumptions;
 - blocking open questions;
-- review status and finding counts;
+- review status;
 - explicit out-of-scope/deferred items.
 
 It does not expose:
@@ -3750,7 +3770,8 @@ Server events:
 - `data-app-materialized` — the strict activation receipt itself;
 - `data-build-completion`.
 
-Review findings ride the outline projection (its status + finding counts) rather than a separate `data-design-review-summary` frame; `data-conformance-summary` is the conformance unit's addition.
+Review status rides the outline projection without finding counts or severity
+language. `data-conformance-summary` is the conformance unit's addition.
 
 Every enveloped event has:
 
@@ -3778,8 +3799,15 @@ Do not stream or render:
 - private validator findings one tool step at a time;
 - model chain-of-thought;
 - raw review prompts/outputs.
+- the internal `submitContract`, `requestReview`, `submitRevision`, or
+  `submitPlan` tool parts, including their technical success and error results.
 
-The UI may show coarse statements such as “Building intake workflow” or “Resolving a form dependency.” Only committed canonical revisions enter the tree, Preview, collaboration stream, event log, or deployment surfaces.
+Nova's ordinary model-authored prose remains visible and explains long work in
+plain, context-specific language without exposing the protocol above. The live
+stage line stays immediately above the composer and may show coarse statements
+such as “Building intake workflow” or “Resolving a form dependency.” Only
+committed canonical revisions enter the tree, Preview, collaboration stream,
+event log, or deployment surfaces.
 
 ### 15.6 Materialization handoff
 
@@ -4310,7 +4338,12 @@ The repository carries one operational legacy repair pair:
 `migrate-legacy-preplan-builds` converges holder-free non-`complete` apps that
 have no design-session lineage through the reviewed operator-recovery
 authority. Held rows wait for the reaper; empty rows require per-app operator
-decisions. This is not a second runtime reader or persistence dialect.
+decisions. The deployment packages the writer as the dormant, dry-run-default
+`commcare-nova-legacy-preplan-repair` Cloud Run Job pinned to the deployed
+image. It runs after a green deploy without a traffic drain because each repair
+locks the app and refuses a live holder; a production scan before and after the
+explicit execution proves convergence. This is not a second runtime reader or
+persistence dialect.
 
 ### 18.1 Table inventory
 
@@ -4789,6 +4822,9 @@ the contracts in Sections 1–13 and 18:
 3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
 4. **Pre-app generation target:** owner-private build design sessions carry run, reservation, thread, stream, pause, resume, failure, discard cleanup, and reaper semantics before an app exists. Materialization transfers that authority once to the Project-shared app; all later writers lock and authorize the delegated app holder.
 5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. The bounded executor stages exact per-step intent ownership, admits no blocking external action without a registered receipt producer, meters every provider response observed before its post-await deadline decision, and commits each later slice as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. The app remains reopenable after a later recoverable slice failure.
+   New plans keep each slice within the 30-owned-intent admission bound, while
+   historical plans remain readable. On-device date lowering uses only
+   supported fixed durations and never substitutes hand-built calendar math.
 6. **Recovery and UI:** a fresh design immediately acquires a durable `/build/new?design=<id>` recovery URL; a materialized scope resolves to the authoritative app. Active designs participate in the Project empty-state decision, and a materialized build is reachable from its app card.
 7. **Explicit blank and direct editors:** explicit blank creation remains the immediate Survey/Form/Question path. Direct builder and shared MCP tools remain immediate canonical editors and do not require design metadata.
 

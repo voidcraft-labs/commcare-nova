@@ -204,6 +204,33 @@ function gatedReview(): DesignReview {
 	};
 }
 
+function criticalReview(): DesignReview {
+	const review = gatedReview();
+	const finding = review.findings[0];
+	if (finding) finding.severity = "critical";
+	return review;
+}
+
+function extendedContract() {
+	const contract = cloneContract(makeContract());
+	contract.tasks.push({
+		id: did(700),
+		name: "Review visit coverage",
+		actorId: ids.actorSupervisor,
+		goal: "Check whether expected visits are being recorded.",
+		trigger: "Weekly supervision",
+		preconditions: [],
+		inputs: [],
+		decisionRuleIds: [],
+		writes: [],
+		transitionIds: [],
+		readBackIds: [ids.rmPatients],
+		exceptionPaths: [],
+		evidence: [ids.claimVisits],
+	});
+	return contract;
+}
+
 interface LoopHarness {
 	tools: ReturnType<typeof createDesignLoopTools>;
 	repair: DesignRepairTracker;
@@ -263,7 +290,11 @@ describe("clean path: contract → clean review → server acceptance → plan",
 		});
 
 		const submitted = await call(tools.submitContract, makeContract());
-		expect(submitted).toMatchObject({ ok: true });
+		expect(submitted).toMatchObject({
+			ok: true,
+			effortLevel: "standard",
+			roughTimeEstimate: "about 45 minutes",
+		});
 		expect(String(submitted.message)).toContain("requestReview");
 
 		const reviewed = await call(tools.requestReview);
@@ -375,10 +406,37 @@ describe("findings path and the second round", () => {
 		expect(dispositions[0]?.disposition.status).toBe("accepted");
 	});
 
-	it("an architecture change forces the second review, and the second revision accepts outright", async () => {
+	it("does not force a second review just because the design is extended", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
 		const { tools } = mountTools({ pkg, reviewer: { review: gatedReview } });
+		const contract = extendedContract();
+
+		const submitted = await call(tools.submitContract, contract);
+		expect(submitted).toMatchObject({
+			ok: true,
+			effortLevel: "extended",
+			roughTimeEstimate: "about 75 minutes",
+		});
+		await call(tools.requestReview);
+		const revised = await call(tools.submitRevision, {
+			contract,
+			dispositions: [
+				{
+					findingId: did(502),
+					status: "accepted",
+					rationale: "Added the follow-up marker to visit recording.",
+					resultingIntentIds: [ids.taskVisit],
+				},
+			],
+		});
+		expect(revised).toMatchObject({ ok: true, accepted: true });
+	});
+
+	it("an architecture change forces the second review, and the second revision accepts outright", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools } = mountTools({ pkg, reviewer: { review: criticalReview } });
 
 		await call(tools.submitContract, makeContract());
 		await call(tools.requestReview);
@@ -419,6 +477,26 @@ describe("findings path and the second round", () => {
 });
 
 describe("repairs", () => {
+	it("repairs only rejected contract sections and revalidates the whole graph", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools, repair } = mountTools({ pkg });
+		const original = makeContract();
+		const broken = cloneContract(original);
+		broken.acceptanceScenarios = [];
+
+		const rejected = await call(tools.submitContract, broken);
+		expect(String(rejected.error)).toContain("acceptanceScenarios");
+		const repaired = await call(tools.submitContract, {
+			repair: { acceptanceScenarios: original.acceptanceScenarios },
+		});
+		expect(repaired).toMatchObject({ ok: true });
+		expect(repair.fatalError()).toBeUndefined();
+
+		const persisted = await readLatestDesignRevision(sessionId);
+		expect(persisted?.envelope.payload).toEqual(original);
+	});
+
 	it("returns refinement messages and latches the budget after two rejections", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
@@ -432,6 +510,40 @@ describe("repairs", () => {
 		const second = await call(tools.submitContract, broken);
 		expect(String(second.error)).toBeTruthy();
 		expect(repair.fatalError()?.message).toContain("submitContract");
+	});
+
+	it("repairs one rejected revision section without re-emitting the contract", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools, repair } = mountTools({
+			pkg,
+			reviewer: { review: gatedReview },
+		});
+		const original = makeContract();
+		await call(tools.submitContract, original);
+		await call(tools.requestReview);
+
+		const lowered = cloneContract(original);
+		const risk = lowered.facts.find((fact) => fact.id === ids.factRisk);
+		if (risk) risk.sensitivity = "ordinary";
+		const rejected = await call(tools.submitRevision, {
+			contract: lowered,
+			dispositions: [
+				{
+					findingId: did(502),
+					status: "accepted",
+					rationale: "Addressed the coverage gap.",
+					resultingIntentIds: [ids.taskVisit],
+				},
+			],
+		});
+		expect(String(rejected.error)).toContain("sensitivity");
+
+		const repaired = await call(tools.submitRevision, {
+			repair: { contract: { facts: original.facts } },
+		});
+		expect(repaired).toMatchObject({ ok: true, accepted: true });
+		expect(repair.fatalError()).toBeUndefined();
 	});
 
 	it("rejects a quiet sensitivity downgrade", async () => {

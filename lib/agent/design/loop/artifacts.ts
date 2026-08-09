@@ -144,6 +144,19 @@ export function leavesCriticalFinding(
 	);
 }
 
+/** Count the highest-severity findings that justified revision work. Review
+ * depth by itself is not evidence that a second independent pass will add
+ * value; the first pass's actual findings are. */
+export function criticalFindingCount(reviews: readonly DesignReview[]): number {
+	return reviews.reduce(
+		(total, review) =>
+			total +
+			review.findings.filter((finding) => finding.severity === "critical")
+				.length,
+		0,
+	);
+}
+
 /** "…or changes architecture": the revision added/removed a decision or
  *  selected a different option. */
 export function changesArchitecture(

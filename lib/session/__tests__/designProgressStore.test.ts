@@ -38,7 +38,6 @@ const OUTLINE = {
 	blockingQuestions: [],
 	outOfScope: ["Stock management"],
 	reviewed: true,
-	findingCounts: { critical: 0, important: 2, advisory: 1 },
 };
 
 const PLAN = {

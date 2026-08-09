@@ -49,10 +49,14 @@ direct MCP edit.
   ownership coherence, root-closure external-action timing, no pre-app
   data migration) plus `buildPlanSchemaFor(contract)` (exact ownership
   over the implementable intents, scenario coverage, parent-selection
-  reachability). `buildPlanDraftSchema` is the planner MODEL's shape —
-  the server stamps plan id and revision identity.
+  reachability). New-plan admission additionally caps one slice at 30 owned
+  intents so the bounded executor receives task-complete work it can finish;
+  persisted schemas still read older wider plans. `buildPlanDraftSchema` is
+  the planner MODEL's shape — the server stamps plan id and revision identity.
 - `complexity.ts` — deterministic depth (`compact|standard|extended`),
-  persisted with each contract envelope; controls process depth only.
+  persisted with each contract envelope; controls process depth and the
+  conservative user estimates (about 25 / 45 / 75 minutes), never
+  Blueprint authority or validity.
 - `envelope.ts` + `artifactStore.ts` — the immutable artifact envelope
   (canonical-JS digest over every field but the digest) and the ONE
   read/write boundary over the five artifact tables. Insert-only;
@@ -107,7 +111,13 @@ direct MCP edit.
   blocking questions reopen a fresh reviewed cycle. Submissions register
   the strict wire projection (`strict: true`) and run the exact schema
   factories inside execute, so a rejection is a repairable tool result,
-  bounded at two consecutive per kind. `claimSeeding.ts` derives
+  bounded at two consecutive per kind. The immediately preceding rejected
+  contract/revision stays only in that live loop; a retry may replace named
+  top-level contract sections (or the revision's complete disposition set),
+  after which the full graph and cross-artifact proofs run again. A second
+  review is evidence-based: unresolved critical risk, at least two critical
+  first-pass findings, or critical feedback that changed architecture; depth
+  alone is not a trigger. `claimSeeding.ts` derives
   cumulative deterministic claims from every answered question round
   (name-based UUIDs over thread coordinates), which is what makes package
   rebuilds byte-identical. `packageRender.ts` decomposes the package onto

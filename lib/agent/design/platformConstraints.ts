@@ -38,6 +38,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"RESERVED_CASE_IDENTIFIERS_REJECTED",
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
+	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
 	"GAP_GROUPED_CASE_TILES",
 	"GAP_CASE_ATTACHMENT_EMISSION",
@@ -144,8 +145,15 @@ export const PLATFORM_CONSTRAINTS: Record<
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 		statement:
-			"Display conditions govern what a worker is shown, not what they may access: a deep link that ignores relevancy traverses hidden menus and cases, so access rules must not be designed as display conditions.",
-		sourceAnchor: "lib/commcare/validator/rules/displayConditions.ts",
+			"Display conditions, including conditions over worker properties, are the supported in-app role and navigation gate. They do not decide which cases a worker restores or which cases live search can return, so a role-safe design pairs those gates with the intended ownership or location model and with search filters that enforce the same boundary; remote search may reach beyond assigned restore ownership when its query permits it.",
+		sourceAnchor: "docs/research/advanced-case-actions.md::2.1-2.4",
+	},
+	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: {
+		code: "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
+		statement:
+			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
+		sourceAnchor:
+			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
 	},
 	GAP_GROUPED_CASE_TILES: {
 		code: "GAP_GROUPED_CASE_TILES",

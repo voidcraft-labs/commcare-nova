@@ -36,7 +36,10 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
-import { DesignProgressPanel } from "@/components/chat/DesignProgressPanel";
+import {
+	DesignProgressDetails,
+	DesignProgressStatus,
+} from "@/components/chat/DesignProgressPanel";
 import { StartFromScratch } from "@/components/chat/StartFromScratch";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -2089,9 +2092,14 @@ export function ChatContainer({
 			activeThreadId={chat.id}
 			onSelectThread={openThread}
 			onNewChat={startNewChat}
-			designProgress={
+			designProgressDetails={
 				designProgress.active ? (
-					<DesignProgressPanel view={designProgress} />
+					<DesignProgressDetails view={designProgress} />
+				) : undefined
+			}
+			designProgressStatus={
+				designProgress.active && !designProgress.materialized ? (
+					<DesignProgressStatus view={designProgress} />
 				) : undefined
 			}
 			/* Only while the app does not exist yet: from materialization on,

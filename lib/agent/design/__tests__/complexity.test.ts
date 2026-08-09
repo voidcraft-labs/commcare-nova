@@ -4,7 +4,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { computeDesignComplexity } from "@/lib/agent/design/complexity";
+import {
+	computeDesignComplexity,
+	DESIGN_EFFORT_TIME_ESTIMATES,
+} from "@/lib/agent/design/complexity";
 import { cloneContract, makeContract } from "./fixtures";
 
 describe("computeDesignComplexity", () => {
@@ -23,6 +26,9 @@ describe("computeDesignComplexity", () => {
 		const evidence = computeDesignComplexity(makeContract());
 		expect(evidence.score).toBe(6);
 		expect(evidence.depth).toBe("standard");
+		expect(DESIGN_EFFORT_TIME_ESTIMATES[evidence.depth]).toBe(
+			"about 45 minutes",
+		);
 	});
 
 	it("scores a single-actor, single-record survey as compact", () => {

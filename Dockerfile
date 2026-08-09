@@ -125,7 +125,11 @@ RUN npx esbuild scripts/cleanup-form-attachments.ts \
     npx esbuild scripts/migrate-schema-drift.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=schema-drift.cjs
+      --outfile=schema-drift.cjs && \
+    npx esbuild scripts/migrate-legacy-preplan-builds.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=legacy-preplan-repair.cjs
 
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
@@ -180,6 +184,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-b
 COPY --from=builder --chown=nextjs:nodejs /app/case-type-schema-retirement.cjs ./case-type-schema-retirement.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/case-parent-relationship-repair.cjs ./case-parent-relationship-repair.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/schema-drift.cjs ./schema-drift.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/legacy-preplan-repair.cjs ./legacy-preplan-repair.cjs
 
 USER nextjs
 

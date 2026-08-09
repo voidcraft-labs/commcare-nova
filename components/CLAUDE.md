@@ -145,3 +145,11 @@ Dark "Twilight and first light": a four-step warm plum surface stack (`#171221` 
 - **Motion settles, never snaps.** Default UI transitions are 0.2s; entrances fade and rise on `--ease-out`; ambient motion (the 3.6s breath, blooms) is slow enough to ignore. Reduced motion uses near-zero durations, not `none`, so lifecycles still complete.
 
 **Voice.** Sentence case everywhere except the product name, which is always lowercase `commcare nova`. No em dashes, in UI copy or docs or code comments; a comma, a colon, or a new sentence carries the aside. No ellipsis in buttons, menu items, or placeholders, including in-progress labels ("Creating blank app", not "Creating blank app…"). Skip the period on single-line labels, tooltips, placeholders, and one-sentence dialog bodies. Use contractions, spell out Latin abbreviations, write "and" not "&", and use `·` as the metadata separator. Errors take responsibility and offer the next step. No emoji.
+
+**Reviewed-build chat.** The design protocol's submit/review/revision/plan tool
+parts remain in durable message history for replay but never render in the
+conversation. Nova's model-authored prose explains the work in the voice above;
+technical tool errors and model-only success instructions stay internal. The
+reviewed outline names review status without finding counts or severity
+language. Its cards scroll with the transcript, while the one live design stage
+line is the final status directly above the composer.

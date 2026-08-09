@@ -26,7 +26,7 @@ import { type Kysely, sql, type Transaction } from "kysely";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	buildPlanSchema,
-	unsupportedBlockingActionMessages,
+	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
@@ -765,9 +765,9 @@ export async function insertDesignBuildPlan(args: {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
 	const plan = parsed.payload;
-	const unsupportedActions = unsupportedBlockingActionMessages(plan);
-	if (unsupportedActions.length > 0) {
-		throw new DesignArtifactStoreError(unsupportedActions.join("\n"));
+	const admissionMessages = newPlanAdmissionMessages(plan);
+	if (admissionMessages.length > 0) {
+		throw new DesignArtifactStoreError(admissionMessages.join("\n"));
 	}
 	const planDigest = canonicalJsonDigest(plan);
 

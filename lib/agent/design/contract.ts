@@ -415,7 +415,7 @@ export type AcceptanceScenario = z.infer<typeof acceptanceScenarioSchema>;
  * a prompt/schema change that alters meaning bumps it and re-produces
  * artifacts; it never silently reinterprets an old persisted body.
  */
-const appDesignContractBaseSchema = z
+export const appDesignContractBaseSchema = z
 	.object({
 		schemaVersion: z.literal(1),
 		id: designIdSchema,
@@ -450,6 +450,19 @@ const appDesignContractBaseSchema = z
 	.strict();
 
 export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
+
+/** A retry replaces only the named top-level collections or scalar slots.
+ * The server merges it over the immediately preceding rejected candidate and
+ * then runs the complete graph proof again, so partial authoring never means
+ * partial validation or partial persistence. */
+export const appDesignContractRepairSchema = appDesignContractBaseSchema
+	.partial()
+	.refine((patch) => Object.keys(patch).length > 0, {
+		message: "A contract repair must replace at least one top-level slot.",
+	});
+export type AppDesignContractRepair = z.infer<
+	typeof appDesignContractRepairSchema
+>;
 
 /** The parse-time authority: structural shape plus the full deterministic
  *  graph proof. Every producer and every persisted read uses THIS schema. */

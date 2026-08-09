@@ -34,12 +34,17 @@ export interface DesignProgressPanelProps {
 	readonly view: DesignProgressView;
 }
 
-export function DesignProgressPanel({ view }: DesignProgressPanelProps) {
+export function DesignProgressStatus({ view }: DesignProgressPanelProps) {
+	if (!view.active || view.stageLabel === null) return null;
+	return <StageLine view={view} />;
+}
+
+export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
 
-	/* Once the app exists the builder is mounted and the ordinary activity row
-	 * is back, so this region gives up the stage line and the outline and
-	 * leaves one sentence naming the workflow that landed (§15.7). */
+	/* Once the app exists the builder is mounted, so the transcript keeps only
+	 * one quiet sentence naming what landed. The live stage stays beside the
+	 * composer, where every other activity status lives. */
 	if (view.materialized) {
 		const latest = view.committedSliceNames.at(-1);
 		if (!latest) return null;
@@ -56,11 +61,10 @@ export function DesignProgressPanel({ view }: DesignProgressPanelProps) {
 
 	return (
 		<section
-			aria-label="Design progress"
+			aria-label="Design details"
 			data-design-progress-stage={view.stage ?? undefined}
 			className="flex flex-col gap-3"
 		>
-			<StageLine view={view} />
 			{view.outline && <OutlineCard outline={view.outline} />}
 			<PlannedWorkflows view={view} />
 		</section>
@@ -192,11 +196,7 @@ function PlannedWorkflows({ view }: { readonly view: DesignProgressView }) {
 
 function reviewStatusLine(outline: DesignOutlineProjection): string {
 	if (!outline.reviewed) return "Not reviewed yet";
-	const { critical, important, advisory } = outline.findingCounts;
-	if (critical + important + advisory === 0) {
-		return "Independently reviewed, nothing flagged";
-	}
-	return `Independently reviewed · ${critical} critical, ${important} important, ${advisory} advisory`;
+	return "Independently reviewed";
 }
 
 /**

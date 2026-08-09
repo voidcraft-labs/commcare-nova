@@ -417,6 +417,33 @@ steps:
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \
           --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 
+  # Configure, but DO NOT execute, the one-off repair for valid apps created by
+  # the former pre-plan build flow. The Job is pinned to the image that now owns
+  # traffic and stores dry-run args. An operator runs the read-only production
+  # scan, explicitly executes this Job with --execute, then scans again. Each
+  # write locks the app and refuses a live holder, so this convergence does not
+  # need a traffic drain.
+  - id: legacy-preplan-repair-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/image.env
+        gcloud run jobs deploy commcare-nova-legacy-preplan-repair \
+          --image="$${NOVA_IMMUTABLE_IMAGE}" \
+          --region=us-central1 \
+          --service-account=nova-migrate@commcare-nova.iam.gserviceaccount.com \
+          --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --set-env-vars=NOVA_DB_WORKLOAD=migration,NOVA_DB_USER=nova-migrate@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_LEGACY_PREPLAN_PRODUCTION_JOB=true \
+          --command=node \
+          --args=legacy-preplan-repair.cjs \
+          --tasks=1 --parallelism=1 \
+          --memory=2Gi --cpu=1 \
+          --max-retries=0 \
+          --task-timeout=900
+
   # Configure, but DO NOT execute, the one-off case-type retirement backfill
   # from the exact immutable image that now owns 100% traffic. The previous
   # application binary can remove a type without writing retired_seq, so an

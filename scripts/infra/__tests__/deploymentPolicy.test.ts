@@ -64,6 +64,12 @@ describe("durable deployment policy", () => {
 		expect(stepOffset("media-policy")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("migrate")).toBeLessThan(stepOffset("capture-cleanup"));
 		expect(stepOffset("capture-cleanup")).toBeLessThan(stepOffset("deploy"));
+		expect(stepOffset("deploy")).toBeLessThan(
+			stepOffset("legacy-preplan-repair-job"),
+		);
+		expect(stepOffset("legacy-preplan-repair-job")).toBeLessThan(
+			stepOffset("verify"),
+		);
 		expect(stepOffset("deploy")).toBeLessThan(stepOffset("verify"));
 
 		for (const removedMechanism of [
@@ -95,7 +101,7 @@ describe("durable deployment policy", () => {
 	test("pins one image and the final runtime platform limits", () => {
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
 		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
-		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(9);
+		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(10);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
@@ -210,6 +216,7 @@ describe("durable deployment policy", () => {
 			"scripts/migrate-case-type-schema-retirement.ts",
 			"scripts/migrate-case-parent-relationships.ts",
 			"scripts/migrate-schema-drift.ts",
+			"scripts/migrate-legacy-preplan-builds.ts",
 		]);
 		for (const entrypoint of esbuildEntrypoints) {
 			expect(dockerignore).toContain(`!${entrypoint}`);
@@ -234,6 +241,22 @@ describe("durable deployment policy", () => {
 		expect(cleanupEntrypoint).not.toContain("probeCaptureStorageAuthority");
 		expect(dockerfile).toContain(
 			"npx esbuild scripts/migrate.ts \\\n      --bundle --platform=node --target=node24 --format=cjs \\\n      --conditions=react-server",
+		);
+	});
+
+	test("packages the legacy pre-plan convergence as a dormant immutable Job", () => {
+		expect(dockerfile).toContain("scripts/migrate-legacy-preplan-builds.ts");
+		expect(dockerfile).toContain("legacy-preplan-repair.cjs");
+		expect(cloudBuild).toContain(
+			"gcloud run jobs deploy commcare-nova-legacy-preplan-repair",
+		);
+		expect(cloudBuild).toContain("--args=legacy-preplan-repair.cjs");
+		expect(cloudBuild).not.toContain(
+			"--args=legacy-preplan-repair.cjs,--execute",
+		);
+		expect(cloudBuild).toContain("NOVA_LEGACY_PREPLAN_PRODUCTION_JOB=true");
+		expect(cloudBuild).not.toContain(
+			"gcloud run jobs execute commcare-nova-legacy-preplan-repair",
 		);
 	});
 
@@ -350,7 +373,7 @@ describe("durable deployment policy", () => {
 		expect(packageJson).toContain(
 			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
 		);
-		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(5);
+		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(6);
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);

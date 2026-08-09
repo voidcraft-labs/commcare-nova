@@ -31,6 +31,7 @@
 import { z } from "zod";
 import {
 	type AppDesignContract,
+	appDesignContractRepairSchema,
 	appDesignContractSchema,
 } from "@/lib/agent/design/contract";
 import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
@@ -266,6 +267,24 @@ export const designRevisionResultSchema = z
 	})
 	.strict();
 export type DesignRevisionResult = z.infer<typeof designRevisionResultSchema>;
+
+/** Top-level retry patch for the immediately preceding rejected revision.
+ * Dispositions replace as one closed set when supplied; the contract patch
+ * replaces only its named top-level slots. */
+export const designRevisionRepairSchema = z
+	.object({
+		contract: appDesignContractRepairSchema.optional(),
+		dispositions: z.array(findingDispositionSchema).optional(),
+	})
+	.strict()
+	.refine(
+		(repair) =>
+			repair.contract !== undefined || repair.dispositions !== undefined,
+		{
+			message:
+				"A revision repair must replace the contract, the dispositions, or both.",
+		},
+	);
 
 /**
  * The parse-time reviser schema, bound to every review pass of the parent

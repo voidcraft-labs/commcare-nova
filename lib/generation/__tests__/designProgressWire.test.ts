@@ -139,7 +139,6 @@ describe("design progress wire", () => {
 			blockingQuestions: [],
 			outOfScope: [],
 			reviewed: false,
-			findingCounts: { critical: 0, important: 0, advisory: 0 },
 		};
 		expect(parseDesignOutline(envelope(outline), SESSION)).toEqual(outline);
 		expect(parseDesignOutline(envelope(outline, "other"), SESSION)).toBeNull();

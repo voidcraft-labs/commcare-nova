@@ -34,13 +34,19 @@ import {
 import {
 	buildPlanDraftSchema,
 	buildPlanSchemaFor,
-	unsupportedBlockingActionMessages,
+	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
+import {
+	appDesignContractBaseSchema,
+	appDesignContractRepairSchema,
+	appDesignContractSchema,
+} from "@/lib/agent/design/contract";
 import {
 	changesArchitecture,
 	composePlan,
 	contractEnvelope,
+	criticalFindingCount,
 	leavesCriticalFinding,
 	mapDispositionsToReviews,
 	planEnvelope,
@@ -55,6 +61,7 @@ import {
 } from "@/lib/agent/design/loop/gates";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
+	designRevisionRepairSchema,
 	designRevisionResultSchema,
 	designRevisionResultSchemaFor,
 	validateSensitivityNotSilentlyLowered,
@@ -119,6 +126,26 @@ interface ToolError {
 	readonly error: string;
 }
 
+/* Provider strict mode requires an object at the schema root. The registration
+ * grammar therefore exposes nullable full-submission slots plus `repair`; the
+ * execute path below enforces that a call is exactly one form and then runs
+ * the authoritative full or repair schema. */
+const contractSubmissionWireSchema = appDesignContractBaseSchema
+	.partial()
+	.extend({ repair: appDesignContractRepairSchema.optional() })
+	.strict();
+
+const revisionSubmissionWireSchema = designRevisionResultSchema
+	.partial()
+	.extend({ repair: designRevisionRepairSchema.optional() })
+	.strict();
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
 async function gatesFor(deps: DesignLoopToolDeps): Promise<DesignGateState> {
 	return evaluateDesignGates(await deps.loadAncestry());
 }
@@ -135,19 +162,46 @@ function refuse(
 }
 
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
+	let rejectedContractCandidate: Record<string, unknown> | null = null;
+	let rejectedRevisionCandidate: Record<string, unknown> | null = null;
+
 	const submitContract = {
 		description:
-			"Submit the complete Design Contract. Opens a design cycle: legal at the session start, and again only when later user input has reopened design work. The server validates the whole design graph; a rejection names exactly what to fix.",
-		inputSchema: strictWireOnly(appDesignContractSchema),
+			"Submit the complete Design Contract. If that candidate is rejected, retry with { repair: { ...top-level replacements } } to keep every valid section and replace only what the errors require. A repair may replace additional related sections when cross-dependencies require it. The server merges only over the immediately preceding rejected candidate and revalidates the entire graph before persisting anything.",
+		inputSchema: strictWireOnly(contractSubmissionWireSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitContract");
 			if (refusal) return refusal;
-			const parsed = appDesignContractSchema.safeParse(
-				stripNullProperties(input),
-			);
+			const stripped = stripNullProperties(input);
+			const raw = recordValue(stripped);
+			let candidate: unknown = stripped;
+			if (raw && "repair" in raw) {
+				if (Object.keys(raw).some((key) => key !== "repair")) {
+					deps.repair.noteSchemaRejection("submitContract");
+					return {
+						error:
+							"A contract call must be either a complete contract or one repair object, not both.",
+					};
+				}
+				const repair = appDesignContractRepairSchema.safeParse(raw.repair);
+				if (!repair.success) {
+					deps.repair.noteSchemaRejection("submitContract");
+					return { error: renderZodIssues(repair.error) };
+				}
+				if (rejectedContractCandidate === null) {
+					deps.repair.noteSequenceError();
+					return {
+						error:
+							"There is no rejected contract in this live turn to repair. Submit the complete contract.",
+					};
+				}
+				candidate = { ...rejectedContractCandidate, ...repair.data };
+			}
+			const parsed = appDesignContractSchema.safeParse(candidate);
 			if (!parsed.success) {
+				rejectedContractCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection("submitContract");
 				return { error: renderZodIssues(parsed.error) };
 			}
@@ -167,10 +221,16 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				authority: deps.authority,
 				supersedeUncommittedExecution: gates.supersedesPlanExecution,
 			});
+			rejectedContractCandidate = null;
 			deps.repair.noteAccepted("submitContract");
 			return {
 				ok: true,
 				revisionId: draft.id,
+				effortLevel: draft.envelope.complexity?.depth,
+				roughTimeEstimate:
+					draft.envelope.complexity === undefined
+						? undefined
+						: DESIGN_EFFORT_TIME_ESTIMATES[draft.envelope.complexity.depth],
 				message: `The draft persisted as revision ${draft.revision}. Request its independent review with requestReview.`,
 			};
 		},
@@ -286,8 +346,8 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const submitRevision = {
 		description:
-			"Submit the revised Design Contract plus exactly one disposition per critical and important review finding. The server decides acceptance or a required second review round.",
-		inputSchema: strictWireOnly(designRevisionResultSchema),
+			"Submit the revised Design Contract plus exactly one disposition per critical and important review finding. If rejected, retry with { repair: { contract?: top-level replacements, dispositions?: complete replacement set } }; the server merges it over the immediately preceding rejected revision and reruns every contract, disposition, and cross-artifact proof. The server decides acceptance or a required second review round.",
+		inputSchema: strictWireOnly(revisionSubmissionWireSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
@@ -298,10 +358,49 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const reviewPayloads = gates.headReviews.map(
 				(review) => review.envelope.payload,
 			);
-			const parsed = designRevisionResultSchemaFor(reviewPayloads).safeParse(
-				stripNullProperties(input),
-			);
+			const stripped = stripNullProperties(input);
+			const raw = recordValue(stripped);
+			let candidate: unknown = stripped;
+			if (raw && "repair" in raw) {
+				if (Object.keys(raw).some((key) => key !== "repair")) {
+					deps.repair.noteSchemaRejection("submitRevision");
+					return {
+						error:
+							"A revision call must be either a complete revision or one repair object, not both.",
+					};
+				}
+				const repair = designRevisionRepairSchema.safeParse(raw.repair);
+				if (!repair.success) {
+					deps.repair.noteSchemaRejection("submitRevision");
+					return { error: renderZodIssues(repair.error) };
+				}
+				if (rejectedRevisionCandidate === null) {
+					deps.repair.noteSequenceError();
+					return {
+						error:
+							"There is no rejected revision in this live turn to repair. Submit the complete revised contract and dispositions.",
+					};
+				}
+				const baseContract = recordValue(rejectedRevisionCandidate.contract);
+				candidate = {
+					...rejectedRevisionCandidate,
+					...(repair.data.contract
+						? {
+								contract: {
+									...(baseContract ?? {}),
+									...repair.data.contract,
+								},
+							}
+						: {}),
+					...(repair.data.dispositions
+						? { dispositions: repair.data.dispositions }
+						: {}),
+				};
+			}
+			const parsed =
+				designRevisionResultSchemaFor(reviewPayloads).safeParse(candidate);
 			if (!parsed.success) {
+				rejectedRevisionCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection("submitRevision");
 				return { error: renderZodIssues(parsed.error) };
 			}
@@ -310,6 +409,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				parsed.data,
 			);
 			if (sensitivityViolations.length > 0) {
+				rejectedRevisionCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection("submitRevision");
 				return {
 					error: [
@@ -322,13 +422,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				parsed.data,
 				gates.headReviews,
 			);
-			const depth = head.envelope.complexity?.depth ?? "standard";
+			const criticalFindings = criticalFindingCount(reviewPayloads);
 			const secondRoundWarranted =
 				gates.openCycleReviews === 1 &&
-				depth !== "compact" &&
-				(depth === "extended" ||
-					leavesCriticalFinding(parsed.data, reviewPayloads) ||
-					changesArchitecture(head.envelope.payload, parsed.data.contract));
+				(leavesCriticalFinding(parsed.data, reviewPayloads) ||
+					criticalFindings >= 2 ||
+					(criticalFindings > 0 &&
+						changesArchitecture(head.envelope.payload, parsed.data.contract)));
 			const lifecycle = secondRoundWarranted ? "draft" : "accepted";
 			const revision = await insertDesignRevision({
 				envelope: contractEnvelope({
@@ -348,6 +448,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				authority: deps.authority,
 				dispositions,
 			});
+			rejectedRevisionCandidate = null;
 			deps.repair.noteAccepted("submitRevision");
 			if (lifecycle === "draft") {
 				return {
@@ -355,7 +456,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					revisionId: revision.id,
 					accepted: false,
 					message:
-						"The revision persisted, and its changes warrant a second independent look (a standing critical finding, an architecture change, or extended depth). Request it with requestReview.",
+						"The revision persisted, and its changes warrant a second independent look because critical risk remains or critical feedback required an architecture change. Request it with requestReview.",
 				};
 			}
 			const blocking = revision.envelope.payload.openQuestions.filter(
@@ -397,22 +498,21 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			 * it before returning structural refinements: one rejected submission
 			 * must expose every independently visible repair, or a newly revealed
 			 * policy message can consume the final repair attempt. */
-			const unsupportedActions = unsupportedBlockingActionMessages(composed);
+			const admissionMessages = newPlanAdmissionMessages(composed);
 			const planParsed = buildPlanSchemaFor(
 				accepted.envelope.payload,
 			).safeParse(composed);
 			if (!planParsed.success) {
 				deps.repair.noteSchemaRejection("submitPlan");
 				return {
-					error: [
-						renderZodIssues(planParsed.error),
-						...unsupportedActions,
-					].join("\n"),
+					error: [renderZodIssues(planParsed.error), ...admissionMessages].join(
+						"\n",
+					),
 				};
 			}
-			if (unsupportedActions.length > 0) {
+			if (admissionMessages.length > 0) {
 				deps.repair.noteSchemaRejection("submitPlan");
-				return { error: unsupportedActions.join("\n") };
+				return { error: admissionMessages.join("\n") };
 			}
 			const plan = await insertDesignBuildPlan({
 				envelope: planEnvelope({

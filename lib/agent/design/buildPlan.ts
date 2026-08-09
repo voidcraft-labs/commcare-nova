@@ -93,6 +93,11 @@ export const buildSliceSchema = z
 	.strict();
 export type BuildSlice = z.infer<typeof buildSliceSchema>;
 
+/** Above this, the executor's bounded correction loop cannot reliably lower
+ * one slice before its hard wall-clock ceiling. This is an admission bound,
+ * not a persisted-schema reinterpretation: older plans remain readable. */
+export const MAX_OWNED_INTENTS_PER_SLICE = 30;
+
 export const intentOwnershipEntrySchema = z
 	.object({
 		intentId: designIdSchema,
@@ -371,10 +376,10 @@ export function validateSlicePlanStructure(
  * `buildPlanSchema`: persisted artifacts accepted before a producer rollout
  * remain readable and can reach the orchestrator's fail-closed receipt check.
  * New plans may not introduce a blocking action until its producer exists. */
-export function unsupportedBlockingActionMessages(
-	plan: Pick<BuildPlan, "externalActions">,
+export function newPlanAdmissionMessages(
+	plan: Pick<BuildPlan, "externalActions" | "slices">,
 ): string[] {
-	return plan.externalActions.flatMap((action) =>
+	const actionMessages = plan.externalActions.flatMap((action) =>
 		action.timing === "before-materialization" ||
 		action.timing === "before-slice"
 			? [
@@ -382,6 +387,14 @@ export function unsupportedBlockingActionMessages(
 				]
 			: [],
 	);
+	const sliceMessages = plan.slices.flatMap((slice) =>
+		slice.ownedIntentIds.length > MAX_OWNED_INTENTS_PER_SLICE
+			? [
+					`The slice "${slice.name}" owns ${slice.ownedIntentIds.length} intents. A new slice may own at most ${MAX_OWNED_INTENTS_PER_SLICE}; split it around smaller task-complete outcomes. For the materialization root, keep only the minimal registration path and its first usable registry, leaving downstream status rules and work queues to later slices.`,
+				]
+			: [],
+	);
+	return [...actionMessages, ...sliceMessages];
 }
 
 /**

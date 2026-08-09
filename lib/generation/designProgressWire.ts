@@ -89,11 +89,6 @@ export interface DesignOutlineProjection {
 	readonly blockingQuestions: readonly string[];
 	readonly outOfScope: readonly string[];
 	readonly reviewed: boolean;
-	readonly findingCounts: {
-		readonly critical: number;
-		readonly important: number;
-		readonly advisory: number;
-	};
 }
 
 /** Counts and names only. */
@@ -230,11 +225,6 @@ const designOutlineSchema = z.object({
 	blockingQuestions: z.array(z.string()),
 	outOfScope: z.array(z.string()),
 	reviewed: z.boolean(),
-	findingCounts: z.object({
-		critical: wholeCount,
-		important: wholeCount,
-		advisory: wholeCount,
-	}),
 });
 
 const buildPlanSummarySchema = z.object({

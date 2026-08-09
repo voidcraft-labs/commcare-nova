@@ -153,6 +153,13 @@ export async function runDesignAgentLoop(
 		args.designSessionId,
 		args.head,
 	);
+	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitPlan.legal
+		? "plan"
+		: initialGates.verdicts.submitRevision.legal
+			? "revise"
+			: initialGates.verdicts.requestReview.legal
+				? "review"
+				: "design";
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
 	const tools = createDesignLoopTools({
 		designSessionId: args.designSessionId,
@@ -271,22 +278,30 @@ export async function runDesignAgentLoop(
 		 * message after its dangling parts are closed. */
 		let narrator: SubmissionStepNarrator | null = null;
 		let narratorPhase: DesignPulsePhase = "design";
+		const toolNames = new Map<string, string>();
 		const trackPulse = (chunk: UIMessageChunk): void => {
 			switch (chunk.type) {
 				case "reasoning-delta":
 				case "text-delta":
-					pulse("design", chunk.delta.length);
+					pulse(livePulsePhase, chunk.delta.length);
 					return;
 				case "tool-input-start":
+					toolNames.set(chunk.toolCallId, chunk.toolName);
 					if (chunk.toolName === "submitContract") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = "design";
+						livePulsePhase = "design";
 					} else if (chunk.toolName === "submitRevision") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = "revise";
+						livePulsePhase = "revise";
 					} else if (chunk.toolName === "submitPlan") {
 						narrator = createSubmissionStepNarrator(PLAN_STEP_LABELS);
 						narratorPhase = "plan";
+						livePulsePhase = "plan";
+					} else if (chunk.toolName === "requestReview") {
+						narrator = null;
+						livePulsePhase = "review";
 					} else {
 						narrator = null;
 					}
@@ -297,8 +312,38 @@ export async function runDesignAgentLoop(
 					return;
 				}
 				case "tool-input-available":
+					toolNames.set(chunk.toolCallId, chunk.toolName);
 					narrator = null;
 					return;
+				case "tool-output-available": {
+					const toolName = toolNames.get(chunk.toolCallId);
+					const output =
+						chunk.output !== null &&
+						typeof chunk.output === "object" &&
+						!Array.isArray(chunk.output)
+							? (chunk.output as Record<string, unknown>)
+							: null;
+					const failed = typeof output?.error === "string";
+					if (toolName === "submitContract") {
+						livePulsePhase = failed ? "design" : "review";
+					} else if (toolName === "requestReview") {
+						livePulsePhase = failed
+							? "review"
+							: output?.accepted === true
+								? "plan"
+								: "revise";
+					} else if (toolName === "submitRevision") {
+						livePulsePhase = failed
+							? "revise"
+							: output?.accepted === false
+								? "review"
+								: "plan";
+					} else if (toolName === "submitPlan") {
+						livePulsePhase = "plan";
+					}
+					pulse(livePulsePhase, 0);
+					return;
+				}
 				default:
 					return;
 			}

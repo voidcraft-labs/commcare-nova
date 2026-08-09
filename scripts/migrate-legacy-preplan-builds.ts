@@ -42,6 +42,7 @@ program
 	);
 program.parse();
 const opts = program.opts<{ execute?: boolean }>();
+const productionJob = process.env.NOVA_LEGACY_PREPLAN_PRODUCTION_JOB === "true";
 
 async function main(): Promise<void> {
 	try {
@@ -97,6 +98,11 @@ async function main(): Promise<void> {
 				? `\nRecovered ${recovered}, skipped ${skipped}. Re-run the scan to confirm zero repairable rows.`
 				: `\nDRY RUN — would recover ${recovered}, skip ${skipped}. Nothing writes without --execute.`,
 		);
+		if (opts.execute === true) {
+			console.log(
+				`Independent proof: npx tsx scripts/scan-legacy-preplan-builds.ts${productionJob ? " --prod" : ""}`,
+			);
+		}
 	} finally {
 		await closeCaseStoreDatabase();
 	}

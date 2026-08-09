@@ -118,20 +118,12 @@ export interface DesignOutlineProjection {
 	readonly blockingQuestions: readonly string[];
 	readonly outOfScope: readonly string[];
 	readonly reviewed: boolean;
-	readonly findingCounts: {
-		critical: number;
-		important: number;
-		advisory: number;
-	};
 }
 
 export function deriveDesignOutline(
 	contract: AppDesignContract,
 	reviews: readonly DesignReview[],
 ): DesignOutlineProjection {
-	const findings = reviews.flatMap((review) => review.findings);
-	const count = (severity: "critical" | "important" | "advisory") =>
-		findings.filter((finding) => finding.severity === severity).length;
 	return {
 		objective: contract.objective,
 		actors: contract.actors.map((actor) => actor.name),
@@ -144,11 +136,6 @@ export function deriveDesignOutline(
 			.map((question) => question.question),
 		outOfScope: contract.outOfScope,
 		reviewed: reviews.length > 0,
-		findingCounts: {
-			critical: count("critical"),
-			important: count("important"),
-			advisory: count("advisory"),
-		},
 	};
 }
 

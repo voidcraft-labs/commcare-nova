@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
-	unsupportedBlockingActionMessages,
+	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
@@ -175,10 +175,31 @@ describe("buildPlanSchema (structural)", () => {
 				plan.slices[0]?.externalActionIds.push(did(503));
 			}
 			expect(buildPlanSchema.safeParse(plan).success).toBe(true);
-			expect(unsupportedBlockingActionMessages(plan).join("\n")).toContain(
+			expect(newPlanAdmissionMessages(plan).join("\n")).toContain(
 				"no registered completion producer",
 			);
 		}
+	});
+
+	it("keeps an older wide slice readable but refuses that shape for a new plan", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		if (!root) throw new Error("fixture has a root slice");
+		for (let index = 0; root.ownedIntentIds.length <= 30; index += 1) {
+			const intentId = did(1_000 + index);
+			root.intentIds.push(intentId);
+			root.ownedIntentIds.push(intentId);
+			plan.intentOwnership.push({
+				intentId,
+				owningSliceId: root.id,
+				contributingSliceIds: [],
+			});
+		}
+
+		expect(buildPlanSchema.safeParse(plan).success).toBe(true);
+		expect(newPlanAdmissionMessages(plan).join("\n")).toContain(
+			"may own at most 30",
+		);
 	});
 });
 

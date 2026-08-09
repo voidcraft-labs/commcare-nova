@@ -96,6 +96,17 @@ async function main(): Promise<void> {
 				"Empty rows: recovery refuses zero-module apps; decide per app (likely soft-delete).",
 			);
 		}
+		if (repairable > 0 && opts.prod === true) {
+			console.log(
+				"\nRun the immutable write-capable Job after the deploy is green:\n" +
+					"  python3 scripts/rollout/deploy-cloud-run.py --execute-job --project=commcare-nova --region=us-central1 " +
+					"--job=commcare-nova-legacy-preplan-repair --service=commcare-nova --wait-seconds=960 " +
+					"--execution-arg=legacy-preplan-repair.cjs --execution-arg=--execute",
+			);
+			console.log(
+				"\nIndependent proof afterward:\n  npx tsx scripts/scan-legacy-preplan-builds.ts --prod",
+			);
+		}
 	} finally {
 		await closeCaseStoreDatabase();
 	}
