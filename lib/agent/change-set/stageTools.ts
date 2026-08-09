@@ -38,13 +38,8 @@ import type { Form, Module } from "@/lib/domain";
 import { FORM_TYPES } from "@/lib/domain/forms";
 import { uniqueSlug } from "@/lib/domain/idSlug";
 import { asUuid, uuidSchema } from "@/lib/domain/uuid";
-import { asHandleRef } from "./handles";
-import type { ChangeSetHandle, StagedEntityKind } from "./schemas";
-
-export interface StagedHandleDeclaration {
-	readonly handle: ChangeSetHandle;
-	readonly entityKind: StagedEntityKind;
-}
+import { asHandleRef, type StagedHandleDeclaration } from "./handles";
+import type { StagedEntityKind } from "./schemas";
 
 /** One executor-only staging tool: a shared-tool-shaped module plus the
  *  declaration metadata the workspace mints handles from. */

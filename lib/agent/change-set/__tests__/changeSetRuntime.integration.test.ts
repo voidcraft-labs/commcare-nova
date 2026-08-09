@@ -24,6 +24,7 @@ import type {
 	Module,
 	Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
 import { commitDesignChangeSet } from "../commit";
@@ -164,6 +165,108 @@ beforeEach(() => {
 });
 
 describe("private staging isolation", () => {
+	it("creates a complete shared module with handles and reuses those bindings", async () => {
+		const app = await createTestApp();
+		const before = await canonicalTableCounts(app.appId);
+		const { workspace } = await openWorkspace(app.appId);
+		const created = await workspace.stageDispatch({
+			toolName: "createModule",
+			requestId: "complete-module",
+			input: {
+				moduleUuid: { handle: "@registry" },
+				name: "Household registry",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@survey" },
+						name: "Household survey",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@status" },
+								kind: "single_select",
+								id: "status",
+								label: proseText("Status"),
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											optionUuid: { handle: "@active" },
+											value: "active",
+											label: proseText("Active"),
+										},
+										{
+											optionUuid: { handle: "@closed" },
+											value: "closed",
+											label: proseText("Closed"),
+										},
+									],
+								},
+							},
+						],
+					},
+				],
+			},
+		});
+		expect(created.receipt?.disposition).toBe("staged");
+		expect(created.result).not.toHaveProperty("error");
+		expect(created.receipt?.handles).toMatchObject({
+			"@registry": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@survey": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@status": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@active": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@closed": expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+
+		const edited = await workspace.stageDispatch({
+			toolName: "editField",
+			requestId: "reuse-field",
+			input: {
+				moduleUuid: { handle: "@registry" },
+				formUuid: { handle: "@survey" },
+				fieldUuid: { handle: "@status" },
+				updates: {
+					kind: "single_select",
+					label: proseText("Current status"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: { handle: "@active" },
+								value: "active",
+								label: proseText("Active"),
+							},
+							{
+								optionUuid: { handle: "@pending" },
+								value: "pending",
+								label: proseText("Pending"),
+							},
+						],
+					},
+				},
+			},
+		});
+		expect(edited.receipt?.disposition).toBe("staged");
+		expect(edited.result).not.toHaveProperty("error");
+		expect(edited.receipt?.handles).toMatchObject({
+			"@pending": expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+		const statusUuid =
+			created.receipt?.handles[changeSetHandleSchema.parse("@status")];
+		const activeUuid =
+			created.receipt?.handles[changeSetHandleSchema.parse("@active")];
+		if (statusUuid === undefined || activeUuid === undefined) {
+			throw new Error("creation handles missing");
+		}
+		const status = workspace.currentSnapshot().doc.fields[statusUuid];
+		if (status?.kind !== "single_select")
+			throw new Error("status field missing");
+		if (status.optionsSource.kind !== "inline")
+			throw new Error("status options missing");
+		expect(status.optionsSource.options[0]?.uuid).toBe(activeUuid);
+		expect(await canonicalTableCounts(app.appId)).toEqual(before);
+	});
+
 	it("stages module + form + fields with handles while NO canonical row changes", async () => {
 		const app = await createTestApp();
 		const before = await canonicalTableCounts(app.appId);

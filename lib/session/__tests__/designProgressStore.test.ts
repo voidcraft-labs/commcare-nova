@@ -86,6 +86,14 @@ describe("design progress stage fold", () => {
 		);
 		expect(view(store).stage).toBe("building-first-workflow");
 		expect(view(store).currentSliceName).toBe("Register a household");
+		applyProgressFrame(
+			"data-build-slice-committed",
+			envelope(
+				SESSION,
+				{ sliceId: "s1", sliceName: "Register a household", seq: 1 },
+				2,
+			),
+		);
 
 		markMaterialized("app-1");
 		expect(view(store).stage).toBe("building");
@@ -143,9 +151,14 @@ describe("design progress stage fold", () => {
 
 		applyProgressFrame(
 			"data-design-pulse",
-			envelope(SESSION, { phase: "plan", chars: 50 }, 1),
+			envelope(
+				SESSION,
+				{ phase: "plan", chars: 50, step: "Assigning ownership" },
+				1,
+			),
 		);
 		expect(view(store).stage).toBe("planning");
+		expect(view(store).pulseStep).toBe("Assigning ownership");
 
 		/* Progress outranks the pulse: a started slice means the design span
 		 * is over, whatever pulse arrived last. */
@@ -154,6 +167,7 @@ describe("design progress stage fold", () => {
 			envelope(SESSION, { sliceId: "s1", sliceName: "Register" }, 2),
 		);
 		expect(view(store).stage).toBe("building-first-workflow");
+		expect(view(store).pulseStep).toBeNull();
 	});
 
 	it("clears a stale pulse at the next turn boundary", () => {
@@ -172,7 +186,7 @@ describe("design progress stage fold", () => {
 		expect(view(store).stage).toBe("understanding");
 	});
 
-	it("counts the materialized first slice, which never emits a committed frame", () => {
+	it("counts the materialization root from its committed progress frame", () => {
 		const store = createDesignProgressStore();
 		openSession(store);
 		const { applyProgressFrame, markMaterialized } = store.getState();
@@ -187,9 +201,68 @@ describe("design progress stage fold", () => {
 		);
 		expect(view(store).sliceProgress).toEqual({ committed: 0, planned: 3 });
 
+		applyProgressFrame(
+			"data-build-slice-committed",
+			envelope(
+				SESSION,
+				{ sliceId: "s1", sliceName: "Register a household", seq: 1 },
+				2,
+			),
+		);
 		markMaterialized("app-1");
 		expect(view(store).sliceProgress).toEqual({ committed: 1, planned: 3 });
 		expect(view(store).currentSliceName).toBeNull();
+	});
+
+	it("folds an older root stream but never mistakes a later active slice for genesis", () => {
+		const legacy = createDesignProgressStore();
+		openSession(legacy);
+		legacy
+			.getState()
+			.applyProgressFrame(
+				"data-build-plan-summary",
+				envelope(SESSION, PLAN, 1),
+			);
+		legacy
+			.getState()
+			.applyProgressFrame(
+				"data-build-slice-started",
+				envelope(
+					SESSION,
+					{ sliceId: "s1", sliceName: "Register a household" },
+					2,
+				),
+			);
+		legacy.getState().markMaterialized("app-1");
+		expect(view(legacy).committedSliceNames).toEqual(["Register a household"]);
+
+		const current = createDesignProgressStore();
+		openSession(current);
+		current
+			.getState()
+			.applyProgressFrame(
+				"data-build-plan-summary",
+				envelope(SESSION, PLAN, 1),
+			);
+		current
+			.getState()
+			.applyProgressFrame(
+				"data-build-slice-committed",
+				envelope(
+					SESSION,
+					{ sliceId: "s1", sliceName: "Register a household", seq: 1 },
+					2,
+				),
+			);
+		current
+			.getState()
+			.applyProgressFrame(
+				"data-build-slice-started",
+				envelope(SESSION, { sliceId: "s2", sliceName: "Record a visit" }, 3),
+			);
+		current.getState().markMaterialized("app-1");
+		expect(view(current).committedSliceNames).toEqual(["Register a household"]);
+		expect(view(current).currentSliceName).toBe("Record a visit");
 	});
 
 	it("offers no slice count without an active plan", () => {

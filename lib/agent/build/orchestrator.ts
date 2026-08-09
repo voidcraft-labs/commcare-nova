@@ -190,20 +190,6 @@ export interface RunBuildOrchestrationArgs {
 	readonly materializedAppId: string | null;
 }
 
-// ── Narrative chunks ───────────────────────────────────────────────
-
-/** One narrated step: start-step → text → finish-step. The transcript's
- *  assistant message accumulates these as ordinary steps, so the barrier
- *  fold persists each at its own boundary. */
-function narrate(writer: OrchestratorStreamWriter, text: string): void {
-	const id = crypto.randomUUID();
-	writer.write({ type: "start-step" });
-	writer.write({ type: "text-start", id });
-	writer.write({ type: "text-delta", id, delta: text });
-	writer.write({ type: "text-end", id });
-	writer.write({ type: "finish-step" });
-}
-
 /** One blocking question the pause presents: a design revision's open
  *  question (free text, no options) or a missing-information escalation's
  *  single decision with its proposed choices. */
@@ -329,12 +315,6 @@ export async function runBuildOrchestration(
 
 		/* ── Design ─────────────────────────────────────────────────── */
 		const claims = seedClaimsFromAnsweredRounds(args.threadId, args.messages);
-		if (head !== null && appId !== null) {
-			narrate(
-				args.writer,
-				"Picking this build back up from where it left off.",
-			);
-		}
 		const pkg = await deps.buildPackage({
 			designSessionId: args.designSessionId,
 			projectId: args.projectId,
@@ -507,12 +487,6 @@ export async function runBuildOrchestration(
 					recoverable: true,
 				};
 			}
-			narrate(
-				args.writer,
-				isGenesis
-					? `Building ${slice.name}. This first workflow becomes your app.`
-					: `Adding ${slice.name}.`,
-			);
 			const brief = deriveSliceExecutionBrief({
 				contract,
 				revision: { id: revision.id, digest: revision.artifactDigest },
@@ -619,15 +593,23 @@ export async function runBuildOrchestration(
 					const materialization = receipt as AppMaterializationReceipt;
 					appId = materialization.appId;
 					lastSeq = 1;
+					/* Genesis is a canonical slice commit too. Project it through
+					 * the same progress vocabulary as every later slice before the
+					 * strict activation receipt transfers the UI to app scope. */
+					args.writer.write({
+						type: "data-build-slice-committed",
+						data: progressEnvelope(args.designSessionId, head, {
+							sliceId: slice.id,
+							sliceName: slice.name,
+							seq: 1,
+						}),
+						transient: true,
+					});
 					args.writer.write({
 						type: "data-app-materialized",
 						data: materialization,
 						transient: true,
 					});
-					narrate(
-						args.writer,
-						`Your app is live. ${slice.name} is real and ready to try in the preview.`,
-					);
 				} else {
 					const sliceReceipt = receipt as CommittedSliceReceipt;
 					lastSeq = sliceReceipt.seq;
@@ -741,10 +723,6 @@ export async function runBuildOrchestration(
 			}),
 			transient: true,
 		});
-		narrate(
-			args.writer,
-			"That's every planned workflow in place. Take it for a spin in the preview, and tell me what you'd like to adjust.",
-		);
 		return { kind: "completed", appId, finalSeq: lastSeq };
 	} finally {
 		clearInterval(heartbeatTimer);
@@ -790,6 +768,8 @@ function productionDeps(
 					designSessionId: args.designSessionId,
 					...(args.meter !== undefined && { meter: args.meter }),
 				}).model(SA_BUILD_MODEL),
+				"high",
+				`nova:design-executor:${args.designSessionId}`,
 			),
 		materialize: overrides.materialize ?? materializeAppFromGenesis,
 		commitSlice: overrides.commitSlice ?? commitDesignChangeSet,
@@ -837,10 +817,6 @@ async function pauseOnQuestions(
 			"A blocking-question pause was requested with no questions to ask.",
 		);
 	}
-	narrate(
-		args.writer,
-		"A few decisions genuinely change how this app should be structured. Your answers will shape the design.",
-	);
 	emitQuestions(args.writer, questions);
 	await appendOrchestrationEvent({
 		designSessionId: args.designSessionId,

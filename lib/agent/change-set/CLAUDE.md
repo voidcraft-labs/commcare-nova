@@ -95,7 +95,7 @@ gate, and integrity services every other write uses.
   fresh locked verdicts. `canCommit` = zero gating findings + current read
   sets + (genesis) export readiness; it is advisory until the kernel's gate
   — nothing here redefines validity.
-- `registry.ts` / `stageTools.ts` — which tools a change set may dispatch:
+- `registry.ts` / `handleDeclarations.ts` / `stageTools.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
   `forbidden`, plus the executor-only granular tools (`stageModule`,
   `stageForm`) that create deliberately incomplete private structure —
@@ -108,7 +108,12 @@ gate, and integrity services every other write uses.
   authoritative snapshot. External-effect tools are structurally absent from
   the map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
   `retireCaseType`) fence at admission: such a batch owns its change set
-  alone (`exclusive_kind` closes the set).
+  alone (`exclusive_kind` closes the set). Shared structural creation tools
+  bind handles from their explicit identity slots before canonical parsing,
+  including nested forms, fields, inline options, columns, search inputs, and
+  case operations. Inline-option replacement slots preserve an existing bound
+  option or bind a newly created one; target, parent, and anchor slots remain
+  reference-only.
 
 ## Invariants
 

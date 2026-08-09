@@ -1879,7 +1879,17 @@ Rules:
 8. A handle cannot be rebound, reused for another kind, or shadowed.
 9. A reference cannot point to a handle created by a later invocation.
 10. The handle table and step commit atomically.
-11. Declarations ride the granular staging tools' identity slots; minting happens outside the durable transaction against a scratch table merged into workspace state only when the step commits.
+11. Declarations ride explicit creation identity slots on the granular staging
+    tools and the shared structural creation tools (`createModule`,
+    `createForm`, `addFields`, `addCaseListColumns`, `addSearchInputs`, and
+    `addCaseOperations`), plus new inline options in `editField` and
+    `setFieldOptionsSource` replacements. Nested forms, fields, inline options,
+    columns, search inputs, and operations bind before the complete input
+    resolves. A replacement option slot preserves an existing handle binding
+    or creates a new one; anchor, parent, and target slots remain
+    reference-only. Minting happens
+    outside the durable transaction against a scratch table merged into
+    workspace state only when the step commits.
 
 This is a private symbol table, not a second authored identity system.
 
@@ -1920,7 +1930,10 @@ The builders still enforce:
 - no unsupported mutation kind;
 - deterministic mutation order.
 
-Existing shared granular edit tools operate on the overlay once targets exist. Canonical `createModule`/`createForm` retain complete convenience semantics for direct chat/MCP/builder use.
+Existing shared granular edit tools operate on the overlay once targets exist.
+Shared `createModule`/`createForm` retain complete convenience semantics on
+direct chat/MCP/builder surfaces and bind their executor-projected creation
+handles when dispatched over a private change set.
 
 Module reordering rides the shared canonical `moveModule` tool over the overlay; there is no private reorder twin.
 
@@ -2993,7 +3006,11 @@ Rules:
 6. include no mutable “latest contract” pointer;
 7. strict-parse and verify all parent digests before model invocation.
 
-The system prompt stays static for cacheability. The brief, current workspace summary, diagnostics delta, and prior tool results are volatile messages.
+The system prompt stays static for cacheability. The brief, current workspace
+summary, diagnostics delta, and prior tool results are volatile messages. Each
+design session supplies one executor prompt-cache routing key together with
+the provider cache options and an explicit stable boundary on the slice's
+initial brief; the growing transcript itself remains immutable between calls.
 
 ### 13.5 Executor tool protocol
 
@@ -3147,8 +3164,12 @@ The executor prompt and deterministic checks enforce:
 3. attach the exact implemented owned-intent IDs to every mutating call;
 4. use local handles for new structural entity references and canonical UUIDs
    for authorable families whose schemas do not expose handles;
-5. stage at natural semantic grain;
-6. use granular private creation rather than canonical completeness scaffolds;
+5. stage complete modules/forms at natural semantic grain, using one shared
+   complete creation call when the accepted brief already specifies the
+   nested structure;
+6. use granular private creation only when a real dependency or call-size
+   boundary requires an incomplete private intermediate rather than canonical
+   completeness scaffolds;
 7. prefer direct answer-to-case writes when source semantics allow;
 8. inspect after meaningful groups and before commit;
 9. append corrections; do not reconstruct successful prior steps;
@@ -3171,7 +3192,16 @@ The executor's closed model-facing surface combines staging-allowed shared tools
 - `commitChangeSet`;
 - `raiseDesignExecutionIssue`.
 
-`stageModule` and `stageForm` are the only private creation grains: they permit an incomplete initial structure. Complete module/form creation and module reordering ride the shared `createModule`/`createForm`/`moveModule` tools over the overlay. There is no `moveStagedModule`, `stageFields`, `stageCaseListColumn`, or `stageCaseOperation` twin. `discardChangeSet` is deliberately not model-facing: abandoning a slice is the orchestrator's decision (supersession, budget, escalation), never the executor's, so the discard writer exists only on the server surface.
+`stageModule` and `stageForm` are the only private incomplete-creation grains.
+Complete module/form creation and module reordering ride the shared
+`createModule`/`createForm`/`moveModule` tools over the overlay; the shared
+creation tools bind handles from their explicit creation slots before their
+ordinary canonical schemas parse the resolved UUID input. There is no
+`moveStagedModule`, `stageFields`, `stageCaseListColumn`, or
+`stageCaseOperation` twin. `discardChangeSet` is deliberately not model-facing:
+abandoning a slice is the orchestrator's decision (supersession, budget,
+escalation), never the executor's, so the discard writer exists only on the
+server surface.
 
 These tools reuse existing domain mutation builders where possible. They do not fork domain rules.
 
@@ -3769,7 +3799,8 @@ Server events:
 - `data-design-outline`;
 - `data-build-plan-summary`;
 - `data-build-slice-started`;
-- `data-build-slice-committed`;
+- `data-build-slice-committed` — emitted for every canonical slice, including
+  sequence-one materialization immediately before activation;
 - `data-app-materialized` — the strict activation receipt itself;
 - `data-build-completion`.
 
@@ -3789,6 +3820,11 @@ interface DesignProgressEnvelope<T> {
 ```
 
 The stream frame is a projection of a durable row. Reconnect re-derives the latest projection; the client does not need every transient frame to recover.
+
+A `data-build-slice-started` frame clears the last design pulse and its
+sub-step before selecting the active slice. A recoverable run error also halts
+the progress region when a post-materialization slice is active, so neither a
+planning label nor a working spinner survives over a stopped executor.
 
 Unknown versions/keys fail closed and trigger a fresh authorized session snapshot.
 
@@ -3822,6 +3858,12 @@ When `data-app-materialized` arrives:
 4. mount the normal builder;
 5. show the first coherent workflow;
 6. continue chat/build progress in place.
+
+The sequence-one `data-build-slice-committed` projection has already cleared
+the root from the active slot and counted it before activation. The client
+retains a narrow compatibility fold for reconnect logs produced before that
+projection existed, and folds only when the active slice matches the plan's
+first slice; a delayed activation receipt cannot clear or count a later slice.
 
 The explicit-blank action returns this exact receipt shape (null design lineage and change set, the starter UUIDs present), so one installer serves both births.
 

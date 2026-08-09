@@ -56,10 +56,9 @@ export interface DesignProgressState {
 	/** The slice currently being built, from the last `slice-started` frame
 	 *  that has not yet committed. */
 	activeSlice: BuildSliceStartedProjection | null;
-	/** Committed slices in commit order. The FIRST slice commits as the
-	 *  materialization receipt rather than a `slice-committed` frame, so
-	 *  `markMaterialized` folds the active slice in here too — otherwise the
-	 *  count would read "0 of 5" with a working app on screen. */
+	/** Committed slices in commit order. The materialization root emits the
+	 *  same progress projection as later slices, in addition to its strict
+	 *  activation receipt. */
 	committedSlices: readonly BuildSliceStartedProjection[];
 	completion: BuildCompletionProjection | null;
 	/** The design-pipeline phase whose model call the server last reported
@@ -214,7 +213,16 @@ export function createDesignProgressStore() {
 				case "data-build-slice-started": {
 					if (sessionId === null) return true;
 					const slice = parseBuildSliceStarted(data, sessionId);
-					if (slice !== null) set({ activeSlice: slice });
+					if (slice !== null) {
+						set({
+							activeSlice: slice,
+							/* A slice start is durable evidence that planning ended. Do
+							 * not render the last design pulse (for example "Assigning
+							 * ownership") under live build work. */
+							pulsePhase: null,
+							pulseStep: null,
+						});
+					}
 					return true;
 				}
 				case "data-build-slice-committed": {
@@ -246,15 +254,21 @@ export function createDesignProgressStore() {
 		markMaterialized(appId: string) {
 			const state = get();
 			if (state.materializedAppId === appId) return;
+			/* Compatibility for a replay produced before the root began emitting
+			 * a committed projection. Only fold the active slice when the plan
+			 * proves it is the first slice; a delayed activation receipt must never
+			 * clear or falsely commit a later slice. */
+			const legacyMaterializationRoot =
+				state.activeSlice !== null &&
+				state.committedSlices.length === 0 &&
+				state.plan?.sliceNames[0] === state.activeSlice.sliceName;
 			set({
 				materializedAppId: appId,
-				activeSlice: null,
-				/* The genesis slice's receipt IS its commit — it never emits a
-				 * `slice-committed` frame — so fold it in here. */
+				activeSlice: legacyMaterializationRoot ? null : state.activeSlice,
 				committedSlices:
-					state.activeSlice === null
-						? state.committedSlices
-						: appendSlice(state.committedSlices, state.activeSlice),
+					legacyMaterializationRoot && state.activeSlice !== null
+						? appendSlice(state.committedSlices, state.activeSlice)
+						: state.committedSlices,
 			});
 		},
 
@@ -393,7 +407,9 @@ export function deriveDesignProgressView(
 		stageLabel: stage === null ? null : designStageLabel(stage),
 		working: stage !== null && designStageIsWorking(stage),
 		pulseStep:
-			state.pulsePhase !== null && stage !== null && designStageIsWorking(stage)
+			state.pulsePhase !== null &&
+			stage === designPulseStage(state.pulsePhase) &&
+			designStageIsWorking(stage)
 				? state.pulseStep
 				: null,
 		outline: state.outline,

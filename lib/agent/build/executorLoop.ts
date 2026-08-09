@@ -46,6 +46,7 @@ import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { markStablePrefixBoundary } from "@/lib/agent/prompts";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import type { SliceExecutionBudget } from "./budgets";
@@ -202,13 +203,20 @@ function executorTools() {
 export function productionExecutorStep(
 	model: LanguageModel,
 	reasoningEffort: ReasoningEffort = "high",
+	promptCacheKey?: string,
 ): ExecutorStepFn {
 	return async ({ system, messages, tools: definitions, signal }) => {
-		const base = reasoningProviderOptions(reasoningEffort);
+		const base = reasoningProviderOptions(
+			reasoningEffort,
+			promptCacheKey === undefined ? undefined : { promptCacheKey },
+		);
 		const result = await generateText({
 			model,
 			system,
-			messages,
+			messages:
+				promptCacheKey === undefined
+					? messages
+					: markStablePrefixBoundary(messages),
 			tools: Object.fromEntries(
 				Object.entries(definitions).map(([name, definition]) => [
 					name,

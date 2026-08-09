@@ -23,17 +23,15 @@ import {
 	type ToolExecutionPolicy,
 } from "@/lib/agent/sharedToolRegistry";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
-import {
-	CHANGE_SET_STAGE_TOOLS,
-	type StagedHandleDeclaration,
-} from "./stageTools";
+import { sharedHandleDeclarer } from "./handleDeclarations";
+import type { StagedHandleDeclaration } from "./handles";
+import { CHANGE_SET_STAGE_TOOLS } from "./stageTools";
 
 export interface ChangeSetToolEntry {
 	readonly name: string;
 	readonly tool: SharedToolModule;
 	readonly policy: ToolExecutionPolicy;
-	/** Which RAW input slots declare new handles — executor-only staging
-	 * tools; shared tools only reference. */
+	/** Which RAW creation identity slots declare new handles. */
 	readonly declaredHandles?: (
 		input: unknown,
 	) => readonly StagedHandleDeclaration[];
@@ -50,10 +48,12 @@ function buildRegistry(): ReadonlyMap<string, ChangeSetToolEntry> {
 	const entries = new Map<string, ChangeSetToolEntry>();
 	for (const entry of SHARED_TOOL_REGISTRY) {
 		if (entry.policy.staging === "forbidden") continue;
+		const declaredHandles = sharedHandleDeclarer(entry.saName);
 		entries.set(entry.saName, {
 			name: entry.saName,
 			tool: entry.tool,
 			policy: entry.policy,
+			...(declaredHandles !== undefined && { declaredHandles }),
 		});
 	}
 	for (const stage of CHANGE_SET_STAGE_TOOLS) {

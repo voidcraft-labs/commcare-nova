@@ -325,6 +325,13 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			try {
 				if (entry?.declaredHandles !== undefined) {
 					for (const declaration of entry.declaredHandles(args.input)) {
+						const existing = scratch.lookup(declaration.handle);
+						if (
+							declaration.referenceIfBound === true &&
+							existing?.entityKind === declaration.entityKind
+						) {
+							continue;
+						}
 						const uuid = scratch.declare(
 							declaration.handle,
 							declaration.entityKind,

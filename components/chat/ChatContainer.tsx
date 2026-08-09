@@ -807,12 +807,14 @@ function createChatInstance(
 					 * settled and refunded; only a fresh send restarts it. Marking
 					 * only fatal errors left the stage line spinning "Designing
 					 * your app" over a toast that said retry (observed live). The
-					 * pre-materialization guard keeps an edit turn's transient
-					 * model error from halting a collapsed post-app region. */
+					 * A live slice after materialization must halt too; otherwise a
+					 * stopped build keeps spinning. An ordinary app-edit turn has no
+					 * active design slice and remains outside this progress region. */
 					const progress = designProgressStore.getState();
 					if (
 						progress.designSessionId !== null &&
-						progress.materializedAppId === null
+						(progress.materializedAppId === null ||
+							progress.activeSlice !== null)
 					) {
 						progress.markFailed(error.message, { recoverable: true });
 					}
@@ -941,9 +943,9 @@ function createChatInstance(
 					);
 					return;
 				}
-				/* Fold the genesis slice into the progress count before the early
-				 * return below: the first workflow's commit IS this receipt, and
-				 * it emits no `slice-committed` frame of its own. Idempotent. */
+				/* The strict receipt activates app scope. The root's ordinary
+				 * committed progress frame arrives immediately before it; the
+				 * store keeps a compatibility fold for older reconnect logs. */
 				designProgressStore.getState().markMaterialized(activation.appId);
 				if (current.appId === activation.appId) return; // replayed frame
 				/* This tab now owns an UNFINISHED build. The RSC page only seeds

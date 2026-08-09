@@ -127,10 +127,12 @@ right now (author/review/revise/plan) — which is the only source that can say
 `reviewing-design`/`revising-design` while those calls run; the store keeps
 just the latest phase (`pulsePhase`), outranked by any real progress frame and
 cleared at every turn boundary because a pulse describes only the stream it
-rode on. Two details are load-bearing: the FIRST slice commits as
-the `data-app-materialized` receipt and emits no `slice-committed` frame, so
-`markMaterialized` folds the active slice into the committed list (otherwise
-"0 of 5" shows over a working app); and `seededStage` carries the SERVER's
+rode on. A slice-start frame also clears it immediately, so the last planning
+sub-step can never appear beneath live build work. Two details are
+load-bearing: the FIRST slice emits an ordinary `slice-committed` progress
+projection immediately before its strict `data-app-materialized` receipt
+(with a narrow `markMaterialized` compatibility fold for older reconnect
+logs); and `seededStage` carries the SERVER's
 load-time derivation for a resumed design (`/build/new?design=<id>`) so a cold
 load says where the design stopped, retired by `noteTurnOpened` the moment a
 new turn is in flight.
