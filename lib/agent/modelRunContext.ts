@@ -53,7 +53,7 @@ export interface SubGenerationUsageMeter {
 			cacheReadTokens?: number;
 			cacheWriteTokens?: number;
 		},
-		opts?: { step?: boolean },
+		opts?: { step?: boolean; model?: string },
 	): void;
 }
 
@@ -75,7 +75,7 @@ export interface StructuredModelRunContext {
 	): Promise<SubGenerationObjectResult<T>>;
 
 	/** Meter a sub-generation's tokens without stepping the run counter. */
-	trackSubGeneration(usage: LanguageModelUsage): void;
+	trackSubGeneration(usage: LanguageModelUsage, model: string): void;
 }
 
 /**
@@ -116,7 +116,7 @@ export async function runStructuredWith<T>(
 export function meterSubGenerationUsage(
 	meter: SubGenerationUsageMeter,
 	usage: LanguageModelUsage,
-	opts: { step?: boolean } = {},
+	opts: { step?: boolean; model?: string } = {},
 ): void {
 	meter.track(
 		{

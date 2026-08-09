@@ -1235,6 +1235,33 @@ describe("reset", () => {
 		expect(latched.getState().buildUnfinished).toBe(true);
 	});
 
+	it("keeps Project edit authority for chat while locking direct initial-build authoring", () => {
+		const store = createBuilderSessionStore({
+			canEdit: true,
+			buildUnfinished: true,
+		});
+		expect(store.getState()).toMatchObject({
+			projectCanEdit: true,
+			canEdit: false,
+			buildUnfinished: true,
+		});
+
+		/* An access refresh must not accidentally unlock an unfinished build. */
+		store.getState().applyAccessSnapshot({
+			projectId: "project-test",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().canEdit).toBe(false);
+
+		store.getState().markBuildFinished();
+		expect(store.getState()).toMatchObject({
+			projectCanEdit: true,
+			canEdit: true,
+			buildUnfinished: false,
+		});
+	});
+
 	it("ignores a stale re-arm after an observed completion (one-way per build)", () => {
 		/* The seq-less app-status frames carry no ordering, so a `generating`
 		 * frame read milliseconds before the completing run committed can be

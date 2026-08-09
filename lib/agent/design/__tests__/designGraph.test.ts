@@ -4,7 +4,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	appDesignContractSchema,
+	effectiveLookupColumnEvidence,
+	effectiveTaskInputEvidence,
+} from "@/lib/agent/design/contract";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { cloneContract, did, ids, imageRef, makeContract } from "./fixtures";
 
@@ -27,6 +31,34 @@ describe("validateDesignGraph", () => {
 		const contract = makeContract();
 		const parsed = appDesignContractSchema.parse(contract);
 		expect(parsed).toEqual(contract);
+	});
+
+	it("inherits evidence at nested task-input and lookup-column boundaries", () => {
+		const contract = cloneContract(makeContract());
+		const task = contract.tasks[0];
+		const input = task?.inputs[0];
+		const table = contract.lookupIntents[0];
+		const column = table?.columns[0];
+		if (!task || !input || !table || !column) {
+			throw new Error("fixture has nested evidence owners");
+		}
+		delete input.evidence;
+		delete column.evidence;
+
+		const parsed = appDesignContractSchema.parse(contract);
+		const parsedTask = parsed.tasks[0];
+		const parsedInput = parsedTask?.inputs[0];
+		const parsedTable = parsed.lookupIntents[0];
+		const parsedColumn = parsedTable?.columns[0];
+		if (!parsedTask || !parsedInput || !parsedTable || !parsedColumn) {
+			throw new Error("parsed fixture has nested evidence owners");
+		}
+		expect(effectiveTaskInputEvidence(parsedTask, parsedInput)).toEqual(
+			parsedTask.evidence,
+		);
+		expect(effectiveLookupColumnEvidence(parsedTable, parsedColumn)).toEqual(
+			parsedTable.evidence,
+		);
 	});
 
 	it("rejects unknown keys, closed", () => {
@@ -283,7 +315,8 @@ describe("validateDesignGraph", () => {
 		const table = contract.lookupIntents[0];
 		if (!table) throw new Error("fixture has a lookup table");
 		table.evidence.push(ids.actorChw);
-		table.columns[0]?.evidence.push(did(9993));
+		const column = table.columns[0];
+		if (column) column.evidence = [...(column.evidence ?? []), did(9993)];
 		const messages = messagesOf(appDesignContractSchema.safeParse(contract));
 		expect(messages.join("\n")).toContain("source claim");
 		expect(messages.join("\n")).toContain("appears nowhere");

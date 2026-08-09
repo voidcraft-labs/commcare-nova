@@ -25,6 +25,7 @@
  */
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
+import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -259,7 +260,7 @@ export function createSolutionsArchitect(
 		 * retry layer; the chat route's turn-level re-run (`lib/agent/turnRetry`)
 		 * owns those. */
 		maxRetries: 4,
-		prepareStep: () => {
+		prepareStep: ({ messages }) => {
 			// A tool execution error is a non-fatal AI SDK content part. Stop the
 			// loop explicitly once an authoritative scope error has been latched;
 			// otherwise the SDK would ask the model for another step in a run whose
@@ -272,6 +273,7 @@ export function createSolutionsArchitect(
 			// route's `markStablePrefixBoundary` marker is the third piece of
 			// the documented triple — see the helper's doc).
 			return {
+				messages: projectModelHistoryFromNewestCompaction(messages),
 				providerOptions: reasoningProviderOptions(SA_EDIT_REASONING.effort, {
 					promptCacheKey: `nova:app:${ctx.appId}`,
 				}),
@@ -306,6 +308,7 @@ export function createSolutionsArchitect(
 					warnings: step.warnings,
 				},
 				"Solutions Architect",
+				SA_EDIT_MODEL,
 			);
 		},
 		tools: sharedTools,

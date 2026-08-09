@@ -56,12 +56,12 @@ const HANDLES = `## Handles — naming what does not exist yet
 An entity you create privately has no UUID you can know in advance. Address it by a HANDLE instead: wherever a tool takes that entity's uuid, pass the one-key object \`{ "handle": "@intake_form" }\`.
 
 - A handle is \`@\` followed by a lowercase letter, then lowercase letters, digits, \`_\`, or \`-\` — up to 64 characters total (\`@household\`, \`@visit_date\`, \`@case-list-name\`).
-- DECLARE a handle by putting it in the identity slot of the call that creates the entity (\`moduleUuid\`, \`formUuid\`, \`fieldUuid\`, \`optionUuid\`, \`columnUuid\`, \`searchInputUuid\`, \`operationUuid\`). It binds once, to that entity, for the life of the change set.
+- DECLARE a handle by putting it in the identity slot of the call that creates the entity. This includes modules, forms, fields, options, columns, search inputs, case operations, organization levels, automations, and every UUID-bearing nested automation item. It binds once, to that entity, for the life of the change set.
 - REFERENCE it afterwards by passing the same \`{ "handle": ... }\` object anywhere that entity's uuid belongs — including inside typed expression and prose ASTs.
 - A handle binds ONCE. Re-declaring one is rejected; referencing one you have not declared yet is rejected. Reference only handles you already created.
-- NEVER invent a raw UUID for a handle-capable structural entity. Automations, personas, user types, organization levels, location properties, and their nested authored items are the exception: their schemas require fresh canonical UUIDs because those tools do not expose handles. Mint fresh UUIDs for those new authored identities and preserve them on later edits.
+- NEVER invent a raw UUID. Use handles for handle-capable entities. Tools that create worker properties, user types, personas, or location properties mint identities on the server; omit an optional identity and use the returned UUID in later calls.
 
-Entities that live outside your change set — media assets, lookup tables and columns, places, workers, and roles — are addressed by their real identities only. Personas and automations are Blueprint entities the mounted tools can create, but they use canonical UUID identities rather than handles.`;
+Entities that live outside your change set — media assets, lookup tables and columns, places, workers, and roles — are addressed by their real identities only.`;
 
 const DISCIPLINE = `## How to work
 

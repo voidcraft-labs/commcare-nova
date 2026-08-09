@@ -69,7 +69,7 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
-import type { UsageAccumulator } from "@/lib/db/usage";
+import { pricingTierForInput, type UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -414,7 +414,7 @@ export class GenerationContext
 		args: StructuredModelRunArgs<T>,
 	): Promise<SubGenerationObjectResult<T>> {
 		return runStructuredWith(this.model(args.modelId), args, (usage) =>
-			this.trackSubGeneration(usage),
+			this.trackSubGeneration(usage, args.modelId),
 		);
 	}
 
@@ -1004,7 +1004,7 @@ export class GenerationContext
 		}
 	}
 
-	handleAgentStep(step: AgentStep, label: string): void {
+	handleAgentStep(step: AgentStep, label: string, model = MODEL_DEFAULT): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
 		// Refresh the run's liveness horizon off SA activity (debounced) — the
 		// cheap early beat; the wall-clock timer covers a long no-step turn.
@@ -1020,7 +1020,7 @@ export class GenerationContext
 				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
 			},
-			{ step: true },
+			{ step: true, model },
 		);
 
 		/* Per-step usage annotation — the same numbers the accumulator just
@@ -1030,6 +1030,8 @@ export class GenerationContext
 		 * the step's event burst, acting as the step separator for readers. */
 		this.emitConversation({
 			type: "step-usage",
+			model,
+			pricingTier: pricingTierForInput(usage.inputTokens ?? 0),
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
@@ -1118,8 +1120,8 @@ export class GenerationContext
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	trackSubGeneration(usage: LanguageModelUsage): void {
-		meterSubGenerationUsage(this.usage, usage);
+	trackSubGeneration(usage: LanguageModelUsage, model = MODEL_DEFAULT): void {
+		meterSubGenerationUsage(this.usage, usage, { model });
 	}
 
 	/**
@@ -1159,7 +1161,8 @@ export class GenerationContext
 				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
+			if (result.usage)
+				this.trackSubGeneration(result.usage, opts.model ?? MODEL_DEFAULT);
 			return {
 				object: result.object,
 				truncated: result.finishReason === "length",
@@ -1201,7 +1204,7 @@ export class GenerationContext
 					: { openai: OPENAI_BASE_OPTIONS },
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage, model);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -1245,7 +1248,7 @@ export class GenerationContext
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
 		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(usage);
+		if (usage) this.trackSubGeneration(usage, model);
 		return last;
 	}
 }

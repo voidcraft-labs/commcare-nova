@@ -21,12 +21,12 @@ import type {
 	DesignRevisionResult,
 	FindingDisposition,
 } from "@/lib/agent/design/review";
-import { DESIGN_MODEL } from "@/lib/models";
+import { DESIGN_AUTHOR_MODEL, DESIGN_REVIEWER_MODEL } from "@/lib/models";
 
-function producer(finishReason: string | null | undefined) {
+function producer(modelId: string, finishReason: string | null | undefined) {
 	return {
 		provider: "openai",
-		modelId: DESIGN_MODEL,
+		modelId,
 		finishReason: finishReason ?? null,
 	};
 }
@@ -51,7 +51,7 @@ export function contractEnvelope(args: {
 		sourcePackageDigest: args.packageDigest,
 		inputArtifactDigests: args.inputDigests,
 		promptVersion: args.promptVersion,
-		producer: producer(args.finishReason),
+		producer: producer(DESIGN_AUTHOR_MODEL, args.finishReason),
 		createdAt: new Date().toISOString(),
 		complexity: computeDesignComplexity(args.contract),
 		payload: args.contract,
@@ -75,7 +75,7 @@ export function reviewEnvelope(args: {
 		sourcePackageDigest: args.draft.sourcePackageDigest,
 		inputArtifactDigests: [args.draft.artifactDigest],
 		promptVersion: DESIGN_PROMPT_VERSIONS.reviewer,
-		producer: producer(args.finishReason),
+		producer: producer(DESIGN_REVIEWER_MODEL, args.finishReason),
 		createdAt: new Date().toISOString(),
 		payload: args.review,
 	});
@@ -112,7 +112,7 @@ export function planEnvelope(args: {
 		sourcePackageDigest: args.packageDigest,
 		inputArtifactDigests: [args.accepted.artifactDigest],
 		promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-		producer: producer(args.finishReason),
+		producer: producer(DESIGN_AUTHOR_MODEL, args.finishReason),
 		createdAt: new Date().toISOString(),
 		payload: args.plan,
 	});

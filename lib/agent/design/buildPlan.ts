@@ -143,6 +143,14 @@ export const buildPlanDraftSchema = z
 	.strict();
 export type BuildPlanDraft = z.infer<typeof buildPlanDraftSchema>;
 
+/** Top-level retry patch for the immediately preceding rejected plan. */
+export const buildPlanDraftRepairSchema = buildPlanDraftSchema
+	.partial()
+	.refine((repair) => Object.keys(repair).length > 0, {
+		message: "A plan repair must replace at least one top-level collection.",
+	});
+export type BuildPlanDraftRepair = z.infer<typeof buildPlanDraftRepairSchema>;
+
 /** The intents a plan must give exactly one owner: the implementable
  *  intents of the accepted contract. Actors, decisions, assumptions, open
  *  questions, scenarios, and claims are context, not implementable units. */

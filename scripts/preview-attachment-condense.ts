@@ -49,7 +49,7 @@ const LUNA_ID = CONDENSER_MODEL;
  * truth). The estimate prices all input at the base uncached rate: extraction
  * is a single one-shot call per document, so no cached prefix is reused.
  */
-const LUNA_PRICING = MODEL_PRICING[LUNA_ID];
+const LUNA_PRICING = MODEL_PRICING[LUNA_ID]?.short;
 
 /** MIME type by file extension — mirrors the client's accept set. Drives the
  *  PDF native-block media type; the kind is resolved from the extension. */

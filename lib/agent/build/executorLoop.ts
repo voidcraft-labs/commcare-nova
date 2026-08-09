@@ -47,6 +47,10 @@ import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { markStablePrefixBoundary } from "@/lib/agent/prompts";
+import {
+	modelMessagesContainCompaction,
+	projectModelHistoryFromNewestCompaction,
+} from "@/lib/chat/compaction";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import type { SliceExecutionBudget } from "./budgets";
@@ -329,6 +333,20 @@ function workspaceSummary(workspace: ExecutorWorkspace): string {
 	].join("\n");
 }
 
+function executorCheckpoint(
+	brief: SliceExecutionBrief,
+	workspace: ExecutorWorkspace,
+): ModelMessage {
+	return userMessage(
+		[
+			"## Current authoritative execution context",
+			"Use this exact accepted slice and the current durable private candidate. Do not rely on an older summarized copy of either.",
+			renderBriefMessage(brief),
+			workspaceSummary(workspace),
+		].join("\n\n---\n\n"),
+	);
+}
+
 // ── The loop ─────────────────────────────────────────────────────────
 
 export async function runSliceExecutor(args: {
@@ -430,6 +448,17 @@ export async function runSliceExecutor(args: {
 			modelSteps += 1;
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
 			messages = [...messages, ...step.responseMessages];
+			let checkpointPending = modelMessagesContainCompaction(
+				step.responseMessages,
+			);
+			const appendCheckpoint = (): void => {
+				if (!checkpointPending) return;
+				messages = [
+					...projectModelHistoryFromNewestCompaction(messages),
+					executorCheckpoint(brief, workspace),
+				];
+				checkpointPending = false;
+			};
 
 			if (step.toolCalls.length === 0) {
 				consecutiveEmptySteps += 1;
@@ -441,6 +470,7 @@ export async function runSliceExecutor(args: {
 							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
 					};
 				}
+				appendCheckpoint();
 				messages = [...messages, userMessage(CONTINUE_NUDGE)];
 				continue;
 			}
@@ -458,6 +488,7 @@ export async function runSliceExecutor(args: {
 						),
 					),
 				];
+				appendCheckpoint();
 				continue;
 			}
 
@@ -468,6 +499,7 @@ export async function runSliceExecutor(args: {
 					...messages,
 					toolMessage(call.toolCallId, call.toolName, value),
 				];
+				appendCheckpoint();
 			};
 
 			if (CHANGE_SET_TOOL_REGISTRY.has(call.toolName)) {

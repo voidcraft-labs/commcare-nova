@@ -48,6 +48,14 @@ export const stagedEntityKindSchema = z.enum([
 	"case_list_column",
 	"search_input",
 	"case_operation",
+	"organization_level",
+	"automation",
+	"automation_criterion",
+	"automation_setup_criterion",
+	"automation_update",
+	"automation_recipient",
+	"automation_event",
+	"automation_user_data_filter",
 ]);
 export type StagedEntityKind = z.infer<typeof stagedEntityKindSchema>;
 

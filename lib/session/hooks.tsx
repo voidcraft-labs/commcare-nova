@@ -368,6 +368,15 @@ export function useCanEdit(): boolean {
 	return useStore(store, (s) => s.canEdit);
 }
 
+/** The caller's durable Project capability, independent of the initial-build
+ * authoring lock. Chat remains the control surface while Nova is assembling
+ * the first complete app, so it needs this narrower read while every direct
+ * builder editor uses {@link useCanEdit}. */
+export function useProjectCanEdit(): boolean {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.projectCanEdit);
+}
+
 /**
  * The Project this builder session's app belongs to — the tenancy every
  * Project-scoped boundary authorizes against. `undefined` for a new build
@@ -440,6 +449,10 @@ export interface DerivePhaseSession {
 	runCompletedAt: number | undefined;
 	events: readonly Event[];
 	runStartedWithData: boolean;
+	/** Optional only so pure callers compiled before the initial-build lock
+	 * continue to mean the ordinary completed-app path. Live session hooks
+	 * always supply it. */
+	buildUnfinished?: boolean;
 }
 
 /**
@@ -476,6 +489,12 @@ export function derivePhase(
 ): BuilderPhase {
 	if (session.loading) return BuilderPhase.Loading;
 	if (session.runCompletedAt !== undefined) return BuilderPhase.Completed;
+	/* Once genesis lands, the app tree may be real while the initial build is
+	 * still incomplete. Keep the read-only tree around a progress canvas until
+	 * the whole plan reaches its terminal completion marker. */
+	if (session.buildUnfinished === true && docHasData) {
+		return BuilderPhase.Generating;
+	}
 
 	const stage = deriveAgentStage(session.events);
 	if (stage !== null && !session.runStartedWithData) {
@@ -496,6 +515,7 @@ export function useBuilderPhase(): BuilderPhase {
 		runCompletedAt: s.runCompletedAt,
 		events: s.events,
 		runStartedWithData: s.runStartedWithData,
+		buildUnfinished: s.buildUnfinished,
 	}));
 	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
 	 * Identical to `useDocHasData`, inlined here to avoid coupling the

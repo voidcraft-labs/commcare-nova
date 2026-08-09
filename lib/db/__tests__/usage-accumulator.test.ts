@@ -44,7 +44,7 @@ vi.mock("../credits", () => ({
 // wipes each stub's call history between tests, so the finalize-log tests
 // assert on the `log.info` stub directly (no per-test re-spy needed).
 import { log } from "@/lib/logger";
-import { UsageAccumulator } from "../usage";
+import { estimateCost, UsageAccumulator } from "../usage";
 
 const h = setupAppStateTestDb("usage_acc_");
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
@@ -101,6 +101,48 @@ describe("UsageAccumulator", () => {
 		// toBeGreaterThan(0) would silently accept a regression that zeroed
 		// any of the four rate terms; exact pinning catches formula drift.
 		expect(snap.costEstimate).toBeCloseTo(0.0057425, 10);
+	});
+
+	it("prices each call at its own context tier and model before aggregation", () => {
+		const acc = new UsageAccumulator({
+			target: { kind: "app", appId: "mixed-pricing" },
+			userId: "mixed-user",
+			runId: "mixed-run",
+			holderNonce: HOLDER_NONCE,
+			model: "gpt-5.6-sol",
+			promptMode: "build",
+			appReady: false,
+			moduleCount: 0,
+		});
+		const shortInput = 272_000;
+		const longInput = 272_001;
+		acc.track(
+			{ inputTokens: shortInput, outputTokens: 100 },
+			{ model: "gpt-5.6-luna", step: true },
+		);
+		acc.track(
+			{ inputTokens: longInput, outputTokens: 100 },
+			{ model: "gpt-5.6-sol", step: true },
+		);
+
+		const expected =
+			estimateCost("gpt-5.6-luna", shortInput, 100) +
+			estimateCost("gpt-5.6-sol", longInput, 100);
+		expect(acc.snapshot().costEstimate).toBeCloseTo(expected, 10);
+		expect(acc.costBreakdown()).toEqual({
+			"gpt-5.6-luna": {
+				calls: 1,
+				shortCalls: 1,
+				longCalls: 0,
+				costEstimate: estimateCost("gpt-5.6-luna", shortInput, 100),
+			},
+			"gpt-5.6-sol": {
+				calls: 1,
+				shortCalls: 0,
+				longCalls: 1,
+				costEstimate: estimateCost("gpt-5.6-sol", longInput, 100),
+			},
+		});
 	});
 
 	it("stepCount increments on track(...,{step:true}) calls only", () => {

@@ -115,7 +115,7 @@ describe("run-holder write structural guard", () => {
 		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(16);
+		).toBe(17);
 		// The genesis owner holds exactly one apps DML site — the sequence-1
 		// insert inside `writePreparedGenesisInTransaction` (pinned above).
 		expect(
@@ -142,6 +142,19 @@ describe("run-holder write structural guard", () => {
 		);
 		expect(projectMove).toContain('.where("mutation_seq", "=", args.seq - 1)');
 		expect(projectMove).toContain("app source/head changed");
+		// Human acceptance of a settled partial initial build remains in the
+		// reviewed app-lifecycle authority. It can only advance the exact error
+		// sequence after settlement, with no run holder left to supersede.
+		const partialAcceptance = exportedFunction(
+			"lib/db/apps.ts",
+			"acceptSettledPartialBuildInTransaction",
+		);
+		expect(partialAcceptance).toContain('.where("status", "=", "error")');
+		expect(partialAcceptance).toContain('.where("res_settled", "=", true)');
+		expect(partialAcceptance).toContain(
+			'.where("mutation_seq", "=", args.appSeq)',
+		);
+		expect(partialAcceptance).toContain("noRunHolderPredicate()");
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);

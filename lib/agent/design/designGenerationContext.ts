@@ -61,15 +61,15 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 		return this.openai(id);
 	}
 
-	trackSubGeneration(usage: LanguageModelUsage): void {
-		if (this.meter) meterSubGenerationUsage(this.meter, usage);
+	trackSubGeneration(usage: LanguageModelUsage, model: string): void {
+		if (this.meter) meterSubGenerationUsage(this.meter, usage, { model });
 	}
 
 	async runStructured<T>(
 		args: StructuredModelRunArgs<T>,
 	): Promise<SubGenerationObjectResult<T>> {
 		return runStructuredWith(this.model(args.modelId), args, (usage) =>
-			this.trackSubGeneration(usage),
+			this.trackSubGeneration(usage, args.modelId),
 		);
 	}
 }

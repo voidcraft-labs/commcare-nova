@@ -358,7 +358,9 @@ export function validateDesignGraph(
 			"A task read-back",
 		);
 		task.inputs.forEach((input, j) => {
-			evidenceRefs(input.evidence, ["tasks", i, "inputs", j, "evidence"]);
+			if (input.evidence !== undefined) {
+				evidenceRefs(input.evidence, ["tasks", i, "inputs", j, "evidence"]);
+			}
 			if (input.factId !== undefined) {
 				ref(
 					input.factId,
@@ -470,13 +472,15 @@ export function validateDesignGraph(
 	contract.lookupIntents.forEach((table, i) => {
 		evidenceRefs(table.evidence, ["lookupIntents", i, "evidence"]);
 		table.columns.forEach((column, j) => {
-			evidenceRefs(column.evidence, [
-				"lookupIntents",
-				i,
-				"columns",
-				j,
-				"evidence",
-			]);
+			if (column.evidence !== undefined) {
+				evidenceRefs(column.evidence, [
+					"lookupIntents",
+					i,
+					"columns",
+					j,
+					"evidence",
+				]);
+			}
 		});
 	});
 	contract.accessPolicies.forEach((policy, i) => {

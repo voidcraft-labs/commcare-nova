@@ -139,6 +139,12 @@ describe("derivePhase", () => {
 		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
 	});
 
+	it("keeps a materialized initial build on the progress canvas between runs", () => {
+		expect(derivePhase({ ...idle, buildUnfinished: true }, true)).toBe(
+			BuilderPhase.Generating,
+		);
+	});
+
 	it("returns Ready during a post-build edit begun from an existing app", () => {
 		/* Edit in progress: the run opened with data, so even stage-tagged
 		 * mutations (an edit-mode createModule, an addFields) fall through

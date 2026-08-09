@@ -46,15 +46,15 @@ export const STAGING_PROJECTION_DECISIONS: Readonly<
 	"worker-property": "canonical-only",
 	"user-type": "canonical-only",
 	persona: "canonical-only",
-	"organization-level": "canonical-only",
+	"organization-level": "handle-eligible",
 	"location-property": "canonical-only",
-	automation: "canonical-only",
-	"automation-criterion": "canonical-only",
-	"automation-setup-criterion": "canonical-only",
-	"automation-update": "canonical-only",
-	"automation-recipient": "canonical-only",
-	"automation-event": "canonical-only",
-	"automation-user-data-filter": "canonical-only",
+	automation: "handle-eligible",
+	"automation-criterion": "handle-eligible",
+	"automation-setup-criterion": "handle-eligible",
+	"automation-update": "handle-eligible",
+	"automation-recipient": "handle-eligible",
+	"automation-event": "handle-eligible",
+	"automation-user-data-filter": "handle-eligible",
 	/* External identities — never handles, per the plan's identity
 	 * isolation rules. */
 	location: "canonical-only",
@@ -75,6 +75,14 @@ export const HANDLE_ENTITY_KIND_BY_FAMILY: Readonly<
 	"case-list-column": "case_list_column",
 	"search-input": "search_input",
 	"case-operation": "case_operation",
+	"organization-level": "organization_level",
+	automation: "automation",
+	"automation-criterion": "automation_criterion",
+	"automation-setup-criterion": "automation_setup_criterion",
+	"automation-update": "automation_update",
+	"automation-recipient": "automation_recipient",
+	"automation-event": "automation_event",
+	"automation-user-data-filter": "automation_user_data_filter",
 };
 
 export function familyIsHandleEligible(

@@ -367,9 +367,12 @@ describe("clean path: contract → clean review → server acceptance → plan",
 
 		const repaired = makeBuildPlan();
 		const planned = await call(tools.submitPlan, {
-			slices: repaired.slices,
-			externalActions: repaired.externalActions,
-			intentOwnership: repaired.intentOwnership,
+			repair: {
+				/* The valid ownership map is inherited from the rejected candidate;
+				 * only the dependent plan sections are replaced. */
+				slices: repaired.slices,
+				externalActions: repaired.externalActions,
+			},
 		});
 		expect(planned).toMatchObject({ ok: true });
 		expect(repair.fatalError()).toBeUndefined();

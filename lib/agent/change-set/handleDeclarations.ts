@@ -83,6 +83,69 @@ function itemDeclarations(
 	return array(items).flatMap((item) => declarationsAt(item, key, entityKind));
 }
 
+function automationDeclarations(
+	automations: unknown,
+	referenceIfBound = false,
+	includeRoot = true,
+): readonly StagedHandleDeclaration[] {
+	const declarations: StagedHandleDeclaration[] = [];
+	for (const automationValue of array(automations)) {
+		const automation = object(automationValue);
+		if (automation === null) continue;
+		declarations.push(
+			...(includeRoot
+				? declaration(automation.uuid, "automation", referenceIfBound)
+				: []),
+			...array(automation.criteria).flatMap((item) =>
+				declaration(
+					object(item)?.uuid,
+					"automation_criterion",
+					referenceIfBound,
+				),
+			),
+			...array(automation.setupOnlyCriteria).flatMap((item) =>
+				declaration(
+					object(item)?.uuid,
+					"automation_setup_criterion",
+					referenceIfBound,
+				),
+			),
+		);
+		if (automation.kind === "case-update") {
+			declarations.push(
+				...array(automation.updates).flatMap((item) =>
+					declaration(
+						object(item)?.uuid,
+						"automation_update",
+						referenceIfBound,
+					),
+				),
+			);
+			continue;
+		}
+		declarations.push(
+			...array(automation.recipients).flatMap((item) =>
+				declaration(
+					object(item)?.uuid,
+					"automation_recipient",
+					referenceIfBound,
+				),
+			),
+			...array(object(automation.schedule)?.events).flatMap((item) =>
+				declaration(object(item)?.uuid, "automation_event", referenceIfBound),
+			),
+			...array(automation.userDataFilters).flatMap((item) =>
+				declaration(
+					object(item)?.uuid,
+					"automation_user_data_filter",
+					referenceIfBound,
+				),
+			),
+		);
+	}
+	return declarations;
+}
+
 const SHARED_HANDLE_DECLARERS: Readonly<Record<string, HandleDeclarer>> = {
 	createModule(input) {
 		const root = object(input);
@@ -134,6 +197,23 @@ const SHARED_HANDLE_DECLARERS: Readonly<Record<string, HandleDeclarer>> = {
 			"operationUuid",
 			"case_operation",
 		);
+	},
+	addOrganizationLevels(input) {
+		return itemDeclarations(
+			object(input)?.levels,
+			"uuid",
+			"organization_level",
+		);
+	},
+	addAutomations(input) {
+		return automationDeclarations(object(input)?.automations);
+	},
+	updateAutomation(input) {
+		const automation = object(input)?.automation;
+		if (automation === null || automation === undefined) return [];
+		/* The root is an existing reference. Nested replacement items preserve a
+		 * bound handle or declare a newly introduced one. */
+		return automationDeclarations([automation], true, false);
 	},
 	editField(input) {
 		return optionDeclarations(

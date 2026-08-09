@@ -32,6 +32,7 @@ import {
 	insertDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import {
+	buildPlanDraftRepairSchema,
 	buildPlanDraftSchema,
 	buildPlanSchemaFor,
 	newPlanAdmissionMessages,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/agent/design/loop/gates";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
+	designRevisionPatchSchema,
 	designRevisionRepairSchema,
 	designRevisionResultSchema,
 	designRevisionResultSchemaFor,
@@ -137,7 +139,15 @@ const contractSubmissionWireSchema = appDesignContractBaseSchema
 
 const revisionSubmissionWireSchema = designRevisionResultSchema
 	.partial()
-	.extend({ repair: designRevisionRepairSchema.optional() })
+	.extend({
+		patch: designRevisionPatchSchema.optional(),
+		repair: designRevisionRepairSchema.optional(),
+	})
+	.strict();
+
+const planSubmissionWireSchema = buildPlanDraftSchema
+	.partial()
+	.extend({ repair: buildPlanDraftRepairSchema.optional() })
 	.strict();
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -178,6 +188,7 @@ function refuse(
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	let rejectedContractCandidate: Record<string, unknown> | null = null;
 	let rejectedRevisionCandidate: Record<string, unknown> | null = null;
+	let rejectedPlanCandidate: Record<string, unknown> | null = null;
 
 	const submitContract = {
 		description:
@@ -360,7 +371,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const submitRevision = {
 		description:
-			"Submit the revised Design Contract plus exactly one disposition per critical and important review finding. If rejected, retry with { repair: { contract?: top-level replacements, dispositions?: complete replacement set } }; the server merges it over the immediately preceding rejected revision and reruns every contract, disposition, and cross-artifact proof. The server decides acceptance or a required second review round.",
+			"Submit either the complete revised Design Contract, or { patch: { contract?: top-level replacements, dispositions: complete replacement set } } to preserve every unchanged collection from the persisted reviewed parent. If rejected, retry with { repair: { contract?: top-level replacements, dispositions?: complete replacement set } }. Every form is composed into a whole revision and reruns all contract, disposition, and cross-artifact proofs.",
 		inputSchema: strictWireOnly(revisionSubmissionWireSchema),
 		strict: true,
 		execute: async (input: unknown) => {
@@ -375,7 +386,27 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const stripped = stripNullProperties(input);
 			const raw = recordValue(stripped);
 			let candidate: unknown = stripped;
-			if (raw && "repair" in raw) {
+			if (raw && "patch" in raw) {
+				if (Object.keys(raw).some((key) => key !== "patch")) {
+					deps.repair.noteSchemaRejection("submitRevision");
+					return {
+						error:
+							"A revision call must be one complete revision, one persisted-parent patch, or one rejected-candidate repair.",
+					};
+				}
+				const patch = designRevisionPatchSchema.safeParse(raw.patch);
+				if (!patch.success) {
+					deps.repair.noteSchemaRejection("submitRevision");
+					return { error: renderZodIssues(patch.error) };
+				}
+				candidate = {
+					contract: {
+						...head.envelope.payload,
+						...(patch.data.contract ?? {}),
+					},
+					dispositions: patch.data.dispositions,
+				};
+			} else if (raw && "repair" in raw) {
 				if (Object.keys(raw).some((key) => key !== "repair")) {
 					deps.repair.noteSchemaRejection("submitRevision");
 					return {
@@ -490,8 +521,8 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const submitPlan = {
 		description:
-			"Submit the build plan for the accepted design: build slices, external actions, and intent ownership. Legal only once the accepted design carries no blocking open questions.",
-		inputSchema: strictWireOnly(buildPlanDraftSchema),
+			"Submit the build plan for the accepted design. If rejected, retry with { repair: { ...top-level collection replacements } } to preserve valid slices, actions, or ownership while replacing only what the errors require. The server recomposes and validates the entire plan.",
+		inputSchema: strictWireOnly(planSubmissionWireSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
@@ -499,10 +530,34 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (refusal) return refusal;
 			const accepted = gates.head;
 			if (accepted === null) return { error: "No accepted design exists." };
-			const draftParsed = buildPlanDraftSchema.safeParse(
-				stripNullProperties(input),
-			);
+			const stripped = stripNullProperties(input);
+			const raw = recordValue(stripped);
+			let candidate: unknown = stripped;
+			if (raw && "repair" in raw) {
+				if (Object.keys(raw).some((key) => key !== "repair")) {
+					deps.repair.noteSchemaRejection("submitPlan");
+					return {
+						error:
+							"A plan call must be either a complete plan or one repair object, not both.",
+					};
+				}
+				const repair = buildPlanDraftRepairSchema.safeParse(raw.repair);
+				if (!repair.success) {
+					deps.repair.noteSchemaRejection("submitPlan");
+					return { error: renderZodIssues(repair.error) };
+				}
+				if (rejectedPlanCandidate === null) {
+					deps.repair.noteSequenceError();
+					return {
+						error:
+							"There is no rejected plan in this live turn to repair. Submit the complete plan.",
+					};
+				}
+				candidate = { ...rejectedPlanCandidate, ...repair.data };
+			}
+			const draftParsed = buildPlanDraftSchema.safeParse(candidate);
 			if (!draftParsed.success) {
+				rejectedPlanCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection("submitPlan");
 				return { error: renderZodIssues(draftParsed.error) };
 			}
@@ -517,6 +572,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				accepted.envelope.payload,
 			).safeParse(composed);
 			if (!planParsed.success) {
+				rejectedPlanCandidate = recordValue(draftParsed.data);
 				deps.repair.noteSchemaRejection("submitPlan");
 				return {
 					error: [renderZodIssues(planParsed.error), ...admissionMessages].join(
@@ -525,6 +581,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				};
 			}
 			if (admissionMessages.length > 0) {
+				rejectedPlanCandidate = recordValue(draftParsed.data);
 				deps.repair.noteSchemaRejection("submitPlan");
 				return { error: admissionMessages.join("\n") };
 			}
@@ -538,6 +595,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				authority: deps.authority,
 			});
 			deps.repair.noteAccepted("submitPlan");
+			rejectedPlanCandidate = null;
 			return {
 				ok: true,
 				planId: plan.id,

@@ -12,6 +12,7 @@ import { AskQuestionsCard } from "@/components/chat/AskQuestionsCard";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { ToolRunSummary } from "@/components/chat/ToolRunSummary";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { isOpenAICompactionPart } from "@/lib/chat/compaction";
 import { isInternalDesignToolPartType } from "@/lib/chat/internalToolParts";
 import { isEditToolPart } from "@/lib/chat/toolSummary";
 import { ChatMarkdown } from "@/lib/markdown";
@@ -122,6 +123,12 @@ export function ChatMessage({
 	};
 
 	for (const [partIndex, part] of message.parts.entries()) {
+		/* Provider compaction is model context, never conversation content. */
+		if (isOpenAICompactionPart(part)) {
+			flushTools();
+			flushReasoning();
+			continue;
+		}
 		/* Design artifacts are a server-owned protocol, not a user action log.
 		 * The progress line and Nova's authored updates describe the same work in
 		 * plain language; rendering these parts would expose schema names and

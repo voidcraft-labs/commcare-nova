@@ -76,6 +76,7 @@ export function deriveDesignBuildStage(
 		case "executing-slice":
 			return session.app_id === null ? "building-first-workflow" : "building";
 		case "finished":
+		case "accepted-partial":
 			return "ready";
 		case "failed":
 			return state.recoverable ? "incomplete" : "failed";

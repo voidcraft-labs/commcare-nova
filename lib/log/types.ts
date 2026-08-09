@@ -124,6 +124,8 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * cost stays on the run summary (see lib/log/CLAUDE.md). */
 	z.strictObject({
 		type: z.literal("step-usage"),
+		model: z.string().min(1).optional(),
+		pricingTier: z.enum(["short", "long"]).optional(),
 		inputTokens: z.number().int().nonnegative(),
 		outputTokens: z.number().int().nonnegative(),
 		cacheReadTokens: z.number().int().nonnegative().optional(),

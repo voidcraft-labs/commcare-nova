@@ -379,6 +379,7 @@ export function deriveSliceProgress(
 export interface DesignProgressView {
 	/** There is a design session worth reporting on. */
 	readonly active: boolean;
+	readonly designSessionId: string | null;
 	readonly stage: DesignBuildStage | null;
 	readonly stageLabel: string | null;
 	/** Work is still moving — the spinner-vs-mark choice, never the meaning. */
@@ -403,6 +404,7 @@ export function deriveDesignProgressView(
 	const stage = deriveDesignStage(state);
 	return {
 		active: stage !== null,
+		designSessionId: state.designSessionId,
 		stage,
 		stageLabel: stage === null ? null : designStageLabel(stage),
 		working: stage !== null && designStageIsWorking(stage),

@@ -286,6 +286,16 @@ export const designRevisionRepairSchema = z
 		},
 	);
 
+/** First submission after review may patch the persisted parent rather than
+ * re-emitting every unchanged contract collection. Dispositions remain a
+ * complete closed set; the composed whole revision takes every proof below. */
+export const designRevisionPatchSchema = z
+	.object({
+		contract: appDesignContractRepairSchema.optional(),
+		dispositions: z.array(findingDispositionSchema),
+	})
+	.strict();
+
 /**
  * The parse-time reviser schema, bound to every review pass of the parent
  * draft. `validateDispositionClosure` proves:

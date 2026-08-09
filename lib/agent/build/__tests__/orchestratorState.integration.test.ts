@@ -9,6 +9,7 @@ import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
+	acceptPartialMaterializedBuild,
 	appendOrchestrationEvent as appendOrchestrationEventAuthorized,
 	type BuildOrchestratorState,
 	OrchestrationForkError,
@@ -65,6 +66,89 @@ function designing(designSessionId: string): BuildOrchestratorState {
 }
 
 describe("orchestration event chain", () => {
+	async function seedInterruptedMaterializedBuild() {
+		const appId = crypto.randomUUID();
+		await h.seedApp({
+			id: appId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			run_id: RUN,
+			run_holder_nonce: NONCE,
+			reservation: {
+				period: "2026-08",
+				reserved: 100,
+				settled: false,
+				userId: ACTOR,
+				runId: RUN,
+			},
+		});
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ mutation_seq: 1 })
+			.where("id", "=", appId)
+			.execute();
+		const designSessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+			app_id: appId,
+			proposed_app_id: appId,
+			state: "materialized",
+		});
+		await appendOrchestrationEvent({
+			designSessionId,
+			runId: RUN,
+			holderNonce: NONCE,
+			state: designing(designSessionId),
+			expectedHead: null,
+		});
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ status: "error", error_type: "internal", res_settled: true })
+			.where("id", "=", appId)
+			.execute();
+		return { appId, designSessionId };
+	}
+
+	it("accepts the exact settled materialized sequence as an explicit terminal state", async () => {
+		const { appId, designSessionId } = await seedInterruptedMaterializedBuild();
+		expect(
+			await acceptPartialMaterializedBuild({
+				designSessionId,
+				actorUserId: ACTOR,
+			}),
+		).toEqual({ appId, appSeq: 1 });
+		expect(await h.readAppRow(appId)).toMatchObject({
+			status: "complete",
+			error_type: null,
+			mutation_seq: "1",
+		});
+		expect((await readOrchestrationHead(designSessionId))?.state).toEqual({
+			kind: "accepted-partial",
+			appId,
+			appSeq: 1,
+		});
+	});
+
+	it("refuses partial acceptance after Project membership loss", async () => {
+		const { appId, designSessionId } = await seedInterruptedMaterializedBuild();
+		await h
+			.pool()
+			.query(
+				`DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2`,
+				[ACTOR, PROJECT],
+			);
+		await expect(
+			acceptPartialMaterializedBuild({
+				designSessionId,
+				actorUserId: ACTOR,
+			}),
+		).rejects.toThrow(/permission/);
+		expect(await h.readAppRow(appId)).toMatchObject({ status: "error" });
+	});
+
 	it("refuses a stale holder before it can consume the next revision", async () => {
 		const sessionId = await seedHeldSession();
 		await expect(

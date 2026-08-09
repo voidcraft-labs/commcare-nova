@@ -79,7 +79,7 @@ import {
 import {
 	deriveChatAppReady,
 	useAccessPhase,
-	useCanEdit,
+	useProjectCanEdit,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
@@ -627,6 +627,7 @@ function createChatInstance(
 	},
 	projectToast: ProjectToastEmitter,
 	ownerScopeEpoch: number,
+	onContextActivity: (active: boolean) => void,
 ): Chat<NovaUIMessage> {
 	/* A fresh Chat instance starts with a clean slate: the strike count
 	 * guards runs of THIS instance, not whatever a previously open thread
@@ -784,6 +785,12 @@ function createChatInstance(
 				type: string;
 				data: Record<string, unknown>;
 			};
+			if (type === "data-context-activity") {
+				const phase = data.phase;
+				if (phase === "start") onContextActivity(true);
+				if (phase === "done") onContextActivity(false);
+				return;
+			}
 			/* Count the fatal strike the moment a run reports a FATAL error
 			 * (the same envelope the dispatcher toasts, read through the same
 			 * typed reader). It must be read off the stream here, not inferred
@@ -1038,7 +1045,7 @@ export function ChatContainer({
 	/* Viewers (view-only Project members) get a read-only conversation, the
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
 	 * their edits server-side regardless. */
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
@@ -1102,6 +1109,7 @@ export function ChatContainer({
 		return store;
 	});
 	const designProgress = useDesignProgressView(designProgressStore);
+	const [contextCompacting, setContextCompacting] = useState(false);
 	/** Whether the SSE transport was open on the previous render, used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -1233,6 +1241,7 @@ export function ChatContainer({
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
+				setContextCompacting,
 			);
 		},
 		[designProgressStore, projectToast, scopeEpoch],
@@ -1263,6 +1272,7 @@ export function ChatContainer({
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
+			setContextCompacting,
 		),
 	);
 
@@ -1286,6 +1296,14 @@ export function ChatContainer({
 		resumeStream,
 		regenerate,
 	} = useChat({ chat });
+	/* Context activity is a transient stream hint, not durable session state. A
+	 * process loss can strand its closing hint, so every terminal transport state
+	 * releases the override and reveals the ordinary derived status again. */
+	useEffect(() => {
+		if (status !== "submitted" && status !== "streaming") {
+			setContextCompacting(false);
+		}
+	}, [status]);
 	const stopRef = useRef(stop);
 	stopRef.current = stop;
 	const messagesRef = useRef(messages);
@@ -2109,6 +2127,14 @@ export function ChatContainer({
 			 * is one quiet sentence per committed workflow. */
 			activityStatusHidden={
 				designProgress.active && !designProgress.materialized
+			}
+			activityOverride={
+				contextCompacting
+					? {
+							state: "progress",
+							label: "Organizing what we’ve covered",
+						}
+					: null
 			}
 		/>
 	);

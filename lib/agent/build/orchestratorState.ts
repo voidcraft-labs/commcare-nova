@@ -20,9 +20,12 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { acceptSettledPartialBuildInTransaction } from "@/lib/db/apps";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
+import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
@@ -89,6 +92,17 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
+			/** A human accepted the exact materialized app sequence after an
+			 * interrupted initial build. The accepted canonical state is durable;
+			 * uncommitted plan slices remain design history rather than silently
+			 * pretending they were built. */
+			kind: z.literal("accepted-partial"),
+			appId: z.string().min(1),
+			appSeq: z.number().int().positive(),
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal("failed"),
 			failureId: z.string().uuid(),
 			recoverable: z.boolean(),
@@ -118,6 +132,10 @@ export class OrchestrationForkError extends Error {
 			"Another continuation of this build already advanced its orchestration state. Reload the current state before continuing.",
 		);
 	}
+}
+
+export class PartialBuildAcceptanceError extends Error {
+	readonly name = "PartialBuildAcceptanceError";
 }
 
 /** The canonical content digest of one event — what its successor pins as
@@ -213,6 +231,153 @@ export async function appendOrchestrationEvent(args: {
 		throw err;
 	}
 	return { revision, eventId, digest, state };
+}
+
+/**
+ * Finish an interrupted materialized build at the exact canonical sequence
+ * that exists now. This is a human terminal transition, not a synthetic
+ * successful executor run: the app row and orchestration event commit
+ * together after current Project membership and the settled failed-run state
+ * are re-proved under locks.
+ */
+export async function acceptPartialMaterializedBuild(args: {
+	readonly designSessionId: string;
+	readonly actorUserId: string;
+}): Promise<{ appId: string; appSeq: number }> {
+	const expectedHead = await readOrchestrationHead(args.designSessionId);
+	if (expectedHead === null) {
+		throw new PartialBuildAcceptanceError(
+			"This build has no durable progress to accept.",
+		);
+	}
+
+	return await withAppTx(async (tx) => {
+		/* Resolve the mapping, then take the ordinary existing-app lock order:
+		 * app first, Project membership, and finally the materialized session.
+		 * The final locked re-read proves the optimistic mapping did not move. */
+		const mapping = await tx
+			.selectFrom("design_sessions")
+			.select(["app_id"])
+			.where("id", "=", args.designSessionId)
+			.executeTakeFirst();
+		if (mapping?.app_id === null || mapping?.app_id === undefined) {
+			throw new PartialBuildAcceptanceError(
+				"This design does not have a recoverable app yet.",
+			);
+		}
+
+		const app = await tx
+			.selectFrom("apps")
+			.select([
+				"project_id",
+				"mutation_seq",
+				"status",
+				"res_settled",
+				"deleted_at",
+			])
+			.where("id", "=", mapping.app_id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (app === undefined || app.deleted_at !== null) {
+			throw new PartialBuildAcceptanceError(
+				"This build is no longer available.",
+			);
+		}
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			app.project_id,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			throw new PartialBuildAcceptanceError(
+				"You no longer have permission to finish this build.",
+			);
+		}
+		const session = await tx
+			.selectFrom("design_sessions")
+			.select(["project_id", "app_id", "state"])
+			.where("id", "=", args.designSessionId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (
+			session === undefined ||
+			session.state !== "materialized" ||
+			session.app_id !== mapping.app_id ||
+			session.project_id !== app.project_id
+		) {
+			throw new PartialBuildAcceptanceError(
+				"This build is no longer available.",
+			);
+		}
+		const appSeq = safePersistedSequence(
+			app.mutation_seq,
+			`apps.mutation_seq for partial build ${session.app_id}`,
+		);
+		if (
+			expectedHead.state.kind === "accepted-partial" &&
+			expectedHead.state.appId === session.app_id &&
+			app.status === "complete"
+		) {
+			return { appId: session.app_id, appSeq };
+		}
+		if (app.status !== "error" || app.res_settled !== true) {
+			throw new PartialBuildAcceptanceError(
+				"This build is still running or has not finished settling yet.",
+			);
+		}
+
+		const latest = await tx
+			.selectFrom("design_orchestration_events")
+			.select(["revision", "event_id"])
+			.where("design_session_id", "=", args.designSessionId)
+			.orderBy("revision", "desc")
+			.limit(1)
+			.executeTakeFirst();
+		if (
+			latest === undefined ||
+			safePersistedSequence(
+				latest.revision,
+				`design_orchestration_events.revision for session ${args.designSessionId}`,
+			) !== expectedHead.revision ||
+			latest.event_id !== expectedHead.eventId
+		) {
+			throw new OrchestrationForkError();
+		}
+
+		const state = buildOrchestratorStateSchema.parse({
+			kind: "accepted-partial",
+			appId: session.app_id,
+			appSeq,
+		});
+		const revision = expectedHead.revision + 1;
+		const eventId = crypto.randomUUID();
+		const accepted = await acceptSettledPartialBuildInTransaction(tx, {
+			appId: session.app_id,
+			appSeq,
+		});
+		if (!accepted) {
+			throw new PartialBuildAcceptanceError(
+				"This build changed before it could be finished.",
+			);
+		}
+		await tx
+			.insertInto("design_orchestration_events")
+			.values({
+				design_session_id: args.designSessionId,
+				revision,
+				event_id: eventId,
+				predecessor_event_id: expectedHead.eventId,
+				predecessor_digest: expectedHead.digest,
+				run_id: `partial:${eventId}`,
+				holder_nonce_digest: holderNonceDigest(
+					`partial:${args.actorUserId}:${eventId}`,
+				),
+				kind: state.kind,
+				payload: JSON.stringify(state),
+			})
+			.execute();
+		return { appId: session.app_id, appSeq };
+	});
 }
 
 /**

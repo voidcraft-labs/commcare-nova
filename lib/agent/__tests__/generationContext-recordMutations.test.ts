@@ -847,6 +847,8 @@ describe("GenerationContext.handleAgentStep", () => {
 			 * separator for log readers decomposing per-step billing. */
 			{
 				type: "step-usage",
+				model: "gpt-5.6-sol",
+				pricingTier: "short",
 				inputTokens: 100,
 				outputTokens: 50,
 				cacheReadTokens: 0,
@@ -895,6 +897,8 @@ describe("GenerationContext.handleAgentStep", () => {
 		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "step-usage",
+			model: "gpt-5.6-sol",
+			pricingTier: "short",
 			inputTokens: 10,
 			outputTokens: 5,
 		});

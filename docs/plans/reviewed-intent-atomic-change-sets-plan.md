@@ -784,6 +784,11 @@ The design agent's and reviewer's system prompts state that all source text is *
 - architecture-decision option IDs are local to that decision;
 - every blocking open question is referenced by at least one affected intent or architecture decision;
 - every non-deferred explicit in-scope claim has at least one OWNING intent — a record, fact, rule, task, transition, read model, or access policy citing it as evidence (actors, decisions, assumptions, and scenarios are context, not owners);
+- task inputs inherit their task's evidence unless they add narrower evidence,
+  and lookup columns inherit their lookup-table intent's evidence unless they
+  add narrower evidence. Nested implementation detail therefore does not
+  duplicate citations merely to satisfy the graph; effective evidence remains
+  deterministic at the owning boundary;
 - every acceptance scenario references at least one task/transition/read model;
 - sensitivity cannot be lowered by a revision without a dispositioned finding naming the fact — a revision-PAIR property enforced inside the submitRevision tool (`validateSensitivityNotSilentlyLowered`), not in the single-graph validator.
 
@@ -832,7 +837,10 @@ The tool surface:
   replaced as one closed set, and every cross-artifact proof reruns. The
   server decides acceptance or a required second round.
 - `submitPlan`: the build plan, legal only once the accepted design
-  carries no blocking open questions.
+  carries no blocking open questions. A rejected candidate remains live for
+  the immediately following call, which may replace only invalid or dependent
+  plan sections through the same bounded repair envelope; the server composes
+  and validates the complete plan before persistence.
 
 Submissions register the strict wire projection (`strict: true`
 constrained decoding); the exact factory schemas run inside execute, so a
@@ -866,6 +874,43 @@ The same model family drives the loop and the review, but review is a stateless 
 - no tool authority.
 
 A later model-diversity experiment changes only producer configuration, not artifact schemas or orchestration.
+
+### 7.1.1 Model roles, context compaction, and authoritative checkpoints
+
+Authoring, independent review, and slice execution have separate model-role
+constants even though all three currently use Sol. Artifact envelopes record
+the producing model, so changing one role is a measured configuration change,
+not an artifact or orchestration change. Reviewer calls remain fresh-context;
+author and executor calls use their growing session/slice context.
+
+Every Responses API call enables OpenAI server-side context management at
+`256_000` input tokens. OpenAI owns the compaction pass and opaque encrypted
+checkpoint; the AI SDK owns its Responses-item conversion and replay. Nova does
+not implement a parallel summarizer, tokenizer, or tool-output compactor. The
+standalone `/responses/compact` endpoint accepts separate instructions, but the
+automatic `context_management` path exposes only compaction type and token
+threshold; Nova uses the automatic path rather than owning separate trigger,
+retry, and canonical-window persistence solely to customize a compaction
+prompt.
+
+The full `UIMessage[]` transcript remains durable and renderable: compaction is a
+model-context projection, never deletion of visible chat history. Compatible
+assistant messages carry both the exact producer model and
+`contextVersion: "v1"`; a later turn may start from the newest OpenAI
+compaction item only when both match. An incompatible or unknown item is
+removed before the ordinary sanitized history is projected, so an opaque
+checkpoint is never replayed across model or context contracts.
+
+Compaction does not become application authority. After projecting model
+history, the server re-injects the current persisted Design Contract and open
+review findings for the design loop, and the immutable execution brief plus a
+fresh workspace summary for the slice executor. Tool receipts before the
+compaction boundary need not be replayed because handles and staged mutations
+are durable and the current workspace checkpoint is authoritative. The client
+keeps old messages visible and shows the transient status “Organizing what
+we’ve covered” only for the main conversation whose model context is being
+compacted; the status occupies the same final line above the composer and does
+not become a transcript message.
 
 ### 7.2 Review shape
 
@@ -1882,11 +1927,12 @@ Rules:
 11. Declarations ride explicit creation identity slots on the granular staging
     tools and the shared structural creation tools (`createModule`,
     `createForm`, `addFields`, `addCaseListColumns`, `addSearchInputs`, and
-    `addCaseOperations`), plus new inline options in `editField` and
+    `addCaseOperations`), organization levels, automations and their nested
+    criteria/actions/items, plus new inline options in `editField` and
     `setFieldOptionsSource` replacements. Nested forms, fields, inline options,
-    columns, search inputs, and operations bind before the complete input
-    resolves. A replacement option slot preserves an existing handle binding
-    or creates a new one; anchor, parent, and target slots remain
+    columns, search inputs, operations, and automation items bind before the
+    complete input resolves. A replacement slot preserves an existing handle
+    binding or creates a new one; anchor, parent, and target slots remain
     reference-only. Minting happens
     outside the durable transaction against a scratch table merged into
     workspace state only when the step commits.
@@ -2466,13 +2512,31 @@ Preserve:
 
 - first-write unique-race retry;
 - pinned vs latest vs accumulated field policy;
-- per-turn token pricing;
+- per-call token pricing before per-turn aggregation;
 - refund on failed/no-billable work;
 - charge-period fidelity across month boundaries;
 - non-blocking summary storage failure;
 - monthly usage keyed by user, unchanged.
 
 Design metrics remain separate; the existing run summary is not overloaded with full contracts or findings.
+
+Each model call records its model and pricing tier. The long-context threshold
+is applied to that call's input-token total (`> 272_000`), never to the run's
+aggregate tokens. Current per-million-token rate cards are:
+
+| Model | Tier | Input | Cached input | Cache write | Output |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Sol | short | $5.00 | $0.50 | $6.25 | $30.00 |
+| Sol | long | $10.00 | $1.00 | $12.50 | $45.00 |
+| Terra | short | $2.00 | $0.20 | $2.50 | $12.00 |
+| Terra | long | $4.00 | $0.40 | $5.00 | $18.00 |
+| Luna | short | $0.20 | $0.02 | $0.25 | $1.20 |
+| Luna | long | $0.40 | $0.04 | $0.50 | $1.80 |
+
+The run summary aggregates those already-priced calls and retains a safe
+per-model breakdown with short/long call counts. Compaction should keep normal
+calls below the long-context boundary, but billing remains correct when one
+crosses it.
 
 ### 11.11 Pre-app event/log behavior
 
@@ -3040,7 +3104,14 @@ interface ExecutorToolRequest {
 
 The server computes the exact input digest. Replaying the same `toolCallId` with the same tool, revision, and digest returns the stored receipt. Reusing it with different content is a terminal executor protocol error.
 
-The model never supplies a batch ID, ordinal, holder nonce, Project identity, or commit authority. It uses handles for handle-capable structural entities; tools that deliberately expose no handle support, including automations, personas, user types, organization levels, location properties, and their nested authored items, require fresh canonical UUIDs in their schemas.
+The model never supplies a batch ID, ordinal, holder nonce, Project identity,
+commit authority, or invented UUID. It uses handles for handle-capable
+structural entities, including organization levels, automations, and their
+nested authored items. Server-owned creation tools mint and return identities
+for authorable families that are not handle-projected, such as personas, user
+types, worker properties, and location properties; later calls reuse those
+returned identities. References to pre-existing entities remain canonical
+UUIDs read from the brief or workspace.
 
 ### 13.6 No parallel mutation semantics
 
@@ -3162,8 +3233,9 @@ The executor prompt and deterministic checks enforce:
 1. implement the accepted slice, not a module-by-module sketch;
 2. begin or recover one change set;
 3. attach the exact implemented owned-intent IDs to every mutating call;
-4. use local handles for new structural entity references and canonical UUIDs
-   for authorable families whose schemas do not expose handles;
+4. use local handles for new structural entity references and reuse identities
+   returned by server-owned creation tools for families whose schemas do not
+   expose handles; never fabricate UUIDs;
 5. stage complete modules/forms at natural semantic grain, using one shared
    complete creation call when the accepted brief already specifies the
    nested structure;
@@ -3855,9 +3927,11 @@ When `data-app-materialized` arrives:
 1. strict-parse the receipt and install the complete sequence-`1` document atomically (install is synchronous — later frames in the same stream land on the installed doc — while the digest verifies concurrently over the shared canonical JSON text, WebCrypto against the server's `node:crypto` digest, surfacing the reload recovery on a mismatch);
 2. promote the URL without a second history entry;
 3. initialize collaboration at sequence `1`;
-4. mount the normal builder;
-5. show the first coherent workflow;
-6. continue chat/build progress in place.
+4. mount the normal builder with its committed tree read-only;
+5. show the first coherent workflow around a central build-progress card;
+6. continue chat/build progress in place;
+7. release direct editing only when the entire accepted plan completes or the
+   user explicitly accepts the interrupted partial build.
 
 The sequence-one `data-build-slice-committed` projection has already cleared
 the root from the active slot and counted it before activation. The client
@@ -3882,6 +3956,21 @@ Later committed slices use ordinary canonical app-change frames. The UI:
 - falls back to a valid parent/default selection when a committed revision removes it.
 
 Peer tabs see only those canonical commits and normal reload boundaries.
+
+The first materialized workflow does not turn the initial build into an edit
+session. While `buildUnfinished` is true, Project edit capability remains
+available to chat but the builder's effective authoring capability is false;
+all existing visual and imperative mutation gates therefore stay read-only as
+later canonical slices fill the tree. A whole-build completion frame or app
+status notification releases the latch for every tab.
+
+After a settled post-materialization failure, “Use what’s built” is available
+when at least one slice committed. The server locks the app, reauthorizes
+current Project edit membership, proves the failed reservation is settled,
+binds the exact current app sequence in an append-only `accepted-partial`
+orchestration event, and changes the app to `complete` in the same transaction.
+Uncommitted plan slices remain visible in design history and are never claimed
+as implemented. A stale or still-running build cannot be accepted.
 
 ### 15.8 Questions and pause
 

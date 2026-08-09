@@ -118,6 +118,10 @@ export const messageMetadataSchema = z.object({
 	 *  round's model-bound encrypted reasoning is still replayable. Absent on
 	 *  user messages. */
 	model: z.string().max(200).optional(),
+	/** Version of the prompt/state checkpoint contract summarized by a
+	 * server-side compaction item. A mismatch strips the opaque checkpoint and
+	 * falls back to the ordinary sanitized history. */
+	contextVersion: z.string().max(40).optional(),
 });
 export type NovaMessageMetadata = z.infer<typeof messageMetadataSchema>;
 

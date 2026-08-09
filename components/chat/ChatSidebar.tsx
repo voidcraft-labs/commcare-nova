@@ -24,6 +24,7 @@ import { Message, MessageContent } from "@/components/ai-elements/message";
 import { useActiveInspector } from "@/components/builder/inspector/activeInspector";
 import { InspectorPanel } from "@/components/builder/inspector/InspectorPanel";
 import {
+	type ChatActivity,
 	ChatActivityStatus,
 	deriveChatActivity,
 } from "@/components/chat/ChatActivityStatus";
@@ -110,6 +111,9 @@ interface ChatSidebarProps {
 	 *  status. The design stage line is a live region of its own and says the
 	 *  same thing more precisely; announcing both reads as a stutter. */
 	activityStatusHidden?: boolean;
+	/** Temporary root-model work that supersedes, then yields back to, the
+	 * ordinary activity or design stage without changing either owner. */
+	activityOverride?: ChatActivity | null;
 }
 
 interface ShortChatFallbackOptions {
@@ -168,6 +172,7 @@ export function ChatSidebar({
 	designProgressDetails,
 	designProgressStatus,
 	activityStatusHidden = false,
+	activityOverride = null,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -687,10 +692,6 @@ export function ChatSidebar({
 
 				{/* Resting chat has no status chrome. Work in progress uses one compact,
 				 * plain-language row that yields entirely in a short inspector dock. */}
-				{!shortInspectorDock && !shortChatFallback && !activityStatusHidden && (
-					<ChatActivityStatus state={activity.state} label={activity.label} />
-				)}
-
 				{interactionBlockedRecovery && !shortChatFallback && (
 					<div
 						role="alert"
@@ -731,8 +732,21 @@ export function ChatSidebar({
 					<ShortChatFallback onCollapse={() => setSidebarOpen("chat", false)} />
 				)}
 
-				{/* The live design state is the final line before the input. */}
-				{!shortInspectorDock && !shortChatFallback && designProgressStatus}
+				{/* The one live status is the final line before the input. A temporary
+				 * root-model activity supersedes the ordinary owner, then removing it
+				 * reveals the previous derived status unchanged. */}
+				{!shortInspectorDock &&
+					!shortChatFallback &&
+					(activityOverride ? (
+						<ChatActivityStatus
+							state={activityOverride.state}
+							label={activityOverride.label}
+						/>
+					) : designProgressStatus ? (
+						designProgressStatus
+					) : !activityStatusHidden ? (
+						<ChatActivityStatus state={activity.state} label={activity.label} />
+					) : null)}
 
 				{/* Input: absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or

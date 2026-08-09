@@ -24,7 +24,7 @@ import {
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import {
-	DESIGN_MODEL,
+	DESIGN_REVIEWER_MODEL,
 	DESIGN_REVIEWER_REASONING,
 	reasoningProviderOptions,
 } from "@/lib/models";
@@ -43,7 +43,7 @@ export async function runDesignReviewer(
 ): Promise<ArtifactResult<DesignReview>> {
 	const result = await ctx.runStructured({
 		schema: designReviewSchemaFor(args.contract, args.pkg),
-		modelId: DESIGN_MODEL,
+		modelId: DESIGN_REVIEWER_MODEL,
 		system: DESIGN_REVIEWER_SYSTEM,
 		prompt: renderReviewPrompt(args.pkg, args.contract, args.catalogText),
 		images: sourcePackageImages(args.pkg),

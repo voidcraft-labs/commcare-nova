@@ -1955,6 +1955,40 @@ export async function failApp(
 	}
 }
 
+/**
+ * Accept a settled, holder-free partial initial build inside the caller's
+ * larger transaction. The caller already owns the locked app row and is
+ * responsible for committing its matching orchestration event in the same
+ * transaction; this helper keeps the apps DML inside the reviewed lifecycle
+ * authority and repeats every terminal-state predicate on the write itself.
+ */
+export async function acceptSettledPartialBuildInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly appSeq: number;
+	},
+): Promise<boolean> {
+	const result = await tx
+		.updateTable("apps")
+		.set({
+			status: "complete",
+			awaiting_input: false,
+			error_type: null,
+			recoverable_until: null,
+			updated_at: new Date(),
+		})
+		.where("id", "=", args.appId)
+		.where("status", "=", "error")
+		.where("res_settled", "=", true)
+		.where("mutation_seq", "=", args.appSeq)
+		.where(noRunHolderPredicate())
+		.executeTakeFirst();
+	if (!updatedExactlyOne(result)) return false;
+	await notifyAppStatus(tx, args.appId);
+	return true;
+}
+
 export type RecoverAppStatusOutcome =
 	| { readonly kind: "recovered" }
 	| { readonly kind: "already_complete" }

@@ -612,8 +612,10 @@ to the in-flight run by thread id alone; a thread with nothing in flight
 answers a bare `finish` (the transport errors on any non-OK response).
 `updated_at` orders the list (a refresh opens the most recent thread);
 `thread_id` is the PK (client-minted uuid) with writers app-guarded so a
-forged id can't write across apps. Every POST sends the thread's FULL
-history — there is no cache-window trim (the run summary's
+forged id can't write across apps. Every POST sends the thread's FULL durable
+history — there is no UI/history trim; the server may project the model input
+from a compatible provider compaction item and re-inject authoritative state
+(the run summary's
 `fresh_edit`/`cache_expired` fields retired with it).
 
 ## Two ledgers, different lifecycles
@@ -622,7 +624,9 @@ Cost and quota live in **separate tables** so an admin intervention on one
 never disturbs the other:
 
 - `usage_months` (`UsageDoc`) — dollar cost, **accumulate-only**: the
-  `cost_estimate` counter (token math over `MODEL_PRICING`, which with a
+  `cost_estimate` counter (per-model, per-call token math over
+  `MODEL_PRICING`, with short/long selected for that call at `>272k` input
+  tokens before run aggregation; which with a
   direct OpenAI key is the deterministic bill). Resets never touch it. Its
   sole gate consumer is the invisible dollar backstop (`COST_BACKSTOP_USD`),
   read via `getMonthlyUsage`.

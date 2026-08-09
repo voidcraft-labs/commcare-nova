@@ -96,6 +96,15 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + local Export stay (a viewer may preview and download), but HQ upload and media upload/delete/attach/replace/remove do not. Their event handlers re-read `session.getState().canEdit` so a stale rendered control still cannot start a Project write. The account file manager stays browse/preview-capable for viewers.
 3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
 
+The same effective capability enforces the initial-build boundary for an
+editor. After design materialization, `projectCanEdit` keeps chat available but
+`canEdit` stays false while `buildUnfinished` is true: the committed app tree
+fills in read-only around the central progress card, and no human autosave can
+race Nova's remaining slices. Whole-build completion releases it. After a
+settled interruption with committed work, **Use what’s built** invokes the
+server's exact-sequence `accepted-partial` transition and reloads the now-
+complete app; a client never unlocks itself locally.
+
 ## Publishing
 
 A publish returns a durable deployment record, and `DeploymentStatus` renders

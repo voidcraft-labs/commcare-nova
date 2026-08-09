@@ -62,10 +62,14 @@ import {
 } from "@/lib/agent/errorClassifier";
 import { markStablePrefixBoundary } from "@/lib/agent/prompts";
 import { shouldRetryTurn, turnRetryDelayMs } from "@/lib/agent/turnRetry";
+import {
+	isOpenAICompactionChunk,
+	projectCompatibleCompactedHistory,
+} from "@/lib/chat/compaction";
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
-import { DESIGN_MODEL } from "@/lib/models";
+import { DESIGN_AUTHOR_MODEL } from "@/lib/models";
 import type { OrchestratorStreamWriter } from "./orchestrator";
 import type { OrchestrationHead } from "./orchestratorState";
 import {
@@ -186,7 +190,7 @@ export async function runDesignAgentLoop(
 		}),
 	});
 	const agent = createDesignAgent({
-		model: args.designCtx.model(DESIGN_MODEL),
+		model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 		tools,
 		catalogText,
 		constraintsText: renderPlatformConstraintsSection(),
@@ -206,10 +210,17 @@ export async function runDesignAgentLoop(
 		[...args.messages],
 		agent.tools,
 	);
-	const repaired = sanitizeHistoricalReasoningParts(sanitized, DESIGN_MODEL);
-	const projected = applySourceProjection(
+	const repaired = sanitizeHistoricalReasoningParts(
+		sanitized,
+		DESIGN_AUTHOR_MODEL,
+	);
+	const compacted = projectCompatibleCompactedHistory(
 		repaired,
-		projectPackageOntoMessages(args.pkg, repaired),
+		DESIGN_AUTHOR_MODEL,
+	);
+	const projected = applySourceProjection(
+		compacted,
+		projectPackageOntoMessages(args.pkg, compacted),
 	);
 	const validated = await validateUIMessages<InferAgentUIMessage<typeof agent>>(
 		{
@@ -223,15 +234,11 @@ export async function runDesignAgentLoop(
 
 	const stateMessageFor = (gates: DesignGateState): ModelMessage => {
 		const head = gates.head;
-		const threadHoldsHead =
-			head !== null && threadCarriesArtifact(validated, head.id);
 		const openReviews =
 			head !== null &&
 			head.lifecycle === "draft" &&
 			gates.headReviews.length > 0
-				? gates.headReviews.filter(
-						(review) => !threadCarriesArtifact(validated, review.id),
-					)
+				? gates.headReviews
 				: [];
 		return {
 			role: "user",
@@ -239,7 +246,7 @@ export async function runDesignAgentLoop(
 				gates,
 				claims: args.pkg.claims,
 				persistedContract:
-					head !== null && !threadHoldsHead
+					head !== null
 						? {
 								revision: head.revision,
 								lifecycle: head.lifecycle,
@@ -348,6 +355,7 @@ export async function runDesignAgentLoop(
 					return;
 			}
 		};
+		let contextActivityActive = false;
 		for await (const chunk of result.toUIMessageStream({
 			originalMessages: validated,
 			generateMessageId: () => args.responseMessageId,
@@ -356,6 +364,26 @@ export async function runDesignAgentLoop(
 				return error instanceof Error ? error.message : String(error);
 			},
 		})) {
+			if (isOpenAICompactionChunk(chunk)) {
+				contextActivityActive = true;
+				args.writer.write({
+					type: "data-context-activity",
+					data: { phase: "start" },
+					transient: true,
+				});
+			} else if (
+				contextActivityActive &&
+				(chunk.type === "reasoning-start" ||
+					chunk.type === "text-start" ||
+					chunk.type === "tool-input-start")
+			) {
+				contextActivityActive = false;
+				args.writer.write({
+					type: "data-context-activity",
+					data: { phase: "done" },
+					transient: true,
+				});
+			}
 			/* Only the terminal `error` chunk is fatal; tool-level error chunks
 			 * are the loop's own repair path (`app/api/chat/streamFailure.ts`
 			 * documents the trap). */
@@ -377,6 +405,13 @@ export async function runDesignAgentLoop(
 			} catch {
 				break;
 			}
+		}
+		if (contextActivityActive) {
+			args.writer.write({
+				type: "data-context-activity",
+				data: { phase: "done" },
+				transient: true,
+			});
 		}
 		await drained;
 
@@ -441,43 +476,4 @@ export async function runDesignAgentLoop(
 			"The design turn stopped before reaching a plan or a question for you. Nothing was lost; send your message again to continue from where it stopped.",
 		recoverable: true,
 	};
-}
-
-/** Does the validated thread already carry this artifact id in one of its
- *  design tool results? When it does, the state message skips re-inlining
- *  the content: the model's own context already holds it. */
-function threadCarriesArtifact(
-	messages: readonly UIMessage[],
-	artifactId: string,
-): boolean {
-	for (const message of messages) {
-		if (message.role !== "assistant") continue;
-		for (const part of message.parts) {
-			if (typeof part !== "object" || part === null) continue;
-			const type = (part as { type?: unknown }).type;
-			if (
-				type !== "tool-submitContract" &&
-				type !== "tool-submitRevision" &&
-				type !== "tool-requestReview"
-			) {
-				continue;
-			}
-			if ((part as { state?: unknown }).state !== "output-available") continue;
-			const output = (part as { output?: unknown }).output as
-				| {
-						revisionId?: unknown;
-						reviewId?: unknown;
-						acceptedRevisionId?: unknown;
-				  }
-				| undefined;
-			if (
-				output?.revisionId === artifactId ||
-				output?.reviewId === artifactId ||
-				output?.acceptedRevisionId === artifactId
-			) {
-				return true;
-			}
-		}
-	}
-	return false;
 }

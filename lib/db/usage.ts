@@ -17,7 +17,11 @@
  */
 import { sql } from "kysely";
 import { log } from "@/lib/logger";
-import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
+import {
+	DEFAULT_PRICING,
+	LONG_CONTEXT_INPUT_THRESHOLD,
+	MODEL_PRICING,
+} from "@/lib/models";
 import { refundDesignSessionReservation, refundReservation } from "./credits";
 import type { GenerationTarget } from "./generationTargets";
 import { getCurrentPeriod } from "./period";
@@ -137,7 +141,9 @@ export function estimateCost(
 	cacheReadTokens = 0,
 	cacheWriteTokens = 0,
 ): number {
-	const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING;
+	const card = MODEL_PRICING[model] ?? DEFAULT_PRICING;
+	const pricing =
+		inputTokens > LONG_CONTEXT_INPUT_THRESHOLD ? card.long : card.short;
 	const uncachedInput = Math.max(
 		0,
 		inputTokens - cacheReadTokens - cacheWriteTokens,
@@ -149,6 +155,12 @@ export function estimateCost(
 			outputTokens * pricing.output) /
 		1_000_000
 	);
+}
+
+export type PricingTier = "short" | "long";
+
+export function pricingTierForInput(inputTokens: number): PricingTier {
+	return inputTokens > LONG_CONTEXT_INPUT_THRESHOLD ? "long" : "short";
 }
 
 // ── Per-request accumulator ───────────────────────────────────────
@@ -186,7 +198,8 @@ export interface AccumulatorSeed {
 	 * constant (the CORE prompt plus a one-line-per-field blueprint summary),
 	 * so the variable input cost is the conversation history actually sent to
 	 * the model this request — captured here as the message count and their
-	 * serialized byte size, after the cache-expiry last-message-only trim.
+	 * serialized byte size after safe history projection (including a
+	 * compatible provider compaction boundary when present).
 	 * Set via `configureRun` once the route has assembled the effective
 	 * messages; absent on a run that finalized before that point.
 	 */
@@ -261,6 +274,16 @@ export class UsageAccumulator {
 	private outputTokens = 0;
 	private cacheReadTokens = 0;
 	private cacheWriteTokens = 0;
+	private costEstimate = 0;
+	private readonly modelCosts = new Map<
+		string,
+		{
+			calls: number;
+			shortCalls: number;
+			longCalls: number;
+			costEstimate: number;
+		}
+	>();
 	private stepCount = 0;
 	private toolCallCount = 0;
 	private _finalized = false;
@@ -291,12 +314,48 @@ export class UsageAccumulator {
 	 * agent step; sub-gen calls omit the option. Sub-gen token totals
 	 * still flow into the summary — only `stepCount` is gated.
 	 */
-	track(usage: LLMCallUsage, opts: { step?: boolean } = {}): void {
+	track(
+		usage: LLMCallUsage,
+		opts: { step?: boolean; model?: string } = {},
+	): void {
+		const model = opts.model ?? this.seed.model;
+		const callCost = estimateCost(
+			model,
+			usage.inputTokens,
+			usage.outputTokens,
+			usage.cacheReadTokens ?? 0,
+			usage.cacheWriteTokens ?? 0,
+		);
+		const tier = pricingTierForInput(usage.inputTokens);
 		this.inputTokens += usage.inputTokens;
 		this.outputTokens += usage.outputTokens;
 		this.cacheReadTokens += usage.cacheReadTokens ?? 0;
 		this.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+		this.costEstimate += callCost;
+		const modelCost = this.modelCosts.get(model) ?? {
+			calls: 0,
+			shortCalls: 0,
+			longCalls: 0,
+			costEstimate: 0,
+		};
+		modelCost.calls += 1;
+		modelCost[`${tier}Calls`] += 1;
+		modelCost.costEstimate += callCost;
+		this.modelCosts.set(model, modelCost);
 		if (opts.step) this.stepCount++;
+	}
+
+	/** Numeric, model-id-only decomposition for cost investigations. */
+	costBreakdown(): Record<
+		string,
+		{
+			calls: number;
+			shortCalls: number;
+			longCalls: number;
+			costEstimate: number;
+		}
+	> {
+		return Object.fromEntries(this.modelCosts);
 	}
 
 	/** Record a tool call — feeds the `toolCallCount` run-summary field. */
@@ -344,13 +403,7 @@ export class UsageAccumulator {
 			outputTokens: this.outputTokens,
 			cacheReadTokens: this.cacheReadTokens,
 			cacheWriteTokens: this.cacheWriteTokens,
-			costEstimate: estimateCost(
-				this.seed.model,
-				this.inputTokens,
-				this.outputTokens,
-				this.cacheReadTokens,
-				this.cacheWriteTokens,
-			),
+			costEstimate: this.costEstimate,
 			toolCallCount: this.toolCallCount,
 		};
 	}
@@ -493,6 +546,7 @@ export class UsageAccumulator {
 			cacheReadTokens: summary.cacheReadTokens,
 			cacheWriteTokens: summary.cacheWriteTokens,
 			costEstimate: summary.costEstimate,
+			modelCosts: this.costBreakdown(),
 			summaryAction,
 			didReserve: this.seed.didReserve ?? false,
 			reservedAmount: this.seed.reservedAmount ?? 0,

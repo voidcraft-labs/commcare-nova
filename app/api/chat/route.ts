@@ -28,6 +28,10 @@ import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
+import {
+	isOpenAICompactionChunk,
+	projectCompatibleCompactedHistory,
+} from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -97,7 +101,12 @@ import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import { SA_BUILD_MODEL, SA_EDIT_MODEL } from "@/lib/models";
+import {
+	DESIGN_AUTHOR_MODEL,
+	MODEL_CONTEXT_VERSION,
+	SA_BUILD_MODEL,
+	SA_EDIT_MODEL,
+} from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { chatRequestSchema, chatRunIdSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
@@ -2263,7 +2272,11 @@ export async function POST(req: Request) {
 								 * reasoning-summary conversation events, all through the
 								 * same handler the SA rides. */
 								onAgentStep: (step) =>
-									ctx.handleAgentStep(step, "Design agent"),
+									ctx.handleAgentStep(
+										step,
+										"Design agent",
+										DESIGN_AUTHOR_MODEL,
+									),
 								/* Reasoning summaries from the calls that never touch a
 								 * thread (the independent reviewer, executor steps) land
 								 * beside the run's other events, joined to artifacts by
@@ -2678,8 +2691,12 @@ export async function POST(req: Request) {
 					 * the function call whose output this turn submits) unless the
 					 * pause crossed a model change, in which case the round rides as
 					 * plain dialogue text. Contract + sources on the module. */
-					const effectiveMessages = sanitizeHistoricalReasoningParts(
+					const reasoningSafeMessages = sanitizeHistoricalReasoningParts(
 						sanitizedMessages,
+						saModel,
+					);
+					const effectiveMessages = projectCompatibleCompactedHistory(
+						reasoningSafeMessages,
 						saModel,
 					);
 
@@ -2841,6 +2858,7 @@ export async function POST(req: Request) {
 						 * live forward internally and keeps appending to the chunk log, which
 						 * is exactly what a later resume replays, so this loop runs to the
 						 * stream's end either way (the catch is a last-resort guard). */
+						let contextActivityActive = false;
 						for await (const chunk of result.toUIMessageStream({
 							originalMessages: validated,
 							/* One identity for the turn's answer: stamps
@@ -2860,12 +2878,34 @@ export async function POST(req: Request) {
 							 * later turns to decide whether a paused round's reasoning is
 							 * still replayable: encrypted reasoning is model-bound. */
 							messageMetadata: ({ part }) =>
-								part.type === "start" ? { model: saModel } : undefined,
+								part.type === "start"
+									? { model: saModel, contextVersion: MODEL_CONTEXT_VERSION }
+									: undefined,
 							onError: (error) => {
 								pendingError = error;
 								return error instanceof Error ? error.message : String(error);
 							},
 						})) {
+							if (isOpenAICompactionChunk(chunk)) {
+								contextActivityActive = true;
+								writer.write({
+									type: "data-context-activity",
+									data: { phase: "start" },
+									transient: true,
+								});
+							} else if (
+								contextActivityActive &&
+								(chunk.type === "reasoning-start" ||
+									chunk.type === "text-start" ||
+									chunk.type === "tool-input-start")
+							) {
+								contextActivityActive = false;
+								writer.write({
+									type: "data-context-activity",
+									data: { phase: "done" },
+									transient: true,
+								});
+							}
 							if (isFatalStreamErrorChunk(chunk.type)) {
 								sawFatalError = true;
 								continue;
@@ -2886,6 +2926,13 @@ export async function POST(req: Request) {
 							} catch {
 								break;
 							}
+						}
+						if (contextActivityActive) {
+							writer.write({
+								type: "data-context-activity",
+								data: { phase: "done" },
+								transient: true,
+							});
 						}
 
 						/* Block on the drain so finalization runs on the run's TRUE terminal

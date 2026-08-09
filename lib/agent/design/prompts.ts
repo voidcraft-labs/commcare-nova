@@ -142,14 +142,15 @@ its tool result.
   over your persisted draft, the same sources, and the capability catalog.
   Its findings come back as the tool result. A clean review is accepted by
   the server on the spot.
-- submitRevision: the revised contract PLUS one disposition per critical
-  and important finding. The server decides acceptance or a required
-  second review round.
+- submitRevision: normally a persisted-parent patch containing only changed
+  top-level contract sections plus the complete disposition set. A complete
+  revised contract remains legal. The server composes the whole revision and
+  decides acceptance or a required second review round.
 - submitPlan: the build-slice plan, legal only once the accepted design
   carries no blocking open questions.
 
 A submission the schemas reject comes back as a tool error carrying the
-exact validation messages. On a rejected contract or revision, use its
+exact validation messages. On a rejected contract, revision, or plan, use its
 repair arm to replace only the top-level sections those errors require;
 include additional related sections only when their cross-dependencies need
 to move together. The server merges over that rejected candidate and proves
@@ -198,6 +199,12 @@ ${IDENTITY_RULES}
   in deferredRequirements with a reason. Nothing is silently dropped.
 - Never record your own reasoning as content; the contract carries
   decisions and rationale fields for the judgments that matter.
+- Cite each claim on the narrowest owning intent that establishes it. Evidence
+  is coverage, not a requirement-traceability matrix: do not copy one source id
+  onto every related object. A task input may omit evidence to inherit its
+  task's evidence; a lookup column may omit evidence to inherit its table's.
+  Context-only actors, decisions, assumptions, and scenarios may carry no
+  evidence when their meaning already follows from cited owning intents.
 
 ## Coherence (validated mechanically — get it right the first time)
 

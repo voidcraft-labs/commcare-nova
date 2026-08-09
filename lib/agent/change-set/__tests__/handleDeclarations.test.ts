@@ -78,6 +78,64 @@ describe("shared creation handle declarations", () => {
 		).toEqual([{ handle: "@create_child", entityKind: "case_operation" }]);
 	});
 
+	it("binds organization and automation identities without model-minted UUIDs", () => {
+		expect(
+			declarations("addOrganizationLevels", {
+				levels: [{ uuid: { handle: "@district" } }],
+			}),
+		).toEqual([{ handle: "@district", entityKind: "organization_level" }]);
+
+		expect(
+			declarations("addAutomations", {
+				automations: [
+					{
+						kind: "case-update",
+						uuid: { handle: "@follow_up" },
+						criteria: [{ uuid: { handle: "@due" } }],
+						setupOnlyCriteria: [{ uuid: { handle: "@configured" } }],
+						updates: [{ uuid: { handle: "@mark_due" } }],
+					},
+				],
+			}),
+		).toEqual([
+			{ handle: "@follow_up", entityKind: "automation" },
+			{ handle: "@due", entityKind: "automation_criterion" },
+			{
+				handle: "@configured",
+				entityKind: "automation_setup_criterion",
+			},
+			{ handle: "@mark_due", entityKind: "automation_update" },
+		]);
+
+		expect(
+			declarations("updateAutomation", {
+				automation: {
+					kind: "communication",
+					uuid: { handle: "@existing" },
+					recipients: [{ uuid: { handle: "@caregiver" } }],
+					schedule: { events: [{ uuid: { handle: "@day_three" } }] },
+					userDataFilters: [{ uuid: { handle: "@program" } }],
+				},
+			}),
+		).toEqual([
+			{
+				handle: "@caregiver",
+				entityKind: "automation_recipient",
+				referenceIfBound: true,
+			},
+			{
+				handle: "@day_three",
+				entityKind: "automation_event",
+				referenceIfBound: true,
+			},
+			{
+				handle: "@program",
+				entityKind: "automation_user_data_filter",
+				referenceIfBound: true,
+			},
+		]);
+	});
+
 	it("never treats target slots or canonical UUIDs as declarations", () => {
 		expect(
 			declarations("addFields", {
@@ -136,6 +194,9 @@ describe("shared creation handle declarations", () => {
 			"addCaseListColumns",
 			"addSearchInputs",
 			"addCaseOperations",
+			"addOrganizationLevels",
+			"addAutomations",
+			"updateAutomation",
 			"editField",
 			"setFieldOptionsSource",
 		]) {

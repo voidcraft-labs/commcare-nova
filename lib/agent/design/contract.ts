@@ -164,7 +164,8 @@ export const taskInputSchema = z
 		factId: designIdSchema.optional(),
 		requiredIntent: z.string().min(1).optional(),
 		choiceSetIntent: z.array(z.string().min(1)).optional(),
-		evidence: evidenceSchema,
+		/** Omit when the input inherits the containing task's evidence. */
+		evidence: evidenceSchema.optional(),
 	})
 	.strict();
 export type TaskInput = z.infer<typeof taskInputSchema>;
@@ -278,10 +279,26 @@ export const lookupColumnIntentSchema = z
 		id: designIdSchema,
 		name: z.string().min(1),
 		meaning: z.string().min(1),
-		evidence: evidenceSchema,
+		/** Omit when the column inherits its containing table's evidence. */
+		evidence: evidenceSchema.optional(),
 	})
 	.strict();
 export type LookupColumnIntent = z.infer<typeof lookupColumnIntentSchema>;
+
+/** Effective evidence without repeating parent citations in the artifact. */
+export function effectiveTaskInputEvidence(
+	task: Pick<Task, "evidence">,
+	input: Pick<TaskInput, "evidence">,
+) {
+	return input.evidence ?? task.evidence;
+}
+
+export function effectiveLookupColumnEvidence(
+	table: Pick<LookupTableIntent, "evidence">,
+	column: Pick<LookupColumnIntent, "evidence">,
+) {
+	return column.evidence ?? table.evidence;
+}
 
 /**
  * Reference data the workflow reads but does not collect — the design-level

@@ -55,6 +55,14 @@ Four session fields describe "what phase is the builder in":
   (hooks) composes it with the phase for the chat surface's build-vs-edit
   read: the advisory `appReady` request field and the cost chip both ride it,
   mirroring the server's authoritative app-row-status rule.
+  It is also the initial-build authoring lock: the store retains the raw
+  Project capability in `projectCanEdit`, while effective `canEdit` remains
+  false from materialization through whole-build completion (or explicit
+  sequence-bound partial acceptance). Chat reads `useProjectCanEdit`; every
+  builder editor, stale imperative handler, doc gate, and reconciler reads
+  effective `canEdit`. `derivePhase` keeps a materialized unfinished app in
+  `Generating`, so its real tree surrounds the central progress card instead
+  of opening the edit canvas after the first slice.
 
 Run-boundary actions are orthogonal and atomic:
 

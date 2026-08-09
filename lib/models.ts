@@ -27,6 +27,18 @@ export type ReasoningEffort =
 export const MODEL_DEFAULT = "gpt-5.6-sol";
 
 /**
+ * Ask OpenAI's server-side context management to compact before the 272k-token
+ * long-context price boundary. OpenAI creates the opaque encrypted checkpoint
+ * and the AI SDK converts it to/from a first-class Responses item; Nova keeps
+ * the complete transcript for people and projects only a compatible checkpoint
+ * plus its later suffix back to the model.
+ */
+export const OPENAI_COMPACTION_THRESHOLD = 256_000;
+
+/** A compaction item is replayable only inside this model-context contract. */
+export const MODEL_CONTEXT_VERSION = "v1";
+
+/**
  * The `openai` provider options EVERY Nova LLM call carries. `store: false`
  * runs the Responses API stateless: OpenAI persists no response object, and
  * user content stays out of the dashboard's stored-response surfaces (API
@@ -39,6 +51,9 @@ export const MODEL_DEFAULT = "gpt-5.6-sol";
  */
 export const OPENAI_BASE_OPTIONS = {
 	store: false,
+	contextManagement: [
+		{ type: "compaction", compactThreshold: OPENAI_COMPACTION_THRESHOLD },
+	],
 } as const satisfies OpenAIResponsesProviderOptions;
 
 /**
@@ -114,7 +129,16 @@ export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
  * independent reviewer both run the SA build model. The design IS the
  * hardest half of a ground-up build, and one model keeps pricing and
  * behavior aligned with the SA it feeds. */
-export const DESIGN_MODEL = "gpt-5.6-sol";
+export const DESIGN_AUTHOR_MODEL = "gpt-5.6-sol";
+
+/** The independent reviewer remains the highest-quality fresh-context role. */
+export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
+
+/** The slice executor is independently configurable for measured rollouts. */
+export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
+
+/** Backward-compatible name for the design author/planner role. */
+export const DESIGN_MODEL = DESIGN_AUTHOR_MODEL;
 
 /** The design agent drafts, dispositions, and plans the whole contract in
  * one growing context: the same quality-first ceiling as an SA build. */
@@ -132,37 +156,44 @@ export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
 /**
  * Pricing per million tokens, keyed by model ID.
  *
- * These are OpenAI's published rates, and with a direct key the token-math
- * estimate IS the bill: uncached input at the base rate (the 2× long-context
- * rate starts past 272k tokens per request, which Nova's prompts stay
- * under), cache reads at 0.1×, cache writes at the published 1.25× write
- * surcharge whenever usage reports a write bucket, output at the output
- * rate. There is no separate metered "actual" — `estimateCost` is the one
- * cost figure every ledger and summary records.
+ * These are OpenAI's published short- and long-context rates. The threshold
+ * applies to each call's total input independently; `UsageAccumulator` prices
+ * the call before aggregating the run, so mixed models and a single
+ * over-threshold call remain exact. There is no separate metered "actual" —
+ * `estimateCost` is the one cost figure every ledger and summary records.
  */
-export const MODEL_PRICING: Record<
-	string,
-	{ input: number; output: number; cacheWrite: number; cacheRead: number }
-> = {
+export const LONG_CONTEXT_INPUT_THRESHOLD = 272_000;
+
+export type ModelPricing = {
+	input: number;
+	output: number;
+	cacheWrite: number;
+	cacheRead: number;
+};
+
+export type ModelPricingCard = {
+	short: ModelPricing;
+	long: ModelPricing;
+};
+
+export const MODEL_PRICING: Record<string, ModelPricingCard> = {
 	"gpt-5.6-sol": {
-		input: 5,
-		output: 30,
-		cacheWrite: 6.25,
-		cacheRead: 0.5,
+		short: { input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5 },
+		long: { input: 10, output: 45, cacheWrite: 12.5, cacheRead: 1 },
+	},
+	"gpt-5.6-terra": {
+		short: { input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 },
+		long: { input: 4, output: 18, cacheWrite: 5, cacheRead: 0.4 },
 	},
 	"gpt-5.6-luna": {
-		input: 0.2,
-		output: 1.2,
-		cacheWrite: 0.25,
-		cacheRead: 0.02,
+		short: { input: 0.2, output: 1.2, cacheWrite: 0.25, cacheRead: 0.02 },
+		long: { input: 0.4, output: 1.8, cacheWrite: 0.5, cacheRead: 0.04 },
 	},
 };
 
 /** gpt-5.6-terra's published card, the mid-family rate, so an unknown
  * model id still produces a believable estimate. */
-export const DEFAULT_PRICING = {
-	input: 2,
-	output: 12,
-	cacheWrite: 2.5,
-	cacheRead: 0.2,
+export const DEFAULT_PRICING: ModelPricingCard = {
+	short: { input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 },
+	long: { input: 4, output: 18, cacheWrite: 5, cacheRead: 0.4 },
 };

@@ -12,6 +12,7 @@
 import type { CallWarning, LanguageModel, LanguageModelUsage } from "ai";
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
+import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import {
 	DESIGN_AUTHOR_REASONING,
 	reasoningProviderOptions,
@@ -69,10 +70,11 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,
-		prepareStep: () => {
+		prepareStep: ({ messages }) => {
 			const fatal = args.fatalError();
 			if (fatal !== undefined) throw fatal;
 			return {
+				messages: projectModelHistoryFromNewestCompaction(messages),
 				providerOptions: reasoningProviderOptions(
 					DESIGN_AUTHOR_REASONING.effort,
 					{ promptCacheKey: args.promptCacheKey },

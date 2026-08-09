@@ -69,7 +69,11 @@ import {
 } from "@/lib/db/designSessions";
 import { getAppDb } from "@/lib/db/pg";
 import { log } from "@/lib/logger";
-import { DESIGN_MODEL, SA_BUILD_MODEL } from "@/lib/models";
+import {
+	DESIGN_AUTHOR_MODEL,
+	DESIGN_EXECUTOR_MODEL,
+	MODEL_CONTEXT_VERSION,
+} from "@/lib/models";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { budgetForSlice } from "./budgets";
 import { type DesignLoopOutcome, runDesignAgentLoop } from "./designLoopRunner";
@@ -309,7 +313,10 @@ export async function runBuildOrchestration(
 		args.writer.write({
 			type: "start",
 			messageId: args.responseMessageId,
-			messageMetadata: { model: DESIGN_MODEL },
+			messageMetadata: {
+				model: DESIGN_AUTHOR_MODEL,
+				contextVersion: MODEL_CONTEXT_VERSION,
+			},
 		});
 		let head = await readOrchestrationHead(args.designSessionId);
 
@@ -536,7 +543,7 @@ export async function runBuildOrchestration(
 							digest: emptyGenesisBase(args.proposedAppId).digest,
 						}
 					: await appBaseTarget(appId as string),
-				executorModel: SA_BUILD_MODEL,
+				executorModel: DESIGN_EXECUTOR_MODEL,
 				promptVersion: EXECUTOR_PROMPT_VERSION,
 				briefDigest: digest,
 			});
@@ -767,7 +774,7 @@ function productionDeps(
 					runId: args.runId,
 					designSessionId: args.designSessionId,
 					...(args.meter !== undefined && { meter: args.meter }),
-				}).model(SA_BUILD_MODEL),
+				}).model(DESIGN_EXECUTOR_MODEL),
 				"high",
 				`nova:design-executor:${args.designSessionId}`,
 			),
@@ -1120,6 +1127,7 @@ async function executeOneSlice(
 			onUsage: (usage) =>
 				meterSubGenerationUsage(args.meter as SubGenerationUsageMeter, usage, {
 					step: true,
+					model: DESIGN_EXECUTOR_MODEL,
 				}),
 		}),
 		onProgress: (phase) => {
