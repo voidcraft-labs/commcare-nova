@@ -206,6 +206,7 @@ function run(args: {
 	step: ExecutorStepFn;
 	commit?: () => Promise<SliceCommitResult>;
 	onProgress?: (note: string) => void;
+	onUsage?: Parameters<typeof runSliceExecutor>[0]["onUsage"];
 }) {
 	const plan = makeBuildPlan();
 	const slice = plan.slices[0];
@@ -222,6 +223,7 @@ function run(args: {
 			}),
 		signal: new AbortController().signal,
 		...(args.onProgress !== undefined && { onProgress: args.onProgress }),
+		...(args.onUsage !== undefined && { onUsage: args.onUsage }),
 	});
 }
 
@@ -571,6 +573,7 @@ describe("runSliceExecutor — budgets", () => {
 		if (slice === undefined) throw new Error("fixture slice missing");
 		const pendingStep = deferred<Awaited<ReturnType<ExecutorStepFn>>>();
 		const step: ExecutorStepFn = () => pendingStep.promise;
+		const metered: unknown[] = [];
 		const outcome = await runSliceExecutor({
 			workspace: fakeWorkspace(),
 			brief: brief(),
@@ -580,19 +583,26 @@ describe("runSliceExecutor — budgets", () => {
 				throw new Error("commit must not be called");
 			},
 			signal: new AbortController().signal,
+			onUsage: (usage) => metered.push(usage),
 		});
 		expect(outcome).toEqual({
 			kind: "budget-exhausted",
 			spent: { modelSteps: 0, stagedRequests: 0 },
 		});
+		const usage = {
+			inputTokens: 3,
+			outputTokens: 2,
+			totalTokens: 5,
+		} as never;
 		pendingStep.resolve({
 			toolCalls: [],
 			text: "",
-			usage: undefined,
+			usage,
 			responseMessages: [],
 		});
 		await pendingStep.promise;
 		await Promise.resolve();
+		expect(metered).toEqual([usage]);
 	});
 
 	it("bounds an awaited commit even when the callback ignores abort", async () => {
@@ -686,6 +696,45 @@ describe("runSliceExecutor — budgets", () => {
 });
 
 describe("runSliceExecutor — plumbing", () => {
+	it("meters every returned provider step", async () => {
+		const usage = {
+			inputTokens: 11,
+			outputTokens: 7,
+			totalTokens: 18,
+		} as never;
+		const seen: unknown[] = [];
+		const step: ExecutorStepFn = async () => ({
+			toolCalls: [
+				{
+					toolCallId: "issue",
+					toolName: "raiseDesignExecutionIssue",
+					input: {
+						schemaVersion: 1,
+						id: "00000000-0000-4000-8000-0000000000fe",
+						category: "platform-gap",
+						explanation: "The platform cannot represent this intent.",
+						affectedIntentIds: [ids.taskRegister],
+						evidenceRefs: [],
+						implementationCoordinates: [],
+						structuralImpact: "architecture",
+						proposedOptions: ["Revise the design"],
+					},
+				},
+			],
+			text: "",
+			usage,
+			responseMessages: [],
+		});
+
+		await run({
+			workspace: fakeWorkspace(),
+			step,
+			onUsage: (reported) => seen.push(reported),
+		});
+
+		expect(seen).toEqual([usage]);
+	});
+
 	it("opens with one message carrying the brief and the workspace state", async () => {
 		const { step, seen } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "raiseDesignExecutionIssue" }] },

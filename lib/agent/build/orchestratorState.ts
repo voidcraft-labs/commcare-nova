@@ -201,6 +201,13 @@ export async function appendOrchestrationEvent(args: {
 		});
 	} catch (err) {
 		if ((err as { code?: unknown })?.code === "23505") {
+			const winner = await readOrchestrationHead(args.designSessionId);
+			if (
+				winner?.revision === revision &&
+				canonicalJsonDigest(winner.state) === canonicalJsonDigest(state)
+			) {
+				return winner;
+			}
 			throw new OrchestrationForkError();
 		}
 		throw err;

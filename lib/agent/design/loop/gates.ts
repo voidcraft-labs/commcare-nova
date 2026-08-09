@@ -149,6 +149,17 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 			: [];
 	const newerUserContent =
 		head !== null && head.sourcePackageDigest !== ancestry.currentPackageDigest;
+	/* A plan is executable only while its accepted revision is still the head
+	 * and that revision names THIS turn's source package. Later user content or
+	 * a newer draft reopens design work; the historical plan remains durable
+	 * provenance, but cannot short-circuit the loop or own new execution. */
+	const activePlan =
+		plan !== null &&
+		newestAccepted !== null &&
+		head?.id === newestAccepted.id &&
+		newestAccepted.sourcePackageDigest === ancestry.currentPackageDigest
+			? plan
+			: null;
 
 	const submitContract: GateVerdict = (() => {
 		if (head === null) return { legal: true };
@@ -240,6 +251,13 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 							: "The current draft's review findings are not dispositioned yet. Submit the revision with submitRevision.",
 			};
 		}
+		if (newerUserContent) {
+			return {
+				legal: false,
+				refusal:
+					"Newer user content has reopened design work, so the historical accepted revision cannot be planned for this source package. Submit a fresh Design Contract with submitContract.",
+			};
+		}
 		if (blockingQuestions.length > 0) {
 			return {
 				legal: false,
@@ -247,7 +265,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 					"The accepted design carries blocking open questions, and an accepted revision is immutable, so it can never become plannable after the fact. Ask the user with askQuestions; their answers reopen design work as a fresh reviewed cycle.",
 			};
 		}
-		if (plan !== null) {
+		if (activePlan !== null) {
 			return {
 				legal: false,
 				refusal:
@@ -269,9 +287,9 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		headReviews,
 		openCycleReviews,
 		blockingQuestions,
-		plan,
+		plan: activePlan,
 		verdicts,
-		expectedNext: deriveExpectedNext(verdicts, blockingQuestions, plan),
+		expectedNext: deriveExpectedNext(verdicts, blockingQuestions, activePlan),
 	};
 }
 

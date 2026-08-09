@@ -12,7 +12,8 @@
  * silently adapted.
  */
 
-import { getAppDb } from "@/lib/db/pg";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
+import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
 export type SliceAttemptStatus =
@@ -167,6 +168,68 @@ export interface CreateSliceAttemptArgs {
 	readonly briefDigest: string;
 }
 
+/** Exact delegated design-run capability required by every mutable attempt
+ * transition. The session/app authority carrier is locked and reauthorized
+ * in the same transaction as the attempt write. */
+export interface SliceAttemptAuthority {
+	readonly actorUserId: string;
+	readonly runId: string;
+	readonly holderNonce: string;
+	readonly expectedProjectId: string;
+}
+
+export class SliceAttemptStateError extends Error {
+	readonly name = "SliceAttemptStateError";
+}
+
+function sameBaseTarget(
+	left: SliceAttemptBaseTarget,
+	right: SliceAttemptBaseTarget,
+): boolean {
+	if (left.kind !== right.kind) return false;
+	return left.kind === "empty-genesis" && right.kind === "empty-genesis"
+		? left.proposedAppId === right.proposedAppId && left.digest === right.digest
+		: left.kind === "app" && right.kind === "app"
+			? left.appId === right.appId &&
+				left.seq === right.seq &&
+				left.digest === right.digest
+			: false;
+}
+
+function sameAttemptInputs(
+	attempt: SliceAttempt,
+	args: CreateSliceAttemptArgs,
+): boolean {
+	return (
+		attempt.designRevisionId === args.designRevisionId &&
+		attempt.designRevisionDigest === args.designRevisionDigest &&
+		attempt.buildPlanId === args.buildPlanId &&
+		attempt.buildPlanDigest === args.buildPlanDigest &&
+		attempt.sliceId === args.sliceId &&
+		sameBaseTarget(attempt.baseTarget, args.baseTarget) &&
+		attempt.executorModel === args.executorModel &&
+		attempt.promptVersion === args.promptVersion &&
+		attempt.briefDigest === args.briefDigest
+	);
+}
+
+async function assertAttemptAuthority(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	designSessionId: string,
+	authority: SliceAttemptAuthority,
+): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId,
+		actorUserId: authority.actorUserId,
+		expectedProjectId: authority.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: authority.runId,
+			nonce: authority.holderNonce,
+		},
+	});
+}
+
 /**
  * Begin one attempt, or RECOVER the running one. A running attempt whose
  * design/plan/brief digests still match is the resumed worker's own row; a
@@ -175,107 +238,150 @@ export interface CreateSliceAttemptArgs {
  * the race between two continuations.
  */
 export async function beginOrRecoverSliceAttempt(
-	args: CreateSliceAttemptArgs,
+	args: CreateSliceAttemptArgs & SliceAttemptAuthority,
 ): Promise<{ attempt: SliceAttempt; recovered: boolean }> {
-	const db = await getAppDb();
-	const running = await db
-		.selectFrom("design_slice_attempts")
-		.select([...ATTEMPT_COLUMNS])
-		.where("design_session_id", "=", args.designSessionId)
-		.where("build_plan_id", "=", args.buildPlanId)
-		.where("slice_id", "=", args.sliceId)
-		.where("status", "=", "running")
-		.executeTakeFirst();
-	if (running !== undefined) {
-		const attempt = rowToAttempt(running as AttemptRow);
-		if (
-			attempt.designRevisionDigest === args.designRevisionDigest &&
-			attempt.buildPlanDigest === args.buildPlanDigest &&
-			attempt.briefDigest === args.briefDigest
-		) {
-			return { attempt, recovered: true };
+	return await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const running = await tx
+			.selectFrom("design_slice_attempts")
+			.select([...ATTEMPT_COLUMNS])
+			.where("design_session_id", "=", args.designSessionId)
+			.where("build_plan_id", "=", args.buildPlanId)
+			.where("slice_id", "=", args.sliceId)
+			.where("status", "=", "running")
+			.forUpdate()
+			.executeTakeFirst();
+		if (running !== undefined) {
+			const attempt = rowToAttempt(running as AttemptRow);
+			if (sameAttemptInputs(attempt, args)) {
+				return { attempt, recovered: true };
+			}
+			await tx
+				.updateTable("design_slice_attempts")
+				.set({
+					status: "superseded",
+					failure_code: "artifact-superseded",
+					updated_at: new Date(),
+				})
+				.where("id", "=", attempt.id)
+				.where("status", "=", "running")
+				.executeTakeFirstOrThrow();
 		}
-		await markSliceAttempt(attempt.id, "superseded", "artifact-superseded");
-	}
-	const prior = await db
-		.selectFrom("design_slice_attempts")
-		.select((eb) => eb.fn.max("attempt").as("max_attempt"))
-		.where("design_session_id", "=", args.designSessionId)
-		.where("build_plan_id", "=", args.buildPlanId)
-		.where("slice_id", "=", args.sliceId)
-		.executeTakeFirst();
-	const attemptNumber = Number(prior?.max_attempt ?? 0) + 1;
-	const id = crypto.randomUUID();
-	await db
-		.insertInto("design_slice_attempts")
-		.values({
-			id,
-			design_session_id: args.designSessionId,
-			design_revision_id: args.designRevisionId,
-			design_revision_digest: args.designRevisionDigest,
-			build_plan_id: args.buildPlanId,
-			build_plan_digest: args.buildPlanDigest,
-			slice_id: args.sliceId,
-			attempt: attemptNumber,
-			base_kind: args.baseTarget.kind,
-			base_app_id:
-				args.baseTarget.kind === "app" ? args.baseTarget.appId : null,
-			base_proposed_app_id:
-				args.baseTarget.kind === "empty-genesis"
-					? args.baseTarget.proposedAppId
-					: null,
-			base_seq: args.baseTarget.kind === "app" ? args.baseTarget.seq : null,
-			base_snapshot_digest: args.baseTarget.digest,
-			change_set_id: null,
-			executor_model: args.executorModel,
-			prompt_version: args.promptVersion,
-			brief_digest: args.briefDigest,
-			status: "running",
-			failure_code: null,
-		})
-		.execute();
-	const created = await db
-		.selectFrom("design_slice_attempts")
-		.select([...ATTEMPT_COLUMNS])
-		.where("id", "=", id)
-		.executeTakeFirstOrThrow();
-	return { attempt: rowToAttempt(created as AttemptRow), recovered: false };
+		const prior = await tx
+			.selectFrom("design_slice_attempts")
+			.select((eb) => eb.fn.max("attempt").as("max_attempt"))
+			.where("design_session_id", "=", args.designSessionId)
+			.where("build_plan_id", "=", args.buildPlanId)
+			.where("slice_id", "=", args.sliceId)
+			.executeTakeFirst();
+		const attemptNumber = Number(prior?.max_attempt ?? 0) + 1;
+		const id = crypto.randomUUID();
+		const created = await tx
+			.insertInto("design_slice_attempts")
+			.values({
+				id,
+				design_session_id: args.designSessionId,
+				design_revision_id: args.designRevisionId,
+				design_revision_digest: args.designRevisionDigest,
+				build_plan_id: args.buildPlanId,
+				build_plan_digest: args.buildPlanDigest,
+				slice_id: args.sliceId,
+				attempt: attemptNumber,
+				base_kind: args.baseTarget.kind,
+				base_app_id:
+					args.baseTarget.kind === "app" ? args.baseTarget.appId : null,
+				base_proposed_app_id:
+					args.baseTarget.kind === "empty-genesis"
+						? args.baseTarget.proposedAppId
+						: null,
+				base_seq: args.baseTarget.kind === "app" ? args.baseTarget.seq : null,
+				base_snapshot_digest: args.baseTarget.digest,
+				change_set_id: null,
+				executor_model: args.executorModel,
+				prompt_version: args.promptVersion,
+				brief_digest: args.briefDigest,
+				status: "running",
+				failure_code: null,
+			})
+			.returning([...ATTEMPT_COLUMNS])
+			.executeTakeFirstOrThrow();
+		return { attempt: rowToAttempt(created as AttemptRow), recovered: false };
+	});
 }
 
 /** Bind the attempt's change set — set exactly once, right after the set
  *  opens (or reopens) under this attempt. */
 export async function bindSliceAttemptChangeSet(
-	attemptId: string,
-	changeSetId: string,
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly changeSetId: string;
+	},
 ): Promise<void> {
-	const db = await getAppDb();
-	await db
-		.updateTable("design_slice_attempts")
-		.set({ change_set_id: changeSetId, updated_at: new Date() })
-		.where("id", "=", attemptId)
-		.where("status", "=", "running")
-		.execute();
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const result = await tx
+			.updateTable("design_slice_attempts")
+			.set({ change_set_id: args.changeSetId, updated_at: new Date() })
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.where((eb) =>
+				eb.or([
+					eb("change_set_id", "is", null),
+					eb("change_set_id", "=", args.changeSetId),
+				]),
+			)
+			.executeTakeFirst();
+		if (Number(result.numUpdatedRows) !== 1) {
+			throw new SliceAttemptStateError(
+				"The slice attempt is no longer running or is bound to another change set.",
+			);
+		}
+	});
 }
 
-/** Move a RUNNING attempt to a terminal status. A no-op when another
- *  continuation already terminated it (the materialization transaction
- *  marks `committed` itself). */
+/** Move a RUNNING attempt to a terminal status. An exact terminal replay is
+ * idempotent; a different prior terminal transition is a state error. The
+ * canonical sidecar marks `committed` inside its own guarded transaction. */
 export async function markSliceAttempt(
-	attemptId: string,
-	to: Exclude<SliceAttemptStatus, "running">,
-	failureCode?: string,
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly to: Exclude<SliceAttemptStatus, "running">;
+		readonly failureCode?: string;
+	},
 ): Promise<void> {
-	const db = await getAppDb();
-	await db
-		.updateTable("design_slice_attempts")
-		.set({
-			status: to,
-			failure_code: failureCode ?? null,
-			updated_at: new Date(),
-		})
-		.where("id", "=", attemptId)
-		.where("status", "=", "running")
-		.execute();
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const result = await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				status: args.to,
+				failure_code: args.failureCode ?? null,
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.executeTakeFirst();
+		if (Number(result.numUpdatedRows) === 1) return;
+		const existing = await tx
+			.selectFrom("design_slice_attempts")
+			.select(["status", "failure_code"])
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.executeTakeFirst();
+		if (
+			existing?.status === args.to &&
+			existing.failure_code === (args.failureCode ?? null)
+		) {
+			return;
+		}
+		throw new SliceAttemptStateError(
+			"The slice attempt was already terminated by another transition.",
+		);
+	});
 }
 
 /** The session's currently running attempt, if any — crash-resume's entry. */

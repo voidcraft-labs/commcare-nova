@@ -298,6 +298,49 @@ describe("submitPlan gating", () => {
 		expect(gates.verdicts.submitPlan.legal).toBe(false);
 		expect(gates.expectedNext).toContain("complete");
 	});
+
+	it("treats a historical plan as inactive after newer user content", () => {
+		const accepted = revision({
+			id: "r2",
+			revision: 2,
+			lifecycle: "accepted",
+			digest: D1,
+		});
+		const gates = evaluateDesignGates(
+			ancestry({
+				revisions: [accepted],
+				plan: { id: "p1" } as DesignBuildPlanRecord,
+				currentDigest: D2,
+			}),
+		);
+		expect(gates.plan).toBeNull();
+		expect(gates.verdicts.submitContract.legal).toBe(true);
+		expect(gates.expectedNext).toContain("submitContract");
+	});
+
+	it("treats a historical plan as inactive when a newer draft is the head", () => {
+		const accepted = revision({
+			id: "r2",
+			revision: 2,
+			lifecycle: "accepted",
+			digest: D1,
+		});
+		const draft = revision({
+			id: "r3",
+			revision: 3,
+			lifecycle: "draft",
+			digest: D2,
+		});
+		const gates = evaluateDesignGates(
+			ancestry({
+				revisions: [accepted, draft],
+				plan: { id: "p1" } as DesignBuildPlanRecord,
+				currentDigest: D2,
+			}),
+		);
+		expect(gates.plan).toBeNull();
+		expect(gates.verdicts.requestReview.legal).toBe(true);
+	});
 });
 
 describe("repair budgets", () => {

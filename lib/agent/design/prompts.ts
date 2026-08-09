@@ -277,8 +277,10 @@ and say so — never design pretend structure for a catalogued gap.
   data, HQ setup, deployment, worker provisioning, manual steps — is a
   TYPED external action with kind, timing, required-for class, idempotency
   owner, and completion evidence. Never represent one as app structure.
-  Actions reachable from the materialization root's prerequisite closure
-  may only be timed "before-materialization" or "manual-setup". A
+  No blocking external-action receipt producer is registered yet, so use
+  only "manual-setup" or "after-slice"; never emit "before-materialization"
+  or "before-slice". Actions reachable from the materialization root's
+  prerequisite closure must be timed "manual-setup". A
   data-migration slice cannot sit in that closure — before the app exists
   there is no data.
 - Mint fresh UUIDs for slices and external actions, and nothing else —

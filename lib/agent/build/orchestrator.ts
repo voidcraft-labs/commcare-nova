@@ -56,7 +56,10 @@ import { buildDesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { productionSourcePackageDeps } from "@/lib/agent/design/sourcePackageDeps";
 import { createExtractionCondenser } from "@/lib/agent/documentExtraction";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
-import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
+import {
+	meterSubGenerationUsage,
+	type SubGenerationUsageMeter,
+} from "@/lib/agent/modelRunContext";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
 import {
@@ -543,6 +546,10 @@ export async function runBuildOrchestration(
 			}
 			const { attempt } = await beginOrRecoverSliceAttempt({
 				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				expectedProjectId: args.projectId,
 				designRevisionId: revision.id,
 				designRevisionDigest: revision.artifactDigest,
 				buildPlanId: plan.id,
@@ -639,11 +646,16 @@ export async function runBuildOrchestration(
 				continue;
 			}
 			if (outcome.kind === "design-issue") {
-				await markSliceAttempt(
-					attempt.id,
-					"design-issue",
-					outcome.issue.category,
-				);
+				await markSliceAttempt({
+					designSessionId: args.designSessionId,
+					attemptId: attempt.id,
+					to: "design-issue",
+					failureCode: outcome.issue.category,
+					actorUserId: args.actorUserId,
+					runId: args.runId,
+					holderNonce: args.holderNonce,
+					expectedProjectId: args.projectId,
+				});
 				if (outcome.issue.category === "missing-information") {
 					/* One decision, one question: the explanation is what needs
 					 * answering and the proposed options are its choices. */
@@ -668,11 +680,19 @@ export async function runBuildOrchestration(
 				};
 			}
 			/* budget-exhausted / protocol-failure */
-			await markSliceAttempt(
-				attempt.id,
-				"failed",
-				outcome.kind === "budget-exhausted" ? "budget-exhausted" : outcome.code,
-			);
+			await markSliceAttempt({
+				designSessionId: args.designSessionId,
+				attemptId: attempt.id,
+				to: "failed",
+				failureCode:
+					outcome.kind === "budget-exhausted"
+						? "budget-exhausted"
+						: outcome.code,
+				actorUserId: args.actorUserId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				expectedProjectId: args.projectId,
+			});
 			head = await appendFailure(args, head, {
 				errorType:
 					outcome.kind === "budget-exhausted"
@@ -963,7 +983,15 @@ async function ensureChangeSet(
 					ownerUserId: args.actorUserId,
 					ownerRunId: args.runId,
 				});
-		await bindSliceAttemptChangeSet(attempt.id, changeSet.id);
+		await bindSliceAttemptChangeSet({
+			designSessionId: args.designSessionId,
+			attemptId: attempt.id,
+			changeSetId: changeSet.id,
+			actorUserId: args.actorUserId,
+			runId: args.runId,
+			holderNonce: args.holderNonce,
+			expectedProjectId: args.projectId,
+		});
 		return changeSet.id;
 	} catch (error) {
 		/* The one-open-set-per-attempt fence names a reopenable set: recover
@@ -976,7 +1004,15 @@ async function ensureChangeSet(
 			.where("status", "=", "open")
 			.executeTakeFirst();
 		if (open !== undefined) {
-			await bindSliceAttemptChangeSet(attempt.id, open.id);
+			await bindSliceAttemptChangeSet({
+				designSessionId: args.designSessionId,
+				attemptId: attempt.id,
+				changeSetId: open.id,
+				actorUserId: args.actorUserId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				expectedProjectId: args.projectId,
+			});
 			return open.id;
 		}
 		throw error;
@@ -1072,6 +1108,12 @@ async function executeOneSlice(
 		step: deps.executorStep,
 		commit,
 		signal: args.signal,
+		...(args.meter !== undefined && {
+			onUsage: (usage) =>
+				meterSubGenerationUsage(args.meter as SubGenerationUsageMeter, usage, {
+					step: true,
+				}),
+		}),
 		onProgress: (phase) => {
 			log.info("[buildOrchestrator] slice progress", {
 				designSessionId: args.designSessionId,

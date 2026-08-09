@@ -337,23 +337,35 @@ Preview, export, deployment, collaboration, and ordinary app reads consume only
 canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
 canonical edits and never require design metadata.
 
-Every holder-owned design-artifact or orchestration write authorizes the exact live
-`(run_id, holder_nonce)` carrier and current Project membership in the same
-transaction as the write. Before materialization that carrier is the locked
-design-session row; afterward it is the locked app row reached through the
-session's immutable materialization mapping. Artifact selection additionally
+Every holder-owned design-artifact, orchestration, or slice-attempt write
+authorizes the exact live `(run_id, holder_nonce)` carrier, holder actor, and
+current Project membership in the same transaction as the write. Before
+materialization the session is owner-private and that carrier is the locked
+design-session row; afterward it is the locked Project-shared app row reached
+through the session's immutable materialization mapping. Artifact selection additionally
 proves that the accepted revision and build plan belong to the same session and
 that the plan targets that revision.
 
+A build plan is active only while its accepted revision remains the artifact
+head and its source-package digest matches the current turn. Later user content
+reopens reviewed design work; the historical plan stays immutable but cannot
+drive execution.
+
 A persisted build plan has exactly one materialization root, and that root has
 no prerequisite slices: it directly owns the complete first export-ready app.
-Required external actions are separate effects with typed, digest-bound durable
-receipts; the orchestrator proves the exact receipt before opening a dependent
-change set. Every mutation-bearing staged step names the slice-owned intents it
+External actions are separate from Blueprint effects. Current plan admission
+allows `manual-setup` and `after-slice`; it rejects blocking `before-*` timings
+until a typed durable receipt producer is registered. The orchestrator retains
+the fail-closed exact receipt verifier at the consumer boundary. Every
+mutation-bearing staged step names the slice-owned intents it
 implements. Canonical commit proves complete intent coverage from those steps,
 derives implementation coordinates from the admitted mutations, and writes the
 exact `running -> committed` slice-attempt transition, committed-slice receipt,
 and provenance beside the Blueprint revision in one transaction.
+
+Discarding a pre-app design abandons open change sets, supersedes running slice
+attempts, clears thread stream-holder markers, releases any unsettled hold, and
+marks the session abandoned in one transaction.
 
 Materialization applies the same lookup, media, organization, runtime-schema,
 and export-readiness integrity as every later canonical commit. Once sequence

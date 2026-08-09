@@ -343,6 +343,9 @@ export async function runSliceExecutor(args: {
 	 *  the WHY behind an executor decision is readable beside its artifacts
 	 *  (no design table gains a reasoning column). */
 	onReasoning?: (text: string) => void;
+	/** Meter spent provider usage immediately when a step returns, including a
+	 * response that arrives just after the wall-clock deadline. */
+	onUsage?: (usage: LanguageModelUsage) => void;
 }): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
 	const tools = executorTools();
@@ -394,15 +397,21 @@ export async function runSliceExecutor(args: {
 
 			let step: Awaited<ReturnType<ExecutorStepFn>>;
 			try {
-				step = await awaitWithAbort(
-					args.step({
+				const stepPromise = args
+					.step({
 						system: EXECUTOR_SYSTEM,
 						messages,
 						tools,
 						signal: boundedSignal,
-					}),
-					boundedSignal,
-				);
+					})
+					.then((result) => {
+						/* Observe usage on the provider promise itself. A provider that
+						 * ignores abort may settle after the deadline race returned, but
+						 * its spent tokens still belong to this run. */
+						if (result.usage) args.onUsage?.(result.usage);
+						return result;
+					});
+				step = await awaitWithAbort(stepPromise, boundedSignal);
 			} catch (error) {
 				/* The provider observes the deadline-bound signal while it is awaited.
 				 * Convert only OUR deadline abort to the durable budget outcome; caller

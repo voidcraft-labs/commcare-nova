@@ -46,12 +46,15 @@ export interface StructuredModelRunArgs<T> {
  *  satisfies it structurally (a bare `track(usage)` call is a sub-generation:
  *  tokens accrue, the step counter does not move). */
 export interface SubGenerationUsageMeter {
-	track(usage: {
-		inputTokens: number;
-		outputTokens: number;
-		cacheReadTokens?: number;
-		cacheWriteTokens?: number;
-	}): void;
+	track(
+		usage: {
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		},
+		opts?: { step?: boolean },
+	): void;
 }
 
 export interface StructuredModelRunContext {
@@ -113,11 +116,15 @@ export async function runStructuredWith<T>(
 export function meterSubGenerationUsage(
 	meter: SubGenerationUsageMeter,
 	usage: LanguageModelUsage,
+	opts: { step?: boolean } = {},
 ): void {
-	meter.track({
-		inputTokens: usage.inputTokens ?? 0,
-		outputTokens: usage.outputTokens ?? 0,
-		cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-		cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-	});
+	meter.track(
+		{
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+		},
+		opts,
+	);
 }

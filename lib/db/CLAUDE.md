@@ -419,13 +419,16 @@ settles/refunds and clears BOTH groups in one transaction
 (`designSessionAuthorityCleared`) — there is no reaper-signature/self-heal
 arm to preserve. A failed or reaped session stays `active` with
 `last_error_type` set (recoverable by a fresh chargeable claim, or
-`discardDesignSession` → `abandoned`); `materialized` is Unit E's transfer.
+`discardDesignSession` → `abandoned`); materialization transfers authority to
+the app exactly once.
 Liveness derives from the explicit lease column via
 `runLiveness.ts::designSessionLeaseState` (same module, same
 `MAX_GENERATION_MINUTES` horizon — never a second timeout arithmetic).
 `generationTargetScope.ts` is the ONE resolver boundary for target
 authorization (`resolveGenerationTargetScope` — opaque
 `AppAccessError("not_found")` on every denial, exactly like app routes);
+an active pre-app build session additionally requires exact owner identity, so
+Project co-members gain visibility only after the session binds an app;
 `generationTargets.ts` stays a dependency-free TYPE LEAF holding
 the closed `GenerationTarget` union every target-polymorphic table speaks
 plus the column mappers. Keep them split: the leaf is imported across the
@@ -462,6 +465,11 @@ pre-app build sessions in the active Project, stage derived through
 restating the fold here is how a list starts disagreeing with the
 conversation it links to; no runtime cycle, the fold reaches only `pg` +
 `persistedJson`).
+
+Discard is one cleanup transaction after its owner/busy checks: refund the
+unsettled reservation, abandon open change sets, supersede running slice
+attempts, clear thread stream-holder markers, clear session authority, and
+mark the session `abandoned`.
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -819,9 +827,9 @@ to serialize its ledgers); `design_change_set_requests` / `_steps` /
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
 poke realtime). Step mutations, receipts, read sets, and intent ids are
 authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
-strict schemas only. `design_session_id` is bound to `design_sessions(id)`;
-the remaining design/plan identity columns stay opaque until the
-orchestrator unit lands its tables. A Project
+strict schemas only. `design_session_id`, design revision, build plan, and
+attempt identities are foreign-key-bound to the durable design/orchestration
+tables. A Project
 move deliberately does NOT re-tenant change-set rows: `base_project_id` is
 captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in

@@ -148,6 +148,29 @@ describe("orchestration event chain", () => {
 		expect(head?.digest).toBe(second.digest);
 	});
 
+	it("adopts an identical transition that won the predecessor race", async () => {
+		const sessionId = await seedHeldSession();
+		const state = designing(sessionId);
+		const [left, right] = await Promise.all([
+			appendOrchestrationEvent({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				state,
+				expectedHead: null,
+			}),
+			appendOrchestrationEvent({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				state,
+				expectedHead: null,
+			}),
+		]);
+		expect(right).toEqual(left);
+		expect((await readOrchestrationHead(sessionId))?.revision).toBe(1);
+	});
+
 	it("the fold fails closed on a tampered payload", async () => {
 		const sessionId = await seedHeldSession();
 		const first = await appendOrchestrationEvent({
@@ -175,6 +198,10 @@ describe("slice attempts", () => {
 		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
 		return {
 			designSessionId: sessionId,
+			actorUserId: ACTOR,
+			runId: RUN,
+			holderNonce: NONCE,
+			expectedProjectId: PROJECT,
 			designRevisionId: lineage.designRevisionId,
 			designRevisionDigest: lineage.designRevisionDigest,
 			buildPlanId: lineage.buildPlanId,
@@ -192,7 +219,7 @@ describe("slice attempts", () => {
 	}
 
 	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {
-		const sessionId = await h.seedDesignSession();
+		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
 		/* seedDesignLineage already minted a running attempt for its own slice;
 		 * this test's slice id is fresh, so its lifecycle is isolated. */
@@ -224,12 +251,30 @@ describe("slice attempts", () => {
 	});
 
 	it("terminal marks are running-only compare-and-sets", async () => {
-		const sessionId = await h.seedDesignSession();
+		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
 		const { attempt } = await beginOrRecoverSliceAttempt(args);
-		await markSliceAttempt(attempt.id, "failed", "budget-exhausted");
-		/* A stale second terminal write is a no-op — the CAS on `running`. */
-		await markSliceAttempt(attempt.id, "design-issue");
+		await markSliceAttempt({
+			...args,
+			attemptId: attempt.id,
+			to: "failed",
+			failureCode: "budget-exhausted",
+		});
+		/* An exact replay is idempotent, while a divergent terminal transition
+		 * is rejected under the same live authority. */
+		await markSliceAttempt({
+			...args,
+			attemptId: attempt.id,
+			to: "failed",
+			failureCode: "budget-exhausted",
+		});
+		await expect(
+			markSliceAttempt({
+				...args,
+				attemptId: attempt.id,
+				to: "design-issue",
+			}),
+		).rejects.toMatchObject({ name: "SliceAttemptStateError" });
 		const row = await h
 			.db()
 			.selectFrom("design_slice_attempts")
@@ -244,11 +289,45 @@ describe("slice attempts", () => {
 		expect(running?.sliceId).not.toBe(args.sliceId);
 	});
 
-	it("counts persisted design-issue attempts for the slice budget", async () => {
-		const sessionId = await h.seedDesignSession();
+	it("refuses attempt transitions after the holder is superseded", async () => {
+		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
 		const { attempt } = await beginOrRecoverSliceAttempt(args);
-		await markSliceAttempt(attempt.id, "design-issue", "platform-gap");
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({ run_holder_nonce: "6b0b35b4-1111-4222-8333-944445555666" })
+			.where("id", "=", sessionId)
+			.execute();
+
+		await expect(
+			markSliceAttempt({
+				...args,
+				attemptId: attempt.id,
+				to: "failed",
+				failureCode: "stale-worker",
+			}),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select("status")
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "running" });
+	});
+
+	it("counts persisted design-issue attempts for the slice budget", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		await markSliceAttempt({
+			...args,
+			attemptId: attempt.id,
+			to: "design-issue",
+			failureCode: "platform-gap",
+		});
 		expect(
 			await countDesignIssueAttempts({
 				designSessionId: sessionId,

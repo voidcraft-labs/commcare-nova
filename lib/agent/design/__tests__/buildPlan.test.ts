@@ -138,7 +138,7 @@ describe("buildPlanSchema (structural)", () => {
 		});
 		plan.slices[0]?.externalActionIds.push(did(500));
 		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"before materialization or named as manual setup",
+			"named as manual setup",
 		);
 	});
 
@@ -156,6 +156,24 @@ describe("buildPlanSchema (structural)", () => {
 		plan.slices[0]?.externalActionIds.push(did(501));
 		const result = buildPlanSchema.safeParse(plan);
 		expect(result.success, messages(result)).toBe(true);
+	});
+
+	it("rejects blocking external actions while no receipt producer is registered", () => {
+		for (const timing of ["before-materialization", "before-slice"] as const) {
+			const plan = makeBuildPlan();
+			plan.externalActions.push({
+				id: timing === "before-slice" ? did(502) : did(503),
+				kind: "manual",
+				timing,
+				requiredFor: "construction",
+				description: "Complete a prerequisite outside the Blueprint.",
+				idempotencyOwner: "user",
+				completionEvidence: "The prerequisite is complete.",
+			});
+			expect(messages(buildPlanSchema.safeParse(plan))).toContain(
+				"no registered completion producer",
+			);
+		}
 	});
 });
 

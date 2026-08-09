@@ -27,13 +27,12 @@
  * so every terminal writer settles/refunds and clears BOTH groups in one
  * transaction, and there is no reaper-signature/false-reap self-heal arm.
  * A failed or reaped session stays `active` with `last_error_type` set —
- * recoverable (a new chargeable claim re-drives it) or discardable; only
- * `discardDesignSession` moves it to `abandoned`, and only Unit E's
- * materialization will move a build session to `materialized`.
+ * recoverable (a new chargeable claim re-drives it) or discardable;
+ * `discardDesignSession` moves it to `abandoned`, while materialization
+ * transfers its authority once and moves it to `materialized`.
  *
- * No route mounts these yet: the chat route still serves app targets only.
- * Unit E's orchestrator consumes this surface; until then it is exercised
- * by the §20.9–§20.11 suites.
+ * The chat route and build recovery UI consume this surface; the integration
+ * suites pin its holder, billing, authorization, and recovery invariants.
  */
 
 import type { Transaction } from "kysely";
@@ -262,8 +261,13 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 			"You no longer have edit access to this design's Project.",
 		);
 		const lease = runLeaseState(leaseView(app));
+		const holderActor =
+			args.holder.mode === "edit"
+				? app.lock_actor_user_id
+				: (app.res_user_id ?? app.owner);
 		if (
 			!lease.live ||
+			holderActor !== args.actorUserId ||
 			!exactRunHolderMatches(lease.holderIdentity, args.holder)
 		) {
 			throw new RunHolderLostError();
@@ -274,7 +278,9 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 	if (
 		session === undefined ||
 		session.app_id !== null ||
-		session.project_id !== args.expectedProjectId
+		session.project_id !== args.expectedProjectId ||
+		session.owner_user_id !== args.actorUserId ||
+		session.run_actor_user_id !== args.actorUserId
 	) {
 		throw new RunHolderLostError("released");
 	}
@@ -497,6 +503,12 @@ export async function claimAndReserveDesignSessionRun(
 			}
 			requireActiveBuildSession(row);
 			assertExpectedSessionProject(row, expectedProjectId);
+			if (row.owner_user_id !== actorUserId) {
+				throw new DesignSessionStateError(
+					"not_found",
+					"This design session no longer exists.",
+				);
+			}
 			await assertProjectCapabilityInTransaction(
 				tx,
 				actorUserId,
@@ -586,6 +598,7 @@ export async function reacquireDesignSessionLease(
 		const row = await lockSessionRow(tx, designSessionId);
 		if (row?.state !== "active") return { outcome: "released" };
 		assertExpectedSessionProject(row, expectedProjectId);
+		if (row.owner_user_id !== actorUserId) return { outcome: "released" };
 		await assertProjectCapabilityInTransaction(
 			tx,
 			actorUserId,
@@ -684,6 +697,7 @@ export async function setDesignSessionAwaitingInput(
 		const row = await lockSessionRow(tx, designSessionId);
 		if (row?.state !== "active") return "released";
 		assertExpectedSessionProject(row, expectedProjectId);
+		if (row.owner_user_id !== actorUserId) return "released";
 		await assertProjectCapabilityInTransaction(
 			tx,
 			actorUserId,
@@ -730,7 +744,8 @@ export type DesignSessionTerminalOutcome = "owned" | "superseded" | "released";
  * here), so a later flush refund finds no owned marker and no-ops — the same
  * post-completion posture an app's settled marker produces. The session
  * stays `active`: a question-only conversational run leaves no app and the
- * session remains resumable; `materialized` is Unit E's transfer.
+ * session remains resumable; materialization is the separate authority
+ * transfer that moves it to `materialized`.
  */
 export async function completeAndSettleDesignSessionRun(
 	designSessionId: string,
@@ -876,6 +891,34 @@ export async function discardDesignSession(
 				reservation.reserved,
 			);
 		}
+		/* No live holder may survive the busy guard above. Retire every mutable
+		 * recovery carrier with the abandonment so a discarded design cannot
+		 * leave an apparently resumable workspace, attempt, or stream marker. */
+		await tx
+			.updateTable("design_change_sets")
+			.set({ status: "abandoned", updated_at: new Date() })
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "open")
+			.execute();
+		await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				status: "superseded",
+				failure_code: "design-session-abandoned",
+				updated_at: new Date(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "running")
+			.execute();
+		await tx
+			.updateTable("threads")
+			.set({
+				active_stream_id: null,
+				active_holder_nonce: null,
+				updated_at: new Date().toISOString(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.execute();
 		await tx
 			.updateTable("design_sessions")
 			.set({

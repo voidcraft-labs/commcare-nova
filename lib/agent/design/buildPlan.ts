@@ -185,6 +185,19 @@ export function validateSlicePlanStructure(
 			return;
 		}
 		actionById.set(action.id, action);
+		/* Blocking receipts are producer-owned capabilities. No production
+		 * producer is registered yet, so accepting either blocking timing would
+		 * persist a plan that can never advance. The verifier remains the
+		 * fail-closed consumer boundary for the producer integration. */
+		if (
+			action.timing === "before-materialization" ||
+			action.timing === "before-slice"
+		) {
+			issue(
+				["externalActions", i, "timing"],
+				"This blocking external-action timing has no registered completion producer yet. Represent the work as manual-setup or after-slice so the accepted plan remains executable.",
+			);
+		}
 	});
 
 	/* References resolve; owned ⊆ named intents. */
@@ -291,13 +304,10 @@ export function validateSlicePlanStructure(
 			slice.externalActionIds.forEach((actionId, j) => {
 				const action = actionById.get(actionId);
 				if (!action) return;
-				if (
-					action.timing !== "before-materialization" &&
-					action.timing !== "manual-setup"
-				) {
+				if (action.timing !== "manual-setup") {
 					issue(
 						["slices", i, "externalActionIds", j],
-						`The slice "${slice.name}" is in the materialization root's closure but depends on an external action timed "${action.timing}" — everything the first app needs must be satisfied before materialization or named as manual setup.`,
+						`The slice "${slice.name}" is in the materialization root's closure but depends on an external action timed "${action.timing}" — current root actions must be named as manual setup.`,
 					);
 				}
 			});
