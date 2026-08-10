@@ -17,7 +17,7 @@ import type {
 	ModelMessage,
 	StepResultPerformance,
 } from "ai";
-import { stepCountIs, ToolLoopAgent } from "ai";
+import { ToolLoopAgent } from "ai";
 import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
 import {
 	modelMessagesContainCompaction,
@@ -56,6 +56,9 @@ export interface DesignAgentArgs {
 	 * provider compaction item. Durable workspace state, not the summarized
 	 * model history, remains authoritative across the boundary. */
 	readonly freshStateMessage: () => Promise<ModelMessage>;
+	/** Completed model steps before the current stream attempt. The runner
+	 * updates this at each transient redrive, keeping one budget per POST. */
+	readonly stepsBeforeStream: () => number;
 	readonly onStepEnd?: (step: DesignAgentStep) => void;
 }
 
@@ -73,6 +76,13 @@ export interface DesignAgentStep {
 	rawFinishReason?: string;
 	performance?: StepResultPerformance;
 	toolEventMode?: "full" | "metadata-only";
+}
+
+export function designStepBudgetReached(
+	stepsBeforeStream: number,
+	stepsInCurrentStream: number,
+): boolean {
+	return stepsBeforeStream + stepsInCurrentStream >= DESIGN_LOOP_STEP_BUDGET;
 }
 
 function isDesignStateMessage(message: ModelMessage): boolean {
@@ -108,7 +118,8 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			"",
 			args.constraintsText,
 		].join("\n"),
-		stopWhen: stepCountIs(DESIGN_LOOP_STEP_BUDGET),
+		stopWhen: ({ steps }) =>
+			designStepBudgetReached(args.stepsBeforeStream(), steps.length),
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,

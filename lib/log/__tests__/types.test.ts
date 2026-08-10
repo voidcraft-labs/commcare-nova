@@ -203,6 +203,7 @@ describe("eventSchema", () => {
 				source: "chat",
 				payload: {
 					type: "design-tool-outcome",
+					toolCallId: "design-call-1",
 					toolName: "stageContract",
 					inputChars: 2400,
 					durationMs: 812,
@@ -287,6 +288,7 @@ describe("eventSchema", () => {
 			source: "chat" as const,
 			payload: {
 				type: "design-tool-outcome",
+				toolCallId: "design-call-1",
 				toolName: "stageContract",
 				inputChars: 24,
 				durationMs: 12,

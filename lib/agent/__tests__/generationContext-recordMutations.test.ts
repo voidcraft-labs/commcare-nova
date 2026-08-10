@@ -880,6 +880,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				outputTokens: 50,
 				cacheReadTokens: 0,
 				cacheWriteTokens: 0,
+				toolCallIds: ["tc-1"],
 			},
 			{ type: "assistant-reasoning", text: "thinking about the answer" },
 			{ type: "assistant-text", text: "the visible answer" },

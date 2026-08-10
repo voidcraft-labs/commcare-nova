@@ -1059,6 +1059,9 @@ export class GenerationContext
 			rawFinishReason: step.rawFinishReason,
 			stepTimeMs: step.performance?.stepTimeMs,
 			responseTimeMs: step.performance?.responseTimeMs,
+			...(step.toolCalls !== undefined && step.toolCalls.length > 0
+				? { toolCallIds: step.toolCalls.map((call) => call.toolCallId) }
+				: {}),
 		});
 
 		if (step.reasoningText) {

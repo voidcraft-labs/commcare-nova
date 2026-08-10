@@ -431,7 +431,35 @@ describe("durable staged contract and plan", () => {
 		});
 	});
 
-	it("inherits a prior contract while isolating work by source package", async () => {
+	it("keeps pre-draft stages when an answered question extends the source package", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const contract = makeContract();
+		const first = mountTools({ pkg });
+		await call(first.tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: contract.id, title: contract.title },
+			collections: [],
+		});
+
+		const answeredPkg = makePackage(
+			"Track visits; the user confirmed that Clinic North owns the queue.",
+		);
+		await persistPackage(answeredPkg);
+		const resumed = mountTools({ pkg: answeredPkg });
+		const inspected = await call(resumed.tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 1,
+			selection: { kind: "root" },
+		});
+		expect(inspected).toMatchObject({
+			ok: true,
+			workspaceRevision: 1,
+			view: { root: { id: contract.id, title: contract.title } },
+		});
+	});
+
+	it("inherits a prior contract and carries staged work into a newer source package", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
 		const initial = mountTools({ pkg });
@@ -468,15 +496,21 @@ describe("durable staged contract and plan", () => {
 		const newestPkg = makePackage("Track visits and require verbal consent.");
 		await persistPackage(newestPkg);
 		const newest = mountTools({ pkg: newestPkg });
-		const isolated = await call(newest.tools.inspectDesignWorkspace, {
+		const carried = await call(newest.tools.inspectDesignWorkspace, {
 			artifactKind: "contract",
-			expectedRevision: 0,
+			expectedRevision: 1,
 			selection: { kind: "root" },
 		});
-		expect(isolated).toMatchObject({
+		expect(carried).toMatchObject({
 			ok: true,
-			view: { root: { title: contract.title } },
+			workspaceRevision: 1,
+			view: { root: { title: "Updated title" } },
 		});
+		expect(
+			await call(newest.tools.submitContract, { expectedRevision: 1 }),
+		).toMatchObject({ ok: true });
+		const latest = await readLatestDesignRevision(sessionId);
+		expect(latest?.sourcePackageDigest).toBe(newestPkg.packageDigest);
 	});
 
 	it("deduplicates an exact provider call and rejects identity reuse with new bytes", async () => {

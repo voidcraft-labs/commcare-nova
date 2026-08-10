@@ -41,6 +41,7 @@ import {
 	type DesignAgentStep,
 } from "@/lib/agent/design/loop/designAgent";
 import {
+	DESIGN_LOOP_STEP_BUDGET,
 	type DesignGateState,
 	DesignRepairTracker,
 	evaluateDesignGates,
@@ -107,6 +108,7 @@ export type DesignLoopOutcome =
 	  };
 
 export interface DesignToolOutcomeEvent {
+	readonly toolCallId: string;
 	readonly toolName: string;
 	readonly inputChars: number;
 	readonly durationMs: number;
@@ -292,6 +294,8 @@ export async function runDesignAgentLoop(
 		};
 	};
 
+	let completedModelSteps = 0;
+	let stepsBeforeStream = 0;
 	const agent = createDesignAgent({
 		model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 		tools,
@@ -302,7 +306,9 @@ export async function runDesignAgentLoop(
 		fatalError: () => repair.fatalError(),
 		freshStateMessage: async () =>
 			stateMessageFor(evaluateDesignGates(await loadAncestry())),
+		stepsBeforeStream: () => stepsBeforeStream,
 		onStepEnd: (step) => {
+			completedModelSteps += 1;
 			args.onAgentStep?.(step);
 		},
 	});
@@ -352,8 +358,10 @@ export async function runDesignAgentLoop(
 
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
+		if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) break;
 		const prompt = [...baseModelMessages, await stateMessageFor(gates)];
 
+		stepsBeforeStream = completedModelSteps;
 		const result = await agent.stream({ prompt });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
@@ -384,6 +392,7 @@ export async function runDesignAgentLoop(
 			if (tracked === undefined || tracked.outcomeEmitted) return;
 			tracked.outcomeEmitted = true;
 			args.onToolOutcome?.({
+				toolCallId,
 				toolName: tracked.toolName,
 				inputChars: tracked.inputChars,
 				durationMs: Math.max(0, Date.now() - tracked.startedAt),
@@ -613,7 +622,21 @@ export async function runDesignAgentLoop(
 	 * forever-designing hang. */
 	const fatal = repair.fatalError();
 	if (protocolFailure !== null) return protocolFailure;
-	if (fatal !== undefined) {
+	const finalGates = evaluateDesignGates(await loadAncestry());
+	if (finalGates.plan !== null && finalGates.newestAccepted !== null) {
+		return {
+			kind: "planned",
+			revision: finalGates.newestAccepted,
+			plan: finalGates.plan,
+		};
+	}
+	if (pausedOnQuestions) {
+		return {
+			kind: "awaiting-input",
+			headRevisionId: finalGates.head?.id ?? null,
+		};
+	}
+	if (fatal !== undefined || completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
 		return {
 			kind: "failed",
 			errorType: "design-loop-budget",
@@ -628,20 +651,6 @@ export async function runDesignAgentLoop(
 			message:
 				"The design step didn't come back usable this time. Everything already decided is saved; send your message again to continue from there.",
 			recoverable: true,
-		};
-	}
-	const finalGates = evaluateDesignGates(await loadAncestry());
-	if (finalGates.plan !== null && finalGates.newestAccepted !== null) {
-		return {
-			kind: "planned",
-			revision: finalGates.newestAccepted,
-			plan: finalGates.plan,
-		};
-	}
-	if (pausedOnQuestions) {
-		return {
-			kind: "awaiting-input",
-			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
 	return {

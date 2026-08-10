@@ -819,8 +819,11 @@ The tool surface:
   idempotent and a different input under the same identity is rejected.
   One call addresses at most one contract/plan collection (plus optional
   revision dispositions) and changes at most 32 items and 48 KiB. Each POST
-  remains bounded to 64 model steps, while the durable workspace has no hard
-  stage cliff that could strand a valid candidate needing one later repair.
+  remains bounded to 64 model steps cumulatively across transient stream
+  redrives, while the durable workspace has no hard stage cliff that could
+  strand a valid candidate needing one later repair. An answered question
+  rebinds same-phase staged work to the cumulative newer source package rather
+  than discarding it.
   Revision staging
   begins from the immutable reviewed
   parent and changes only named items/dispositions; unchanged content stays
@@ -857,10 +860,10 @@ throw, and the design branch's bounded redrive
 server-derived state message. A tool input that ends before becoming available
 is classified as `design-submission-incomplete`, its dangling stream part is
 closed, and no blind redrive repeats it; prior stages remain authoritative.
-Payload-free tool diagnostics record tool name, input character count,
-duration, and outcome code without customer design content. The owning
-`step-usage` event separately records that exact model step's provider finish
-reason and timing.
+Payload-free tool diagnostics record opaque tool-call identity, tool name,
+input character count, duration, and outcome code without customer design
+content. The owning `step-usage` event carries the same tool-call identity and
+separately records that exact model step's provider finish reason and timing.
 
 The durable transitions are unchanged:
 

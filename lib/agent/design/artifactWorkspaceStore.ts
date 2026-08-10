@@ -180,6 +180,11 @@ async function ensureOpenWorkspaceInTransaction(args: {
 	const current = await args.tx
 		.selectFrom("design_artifact_workspaces")
 		.select(["id", "artifact_kind", "lineage_digest"])
+		.select(
+			sql<string>`${sql.ref("design_artifact_workspaces.lineage")}::text`.as(
+				"lineage_text",
+			),
+		)
 		.where("design_session_id", "=", args.designSessionId)
 		.where("status", "=", "open")
 		.forUpdate()
@@ -190,6 +195,48 @@ async function ensureOpenWorkspaceInTransaction(args: {
 			row.lineage_digest === lineageDigest,
 	);
 	if (exact !== undefined && current.length === 1) return exact.id;
+
+	/* An answer extends the cumulative source package without invalidating
+	 * accepted work in the same artifact phase. When only that package digest
+	 * moved, rebind the one open workspace in place so its ordered stages remain
+	 * the candidate. A phase/base/review change is real ancestry drift and still
+	 * supersedes the workspace below. */
+	const ancestryDigest = (value: DesignArtifactWorkspaceLineage): string =>
+		canonicalJsonDigest({
+			schemaVersion: value.schemaVersion,
+			artifactKind: value.artifactKind,
+			baseRevision: value.baseRevision,
+			reviewArtifacts: value.reviewArtifacts,
+		});
+	const rebindable = current.find((row) => {
+		const persisted = designArtifactWorkspaceLineageSchema.parse(
+			parsePersistedJsonText(
+				row.lineage_text,
+				`design_artifact_workspaces.lineage for ${row.id}`,
+			),
+		);
+		if (canonicalJsonDigest(persisted) !== row.lineage_digest) {
+			throw new DesignArtifactWorkspaceError(
+				"lineage-invalid",
+				"The open design workspace lineage no longer matches its digest.",
+			);
+		}
+		return ancestryDigest(persisted) === ancestryDigest(lineage);
+	});
+	if (rebindable !== undefined && current.length === 1) {
+		await args.tx
+			.updateTable("design_artifact_workspaces")
+			.set({
+				lineage_digest: lineageDigest,
+				lineage: JSON.stringify(lineage),
+				updated_by_run_id: args.authority.runId,
+				updated_at: new Date(),
+			})
+			.where("id", "=", rebindable.id)
+			.where("status", "=", "open")
+			.executeTakeFirstOrThrow();
+		return rebindable.id;
+	}
 
 	if (current.length > 0) {
 		await args.tx

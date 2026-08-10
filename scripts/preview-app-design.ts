@@ -375,6 +375,7 @@ async function main(): Promise<void> {
 			content:
 				"# Design session state (server-derived)\n\nContinue from the durable preview state.",
 		}),
+		stepsBeforeStream: () => 0,
 		onStepEnd: (step) => {
 			if (step.text) console.log(`\nNova: ${step.text}`);
 		},

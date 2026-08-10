@@ -261,12 +261,16 @@ function summarizeConversation(payload: ConversationPayload): string {
 				payload.cacheReadTokens !== undefined
 					? ` (${payload.inputTokens - payload.cacheReadTokens} uncached, ${payload.cacheReadTokens} cached)`
 					: "";
-			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}`;
+			const calls =
+				payload.toolCallIds === undefined
+					? ""
+					: `, tools [${payload.toolCallIds.join(", ")}]`;
+			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}${calls}`;
 		}
 		case "executor-tool-outcome":
 			return `executor ${payload.outcome}: ${payload.toolName}${payload.operationIndex === undefined ? "" : `[${payload.operationIndex}]`} (${payload.code}) at workspace r${payload.workspaceRevision}`;
 		case "design-tool-outcome":
-			return `design ${payload.outcome}: ${payload.toolName} (${payload.code}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
+			return `design ${payload.outcome}: ${payload.toolName} [${payload.toolCallId}] (${payload.code}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
 	}
 }
 
@@ -341,8 +345,12 @@ function printEventVerbose(event: Event): void {
 				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
 			);
 			console.log(`  │ outputTokens:     ${p.outputTokens}`);
+			console.log(
+				`  │ toolCallIds:     ${p.toolCallIds?.join(", ") ?? "none"}`,
+			);
 			break;
 		case "design-tool-outcome":
+			console.log(`  │ toolCallId:        ${p.toolCallId}`);
 			console.log(`  │ toolName:          ${p.toolName}`);
 			console.log(`  │ inputChars:        ${p.inputChars}`);
 			console.log(`  │ durationMs:        ${p.durationMs}`);

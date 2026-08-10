@@ -4,6 +4,7 @@ import {
 	DESIGN_LOOP_STOP_MESSAGE,
 	designToolPulsePhase,
 } from "@/lib/agent/build/designLoopRunner";
+import { designStepBudgetReached } from "@/lib/agent/design/loop/designAgent";
 
 describe("contractSubmissionPulsePhase", () => {
 	it("distinguishes a first design from an immutable replacement revision", () => {
@@ -31,5 +32,13 @@ describe("designToolPulsePhase", () => {
 			"revise",
 		);
 		expect(designToolPulsePhase("stagePlan", "review", "design")).toBe("plan");
+	});
+});
+
+describe("design POST step budget", () => {
+	it("counts completed steps from prior transient stream attempts", () => {
+		expect(designStepBudgetReached(62, 1)).toBe(false);
+		expect(designStepBudgetReached(63, 1)).toBe(true);
+		expect(designStepBudgetReached(64, 1)).toBe(true);
 	});
 });

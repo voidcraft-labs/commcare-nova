@@ -147,12 +147,14 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		// milliseconds are valid and should not make event recording fail.
 		stepTimeMs: z.number().finite().nonnegative().optional(),
 		responseTimeMs: z.number().finite().nonnegative().optional(),
+		toolCallIds: z.array(z.string().min(1)).min(1).optional(),
 	}),
 	/* Design-tool-outcome annotation — payload-free observability for private
 	 * contract/revision/plan staging. Candidate content and validation prose
 	 * remain in the private workspace, never this supplemental event log. */
 	z.strictObject({
 		type: z.literal("design-tool-outcome"),
+		toolCallId: z.string().min(1),
 		toolName: z.string().min(1),
 		inputChars: z.number().int().nonnegative(),
 		durationMs: z.number().int().nonnegative(),
