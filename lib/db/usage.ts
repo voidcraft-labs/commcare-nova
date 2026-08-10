@@ -29,6 +29,24 @@ import { getAppDb } from "./pg";
 import { writeRunSummary } from "./runSummary";
 import type { RunSummaryDoc, UsageDoc } from "./types";
 
+/** Paid design-build phases that need their own aggregate in the final run
+ * log. Model totals alone cannot distinguish the Sol author from its Sol
+ * reviewer, or answer directly how drafting, review, and implementation split
+ * the run's time and money. */
+export type DesignBuildCostPhase =
+	| "design-author"
+	| "design-review"
+	| "build-executor";
+
+interface PhaseUsageBreakdown {
+	calls: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	costEstimate: number;
+}
+
 // ── Read ──────────────────────────────────────────────────────────
 
 /**
@@ -284,6 +302,10 @@ export class UsageAccumulator {
 			costEstimate: number;
 		}
 	>();
+	private readonly phaseCosts = new Map<
+		DesignBuildCostPhase,
+		PhaseUsageBreakdown
+	>();
 	private stepCount = 0;
 	private toolCallCount = 0;
 	private _finalized = false;
@@ -316,7 +338,11 @@ export class UsageAccumulator {
 	 */
 	track(
 		usage: LLMCallUsage,
-		opts: { step?: boolean; model?: string } = {},
+		opts: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		} = {},
 	): void {
 		const model = opts.model ?? this.seed.model;
 		const callCost = estimateCost(
@@ -342,6 +368,23 @@ export class UsageAccumulator {
 		modelCost[`${tier}Calls`] += 1;
 		modelCost.costEstimate += callCost;
 		this.modelCosts.set(model, modelCost);
+		if (opts.phase !== undefined) {
+			const phaseCost = this.phaseCosts.get(opts.phase) ?? {
+				calls: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costEstimate: 0,
+			};
+			phaseCost.calls += 1;
+			phaseCost.inputTokens += usage.inputTokens;
+			phaseCost.outputTokens += usage.outputTokens;
+			phaseCost.cacheReadTokens += usage.cacheReadTokens ?? 0;
+			phaseCost.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+			phaseCost.costEstimate += callCost;
+			this.phaseCosts.set(opts.phase, phaseCost);
+		}
 		if (opts.step) this.stepCount++;
 	}
 
@@ -356,6 +399,11 @@ export class UsageAccumulator {
 		}
 	> {
 		return Object.fromEntries(this.modelCosts);
+	}
+
+	/** Numeric design/review/build decomposition for pipeline investigations. */
+	phaseBreakdown(): Partial<Record<DesignBuildCostPhase, PhaseUsageBreakdown>> {
+		return Object.fromEntries(this.phaseCosts);
 	}
 
 	/** Record a tool call — feeds the `toolCallCount` run-summary field. */
@@ -547,6 +595,7 @@ export class UsageAccumulator {
 			cacheWriteTokens: summary.cacheWriteTokens,
 			costEstimate: summary.costEstimate,
 			modelCosts: this.costBreakdown(),
+			phaseCosts: this.phaseBreakdown(),
 			summaryAction,
 			didReserve: this.seed.didReserve ?? false,
 			reservedAmount: this.seed.reservedAmount ?? 0,

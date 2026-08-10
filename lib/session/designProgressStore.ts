@@ -30,6 +30,7 @@ import {
 	type DesignOutlineProjection,
 	type DesignPulsePhase,
 	type DesignSessionScope,
+	type DesignSessionSeed,
 	designPulseStage,
 	designStageIsWorking,
 	designStageLabel,
@@ -81,7 +82,11 @@ export interface DesignProgressState {
 	 *  `recoverable` picks the stage: a retryable stop reads `incomplete`
 	 *  ("Stopped before it finished"), a fatal one `failed`. Cleared when
 	 *  the next turn opens. */
-	failure: { message: string; recoverable: boolean } | null;
+	failure: {
+		message: string;
+		recoverable: boolean;
+		retryAcceptedPlan: boolean;
+	} | null;
 	/** The stage the SERVER derived when the page loaded a design session with
 	 *  no run in flight (`deriveDesignBuildStage` over the durable session +
 	 *  orchestration head). It is the floor the fold falls back to before any
@@ -89,16 +94,16 @@ export interface DesignProgressState {
 	 *  instead of pretending a fresh turn is running. A live turn supersedes
 	 *  it the moment its scope frame lands. */
 	seededStage: DesignBuildStage | null;
+	/** The cold snapshot's exact accepted-plan replay capability. It is
+	 *  derived server-side from the durable orchestration failure code and
+	 *  retires with `seededStage` as soon as a new turn opens. */
+	seededRetryAcceptedPlan: boolean;
 
 	/** Seed a cold page load of an existing design session. There is no
 	 *  client-side re-derivation of the outline or plan — those live only in
 	 *  the frames a run streams — so this carries the stage and nothing
 	 *  else. */
-	seedSession: (seed: {
-		designSessionId: string;
-		materializedAppId: string | null;
-		stage: DesignBuildStage;
-	}) => void;
+	seedSession: (seed: DesignSessionSeed) => void;
 	/** Open (or re-open) a design session's scope. Idempotent for the same
 	 *  id — a stream replay re-delivers this frame — and a clean reset when
 	 *  the id changes. Clears a previous turn's failure. */
@@ -116,7 +121,10 @@ export interface DesignProgressState {
 	 *  turn's own scope frame follows within the same stream. */
 	noteTurnOpened: () => void;
 	setAwaitingInput: (awaiting: boolean) => void;
-	markFailed: (message: string, opts: { recoverable: boolean }) => void;
+	markFailed: (
+		message: string,
+		opts: { recoverable: boolean; retryAcceptedPlan?: boolean },
+	) => void;
 	reset: () => void;
 }
 
@@ -143,6 +151,7 @@ const EMPTY: Omit<
 	awaitingInput: false,
 	failure: null,
 	seededStage: null,
+	seededRetryAcceptedPlan: false,
 };
 
 export type DesignProgressStoreApi = ReturnType<
@@ -159,6 +168,7 @@ export function createDesignProgressStore() {
 				designSessionId: seed.designSessionId,
 				materializedAppId: seed.materializedAppId,
 				seededStage: seed.stage,
+				seededRetryAcceptedPlan: seed.retryAcceptedPlan,
 			});
 		},
 
@@ -183,6 +193,7 @@ export function createDesignProgressStore() {
 				pulseStep: null,
 				/* This turn is live; the page-load snapshot no longer describes it. */
 				seededStage: null,
+				seededRetryAcceptedPlan: false,
 			});
 		},
 
@@ -273,8 +284,31 @@ export function createDesignProgressStore() {
 		},
 
 		noteTurnOpened() {
-			if (get().seededStage === null) return;
-			set({ seededStage: null });
+			const current = get();
+			/* Completion belongs to the build turn that produced it. A later edit
+			 * returns to the ordinary chat status until the server explicitly opens
+			 * another design session; it must not keep saying the app is ready while
+			 * that edit is running. */
+			if (current.completion !== null) {
+				set({ ...EMPTY });
+				return;
+			}
+			if (
+				current.seededStage === null &&
+				!current.seededRetryAcceptedPlan &&
+				current.failure === null &&
+				current.pulsePhase === null &&
+				!current.awaitingInput
+			)
+				return;
+			set({
+				seededStage: null,
+				seededRetryAcceptedPlan: false,
+				failure: null,
+				pulsePhase: null,
+				pulseStep: null,
+				awaitingInput: false,
+			});
 		},
 
 		setAwaitingInput(awaiting: boolean) {
@@ -282,9 +316,16 @@ export function createDesignProgressStore() {
 			set({ awaitingInput: awaiting });
 		},
 
-		markFailed(message: string, opts: { recoverable: boolean }) {
+		markFailed(
+			message: string,
+			opts: { recoverable: boolean; retryAcceptedPlan?: boolean },
+		) {
 			set({
-				failure: { message, recoverable: opts.recoverable },
+				failure: {
+					message,
+					recoverable: opts.recoverable,
+					retryAcceptedPlan: opts.retryAcceptedPlan === true,
+				},
 				activeSlice: null,
 			});
 		},
@@ -340,15 +381,18 @@ export function deriveDesignStage(
 	}
 	if (state.awaitingInput) return "needs-input";
 	if (state.completion !== null) return "ready";
+	/* A later user adjustment can reopen design after one or more slices have
+	 * already committed. The live server pulse describes what is happening NOW
+	 * and must outrank that historical build progress; otherwise a review or
+	 * revision falsely keeps saying "Building your app." A real slice start
+	 * clears the pulse in `applyProgressFrame`, so current build work still
+	 * takes over immediately and no stale design label can survive it. */
+	if (state.pulsePhase !== null) return designPulseStage(state.pulsePhase);
 	if (state.activeSlice !== null || state.committedSlices.length > 0) {
 		return state.materializedAppId === null
 			? "building-first-workflow"
 			: "building";
 	}
-	/* A live pulse is the server naming the model call it is running RIGHT
-	 * NOW — the only source that can say reviewing/revising/planning while
-	 * the call streams (the durable frames land only after a phase ends). */
-	if (state.pulsePhase !== null) return designPulseStage(state.pulsePhase);
 	if (state.plan !== null) return "planning";
 	if (state.outline !== null) return "designing";
 	/* No frame has said anything yet: the server's load-time derivation, or
@@ -396,6 +440,8 @@ export interface DesignProgressView {
 	 *  to a brief per-slice line (§15.7). */
 	readonly materialized: boolean;
 	readonly failure: string | null;
+	/** An operational stop left the accepted plan safe to execute again. */
+	readonly canRetryPlan: boolean;
 }
 
 export function deriveDesignProgressView(
@@ -421,6 +467,9 @@ export function deriveDesignProgressView(
 		committedSliceNames: state.committedSlices.map((slice) => slice.sliceName),
 		materialized: state.materializedAppId !== null,
 		failure: state.failure?.message ?? null,
+		canRetryPlan:
+			state.failure?.retryAcceptedPlan === true ||
+			(state.seededStage === "incomplete" && state.seededRetryAcceptedPlan),
 	};
 }
 

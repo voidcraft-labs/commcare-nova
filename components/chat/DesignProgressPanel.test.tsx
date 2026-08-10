@@ -23,6 +23,7 @@ const view: DesignProgressView = {
 	committedSliceNames: [],
 	materialized: false,
 	failure: null,
+	canRetryPlan: false,
 };
 
 describe("DesignProgressStatus", () => {
@@ -33,5 +34,67 @@ describe("DesignProgressStatus", () => {
 		expect(status.classList.contains("px-4")).toBe(true);
 		expect(status.classList.contains("py-2")).toBe(true);
 		expect(status.textContent).toContain("Designing your app");
+	});
+
+	it("offers an explicit re-drive for a recoverable stop", () => {
+		const onRetry = vi.fn();
+		render(
+			<DesignProgressStatus
+				view={{
+					...view,
+					stage: "incomplete",
+					stageLabel: "Stopped before it finished",
+					working: false,
+					failure: "Nothing invalid was saved.",
+					canRetryPlan: true,
+				}}
+				canRecover
+				onRetry={onRetry}
+			/>,
+		);
+
+		screen.getByRole("button", { name: "Try again" }).click();
+		expect(onRetry).toHaveBeenCalledOnce();
+	});
+
+	it("does not offer exact-plan retry for a design failure", () => {
+		render(
+			<DesignProgressStatus
+				view={{
+					...view,
+					stage: "incomplete",
+					stageLabel: "Stopped before it finished",
+					working: false,
+					failure: "The design needs another decision.",
+				}}
+				canRecover
+				onRetry={vi.fn()}
+			/>,
+		);
+
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+	});
+
+	it("hides all recovery actions from viewers", () => {
+		render(
+			<DesignProgressStatus
+				view={{
+					...view,
+					stage: "incomplete",
+					stageLabel: "Stopped before it finished",
+					working: false,
+					materialized: true,
+					committedSliceNames: ["Register a household"],
+					failure: "The build stopped.",
+					canRetryPlan: true,
+				}}
+				onRetry={vi.fn()}
+			/>,
+		);
+
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Use what’s built" }),
+		).toBeNull();
 	});
 });

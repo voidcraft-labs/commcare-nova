@@ -21,6 +21,7 @@
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import type { DesignBuildCostPhase } from "@/lib/db/usage";
 import { strictStructuredSchema } from "./strictStructuredOutput";
 import {
 	type SubGenerationImage,
@@ -53,7 +54,11 @@ export interface SubGenerationUsageMeter {
 			cacheReadTokens?: number;
 			cacheWriteTokens?: number;
 		},
-		opts?: { step?: boolean; model?: string },
+		opts?: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		},
 	): void;
 }
 
@@ -116,7 +121,11 @@ export async function runStructuredWith<T>(
 export function meterSubGenerationUsage(
 	meter: SubGenerationUsageMeter,
 	usage: LanguageModelUsage,
-	opts: { step?: boolean; model?: string } = {},
+	opts: {
+		step?: boolean;
+		model?: string;
+		phase?: DesignBuildCostPhase;
+	} = {},
 ): void {
 	meter.track(
 		{

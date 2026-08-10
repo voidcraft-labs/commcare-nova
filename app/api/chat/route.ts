@@ -2276,6 +2276,7 @@ export async function POST(req: Request) {
 										step,
 										"Design agent",
 										DESIGN_AUTHOR_MODEL,
+										"design-author",
 									),
 								/* Reasoning summaries from the calls that never touch a
 								 * thread (the independent reviewer, executor steps) land
@@ -2302,6 +2303,7 @@ export async function POST(req: Request) {
 											recoverable: true,
 										},
 										"route:design-turn-retry",
+										{ runContinues: true },
 									);
 								},
 							},
@@ -2357,7 +2359,23 @@ export async function POST(req: Request) {
 							 * recoverable). Post-materialization: the ordinary app
 							 * failure funnel — the transferred holder is on the app. */
 							if (design.materialized || outcome.appId !== null) {
-								await failRun(new Error(outcome.message), "route:design-build");
+								/* Orchestration already classified this terminal outcome and
+								 * translated it for the person. Re-wrapping the message in Error
+								 * would run it through the generic classifier, lose `recoverable`,
+								 * and replace a useful design-adjustment instruction with
+								 * "Something went wrong." Preserve the typed outcome while using
+								 * the same atomic app failure/refund funnel. */
+								await finalizeRun(
+									{
+										type: "internal",
+										message: outcome.message,
+										recoverable: outcome.recoverable,
+										...(outcome.retryAcceptedPlan && {
+											designRecovery: "retry-plan" as const,
+										}),
+									},
+									{ failureSource: "route:design-build" },
+								);
 							} else {
 								usage.markRunFailed();
 								let refunded = false;
@@ -2378,6 +2396,9 @@ export async function POST(req: Request) {
 										type: "internal",
 										message: outcome.message,
 										recoverable: outcome.recoverable,
+										...(outcome.retryAcceptedPlan && {
+											designRecovery: "retry-plan" as const,
+										}),
 									},
 									"route:design-build",
 								);
@@ -2985,6 +3006,7 @@ export async function POST(req: Request) {
 						ctx.emitError(
 							{ ...classified, message: TURN_RETRY_MESSAGE, recoverable: true },
 							"route:turn-retry",
+							{ runContinues: true },
 						);
 						await new Promise((r) =>
 							setTimeout(r, turnRetryDelayMs(turnRetries)),

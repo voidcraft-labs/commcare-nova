@@ -10,11 +10,91 @@ import {
 	authoritativeThreadActivationOptions,
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
+	chatRequestIsRedrive,
+	designBuildRetrySend,
+	designProgressOwnsActivityStatus,
+	designProgressTracksBuildFailure,
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
 	parseAppMaterializationReceipt,
 	retireProjectAttachmentRefs,
 } from "./ChatContainer";
+
+describe("interrupted-turn request routing", () => {
+	it("preserves redrive semantics for both regenerate and design retry sends", () => {
+		expect(chatRequestIsRedrive("regenerate-message", undefined)).toBe(true);
+		expect(chatRequestIsRedrive("submit-message", { redrive: true })).toBe(
+			true,
+		);
+		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
+	});
+
+	it("keeps manual design recovery distinct from automatic regenerate", () => {
+		expect(designBuildRetrySend()).toEqual({
+			text: "Try again",
+			metadata: { designBuildRetry: true },
+		});
+	});
+});
+
+describe("design progress activity ownership", () => {
+	it("keeps the design status through post-materialization build work", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "building" },
+				"streaming",
+			),
+		).toBe(true);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "reviewing-implementation" },
+				"streaming",
+			),
+		).toBe(true);
+	});
+
+	it("shows completion until stream close, then returns to a quiet composer", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "ready" },
+				"streaming",
+			),
+		).toBe(true);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "ready" },
+				"ready",
+			),
+		).toBe(false);
+	});
+
+	it("releases stale working status on a transport error", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "building" },
+				"error",
+			),
+		).toBe(false);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "failed" },
+				"error",
+			),
+		).toBe(true);
+	});
+
+	it("tracks failures across unfinished materialized build phases, not edits", () => {
+		const preApp = {
+			designSessionId: "design",
+			materializedAppId: null,
+			activeSlice: null,
+		};
+		const materialized = { ...preApp, materializedAppId: "app" };
+		expect(designProgressTracksBuildFailure(preApp, false)).toBe(true);
+		expect(designProgressTracksBuildFailure(materialized, true)).toBe(true);
+		expect(designProgressTracksBuildFailure(materialized, false)).toBe(false);
+	});
+});
 
 describe("authoritative thread activation", () => {
 	it("passes through the actor-bound holder nonce and clears it when omitted", () => {
@@ -462,7 +542,7 @@ describe("chatGenerationCanWrite", () => {
 	it("fails closed for a held destination hydration, old epoch, or missing session", () => {
 		const destination = {
 			accessPhase: "authorized",
-			canEdit: true,
+			projectCanEdit: true,
 			scopeEpoch: 2,
 		};
 
@@ -472,10 +552,28 @@ describe("chatGenerationCanWrite", () => {
 		expect(chatGenerationCanWrite(destination, 2, "ready")).toBe(true);
 	});
 
+	it("uses Project authority while the initial-build lock keeps direct editors read-only", () => {
+		const initialBuild = {
+			accessPhase: "authorized",
+			projectCanEdit: true,
+			canEdit: false,
+			scopeEpoch: 2,
+		};
+
+		expect(chatGenerationCanWrite(initialBuild, 2, "ready")).toBe(true);
+		expect(
+			chatGenerationCanWrite(
+				{ ...initialBuild, projectCanEdit: false },
+				2,
+				"ready",
+			),
+		).toBe(false);
+	});
+
 	it("keeps a failed same-thread hydration unable to overwrite its stored transcript", () => {
 		const destination = {
 			accessPhase: "authorized",
-			canEdit: true,
+			projectCanEdit: true,
 			scopeEpoch: 2,
 		};
 

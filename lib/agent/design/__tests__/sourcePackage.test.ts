@@ -156,6 +156,25 @@ describe("buildDesignSourcePackage", () => {
 		expect(second.packageDigest).toBe(first.packageDigest);
 	});
 
+	it("keeps an explicit build retry out of design evidence and the digest", async () => {
+		const original = userMessage("m1", "Build it.");
+		const first = await buildDesignSourcePackage(baseArgs([original]));
+		const retried = await buildDesignSourcePackage(
+			baseArgs([
+				original,
+				{
+					id: "m2",
+					role: "user",
+					parts: [{ type: "text", text: "Try again" }],
+					metadata: { designBuildRetry: true },
+				} as NovaUIMessage,
+			]),
+		);
+
+		expect(retried.request.blocks).toEqual(first.request.blocks);
+		expect(retried.packageDigest).toBe(first.packageDigest);
+	});
+
 	it("clips an oversized message part and flags the truncation", async () => {
 		const pkg = await buildDesignSourcePackage(
 			baseArgs([userMessage("m1", "x".repeat(MAX_REQUEST_BLOCK_CHARS + 5))]),

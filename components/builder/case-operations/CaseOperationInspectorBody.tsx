@@ -38,8 +38,8 @@ import {
 	retargetCaseOperation,
 } from "@/lib/doc/caseOperationIntents";
 import {
+	useFormHasSessionCase,
 	useModuleCaseType,
-	useModuleSelectsCaseFirst,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
@@ -109,7 +109,7 @@ export function CaseOperationInspectorBody({
 	const targetDraft = useCaseTargetDraft(formUuid, operationUuid);
 
 	const fieldEntries = useFormFieldEntries(formUuid);
-	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	const sessionCaseAvailable = useFormHasSessionCase(moduleUuid, formUuid);
 	const moduleCaseType = useModuleCaseType(moduleUuid);
 
 	const operations = view.operations;
@@ -118,10 +118,12 @@ export function CaseOperationInspectorBody({
 	);
 	const operation = index < 0 ? undefined : operations[index];
 
-	const sessionUnavailableReason = caseFirst
+	const sessionUnavailableReason = sessionCaseAvailable
 		? undefined
-		: "This module doesn't choose a case before opening its forms, so there is no case in hand";
-	const initialSessionCaseType = caseFirst ? moduleCaseType : undefined;
+		: "This form doesn't open with a case in hand";
+	const initialSessionCaseType = sessionCaseAvailable
+		? moduleCaseType
+		: undefined;
 
 	const precedingOperations = useMemo(
 		() => operations.slice(0, index < 0 ? 0 : index),

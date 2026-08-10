@@ -7,9 +7,10 @@
  * `change_set_id` binding. The partial unique index permits one `running`
  * attempt per `(design_session_id, build_plan_id, slice_id)`, so a resumed
  * process RECOVERS the existing attempt rather than starting a second
- * overlay merely because a response was lost — and a recovered attempt whose
- * brief no longer matches the accepted artifacts is superseded, never
- * silently adapted.
+ * overlay merely because a response was lost. A budget-exhausted attempt is
+ * also resumable from its durable private candidate when the exact artifacts,
+ * base, actor, and newly authorized run still match; drift starts fresh and
+ * never silently adapts staged work.
  */
 
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
@@ -231,6 +232,36 @@ async function assertAttemptAuthority(
 	});
 }
 
+async function baseTargetStillCurrent(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	designSessionId: string,
+	base: SliceAttemptBaseTarget,
+): Promise<boolean> {
+	if (base.kind === "app") {
+		const app = await tx
+			.selectFrom("apps")
+			.select(["id", "mutation_seq", "deleted_at"])
+			.where("id", "=", base.appId)
+			.executeTakeFirst();
+		return (
+			app !== undefined &&
+			app.deleted_at === null &&
+			safePersistedSequence(app.mutation_seq, "apps.mutation_seq") === base.seq
+		);
+	}
+	const session = await tx
+		.selectFrom("design_sessions")
+		.select(["app_id", "proposed_app_id", "state"])
+		.where("id", "=", designSessionId)
+		.executeTakeFirst();
+	return (
+		session !== undefined &&
+		session.state === "active" &&
+		session.app_id === null &&
+		session.proposed_app_id === base.proposedAppId
+	);
+}
+
 interface BoundChangeSetRow {
 	id: string;
 	attempt_id: string;
@@ -370,6 +401,77 @@ export async function beginOrRecoverSliceAttempt(
 					: "artifact-superseded",
 				bound,
 			);
+		}
+
+		/* A wall-clock/model-step ceiling is a pause in private compilation, not
+		 * evidence that the admitted prefix is wrong. Adopt that exact durable
+		 * candidate only when it is the latest attempt and every immutable input
+		 * plus the canonical base still matches. The current delegated holder was
+		 * proved above under the app/session authority lock; transferring the
+		 * owner run and reopening the attempt in this same transaction prevents
+		 * the stale run from appending another request. */
+		const latest = await tx
+			.selectFrom("design_slice_attempts")
+			.select([...ATTEMPT_COLUMNS])
+			.where("design_session_id", "=", args.designSessionId)
+			.where("build_plan_id", "=", args.buildPlanId)
+			.where("slice_id", "=", args.sliceId)
+			.orderBy("attempt", "desc")
+			.forUpdate()
+			.executeTakeFirst();
+		if (latest !== undefined) {
+			const paused = rowToAttempt(latest as AttemptRow);
+			const bound = await lockBoundChangeSet(tx, paused);
+			if (
+				paused.status === "failed" &&
+				paused.failureCode === "budget-exhausted" &&
+				sameAttemptInputs(paused, args) &&
+				bound?.status === "open" &&
+				bound.owner_user_id === args.actorUserId &&
+				(await baseTargetStillCurrent(
+					tx,
+					args.designSessionId,
+					paused.baseTarget,
+				))
+			) {
+				const changeSetUpdate = await tx
+					.updateTable("design_change_sets")
+					.set({ owner_run_id: args.runId, updated_at: new Date() })
+					.where("id", "=", bound.id)
+					.where("attempt_id", "=", paused.id)
+					.where("status", "=", "open")
+					.where("owner_user_id", "=", args.actorUserId)
+					.executeTakeFirst();
+				if (!updatedExactlyOne(changeSetUpdate)) {
+					throw new SliceAttemptStateError(
+						`Budget-exhausted change set ${bound.id} changed during recovery.`,
+					);
+				}
+				const attemptUpdate = await tx
+					.updateTable("design_slice_attempts")
+					.set({
+						status: "running",
+						failure_code: null,
+						updated_at: new Date(),
+					})
+					.where("id", "=", paused.id)
+					.where("status", "=", "failed")
+					.where("failure_code", "=", "budget-exhausted")
+					.executeTakeFirst();
+				if (!updatedExactlyOne(attemptUpdate)) {
+					throw new SliceAttemptStateError(
+						`Budget-exhausted attempt ${paused.id} changed during recovery.`,
+					);
+				}
+				return {
+					attempt: {
+						...paused,
+						status: "running",
+						failureCode: null,
+					},
+					recovered: true,
+				};
+			}
 		}
 		const prior = await tx
 			.selectFrom("design_slice_attempts")

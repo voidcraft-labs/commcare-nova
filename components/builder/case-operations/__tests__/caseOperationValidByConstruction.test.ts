@@ -11,12 +11,13 @@
 // reads and shapes the TYPE CHECKER is perfectly happy with:
 //
 //   - a case property / relationship count / presence test in ANY slot
-//     unless the module selects a case before opening its forms, and
+//     unless that exact form opens with a session case, and
 //   - an `id-of` anywhere inside a RUNTIME TARGET tree, in the operation's
 //     own target and in a link's alike.
 //
-// So the oracle here is the validator rule itself, driven over BOTH module
-// shapes (case-first and not) and EVERY slot the detail canvas mounts. The
+// So the oracle here is the validator rule itself, driven over registration,
+// case-first follow-up, and mixed-module follow-up forms and EVERY slot the
+// detail canvas mounts. The
 // editor's own admission functions choose the candidates: the Add-condition
 // menu's own items, the verb menu's builds, the expression kind menu's
 // seeds, and the canvas's own committed seeds. Nothing is re-derived, a
@@ -61,6 +62,7 @@ import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import { isReservedCaseOperationProperty } from "@/lib/doc/identifierVerdicts";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	effectiveCaseTypes,
 	type Form,
@@ -121,12 +123,73 @@ const WORKER: UserProperty = {
  * form is not, which is exactly the axis `validateCaseSnapshotUse`
  * branches on.
  */
-function fixture(formType: "followup" | "registration"): {
+type FixtureKind = "case-first-followup" | "mixed-followup" | "registration";
+
+function fixture(kind: FixtureKind): {
 	readonly doc: BlueprintDoc;
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
 	readonly caseFirst: boolean;
+	readonly sessionCaseAvailable: boolean;
+	readonly kind: FixtureKind;
 } {
+	const formType: Form["type"] =
+		kind === "registration" ? "registration" : "followup";
+	const forms: Array<{
+		name: string;
+		type: Form["type"];
+		fields: Array<ReturnType<typeof f>>;
+	}> = [
+		...(kind === "mixed-followup"
+			? [
+					{
+						name: "Register",
+						type: "registration" as const,
+						fields: [],
+					},
+				]
+			: []),
+		{
+			name: "Visit",
+			type: formType,
+			fields: [
+				f({
+					uuid: SUBJECT,
+					kind: "text",
+					id: "subject",
+					label: proseText("Subject"),
+				}),
+				f({
+					uuid: TEXT,
+					kind: "text",
+					id: "note",
+					label: proseText("Note"),
+				}),
+				f({
+					uuid: NUMBER,
+					kind: "int",
+					id: "rating",
+					label: proseText("Rating"),
+				}),
+				f({
+					uuid: WHEN,
+					kind: "date",
+					id: "held_on",
+					label: proseText("Held on"),
+				}),
+				f({
+					uuid: CHOICES,
+					kind: "multi_select",
+					id: "choices",
+					label: proseText("Choices"),
+					options: [
+						{ value: "a", label: "A" },
+						{ value: "b", label: "B" },
+					],
+				}),
+			],
+		},
+	];
 	const doc = buildDoc({
 		caseTypes: [
 			{
@@ -153,60 +216,24 @@ function fixture(formType: "followup" | "registration"): {
 			{
 				name: "Patients",
 				caseType: "patient",
-				forms: [
-					{
-						name: "Visit",
-						type: formType,
-						fields: [
-							f({
-								uuid: SUBJECT,
-								kind: "text",
-								id: "subject",
-								label: proseText("Subject"),
-							}),
-							f({
-								uuid: TEXT,
-								kind: "text",
-								id: "note",
-								label: proseText("Note"),
-							}),
-							f({
-								uuid: NUMBER,
-								kind: "int",
-								id: "rating",
-								label: proseText("Rating"),
-							}),
-							f({
-								uuid: WHEN,
-								kind: "date",
-								id: "held_on",
-								label: proseText("Held on"),
-							}),
-							f({
-								uuid: CHOICES,
-								kind: "multi_select",
-								id: "choices",
-								label: proseText("Choices"),
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
-							}),
-						],
-					},
-				],
+				forms,
 			},
 		],
 	});
 	const mutableDoc = doc as { userProperties?: Record<string, UserProperty> };
 	mutableDoc.userProperties = { [WORKER_PROPERTY]: WORKER };
 	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
+	const formUuid = doc.formOrder[moduleUuid][forms.length - 1];
 	return {
 		doc,
 		moduleUuid,
 		formUuid,
-		caseFirst: isCaseFirstModule([formType], true),
+		caseFirst: isCaseFirstModule(
+			forms.map((form) => form.type),
+			true,
+		),
+		sessionCaseAvailable: CASE_LOADING_FORM_TYPES.has(formType),
+		kind,
 	};
 }
 
@@ -224,7 +251,7 @@ function editorVocabulary(shape: ReturnType<typeof fixture>) {
 		userProperties: [WORKER],
 		formFields: operationFormFieldDecls(entries, undefined),
 		operationScope: { creates: [{ uuid: CREATE, label: "create_visit" }] },
-		caseDataScope: operationCaseDataScope(shape.caseFirst),
+		caseDataScope: operationCaseDataScope(shape.sessionCaseAvailable),
 	} as const;
 }
 
@@ -264,7 +291,7 @@ function gateFindings(
 	shape: ReturnType<typeof fixture>,
 	operation: CaseOperation,
 ): readonly string[] {
-	const built = fixture(shape.caseFirst ? "followup" : "registration");
+	const built = fixture(shape.kind);
 	(built.doc.forms[built.formUuid] as Form).caseOperations = [
 		priorCreate(),
 		operation,
@@ -422,10 +449,14 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 ];
 
 const SHAPES = [
-	{ label: "a case-first module", formType: "followup" as const },
+	{ label: "a case-first module", kind: "case-first-followup" as const },
 	{
-		label: "a module holding a registration form",
-		formType: "registration" as const,
+		label: "a follow-up form in a mixed forms-first module",
+		kind: "mixed-followup" as const,
+	},
+	{
+		label: "a registration form",
+		kind: "registration" as const,
 	},
 ];
 
@@ -433,10 +464,11 @@ const SHAPES = [
 
 describe("case-operation fixtures", () => {
 	it.each(SHAPES)(
-		"$label has the case-first shape it claims",
-		({ formType }) => {
-			const shape = fixture(formType);
-			expect(shape.caseFirst).toBe(formType === "followup");
+		"$label has the navigation and form-session shape it claims",
+		({ kind }) => {
+			const shape = fixture(kind);
+			expect(shape.caseFirst).toBe(kind === "case-first-followup");
+			expect(shape.sessionCaseAvailable).toBe(kind !== "registration");
 			// Any finding below is caused by the injected candidate, never by
 			// the surrounding operations.
 			expect(gateFindings(shape, subjectOperation())).toEqual([]);
@@ -447,8 +479,8 @@ describe("case-operation fixtures", () => {
 // ── 1. Predicate slots ─────────────────────────────────────────────────
 
 describe("every condition the editor offers is admitted by the commit gate", () => {
-	it.each(SHAPES)("$label", ({ formType }) => {
-		const shape = fixture(formType);
+	it.each(SHAPES)("$label", ({ kind }) => {
+		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
 		const editCtx: PredicateEditContext = vocabulary;
 		const typeCtx = buildEditorTypeContext(vocabulary);
@@ -458,7 +490,7 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 		const currents: Predicate[] = [
 			firstComparisonDefault(editCtx),
 			eq(term(literal("a")), term(literal("a"))),
-			...(shape.caseFirst
+			...(shape.sessionCaseAvailable
 				? [
 						eq(
 							{
@@ -522,8 +554,8 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 // ── 2. Expression slots ────────────────────────────────────────────────
 
 describe("every value the editor offers is admitted by the commit gate", () => {
-	it.each(SHAPES)("$label", ({ formType }) => {
-		const shape = fixture(formType);
+	it.each(SHAPES)("$label", ({ kind }) => {
+		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
 		const _typeCtx = buildEditorTypeContext(vocabulary);
 
@@ -612,8 +644,8 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 // held to the whole gate with no tolerance at all.
 
 describe("every seed the canvas commits is accepted outright", () => {
-	it.each(SHAPES)("$label", ({ formType }) => {
-		const shape = fixture(formType);
+	it.each(SHAPES)("$label", ({ kind }) => {
+		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
 		const editCtx: PredicateEditContext = vocabulary;
 		const entries = formFieldEntriesFor(shape.doc, shape.formUuid);

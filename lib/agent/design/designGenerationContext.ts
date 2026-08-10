@@ -23,6 +23,7 @@ import {
 import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import type { DesignBuildCostPhase } from "@/lib/db/usage";
 
 export interface DesignGenerationContextOptions {
 	/** Server-shared OpenAI API key — the one credential behind every model
@@ -34,6 +35,8 @@ export interface DesignGenerationContextOptions {
 	designSessionId: string;
 	/** Usage sink (a `UsageAccumulator` in production; absent in fixtures). */
 	meter?: SubGenerationUsageMeter;
+	/** Structured calls made through this context belong to one known phase. */
+	usagePhase?: DesignBuildCostPhase;
 }
 
 export class DesignGenerationContext implements StructuredModelRunContext {
@@ -43,6 +46,7 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 	readonly runId: string;
 	readonly designSessionId: string;
 	private readonly meter: SubGenerationUsageMeter | undefined;
+	private readonly usagePhase: DesignBuildCostPhase | undefined;
 
 	constructor(opts: DesignGenerationContextOptions) {
 		this.openai = createNovaOpenAI(opts.apiKey);
@@ -51,6 +55,7 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 		this.runId = opts.runId;
 		this.designSessionId = opts.designSessionId;
 		this.meter = opts.meter;
+		this.usagePhase = opts.usagePhase;
 	}
 
 	get target(): GenerationTarget {
@@ -62,7 +67,12 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 	}
 
 	trackSubGeneration(usage: LanguageModelUsage, model: string): void {
-		if (this.meter) meterSubGenerationUsage(this.meter, usage, { model });
+		if (this.meter) {
+			meterSubGenerationUsage(this.meter, usage, {
+				model,
+				...(this.usagePhase !== undefined && { phase: this.usagePhase }),
+			});
+		}
 	}
 
 	async runStructured<T>(

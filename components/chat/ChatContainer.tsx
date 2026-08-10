@@ -31,7 +31,7 @@
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
@@ -73,7 +73,9 @@ import {
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
 	createDesignProgressStore,
+	type DesignProgressState,
 	type DesignProgressStoreApi,
+	type DesignProgressView,
 	useDesignProgressView,
 } from "@/lib/session/designProgressStore";
 import {
@@ -94,6 +96,70 @@ type ProjectToastEmitter = (
 	message?: string,
 	options?: ToastOptions,
 ) => string;
+
+/**
+ * A design session owns the composer's one activity line for every unfinished
+ * design/build stage, including the read-only post-materialization build. Once
+ * the durable completion frame arrives it keeps ownership only until the
+ * transport closes, so the final confirmation cannot briefly uncover an older
+ * generic run warning and a settled app returns to the normal quiet composer.
+ */
+export function designProgressOwnsActivityStatus(
+	view: Pick<DesignProgressView, "active" | "stage">,
+	status: ChatStatus,
+): boolean {
+	/* A transport error must be visible until the effect that projects it into
+	 * design progress has committed. Otherwise a stale working stage can hide
+	 * the generic terminal error for one render, or indefinitely if ownership
+	 * changed before the effect ran. */
+	if (status === "error") {
+		return (
+			view.active && (view.stage === "failed" || view.stage === "incomplete")
+		);
+	}
+	return (
+		view.active &&
+		(view.stage !== "ready" || status === "submitted" || status === "streaming")
+	);
+}
+
+/** A design lineage persists after materialization, including through later
+ * ordinary edits. Only an unfinished design build owns build-progress failure
+ * presentation; an edit on the completed app remains on the generic chat path. */
+export function designProgressTracksBuildFailure(
+	progress: Pick<
+		DesignProgressState,
+		"designSessionId" | "materializedAppId" | "activeSlice"
+	>,
+	buildUnfinished: boolean,
+): boolean {
+	return (
+		progress.designSessionId !== null &&
+		(progress.materializedAppId === null ||
+			buildUnfinished ||
+			progress.activeSlice !== null)
+	);
+}
+
+/** The request-level duplicate/clawback semantics for an interrupted turn.
+ * Ordinary chat re-drives use the SDK's regenerate trigger; a design build
+ * must preserve its accumulated answered-question message, so its explicit
+ * retry send carries the same capability through the request options body. */
+export function chatRequestIsRedrive(
+	trigger: "submit-message" | "regenerate-message",
+	body: Record<string, unknown> | undefined,
+): boolean {
+	return trigger === "regenerate-message" || body?.redrive === true;
+}
+
+/** Manual recovery is a real user turn. Automatic instance-death recovery uses
+ * the SDK's regenerate path so the dead partial assistant suffix is omitted. */
+export function designBuildRetrySend() {
+	return {
+		text: "Try again",
+		metadata: { designBuildRetry: true },
+	} as const;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -244,14 +310,14 @@ export function adoptTranscriptKeepingRicherLocal(
 
 export function chatGenerationCanWrite(
 	session:
-		| { accessPhase: string; canEdit: boolean; scopeEpoch: number }
+		| { accessPhase: string; projectCanEdit: boolean; scopeEpoch: number }
 		| undefined,
 	ownerScopeEpoch: number,
 	threadHydrationState: "ready" | "pending" | "failed",
 ): boolean {
 	return (
 		chatCallbackCanPublish(session, ownerScopeEpoch, threadHydrationState) &&
-		session?.canEdit === true
+		session?.projectCanEdit === true
 	);
 }
 
@@ -682,7 +748,7 @@ function createChatInstance(
 			 * the headers: the transport sends exactly what this returns, and a
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
-			prepareSendMessagesRequest: ({ api, messages, trigger }) => {
+			prepareSendMessagesRequest: ({ api, messages, trigger, body }) => {
 				/* Deliberately NO strike reset here: this callback fires for the
 				 * automatic resends too, and a reset per outbound attempt would
 				 * unbound the very loop the strike cap exists to stop. The resets
@@ -694,12 +760,13 @@ function createChatInstance(
 					body: {
 						messages,
 						...requestFields(),
-						/* `regenerate()` fires in exactly one place: the instance-death
-						 * re-drive, so the trigger doubles as the wire flag. The route
+						/* `regenerate()` fires for an instance-death re-drive and omits
+						 * the dead run's trailing assistant suffix. Its trigger carries the
+						 * same wire flag for app and design-session threads. The route
 						 * treats a re-drive's claim conflict as "someone else already
 						 * re-drove this" and closes clean instead of queueing a
 						 * duplicate run. */
-						...(trigger === "regenerate-message" ? { redrive: true } : {}),
+						...(chatRequestIsRedrive(trigger, body) ? { redrive: true } : {}),
 					},
 				};
 			},
@@ -806,24 +873,37 @@ function createChatInstance(
 					 * the transcript's error toast is the only other signal, and a
 					 * stage line still reading "Building your app" over a dead run
 					 * is the exact dishonesty §15.12 forbids. */
-					designProgressStore
-						.getState()
-						.markFailed(error.message, { recoverable: false });
-				} else if (error !== null) {
+					const progress = designProgressStore.getState();
+					if (
+						designProgressTracksBuildFailure(
+							progress,
+							ownerSession?.buildUnfinished === true,
+						)
+					) {
+						progress.markFailed(error.message, {
+							recoverable: false,
+							retryAcceptedPlan: false,
+						});
+					}
+				} else if (error !== null && !error.runContinues) {
 					/* A RECOVERABLE error stops the run just as dead — the server
 					 * settled and refunded; only a fresh send restarts it. Marking
 					 * only fatal errors left the stage line spinning "Designing
 					 * your app" over a toast that said retry (observed live). The
-					 * A live slice after materialization must halt too; otherwise a
-					 * stopped build keeps spinning. An ordinary app-edit turn has no
-					 * active design slice and remains outside this progress region. */
+					 * unfinished build after materialization must halt too, including
+					 * design/review work before a slice starts. An ordinary app-edit turn
+					 * remains outside this progress region. */
 					const progress = designProgressStore.getState();
 					if (
-						progress.designSessionId !== null &&
-						(progress.materializedAppId === null ||
-							progress.activeSlice !== null)
+						designProgressTracksBuildFailure(
+							progress,
+							ownerSession?.buildUnfinished === true,
+						)
 					) {
-						progress.markFailed(error.message, { recoverable: true });
+						progress.markFailed(error.message, {
+							recoverable: true,
+							retryAcceptedPlan: error.retryDesignPlan,
+						});
 					}
 				}
 			}
@@ -1224,9 +1304,19 @@ export function ChatContainer({
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
 			/* A different conversation is a different design: its stage, outline,
-			 * and slice progress belong to the run that streamed them. The next
-			 * turn's `data-design-session` frame re-opens the scope. */
+			 * and slice progress belong to the run that streamed them. Re-open a
+			 * known design scope immediately, before resume replay: a cold resume
+			 * can start after the original `data-design-session` frame, and then
+			 * later review/revision pulses would otherwise be dropped while the
+			 * generic Builder status incorrectly kept saying "Building your app."
+			 * The replayed scope frame remains idempotent and authoritative. */
 			designProgressStore.getState().reset();
+			if (opts?.designSessionId) {
+				designProgressStore.getState().beginSession({
+					designSessionId: opts.designSessionId,
+					materializedAppId: sessionStoreRef.current?.getState().appId ?? null,
+				});
+			}
 			return createChatInstance(
 				init,
 				docStoreRef,
@@ -1296,6 +1386,9 @@ export function ChatContainer({
 		resumeStream,
 		regenerate,
 	} = useChat({ chat });
+	const sendDesignBuildRetry = useCallback(() => {
+		void sendMessage(designBuildRetrySend());
+	}, [sendMessage]);
 	/* Context activity is a transient stream hint, not durable session state. A
 	 * process loss can strand its closing hint, so every terminal transport state
 	 * releases the override and reveals the ordinary derived status again. */
@@ -1542,7 +1635,11 @@ export function ChatContainer({
 	 * arm this ref: `shouldAutoRedrive` excludes an answered ask round
 	 * (whose trailing message holds the user's answers) and a genuinely
 	 * paused one. The one-shot ref can't loop: a re-driven run that fails
-	 * again finalizes cleanly, so no future load sees another heal. The heal
+	 * again finalizes cleanly, so no future load sees another heal. A design
+	 * build uses the same regenerate path: the auto-redrive gate above
+	 * has already excluded any message carrying answered design questions, so
+	 * trimming the dead assistant suffix preserves all valid evidence while
+	 * preventing failed output from becoming the next run's fold seed. The heal
 	 * ref covers the lost-race close (another session's re-drive won the
 	 * claim): this send bails clean, the refetch attaches to the winner. */
 	useEffect(() => {
@@ -1847,6 +1944,13 @@ export function ChatContainer({
 			},
 		});
 		projectToast("error", "Generation failed", message);
+		const progress = designProgressStore.getState();
+		if (designProgressTracksBuildFailure(progress, session.buildUnfinished)) {
+			progress.markFailed(message, {
+				recoverable: false,
+				retryAcceptedPlan: false,
+			});
+		}
 
 		/* A pre-stream rejection (out of credits, a build already running in
 		 * another tab, a 5xx) fails before the route mints an app, leaving the
@@ -1914,12 +2018,13 @@ export function ChatContainer({
 			attachments?: AttachmentRef[];
 		}) => {
 			if (creatingStarterAppRef.current) return;
-			if (threadHydrationStateRef.current !== "ready") return;
 			const session = sessionStoreRef.current?.getState();
 			if (
-				session?.accessPhase !== "authorized" ||
-				!session.canEdit ||
-				session.scopeEpoch !== scopeEpoch
+				!chatGenerationCanWrite(
+					session,
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
 			)
 				return;
 			if (!text.trim() && !attachments?.length) return;
@@ -1942,12 +2047,13 @@ export function ChatContainer({
 
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
-			if (threadHydrationStateRef.current !== "ready") return;
 			const session = sessionStoreRef.current?.getState();
 			if (
-				session?.accessPhase !== "authorized" ||
-				!session.canEdit ||
-				session.scopeEpoch !== scopeEpoch
+				!chatGenerationCanWrite(
+					session,
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
 			)
 				return;
 			/* A fresh answer is the user asking to try again: clear the fatal
@@ -1959,6 +2065,22 @@ export function ChatContainer({
 		},
 		[addToolOutput, scopeEpoch],
 	);
+
+	const handleRetryDesignBuild = useCallback(() => {
+		if (status !== "ready") return;
+		const session = sessionStoreRef.current?.getState();
+		if (
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			)
+		)
+			return;
+		autoResendFatalStrikesRef.current = 0;
+		designProgressStore.getState().noteTurnOpened();
+		sendDesignBuildRetry();
+	}, [designProgressStore, scopeEpoch, sendDesignBuildRetry, status]);
 
 	const handleCreateStarterApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
@@ -2069,6 +2191,10 @@ export function ChatContainer({
 	 * from the active Project's server-resolved role, so a viewer never sees this
 	 * authoring action; the create route remains the enforcement authority. */
 	const showFromScratch = centered && !isExistingApp && !readOnly;
+	const designProgressOwnsStatus = designProgressOwnsActivityStatus(
+		designProgress,
+		status,
+	);
 
 	return (
 		<ChatSidebar
@@ -2118,16 +2244,22 @@ export function ChatContainer({
 				) : undefined
 			}
 			designProgressStatus={
-				designProgress.active && !designProgress.materialized ? (
-					<DesignProgressStatus view={designProgress} />
+				designProgressOwnsStatus ? (
+					<DesignProgressStatus
+						view={designProgress}
+						canRecover={!readOnly}
+						onRetry={readOnly ? undefined : handleRetryDesignBuild}
+					/>
 				) : undefined
 			}
-			/* Only while the app does not exist yet: from materialization on,
-			 * the builder's own activity row describes the run and this region
-			 * is one quiet sentence per committed workflow. */
-			activityStatusHidden={
-				designProgress.active && !designProgress.materialized
+			generationPaused={
+				designProgress.stage === "incomplete" ||
+				designProgress.stage === "failed"
 			}
+			/* The design session owns the one activity row until the complete
+			 * frame and transport close. Its details collapse after materialization,
+			 * but its status remains the authoritative current slice/build phase. */
+			activityStatusHidden={designProgressOwnsStatus}
 			activityOverride={
 				contextCompacting
 					? {

@@ -8,6 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	DESIGN_AGENT_SYSTEM,
+	DESIGN_REVIEWER_SYSTEM,
+	renderPlatformConstraintsSection,
 	renderSourcePackage,
 	sourcePackageImages,
 } from "@/lib/agent/design/prompts";
@@ -80,6 +83,34 @@ function delimiterCount(text: string): { open: number; close: number } {
 }
 
 describe("renderSourcePackage containment", () => {
+	it("plans named worker-data declarations into the first slice that needs them", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"A named worker-data key used by access or navigation is Blueprint structure",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			'not worker provisioning. Put "users" in expectedBlueprintAreas',
+		);
+	});
+
+	it("keeps role-aware remote queues constructible in drafting and review", () => {
+		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(prompt).toContain("worker-role check cannot stand alone");
+			expect(prompt).toContain("separate role-gated navigation");
+			expect(prompt).toContain("over the same record type");
+			expect(prompt).toContain("case-property-anchored");
+		}
+	});
+
+	it("keeps case-property clearing out of accepted designs", () => {
+		const constraints = renderPlatformConstraintsSection();
+		expect(constraints).toContain(
+			"cannot explicitly clear an existing property",
+		);
+		expect(constraints).toContain(
+			"preserve an earlier scheduling or detail value as history",
+		);
+	});
+
 	it("neutralizes a forged close (and reopen) inside message text", () => {
 		const rendered = renderSourcePackage(
 			packageWith({

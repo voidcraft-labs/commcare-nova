@@ -513,6 +513,59 @@ describe("slice attempts", () => {
 		expect(running?.sliceId).not.toBe(args.sliceId);
 	});
 
+	it("resumes the latest budget-exhausted private candidate under the new exact holder", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		const changeSet = await openGenesisForAttempt(args, attempt.id);
+		await markSliceAttempt({
+			...args,
+			attemptId: attempt.id,
+			to: "failed",
+			failureCode: "budget-exhausted",
+		});
+
+		const nextRunId = "run-orch-budget-resume";
+		const nextNonce = "8c1c46c5-2222-4333-8444-a55556666777";
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({
+				run_id: nextRunId,
+				res_run_id: nextRunId,
+				run_holder_nonce: nextNonce,
+				run_lease_expires_at: new Date(Date.now() + 60_000),
+			})
+			.where("id", "=", sessionId)
+			.execute();
+
+		const resumed = await beginOrRecoverSliceAttempt({
+			...args,
+			runId: nextRunId,
+			holderNonce: nextNonce,
+		});
+		expect(resumed.recovered).toBe(true);
+		expect(resumed.attempt).toMatchObject({
+			id: attempt.id,
+			attempt: 1,
+			status: "running",
+			failureCode: null,
+			changeSetId: changeSet.id,
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select(["status", "owner_user_id", "owner_run_id"])
+				.where("id", "=", changeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			status: "open",
+			owner_user_id: ACTOR,
+			owner_run_id: nextRunId,
+		});
+	});
+
 	it("refuses attempt transitions after the holder is superseded", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);

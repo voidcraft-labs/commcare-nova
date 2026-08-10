@@ -134,8 +134,18 @@ export const DESIGN_AUTHOR_MODEL = "gpt-5.6-sol";
 /** The independent reviewer remains the highest-quality fresh-context role. */
 export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
 
-/** The slice executor is independently configurable for measured rollouts. */
-export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
+/** The slice executor works inside an accepted, server-gated brief: Luna buys
+ * lower latency and cost for structured construction while Sol retains the
+ * architectural author and independent-review roles. */
+export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-luna";
+
+/** Construction is bounded by an accepted brief, exact intent coverage, and
+ * the canonical validator. Medium effort keeps Luna focused on choosing the
+ * next semantic tool call; architectural judgment remains with the Sol
+ * author/reviewer rather than being re-spent inside every executor step. */
+export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
+	effort: "medium",
+};
 
 /** Backward-compatible name for the design author/planner role. */
 export const DESIGN_MODEL = DESIGN_AUTHOR_MODEL;

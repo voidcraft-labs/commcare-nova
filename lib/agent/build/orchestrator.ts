@@ -72,6 +72,7 @@ import { log } from "@/lib/logger";
 import {
 	DESIGN_AUTHOR_MODEL,
 	DESIGN_EXECUTOR_MODEL,
+	DESIGN_EXECUTOR_REASONING,
 	MODEL_CONTEXT_VERSION,
 } from "@/lib/models";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -93,6 +94,10 @@ import {
 	assertRequiredExternalActionsSatisfied,
 	ExternalActionRequiredError,
 } from "./externalActions";
+import {
+	type DesignExecutionIssue,
+	designIssueUserMessage,
+} from "./issueEscalation";
 import {
 	appendOrchestrationEvent,
 	type OrchestrationHead,
@@ -136,6 +141,9 @@ export type BuildOrchestrationOutcome =
 			readonly errorType: string;
 			readonly message: string;
 			readonly recoverable: boolean;
+			/** The accepted plan is still authoritative and a fresh orchestration
+			 * may resume it without asking the design agent to revise anything. */
+			readonly retryAcceptedPlan: boolean;
 			/** The materialized app when the failure struck AFTER the first
 			 * workflow committed (the run's holder lives on the app row then);
 			 * null while the failure left no app. */
@@ -357,6 +365,7 @@ export async function runBuildOrchestration(
 			runId: args.runId,
 			designSessionId: args.designSessionId,
 			...(args.meter !== undefined && { meter: args.meter }),
+			usagePhase: "design-review",
 		});
 		const loopOutcome: DesignLoopOutcome = await deps.runDesignLoop({
 			designSessionId: args.designSessionId,
@@ -394,6 +403,7 @@ export async function runBuildOrchestration(
 				errorType: loopOutcome.errorType,
 				message: loopOutcome.message,
 				recoverable: loopOutcome.recoverable,
+				retryAcceptedPlan: false,
 			};
 		}
 
@@ -488,10 +498,11 @@ export async function runBuildOrchestration(
 				return {
 					kind: "failed",
 					appId,
-					errorType: "internal",
+					errorType: "design-issue-budget-exhausted",
 					message:
 						"This slice reached its persisted design-issue limit and needs a revised design plan before execution can continue.",
 					recoverable: true,
+					retryAcceptedPlan: false,
 				};
 			}
 			const brief = deriveSliceExecutionBrief({
@@ -519,10 +530,11 @@ export async function runBuildOrchestration(
 				return {
 					kind: "failed",
 					appId,
-					errorType: "internal",
+					errorType: "external-action-required",
 					message:
 						"A required external prerequisite is still outstanding. Complete it before continuing this build.",
 					recoverable: true,
+					retryAcceptedPlan: false,
 				};
 			}
 			let rebaseAttempts = 0;
@@ -659,10 +671,11 @@ export async function runBuildOrchestration(
 					return {
 						kind: "failed",
 						appId,
-						errorType: "internal",
+						errorType: "rebase-budget-exhausted",
 						message:
 							"This workflow kept conflicting with newer app changes. Everything already committed is safe; send your message again to continue from the current app.",
 						recoverable: true,
+						retryAcceptedPlan: true,
 					};
 				}
 				if (outcome.kind === "design-issue") {
@@ -690,13 +703,15 @@ export async function runBuildOrchestration(
 					head = await appendFailure(args, head, {
 						errorType: `design-issue-${outcome.issue.category}`,
 						recoverable: true,
+						designIssue: outcome.issue,
 					});
 					return {
 						kind: "failed",
 						appId,
-						errorType: "internal",
-						message: `Building ${slice.name} surfaced a design gap (${outcome.issue.category}): ${outcome.issue.explanation} Nothing invalid was saved; adjust the request and try again.`,
+						errorType: `design-issue-${outcome.issue.category}`,
+						message: designIssueUserMessage(outcome.issue.category),
 						recoverable: true,
+						retryAcceptedPlan: false,
 					};
 				}
 				/* budget-exhausted / protocol-failure */
@@ -723,12 +738,16 @@ export async function runBuildOrchestration(
 				return {
 					kind: "failed",
 					appId,
-					errorType: "internal",
+					errorType:
+						outcome.kind === "budget-exhausted"
+							? "execution-budget-exhausted"
+							: outcome.code,
 					message:
 						outcome.kind === "budget-exhausted"
 							? `Building ${slice.name} ran past its execution budget. Everything already committed is safe; send your message again to continue from there.`
 							: outcome.message,
 					recoverable: true,
+					retryAcceptedPlan: outcome.kind === "budget-exhausted",
 				};
 			}
 		}
@@ -807,7 +826,7 @@ function productionDeps(
 					designSessionId: args.designSessionId,
 					...(args.meter !== undefined && { meter: args.meter }),
 				}).model(DESIGN_EXECUTOR_MODEL),
-				"high",
+				DESIGN_EXECUTOR_REASONING.effort,
 				`nova:design-executor:${args.designSessionId}`,
 			),
 		materialize: overrides.materialize ?? materializeAppFromGenesis,
@@ -819,7 +838,11 @@ function productionDeps(
 async function appendFailure(
 	args: RunBuildOrchestrationArgs,
 	head: OrchestrationHead | null,
-	failure: { errorType: string; recoverable: boolean },
+	failure: {
+		errorType: string;
+		recoverable: boolean;
+		designIssue?: DesignExecutionIssue;
+	},
 ): Promise<OrchestrationHead> {
 	return appendOrchestrationEvent({
 		designSessionId: args.designSessionId,
@@ -832,6 +855,9 @@ async function appendFailure(
 			failureId: crypto.randomUUID(),
 			recoverable: failure.recoverable,
 			errorType: failure.errorType,
+			...(failure.designIssue !== undefined && {
+				designIssue: failure.designIssue,
+			}),
 		},
 		expectedHead: head,
 	});
@@ -1160,6 +1186,7 @@ async function executeOneSlice(
 				meterSubGenerationUsage(args.meter as SubGenerationUsageMeter, usage, {
 					step: true,
 					model: DESIGN_EXECUTOR_MODEL,
+					phase: "build-executor",
 				}),
 		}),
 		onProgress: (phase) => {

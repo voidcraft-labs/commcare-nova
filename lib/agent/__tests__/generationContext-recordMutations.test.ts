@@ -733,6 +733,57 @@ describe("GenerationContext.emitError", () => {
 		expect(writerCall.type).toBe("data-conversation-event");
 	});
 
+	it("carries exact-plan recovery only when the classifier grants it", () => {
+		const { ctx, logWriter } = makeTestContext();
+		ctx.emitError({
+			type: "internal",
+			message: "The execution budget ended this attempt.",
+			recoverable: true,
+			designRecovery: "retry-plan",
+		});
+
+		expect(logWriter.logEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: {
+					type: "error",
+					error: {
+						type: "internal",
+						message: "The execution budget ended this attempt.",
+						fatal: false,
+						designRecovery: "retry-plan",
+					},
+				},
+			}),
+		);
+	});
+
+	it("marks an automatic retry warning as non-terminal", () => {
+		const { ctx, logWriter } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "api_server",
+				message: "Trying again",
+				recoverable: true,
+			},
+			"route:turn-retry",
+			{ runContinues: true },
+		);
+
+		expect(logWriter.logEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: {
+					type: "error",
+					error: {
+						type: "api_server",
+						message: "Trying again",
+						fatal: false,
+						runContinues: true,
+					},
+				},
+			}),
+		);
+	});
+
 	it("logs an internal error's raw cause server-side so it isn't swallowed", () => {
 		vi.mocked(log.error).mockClear();
 		const { ctx } = makeTestContext();

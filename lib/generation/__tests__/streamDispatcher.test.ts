@@ -23,7 +23,7 @@ import { proseText } from "@/lib/domain/prose";
 import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
-import { applyStreamEvent } from "../streamDispatcher";
+import { applyStreamEvent, conversationEventError } from "../streamDispatcher";
 import { createWiredStores } from "./testHelpers";
 
 /** Inert deps — this suite drives the dispatcher, not the reconciler's
@@ -239,6 +239,57 @@ describe("applyStreamEvent", () => {
 
 			expect(sessionStore.getState().events).toHaveLength(1);
 			expect(sessionStore.getState().events[0]).toEqual(event);
+		});
+
+		it("projects exact-plan recovery separately from generic recoverability", () => {
+			const generic = convEvent(
+				{
+					type: "error",
+					error: { type: "internal", message: "revise", fatal: false },
+				},
+				0,
+			);
+			const retryable = convEvent(
+				{
+					type: "error",
+					error: {
+						type: "internal",
+						message: "resume",
+						fatal: false,
+						designRecovery: "retry-plan",
+					},
+				},
+				1,
+			);
+
+			expect(
+				conversationEventError(generic as unknown as Record<string, unknown>)
+					?.retryDesignPlan,
+			).toBe(false);
+			expect(
+				conversationEventError(retryable as unknown as Record<string, unknown>)
+					?.retryDesignPlan,
+			).toBe(true);
+		});
+
+		it("distinguishes an in-flight retry warning from a terminal stop", () => {
+			const retrying = convEvent(
+				{
+					type: "error",
+					error: {
+						type: "api_server",
+						message: "Trying again",
+						fatal: false,
+						runContinues: true,
+					},
+				},
+				0,
+			);
+
+			expect(
+				conversationEventError(retrying as unknown as Record<string, unknown>)
+					?.runContinues,
+			).toBe(true);
 		});
 
 		it("pushes a validation-attempt event onto the buffer", () => {

@@ -878,9 +878,10 @@ A later model-diversity experiment changes only producer configuration, not arti
 ### 7.1.1 Model roles, context compaction, and authoritative checkpoints
 
 Authoring, independent review, and slice execution have separate model-role
-constants even though all three currently use Sol. Artifact envelopes record
-the producing model, so changing one role is a measured configuration change,
-not an artifact or orchestration change. Reviewer calls remain fresh-context;
+constants. The design author/planner and independent reviewer use Sol at
+`xhigh`; the constrained slice executor uses Luna at `medium`. Artifact envelopes
+record the producing model, so a role-specific model change does not alter the
+artifact or orchestration contracts. Reviewer calls remain fresh-context;
 author and executor calls use their growing session/slice context.
 
 Every Responses API call enables OpenAI server-side context management at
@@ -2539,7 +2540,10 @@ aggregate tokens. Current per-million-token rate cards are:
 The run summary aggregates those already-priced calls and retains a safe
 per-model breakdown with short/long call counts. Compaction should keep normal
 calls below the long-context boundary, but billing remains correct when one
-crosses it.
+crosses it. The terminal run log also breaks calls, tokens, cache reads/writes,
+and estimated cost into `design-author`, `design-review`, and `build-executor`
+phases. This phase projection is operational telemetry; the persisted billing
+ledger and total run summary remain authoritative.
 
 ### 11.11 Pre-app event/log behavior
 
@@ -3248,7 +3252,8 @@ The executor prompt and deterministic checks enforce:
    boundary requires an incomplete private intermediate rather than canonical
    completeness scaffolds;
 7. prefer direct answer-to-case writes when source semantics allow;
-8. inspect after meaningful groups and before commit;
+8. while owned intents remain uncovered, stage complete semantic groups; then
+   inspect, correct the reported findings as a group, and inspect before commit;
 9. append corrections; do not reconstruct successful prior steps;
 10. raise a design issue rather than silently changing architecture;
 11. do not call unavailable external effects;
@@ -3358,7 +3363,7 @@ A raised issue ends the slice attempt's model loop. The orchestrator's full disp
 - record a transparent deferred requirement and replan;
 - fail the build as unsupported.
 
-The current new-build orchestrator exercises two of those arms: `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure (the session stays claimable and the issue is durable on the attempt). Unit F adds the evidence-answer, revision, and replan dispositions through its bounded correction loop.
+The current new-build orchestrator exercises two of those arms: `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure. The session stays claimable; the attempt records the category and the append-only orchestration failure event retains the full typed issue for diagnosis and later disposition. Unit F adds the evidence-answer, revision, and replan dispositions through its bounded correction loop.
 
 The executor cannot edit the Design Contract, disposition a reviewer finding, or select a new architecture.
 
@@ -3889,9 +3894,23 @@ interface DesignProgressEnvelope<T> {
 The stream frame is a projection of a durable row. Reconnect re-derives the latest projection; the client does not need every transient frame to recover.
 
 A `data-build-slice-started` frame clears the last design pulse and its
-sub-step before selecting the active slice. A recoverable run error also halts
-the progress region when a post-materialization slice is active, so neither a
-planning label nor a working spinner survives over a stopped executor.
+sub-step before selecting the active slice. Any terminal run or transport error
+halts the progress region throughout an unfinished design build, before or
+after materialization, so neither a planning label nor a working spinner
+survives over stopped work. A completed app edit with attached design lineage
+remains on the ordinary chat error path.
+Recoverability and exact-plan replay are separate facts. The classified error
+event carries `designRecovery: "retry-plan"` only when an operational execution
+or rebase budget stopped an otherwise authoritative accepted plan. Design,
+review, external-prerequisite, and protocol/integrity failures never gain an
+exact-plan retry from their message text. Retry and partial-acceptance controls
+render only for editors; Project authorization remains the server-side write
+boundary. A cold load re-derives exact-plan replay only from the durable
+`execution-budget-exhausted` or `rebase-budget-exhausted` orchestration failure,
+so refresh preserves an eligible recovery without broadening other recoverable
+errors. A completed build's progress projection retires when a later chat turn
+opens, so ordinary edits use the normal conversation activity state until a
+server frame opens another design phase.
 
 Unknown versions/keys fail closed and trigger a fresh authorized session snapshot.
 
@@ -4031,6 +4050,11 @@ Discarding a pre-app design:
 After materialization, the UI does not offer pre-app “discard design.” Stopping an interrupted build follows the app run/error lifecycle, while reviewed design lineage remains attached. App deletion remains the ordinary app lifecycle.
 
 A browser disconnect is not cancellation; server work and durable stream behavior remain unchanged.
+Automatic instance-death recovery re-drives the existing durable transcript
+with the regenerate request control, omits the dead run's partial assistant
+suffix, and does not manufacture a user-authored message. The persisted design
+artifacts and original user evidence remain the recovery seed. Only a person
+pressing **Try again** adds that visible retry turn.
 
 ### 15.11 Explicit blank path
 

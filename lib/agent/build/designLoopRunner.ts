@@ -98,6 +98,15 @@ export type DesignLoopOutcome =
 			readonly recoverable: boolean;
 	  };
 
+/** A fresh contract is being designed; replacing any persisted contract is a
+ * revision from the person's point of view even though immutable artifacts
+ * require another `submitContract` call on the wire. */
+export function contractSubmissionPulsePhase(
+	hasPersistedContract: boolean,
+): DesignPulsePhase {
+	return hasPersistedContract ? "revise" : "design";
+}
+
 export interface DesignLoopRunnerArgs {
 	readonly designSessionId: string;
 	readonly projectId: string;
@@ -156,6 +165,9 @@ export async function runDesignAgentLoop(
 		args.writer,
 		args.designSessionId,
 		args.head,
+	);
+	const contractPulsePhase = contractSubmissionPulsePhase(
+		initialGates.head !== null,
 	);
 	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitPlan.legal
 		? "plan"
@@ -296,8 +308,8 @@ export async function runDesignAgentLoop(
 					toolNames.set(chunk.toolCallId, chunk.toolName);
 					if (chunk.toolName === "submitContract") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-						narratorPhase = "design";
-						livePulsePhase = "design";
+						narratorPhase = contractPulsePhase;
+						livePulsePhase = contractPulsePhase;
 					} else if (chunk.toolName === "submitRevision") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = "revise";
@@ -332,7 +344,7 @@ export async function runDesignAgentLoop(
 							: null;
 					const failed = typeof output?.error === "string";
 					if (toolName === "submitContract") {
-						livePulsePhase = failed ? "design" : "review";
+						livePulsePhase = failed ? contractPulsePhase : "review";
 					} else if (toolName === "requestReview") {
 						livePulsePhase = failed
 							? "review"

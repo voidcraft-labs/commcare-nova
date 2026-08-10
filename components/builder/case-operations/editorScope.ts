@@ -20,18 +20,20 @@ import {
  *
  * `rules/caseOperations.ts::validateCaseSnapshotUse` refuses a case
  * property, a relationship count, and a presence test in ANY operation
- * slot unless the module selects a case before opening its forms, and
- * that refusal is spelled with exactly the walks `expressionReadsCaseData`
- * performs, which is the `"global"` scope's own admission oracle. So a
- * module holding a registration form (not case-first) gets `"global"`:
- * fixed values, session / worker information, and this submission's own
- * form answers, which is precisely the accept-set.
+ * slot unless this exact form opens with a selected case. Follow-up and close
+ * forms do, even when a registration sibling makes the module forms-first.
+ * That refusal is spelled with exactly the walks `expressionReadsCaseData`
+ * performs, which is the `"global"` scope's own admission oracle for a form
+ * without a session case: fixed values, session / worker information, and
+ * this submission's own form answers.
  *
  * `"selected-case"` is deliberately NOT the middle answer here. It admits
  * the chosen case's own properties, and the gate admits none.
  */
-export function operationCaseDataScope(caseFirst: boolean): CaseDataScope {
-	return caseFirst ? "per-case" : "global";
+export function operationCaseDataScope(
+	sessionCaseAvailable: boolean,
+): CaseDataScope {
+	return sessionCaseAvailable ? "per-case" : "global";
 }
 
 /**

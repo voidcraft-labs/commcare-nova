@@ -83,6 +83,20 @@ export function deriveDesignBuildStage(
 	}
 }
 
+/** Whether a cold page load may offer the exact accepted-plan replay. The
+ * durable failure code is the capability carrier across reloads; ordinary
+ * recoverability is deliberately insufficient because a design, protocol,
+ * or external-action failure needs new work rather than replay. */
+export function orchestrationFailureCanRetryAcceptedPlan(
+	head: OrchestrationHead | null,
+): boolean {
+	if (head?.state.kind !== "failed") return false;
+	return (
+		head.state.errorType === "execution-budget-exhausted" ||
+		head.state.errorType === "rebase-budget-exhausted"
+	);
+}
+
 /** The versioned envelope every progress frame rides in (§15.4). */
 export interface DesignProgressEnvelope<T> {
 	readonly eventVersion: 1;

@@ -40,3 +40,21 @@ export const designExecutionIssueSchema = z
 	.strict();
 
 export type DesignExecutionIssue = z.infer<typeof designExecutionIssueSchema>;
+
+/** Executor diagnostics belong in the run log, not in the conversation. The
+ * missing-information arm is separately rendered as a question; every other
+ * issue gets a short category-level explanation here. */
+export function designIssueUserMessage(
+	category: Exclude<DesignExecutionIssue["category"], "missing-information">,
+): string {
+	switch (category) {
+		case "contract-contradiction":
+			return "I found two design requirements that can’t both be applied safely. Nothing invalid was saved. Send a message and I’ll help resolve the conflict.";
+		case "platform-gap":
+			return "Part of this workflow isn’t supported by Nova’s current building tools. Nothing invalid was saved. Send a message and I’ll help adjust the design.";
+		case "stale-external-dependency":
+			return "Something this workflow relies on is missing or has changed. Nothing invalid was saved. Fix that setup, then try again.";
+		case "implementation-impossibility":
+			return "I couldn’t build this workflow safely as designed. Nothing invalid was saved. Send a message and I’ll help adjust it.";
+	}
+}

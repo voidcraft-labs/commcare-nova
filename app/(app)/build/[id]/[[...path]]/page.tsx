@@ -38,7 +38,10 @@ import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
-import { deriveDesignBuildStage } from "@/lib/agent/build/progress";
+import {
+	deriveDesignBuildStage,
+	orchestrationFailureCanRetryAcceptedPlan,
+} from "@/lib/agent/build/progress";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -179,6 +182,17 @@ export default async function BuilderPage({
 		app.status === "error" && initialThread?.resume_interrupted === true;
 	const failedMaterializedDesign =
 		app.status === "error" ? await loadMaterializedSessionForApp(id) : null;
+	const failedMaterializedHead =
+		failedMaterializedDesign === null
+			? null
+			: await readOrchestrationHead(failedMaterializedDesign.id);
+	const failedMaterializedStage =
+		failedMaterializedDesign === null
+			? null
+			: deriveDesignBuildStage(
+					failedMaterializedDesign,
+					failedMaterializedHead,
+				);
 	if (
 		app.status === "error" &&
 		!buildInterrupted &&
@@ -215,6 +229,18 @@ export default async function BuilderPage({
 				initialThread={initialThread}
 				appGenerating={buildUnfinished}
 				currentUserId={session.user.id}
+				initialDesignSession={
+					failedMaterializedDesign !== null && failedMaterializedStage !== null
+						? {
+								designSessionId: failedMaterializedDesign.id,
+								materializedAppId: id,
+								stage: failedMaterializedStage,
+								retryAcceptedPlan: orchestrationFailureCanRetryAcceptedPlan(
+									failedMaterializedHead,
+								),
+							}
+						: undefined
+				}
 			/>
 		</BuilderProvider>
 	);
@@ -287,10 +313,8 @@ async function resumedDesignPage(
 	 * than a reconstructed card. */
 	const designSession = await loadDesignSession(designSessionId);
 	if (designSession?.mode !== "build") notFound();
-	const stage = deriveDesignBuildStage(
-		designSession,
-		await readOrchestrationHead(designSessionId),
-	);
+	const orchestrationHead = await readOrchestrationHead(designSessionId);
+	const stage = deriveDesignBuildStage(designSession, orchestrationHead);
 
 	const target = { kind: "design-session", designSessionId } as const;
 	let threads: LoadedThreadMeta[] = [];
@@ -334,6 +358,8 @@ async function resumedDesignPage(
 					designSessionId,
 					materializedAppId: null,
 					stage,
+					retryAcceptedPlan:
+						orchestrationFailureCanRetryAcceptedPlan(orchestrationHead),
 				}}
 			/>
 		</BuilderProvider>

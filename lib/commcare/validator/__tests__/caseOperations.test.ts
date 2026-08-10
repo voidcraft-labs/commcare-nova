@@ -806,6 +806,35 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 });
 
 describe("case-operation target and dependency safety", () => {
+	it("loads the session case for a follow-up form in a mixed forms-first module", () => {
+		const built = fixture("followup");
+		const registrationUuid = testUuid("abababab-abab-4bab-8bab-abababababab");
+		const followup = built.doc.forms[built.formUuid];
+		built.doc.forms[registrationUuid] = {
+			...followup,
+			uuid: registrationUuid,
+			id: "register",
+			name: "Register",
+			type: "registration",
+			caseOperations: [],
+		};
+		built.doc.formOrder[built.moduleUuid] = [registrationUuid, built.formUuid];
+		(built.doc.forms[built.formUuid] as Form).caseOperations = [
+			update({
+				condition: eq(
+					term(prop("patient", "nickname")),
+					term(literal("ready")),
+				),
+			}),
+		];
+
+		expect(
+			validateCaseOperations(built.doc, built.formUuid, built.moduleUuid).map(
+				(error) => error.code,
+			),
+		).not.toContain("CASE_OPERATION_SESSION_UNAVAILABLE");
+	});
+
 	it("requires session targets to exist and match the module type", () => {
 		expectCode(
 			"CASE_OPERATION_SESSION_UNAVAILABLE",

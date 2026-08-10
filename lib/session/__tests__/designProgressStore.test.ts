@@ -123,6 +123,12 @@ describe("design progress stage fold", () => {
 		);
 		expect(view(store).stage).toBe("ready");
 		expect(view(store).working).toBe(false);
+
+		/* Completion is a statement about this build turn, not a permanent
+		 * activity banner over every later app edit. */
+		store.getState().noteTurnOpened();
+		expect(view(store).active).toBe(false);
+		expect(view(store).stage).toBeNull();
 	});
 
 	it("walks the design span phase by phase on live pulses", () => {
@@ -168,6 +174,35 @@ describe("design progress stage fold", () => {
 		);
 		expect(view(store).stage).toBe("building-first-workflow");
 		expect(view(store).pulseStep).toBeNull();
+	});
+
+	it("shows reopened design work over already committed slice history", () => {
+		const store = createDesignProgressStore();
+		openSession(store);
+		const { applyProgressFrame, markMaterialized } = store.getState();
+		applyProgressFrame("data-build-plan-summary", envelope(SESSION, PLAN, 1));
+		applyProgressFrame(
+			"data-build-slice-started",
+			envelope(SESSION, { sliceId: "s1", sliceName: "Register" }, 2),
+		);
+		applyProgressFrame(
+			"data-build-slice-committed",
+			envelope(SESSION, { sliceId: "s1", sliceName: "Register", seq: 1 }, 2),
+		);
+		markMaterialized("app-1");
+		expect(view(store).stage).toBe("building");
+
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "revise", chars: 100 }, 3),
+		);
+		expect(view(store).stage).toBe("revising-design");
+
+		applyProgressFrame(
+			"data-build-slice-started",
+			envelope(SESSION, { sliceId: "s2", sliceName: "Follow up" }, 4),
+		);
+		expect(view(store).stage).toBe("building");
 	});
 
 	it("clears a stale pulse at the next turn boundary", () => {
@@ -336,6 +371,13 @@ describe("design progress stage fold", () => {
 		expect(view(store).failure).toBe(
 			"The design step didn't come back usable.",
 		);
+		expect(view(store).canRetryPlan).toBe(false);
+
+		store.getState().markFailed("The build ran past its execution budget.", {
+			recoverable: true,
+			retryAcceptedPlan: true,
+		});
+		expect(view(store).canRetryPlan).toBe(true);
 
 		/* The retry send opens a new turn: the stop clears with it. */
 		openSession(store);
@@ -361,6 +403,7 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "needs-input",
+			retryAcceptedPlan: false,
 		});
 		expect(view(store).active).toBe(true);
 		expect(view(store).stage).toBe("needs-input");
@@ -376,6 +419,7 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "incomplete",
+			retryAcceptedPlan: false,
 		});
 		store.getState().noteTurnOpened();
 		expect(view(store).stage).toBe("understanding");
@@ -387,12 +431,27 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "incomplete",
+			retryAcceptedPlan: false,
 		});
 		openSession(store);
 		store
 			.getState()
 			.applyProgressFrame("data-design-outline", envelope(SESSION, OUTLINE, 1));
 		expect(view(store).stage).toBe("designing");
+	});
+
+	it("preserves exact-plan recovery from a durable cold-load seed", () => {
+		const store = createDesignProgressStore();
+		store.getState().seedSession({
+			designSessionId: SESSION,
+			materializedAppId: "app-1",
+			stage: "incomplete",
+			retryAcceptedPlan: true,
+		});
+		expect(view(store).canRetryPlan).toBe(true);
+
+		store.getState().noteTurnOpened();
+		expect(view(store).canRetryPlan).toBe(false);
 	});
 });
 

@@ -43,7 +43,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 
 ## Stack & commands
 
-Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 with `@ai-sdk/openai` direct to OpenAI's Responses API (`OPENAI_API_KEY`; GPT-5.6 — Sol for the SA (edit turns at medium effort) and the design pipeline + build executor (xhigh where it thinks hardest), Luna document extraction; model ids in `lib/models.ts`; every call stateless via `store: false`). Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand for builder state. Biome + Lefthook · Vitest.
+Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 with `@ai-sdk/openai` direct to OpenAI's Responses API (`OPENAI_API_KEY`; GPT-5.6 — Sol for the SA (edit turns at medium effort) and design author/reviewer (`xhigh`), Luna for the slice executor (`medium`) and document extraction (`xhigh`); model ids in `lib/models.ts`; every call stateless via `store: false`). Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand for builder state. Biome + Lefthook · Vitest.
 
 ```bash
 npm run dev          # boots local case-store Postgres (compose.yaml) + migrations, then Turbopack

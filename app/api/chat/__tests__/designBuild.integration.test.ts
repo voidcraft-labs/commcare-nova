@@ -417,6 +417,7 @@ describe("design-session build turns", () => {
 				errorType: "internal",
 				message: "The design pipeline could not produce a reviewed plan.",
 				recoverable: true,
+				retryAcceptedPlan: false,
 				appId: null,
 			};
 		});

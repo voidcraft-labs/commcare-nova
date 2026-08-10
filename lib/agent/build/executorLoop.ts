@@ -316,22 +316,110 @@ const ONE_CALL_PROTOCOL_RESULT = {
 } as const;
 
 const CONTINUE_NUDGE =
-	"Continue with exactly one tool call; when the slice is complete and inspectChangeSet reports no findings, call commitChangeSet.";
+	"Continue with exactly one tool call. Stage every remaining owned intent before inspecting; once none remain, inspect once and commit if it reports no findings.";
 
-/** A cheap current-state line beside the brief: what the private candidate
- *  already holds, so the executor never re-creates a structure a recovered
- *  change set already staged. */
-function workspaceSummary(workspace: ExecutorWorkspace): string {
+const INVENTORY_MODULE_LIMIT = 12;
+const INVENTORY_FORM_LIMIT = 24;
+const INVENTORY_FIELD_LIMIT_PER_FORM = 12;
+const INVENTORY_USER_PROPERTY_LIMIT = 16;
+const INVENTORY_CASE_TYPE_LIMIT = 12;
+const INVENTORY_CASE_PROPERTY_LIMIT = 24;
+
+function more(count: number, shown: number): string {
+	return count > shown ? `; +${count - shown} more` : "";
+}
+
+/** A compact identity-bearing checkpoint beside the brief. It is deliberately
+ * richer than counts: remote compaction removes old tool transcripts, and a
+ * resumed slice must retain enough durable identity to continue without
+ * rediscovering or re-creating the structures already in its candidate. */
+export function renderExecutorWorkspaceSummary(
+	workspace: ExecutorWorkspace,
+): string {
 	const snapshot = workspace.currentSnapshot();
+	const doc = snapshot.doc;
 	const moduleCount = snapshot.doc.moduleOrder.length;
 	const formCount = Object.keys(snapshot.doc.forms).length;
-	return [
+	const lines = [
 		"## Current change set",
 		`Revision ${snapshot.revision}. The private candidate holds ${moduleCount} module(s) and ${formCount} form(s).`,
 		moduleCount === 0 && formCount === 0
 			? "Nothing has been staged yet — this is the first step."
 			: "Build on what is already staged; never re-create it.",
-	].join("\n");
+		`App: ${JSON.stringify(doc.appName)} (${doc.appId})`,
+	];
+
+	const userPropertyOrder = doc.userPropertyOrder ?? [];
+	const userProperties = doc.userProperties ?? {};
+	const userPropertyIds = userPropertyOrder.slice(
+		0,
+		INVENTORY_USER_PROPERTY_LIMIT,
+	);
+	if (userPropertyIds.length > 0) {
+		lines.push(
+			`Worker information: ${userPropertyIds
+				.map((uuid) => {
+					const property = userProperties[uuid];
+					return property === undefined ? uuid : `${property.slug} (${uuid})`;
+				})
+				.join(", ")}${more(userPropertyOrder.length, userPropertyIds.length)}`,
+		);
+	}
+
+	const caseTypes = (doc.caseTypes ?? []).slice(0, INVENTORY_CASE_TYPE_LIMIT);
+	for (const caseType of caseTypes) {
+		const properties = caseType.properties.slice(
+			0,
+			INVENTORY_CASE_PROPERTY_LIMIT,
+		);
+		lines.push(
+			`Case type ${caseType.name}: ${properties
+				.map((property) => property.name)
+				.join(", ")}${more(caseType.properties.length, properties.length)}`,
+		);
+	}
+	if ((doc.caseTypes?.length ?? 0) > caseTypes.length) {
+		lines.push(
+			`Case types: +${(doc.caseTypes?.length ?? 0) - caseTypes.length} more`,
+		);
+	}
+
+	let shownForms = 0;
+	for (const moduleUuid of doc.moduleOrder.slice(0, INVENTORY_MODULE_LIMIT)) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		lines.push(
+			`Module ${moduleUuid}: id=${module.id}, name=${JSON.stringify(module.name)}${module.caseType === undefined ? "" : `, caseType=${module.caseType}`}`,
+		);
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			if (shownForms >= INVENTORY_FORM_LIMIT) break;
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			shownForms += 1;
+			const fieldIds = (doc.fieldOrder[formUuid] ?? []).slice(
+				0,
+				INVENTORY_FIELD_LIMIT_PER_FORM,
+			);
+			const fieldInventory = fieldIds
+				.map((uuid) => {
+					const field = doc.fields[uuid];
+					return field === undefined
+						? uuid
+						: `${field.id}:${field.kind} (${uuid})`;
+				})
+				.join(", ");
+			lines.push(
+				`  Form ${formUuid}: id=${form.id}, name=${JSON.stringify(form.name)}, type=${form.type}; fields=${fieldInventory || "none"}${more((doc.fieldOrder[formUuid] ?? []).length, fieldIds.length)}`,
+			);
+		}
+	}
+	if (moduleCount > INVENTORY_MODULE_LIMIT) {
+		lines.push(`Modules: +${moduleCount - INVENTORY_MODULE_LIMIT} more`);
+	}
+	if (formCount > shownForms)
+		lines.push(`Forms: +${formCount - shownForms} more`);
+
+	return lines.join("\n");
 }
 
 function executorCheckpoint(
@@ -343,7 +431,7 @@ function executorCheckpoint(
 			"## Current authoritative execution context",
 			"Use this exact accepted slice and the current durable private candidate. Do not rely on an older summarized copy of either.",
 			renderBriefMessage(brief),
-			workspaceSummary(workspace),
+			renderExecutorWorkspaceSummary(workspace),
 		].join("\n\n---\n\n"),
 	);
 }
@@ -402,7 +490,7 @@ export async function runSliceExecutor(args: {
 
 	let messages: ModelMessage[] = [
 		userMessage(
-			`${renderBriefMessage(brief)}\n\n---\n\n${workspaceSummary(workspace)}`,
+			`${renderBriefMessage(brief)}\n\n---\n\n${renderExecutorWorkspaceSummary(workspace)}`,
 		),
 	];
 
@@ -557,6 +645,7 @@ export async function runSliceExecutor(args: {
 					answer(
 						projectDiagnostics(
 							await awaitWithAbort(workspace.inspect(), boundedSignal),
+							brief,
 						),
 					);
 				} catch (error) {
@@ -581,10 +670,15 @@ export async function runSliceExecutor(args: {
 				}
 				if (Date.now() >= deadlineAt || deadline.signal.aborted)
 					return exhausted();
-				if (!diagnostics.canCommit) {
+				const remainingIntents = remainingOwnedIntentIds(diagnostics, brief);
+				if (!diagnostics.canCommit || remainingIntents.length > 0) {
 					/* A blocked request is not an attempt — nothing was tried. */
 					answer({
-						error: `The change set cannot commit yet: ${describeBlockers(diagnostics)}`,
+						error: `The change set cannot commit yet: ${describeBlockers(
+							diagnostics,
+							remainingIntents,
+						)}`,
+						remainingOwnedIntentIds: remainingIntents,
 					});
 					continue;
 				}
@@ -697,10 +791,11 @@ function extractStagingInput(
 		);
 	}
 	const owned = new Set<string>(brief.owningIntentIds);
-	if (parsed.data.some((id) => !owned.has(id))) {
+	const foreignIntentIds = parsed.data.filter((id) => !owned.has(id));
+	if (foreignIntentIds.length > 0) {
 		throw new ChangeSetStagingRejectedError(
 			"STAGING_FORBIDDEN",
-			"A staged mutation call may name only intents owned by this slice.",
+			`A staged mutation call may name only intents owned by this slice. These ids are dependencies owned elsewhere: ${foreignIntentIds.join(", ")}. Name the owned intent or intents this correction actually implements; an owned intent may appear on more than one corrective step.`,
 		);
 	}
 	return { input: toolInput, intentIds: parsed.data };
@@ -720,14 +815,25 @@ function terminalProtocolCode(error: unknown): string | null {
  *  whole validator dump. */
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
+	brief: SliceExecutionBrief,
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
+	const remainingIntents = remainingOwnedIntentIds(diagnostics, brief);
 	return {
 		revision: diagnostics.snapshotRevision,
 		findingCount: diagnostics.allFindings.length,
 		findings: diagnostics.allFindings
 			.slice(0, MAX_REPORTED_FINDINGS)
-			.map((finding) => ({ code: finding.code, message: finding.message })),
+			.map((finding) => ({
+				code: finding.code,
+				message: finding.message,
+				/* Coordinates and structured details are what distinguish several
+				 * instances of the same validator code. They stay inside the private
+				 * executor context; stripping them made the worker guess which carrier
+				 * to repair and turn a local correction into a false design issue. */
+				location: finding.location,
+				details: finding.details,
+			})),
 		...(diagnostics.allFindings.length > MAX_REPORTED_FINDINGS && {
 			truncated: {
 				shown: MAX_REPORTED_FINDINGS,
@@ -740,12 +846,14 @@ function projectDiagnostics(
 			kind: status.dependency.kind,
 			state: status.state,
 		})),
-		canCommit: diagnostics.canCommit,
+		remainingOwnedIntentIds: remainingIntents,
+		canCommit: diagnostics.canCommit && remainingIntents.length === 0,
 	};
 }
 
 function describeBlockers(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
+	remainingIntents: readonly string[],
 ): string {
 	const codes = [
 		...new Set(diagnostics.allFindings.map((finding) => finding.code)),
@@ -757,5 +865,21 @@ function describeBlockers(
 	if (stale.length > 0) {
 		return `external data it read is ${[...new Set(stale.map((status) => status.state))].join(" and ")}`;
 	}
+	if (remainingIntents.length > 0) {
+		return `${remainingIntents.length} owned design intent${remainingIntents.length === 1 ? " has" : "s have"} no staged implementation`;
+	}
 	return "it holds no staged steps yet";
+}
+
+/** The exact coverage gap the canonical commit will independently re-prove.
+ * Diagnostics derives coverage from durable mutation-bearing steps; the
+ * accepted brief is the authority for what this slice owns. */
+function remainingOwnedIntentIds(
+	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
+	brief: SliceExecutionBrief,
+): string[] {
+	const covered = new Set(
+		diagnostics.sliceIntentCoverage.map((coverage) => coverage.intentId),
+	);
+	return brief.owningIntentIds.filter((intentId) => !covered.has(intentId));
 }

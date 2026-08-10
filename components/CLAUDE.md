@@ -152,4 +152,6 @@ conversation. Nova's model-authored prose explains the work in the voice above;
 technical tool errors and model-only success instructions stay internal. The
 reviewed outline names review status without finding counts or severity
 language. Its cards scroll with the transcript, while the one live design stage
-line is the final status directly above the composer.
+line is the final status directly above the composer. A terminal design-build
+error replaces any stale working stage; automatic recovery never invents a
+user-authored retry message in the transcript.

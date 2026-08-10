@@ -37,6 +37,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"CASE_NAME_REQUIRED_ON_CREATE",
 	"RESERVED_CASE_IDENTIFIERS_REJECTED",
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
+	"CASE_PROPERTY_CLEAR_UNAVAILABLE",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
@@ -142,10 +143,17 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"A form's writable case destination is exactly the module's own case type or a declared child type whose parent_type is that module type; sibling, grandchild, and unrelated types are not writable from that form.",
 		sourceAnchor: "lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory",
 	},
+	CASE_PROPERTY_CLEAR_UNAVAILABLE: {
+		code: "CASE_PROPERTY_CLEAR_UNAVAILABLE",
+		statement:
+			"A case-property operation can write a typed value or use a condition to skip that write; Nova cannot explicitly clear an existing property. When status or closure removes a record from active work, preserve an earlier scheduling or detail value as history unless the request specifically requires erasure, in which case the design must surface the platform gap rather than inventing a blank or null write.",
+		sourceAnchor:
+			"lib/domain/predicate/typeChecker.ts::checkValueAssignmentExpression",
+	},
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 		statement:
-			"Display conditions, including conditions over worker properties, are the supported in-app role and navigation gate. They do not decide which cases a worker restores or which cases live search can return, so a role-safe design pairs those gates with the intended ownership or location model and with search filters that enforce the same boundary; remote search may reach beyond assigned restore ownership when its query permits it.",
+			"Display conditions, including conditions over worker properties, are the supported in-app role and navigation gate. They do not decide which cases a worker restores or which cases live search can return, so a role-safe design pairs those gates with the intended ownership or location model and with search filters that enforce the same boundary; remote search may reach beyond assigned restore ownership when its query permits it. A remote case-search comparison must be anchored to a case property, so different role populations normally use separate role-gated navigation entries over the same case type, each with its own case-property filter, rather than a standalone worker-role clause inside one shared query.",
 		sourceAnchor: "docs/research/advanced-case-actions.md::2.1-2.4",
 	},
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: {

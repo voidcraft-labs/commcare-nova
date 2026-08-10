@@ -106,6 +106,9 @@ export const SEED = {
 	scrollQuestionOneText: "Who initiates a referral?",
 	scrollQuestionTwoText: "When should a referral close?",
 	scrollQuestionFinalOption: "After the visit is logged",
+	/** A real sequence-one app activated by a completely scripted chat stream.
+	 * The browser test exercises the design/build UI without reaching a model. */
+	designBuildAppName: "Smoke — Scripted Design Build",
 } as const;
 
 /** Fixed slug so a re-run replaces the destination Project rather than piling up. */
@@ -905,6 +908,37 @@ async function main(): Promise<void> {
 			[scrollQuestionThreadId, scrollThreadId],
 		],
 	);
+
+	/* Free design/build UI journey. The app row and canonical blueprint are real,
+	 * but every chat response that reveals it is scripted in Playwright. Keep the
+	 * row generating so its app-status stream cannot unlock direct editing before
+	 * the scripted data-done frame ends the initial build. */
+	const designBuildRunId = randomUUID();
+	const designBuildHolderNonce = randomUUID();
+	const designBuildReceipt = await createExplicitBlankApp(
+		SEED.userId,
+		seedProjectId,
+		designBuildRunId,
+		{
+			name: SEED.designBuildAppName,
+			status: "generating",
+			runHolderNonce: designBuildHolderNonce,
+		},
+	);
+	const designBuildActivation = {
+		eventVersion: 1 as const,
+		designSessionId: randomUUID(),
+		appId: designBuildReceipt.appId,
+		projectId: seedProjectId,
+		role: "owner",
+		canEdit: true,
+		seq: 1 as const,
+		batchId: randomUUID(),
+		changeSetId: randomUUID(),
+		snapshotDigest: designBuildReceipt.snapshotDigest,
+		blueprint: designBuildReceipt.blueprint,
+		starter: null,
+	};
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
@@ -962,6 +996,7 @@ async function main(): Promise<void> {
 				olderThreadId,
 				scrollAppId,
 				scrollQuestionThreadId,
+				designBuildActivation,
 				moveAppIds,
 				moveDestinationProjectId,
 				baseUrl,

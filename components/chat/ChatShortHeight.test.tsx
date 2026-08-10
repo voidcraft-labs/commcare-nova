@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	chatComposerIsSubmitting,
 	PersistentChatComposer,
 	ShortChatFallback,
 	shouldShowShortChatFallback,
@@ -113,5 +114,31 @@ describe("short-height chat", () => {
 			"Keep this thought",
 		);
 		expect(screen.getByText("intake.pdf")).toBeDefined();
+	});
+});
+
+describe("composer activity state", () => {
+	it("returns to Submit when an unfinished initial build is paused", () => {
+		expect(
+			chatComposerIsSubmitting({
+				isLoading: false,
+				isGenerating: true,
+				generationPaused: true,
+			}),
+		).toBe(false);
+		expect(
+			chatComposerIsSubmitting({
+				isLoading: false,
+				isGenerating: true,
+				generationPaused: false,
+			}),
+		).toBe(true);
+		expect(
+			chatComposerIsSubmitting({
+				isLoading: true,
+				isGenerating: true,
+				generationPaused: true,
+			}),
+		).toBe(true);
 	});
 });

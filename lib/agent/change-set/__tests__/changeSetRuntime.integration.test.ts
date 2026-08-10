@@ -165,6 +165,42 @@ beforeEach(() => {
 });
 
 describe("private staging isolation", () => {
+	it("returns resolved shared-tool schema misses as ordinary staging rejections", async () => {
+		const app = await createTestApp();
+		const { workspace } = await openWorkspace(app.appId);
+
+		await expect(
+			workspace.stageDispatch({
+				toolName: "createModule",
+				requestId: "malformed-complete-module",
+				input: {
+					moduleUuid: { handle: "@registry" },
+					name: "Household registry",
+					case_type: null,
+					displayCondition: null,
+					forms: [
+						{
+							formUuid: { handle: "@survey" },
+							name: "Household survey",
+							type: "survey",
+							fields: [
+								{
+									fieldUuid: { handle: "@status" },
+									kind: "single_select",
+									id: "status",
+								},
+							],
+						},
+					],
+				},
+			}),
+		).rejects.toMatchObject({
+			name: "ChangeSetStagingRejectedError",
+			code: "STAGING_FORBIDDEN",
+			message: expect.stringContaining("forms.0.fields.0.label"),
+		});
+	});
+
 	it("creates a complete shared module with handles and reuses those bindings", async () => {
 		const app = await createTestApp();
 		const before = await canonicalTableCounts(app.appId);

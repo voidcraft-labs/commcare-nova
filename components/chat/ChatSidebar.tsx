@@ -107,6 +107,10 @@ interface ChatSidebarProps {
 	/** The design stage line. Like every live activity row, it stays directly
 	 * above the composer instead of moving upward as transcript cards arrive. */
 	designProgressStatus?: ReactNode;
+	/** The initial build is still unfinished, but no run is active because it
+	 * stopped. Keep the Builder read-only while allowing a conversational design
+	 * adjustment or clarification to resume it. */
+	generationPaused?: boolean;
 	/** Suppress the generic activity row while `designProgress` owns the
 	 *  status. The design stage line is a live region of its own and says the
 	 *  same thing more precisely; announcing both reads as a stutter. */
@@ -153,6 +157,20 @@ export function shouldShowShortChatFallback({
 	return !centered && !docked && veryShortViewport;
 }
 
+/** The initial-build latch outlives a stopped run so the Builder stays
+ * read-only. It is not, by itself, evidence that the composer is submitting. */
+export function chatComposerIsSubmitting({
+	isLoading,
+	isGenerating,
+	generationPaused,
+}: {
+	readonly isLoading: boolean;
+	readonly isGenerating: boolean;
+	readonly generationPaused: boolean;
+}): boolean {
+	return isLoading || (isGenerating && !generationPaused);
+}
+
 export function ChatSidebar({
 	centered,
 	startFromScratch,
@@ -171,6 +189,7 @@ export function ChatSidebar({
 	onNewChat,
 	designProgressDetails,
 	designProgressStatus,
+	generationPaused = false,
 	activityStatusHidden = false,
 	activityOverride = null,
 }: ChatSidebarProps) {
@@ -762,15 +781,19 @@ export function ChatSidebar({
 						onSend={handleSend}
 						disabled={
 							isLoading ||
-							isGenerating ||
+							(isGenerating && !generationPaused) ||
 							composerBusy ||
 							readOnly ||
 							accessPhase !== "authorized"
 						}
-						// The spinner means "your turn is on its way to the SA", so it
-						// tracks only the chat sources. `composerBusy` locks the composer
-						// for a reason that has nothing to do with a message.
-						submitting={isLoading || isGenerating}
+						// The spinner means the turn is still moving. A stopped design
+						// leaves the builder's generation latch set until recovery, but its
+						// enabled composer must return to the ordinary Submit control.
+						submitting={chatComposerIsSubmitting({
+							isLoading,
+							isGenerating,
+							generationPaused,
+						})}
 						// A waiting question card routes the next composer send to it as
 						// a text-only answer, so the composer disables attaching and
 						// preserves any staged files instead of dropping them.

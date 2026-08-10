@@ -54,6 +54,10 @@ export const classifiedErrorPayloadSchema = z.strictObject({
 	 * derived from the classifier's `recoverable` flag at emit time.
 	 */
 	fatal: z.boolean(),
+	/** The error describes a retry already in flight; this run has not ended. */
+	runContinues: z.literal(true).optional(),
+	/** Present only when the accepted design plan can be retried unchanged. */
+	designRecovery: z.literal("retry-plan").optional(),
 });
 export type ClassifiedErrorPayload = z.infer<
 	typeof classifiedErrorPayloadSchema

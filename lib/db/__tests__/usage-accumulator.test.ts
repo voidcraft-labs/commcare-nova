@@ -145,6 +145,73 @@ describe("UsageAccumulator", () => {
 		});
 	});
 
+	it("decomposes design author, review, and executor usage even on one model", () => {
+		const acc = new UsageAccumulator({
+			target: { kind: "design-session", designSessionId: "design-1" },
+			userId: "phase-user",
+			runId: "phase-run",
+			holderNonce: HOLDER_NONCE,
+			model: "gpt-5.6-sol",
+			promptMode: "build",
+			appReady: false,
+			moduleCount: 0,
+		});
+		acc.track(
+			{
+				inputTokens: 1_000,
+				outputTokens: 200,
+				cacheReadTokens: 800,
+				cacheWriteTokens: 100,
+			},
+			{ model: "gpt-5.6-sol", phase: "design-author", step: true },
+		);
+		acc.track(
+			{
+				inputTokens: 400,
+				outputTokens: 100,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+			{ model: "gpt-5.6-sol", phase: "design-review" },
+		);
+		acc.track(
+			{
+				inputTokens: 2_000,
+				outputTokens: 300,
+				cacheReadTokens: 1_700,
+				cacheWriteTokens: 100,
+			},
+			{ model: "gpt-5.6-sol", phase: "build-executor", step: true },
+		);
+
+		expect(acc.phaseBreakdown()).toEqual({
+			"design-author": {
+				calls: 1,
+				inputTokens: 1_000,
+				outputTokens: 200,
+				cacheReadTokens: 800,
+				cacheWriteTokens: 100,
+				costEstimate: estimateCost("gpt-5.6-sol", 1_000, 200, 800, 100),
+			},
+			"design-review": {
+				calls: 1,
+				inputTokens: 400,
+				outputTokens: 100,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costEstimate: estimateCost("gpt-5.6-sol", 400, 100),
+			},
+			"build-executor": {
+				calls: 1,
+				inputTokens: 2_000,
+				outputTokens: 300,
+				cacheReadTokens: 1_700,
+				cacheWriteTokens: 100,
+				costEstimate: estimateCost("gpt-5.6-sol", 2_000, 300, 1_700, 100),
+			},
+		});
+	});
+
 	it("stepCount increments on track(...,{step:true}) calls only", () => {
 		const acc = new UsageAccumulator({
 			target: { kind: "app", appId: "a" },

@@ -233,6 +233,16 @@ work in both. Respect the capability catalog and the platform constraints
 below: design within the constructible surface, defer what they exclude,
 and say so — never design pretend structure for a catalogued gap.
 
+Role-aware live-search queues must also be constructible. Every comparison
+inside a remote case-search filter needs a case property as its subject; a
+worker-role check cannot stand alone as a filter clause. When roles should see
+different case populations, normally design separate role-gated navigation
+entries over the same record type, each with its own case-property filter. A
+shared entry is appropriate only when the roles share one population or the
+difference can still be expressed entirely through case-property-anchored
+comparisons. A display condition remains the navigation gate, while the case
+filter remains the data-selection gate.
+
 ## Dispositions (after a review)
 
 - Every critical/important finding gets exactly one disposition; never
@@ -269,6 +279,10 @@ and say so — never design pretend structure for a catalogued gap.
   its first workflow needs to be export-ready (record declarations, the
   registering task's capture and writes, a usable read model, navigation,
   access bindings), and nothing unrelated merely to save later commits.
+- A named worker-data key used by access or navigation is Blueprint structure,
+  not worker provisioning. Put "users" in expectedBlueprintAreas for the
+  earliest slice that needs the key and let that slice declare the property;
+  assigning values on real worker accounts remains external.
 - The prerequisite graph is acyclic and every prerequisite is a slice in
   this plan.
 - A slice's ownedIntentIds are always a subset of its intentIds
@@ -391,6 +405,14 @@ legitimate in-app role and navigation gate. It is not, by itself, a case-data
 authorization boundary: review the ownership/location restore model and live
 search filters alongside it. Never reject role-gated navigation merely because
 the same predicate does not remove case data from restore or search.
+
+For a role-aware live-search queue, also verify that the proposed populations
+can become valid remote filters. A worker-role check cannot stand alone inside
+the case query because each comparison there needs a case-property subject.
+When roles need different populations, expect separate role-gated navigation
+entries over the same record type, each with its own case-property filter,
+unless the shared population difference is explicitly expressible through
+case-property-anchored comparisons.
 
 ${IDENTITY_RULES}
 

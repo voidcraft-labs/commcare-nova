@@ -9,6 +9,8 @@
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { budgetForSlice } from "@/lib/agent/build/budgets";
 import {
 	deriveSliceExecutionBrief,
@@ -17,6 +19,7 @@ import {
 import {
 	type ExecutorStepFn,
 	type ExecutorWorkspace,
+	renderExecutorWorkspaceSummary,
 	runSliceExecutor,
 	type SliceCommitResult,
 } from "@/lib/agent/build/executorLoop";
@@ -76,7 +79,10 @@ function diagnostics(
 		introducedSincePreviousStep: [],
 		resolvedSincePreviousStep: [],
 		readSetStatus: [],
-		sliceIntentCoverage: [],
+		sliceIntentCoverage: brief().owningIntentIds.map((intentId) => ({
+			intentId,
+			stepCount: 1,
+		})),
 		canCommit: true,
 		...overrides,
 	};
@@ -142,6 +148,60 @@ function fakeWorkspace(options?: {
 	};
 	return workspace;
 }
+
+it("checkpoints the identities needed to continue after compaction", () => {
+	const doc = buildDoc({
+		appName: "Referral tracker",
+		caseTypes: [
+			{
+				name: "referral",
+				properties: [{ name: "status", label: "Status", data_type: "text" }],
+			},
+		],
+		modules: [
+			{
+				name: "Referrals",
+				caseType: "referral",
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+					},
+				],
+			},
+		],
+	});
+	const userPropertyUuid = testUuid("11111111-1111-4111-8111-111111111111");
+	doc.userProperties = {
+		[userPropertyUuid]: {
+			uuid: userPropertyUuid,
+			slug: "staff_role",
+			label: "Staff role",
+			required: false,
+			choices: ["intake", "coordinator"],
+		},
+	};
+	doc.userPropertyOrder = [userPropertyUuid];
+	const workspace = fakeWorkspace();
+	workspace.currentSnapshot = () => ({
+		doc,
+		revision: 7,
+		canonicalSeq: 1,
+		projectId: "project-1",
+	});
+
+	const summary = renderExecutorWorkspaceSummary(workspace);
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const fieldUuid = doc.fieldOrder[formUuid][0];
+	expect(summary).toContain("Revision 7");
+	expect(summary).toContain(`staff_role (${userPropertyUuid})`);
+	expect(summary).toContain("Case type referral: status");
+	expect(summary).toContain(`Module ${moduleUuid}`);
+	expect(summary).toContain(`Form ${formUuid}`);
+	expect(summary).toContain(`notes:text (${fieldUuid})`);
+});
 
 type ScriptedStep =
 	| { text: string }
@@ -459,14 +519,31 @@ describe("runSliceExecutor — commit is a request", () => {
 	});
 
 	it("projects bounded diagnostics for inspectChangeSet", async () => {
+		const uncovered = brief().owningIntentIds[0];
 		const workspace = fakeWorkspace({
 			inspect: async () =>
 				diagnostics({
 					canCommit: false,
+					sliceIntentCoverage: brief()
+						.owningIntentIds.slice(1)
+						.map((intentId) => ({
+							intentId,
+							stepCount: 1,
+						})),
 					introducedSincePreviousStep: ["aaaa"],
 					allFindings: Array.from({ length: 25 }, (_, index) => ({
 						code: `CODE_${index}`,
 						message: `Finding ${index}`,
+						...(index === 0 && {
+							location: {
+								formUuid: "11111111-1111-4111-8111-111111111111",
+								field: "22222222-2222-4222-8222-222222222222",
+							},
+							details: {
+								operationUuid: "22222222-2222-4222-8222-222222222222",
+								operationId: "finalize",
+							},
+						}),
 					})) as unknown as ChangeSetDiagnostics["allFindings"],
 				}),
 		});
@@ -483,12 +560,52 @@ describe("runSliceExecutor — commit is a request", () => {
 			truncated: { shown: number; total: number };
 			canCommit: boolean;
 			introducedSincePreviousStep: string[];
+			remainingOwnedIntentIds: string[];
 		};
 		expect(value.findingCount).toBe(25);
 		expect(value.findings).toHaveLength(20);
+		expect(value.findings[0]).toMatchObject({
+			location: {
+				formUuid: "11111111-1111-4111-8111-111111111111",
+				field: "22222222-2222-4222-8222-222222222222",
+			},
+			details: {
+				operationUuid: "22222222-2222-4222-8222-222222222222",
+				operationId: "finalize",
+			},
+		});
 		expect(value.truncated).toEqual({ shown: 20, total: 25 });
 		expect(value.canCommit).toBe(false);
 		expect(value.introducedSincePreviousStep).toEqual(["aaaa"]);
+		expect(value.remainingOwnedIntentIds).toEqual([uncovered]);
+	});
+
+	it("refuses a commit request until durable steps cover every owned intent", async () => {
+		const uncovered = brief().owningIntentIds[0];
+		const workspace = fakeWorkspace({
+			inspect: async () =>
+				diagnostics({
+					canCommit: true,
+					sliceIntentCoverage: brief()
+						.owningIntentIds.slice(1)
+						.map((intentId) => ({
+							intentId,
+							stepCount: 1,
+						})),
+				}),
+		});
+		const commit = vi.fn();
+		const { step, seen } = scriptedStep([
+			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
+			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+		]);
+
+		await run({ workspace, step, commit });
+
+		expect(commit).not.toHaveBeenCalled();
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			remainingOwnedIntentIds: [uncovered],
+		});
 	});
 });
 

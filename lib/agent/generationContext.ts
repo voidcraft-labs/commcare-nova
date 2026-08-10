@@ -69,6 +69,7 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import type { DesignBuildCostPhase } from "@/lib/db/usage";
 import { pricingTierForInput, type UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -556,7 +557,11 @@ export class GenerationContext
 	 * the known external conditions (rate limit, auth, overload, …) log at
 	 * `warn` so they don't flood Error Reporting with expected states.
 	 */
-	emitError(error: ClassifiedError, context?: string): void {
+	emitError(
+		error: ClassifiedError,
+		context?: string,
+		opts?: { runContinues?: boolean },
+	): void {
 		const cause = {
 			raw: error.raw ?? "",
 			context: context ?? "",
@@ -575,6 +580,10 @@ export class GenerationContext
 			type: error.type,
 			message: error.message,
 			fatal: !error.recoverable,
+			...(opts?.runContinues === true && { runContinues: true }),
+			...(error.designRecovery !== undefined && {
+				designRecovery: error.designRecovery,
+			}),
 		};
 		try {
 			this.emitConversation({ type: "error", error: payload });
@@ -1004,7 +1013,12 @@ export class GenerationContext
 		}
 	}
 
-	handleAgentStep(step: AgentStep, label: string, model = MODEL_DEFAULT): void {
+	handleAgentStep(
+		step: AgentStep,
+		label: string,
+		model = MODEL_DEFAULT,
+		phase?: DesignBuildCostPhase,
+	): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
 		// Refresh the run's liveness horizon off SA activity (debounced) — the
 		// cheap early beat; the wall-clock timer covers a long no-step turn.
@@ -1020,7 +1034,7 @@ export class GenerationContext
 				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
 			},
-			{ step: true, model },
+			{ step: true, model, ...(phase !== undefined && { phase }) },
 		);
 
 		/* Per-step usage annotation — the same numbers the accumulator just

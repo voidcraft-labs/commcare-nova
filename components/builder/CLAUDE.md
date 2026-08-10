@@ -103,7 +103,12 @@ fills in read-only around the central progress card, and no human autosave can
 race Nova's remaining slices. Whole-build completion releases it. After a
 settled interruption with committed work, **Use what’s built** invokes the
 server's exact-sequence `accepted-partial` transition and reloads the now-
-complete app; a client never unlocks itself locally.
+complete app; a client never unlocks itself locally. Both partial acceptance
+and exact-plan retry are editor-only affordances. A viewer sees the stopped
+state without controls, while the server remains the authority for either
+write. The server seed re-derives exact-plan retry from the durable execution-
+or rebase-budget failure code, so an eligible stopped build keeps its recovery
+control after refresh without treating every recoverable failure as replayable.
 
 ## Publishing
 
@@ -928,13 +933,14 @@ vocabulary, and `caseDataScope`.
 decisions, and `__tests__/caseOperationValidByConstruction.test.ts` drives every
 slot × both module shapes against the validator rule itself):
 
-- `caseDataScope` follows the MODULE, not the operation. `validateCaseSnapshotUse`
-  refuses a case property, a relationship count, and a presence test in ANY slot
-  unless the module selects a case before opening its forms — spelled with
-  exactly the walks `expressionReadsCaseData` performs, which is `"global"`'s own
-  admission oracle. So a module holding a registration form is `"global"`, and its
-  seeds compare a session value rather than a property (neutral, so adding a
-  condition does not change when the change runs until the author edits it).
+- `caseDataScope` follows the FORM, not the operation or the module's landing
+  order. `validateCaseSnapshotUse` refuses a case property, a relationship count,
+  and a presence test in ANY slot unless this exact form opens with a case. A
+  follow-up or close form therefore uses `"per-case"` even when a registration
+  sibling makes the module forms-first; a registration or survey form uses
+  `"global"`, and its seeds compare a session value rather than a property
+  (neutral, so adding a condition does not change when the change runs until the
+  author edits it).
   `"selected-case"` is deliberately not the middle answer: it admits the chosen
   case's own properties and the gate admits none.
 - A RUNTIME TARGET slot — the operation's own "which case to change", and a link's

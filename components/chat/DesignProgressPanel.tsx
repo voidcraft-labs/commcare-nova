@@ -9,8 +9,9 @@
  *
  * Purely presentational — every value arrives already derived
  * (`lib/session/designProgressStore`), so nothing here decides what the build
- * is doing. Once the app materializes the region collapses to a brief
- * per-slice line (§15.7): the builder itself is the progress from there on.
+ * is doing. Once the app materializes the detail region collapses to a brief
+ * per-slice line (§15.7), while the live stage remains the one status directly
+ * above the composer until the full build finishes.
  */
 "use client";
 
@@ -34,11 +35,18 @@ import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface DesignProgressPanelProps {
 	readonly view: DesignProgressView;
+	readonly onRetry?: () => void;
+	/** Recovery actions mutate the design/app and are editor-only. */
+	readonly canRecover?: boolean;
 }
 
-export function DesignProgressStatus({ view }: DesignProgressPanelProps) {
+export function DesignProgressStatus({
+	view,
+	onRetry,
+	canRecover = false,
+}: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
-	return <StageLine view={view} />;
+	return <StageLine view={view} onRetry={onRetry} canRecover={canRecover} />;
 }
 
 export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
@@ -80,9 +88,23 @@ export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
  * than a demand: the question card owns the assertive announcement when the
  * build actually needs an answer.
  */
-function StageLine({ view }: { readonly view: DesignProgressView }) {
+function StageLine({
+	view,
+	onRetry,
+	canRecover,
+}: {
+	readonly view: DesignProgressView;
+	readonly onRetry?: () => void;
+	readonly canRecover: boolean;
+}) {
 	const halted = view.stage === "failed" || view.stage === "incomplete";
+	const canRetry =
+		canRecover &&
+		view.stage === "incomplete" &&
+		view.canRetryPlan &&
+		onRetry !== undefined;
 	const canAcceptPartial =
+		canRecover &&
 		halted &&
 		view.materialized &&
 		view.committedSliceNames.length > 0 &&
@@ -158,6 +180,16 @@ function StageLine({ view }: { readonly view: DesignProgressView }) {
 					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
 						{view.failure}
 					</p>
+				)}
+				{canRetry && (
+					<Button
+						type="button"
+						variant="outline"
+						className="mt-2"
+						onClick={onRetry}
+					>
+						Try again
+					</Button>
 				)}
 				{canAcceptPartial && (
 					<div className="mt-2 flex flex-col items-start gap-1.5">

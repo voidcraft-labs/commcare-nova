@@ -98,14 +98,19 @@ function injectSignalEnergy(type: string): void {
  * storm coming back with nothing failing at compile time. Returns null for
  * every non-error conversation event.
  */
-export function conversationEventError(
-	data: Record<string, unknown>,
-): { message: string; fatal: boolean } | null {
+export function conversationEventError(data: Record<string, unknown>): {
+	message: string;
+	fatal: boolean;
+	runContinues: boolean;
+	retryDesignPlan: boolean;
+} | null {
 	const event = data as unknown as ConversationEvent;
 	if (event.payload?.type !== "error") return null;
 	return {
 		message: event.payload.error.message,
 		fatal: !!event.payload.error.fatal,
+		runContinues: event.payload.error.runContinues === true,
+		retryDesignPlan: event.payload.error.designRecovery === "retry-plan",
 	};
 }
 

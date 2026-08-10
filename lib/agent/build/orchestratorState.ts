@@ -28,6 +28,7 @@ import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
+import { designExecutionIssueSchema } from "./issueEscalation";
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -107,6 +108,7 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 			failureId: z.string().uuid(),
 			recoverable: z.boolean(),
 			errorType: z.string().min(1),
+			designIssue: designExecutionIssueSchema.optional(),
 		})
 		.strict(),
 ]);

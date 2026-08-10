@@ -124,7 +124,10 @@ client can see: a paused askQuestions round (read off the transcript) and a
 run-stopping stream error. BOTH error kinds stop the stage line — a
 recoverable error reads `incomplete` ("Stopped before it finished", inviting
 the retry its toast offered) and a fatal one `failed`; marking only fatal
-errors left the line spinning over a dead run, observed live.
+errors left the line spinning over a dead run, observed live. An automatic
+provider-retry warning is explicitly marked `runContinues` on the conversation
+event and does not become a terminal progress failure; later pulses and commits
+continue to drive the same run.
 
 **Stage is derived, never stored.** `deriveDesignStage` folds "which frames
 have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree

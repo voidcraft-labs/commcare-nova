@@ -228,8 +228,19 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(args.intentIds !== undefined && { intentIds: args.intentIds }),
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			execute: async (ctx, resolvedInput) => {
-				const parsed = entry.tool.inputSchema.parse(resolvedInput);
-				return entry.tool.execute(parsed, ctx);
+				const parsed = entry.tool.inputSchema.safeParse(resolvedInput);
+				if (!parsed.success) {
+					throw new ChangeSetStagingRejectedError(
+						"STAGING_FORBIDDEN",
+						`The ${args.toolName} input was invalid: ${parsed.error.issues
+							.map(
+								(issue) =>
+									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+							)
+							.join("; ")}`,
+					);
+				}
+				return entry.tool.execute(parsed.data, ctx);
 			},
 		});
 	}
