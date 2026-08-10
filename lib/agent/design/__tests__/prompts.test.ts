@@ -88,7 +88,7 @@ describe("renderSourcePackage containment", () => {
 			"A named worker-data key used by access or navigation is Blueprint structure",
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain(
-			'not worker provisioning. Put "users" in expectedBlueprintAreas',
+			'not worker provisioning. Put "users" in the earliest relevant semantic',
 		);
 	});
 

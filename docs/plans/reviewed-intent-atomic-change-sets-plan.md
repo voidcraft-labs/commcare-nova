@@ -55,7 +55,7 @@ The repository has the non-executable design frontend and private compiler works
 - `lib/agent/design` owns strict, immutable, digest-bound source packages, contracts, independent reviews, dispositions, and build plans.
 - `lib/agent/design/loop` runs design as one server-gated agent loop whose durable artifact ancestry, not transcript prose, decides what is legal next.
 - `lib/db/designSessions.ts`, target-polymorphic threads/streams/summaries, and `app/api/chat/route.ts` provide pre-app run, credit, conversation, pause, resume, and recovery scope.
-- `lib/agent/build` derives slice briefs, enforces bounded one-call executor steps, blocks on receipted external prerequisites, and folds an append-only orchestration chain under the exact live holder.
+- `lib/agent/build` admits construction-ready slice strategies, derives slice briefs and budgets from them, compiles each semantic group through an ordered batched staging call, resolves compiler blockers through a fresh architect decision, blocks on receipted external prerequisites, and folds an append-only orchestration chain under the exact live holder.
 - `lib/agent/change-set/materializeGenesis.ts` and `lib/db/appGenesis.ts` create the first meaningful export-ready app revision atomically, including organization/media/lookup/runtime-schema integrity and holder transfer.
 - `lib/db/canonicalCommitSidecars.ts` commits the exact running slice attempt, receipt, and staged implementation provenance with the canonical revision.
 - The explicit blank path still creates the canonical Survey/Form/Question starter through the same genesis owner; design-driven chat never flashes that starter.
@@ -151,7 +151,8 @@ These invariants bind every implementation unit and test.
 | **Design actor** | UX-level description of a person doing work. Distinct from a Blueprint user type or Preview persona. |
 | **Design review** | Fresh-context structured critique of one exact Design Contract revision against authorized evidence and platform constraints. |
 | **Finding disposition** | Accepted, rejected-with-rationale, or deferred-with-user-visible-consequence resolution tied to one review finding. |
-| **Build slice** | Dependency-closed, task-complete vertical unit of implementation. It may cross modules, forms, case types, case lists, users, and actions. |
+| **Build slice** | Dependency-closed, task-complete vertical unit of implementation with a mechanically checked construction strategy. It may cross modules, forms, case types, case lists, users, and actions. |
+| **Semantic construction group** | One bounded, ordered set of ordinary Nova authoring operations that lowers a coherent part of a slice and executes inside one `stageBatch` call. |
 | **Tool workspace** | The sole owner of the document snapshot and mutation ordering for one canonical or change-set executor. |
 | **Workspace revision** | Opaque monotonic token proving which workspace snapshot a tool invocation read. |
 | **Atomic Change Set** | Private durable sequence of admitted mutation batches assembled against an exact base and committed as one canonical transition. |
@@ -881,8 +882,11 @@ Authoring, independent review, and slice execution have separate model-role
 constants. The design author/planner and independent reviewer use Sol at
 `xhigh`; the constrained slice executor uses Luna at `medium`. Artifact envelopes
 record the producing model, so a role-specific model change does not alter the
-artifact or orchestration contracts. Reviewer calls remain fresh-context;
-author and executor calls use their growing session/slice context.
+artifact or orchestration contracts. Reviewer calls remain fresh-context. The
+author uses its session context; every executor call instead starts from the
+immutable slice brief, the authoritative current workspace checkpoint, and
+only the latest model/tool result. Successful work lives in the durable change
+set rather than an ever-growing executor transcript.
 
 Every Responses API call enables OpenAI server-side context management at
 `256_000` input tokens. OpenAI owns the compaction pass and opaque encrypted
@@ -904,10 +908,11 @@ checkpoint is never replayed across model or context contracts.
 
 Compaction does not become application authority. After projecting model
 history, the server re-injects the current persisted Design Contract and open
-review findings for the design loop, and the immutable execution brief plus a
-fresh workspace summary for the slice executor. Tool receipts before the
-compaction boundary need not be replayed because handles and staged mutations
-are durable and the current workspace checkpoint is authoritative. The client
+review findings for the design loop. The slice executor does not depend on a
+compacted conversation: every step receives the immutable execution brief, a
+fresh workspace summary, and only the latest result needed for its next
+decision. Earlier handles, receipts, and staged mutations remain durable and
+the workspace checkpoint is authoritative. The client
 keeps old messages visible and shows the transient status “Organizing what
 we’ve covered” only for the main conversation whose model context is being
 compacted; the status occupies the same final line above the composer and does
@@ -1130,23 +1135,36 @@ const buildSliceSchema = z.object({
     "data-migration",
   ]),
   role: z.enum(["materialization-root", "ordinary", "exclusive"]),
-  expectedBlueprintAreas: z.array(z.enum([
-    "app",
-    "case-catalog",
-    "users",
-    "organization-shape",
-    "navigation",
-    "case-list",
-    "forms",
-    "case-operations",
-    "media-references",
-    "automations",
-  ])),
+  constructionStrategy: z.object({
+    semanticGroups: z.array(z.object({
+      name: z.string().min(1),
+      kind: z.enum([
+        "foundation", "capture", "workflow", "work-queue",
+        "access-navigation",
+      ]),
+      intentIds: z.array(designIdSchema).min(1),
+      blueprintAreas: z.array(blueprintAreaSchema).min(1),
+    })).min(1),
+    lowerings: z.array(z.object({
+      intentId: designIdSchema,
+      target: z.enum([
+        "case-type", "case-property", "form-logic", "task-form",
+        "case-operation", "case-list", "case-search", "access-control",
+        "navigation",
+      ]),
+    })).min(1),
+    tasks: z.array(taskConstructionSchema),
+    facts: z.array(factConstructionSchema),
+    readModels: z.array(readModelConstructionSchema),
+    access: z.array(accessConstructionSchema),
+    navigation: z.array(navigationConstructionSchema),
+    externalSetupActionIds: z.array(designIdSchema),
+  }),
   externalActionIds: z.array(designIdSchema),
 });
 
 const buildPlanSchema = z.object({
-  schemaVersion: z.literal(2),  // server-stamped; the planner MODEL emits
+  schemaVersion: z.literal(1),  // server-stamped; the planner MODEL emits
                                 // only { slices, externalActions,
                                 // intentOwnership } (buildPlanDraftSchema)
   designRevisionId: z.string().uuid(),
@@ -1180,11 +1198,24 @@ const buildPlanSchema = z.object({
 12. New place rows, lookup rows/schemas, deployments, workers, and media bytes are not represented as Blueprint mutations.
 13. No slice references a Design Contract revision other than the plan's exact digest.
 14. A contract revision supersedes all uncommitted plans/change sets derived from the prior digest.
-15. A newly admitted slice owns at most 30 implementable intents. This is an
-    admission bound rather than a persisted-schema reinterpretation, so older
-    plans remain readable. The materialization root keeps the minimal complete
-    first workflow and leaves downstream queues or status workflows to later
-    task-complete slices.
+15. Every slice owns at most 30 implementable intents so the bounded executor
+    can finish it before its wall-clock ceiling. The materialization root keeps
+    the minimal complete first workflow and leaves downstream queues or status
+    workflows to later task-complete slices.
+16. Semantic groups and lowering rows each cover every owned intent exactly
+    once. A group contains at most 12 intents and a slice at most eight groups.
+17. Task mode, selected-record context, and transition IDs match the accepted
+    task exactly; fact storage, writer source, and unanswered-value behavior
+    match the accepted fact exactly.
+18. Read-model mode is explicit and agrees with its lowering; actor partition
+    and search facts agree with the accepted actors/access/navigation. Having
+    search facts does not by itself force live case search because synced lists
+    can expose search inputs too. Discover/view policies cannot rely on a
+    hidden-navigation gate alone, and location-scoped access names both its
+    location and matching search-filter layers.
+19. Manual setup rows name exactly the slice's `manual-setup` external actions.
+    A structurally parseable plan that fails any construction proof is rejected
+    before persistence and never reaches an executor.
 
 ### 8.3 Materialization-root quality
 
@@ -1849,7 +1880,11 @@ An in-process cache may retain `(changeSetId, revision) -> overlay`, but every c
 
 ### 10.4 Request idempotency
 
-Every executor tool call receives a server-derived stable `requestId` from the run plus the AI SDK tool-call identity, and that identity is persisted with the assistant tool-call unit before execution. If transport/process recovery replays the same tool call, the same ID is reused.
+Every executor tool call receives a stable AI SDK tool-call identity. Read and
+gate calls use it directly. A `stageBatch` operation receives the deterministic
+subrequest identity `<outerToolCallId>:<zero-based operation index>`. If
+transport/process recovery replays the same batch, each ordinary Nova operation
+reaches the same request ledger entry and receives the same receipt.
 
 `inputDigest` is the canonical SHA-256 of:
 
@@ -1938,6 +1973,15 @@ Rules:
     outside the durable transaction against a scratch table merged into
     workspace state only when the step commits.
 
+Server-minted worker properties, user types, and personas use a second narrow
+compiler convenience: their `stageBatch` operation declares one
+`outputHandles` name per created item. Later operations in that same batch may
+reference those names; the batch result returns the canonical bindings when a
+later correction batch needs them. Resolution occurs before the original tool
+schema parses, and only canonical UUIDs reach the durable request and mutation
+ledgers. These compiler-local names do not alter the canonical schemas or the
+change-set handle namespace above.
+
 This is a private symbol table, not a second authored identity system.
 
 ### 10.6 Staging schema projection
@@ -1963,7 +2007,17 @@ The executor-only structural tools are registered only for `ChangeSetMutationWor
 - `stageModule`
 - `stageForm`
 
-`beginChangeSet`, `commitChangeSet`, `inspectChangeSet`, `discardChangeSet`, and `raiseDesignExecutionIssue` are server functions (`beginAppEditChangeSet`/`beginGenesisChangeSet`, `commitDesignChangeSet`, `ChangeSetMutationWorkspace.inspect()`, `abandonChangeSet`/`supersedeChangeSet`) whose model-facing tool wrappers mount with the executor. There are no separate `stageFields`/`stageCaseListColumn` twins: field, case-list, and case-operation grains ride the existing shared granular tools over the overlay once targets exist.
+`beginChangeSet` remains orchestrator-owned. The executor mounts read tools,
+`stageBatch`, `inspectChangeSet`, `commitChangeSet`, and
+`reportExecutionBlocker`. `stageBatch`'s schema is generated from the current
+staging-allowed mutation registry and runs its ordinary Nova operations
+serially. It preserves an accepted prefix and stops before the first rejected
+operation; the next call corrects only that failed operation and any dependent
+unattempted suffix. `commitChangeSet`, inspection, abandonment/supersession,
+and blocker disposition remain server functions. There are no separate
+`stageFields`/`stageCaseListColumn` twins: field, case-list, and case-operation
+grains ride the existing shared granular tools over the overlay once targets
+exist.
 
 `stageModule` and `stageForm` expose granular canonical mutation builders without imposing canonical completeness on each call. They may create an incomplete private module/form because no canonical write occurs.
 
@@ -2907,21 +2961,23 @@ The build package is:
 lib/agent/build/
   orchestrator.ts
   orchestratorState.ts
-  executor.ts
   executorLoop.ts
   executorPrompt.ts
+  executorWireSchemas.ts
   executionBrief.ts
-  issueEscalation.ts
-  completion.ts
+  executionBlocker.ts
+  budgets.ts
+  externalActions.ts
   progress.ts
-  recovery.ts
   CLAUDE.md
 ```
 
 Responsibilities are intentionally unequal:
 
 - `BuildOrchestrator` owns the durable method: source resolution, the design agent loop (`designLoopRunner.ts`, which mounts the loop on the run's stream and owns its sanitizers, bounded redrive, and progress frames), accepted artifact selection, build-plan selection, slice sequencing, user questions, correction loops, and completion policy.
-- `BuildExecutor` is a bounded compiler worker for exactly one `BuildSlice` and one `AtomicChangeSet`.
+- `BuildExecutor` is a bounded Luna compiler worker for exactly one
+  construction-ready `BuildSlice` and one `AtomicChangeSet`; a fresh Sol
+  architect owns any blocker disposition.
 - `ToolWorkspace` owns the current private document and serial tool invocation.
 - the model never decides whether review happened, which design revision is accepted, whether a slice may commit, or whether the overall build is complete.
 
@@ -3028,12 +3084,11 @@ interface SliceExecutionAttempt {
     | "running"
     | "committed"
     | "superseded"
-    | "design-issue"
     | "failed";
 }
 ```
 
-`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests. A bound open set is recoverable only when its owner actor/run matches the current delegated holder; holder drift or artifact drift atomically supersedes both the private set and attempt before a fresh attempt opens. Terminal replay is idempotent only when status and failure metadata agree.
+`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests. A bound open set is recoverable only when its owner actor/run matches the current delegated holder; holder drift or artifact drift atomically supersedes both the private set and attempt before a fresh attempt opens. A failure atomically abandons its open private change set. The same accepted plan/slice cannot open a later attempt after deterministic failure; terminal replay is idempotent only when status and failure metadata agree. Rebase supersession and recovery of one still-running exact attempt remain available because they respond to changed state or lost transport, not a second draw of the same execution.
 
 ### 13.4 Execution brief
 
@@ -3077,48 +3132,63 @@ Rules:
 6. include no mutable “latest contract” pointer;
 7. strict-parse and verify all parent digests before model invocation.
 
-The system prompt stays static for cacheability. The brief, current workspace
-summary, diagnostics delta, and prior tool results are volatile messages. Each
-design session supplies one executor prompt-cache routing key together with
-the provider cache options and an explicit stable boundary on the slice's
-initial brief; the growing transcript itself remains immutable between calls.
+The system prompt stays static for cacheability. Each step reconstructs a
+current checkpoint from the immutable brief plus the workspace's durable
+snapshot, diagnostics, intent coverage, and handle state, then includes only
+the latest assistant/tool result. Each design session supplies one executor
+prompt-cache routing key and the brief remains the stable cached prefix. No
+slice transcript grows across the build.
 
 ### 13.5 Executor tool protocol
 
 The executor receives:
 
 - read tools backed by the current `ToolWorkspace` snapshot;
-- stageable Blueprint tools projected through the staging schema;
-- executor-only granular construction tools;
+- `stageBatch`, generated from the stageable Blueprint registry and the
+  executor-only granular construction tools;
 - `inspectChangeSet`;
 - `commitChangeSet`;
-- `raiseDesignExecutionIssue`;
+- `reportExecutionBlocker`;
 - no external-effect capability;
 - no app lifecycle/finalization tool;
 - no user-facing final-answer tool.
 
-Every executable call uses the AI SDK's stable `toolCallId` as the `stagingRequestId`. Every mutating call also carries executor-only `implementedIntentIds`; the dispatcher verifies that each ID belongs to the slice, removes that field before the canonical tool schema parses, and persists the IDs beside the admitted step:
+Every outer executable call uses the AI SDK's stable `toolCallId`. Each
+operation inside `stageBatch` uses `<toolCallId>:<index>` as its durable stage
+request identity. Every operation also carries executor-only
+`implementedIntentIds`; the dispatcher verifies that each ID belongs to the
+slice, removes that field before the canonical tool schema parses, and
+persists the IDs beside the admitted step:
 
 ```ts
 interface ExecutorToolRequest {
   toolCallId: string;
-  toolName: string;
-  input: unknown;
-  implementedIntentIds?: DesignId[];
-  expectedWorkspaceRevision: WorkspaceRevision;
+  toolName: "stageBatch";
+  operations: Array<{
+    toolName: string;
+    input: unknown;
+    implementedIntentIds: DesignId[];
+    outputHandles?: string[];
+  }>;
 }
 ```
 
-The server computes the exact input digest. Replaying the same `toolCallId` with the same tool, revision, and digest returns the stored receipt. Reusing it with different content is a terminal executor protocol error.
+The server computes each operation's exact input digest. Replaying the same
+subrequest identity with the same tool, stored expected revision, and digest
+returns the stored receipt. Reusing it with different content is a terminal
+executor protocol error.
 
 The model never supplies a batch ID, ordinal, holder nonce, Project identity,
 commit authority, or invented UUID. It uses handles for handle-capable
 structural entities, including organization levels, automations, and their
 nested authored items. Server-owned creation tools mint and return identities
-for authorable families that are not handle-projected, such as personas, user
-types, worker properties, and location properties; later calls reuse those
-returned identities. References to pre-existing entities remain canonical
-UUIDs read from the brief or workspace.
+for authorable families that are not handle-projected. Worker properties, user
+types, and personas declare batch-local output handles so later operations in
+the same semantic group can consume their server-minted identities without an
+extra model round; the batch result returns the canonical bindings for later
+correction batches. Location properties return their canonical identities
+through their ordinary result. References to pre-existing entities remain
+canonical UUIDs read from the brief or workspace.
 
 ### 13.6 No parallel mutation semantics
 
@@ -3130,7 +3200,10 @@ Enforce this at the response/tool-dispatch boundary:
 2. inspect the returned tool-call set before executing any call;
 3. when more than one executable call is present, execute none and return a deterministic protocol result asking for one call;
 4. reads are not exempt; a read followed by a dependent write belongs in two ordered steps;
-5. a server-owned compound tool may perform multiple deterministic internal operations only when its schema and transaction define them as one invocation.
+5. `stageBatch` is the one server-owned compound call: its generated schema
+   carries an ordered list of ordinary Nova operations, the server dispatches
+   them serially with durable subrequest IDs, stops before the first rejection,
+   and returns the accepted prefix plus the failed and unattempted boundary.
 
 This removes dependency on the current `ToolLoopAgent` microtask behavior.
 
@@ -3156,7 +3229,11 @@ open/recover one change set
         ▼
 run one-call executor loop
         │
-        ├─ design issue ───────────► orchestrator
+        ├─ blocker evidence ───────► fresh Sol architect
+        │                              ├─ construction guidance ─► executor
+        │                              ├─ valid pre-genesis plan repair ─► orchestrator
+        │                              ├─ semantic/user question ─► pause
+        │                              └─ unsupported ─► fail honestly
         │
         ├─ fatal protocol/scope ───► fail attempt
         │
@@ -3164,8 +3241,6 @@ run one-call executor loop
 inspect exact diagnostics
         │
         ├─ fixable findings ───────► continue same change set
-        │
-        ├─ architectural gap ──────► orchestrator
         │
         ▼
 server checks commit preconditions
@@ -3203,12 +3278,14 @@ interface SliceExecutionBudget {
   maxStagedRequests: number;
   maxCommitAttempts: number;
   maxRebaseAttempts: number;
-  maxDesignIssueEscalations: number;
+  maxBlockerResolutions: number;
   maxWallClockMs: number;
 }
 ```
 
-Budgets derive from slice complexity and risk, with hard global ceilings. Exceeding a budget:
+Budgets derive from the admitted construction strategy's semantic-group count,
+owned-intent count, and risk, with hard global ceilings. A plan too large for
+the ceilings is split before persistence. Exceeding a budget:
 
 - leaves fixable gate findings in the current private change set, while a
   semantic rebase conflict supersedes the set and attempt before retry;
@@ -3216,6 +3293,13 @@ Budgets derive from slice complexity and risk, with hard global ceilings. Exceed
 - settles/refunds according to actual billable work and current run rules;
 - never commits a partial canonical prefix;
 - never reports completion.
+
+Budget or protocol failure is terminal for that exact accepted plan/slice. It
+cannot reopen under a later user turn. Transport/provider retries remain
+bounded inside the call path, a still-running attempt can recover after process
+death, and a semantic rebase can supersede onto a changed canonical base; none
+of those mechanisms reruns unchanged deterministic work because a person sent
+another message.
 
 The wall-clock budget is an absolute deadline, not a between-step check. The
 executor races provider, staging, and inspection awaits against one combined
@@ -3242,37 +3326,45 @@ The executor prompt and deterministic checks enforce:
 1. implement the accepted slice, not a module-by-module sketch;
 2. begin or recover one change set;
 3. attach the exact implemented owned-intent IDs to every mutating call;
-4. use local handles for new structural entity references and reuse identities
-   returned by server-owned creation tools for families whose schemas do not
-   expose handles; never fabricate UUIDs;
-5. stage complete modules/forms at natural semantic grain, using one shared
-   complete creation call when the accepted brief already specifies the
-   nested structure;
+4. use local handles for new structural entity references and batch-local
+   output handles for server-minted worker properties, user types, and
+   personas; never fabricate UUIDs;
+5. compile each admitted semantic group through one ordered `stageBatch`,
+   normally using complete module/form creation operations when the accepted
+   strategy already specifies their nested structure;
 6. use granular private creation only when a real dependency or call-size
    boundary requires an incomplete private intermediate rather than canonical
    completeness scaffolds;
 7. prefer direct answer-to-case writes when source semantics allow;
-8. while owned intents remain uncovered, stage complete semantic groups; then
-   inspect, correct the reported findings as a group, and inspect before commit;
+8. while owned intents remain uncovered, stage complete semantic groups; a
+   stopped batch keeps its accepted prefix, so correct only the failed
+   operation and dependent unattempted suffix; then inspect before commit;
 9. append corrections; do not reconstruct successful prior steps;
-10. raise a design issue rather than silently changing architecture;
+10. report exact blocker evidence rather than silently changing architecture;
 11. do not call unavailable external effects;
 12. do not say staged work is saved;
 13. commit once per successful slice boundary;
 14. do not continue after holder loss, Project movement, access loss, or artifact supersession.
 15. use fixed date durations only where on-device lowering preserves them;
-    never hand-build leap-year or calendar-month arithmetic, and raise a design
-    issue when the accepted intent requires unsupported calendar semantics.
+    never hand-build leap-year or calendar-month arithmetic, and report a
+    blocker when the accepted intent requires unsupported calendar semantics.
 
-### 13.10 Granular staging tools
+### 13.10 Batched staging surface
 
-The executor's closed model-facing surface combines staging-allowed shared tools with:
+The executor's closed model-facing surface is:
 
-- `stageModule`;
-- `stageForm`;
+- read-only shared tools;
+- `stageBatch`, whose operation union is generated from every current
+  staging-allowed mutation tool, including `stageModule` and `stageForm`;
 - `inspectChangeSet`;
 - `commitChangeSet`;
-- `raiseDesignExecutionIssue`.
+- `reportExecutionBlocker`.
+
+Mutation tools are not mounted as separate outer calls. `stageBatch` executes
+its operations serially and counts each operation against the staged-request
+budget. An ordinary rejection returns the accepted prefix, exact failed index,
+and unattempted count. Authority, lineage, idempotency, and integrity failures
+remain terminal rather than being converted into correction advice.
 
 `stageModule` and `stageForm` are the only private incomplete-creation grains.
 Complete module/form creation and module reordering ride the shared
@@ -3282,7 +3374,7 @@ ordinary canonical schemas parse the resolved UUID input. There is no
 `moveStagedModule`, `stageFields`, `stageCaseListColumn`, or
 `stageCaseOperation` twin. `discardChangeSet` is deliberately not model-facing:
 abandoning a slice is the orchestrator's decision (supersession, budget,
-escalation), never the executor's, so the discard writer exists only on the
+blocker disposition), never the executor's, so the discard writer exists only on the
 server surface.
 
 These tools reuse existing domain mutation builders where possible. They do not fork domain rules.
@@ -3333,39 +3425,59 @@ Use a calculated/hidden writer only for additional semantics:
 
 Lowering provenance from Design IDs to implementation coordinates persists with the canonical slice so conformance can distinguish an intentional calculated writer from accidental identity copying.
 
-### 13.12 Design issue escalation
+### 13.12 Compiler blocker and architect decision
 
 ```ts
-const designExecutionIssueSchema = z.object({
+const executionBlockerSchema = z.object({
   schemaVersion: z.literal(1),
-  id: designIdSchema,
-  category: z.enum([
-    "missing-information",
-    "contract-contradiction",
-    "platform-gap",
-    "stale-external-dependency",
-    "implementation-impossibility",
-  ]),
   affectedIntentIds: z.array(designIdSchema).min(1),
-  explanation: z.string().min(1),
-  evidenceRefs: z.array(sourceRefSchema),
-  implementationCoordinates: z.array(implementationCoordinateSchema),
-  structuralImpact: z.enum(["local", "architecture"]),
-  proposedOptions: z.array(z.string().min(1)).max(3),
+  observations: z.array(z.string().min(1)).min(1).max(12),
+  requestedDecision: z.string().min(1),
 }).strict();
+
+const architectBlockerDecisionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("continue"), guidance: z.string().min(1) }),
+  z.object({
+    kind: z.literal("plan-repair"),
+    reason: z.string().min(1),
+    repairedPlan: buildPlanDraftSchema,
+  }),
+  z.object({
+    kind: z.literal("contract-revision"),
+    reason: z.string().min(1),
+    question: z.string().min(1),
+    options: z.array(z.string().min(1)).max(3),
+  }),
+  z.object({
+    kind: z.literal("ask-user"),
+    question: z.string().min(1),
+    options: z.array(z.string().min(1)).max(3),
+  }),
+  z.object({ kind: z.literal("unsupported"), reason: z.string().min(1) }),
+]);
 ```
 
-A raised issue ends the slice attempt's model loop. The orchestrator's full disposition vocabulary is:
+Luna reports observations only. A fresh Sol call receives the exact accepted
+contract, current plan and slice brief, plus server-produced diagnostics. It
+decides whether existing operations can continue, the pre-materialization plan
+alone needs replacement, the contract meaning needs a reviewed revision, the
+accepted contract explicitly lacks a user decision, or Nova cannot represent
+the work.
 
-- answer from already accepted evidence and resume with a new immutable brief;
-- create and independently review a contract revision;
-- ask the user through the existing question protocol;
-- record a transparent deferred requirement and replan;
-- fail the build as unsupported.
+`continue` guidance returns to the same bounded compiler loop. A `plan-repair`
+is valid only before the materialization root commits; the complete replacement
+must pass the same contract-bound construction proofs and admission bounds as
+an original plan, persists as a new immutable plan, supersedes the root's open
+attempt/change set, becomes the session's active plan, and restarts internally.
+Only one such replacement is available in a build. After materialization,
+durable committed receipts keep their original plan lineage, so the architect
+must choose guidance, a real semantic question, or unsupported rather than
+rewriting ownership around committed work.
 
-The current new-build orchestrator exercises two of those arms: `missing-information` routes to the user question protocol, and every other category ends the run as an honest recoverable failure. The session stays claimable; the attempt records the category and the append-only orchestration failure event retains the full typed issue for diagnosis and later disposition. Unit F adds the evidence-answer, revision, and replan dispositions through its bounded correction loop.
-
-The executor cannot edit the Design Contract, disposition a reviewer finding, or select a new architecture.
+The compiler cannot edit the Design Contract, declare its own report
+authoritative, disposition a reviewer finding, or address the user. Unit F's
+post-commit findings and correction loop remain separate from this
+construction-time resolver.
 
 ### 13.13 Rebase policy
 
@@ -3389,10 +3501,18 @@ On process restart:
 3. load the active slice attempt;
 4. lock and rehydrate its change set;
 5. verify every artifact and base digest;
-6. return persisted tool receipts for already completed tool calls;
-7. continue from the first uncompleted model step or run a fresh bounded step with the current brief and diagnostics.
+6. return persisted receipts for replayed stage subrequest IDs;
+7. reconstruct the executor checkpoint from the current brief, exact durable
+   intent coverage, handle bindings, current candidate summary, and
+   diagnostics, then run a fresh bounded step without replaying a growing
+   model transcript.
 
 A model response itself is not replay authority. Durable staged requests and orchestration events are.
+
+`scripts/inspect-design-slice.ts` exports this exact accepted
+revision/plan/slice fixture and, when supplied a change-set ID, its proven base,
+admitted steps, handles, read set, and reconstructed candidate. It is read-only
+and enables step-local diagnosis without rerunning design or prior slices.
 
 ### 13.15 Slice commit receipt
 
@@ -3899,16 +4019,13 @@ halts the progress region throughout an unfinished design build, before or
 after materialization, so neither a planning label nor a working spinner
 survives over stopped work. A completed app edit with attached design lineage
 remains on the ordinary chat error path.
-Recoverability and exact-plan replay are separate facts. The classified error
-event carries `designRecovery: "retry-plan"` only when an operational execution
-or rebase budget stopped an otherwise authoritative accepted plan. Design,
-review, external-prerequisite, and protocol/integrity failures never gain an
-exact-plan retry from their message text. Retry and partial-acceptance controls
-render only for editors; Project authorization remains the server-side write
-boundary. A cold load re-derives exact-plan replay only from the durable
-`execution-budget-exhausted` or `rebase-budget-exhausted` orchestration failure,
-so refresh preserves an eligible recovery without broadening other recoverable
-errors. A completed build's progress projection retires when a later chat turn
+
+Provider, transport, transaction, and lost-response retries stay internal and
+idempotent. A deterministic executor, protocol, or admitted-plan failure marks
+that exact plan/slice terminal and never exposes a user control that redrives the
+same work. A person may still continue with an eligible valid materialized app;
+doing so accepts the committed partial result rather than retrying a known-bad
+slice. A completed build's progress projection retires when a later chat turn
 opens, so ordinary edits use the normal conversation activity state until a
 server frame opens another design phase.
 
@@ -4053,8 +4170,9 @@ A browser disconnect is not cancellation; server work and durable stream behavio
 Automatic instance-death recovery re-drives the existing durable transcript
 with the regenerate request control, omits the dead run's partial assistant
 suffix, and does not manufacture a user-authored message. The persisted design
-artifacts and original user evidence remain the recovery seed. Only a person
-pressing **Try again** adds that visible retry turn.
+artifacts and original user evidence remain the recovery seed. It is available
+only for interrupted infrastructure work: a message cannot reopen a terminal
+deterministic plan/slice attempt.
 
 ### 15.11 Explicit blank path
 
@@ -4110,14 +4228,15 @@ The executor gains:
 - immutable reviewed task specifications;
 - slice-bounded context;
 - local handles instead of UUID bookkeeping;
-- granular construction;
+- construction-ready semantic strategies;
+- bounded compound staging batches;
 - durable idempotent request receipts;
-- amendment instead of payload recomposition;
+- checkpoint reconstruction instead of a growing model transcript;
 - exact introduced/resolved diagnostics;
 - explicit external dependency/read-set errors;
 - deterministic module reordering;
 - direct-write lowering provenance;
-- bounded issue escalation;
+- evidence-only blocker reporting;
 - crash-safe resume.
 
 The orchestrator gains:
@@ -4125,7 +4244,9 @@ The orchestrator gains:
 - immutable design/review/build artifacts;
 - server-owned state transitions;
 - exact slice receipts;
-- bounded correction loops;
+- fresh architect-owned blocker decisions and one valid pre-materialization
+  plan replacement when construction was underspecified;
+- terminal deterministic slice attempts instead of cross-run redrives;
 - honest completion artifacts.
 
 ### 15.15 Design history after build — Unit F (remaining)
@@ -4635,6 +4756,14 @@ The event fold strict-parses the complete suffix. Runtime may `SELECT, INSERT` o
 
 `design_slice_attempts` is the mutable execution-control row described in section 13. It holds immutable input identities plus status and failure metadata. One partial unique index permits one `running` attempt per `(design_session_id, build_plan_id, slice_id)`.
 
+Its status vocabulary is `running | committed | superseded | failed`. A
+`failed` attempt atomically abandons its bound open change set and permanently
+closes that exact `(build plan, slice)` execution. `superseded` is reserved for
+a changed authoritative base or the one pre-materialization replacement plan;
+it is not a retry spelling. Recovery may reacquire one exact still-running
+attempt after holder loss, but may not create a fresh attempt after a
+deterministic terminal result.
+
 `design_committed_slices` is append-only and stores the exact `CommittedSliceReceipt`:
 
 ```text
@@ -4981,10 +5110,10 @@ the contracts in Sections 1–13 and 18:
 2. **Atomic Change Sets:** private candidates persist exact admitted steps, handles, read sets, diagnostics, and idempotency receipts. Staged state reaches no canonical reader or stream. Commit replays the complete candidate and writes the canonical revision, exact running-attempt transition, committed-slice receipt, and implementation provenance in one transaction.
 3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
 4. **Pre-app generation target:** owner-private build design sessions carry run, reservation, thread, stream, pause, resume, failure, discard cleanup, and reaper semantics before an app exists. Materialization transfers that authority once to the Project-shared app; all later writers lock and authorize the delegated app holder.
-5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. The bounded executor stages exact per-step intent ownership, admits no blocking external action without a registered receipt producer, meters every provider response observed before its post-await deadline decision, and commits each later slice as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. The app remains reopenable after a later recoverable slice failure.
-   New plans keep each slice within the 30-owned-intent admission bound, while
-   historical plans remain readable. On-device date lowering uses only
-   supported fixed durations and never substitutes hand-built calendar math.
+5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. Every accepted slice carries mechanically checked semantic construction strategies for its owned tasks, facts, reads, access, and navigation. The bounded executor receives a reconstructed checkpoint, stages compound batches with server-minted output handles and exact per-step intent ownership, and reports blockers as evidence rather than choosing architecture. A fresh server-owned architect may continue, request a real contract/user decision, or replace the plan once before materialization; deterministic failures permanently close the exact plan/slice instead of becoming a user-visible retry. Required external actions must have a registered receipt producer before their dependent slice opens, and each later slice commits as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. A valid materialized app remains reachable after a later terminal slice failure.
+   Every accepted plan keeps each slice within the 30-owned-intent admission
+   bound. On-device date lowering uses only supported fixed durations and
+   never substitutes hand-built calendar math.
 6. **Recovery and UI:** a fresh design immediately acquires a durable
    `/build/new?design=<id>` recovery URL; a materialized scope resolves to the
    authoritative app. Active designs participate in the Project empty-state
@@ -5141,6 +5270,14 @@ a third delivery unit.
 - Dependency references do not count as ownership.
 - Every acceptance scenario belongs to at least one slice (a corrective slice may carry none — scenarios are contract objects a plan covers, not per-slice inventions).
 - Every external action has a stable ID, timing, idempotency, required-for policy, and completion evidence type.
+- Every owned task, fact, read model, access decision, and navigation node is
+  covered exactly once by a kind-compatible semantic construction group.
+- Task groups prove exact form, launch context, and transition lowering; fact
+  groups prove storage, writer, and unanswered-value behavior; read groups
+  prove search/filter and actor partitioning; access and navigation groups
+  prove every required layer and destination.
+- A construction group cannot claim a foreign intent or silently broaden its
+  slice's ownership.
 - Exclusive operations occupy isolated slices/change sets.
 - Plan design revision/digest matches the accepted contract.
 - A contract revision makes the prior plan unusable, not silently current.
@@ -5428,9 +5565,17 @@ Unit/browser tests:
 - artifact digest mismatch stops execution;
 - active slice attempt uniqueness;
 - resume returns stored tool receipts;
-- budget exhaustion persists honest failure;
-- design issue ends executor loop;
-- contract revision supersedes obsolete attempts/change sets;
+- checkpoint reconstruction does not replay a growing model transcript;
+- compound staging stops at the first rejected subrequest and preserves the
+  accepted prefix exactly;
+- blocker evidence cannot choose a plan or contract outcome;
+- a valid replacement plan may be installed at most once and only before
+  materialization;
+- later plan-repair requests, output-handle contract failures, and budget
+  exhaustion persist terminal honest failure;
+- failed attempts atomically abandon their open change set and cannot reopen
+  under a new run or holder;
+- a real contract revision supersedes obsolete attempts/change sets;
 - commit receipt is the only slice-completed authority;
 - model saying “done” without receipt changes nothing;
 - no external effect is executed from the executor;
@@ -5540,7 +5685,7 @@ interface DesignBuildMetrics {
   plannedSliceCount: number;
   committedSliceCount: number;
   supersededSliceAttemptCount: number;
-  designIssueEscalationCount: number;
+  blockerResolutionCount: number;
 
   stagedToolCallCount: number;
   idempotentToolReplayCount: number;
@@ -5615,6 +5760,7 @@ Use stable codes:
 - `ACTIVATION_DIGEST_MISMATCH`
 - `CONFORMANCE_CRITICAL_UNRESOLVED`
 - `EXECUTION_BUDGET_EXHAUSTED`
+- `EXECUTION_PLAN_TERMINAL`
 
 Logs carry code, safe IDs, counts, versions, digests, database error class/code, and finish reason. They do not carry customer content.
 
@@ -5907,7 +6053,11 @@ behavior. It does not preserve rollout history.
   and direct-editor validity.
 - `content/docs/building-with-nova.mdx` explains the current reviewed build,
   designs-in-progress recovery, meaningful first workflow, later-slice
-  recovery, explicit blank path, and external prerequisites in user language.
+  terminal partial-build handling, explicit blank path, and external
+  prerequisites in user language.
+- `scripts/inspect-design-slice.ts` exports one accepted slice and its optional
+  private workspace as a read-only diagnostic fixture, so a failed step can be
+  investigated without rerunning paid prior phases.
 
 Stable `file::symbol` references are used instead of line numbers. Ordinary
 help never exposes holder nonces, transaction sidecars, admitted mutations, or
@@ -5972,66 +6122,74 @@ The program is complete only when all of the following are true.
 14. Exactly one materialization root exists, has no prerequisite slices, and directly owns everything required for the first export-ready app.
 15. External actions are typed, idempotent, and separately receipted.
 16. The executor receives one immutable slice brief and one private workspace.
-17. One executor step executes at most one tool call.
-18. Staging requests are durable/idempotent across lost responses and process death.
-19. Local handles resolve before original tool-schema and mutation admission and never enter canonical history.
-20. Open change sets may be incomplete but never executable or user/peer visible.
-21. Boundary rejection is corrected by appending steps, not resending successful payloads.
-22. External-effect tools are impossible in an open change set.
-23. Every executor/review/rebase/correction loop has a hard bound.
+17. One executor step executes at most one compound staging batch or one
+    blocker report; each admitted subrequest still passes its original shared
+    tool schema and mutation gate.
+18. Staging subrequests are durable/idempotent across lost responses and
+    process death.
+19. Server-minted local handles resolve before original tool-schema and
+    mutation admission and never enter canonical history.
+20. The executor reconstructs bounded checkpoints from durable state rather
+    than accumulating a model transcript.
+21. Open change sets may be incomplete but never executable or user/peer visible.
+22. A rejected batch preserves its accepted prefix and does not resend
+    successful payloads.
+23. External-effect tools are impossible in an open change set.
+24. Every executor/review/rebase/correction loop has a hard bound, and a
+    deterministic failed plan/slice cannot be reopened by another user turn.
 
 ### Canonical commit parity
 
-24. Shared tools use a workspace/host without caller-owned `prevDoc`.
-25. Canonical chat, MCP, and builder behavior remains equivalent to the pre-refactor path.
-26. Change-set commit reuses the canonical transaction kernel.
-27. Dedup, fresh Project authorization, exact holder, lookup locks, media, organization integrity, exclusive case-store work, entity/history/reference writes, and notification order are preserved.
-28. A commit retry cannot duplicate a canonical batch.
+25. Shared tools use a workspace/host without caller-owned `prevDoc`.
+26. Canonical chat, MCP, and builder behavior remains equivalent to the pre-refactor path.
+27. Change-set commit reuses the canonical transaction kernel.
+28. Dedup, fresh Project authorization, exact holder, lookup locks, media, organization integrity, exclusive case-store work, entity/history/reference writes, and notification order are preserved.
+29. A commit retry cannot duplicate a canonical batch.
 
 ### Pre-app run and conversation
 
-29. A chat build can converse, review, pause, stream, bill, recover, and retain attachments without an app row.
-30. Cross-target generation admission is atomic for one actor.
-31. Target-polymorphic thread behavior preserves barriers, terminal seals, claw-back, tombstones, re-drive, and resume cursors.
-32. Thread media references are exact and separate from Blueprint media references.
-33. Credit reservation/refund/settle and run summaries remain exact across target kinds.
-34. Edit design sessions do not own a second holder/reservation.
+30. A chat build can converse, review, pause, stream, bill, recover, and retain attachments without an app row.
+31. Cross-target generation admission is atomic for one actor.
+32. Target-polymorphic thread behavior preserves barriers, terminal seals, claw-back, tombstones, re-drive, and resume cursors.
+33. Thread media references are exact and separate from Blueprint media references.
+34. Credit reservation/refund/settle and run summaries remain exact across target kinds.
+35. Edit design sessions do not own a second holder/reservation.
 
 ### Materialization and activation
 
-35. A conversational build creates no app before a meaningful valid slice exists.
-36. The first chat-built revision is meaningful, export-ready, and sequence `1`.
-37. Materialization yields no app or one complete app at every failure point.
-38. Required runtime case-schema state exists before activation.
-39. Concurrent index work is durable post-commit convergence and never validity.
-40. Holder/reservation transfers exactly once from design session to app.
-41. The strict activation receipt is digest-bound and idempotent.
-42. Losing the activation frame cannot duplicate or orphan an app.
-43. The app tree never flashes a generic starter.
-44. Explicit blank creation remains immediate and produces the minimal Survey/Form/Question app.
+36. A conversational build creates no app before a meaningful valid slice exists.
+37. The first chat-built revision is meaningful, export-ready, and sequence `1`.
+38. Materialization yields no app or one complete app at every failure point.
+39. Required runtime case-schema state exists before activation.
+40. Concurrent index work is durable post-commit convergence and never validity.
+41. Holder/reservation transfers exactly once from design session to app.
+42. The strict activation receipt is digest-bound and idempotent.
+43. Losing the activation frame cannot duplicate or orphan an app.
+44. The app tree never flashes a generic starter.
+45. Explicit blank creation remains immediate and produces the minimal Survey/Form/Question app.
 
 ### Conformance and completion truth
 
-45. Implementation projection/conformance is deterministic and sequence-bound.
-46. Model-only heuristics cannot be critical blockers.
-47. Grounded critical conformance findings prevent a false completion claim but not valid app use.
-48. Structural scenario evidence is not reported as full runtime proof.
-49. Correction is another ordinary valid slice and is bounded.
-50. External/manual setup is named honestly.
-51. Human/direct MCP edits remain valid when design metadata is absent or stale.
-52. Legacy apps never receive fabricated historical rationale.
+46. Implementation projection/conformance is deterministic and sequence-bound.
+47. Model-only heuristics cannot be critical blockers.
+48. Grounded critical conformance findings prevent a false completion claim but not valid app use.
+49. Structural scenario evidence is not reported as full runtime proof.
+50. Correction is another ordinary valid slice and is bounded.
+51. External/manual setup is named honestly.
+52. Human/direct MCP edits remain valid when design metadata is absent or stale.
+53. Legacy apps never receive fabricated historical rationale.
 
 ### Persistence, delivery, and operations
 
-53. Database constraints reject impossible target/status/holder combinations.
-54. New tables are covered by runtime types, exact JSON parsing, privileges, probes, Project move, delete, and retention inventories.
-55. Cross-Project identifiers are opaque.
-56. No raw source, transcript, Design Contract, mutation payload, or model reasoning is written to general logs/Sentry.
-57. Transaction retries cannot duplicate external effects.
-58. Migration/cutover uses one final shape with no dual reader/writer or feature flag.
-59. Current-state contracts, subtree docs, public docs, operational docs, and MCP reference agree.
-60. The implementation deletes obsolete early-app and old build-event paths.
-61. A coding agent can trace every unit to exact files/symbols, invariants, tests, and acceptance gates in this plan.
+54. Database constraints reject impossible target/status/holder combinations.
+55. New tables are covered by runtime types, exact JSON parsing, privileges, probes, Project move, delete, and retention inventories.
+56. Cross-Project identifiers are opaque.
+57. No raw source, transcript, Design Contract, mutation payload, or model reasoning is written to general logs/Sentry.
+58. Transaction retries cannot duplicate external effects.
+59. Migration/cutover uses one final shape with no dual reader/writer or feature flag.
+60. Current-state contracts, subtree docs, public docs, operational docs, MCP reference, and replay inspector agree.
+61. The implementation deletes obsolete early-app and old build-event paths.
+62. A coding agent can trace every unit to exact files/symbols, invariants, tests, and acceptance gates in this plan.
 
 ## 25. Final product principle
 

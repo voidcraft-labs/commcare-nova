@@ -36,8 +36,7 @@ import { type Kysely, sql } from "kysely";
 
 const SHA256_HEX = "'^[a-f0-9]{64}$'";
 
-const ATTEMPT_STATUSES =
-	"'running', 'committed', 'superseded', 'design-issue', 'failed'";
+const ATTEMPT_STATUSES = "'running', 'committed', 'superseded', 'failed'";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`

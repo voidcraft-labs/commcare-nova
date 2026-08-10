@@ -581,9 +581,6 @@ export class GenerationContext
 			message: error.message,
 			fatal: !error.recoverable,
 			...(opts?.runContinues === true && { runContinues: true }),
-			...(error.designRecovery !== undefined && {
-				designRecovery: error.designRecovery,
-			}),
 		};
 		try {
 			this.emitConversation({ type: "error", error: payload });

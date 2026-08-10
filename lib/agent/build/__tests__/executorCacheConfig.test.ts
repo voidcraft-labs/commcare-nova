@@ -62,4 +62,42 @@ describe("productionExecutorStep cache configuration", () => {
 			content: [{ type: "text", text: "accepted slice brief" }],
 		});
 	});
+
+	it("keeps an existing brief breakpoint ahead of the volatile checkpoint", async () => {
+		const messages: ModelMessage[] = [
+			{
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "accepted slice brief",
+						providerOptions: {
+							openai: { promptCacheBreakpoint: { mode: "explicit" } },
+						},
+					},
+				],
+			},
+			{
+				role: "user",
+				content: [{ type: "text", text: "current private candidate" }],
+			},
+		];
+		const step = productionExecutorStep(
+			{} as LanguageModel,
+			"high",
+			"nova:design-executor:session-1",
+		);
+		await step({
+			system: "static executor",
+			messages,
+			tools: {},
+			signal: new AbortController().signal,
+		});
+
+		const request = generateTextMock.mock.calls[0]?.[0];
+		expect(request.messages[0].content[0].providerOptions).toEqual({
+			openai: { promptCacheBreakpoint: { mode: "explicit" } },
+		});
+		expect(request.messages[1].content[0].providerOptions).toBeUndefined();
+	});
 });

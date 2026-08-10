@@ -38,11 +38,13 @@ starting a second copy.
 ## If a later step stops
 
 The app remains available when its first workflow was saved and a later part of
-the build stops. Open its app card to review the conversation and continue the
-build. A failed later step does not invalidate or hide the working revision that
-already exists. You can also choose **Use what’s built** to finish with the
-workflows already added and unlock the builder; Nova keeps the unbuilt items in
-the design record rather than claiming they were completed.
+the build stops. Open its app card to review what was completed. A failed later
+step does not invalidate or hide the working revision that already exists.
+Choose **Use what’s built** to finish with the workflows already added and
+unlock the builder; Nova keeps the unbuilt items in the design record rather
+than claiming they were completed. Temporary provider, connection, and database
+interruptions recover automatically. Nova does not ask you to retry a build
+step that has already reached a deterministic failure.
 
 ## Start with a blank app
 

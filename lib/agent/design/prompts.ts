@@ -280,9 +280,9 @@ filter remains the data-selection gate.
   registering task's capture and writes, a usable read model, navigation,
   access bindings), and nothing unrelated merely to save later commits.
 - A named worker-data key used by access or navigation is Blueprint structure,
-  not worker provisioning. Put "users" in expectedBlueprintAreas for the
-  earliest slice that needs the key and let that slice declare the property;
-  assigning values on real worker accounts remains external.
+  not worker provisioning. Put "users" in the earliest relevant semantic
+  group's blueprintAreas and let that slice declare the property; assigning
+  values on real worker accounts remains external.
 - The prerequisite graph is acyclic and every prerequisite is a slice in
   this plan.
 - A slice's ownedIntentIds are always a subset of its intentIds
@@ -293,6 +293,20 @@ filter remains the data-selection gate.
   include the owner).
 - Every acceptance scenario belongs to at least one slice's
   acceptanceScenarioIds.
+- Every slice carries a constructionStrategy. Partition every owned intent
+  exactly once into small semanticGroups, and map every owned intent exactly
+  once in lowerings: records to case-type, facts to case-property, rules to
+  form-logic, tasks to task-form, transitions to case-operation, read models
+  to their chosen case-list or case-search mode, access policies to
+  access-control, and navigation to navigation. Do not copy Blueprint objects,
+  names, expressions, or UUIDs into the strategy.
+- Make the executable choices explicit in the strategy: registration versus
+  selected-case action versus survey; exact selected record and transitions;
+  each fact's source-matching writer and preserve-on-unanswered behavior;
+  case list versus search and its exact search facts; role partition; every
+  access layer (hidden navigation alone never enforces data access); module
+  versus menu navigation; and the exact manual-setup actions. These choices
+  must follow the accepted contract rather than inventing new semantics.
 - A slice owning a child-creating task must be able to reach a read model
   over the parent record in itself or its prerequisites — the worker
   selects the parent first.

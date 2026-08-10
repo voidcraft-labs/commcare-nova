@@ -385,11 +385,7 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 			[
 				`${slice.name} — ${slice.goal}`,
 				`Role: ${slice.role}. Risk: ${slice.risk}.`,
-				`Blueprint areas it is expected to touch: ${
-					slice.expectedBlueprintAreas.length > 0
-						? slice.expectedBlueprintAreas.join(", ")
-						: "none stated"
-				}.`,
+				`Construction strategy: ${JSON.stringify(slice.constructionStrategy)}`,
 				`Intents this slice OWNS and must land: ${brief.owningIntentIds.join(", ")}`,
 				brief.dependencyIntentIds.length > 0
 					? `Intents it depends on but does NOT own (context — another slice owns them): ${brief.dependencyIntentIds.join(", ")}`

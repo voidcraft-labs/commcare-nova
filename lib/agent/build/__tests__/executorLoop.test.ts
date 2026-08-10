@@ -102,6 +102,9 @@ interface FakeWorkspace extends ExecutorWorkspace {
 
 function fakeWorkspace(options?: {
 	inspect?: () => Promise<ChangeSetDiagnostics>;
+	executionCheckpoint?: ReturnType<
+		ExecutorWorkspace["currentExecutionCheckpoint"]
+	>;
 	stage?: (args: {
 		toolName: string;
 		requestId: string;
@@ -120,6 +123,14 @@ function fakeWorkspace(options?: {
 				canonicalSeq: null,
 				projectId: "project-1",
 			};
+		},
+		currentExecutionCheckpoint() {
+			return (
+				options?.executionCheckpoint ?? {
+					intentCoverage: [],
+					handles: [],
+				}
+			);
 		},
 		async stageDispatch(args) {
 			staged.push({
@@ -183,7 +194,18 @@ it("checkpoints the identities needed to continue after compaction", () => {
 		},
 	};
 	doc.userPropertyOrder = [userPropertyUuid];
-	const workspace = fakeWorkspace();
+	const workspace = fakeWorkspace({
+		executionCheckpoint: {
+			intentCoverage: [{ intentId: ids.taskRegister, stepCount: 2 }],
+			handles: [
+				{
+					handle: "@registration",
+					uuid: testUuid("22222222-2222-4222-8222-222222222222"),
+					entityKind: "form",
+				},
+			],
+		},
+	});
 	workspace.currentSnapshot = () => ({
 		doc,
 		revision: 7,
@@ -201,13 +223,39 @@ it("checkpoints the identities needed to continue after compaction", () => {
 	expect(summary).toContain(`Module ${moduleUuid}`);
 	expect(summary).toContain(`Form ${formUuid}`);
 	expect(summary).toContain(`notes:text (${fieldUuid})`);
+	expect(summary).toContain(ids.taskRegister);
+	expect(summary).toContain("@registration=form:");
 });
 
 type ScriptedStep =
 	| { text: string }
 	| { calls: { toolCallId: string; toolName: string; input?: unknown }[] };
 
+const VALID_BLOCKER = {
+	schemaVersion: 1 as const,
+	affectedIntentIds: [ids.taskRegister],
+	observations: ["The current operation cannot satisfy the accepted slice."],
+	requestedDecision: "Clarify the safe construction that preserves the design.",
+};
+
+function batchInput(toolName: string, input: unknown = {}) {
+	return {
+		operations: [
+			{
+				toolName,
+				input: {
+					...(input as Record<string, unknown>),
+					implementedIntentIds: [brief().owningIntentIds[0]],
+				},
+			},
+		],
+	};
+}
+
 function scriptedInput(call: { toolName: string; input?: unknown }): unknown {
+	if (call.toolName === "reportExecutionBlocker") {
+		return call.input ?? VALID_BLOCKER;
+	}
 	const input = call.input ?? {};
 	const entry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
 	if (entry?.policy.effect !== "mutate-blueprint") return input;
@@ -267,6 +315,7 @@ function run(args: {
 	commit?: () => Promise<SliceCommitResult>;
 	onProgress?: (note: string) => void;
 	onUsage?: Parameters<typeof runSliceExecutor>[0]["onUsage"];
+	resolveBlocker?: Parameters<typeof runSliceExecutor>[0]["resolveBlocker"];
 }) {
 	const plan = makeBuildPlan();
 	const slice = plan.slices[0];
@@ -282,6 +331,12 @@ function run(args: {
 				throw new Error("commit must not be called");
 			}),
 		signal: new AbortController().signal,
+		resolveBlocker:
+			args.resolveBlocker ??
+			(async () => ({
+				kind: "unsupported" as const,
+				reason: "The scripted test ended execution.",
+			})),
 		...(args.onProgress !== undefined && { onProgress: args.onProgress }),
 		...(args.onUsage !== undefined && { onUsage: args.onUsage }),
 	});
@@ -308,6 +363,29 @@ function toolResults(
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("runSliceExecutor — the one-call law", () => {
+	it("pins the immutable brief as the cache prefix before the volatile checkpoint", async () => {
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "stage",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace: fakeWorkspace(), step });
+
+		const first = seen[0] ?? [];
+		const second = seen[1] ?? [];
+		expect(JSON.stringify(first[0])).toContain("promptCacheBreakpoint");
+		expect(JSON.stringify(first[1])).not.toContain("promptCacheBreakpoint");
+		expect(first[0]).toEqual(second[0]);
+	});
+
 	it("executes none of a multi-call step and answers both calls", async () => {
 		const workspace = fakeWorkspace();
 		const { step, seen } = scriptedStep([
@@ -317,7 +395,7 @@ describe("runSliceExecutor — the one-call law", () => {
 					{ toolCallId: "b", toolName: "stageForm", input: { name: "Two" } },
 				],
 			},
-			{ calls: [{ toolCallId: "c", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "c", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace, step });
@@ -343,25 +421,69 @@ describe("runSliceExecutor — the one-call law", () => {
 			code: "no-tool-call",
 			message: expect.stringContaining("three consecutive steps"),
 		});
-		/* Two nudges landed before the third empty step ended it. */
+		/* The checkpoint carries only the latest nudge, not a growing transcript. */
 		const nudges = (seen[2] ?? []).filter(
 			(message) =>
 				message.role === "user" &&
 				JSON.stringify(message.content).includes("exactly one tool call"),
 		);
-		expect(nudges).toHaveLength(2);
+		expect(nudges).toHaveLength(1);
 	});
 });
 
 describe("runSliceExecutor — staged dispatch", () => {
+	it("offers output handles only on server-minted identity operations", async () => {
+		let definitions: Parameters<ExecutorStepFn>[0]["tools"] | undefined;
+		const step: ExecutorStepFn = async (args) => {
+			definitions = args.tools;
+			return {
+				toolCalls: [
+					{
+						toolCallId: "stop",
+						toolName: "reportExecutionBlocker",
+						input: VALID_BLOCKER,
+					},
+				],
+				text: "",
+				usage: undefined,
+				responseMessages: [],
+			};
+		};
+
+		await run({ workspace: fakeWorkspace(), step });
+
+		const batch = definitions?.stageBatch?.inputSchema as {
+			properties?: {
+				operations?: { items?: { oneOf?: unknown[] } };
+			};
+		};
+		const arms = (batch.properties?.operations?.items?.oneOf ?? []) as Array<{
+			properties?: Record<string, { const?: string }>;
+		}>;
+		const arm = (name: string) =>
+			arms.find((candidate) => candidate.properties?.toolName?.const === name);
+		expect(arm("addUserProperties")?.properties).toHaveProperty(
+			"outputHandles",
+		);
+		expect(arm("stageModule")?.properties).not.toHaveProperty("outputHandles");
+	});
+
 	it("passes the absolute slice deadline into the staging write", async () => {
 		const stage = vi.fn(async (_args: { deadlineAt?: number }) => ({
 			kind: "mutate",
 			mutations: [],
 		}));
 		const { step } = scriptedStep([
-			{ calls: [{ toolCallId: "a", toolName: "stageModule" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{
+				calls: [
+					{
+						toolCallId: "a",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace: fakeWorkspace({ stage }), step });
@@ -377,12 +499,12 @@ describe("runSliceExecutor — staged dispatch", () => {
 				calls: [
 					{
 						toolCallId: "call-42",
-						toolName: "stageModule",
-						input: { name: "Patients" },
+						toolName: "stageBatch",
+						input: batchInput("stageModule", { name: "Patients" }),
 					},
 				],
 			},
-			{ calls: [{ toolCallId: "c", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "c", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace, step });
@@ -390,13 +512,20 @@ describe("runSliceExecutor — staged dispatch", () => {
 		expect(workspace.staged).toEqual([
 			{
 				toolName: "stageModule",
-				requestId: "call-42",
+				requestId: "call-42:0",
 				input: { name: "Patients" },
 			},
 		]);
 		/* The envelope is unwrapped and the UI-only summary is stripped. */
-		expect(toolResults(seen[1] ?? [])[0]?.value).toEqual({
-			message: "Staged stageModule.",
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			status: "completed",
+			completed: [
+				{
+					index: 0,
+					toolName: "stageModule",
+					result: { message: "Staged stageModule." },
+				},
+			],
 		});
 	});
 
@@ -410,17 +539,152 @@ describe("runSliceExecutor — staged dispatch", () => {
 			},
 		});
 		const { step, seen } = scriptedStep([
-			{ calls: [{ toolCallId: "a", toolName: "stageForm" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{
+				calls: [
+					{
+						toolCallId: "a",
+						toolName: "stageBatch",
+						input: batchInput("stageForm"),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		const outcome = await run({ workspace, step });
 
-		expect(toolResults(seen[1] ?? [])[0]?.value).toEqual({
-			error: "No module with that identity exists in this change set.",
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			status: "stopped",
+			failed: {
+				index: 0,
+				toolName: "stageForm",
+				error: "No module with that identity exists in this change set.",
+			},
 		});
 		/* The loop kept going — a rejection is not terminal. */
 		expect(outcome.kind).not.toBe("protocol-failure");
+	});
+
+	it("stops a batch at the first rejection and preserves its admitted prefix", async () => {
+		const workspace = fakeWorkspace({
+			stage: async ({ toolName }) => {
+				if (toolName === "stageForm") {
+					throw new ChangeSetStagingRejectedError(
+						"TARGET_INVALID",
+						"The form needs a module that exists in the candidate.",
+					);
+				}
+				return {
+					kind: "mutate",
+					result: { message: `Staged ${toolName}.` },
+				};
+			},
+		});
+		const inputFor = (toolName: string) => ({
+			toolName,
+			input: {
+				implementedIntentIds: [brief().owningIntentIds[0]],
+			},
+		});
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "batch",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								inputFor("stageModule"),
+								inputFor("stageForm"),
+								inputFor("addFields"),
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		expect(workspace.staged.map((entry) => entry.requestId)).toEqual([
+			"batch:0",
+			"batch:1",
+		]);
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			completed: [{ index: 0, toolName: "stageModule" }],
+			failed: { index: 1, toolName: "stageForm" },
+			unattemptedCount: 1,
+		});
+	});
+
+	it("resolves server-minted worker identities through batch-local handles", async () => {
+		const propertyUuid = "11111111-1111-4111-8111-111111111111";
+		const workspace = fakeWorkspace({
+			stage: async ({ toolName }) => ({
+				kind: "mutate",
+				result:
+					toolName === "addUserProperties"
+						? { message: "Added property.", uuids: [propertyUuid] }
+						: { message: "Added role.", uuids: [] },
+			}),
+		});
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "users",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								{
+									toolName: "addUserProperties",
+									input: {
+										properties: [{ slug: "role", label: "Role" }],
+										implementedIntentIds: [ids.accessSupervisor],
+									},
+									outputHandles: ["@role_property"],
+								},
+								{
+									toolName: "addUserTypes",
+									input: {
+										userTypes: [
+											{
+												name: "Supervisor",
+												values: [
+													{
+														userPropertyUuid: {
+															handle: "@role_property",
+														},
+														value: "supervisor",
+													},
+												],
+											},
+										],
+										implementedIntentIds: [ids.accessSupervisor],
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		expect(workspace.staged[1]?.input).toMatchObject({
+			userTypes: [
+				{
+					values: [{ userPropertyUuid: propertyUuid }],
+				},
+			],
+		});
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			status: "completed",
+			bindings: { "@role_property": propertyUuid },
+		});
 	});
 
 	it("ends the attempt on lost scope", async () => {
@@ -432,7 +696,15 @@ describe("runSliceExecutor — staged dispatch", () => {
 			},
 		});
 		const { step } = scriptedStep([
-			{ calls: [{ toolCallId: "a", toolName: "stageModule" }] },
+			{
+				calls: [
+					{
+						toolCallId: "a",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
 		]);
 
 		expect(await run({ workspace, step })).toEqual({
@@ -445,14 +717,14 @@ describe("runSliceExecutor — staged dispatch", () => {
 	it("names the mounted tools when the model invents one", async () => {
 		const { step, seen } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "publishApp" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace: fakeWorkspace(), step });
 
 		const value = toolResults(seen[1] ?? [])[0]?.value as { error: string };
 		expect(value.error).toContain("There is no tool named publishApp");
-		expect(value.error).toContain("stageModule");
+		expect(value.error).toContain("stageBatch");
 		expect(value.error).toContain("commitChangeSet");
 	});
 });
@@ -470,7 +742,7 @@ describe("runSliceExecutor — commit is a request", () => {
 		);
 		const { step, seen } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace, step, commit });
@@ -549,7 +821,7 @@ describe("runSliceExecutor — commit is a request", () => {
 		});
 		const { step, seen } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "inspectChangeSet" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace, step });
@@ -597,7 +869,7 @@ describe("runSliceExecutor — commit is a request", () => {
 		const commit = vi.fn();
 		const { step, seen } = scriptedStep([
 			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
-			{ calls: [{ toolCallId: "b", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace, step, commit });
@@ -609,49 +881,49 @@ describe("runSliceExecutor — commit is a request", () => {
 	});
 });
 
-describe("runSliceExecutor — design issue escalation", () => {
-	const validIssue = {
-		schemaVersion: 1 as const,
-		id: "00000000-0000-4000-8000-0000000000ff",
-		category: "platform-gap" as const,
-		affectedIntentIds: [ids.taskRegister],
-		explanation: "The design needs case attachments, which Nova cannot emit.",
-		evidenceRefs: [],
-		implementationCoordinates: [],
-		structuralImpact: "architecture" as const,
-		proposedOptions: ["Capture the photo without saving it to the case."],
-	};
-
-	it("ends the loop on a valid escalation", async () => {
+describe("runSliceExecutor — architect blocker resolution", () => {
+	it("lets the server-owned architect classify a valid compiler report", async () => {
 		const { step } = scriptedStep([
 			{
 				calls: [
 					{
 						toolCallId: "a",
-						toolName: "raiseDesignExecutionIssue",
-						input: validIssue,
+						toolName: "reportExecutionBlocker",
+						input: VALID_BLOCKER,
 					},
 				],
 			},
 		]);
 
-		const outcome = await run({ workspace: fakeWorkspace(), step });
+		const outcome = await run({
+			workspace: fakeWorkspace(),
+			step,
+			resolveBlocker: async () => ({
+				kind: "ask-user",
+				question: "Which workflow should be available first?",
+				options: [],
+			}),
+		});
 
-		expect(outcome.kind).toBe("design-issue");
-		if (outcome.kind !== "design-issue") throw new Error("unreachable");
-		expect(outcome.issue.category).toBe("platform-gap");
-		expect(outcome.issue.affectedIntentIds).toEqual([ids.taskRegister]);
+		expect(outcome).toEqual({
+			kind: "architect-decision",
+			decision: {
+				kind: "ask-user",
+				question: "Which workflow should be available first?",
+				options: [],
+			},
+		});
 	});
 
-	it("returns an error and keeps going on an invalid escalation", async () => {
+	it("returns an error and keeps going on an invalid blocker report", async () => {
 		const workspace = fakeWorkspace();
 		const { step, seen } = scriptedStep([
 			{
 				calls: [
 					{
 						toolCallId: "a",
-						toolName: "raiseDesignExecutionIssue",
-						input: { ...validIssue, affectedIntentIds: [] },
+						toolName: "reportExecutionBlocker",
+						input: { ...VALID_BLOCKER, affectedIntentIds: [] },
 					},
 				],
 			},
@@ -659,8 +931,8 @@ describe("runSliceExecutor — design issue escalation", () => {
 				calls: [
 					{
 						toolCallId: "b",
-						toolName: "raiseDesignExecutionIssue",
-						input: validIssue,
+						toolName: "reportExecutionBlocker",
+						input: VALID_BLOCKER,
 					},
 				],
 			},
@@ -669,9 +941,9 @@ describe("runSliceExecutor — design issue escalation", () => {
 		const outcome = await run({ workspace, step });
 
 		const value = toolResults(seen[1] ?? [])[0]?.value as { error: string };
-		expect(value.error).toContain("could not be recorded");
+		expect(value.error).toContain("blocker report is invalid");
 		expect(value.error).toContain("affectedIntentIds");
-		expect(outcome.kind).toBe("design-issue");
+		expect(outcome.kind).toBe("architect-decision");
 	});
 });
 
@@ -768,7 +1040,15 @@ describe("runSliceExecutor — budgets", () => {
 	it("exhausts on staged requests", async () => {
 		const workspace = fakeWorkspace();
 		const { step } = scriptedStep([
-			{ calls: [{ toolCallId: "a", toolName: "stageModule" }] },
+			{
+				calls: [
+					{
+						toolCallId: "a",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
 		]);
 		const plan = makeBuildPlan();
 		const slice = plan.slices[0];
@@ -807,18 +1087,8 @@ describe("runSliceExecutor — plumbing", () => {
 			toolCalls: [
 				{
 					toolCallId: "issue",
-					toolName: "raiseDesignExecutionIssue",
-					input: {
-						schemaVersion: 1,
-						id: "00000000-0000-4000-8000-0000000000fe",
-						category: "platform-gap",
-						explanation: "The platform cannot represent this intent.",
-						affectedIntentIds: [ids.taskRegister],
-						evidenceRefs: [],
-						implementationCoordinates: [],
-						structuralImpact: "architecture",
-						proposedOptions: ["Revise the design"],
-					},
+					toolName: "reportExecutionBlocker",
+					input: VALID_BLOCKER,
 				},
 			],
 			text: "",
@@ -835,19 +1105,21 @@ describe("runSliceExecutor — plumbing", () => {
 		expect(seen).toEqual([usage]);
 	});
 
-	it("opens with one message carrying the brief and the workspace state", async () => {
+	it("opens with a stable brief followed by the current workspace state", async () => {
 		const { step, seen } = scriptedStep([
-			{ calls: [{ toolCallId: "a", toolName: "raiseDesignExecutionIssue" }] },
+			{ calls: [{ toolCallId: "a", toolName: "reportExecutionBlocker" }] },
 		]);
 
 		await run({ workspace: fakeWorkspace(), step });
 
 		const opening = seen[0];
-		expect(opening).toHaveLength(1);
-		const text = JSON.stringify(opening?.[0]);
-		expect(text).toContain("Patient registration and queue");
-		expect(text).toContain("Current change set");
-		expect(text).toContain("Nothing has been staged yet");
+		expect(opening).toHaveLength(2);
+		expect(JSON.stringify(opening?.[0])).toContain(
+			"Patient registration and queue",
+		);
+		const checkpoint = JSON.stringify(opening?.[1]);
+		expect(checkpoint).toContain("Current change set");
+		expect(checkpoint).toContain("Nothing has been staged yet");
 	});
 
 	it("emits only coarse, user-safe progress notes", async () => {

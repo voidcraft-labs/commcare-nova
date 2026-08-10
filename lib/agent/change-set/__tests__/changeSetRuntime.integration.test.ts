@@ -374,11 +374,13 @@ describe("private staging isolation", () => {
 	it("replays a lost response with identical receipt, handles, and revision — and survives process death", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const intentId = asDesignId(crypto.randomUUID());
 		const input = { moduleUuid: { handle: "@m" }, name: "Visits" };
 		const first = await workspace.stageDispatch({
 			toolName: "stageModule",
 			requestId: "call-1",
 			input,
+			intentIds: [intentId],
 		});
 
 		/* Same workspace instance. */
@@ -386,6 +388,7 @@ describe("private staging isolation", () => {
 			toolName: "stageModule",
 			requestId: "call-1",
 			input,
+			intentIds: [intentId],
 		});
 		expect(replay.replayed).toBe(true);
 		expect(replay.receipt).toEqual(first.receipt);
@@ -396,10 +399,15 @@ describe("private staging isolation", () => {
 		expect(canonicalJsonDigest(reopened.currentSnapshot().doc.modules)).toBe(
 			canonicalJsonDigest(workspace.currentSnapshot().doc.modules),
 		);
+		expect(reopened.currentExecutionCheckpoint()).toMatchObject({
+			intentCoverage: [{ intentId, stepCount: 1 }],
+			handles: [{ handle: "@m", entityKind: "module" }],
+		});
 		const replayAfterDeath = await reopened.stageDispatch({
 			toolName: "stageModule",
 			requestId: "call-1",
 			input,
+			intentIds: [intentId],
 		});
 		expect(replayAfterDeath.replayed).toBe(true);
 		expect(replayAfterDeath.receipt).toEqual(first.receipt);

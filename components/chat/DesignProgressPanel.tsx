@@ -35,18 +35,16 @@ import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface DesignProgressPanelProps {
 	readonly view: DesignProgressView;
-	readonly onRetry?: () => void;
 	/** Recovery actions mutate the design/app and are editor-only. */
 	readonly canRecover?: boolean;
 }
 
 export function DesignProgressStatus({
 	view,
-	onRetry,
 	canRecover = false,
 }: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
-	return <StageLine view={view} onRetry={onRetry} canRecover={canRecover} />;
+	return <StageLine view={view} canRecover={canRecover} />;
 }
 
 export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
@@ -90,19 +88,12 @@ export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
  */
 function StageLine({
 	view,
-	onRetry,
 	canRecover,
 }: {
 	readonly view: DesignProgressView;
-	readonly onRetry?: () => void;
 	readonly canRecover: boolean;
 }) {
 	const halted = view.stage === "failed" || view.stage === "incomplete";
-	const canRetry =
-		canRecover &&
-		view.stage === "incomplete" &&
-		view.canRetryPlan &&
-		onRetry !== undefined;
 	const canAcceptPartial =
 		canRecover &&
 		halted &&
@@ -180,16 +171,6 @@ function StageLine({
 					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
 						{view.failure}
 					</p>
-				)}
-				{canRetry && (
-					<Button
-						type="button"
-						variant="outline"
-						className="mt-2"
-						onClick={onRetry}
-					>
-						Try again
-					</Button>
 				)}
 				{canAcceptPartial && (
 					<div className="mt-2 flex flex-col items-start gap-1.5">

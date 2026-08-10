@@ -37,8 +37,6 @@ export interface MessageSourceProjection {
 	readonly text: string;
 	/** Images this message attached, riding as label + file part pairs. */
 	readonly images: readonly PackageImage[];
-	/** A transcript-only transport control with no design evidence. */
-	readonly omit?: true;
 }
 
 /** The asset ids a message's metadata names, read defensively (parts and
@@ -52,13 +50,6 @@ function messageAssetIds(message: UIMessage): string[] {
 	if (!Array.isArray(attachments)) return [];
 	return attachments.flatMap((ref) =>
 		typeof ref?.assetId === "string" ? [ref.assetId] : [],
-	);
-}
-
-function messageIsDesignBuildRetry(message: UIMessage): boolean {
-	return (
-		(message.metadata as { designBuildRetry?: unknown } | undefined)
-			?.designBuildRetry === true
 	);
 }
 
@@ -91,7 +82,6 @@ export function projectPackageOntoMessages(
 	const claimedAssets = new Set<string>();
 	for (const message of messages) {
 		if (message.role !== "user") continue;
-		const retryControl = messageIsDesignBuildRetry(message);
 		const lines = [...(blocksByMessage.get(message.id) ?? [])];
 		const images: PackageImage[] = [];
 		for (const assetId of messageAssetIds(message)) {
@@ -107,11 +97,6 @@ export function projectPackageOntoMessages(
 			if (image) images.push(image);
 		}
 		if (lines.length === 0 && images.length === 0) {
-			/* Keep the control in the durable/UI transcript but remove it from the
-			 * model projection completely. An empty user message is not sent either. */
-			if (retryControl) {
-				projections.set(message.id, { text: "", images: [], omit: true });
-			}
 			continue;
 		}
 		projections.set(message.id, {
@@ -136,7 +121,6 @@ export function applySourceProjection<M extends UIMessage>(
 		if (message.role !== "user") return [message];
 		const projection = projections.get(message.id);
 		if (projection === undefined) return [message];
-		if (projection.omit) return [];
 		const parts: UIMessage["parts"] = [];
 		if (projection.text.length > 0) {
 			parts.push({ type: "text", text: projection.text });

@@ -290,26 +290,21 @@ export async function buildDesignSourcePackage(
 
 	for (const message of args.messages) {
 		if (message.role !== "user") continue;
-		/* "Try again" is a transport control, not a new design requirement.
-		 * Keep it in the durable conversation while sealing the exact same source
-		 * package, so the persisted accepted plan remains active. */
-		if (message.metadata?.designBuildRetry !== true) {
-			message.parts.forEach((part, partIndex) => {
-				if (part.type !== "text") return;
-				const text = part.text.trim();
-				if (text.length === 0) return;
-				blocks.push({
-					ref: {
-						kind: "message",
-						threadId: args.threadId,
-						messageId: message.id,
-						partIndex,
-					},
-					text: text.slice(0, MAX_REQUEST_BLOCK_CHARS),
-					truncated: text.length > MAX_REQUEST_BLOCK_CHARS,
-				});
+		message.parts.forEach((part, partIndex) => {
+			if (part.type !== "text") return;
+			const text = part.text.trim();
+			if (text.length === 0) return;
+			blocks.push({
+				ref: {
+					kind: "message",
+					threadId: args.threadId,
+					messageId: message.id,
+					partIndex,
+				},
+				text: text.slice(0, MAX_REQUEST_BLOCK_CHARS),
+				truncated: text.length > MAX_REQUEST_BLOCK_CHARS,
 			});
-		}
+		});
 		for (const raw of message.metadata?.attachments ?? []) {
 			const parsed = attachmentRefSchema.safeParse(raw);
 			if (!parsed.success) {

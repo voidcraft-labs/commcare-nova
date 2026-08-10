@@ -23,7 +23,6 @@ const view: DesignProgressView = {
 	committedSliceNames: [],
 	materialized: false,
 	failure: null,
-	canRetryPlan: false,
 };
 
 describe("DesignProgressStatus", () => {
@@ -36,8 +35,7 @@ describe("DesignProgressStatus", () => {
 		expect(status.textContent).toContain("Designing your app");
 	});
 
-	it("offers an explicit re-drive for a recoverable stop", () => {
-		const onRetry = vi.fn();
+	it("does not turn a deterministic build stop into a user retry", () => {
 		render(
 			<DesignProgressStatus
 				view={{
@@ -46,29 +44,8 @@ describe("DesignProgressStatus", () => {
 					stageLabel: "Stopped before it finished",
 					working: false,
 					failure: "Nothing invalid was saved.",
-					canRetryPlan: true,
 				}}
 				canRecover
-				onRetry={onRetry}
-			/>,
-		);
-
-		screen.getByRole("button", { name: "Try again" }).click();
-		expect(onRetry).toHaveBeenCalledOnce();
-	});
-
-	it("does not offer exact-plan retry for a design failure", () => {
-		render(
-			<DesignProgressStatus
-				view={{
-					...view,
-					stage: "incomplete",
-					stageLabel: "Stopped before it finished",
-					working: false,
-					failure: "The design needs another decision.",
-				}}
-				canRecover
-				onRetry={vi.fn()}
 			/>,
 		);
 
@@ -86,9 +63,7 @@ describe("DesignProgressStatus", () => {
 					materialized: true,
 					committedSliceNames: ["Register a household"],
 					failure: "The build stopped.",
-					canRetryPlan: true,
 				}}
-				onRetry={vi.fn()}
 			/>,
 		);
 

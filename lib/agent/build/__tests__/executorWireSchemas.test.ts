@@ -6,11 +6,11 @@
 
 import { jsonSchema } from "ai";
 import { describe, expect, it } from "vitest";
+import { executionBlockerSchema } from "@/lib/agent/build/executionBlocker";
 import {
 	EXECUTOR_TOOL_SURFACE,
 	executorWireToolSchema,
 } from "@/lib/agent/build/executorWireSchemas";
-import { designExecutionIssueSchema } from "@/lib/agent/build/issueEscalation";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
@@ -74,12 +74,15 @@ function uuidLeaves(node: unknown): JsonNode[] {
 }
 
 describe("EXECUTOR_TOOL_SURFACE", () => {
-	it("is every stageable change-set tool plus the three server-owned ones", () => {
+	it("mounts reads, one mutation batch, and the server-owned gates", () => {
 		expect(EXECUTOR_TOOL_SURFACE).toEqual([
-			...CHANGE_SET_TOOL_REGISTRY.keys(),
+			...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
+				.filter((entry) => entry.policy.effect === "read-blueprint")
+				.map((entry) => entry.name),
+			"stageBatch",
 			"inspectChangeSet",
 			"commitChangeSet",
-			"raiseDesignExecutionIssue",
+			"reportExecutionBlocker",
 		]);
 	});
 
@@ -89,9 +92,10 @@ describe("EXECUTOR_TOOL_SURFACE", () => {
 		expect(EXECUTOR_TOOL_SURFACE).not.toContain("discardChangeSet");
 	});
 
-	it("mounts the executor-only staging tools", () => {
-		expect(EXECUTOR_TOOL_SURFACE).toContain("stageModule");
-		expect(EXECUTOR_TOOL_SURFACE).toContain("stageForm");
+	it("keeps granular staging operations inside the batch grammar", () => {
+		expect(EXECUTOR_TOOL_SURFACE).toContain("stageBatch");
+		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageModule");
+		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageForm");
 	});
 });
 
@@ -147,8 +151,8 @@ describe("executorWireToolSchema", () => {
 		/* An implementation coordinate names something that already exists;
 		 * a design id is never a handle. */
 		const schema = executorWireToolSchema(
-			"raiseDesignExecutionIssue",
-			designExecutionIssueSchema,
+			"reportExecutionBlocker",
+			executionBlockerSchema,
 		);
 		expect(handleArms(schema)).toHaveLength(0);
 	});

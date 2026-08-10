@@ -147,11 +147,14 @@ gate, and integrity services every other write uses.
 7. A canonical design commit accepts only the exact bound slice attempt in
    `running` state and transitions that attempt in the same transaction as
    the canonical revision, committed-slice receipt, and provenance.
-8. A semantic replay conflict never amends an append-only failed step. The
-   orchestrator ends the executor, atomically supersedes the open set plus
-   running attempt under the current delegated holder, and opens the bounded
-   retry against a freshly folded canonical base. Recovery likewise reuses a
-   bound open set only when its actor/run owner matches the current holder.
+8. A semantic replay conflict never amends an append-only failed step. A real
+   changed canonical base may supersede the open set plus running attempt under
+   the current delegated holder. A deterministic failure instead abandons the
+   set and permanently closes that exact plan/slice. Recovery reuses a bound
+   open set only when its actor/run owner matches the current holder.
+9. Executor recovery reconstructs its bounded checkpoint from the current
+   candidate plus durable intent coverage and handle bindings. Conversation or
+   tool-call transcripts are never needed to decide what already staged.
 
 ## Tests
 

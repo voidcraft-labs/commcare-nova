@@ -102,7 +102,6 @@ export function conversationEventError(data: Record<string, unknown>): {
 	message: string;
 	fatal: boolean;
 	runContinues: boolean;
-	retryDesignPlan: boolean;
 } | null {
 	const event = data as unknown as ConversationEvent;
 	if (event.payload?.type !== "error") return null;
@@ -110,7 +109,6 @@ export function conversationEventError(data: Record<string, unknown>): {
 		message: event.payload.error.message,
 		fatal: !!event.payload.error.fatal,
 		runContinues: event.payload.error.runContinues === true,
-		retryDesignPlan: event.payload.error.designRecovery === "retry-plan",
 	};
 }
 

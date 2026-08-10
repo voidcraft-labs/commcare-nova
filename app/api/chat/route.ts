@@ -2370,9 +2370,6 @@ export async function POST(req: Request) {
 										type: "internal",
 										message: outcome.message,
 										recoverable: outcome.recoverable,
-										...(outcome.retryAcceptedPlan && {
-											designRecovery: "retry-plan" as const,
-										}),
 									},
 									{ failureSource: "route:design-build" },
 								);
@@ -2396,9 +2393,6 @@ export async function POST(req: Request) {
 										type: "internal",
 										message: outcome.message,
 										recoverable: outcome.recoverable,
-										...(outcome.retryAcceptedPlan && {
-											designRecovery: "retry-plan" as const,
-										}),
 									},
 									"route:design-build",
 								);

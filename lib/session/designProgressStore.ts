@@ -85,7 +85,6 @@ export interface DesignProgressState {
 	failure: {
 		message: string;
 		recoverable: boolean;
-		retryAcceptedPlan: boolean;
 	} | null;
 	/** The stage the SERVER derived when the page loaded a design session with
 	 *  no run in flight (`deriveDesignBuildStage` over the durable session +
@@ -94,11 +93,6 @@ export interface DesignProgressState {
 	 *  instead of pretending a fresh turn is running. A live turn supersedes
 	 *  it the moment its scope frame lands. */
 	seededStage: DesignBuildStage | null;
-	/** The cold snapshot's exact accepted-plan replay capability. It is
-	 *  derived server-side from the durable orchestration failure code and
-	 *  retires with `seededStage` as soon as a new turn opens. */
-	seededRetryAcceptedPlan: boolean;
-
 	/** Seed a cold page load of an existing design session. There is no
 	 *  client-side re-derivation of the outline or plan — those live only in
 	 *  the frames a run streams — so this carries the stage and nothing
@@ -121,10 +115,7 @@ export interface DesignProgressState {
 	 *  turn's own scope frame follows within the same stream. */
 	noteTurnOpened: () => void;
 	setAwaitingInput: (awaiting: boolean) => void;
-	markFailed: (
-		message: string,
-		opts: { recoverable: boolean; retryAcceptedPlan?: boolean },
-	) => void;
+	markFailed: (message: string, opts: { recoverable: boolean }) => void;
 	reset: () => void;
 }
 
@@ -151,7 +142,6 @@ const EMPTY: Omit<
 	awaitingInput: false,
 	failure: null,
 	seededStage: null,
-	seededRetryAcceptedPlan: false,
 };
 
 export type DesignProgressStoreApi = ReturnType<
@@ -168,7 +158,6 @@ export function createDesignProgressStore() {
 				designSessionId: seed.designSessionId,
 				materializedAppId: seed.materializedAppId,
 				seededStage: seed.stage,
-				seededRetryAcceptedPlan: seed.retryAcceptedPlan,
 			});
 		},
 
@@ -193,7 +182,6 @@ export function createDesignProgressStore() {
 				pulseStep: null,
 				/* This turn is live; the page-load snapshot no longer describes it. */
 				seededStage: null,
-				seededRetryAcceptedPlan: false,
 			});
 		},
 
@@ -295,7 +283,6 @@ export function createDesignProgressStore() {
 			}
 			if (
 				current.seededStage === null &&
-				!current.seededRetryAcceptedPlan &&
 				current.failure === null &&
 				current.pulsePhase === null &&
 				!current.awaitingInput
@@ -303,7 +290,6 @@ export function createDesignProgressStore() {
 				return;
 			set({
 				seededStage: null,
-				seededRetryAcceptedPlan: false,
 				failure: null,
 				pulsePhase: null,
 				pulseStep: null,
@@ -316,15 +302,11 @@ export function createDesignProgressStore() {
 			set({ awaitingInput: awaiting });
 		},
 
-		markFailed(
-			message: string,
-			opts: { recoverable: boolean; retryAcceptedPlan?: boolean },
-		) {
+		markFailed(message: string, opts: { recoverable: boolean }) {
 			set({
 				failure: {
 					message,
 					recoverable: opts.recoverable,
-					retryAcceptedPlan: opts.retryAcceptedPlan === true,
 				},
 				activeSlice: null,
 			});
@@ -440,8 +422,6 @@ export interface DesignProgressView {
 	 *  to a brief per-slice line (§15.7). */
 	readonly materialized: boolean;
 	readonly failure: string | null;
-	/** An operational stop left the accepted plan safe to execute again. */
-	readonly canRetryPlan: boolean;
 }
 
 export function deriveDesignProgressView(
@@ -467,9 +447,6 @@ export function deriveDesignProgressView(
 		committedSliceNames: state.committedSlices.map((slice) => slice.sliceName),
 		materialized: state.materializedAppId !== null,
 		failure: state.failure?.message ?? null,
-		canRetryPlan:
-			state.failure?.retryAcceptedPlan === true ||
-			(state.seededStage === "incomplete" && state.seededRetryAcceptedPlan),
 	};
 }
 

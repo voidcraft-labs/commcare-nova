@@ -241,37 +241,6 @@ describe("applyStreamEvent", () => {
 			expect(sessionStore.getState().events[0]).toEqual(event);
 		});
 
-		it("projects exact-plan recovery separately from generic recoverability", () => {
-			const generic = convEvent(
-				{
-					type: "error",
-					error: { type: "internal", message: "revise", fatal: false },
-				},
-				0,
-			);
-			const retryable = convEvent(
-				{
-					type: "error",
-					error: {
-						type: "internal",
-						message: "resume",
-						fatal: false,
-						designRecovery: "retry-plan",
-					},
-				},
-				1,
-			);
-
-			expect(
-				conversationEventError(generic as unknown as Record<string, unknown>)
-					?.retryDesignPlan,
-			).toBe(false);
-			expect(
-				conversationEventError(retryable as unknown as Record<string, unknown>)
-					?.retryDesignPlan,
-			).toBe(true);
-		});
-
 		it("distinguishes an in-flight retry warning from a terminal stop", () => {
 			const retrying = convEvent(
 				{

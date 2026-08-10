@@ -1,6 +1,6 @@
 /**
  * The closed platform-constraint vocabulary — the catalogued codes a source
- * claim, review finding, or design issue may cite when its basis is a Nova or
+ * claim, review finding, or design blocker may cite when its basis is a Nova or
  * CommCare platform fact rather than user evidence.
  *
  * Dependency-free leaf on purpose: the graph validator (`graph.ts`), the

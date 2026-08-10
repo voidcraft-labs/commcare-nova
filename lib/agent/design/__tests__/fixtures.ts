@@ -494,7 +494,7 @@ export function cloneContract(contract: AppDesignContract): AppDesignContract {
 
 export function makeBuildPlan(): BuildPlan {
 	return {
-		schemaVersion: 2,
+		schemaVersion: 1,
 		designRevisionId: ids.revisionId,
 		designRevisionDigest: "a".repeat(64),
 		id: ids.planId,
@@ -533,13 +533,101 @@ export function makeBuildPlan(): BuildPlan {
 				acceptanceScenarioIds: [ids.scenarioRegister, ids.scenarioQueue],
 				risk: "ordinary",
 				role: "materialization-root",
-				expectedBlueprintAreas: [
-					"app",
-					"case-catalog",
-					"forms",
-					"case-list",
-					"navigation",
-				],
+				constructionStrategy: {
+					semanticGroups: [
+						{
+							name: "Patient record and capture",
+							kind: "foundation",
+							intentIds: [
+								ids.recPatient,
+								ids.factName,
+								ids.factAge,
+								ids.factRisk,
+								ids.factClinic,
+								ids.ruleRisk,
+								ids.taskRegister,
+								ids.transCreatePatient,
+							],
+							blueprintAreas: [
+								"app",
+								"case-catalog",
+								"forms",
+								"case-operations",
+							],
+						},
+						{
+							name: "Queue, access, and navigation",
+							kind: "access-navigation",
+							intentIds: [ids.rmPatients, ids.navMain, ids.accessSupervisor],
+							blueprintAreas: ["case-list", "navigation"],
+						},
+					],
+					lowerings: [
+						{ intentId: ids.recPatient, target: "case-type" },
+						{ intentId: ids.factName, target: "case-property" },
+						{ intentId: ids.factAge, target: "case-property" },
+						{ intentId: ids.factRisk, target: "case-property" },
+						{ intentId: ids.factClinic, target: "case-property" },
+						{ intentId: ids.ruleRisk, target: "form-logic" },
+						{ intentId: ids.taskRegister, target: "task-form" },
+						{
+							intentId: ids.transCreatePatient,
+							target: "case-operation",
+						},
+						{ intentId: ids.rmPatients, target: "case-search" },
+						{ intentId: ids.navMain, target: "navigation" },
+						{ intentId: ids.accessSupervisor, target: "access-control" },
+					],
+					tasks: [
+						{
+							taskId: ids.taskRegister,
+							mode: "registration",
+							transitionIds: [ids.transCreatePatient],
+						},
+					],
+					facts: [
+						{
+							factId: ids.factName,
+							storage: "case-property",
+							writer: "task-input",
+							unanswered: "preserve",
+						},
+						{
+							factId: ids.factAge,
+							storage: "case-property",
+							writer: "task-input",
+							unanswered: "preserve",
+						},
+						{
+							factId: ids.factRisk,
+							storage: "case-property",
+							writer: "calculation",
+							unanswered: "preserve",
+						},
+						{
+							factId: ids.factClinic,
+							storage: "case-property",
+							writer: "lookup",
+							unanswered: "preserve",
+						},
+					],
+					readModels: [
+						{
+							readModelId: ids.rmPatients,
+							mode: "case-search",
+							rolePartition: "actor-gated",
+							searchFilterFactIds: [ids.factName],
+						},
+					],
+					access: [
+						{
+							accessPolicyId: ids.accessSupervisor,
+							layers: ["case-context"],
+						},
+					],
+					navigation: [{ navigationId: ids.navMain, mode: "module" }],
+					externalSetupActionIds: [],
+				},
 				externalActionIds: [],
 			},
 			{
@@ -563,7 +651,50 @@ export function makeBuildPlan(): BuildPlan {
 				acceptanceScenarioIds: [],
 				risk: "cross-record",
 				role: "ordinary",
-				expectedBlueprintAreas: ["forms", "case-operations"],
+				constructionStrategy: {
+					semanticGroups: [
+						{
+							name: "Visit child workflow",
+							kind: "workflow",
+							intentIds: [
+								ids.recVisit,
+								ids.factVisitSummary,
+								ids.taskVisit,
+								ids.transCreateVisit,
+							],
+							blueprintAreas: ["case-catalog", "forms", "case-operations"],
+						},
+					],
+					lowerings: [
+						{ intentId: ids.recVisit, target: "case-type" },
+						{ intentId: ids.factVisitSummary, target: "case-property" },
+						{ intentId: ids.taskVisit, target: "task-form" },
+						{
+							intentId: ids.transCreateVisit,
+							target: "case-operation",
+						},
+					],
+					tasks: [
+						{
+							taskId: ids.taskVisit,
+							mode: "case-action",
+							contextRecordId: ids.recPatient,
+							transitionIds: [ids.transCreateVisit],
+						},
+					],
+					facts: [
+						{
+							factId: ids.factVisitSummary,
+							storage: "case-property",
+							writer: "task-input",
+							unanswered: "preserve",
+						},
+					],
+					readModels: [],
+					access: [],
+					navigation: [],
+					externalSetupActionIds: [],
+				},
 				externalActionIds: [],
 			},
 		],

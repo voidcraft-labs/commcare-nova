@@ -93,6 +93,18 @@ import {
 	type DesignChangeSet,
 } from "./types";
 
+export interface ChangeSetExecutionCheckpoint {
+	readonly intentCoverage: readonly {
+		readonly intentId: DesignId;
+		readonly stepCount: number;
+	}[];
+	readonly handles: readonly {
+		readonly handle: string;
+		readonly uuid: string;
+		readonly entityKind: string;
+	}[];
+}
+
 /** The Project data readers + services a change-set workspace runs over. */
 export interface ChangeSetWorkspaceHost {
 	readonly actorUserId: string;
@@ -182,6 +194,28 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			canonicalSeq: this.changeSet.baseSeq,
 			projectId: this.changeSet.baseProjectId,
 			externalContextDigest: externalContextDigest(this.accumulatedReadSet),
+		};
+	}
+
+	/** Bounded identity and ownership state a recovered compiler cannot infer
+	 * from the Blueprint alone. Both projections come from the durable step and
+	 * handle ledgers rehydrated at open; no transcript is authoritative here. */
+	currentExecutionCheckpoint(): ChangeSetExecutionCheckpoint {
+		const coverage = new Map<DesignId, number>();
+		for (const step of this.steps) {
+			for (const intentId of step.intentIds) {
+				coverage.set(intentId, (coverage.get(intentId) ?? 0) + 1);
+			}
+		}
+		return {
+			intentCoverage: [...coverage.entries()]
+				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+				.map(([intentId, stepCount]) => ({ intentId, stepCount })),
+			handles: this.handleTable.entries().map(([handle, binding]) => ({
+				handle,
+				uuid: binding.uuid,
+				entityKind: binding.entityKind,
+			})),
 		};
 	}
 

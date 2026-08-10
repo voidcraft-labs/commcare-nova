@@ -38,14 +38,23 @@ import {
 	ChangeSetMutationWorkspace,
 	type ChangeSetWorkspaceHost,
 } from "@/lib/agent/change-set/workspace";
-import type {
-	DesignBuildPlanRecord,
-	DesignRevisionRecord,
+import {
+	type DesignBuildPlanRecord,
+	type DesignRevisionRecord,
+	insertDesignBuildPlan,
+	readDesignReviews,
 } from "@/lib/agent/design/artifactStore";
-import { readDesignReviews } from "@/lib/agent/design/artifactStore";
-import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
+import {
+	type BuildPlan,
+	type BuildPlanDraft,
+	type BuildSlice,
+	buildPlanSchemaFor,
+	newPlanAdmissionMessages,
+} from "@/lib/agent/design/buildPlan";
+import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { asDesignId } from "@/lib/agent/design/ids";
+import { composePlan, planEnvelope } from "@/lib/agent/design/loop/artifacts";
 import { seedClaimsFromAnsweredRounds } from "@/lib/agent/design/loop/claimSeeding";
 import type { DesignAgentStep } from "@/lib/agent/design/loop/designAgent";
 import type {
@@ -79,6 +88,10 @@ import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { budgetForSlice } from "./budgets";
 import { type DesignLoopOutcome, runDesignAgentLoop } from "./designLoopRunner";
 import {
+	type ExecutionBlockerResolver,
+	resolveExecutionBlocker,
+} from "./executionBlocker";
+import {
 	briefDigest,
 	deriveSliceExecutionBrief,
 	type SliceExecutionBrief,
@@ -95,10 +108,6 @@ import {
 	ExternalActionRequiredError,
 } from "./externalActions";
 import {
-	type DesignExecutionIssue,
-	designIssueUserMessage,
-} from "./issueEscalation";
-import {
 	appendOrchestrationEvent,
 	type OrchestrationHead,
 	readOrchestrationHead,
@@ -109,9 +118,9 @@ import {
 	progressEnvelope,
 } from "./progress";
 import {
+	activateReplacementPlan,
 	beginOrRecoverSliceAttempt,
 	bindSliceAttemptChangeSet,
-	countDesignIssueAttempts,
 	markSliceAttempt,
 	type SliceAttempt,
 	supersedeSliceAttempt,
@@ -141,9 +150,6 @@ export type BuildOrchestrationOutcome =
 			readonly errorType: string;
 			readonly message: string;
 			readonly recoverable: boolean;
-			/** The accepted plan is still authoritative and a fresh orchestration
-			 * may resume it without asking the design agent to revise anything. */
-			readonly retryAcceptedPlan: boolean;
 			/** The materialized app when the failure struck AFTER the first
 			 * workflow committed (the run's holder lives on the app row then);
 			 * null while the failure left no app. */
@@ -160,6 +166,7 @@ export interface BuildOrchestrationDeps {
 	}) => Promise<DesignSourcePackage>;
 	readonly runDesignLoop: typeof runDesignAgentLoop;
 	readonly executorStep: ExecutorStepFn;
+	readonly resolveBlocker: ExecutionBlockerResolver;
 	readonly materialize: typeof materializeAppFromGenesis;
 	readonly commitSlice: typeof commitDesignChangeSet;
 	/** Item 18's event-log seam: the route hands the app LogWriter's
@@ -403,7 +410,6 @@ export async function runBuildOrchestration(
 				errorType: loopOutcome.errorType,
 				message: loopOutcome.message,
 				recoverable: loopOutcome.recoverable,
-				retryAcceptedPlan: false,
 			};
 		}
 
@@ -447,7 +453,8 @@ export async function runBuildOrchestration(
 			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
 		}
 
-		const { revision, plan } = loopOutcome;
+		const { revision } = loopOutcome;
+		let { plan } = loopOutcome;
 		await setDesignSessionActiveArtifacts({
 			designSessionId: args.designSessionId,
 			actorUserId: args.actorUserId,
@@ -479,309 +486,399 @@ export async function runBuildOrchestration(
 
 		/* ── Execute slices ─────────────────────────────────────────── */
 		const contract = revision.envelope.payload;
-		const ordered = orderSlicesForExecution(plan.envelope.payload);
-		const committedSlices = await committedSliceIds(plan.id);
-		let lastSeq = 1;
-		for (const slice of ordered) {
-			if (committedSlices.has(slice.id as string)) continue;
-			const budget = budgetForSlice(slice);
-			const priorDesignIssues = await countDesignIssueAttempts({
-				designSessionId: args.designSessionId,
-				buildPlanId: plan.id,
-				sliceId: slice.id as string,
-			});
-			if (priorDesignIssues >= budget.maxDesignIssueEscalations) {
-				head = await appendFailure(args, head, {
-					errorType: "design-issue-budget-exhausted",
-					recoverable: true,
-				});
-				return {
-					kind: "failed",
-					appId,
-					errorType: "design-issue-budget-exhausted",
-					message:
-						"This slice reached its persisted design-issue limit and needs a revised design plan before execution can continue.",
-					recoverable: true,
-					retryAcceptedPlan: false,
-				};
-			}
-			const brief = deriveSliceExecutionBrief({
-				contract,
-				revision: { id: revision.id, digest: revision.artifactDigest },
-				plan: plan.envelope.payload,
-				planDigest: plan.artifactDigest,
-				sliceId: slice.id,
-			});
-			const digest = briefDigest(brief);
-			try {
-				await assertRequiredExternalActionsSatisfied({
-					designSessionId: args.designSessionId,
-					projectId: args.projectId,
-					appId,
+		let planRepairCount = 0;
+		executionPlanLoop: for (;;) {
+			const ordered = orderSlicesForExecution(plan.envelope.payload);
+			const committedSlices = await committedSliceIds(plan.id);
+			let lastSeq = 1;
+			for (const slice of ordered) {
+				if (committedSlices.has(slice.id as string)) continue;
+				const budget = budgetForSlice(slice);
+				const brief = deriveSliceExecutionBrief({
+					contract,
+					revision: { id: revision.id, digest: revision.artifactDigest },
 					plan: plan.envelope.payload,
-					slice,
+					planDigest: plan.artifactDigest,
+					sliceId: slice.id,
 				});
-			} catch (error) {
-				if (!(error instanceof ExternalActionRequiredError)) throw error;
-				head = await appendFailure(args, head, {
-					errorType: "external-action-required",
-					recoverable: true,
-				});
-				return {
-					kind: "failed",
-					appId,
-					errorType: "external-action-required",
-					message:
-						"A required external prerequisite is still outstanding. Complete it before continuing this build.",
-					recoverable: true,
-					retryAcceptedPlan: false,
-				};
-			}
-			let rebaseAttempts = 0;
-			for (;;) {
-				const isGenesis = appId === null;
-				const { attempt } = await beginOrRecoverSliceAttempt({
-					designSessionId: args.designSessionId,
-					actorUserId: args.actorUserId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					expectedProjectId: args.projectId,
-					designRevisionId: revision.id,
-					designRevisionDigest: revision.artifactDigest,
-					buildPlanId: plan.id,
-					buildPlanDigest: plan.artifactDigest,
-					sliceId: slice.id as string,
-					baseTarget: isGenesis
-						? {
-								kind: "empty-genesis",
-								proposedAppId: args.proposedAppId,
-								digest: emptyGenesisBase(args.proposedAppId).digest,
-							}
-						: await appBaseTarget(appId as string),
-					executorModel: DESIGN_EXECUTOR_MODEL,
-					promptVersion: EXECUTOR_PROMPT_VERSION,
-					briefDigest: digest,
-				});
-				const changeSetId = await ensureChangeSet(
-					args,
-					attempt,
-					revision,
-					plan,
-					isGenesis,
-				);
-				args.writer.write({
-					type: "data-build-slice-started",
-					data: progressEnvelope(args.designSessionId, head, {
-						sliceId: slice.id,
-						sliceName: slice.name,
-					}),
-					transient: true,
-				});
-				if (
-					head.state.kind !== "executing-slice" ||
-					head.state.changeSetId !== changeSetId
-				) {
-					head = await appendOrchestrationEvent({
+				const digest = briefDigest(brief);
+				try {
+					await assertRequiredExternalActionsSatisfied({
 						designSessionId: args.designSessionId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						actorUserId: args.actorUserId,
-						expectedProjectId: args.projectId,
-						state: {
-							kind: "executing-slice",
-							designRevisionId: revision.id,
-							buildPlanId: plan.id,
-							sliceId: slice.id,
-							changeSetId,
-							attempt: attempt.attempt,
-						},
-						expectedHead: head,
+						projectId: args.projectId,
+						appId,
+						plan: plan.envelope.payload,
+						slice,
 					});
-				}
-
-				const outcome = await executeOneSlice(args, deps, {
-					attempt,
-					changeSetId,
-					brief,
-					slice,
-					isGenesis,
-					appId,
-					budget,
-				});
-				heartbeat();
-				if (outcome.kind === "committed") {
-					const receipt = outcome.receipt;
-					if (isGenesis) {
-						const materialization = receipt as AppMaterializationReceipt;
-						appId = materialization.appId;
-						lastSeq = 1;
-						/* Genesis is a canonical slice commit too. Project it through
-						 * the same progress vocabulary as every later slice before the
-						 * strict activation receipt transfers the UI to app scope. */
-						args.writer.write({
-							type: "data-build-slice-committed",
-							data: progressEnvelope(args.designSessionId, head, {
-								sliceId: slice.id,
-								sliceName: slice.name,
-								seq: 1,
-							}),
-							transient: true,
-						});
-						args.writer.write({
-							type: "data-app-materialized",
-							data: materialization,
-							transient: true,
-						});
-					} else {
-						const sliceReceipt = receipt as CommittedSliceReceipt;
-						lastSeq = sliceReceipt.seq;
-						const steps = await loadChangeSetSteps(sliceReceipt.changeSetId);
-						deps.logCommittedStages(
-							sliceReceipt,
-							committedStageEnvelopes(steps),
-						);
-						args.writer.write({
-							type: "data-build-slice-committed",
-							data: progressEnvelope(args.designSessionId, head, {
-								sliceId: slice.id,
-								sliceName: slice.name,
-								seq: sliceReceipt.seq,
-							}),
-							transient: true,
-						});
-					}
-					break;
-				}
-				if (outcome.kind === "rebase-conflict") {
-					await supersedeSliceAttempt({
-						designSessionId: args.designSessionId,
-						attemptId: attempt.id,
-						failureCode: "rebase-conflict",
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					});
-					rebaseAttempts += 1;
-					if (rebaseAttempts <= budget.maxRebaseAttempts) continue;
+				} catch (error) {
+					if (!(error instanceof ExternalActionRequiredError)) throw error;
 					head = await appendFailure(args, head, {
-						errorType: "rebase-budget-exhausted",
+						errorType: "external-action-required",
 						recoverable: true,
 					});
 					return {
 						kind: "failed",
 						appId,
-						errorType: "rebase-budget-exhausted",
+						errorType: "external-action-required",
 						message:
-							"This workflow kept conflicting with newer app changes. Everything already committed is safe; send your message again to continue from the current app.",
+							"A required external prerequisite is still outstanding. Complete it before continuing this build.",
 						recoverable: true,
-						retryAcceptedPlan: true,
 					};
 				}
-				if (outcome.kind === "design-issue") {
+				let rebaseAttempts = 0;
+				for (;;) {
+					const isGenesis = appId === null;
+					const { attempt } = await beginOrRecoverSliceAttempt({
+						designSessionId: args.designSessionId,
+						actorUserId: args.actorUserId,
+						runId: args.runId,
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+						designRevisionId: revision.id,
+						designRevisionDigest: revision.artifactDigest,
+						buildPlanId: plan.id,
+						buildPlanDigest: plan.artifactDigest,
+						sliceId: slice.id as string,
+						baseTarget: isGenesis
+							? {
+									kind: "empty-genesis",
+									proposedAppId: args.proposedAppId,
+									digest: emptyGenesisBase(args.proposedAppId).digest,
+								}
+							: await appBaseTarget(appId as string),
+						executorModel: DESIGN_EXECUTOR_MODEL,
+						promptVersion: EXECUTOR_PROMPT_VERSION,
+						briefDigest: digest,
+					});
+					const changeSetId = await ensureChangeSet(
+						args,
+						attempt,
+						revision,
+						plan,
+						isGenesis,
+					);
+					args.writer.write({
+						type: "data-build-slice-started",
+						data: progressEnvelope(args.designSessionId, head, {
+							sliceId: slice.id,
+							sliceName: slice.name,
+						}),
+						transient: true,
+					});
+					if (
+						head.state.kind !== "executing-slice" ||
+						head.state.changeSetId !== changeSetId
+					) {
+						head = await appendOrchestrationEvent({
+							designSessionId: args.designSessionId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+							actorUserId: args.actorUserId,
+							expectedProjectId: args.projectId,
+							state: {
+								kind: "executing-slice",
+								designRevisionId: revision.id,
+								buildPlanId: plan.id,
+								sliceId: slice.id,
+								changeSetId,
+								attempt: attempt.attempt,
+							},
+							expectedHead: head,
+						});
+					}
+
+					const outcome = await executeOneSlice(args, deps, {
+						attempt,
+						changeSetId,
+						brief,
+						slice,
+						contract,
+						plan: plan.envelope.payload,
+						planRepairAllowed: isGenesis && planRepairCount < 1,
+						isGenesis,
+						appId,
+						budget,
+					});
+					heartbeat();
+					if (outcome.kind === "committed") {
+						const receipt = outcome.receipt;
+						if (isGenesis) {
+							const materialization = receipt as AppMaterializationReceipt;
+							appId = materialization.appId;
+							lastSeq = 1;
+							/* Genesis is a canonical slice commit too. Project it through
+							 * the same progress vocabulary as every later slice before the
+							 * strict activation receipt transfers the UI to app scope. */
+							args.writer.write({
+								type: "data-build-slice-committed",
+								data: progressEnvelope(args.designSessionId, head, {
+									sliceId: slice.id,
+									sliceName: slice.name,
+									seq: 1,
+								}),
+								transient: true,
+							});
+							args.writer.write({
+								type: "data-app-materialized",
+								data: materialization,
+								transient: true,
+							});
+						} else {
+							const sliceReceipt = receipt as CommittedSliceReceipt;
+							lastSeq = sliceReceipt.seq;
+							const steps = await loadChangeSetSteps(sliceReceipt.changeSetId);
+							deps.logCommittedStages(
+								sliceReceipt,
+								committedStageEnvelopes(steps),
+							);
+							args.writer.write({
+								type: "data-build-slice-committed",
+								data: progressEnvelope(args.designSessionId, head, {
+									sliceId: slice.id,
+									sliceName: slice.name,
+									seq: sliceReceipt.seq,
+								}),
+								transient: true,
+							});
+						}
+						break;
+					}
+					if (outcome.kind === "rebase-conflict") {
+						rebaseAttempts += 1;
+						if (rebaseAttempts <= budget.maxRebaseAttempts) {
+							await supersedeSliceAttempt({
+								designSessionId: args.designSessionId,
+								attemptId: attempt.id,
+								failureCode: "rebase-conflict",
+								actorUserId: args.actorUserId,
+								runId: args.runId,
+								holderNonce: args.holderNonce,
+								expectedProjectId: args.projectId,
+							});
+							continue;
+						}
+						await markSliceAttempt({
+							designSessionId: args.designSessionId,
+							attemptId: attempt.id,
+							to: "failed",
+							failureCode: "rebase-budget-exhausted",
+							actorUserId: args.actorUserId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+							expectedProjectId: args.projectId,
+						});
+						head = await appendFailure(args, head, {
+							errorType: "rebase-budget-exhausted",
+							recoverable: false,
+						});
+						return {
+							kind: "failed",
+							appId,
+							errorType: "rebase-budget-exhausted",
+							message:
+								"This workflow kept conflicting with newer app changes, so Nova stopped before saving an unsafe revision. Everything already added is intact.",
+							recoverable: false,
+						};
+					}
+					if (outcome.kind === "architect-decision") {
+						if (outcome.decision.kind === "plan-repair") {
+							if (!isGenesis || appId !== null || planRepairCount >= 1) {
+								await markSliceAttempt({
+									designSessionId: args.designSessionId,
+									attemptId: attempt.id,
+									to: "failed",
+									failureCode: "architect-plan-repair-out-of-scope",
+									actorUserId: args.actorUserId,
+									runId: args.runId,
+									holderNonce: args.holderNonce,
+									expectedProjectId: args.projectId,
+								});
+								head = await appendFailure(args, head, {
+									errorType: "architect-plan-repair-out-of-scope",
+									recoverable: false,
+								});
+								return {
+									kind: "failed",
+									appId,
+									errorType: "architect-plan-repair-out-of-scope",
+									message:
+										"Nova could not complete this workflow safely from the accepted design.",
+									recoverable: false,
+								};
+							}
+							let repairedPlan: DesignBuildPlanRecord;
+							try {
+								repairedPlan = await persistPlanRepair({
+									runArgs: args,
+									revision,
+									packageDigest: pkg.packageDigest,
+									draft: outcome.decision.repairedPlan,
+								});
+							} catch (error) {
+								await markSliceAttempt({
+									designSessionId: args.designSessionId,
+									attemptId: attempt.id,
+									to: "failed",
+									failureCode: "architect-plan-repair-invalid",
+									actorUserId: args.actorUserId,
+									runId: args.runId,
+									holderNonce: args.holderNonce,
+									expectedProjectId: args.projectId,
+								});
+								log.error(
+									"[buildOrchestrator] rejected architect plan repair",
+									{
+										designSessionId: args.designSessionId,
+										planId: plan.id,
+										errorClass: error instanceof Error ? error.name : "unknown",
+									},
+								);
+								head = await appendFailure(args, head, {
+									errorType: "architect-plan-repair-invalid",
+									recoverable: false,
+								});
+								return {
+									kind: "failed",
+									appId,
+									errorType: "architect-plan-repair-invalid",
+									message:
+										"Nova could not complete this workflow safely from the accepted design.",
+									recoverable: false,
+								};
+							}
+							await activateReplacementPlan({
+								designSessionId: args.designSessionId,
+								attemptId: attempt.id,
+								failureCode: "architect-plan-repair",
+								activeDesignRevisionId: revision.id,
+								activeBuildPlanId: repairedPlan.id,
+								actorUserId: args.actorUserId,
+								runId: args.runId,
+								holderNonce: args.holderNonce,
+								expectedProjectId: args.projectId,
+							});
+							plan = repairedPlan;
+							planRepairCount += 1;
+							head = await appendOrchestrationEvent({
+								designSessionId: args.designSessionId,
+								runId: args.runId,
+								holderNonce: args.holderNonce,
+								actorUserId: args.actorUserId,
+								expectedProjectId: args.projectId,
+								state: {
+									kind: "planning",
+									designRevisionId: revision.id,
+									designRevisionDigest: revision.artifactDigest,
+								},
+								expectedHead: head,
+							});
+							await emitDesignSummaries(args, head, revision, plan);
+							continue executionPlanLoop;
+						}
+						await markSliceAttempt({
+							designSessionId: args.designSessionId,
+							attemptId: attempt.id,
+							to: "failed",
+							failureCode: `architect-${outcome.decision.kind}`,
+							actorUserId: args.actorUserId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+							expectedProjectId: args.projectId,
+						});
+						if (
+							outcome.decision.kind === "ask-user" ||
+							outcome.decision.kind === "contract-revision"
+						) {
+							return await pauseOnQuestions(args, head, revision, appId, [
+								{
+									id: crypto.randomUUID(),
+									question: outcome.decision.question,
+									options: outcome.decision.options,
+								},
+							]);
+						}
+						const errorType = `architect-${outcome.decision.kind}`;
+						head = await appendFailure(args, head, {
+							errorType,
+							recoverable: false,
+						});
+						return {
+							kind: "failed",
+							appId,
+							errorType,
+							message:
+								"This workflow cannot be represented safely by Nova's current building capabilities.",
+							recoverable: false,
+						};
+					}
+					/* budget-exhausted / protocol-failure */
 					await markSliceAttempt({
 						designSessionId: args.designSessionId,
 						attemptId: attempt.id,
-						to: "design-issue",
-						failureCode: outcome.issue.category,
+						to: "failed",
+						failureCode:
+							outcome.kind === "budget-exhausted"
+								? "budget-exhausted"
+								: outcome.code,
 						actorUserId: args.actorUserId,
 						runId: args.runId,
 						holderNonce: args.holderNonce,
 						expectedProjectId: args.projectId,
 					});
-					if (outcome.issue.category === "missing-information") {
-						/* One decision, one question: the explanation is what needs
-						 * answering and the proposed options are its choices. */
-						return await pauseOnQuestions(args, head, revision, appId, [
-							{
-								id: outcome.issue.id as string,
-								question: outcome.issue.explanation,
-								options: outcome.issue.proposedOptions,
-							},
-						]);
-					}
 					head = await appendFailure(args, head, {
-						errorType: `design-issue-${outcome.issue.category}`,
-						recoverable: true,
-						designIssue: outcome.issue,
+						errorType:
+							outcome.kind === "budget-exhausted"
+								? "execution-budget-exhausted"
+								: outcome.code,
+						recoverable: false,
 					});
 					return {
 						kind: "failed",
 						appId,
-						errorType: `design-issue-${outcome.issue.category}`,
-						message: designIssueUserMessage(outcome.issue.category),
-						recoverable: true,
-						retryAcceptedPlan: false,
+						errorType:
+							outcome.kind === "budget-exhausted"
+								? "execution-budget-exhausted"
+								: outcome.code,
+						message:
+							outcome.kind === "budget-exhausted"
+								? "Nova stopped before saving a workflow that did not finish safely. Everything already added is intact."
+								: outcome.message,
+						recoverable: false,
 					};
 				}
-				/* budget-exhausted / protocol-failure */
-				await markSliceAttempt({
-					designSessionId: args.designSessionId,
-					attemptId: attempt.id,
-					to: "failed",
-					failureCode:
-						outcome.kind === "budget-exhausted"
-							? "budget-exhausted"
-							: outcome.code,
-					actorUserId: args.actorUserId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					expectedProjectId: args.projectId,
-				});
-				head = await appendFailure(args, head, {
-					errorType:
-						outcome.kind === "budget-exhausted"
-							? "execution-budget-exhausted"
-							: outcome.code,
-					recoverable: true,
-				});
-				return {
-					kind: "failed",
-					appId,
-					errorType:
-						outcome.kind === "budget-exhausted"
-							? "execution-budget-exhausted"
-							: outcome.code,
-					message:
-						outcome.kind === "budget-exhausted"
-							? `Building ${slice.name} ran past its execution budget. Everything already committed is safe; send your message again to continue from there.`
-							: outcome.message,
-					recoverable: true,
-					retryAcceptedPlan: outcome.kind === "budget-exhausted",
-				};
 			}
-		}
 
-		/* ── Finished ───────────────────────────────────────────────── */
-		if (appId === null) {
-			throw new Error(
-				"The build plan committed no materialization root, so no app exists.",
-			);
+			/* ── Finished ───────────────────────────────────────────────── */
+			if (appId === null) {
+				throw new Error(
+					"The build plan committed no materialization root, so no app exists.",
+				);
+			}
+			/* The final sequence is the APP's, not this run's: a resumed
+			 * orchestration that found every slice already committed advanced
+			 * nothing locally, and reporting seq 1 would stamp a wrong durable
+			 * record and let the case-store sweep skip later slices' schemas. */
+			lastSeq = Math.max(lastSeq, await currentAppSeq(appId));
+			head = await appendOrchestrationEvent({
+				designSessionId: args.designSessionId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
+				state: { kind: "finished", appId, appSeq: lastSeq },
+				expectedHead: head,
+			});
+			args.writer.write({
+				type: "data-build-completion",
+				data: progressEnvelope(args.designSessionId, head, {
+					appId,
+					appSeq: lastSeq,
+					plannedSlices: ordered.length,
+				}),
+				transient: true,
+			});
+			return { kind: "completed", appId, finalSeq: lastSeq };
 		}
-		/* The final sequence is the APP's, not this run's: a resumed
-		 * orchestration that found every slice already committed advanced
-		 * nothing locally, and reporting seq 1 would stamp a wrong durable
-		 * record and let the case-store sweep skip later slices' schemas. */
-		lastSeq = Math.max(lastSeq, await currentAppSeq(appId));
-		head = await appendOrchestrationEvent({
-			designSessionId: args.designSessionId,
-			runId: args.runId,
-			holderNonce: args.holderNonce,
-			actorUserId: args.actorUserId,
-			expectedProjectId: args.projectId,
-			state: { kind: "finished", appId, appSeq: lastSeq },
-			expectedHead: head,
-		});
-		args.writer.write({
-			type: "data-build-completion",
-			data: progressEnvelope(args.designSessionId, head, {
-				appId,
-				appSeq: lastSeq,
-				plannedSlices: ordered.length,
-			}),
-			transient: true,
-		});
-		return { kind: "completed", appId, finalSeq: lastSeq };
 	} finally {
 		clearInterval(heartbeatTimer);
 		args.writer.write({ type: "finish" });
@@ -790,10 +887,54 @@ export async function runBuildOrchestration(
 
 // ── Internals ──────────────────────────────────────────────────────
 
+async function persistPlanRepair(args: {
+	readonly runArgs: RunBuildOrchestrationArgs;
+	readonly revision: DesignRevisionRecord;
+	readonly packageDigest: string;
+	readonly draft: BuildPlanDraft;
+}): Promise<DesignBuildPlanRecord> {
+	const composed = composePlan(args.revision, args.draft);
+	const admissionMessages = newPlanAdmissionMessages(composed);
+	const parsed = buildPlanSchemaFor(args.revision.envelope.payload).safeParse(
+		composed,
+	);
+	if (!parsed.success || admissionMessages.length > 0) {
+		const schemaMessages = parsed.success
+			? []
+			: parsed.error.issues.map(
+					(issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+				);
+		throw new Error([...schemaMessages, ...admissionMessages].join("\n"));
+	}
+	return insertDesignBuildPlan({
+		envelope: planEnvelope({
+			accepted: args.revision,
+			packageDigest: args.packageDigest,
+			plan: parsed.data,
+			finishReason: null,
+		}),
+		authority: {
+			actorUserId: args.runArgs.actorUserId,
+			runId: args.runArgs.runId,
+			holderNonce: args.runArgs.holderNonce,
+			expectedProjectId: args.runArgs.projectId,
+		},
+	});
+}
+
 function productionDeps(
 	args: RunBuildOrchestrationArgs,
 ): BuildOrchestrationDeps {
 	const overrides = args.deps ?? {};
+	const executorContext = new DesignGenerationContext({
+		apiKey: args.apiKey,
+		userId: args.actorUserId,
+		projectId: args.projectId,
+		runId: args.runId,
+		designSessionId: args.designSessionId,
+		...(args.meter !== undefined && { meter: args.meter }),
+		usagePhase: "build-executor",
+	});
 	return {
 		buildPackage:
 			overrides.buildPackage ??
@@ -818,17 +959,28 @@ function productionDeps(
 		executorStep:
 			overrides.executorStep ??
 			productionExecutorStep(
-				new DesignGenerationContext({
-					apiKey: args.apiKey,
-					userId: args.actorUserId,
-					projectId: args.projectId,
-					runId: args.runId,
-					designSessionId: args.designSessionId,
-					...(args.meter !== undefined && { meter: args.meter }),
-				}).model(DESIGN_EXECUTOR_MODEL),
+				executorContext.model(DESIGN_EXECUTOR_MODEL),
 				DESIGN_EXECUTOR_REASONING.effort,
 				`nova:design-executor:${args.designSessionId}`,
 			),
+		resolveBlocker:
+			overrides.resolveBlocker ??
+			(async (blockerArgs) => {
+				const result = await resolveExecutionBlocker(
+					executorContext,
+					blockerArgs,
+					blockerArgs.signal,
+				);
+				if (result.kind !== "produced") {
+					throw new Error(
+						`The architect did not produce a blocker decision (${result.reason}).`,
+					);
+				}
+				if (result.reasoningText) {
+					overrides.onReasoningSummary?.(result.reasoningText);
+				}
+				return result.artifact;
+			}),
 		materialize: overrides.materialize ?? materializeAppFromGenesis,
 		commitSlice: overrides.commitSlice ?? commitDesignChangeSet,
 		logCommittedStages: overrides.logCommittedStages ?? (() => {}),
@@ -841,7 +993,6 @@ async function appendFailure(
 	failure: {
 		errorType: string;
 		recoverable: boolean;
-		designIssue?: DesignExecutionIssue;
 	},
 ): Promise<OrchestrationHead> {
 	return appendOrchestrationEvent({
@@ -855,9 +1006,6 @@ async function appendFailure(
 			failureId: crypto.randomUUID(),
 			recoverable: failure.recoverable,
 			errorType: failure.errorType,
-			...(failure.designIssue !== undefined && {
-				designIssue: failure.designIssue,
-			}),
 		},
 		expectedHead: head,
 	});
@@ -1100,6 +1248,9 @@ async function executeOneSlice(
 		changeSetId: string;
 		brief: SliceExecutionBrief;
 		slice: BuildSlice;
+		contract: AppDesignContract;
+		plan: BuildPlan;
+		planRepairAllowed: boolean;
 		isGenesis: boolean;
 		appId: string | null;
 		budget: ReturnType<typeof budgetForSlice>;
@@ -1179,6 +1330,13 @@ async function executeOneSlice(
 		brief: slice.brief,
 		budget: slice.budget,
 		step: deps.executorStep,
+		resolveBlocker: (blockerArgs) =>
+			deps.resolveBlocker({
+				...blockerArgs,
+				acceptedContract: slice.contract,
+				currentPlan: slice.plan,
+				planRepairAllowed: slice.planRepairAllowed,
+			}),
 		commit,
 		signal: args.signal,
 		...(args.meter !== undefined && {

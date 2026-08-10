@@ -152,15 +152,6 @@ export function chatRequestIsRedrive(
 	return trigger === "regenerate-message" || body?.redrive === true;
 }
 
-/** Manual recovery is a real user turn. Automatic instance-death recovery uses
- * the SDK's regenerate path so the dead partial assistant suffix is omitted. */
-export function designBuildRetrySend() {
-	return {
-		text: "Try again",
-		metadata: { designBuildRetry: true },
-	} as const;
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /** The one structural read of "the trailing assistant message's parts",
@@ -882,7 +873,6 @@ function createChatInstance(
 					) {
 						progress.markFailed(error.message, {
 							recoverable: false,
-							retryAcceptedPlan: false,
 						});
 					}
 				} else if (error !== null && !error.runContinues) {
@@ -902,7 +892,6 @@ function createChatInstance(
 					) {
 						progress.markFailed(error.message, {
 							recoverable: true,
-							retryAcceptedPlan: error.retryDesignPlan,
 						});
 					}
 				}
@@ -1386,9 +1375,6 @@ export function ChatContainer({
 		resumeStream,
 		regenerate,
 	} = useChat({ chat });
-	const sendDesignBuildRetry = useCallback(() => {
-		void sendMessage(designBuildRetrySend());
-	}, [sendMessage]);
 	/* Context activity is a transient stream hint, not durable session state. A
 	 * process loss can strand its closing hint, so every terminal transport state
 	 * releases the override and reveals the ordinary derived status again. */
@@ -1948,7 +1934,6 @@ export function ChatContainer({
 		if (designProgressTracksBuildFailure(progress, session.buildUnfinished)) {
 			progress.markFailed(message, {
 				recoverable: false,
-				retryAcceptedPlan: false,
 			});
 		}
 
@@ -2065,22 +2050,6 @@ export function ChatContainer({
 		},
 		[addToolOutput, scopeEpoch],
 	);
-
-	const handleRetryDesignBuild = useCallback(() => {
-		if (status !== "ready") return;
-		const session = sessionStoreRef.current?.getState();
-		if (
-			!chatGenerationCanWrite(
-				session,
-				scopeEpoch,
-				threadHydrationStateRef.current,
-			)
-		)
-			return;
-		autoResendFatalStrikesRef.current = 0;
-		designProgressStore.getState().noteTurnOpened();
-		sendDesignBuildRetry();
-	}, [designProgressStore, scopeEpoch, sendDesignBuildRetry, status]);
 
 	const handleCreateStarterApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
@@ -2245,11 +2214,7 @@ export function ChatContainer({
 			}
 			designProgressStatus={
 				designProgressOwnsStatus ? (
-					<DesignProgressStatus
-						view={designProgress}
-						canRecover={!readOnly}
-						onRetry={readOnly ? undefined : handleRetryDesignBuild}
-					/>
+					<DesignProgressStatus view={designProgress} canRecover={!readOnly} />
 				) : undefined
 			}
 			generationPaused={

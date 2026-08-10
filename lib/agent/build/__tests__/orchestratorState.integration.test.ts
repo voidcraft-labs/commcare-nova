@@ -16,8 +16,8 @@ import {
 	readOrchestrationHead,
 } from "../orchestratorState";
 import {
+	activateReplacementPlan,
 	beginOrRecoverSliceAttempt,
-	countDesignIssueAttempts,
 	loadRunningSliceAttempt,
 	markSliceAttempt,
 	supersedeSliceAttempt,
@@ -474,6 +474,72 @@ describe("slice attempts", () => {
 		expect((await beginOrRecoverSliceAttempt(args)).attempt.attempt).toBe(2);
 	});
 
+	it("activates a replacement plan with root-attempt supersession atomically", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const first = await beginOrRecoverSliceAttempt(args);
+		const firstChangeSet = await openGenesisForAttempt(args, first.attempt.id);
+		const replacementPlanId = crypto.randomUUID();
+		const replacementDigest = "c".repeat(64);
+		await h
+			.db()
+			.insertInto("design_build_plans")
+			.values({
+				id: replacementPlanId,
+				design_session_id: sessionId,
+				design_revision_id: args.designRevisionId,
+				design_revision_digest: args.designRevisionDigest,
+				plan_digest: replacementDigest,
+				artifact_digest: replacementDigest,
+				producer_model: "architect-test",
+				prompt_version: "build-plan-v1",
+				created_by_run_id: RUN,
+				envelope: JSON.stringify({}),
+			})
+			.execute();
+
+		await activateReplacementPlan({
+			...args,
+			attemptId: first.attempt.id,
+			failureCode: "architect-plan-repair",
+			activeDesignRevisionId: args.designRevisionId,
+			activeBuildPlanId: replacementPlanId,
+		});
+		/* A lost-response replay proves the same active lineage instead of
+		 * blindly accepting the old attempt status. */
+		await activateReplacementPlan({
+			...args,
+			attemptId: first.attempt.id,
+			failureCode: "architect-plan-repair",
+			activeDesignRevisionId: args.designRevisionId,
+			activeBuildPlanId: replacementPlanId,
+		});
+
+		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
+			active_design_revision_id: args.designRevisionId,
+			active_build_plan_id: replacementPlanId,
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", first.attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			status: "superseded",
+			failure_code: "architect-plan-repair",
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", firstChangeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "superseded" });
+	});
+
 	it("terminal marks are running-only compare-and-sets", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
@@ -496,7 +562,8 @@ describe("slice attempts", () => {
 			markSliceAttempt({
 				...args,
 				attemptId: attempt.id,
-				to: "design-issue",
+				to: "failed",
+				failureCode: "different-failure",
 			}),
 		).rejects.toMatchObject({ name: "SliceAttemptStateError" });
 		const row = await h
@@ -513,7 +580,7 @@ describe("slice attempts", () => {
 		expect(running?.sliceId).not.toBe(args.sliceId);
 	});
 
-	it("resumes the latest budget-exhausted private candidate under the new exact holder", async () => {
+	it("does not rerun a deterministic budget-exhausted attempt under a new holder", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
 		const { attempt } = await beginOrRecoverSliceAttempt(args);
@@ -539,19 +606,13 @@ describe("slice attempts", () => {
 			.where("id", "=", sessionId)
 			.execute();
 
-		const resumed = await beginOrRecoverSliceAttempt({
-			...args,
-			runId: nextRunId,
-			holderNonce: nextNonce,
-		});
-		expect(resumed.recovered).toBe(true);
-		expect(resumed.attempt).toMatchObject({
-			id: attempt.id,
-			attempt: 1,
-			status: "running",
-			failureCode: null,
-			changeSetId: changeSet.id,
-		});
+		await expect(
+			beginOrRecoverSliceAttempt({
+				...args,
+				runId: nextRunId,
+				holderNonce: nextNonce,
+			}),
+		).rejects.toMatchObject({ name: "TerminalSliceAttemptError" });
 		expect(
 			await h
 				.db()
@@ -560,9 +621,9 @@ describe("slice attempts", () => {
 				.where("id", "=", changeSet.id)
 				.executeTakeFirstOrThrow(),
 		).toEqual({
-			status: "open",
+			status: "abandoned",
 			owner_user_id: ACTOR,
-			owner_run_id: nextRunId,
+			owner_run_id: args.runId,
 		});
 	});
 
@@ -593,24 +654,5 @@ describe("slice attempts", () => {
 				.where("id", "=", attempt.id)
 				.executeTakeFirstOrThrow(),
 		).toEqual({ status: "running" });
-	});
-
-	it("counts persisted design-issue attempts for the slice budget", async () => {
-		const sessionId = await seedHeldSession();
-		const args = await attemptArgs(sessionId);
-		const { attempt } = await beginOrRecoverSliceAttempt(args);
-		await markSliceAttempt({
-			...args,
-			attemptId: attempt.id,
-			to: "design-issue",
-			failureCode: "platform-gap",
-		});
-		expect(
-			await countDesignIssueAttempts({
-				designSessionId: sessionId,
-				buildPlanId: args.buildPlanId,
-				sliceId: args.sliceId,
-			}),
-		).toBe(1);
 	});
 });

@@ -11,7 +11,6 @@ import {
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
 	chatRequestIsRedrive,
-	designBuildRetrySend,
 	designProgressOwnsActivityStatus,
 	designProgressTracksBuildFailure,
 	expectedProjectIdForChatRequest,
@@ -21,19 +20,12 @@ import {
 } from "./ChatContainer";
 
 describe("interrupted-turn request routing", () => {
-	it("preserves redrive semantics for both regenerate and design retry sends", () => {
+	it("preserves automatic regenerate redrive semantics", () => {
 		expect(chatRequestIsRedrive("regenerate-message", undefined)).toBe(true);
 		expect(chatRequestIsRedrive("submit-message", { redrive: true })).toBe(
 			true,
 		);
 		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
-	});
-
-	it("keeps manual design recovery distinct from automatic regenerate", () => {
-		expect(designBuildRetrySend()).toEqual({
-			text: "Try again",
-			metadata: { designBuildRetry: true },
-		});
 	});
 });
 

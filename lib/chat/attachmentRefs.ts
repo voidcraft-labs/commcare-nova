@@ -122,12 +122,6 @@ export const messageMetadataSchema = z.object({
 	 * server-side compaction item. A mismatch strips the opaque checkpoint and
 	 * falls back to the ordinary sanitized history. */
 	contextVersion: z.string().max(40).optional(),
-	/** An explicit user retry of the persisted design-build plan. The visible
-	 *  "Try again" message remains in the transcript and keeps the POST
-	 *  chargeable, but the source-package builder excludes it from design
-	 *  evidence so a failed slice resumes the accepted plan instead of
-	 *  pretending the retry label changed the requested app. */
-	designBuildRetry: z.literal(true).optional(),
 });
 export type NovaMessageMetadata = z.infer<typeof messageMetadataSchema>;
 

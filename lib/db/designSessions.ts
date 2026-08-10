@@ -948,49 +948,68 @@ export async function setDesignSessionActiveArtifacts(args: {
 	activeBuildPlanId: string;
 }): Promise<void> {
 	await withAppTx(async (tx) => {
-		await assertDesignSessionRunAuthorityInTransaction(tx, {
-			designSessionId: args.designSessionId,
-			actorUserId: args.actorUserId,
-			expectedProjectId: args.expectedProjectId,
-			holder: {
-				mode: "build",
-				runId: args.runId,
-				nonce: args.holderNonce,
-			},
-		});
-		const revision = await tx
-			.selectFrom("design_revisions")
-			.select(["id", "design_session_id", "lifecycle"])
-			.where("id", "=", args.activeDesignRevisionId)
-			.executeTakeFirst();
-		const plan = await tx
-			.selectFrom("design_build_plans")
-			.select(["id", "design_session_id", "design_revision_id"])
-			.where("id", "=", args.activeBuildPlanId)
-			.executeTakeFirst();
-		if (
-			revision === undefined ||
-			revision.design_session_id !== args.designSessionId ||
-			revision.lifecycle !== "accepted" ||
-			plan === undefined ||
-			plan.design_session_id !== args.designSessionId ||
-			plan.design_revision_id !== revision.id
-		) {
-			throw new DesignSessionStateError(
-				"not_found",
-				"The selected design revision and build plan do not form one accepted lineage in this session.",
-			);
-		}
-		await tx
-			.updateTable("design_sessions")
-			.set({
-				active_design_revision_id: args.activeDesignRevisionId,
-				active_build_plan_id: args.activeBuildPlanId,
-				updated_at: new Date(),
-			})
-			.where("id", "=", args.designSessionId)
-			.execute();
+		await setDesignSessionActiveArtifactsInTransaction(tx, args);
 	});
+}
+
+/** The active-artifact selection transaction body. The authority carrier,
+ * membership, accepted revision, and same-session plan are proved here so a
+ * caller that also transitions execution control can make both writes one
+ * atomic decision. */
+export async function setDesignSessionActiveArtifactsInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		actorUserId: string;
+		runId: string;
+		holderNonce: string;
+		expectedProjectId: string;
+		activeDesignRevisionId: string;
+		activeBuildPlanId: string;
+	},
+): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: args.designSessionId,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: args.runId,
+			nonce: args.holderNonce,
+		},
+	});
+	const revision = await tx
+		.selectFrom("design_revisions")
+		.select(["id", "design_session_id", "lifecycle"])
+		.where("id", "=", args.activeDesignRevisionId)
+		.executeTakeFirst();
+	const plan = await tx
+		.selectFrom("design_build_plans")
+		.select(["id", "design_session_id", "design_revision_id"])
+		.where("id", "=", args.activeBuildPlanId)
+		.executeTakeFirst();
+	if (
+		revision === undefined ||
+		revision.design_session_id !== args.designSessionId ||
+		revision.lifecycle !== "accepted" ||
+		plan === undefined ||
+		plan.design_session_id !== args.designSessionId ||
+		plan.design_revision_id !== revision.id
+	) {
+		throw new DesignSessionStateError(
+			"not_found",
+			"The selected design revision and build plan do not form one accepted lineage in this session.",
+		);
+	}
+	await tx
+		.updateTable("design_sessions")
+		.set({
+			active_design_revision_id: args.activeDesignRevisionId,
+			active_build_plan_id: args.activeBuildPlanId,
+			updated_at: new Date(),
+		})
+		.where("id", "=", args.designSessionId)
+		.execute();
 }
 
 // ── Loads ──────────────────────────────────────────────────────────

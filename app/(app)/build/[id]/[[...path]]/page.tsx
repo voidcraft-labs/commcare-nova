@@ -38,10 +38,7 @@ import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
-import {
-	deriveDesignBuildStage,
-	orchestrationFailureCanRetryAcceptedPlan,
-} from "@/lib/agent/build/progress";
+import { deriveDesignBuildStage } from "@/lib/agent/build/progress";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -235,9 +232,6 @@ export default async function BuilderPage({
 								designSessionId: failedMaterializedDesign.id,
 								materializedAppId: id,
 								stage: failedMaterializedStage,
-								retryAcceptedPlan: orchestrationFailureCanRetryAcceptedPlan(
-									failedMaterializedHead,
-								),
 							}
 						: undefined
 				}
@@ -358,8 +352,6 @@ async function resumedDesignPage(
 					designSessionId,
 					materializedAppId: null,
 					stage,
-					retryAcceptedPlan:
-						orchestrationFailureCanRetryAcceptedPlan(orchestrationHead),
 				}}
 			/>
 		</BuilderProvider>

@@ -733,30 +733,6 @@ describe("GenerationContext.emitError", () => {
 		expect(writerCall.type).toBe("data-conversation-event");
 	});
 
-	it("carries exact-plan recovery only when the classifier grants it", () => {
-		const { ctx, logWriter } = makeTestContext();
-		ctx.emitError({
-			type: "internal",
-			message: "The execution budget ended this attempt.",
-			recoverable: true,
-			designRecovery: "retry-plan",
-		});
-
-		expect(logWriter.logEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				payload: {
-					type: "error",
-					error: {
-						type: "internal",
-						message: "The execution budget ended this attempt.",
-						fatal: false,
-						designRecovery: "retry-plan",
-					},
-				},
-			}),
-		);
-	});
-
 	it("marks an automatic retry warning as non-terminal", () => {
 		const { ctx, logWriter } = makeTestContext();
 		ctx.emitError(

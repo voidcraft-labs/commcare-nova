@@ -30,9 +30,6 @@ export interface ClassifiedError {
 	type: ErrorType;
 	message: string; // human-readable, safe for display
 	recoverable: boolean;
-	/** A design build stopped for an operational reason while its accepted
-	 * plan remained authoritative. The client may offer an exact-plan retry. */
-	designRecovery?: "retry-plan";
 	raw?: string; // original error message for logging
 }
 

@@ -86,7 +86,7 @@ export function composePlan(
 	draft: BuildPlanDraft,
 ): BuildPlan {
 	return {
-		schemaVersion: 2,
+		schemaVersion: 1,
 		designRevisionId: accepted.id,
 		designRevisionDigest: accepted.artifactDigest,
 		id: crypto.randomUUID(),

@@ -340,7 +340,7 @@ async function main(): Promise<void> {
 				);
 				if (!draft.success) return { error: issuesText(draft.error) };
 				const composed = {
-					schemaVersion: 2 as const,
+					schemaVersion: 1 as const,
 					designRevisionId: crypto.randomUUID(),
 					designRevisionDigest: "0".repeat(64),
 					id: crypto.randomUUID(),

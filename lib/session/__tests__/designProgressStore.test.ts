@@ -371,15 +371,8 @@ describe("design progress stage fold", () => {
 		expect(view(store).failure).toBe(
 			"The design step didn't come back usable.",
 		);
-		expect(view(store).canRetryPlan).toBe(false);
 
-		store.getState().markFailed("The build ran past its execution budget.", {
-			recoverable: true,
-			retryAcceptedPlan: true,
-		});
-		expect(view(store).canRetryPlan).toBe(true);
-
-		/* The retry send opens a new turn: the stop clears with it. */
+		/* A genuinely new design turn supersedes the cold stopped-state view. */
 		openSession(store);
 		expect(view(store).stage).toBe("understanding");
 		expect(view(store).failure).toBeNull();
@@ -403,7 +396,6 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "needs-input",
-			retryAcceptedPlan: false,
 		});
 		expect(view(store).active).toBe(true);
 		expect(view(store).stage).toBe("needs-input");
@@ -419,7 +411,6 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "incomplete",
-			retryAcceptedPlan: false,
 		});
 		store.getState().noteTurnOpened();
 		expect(view(store).stage).toBe("understanding");
@@ -431,27 +422,12 @@ describe("resumed design seed", () => {
 			designSessionId: SESSION,
 			materializedAppId: null,
 			stage: "incomplete",
-			retryAcceptedPlan: false,
 		});
 		openSession(store);
 		store
 			.getState()
 			.applyProgressFrame("data-design-outline", envelope(SESSION, OUTLINE, 1));
 		expect(view(store).stage).toBe("designing");
-	});
-
-	it("preserves exact-plan recovery from a durable cold-load seed", () => {
-		const store = createDesignProgressStore();
-		store.getState().seedSession({
-			designSessionId: SESSION,
-			materializedAppId: "app-1",
-			stage: "incomplete",
-			retryAcceptedPlan: true,
-		});
-		expect(view(store).canRetryPlan).toBe(true);
-
-		store.getState().noteTurnOpened();
-		expect(view(store).canRetryPlan).toBe(false);
 	});
 });
 

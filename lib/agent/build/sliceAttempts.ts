@@ -7,13 +7,15 @@
  * `change_set_id` binding. The partial unique index permits one `running`
  * attempt per `(design_session_id, build_plan_id, slice_id)`, so a resumed
  * process RECOVERS the existing attempt rather than starting a second
- * overlay merely because a response was lost. A budget-exhausted attempt is
- * also resumable from its durable private candidate when the exact artifacts,
- * base, actor, and newly authorized run still match; drift starts fresh and
- * never silently adapts staged work.
+ * overlay merely because a response was lost. A terminal attempt never
+ * reopens under a later user turn; deterministic exhaustion is a planning or
+ * compiler defect, not a dice roll for the user to repeat.
  */
 
-import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
+import {
+	assertDesignSessionRunAuthorityInTransaction,
+	setDesignSessionActiveArtifactsInTransaction,
+} from "@/lib/db/designSessions";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { updatedExactlyOne } from "@/lib/db/runHolderWrites";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -22,8 +24,11 @@ export type SliceAttemptStatus =
 	| "running"
 	| "committed"
 	| "superseded"
-	| "design-issue"
 	| "failed";
+
+export class TerminalSliceAttemptError extends Error {
+	readonly name = "TerminalSliceAttemptError";
+}
 
 export type SliceAttemptBaseTarget =
 	| {
@@ -83,7 +88,6 @@ function parseStatus(value: string): SliceAttemptStatus {
 		value === "running" ||
 		value === "committed" ||
 		value === "superseded" ||
-		value === "design-issue" ||
 		value === "failed"
 	) {
 		return value;
@@ -232,36 +236,6 @@ async function assertAttemptAuthority(
 	});
 }
 
-async function baseTargetStillCurrent(
-	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
-	designSessionId: string,
-	base: SliceAttemptBaseTarget,
-): Promise<boolean> {
-	if (base.kind === "app") {
-		const app = await tx
-			.selectFrom("apps")
-			.select(["id", "mutation_seq", "deleted_at"])
-			.where("id", "=", base.appId)
-			.executeTakeFirst();
-		return (
-			app !== undefined &&
-			app.deleted_at === null &&
-			safePersistedSequence(app.mutation_seq, "apps.mutation_seq") === base.seq
-		);
-	}
-	const session = await tx
-		.selectFrom("design_sessions")
-		.select(["app_id", "proposed_app_id", "state"])
-		.where("id", "=", designSessionId)
-		.executeTakeFirst();
-	return (
-		session !== undefined &&
-		session.state === "active" &&
-		session.app_id === null &&
-		session.proposed_app_id === base.proposedAppId
-	);
-}
-
 interface BoundChangeSetRow {
 	id: string;
 	attempt_id: string;
@@ -403,84 +377,20 @@ export async function beginOrRecoverSliceAttempt(
 			);
 		}
 
-		/* A wall-clock/model-step ceiling is a pause in private compilation, not
-		 * evidence that the admitted prefix is wrong. Adopt that exact durable
-		 * candidate only when it is the latest attempt and every immutable input
-		 * plus the canonical base still matches. The current delegated holder was
-		 * proved above under the app/session authority lock; transferring the
-		 * owner run and reopening the attempt in this same transaction prevents
-		 * the stale run from appending another request. */
 		const latest = await tx
 			.selectFrom("design_slice_attempts")
-			.select([...ATTEMPT_COLUMNS])
+			.select(["attempt", "status", "failure_code"])
 			.where("design_session_id", "=", args.designSessionId)
 			.where("build_plan_id", "=", args.buildPlanId)
 			.where("slice_id", "=", args.sliceId)
 			.orderBy("attempt", "desc")
-			.forUpdate()
 			.executeTakeFirst();
-		if (latest !== undefined) {
-			const paused = rowToAttempt(latest as AttemptRow);
-			const bound = await lockBoundChangeSet(tx, paused);
-			if (
-				paused.status === "failed" &&
-				paused.failureCode === "budget-exhausted" &&
-				sameAttemptInputs(paused, args) &&
-				bound?.status === "open" &&
-				bound.owner_user_id === args.actorUserId &&
-				(await baseTargetStillCurrent(
-					tx,
-					args.designSessionId,
-					paused.baseTarget,
-				))
-			) {
-				const changeSetUpdate = await tx
-					.updateTable("design_change_sets")
-					.set({ owner_run_id: args.runId, updated_at: new Date() })
-					.where("id", "=", bound.id)
-					.where("attempt_id", "=", paused.id)
-					.where("status", "=", "open")
-					.where("owner_user_id", "=", args.actorUserId)
-					.executeTakeFirst();
-				if (!updatedExactlyOne(changeSetUpdate)) {
-					throw new SliceAttemptStateError(
-						`Budget-exhausted change set ${bound.id} changed during recovery.`,
-					);
-				}
-				const attemptUpdate = await tx
-					.updateTable("design_slice_attempts")
-					.set({
-						status: "running",
-						failure_code: null,
-						updated_at: new Date(),
-					})
-					.where("id", "=", paused.id)
-					.where("status", "=", "failed")
-					.where("failure_code", "=", "budget-exhausted")
-					.executeTakeFirst();
-				if (!updatedExactlyOne(attemptUpdate)) {
-					throw new SliceAttemptStateError(
-						`Budget-exhausted attempt ${paused.id} changed during recovery.`,
-					);
-				}
-				return {
-					attempt: {
-						...paused,
-						status: "running",
-						failureCode: null,
-					},
-					recovered: true,
-				};
-			}
+		if (latest?.status === "failed" || latest?.status === "committed") {
+			throw new TerminalSliceAttemptError(
+				`Slice ${args.sliceId} already ended as ${latest.status}; the same accepted plan cannot rerun it.`,
+			);
 		}
-		const prior = await tx
-			.selectFrom("design_slice_attempts")
-			.select((eb) => eb.fn.max("attempt").as("max_attempt"))
-			.where("design_session_id", "=", args.designSessionId)
-			.where("build_plan_id", "=", args.buildPlanId)
-			.where("slice_id", "=", args.sliceId)
-			.executeTakeFirst();
-		const attemptNumber = Number(prior?.max_attempt ?? 0) + 1;
+		const attemptNumber = Number(latest?.attempt ?? 0) + 1;
 		const id = crypto.randomUUID();
 		const created = await tx
 			.insertInto("design_slice_attempts")
@@ -557,6 +467,71 @@ export async function supersedeSliceAttempt(
 	});
 }
 
+/** Install one accepted replacement plan and supersede the running root
+ * attempt in the same authority-locked transaction. The replacement artifact
+ * itself is immutable and may already exist; neither the active pointer nor
+ * the old execution control can advance alone. */
+export async function activateReplacementPlan(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly failureCode: string;
+		readonly activeDesignRevisionId: string;
+		readonly activeBuildPlanId: string;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const row = await tx
+			.selectFrom("design_slice_attempts")
+			.select([...ATTEMPT_COLUMNS])
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${args.attemptId} no longer exists.`,
+			);
+		}
+		const attempt = rowToAttempt(row as AttemptRow);
+		if (
+			attempt.status === "superseded" &&
+			attempt.failureCode === args.failureCode
+		) {
+			const active = await tx
+				.selectFrom("design_sessions")
+				.select(["active_design_revision_id", "active_build_plan_id"])
+				.where("id", "=", args.designSessionId)
+				.executeTakeFirstOrThrow();
+			if (
+				active.active_design_revision_id === args.activeDesignRevisionId &&
+				active.active_build_plan_id === args.activeBuildPlanId
+			) {
+				return;
+			}
+			throw new SliceAttemptStateError(
+				"The replacement-plan transition was already consumed by another active artifact selection.",
+			);
+		}
+		if (attempt.status !== "running") {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${args.attemptId} was already terminated by another transition.`,
+			);
+		}
+		await setDesignSessionActiveArtifactsInTransaction(tx, {
+			designSessionId: args.designSessionId,
+			actorUserId: args.actorUserId,
+			runId: args.runId,
+			holderNonce: args.holderNonce,
+			expectedProjectId: args.expectedProjectId,
+			activeDesignRevisionId: args.activeDesignRevisionId,
+			activeBuildPlanId: args.activeBuildPlanId,
+		});
+		await supersedeRunningAttempt(tx, attempt, args.failureCode);
+	});
+}
+
 /** Bind the attempt's change set — set exactly once, right after the set
  *  opens (or reopens) under this attempt. */
 export async function bindSliceAttemptChangeSet(
@@ -596,12 +571,55 @@ export async function markSliceAttempt(
 	args: SliceAttemptAuthority & {
 		readonly designSessionId: string;
 		readonly attemptId: string;
-		readonly to: Exclude<SliceAttemptStatus, "running">;
+		readonly to: "failed";
 		readonly failureCode?: string;
 	},
 ): Promise<void> {
 	await withAppTx(async (tx) => {
 		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const row = await tx
+			.selectFrom("design_slice_attempts")
+			.select([...ATTEMPT_COLUMNS])
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${args.attemptId} no longer exists.`,
+			);
+		}
+		const attempt = rowToAttempt(row as AttemptRow);
+		if (
+			attempt.status === args.to &&
+			attempt.failureCode === (args.failureCode ?? null)
+		) {
+			return;
+		}
+		if (attempt.status !== "running") {
+			throw new SliceAttemptStateError(
+				"The slice attempt was already terminated by another transition.",
+			);
+		}
+		const bound = await lockBoundChangeSet(tx, attempt);
+		if (bound?.status === "open") {
+			const closed = await tx
+				.updateTable("design_change_sets")
+				.set({ status: "abandoned", updated_at: new Date() })
+				.where("id", "=", bound.id)
+				.where("attempt_id", "=", attempt.id)
+				.where("status", "=", "open")
+				.executeTakeFirst();
+			if (!updatedExactlyOne(closed)) {
+				throw new SliceAttemptStateError(
+					`Slice attempt ${attempt.id}'s change set changed during failure.`,
+				);
+			}
+		} else if (bound?.status === "committed") {
+			throw new SliceAttemptStateError(
+				`Slice attempt ${attempt.id} cannot fail after its change set committed.`,
+			);
+		}
 		const result = await tx
 			.updateTable("design_slice_attempts")
 			.set({
@@ -613,22 +631,11 @@ export async function markSliceAttempt(
 			.where("design_session_id", "=", args.designSessionId)
 			.where("status", "=", "running")
 			.executeTakeFirst();
-		if (Number(result.numUpdatedRows) === 1) return;
-		const existing = await tx
-			.selectFrom("design_slice_attempts")
-			.select(["status", "failure_code"])
-			.where("id", "=", args.attemptId)
-			.where("design_session_id", "=", args.designSessionId)
-			.executeTakeFirst();
-		if (
-			existing?.status === args.to &&
-			existing.failure_code === (args.failureCode ?? null)
-		) {
-			return;
+		if (!updatedExactlyOne(result)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt changed during its failure transition.",
+			);
 		}
-		throw new SliceAttemptStateError(
-			"The slice attempt was already terminated by another transition.",
-		);
 	});
 }
 
@@ -644,22 +651,4 @@ export async function loadRunningSliceAttempt(
 		.where("status", "=", "running")
 		.executeTakeFirst();
 	return row === undefined ? null : rowToAttempt(row as AttemptRow);
-}
-
-/** Persisted across-attempt escalation count for one exact planned slice. */
-export async function countDesignIssueAttempts(args: {
-	readonly designSessionId: string;
-	readonly buildPlanId: string;
-	readonly sliceId: string;
-}): Promise<number> {
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("design_slice_attempts")
-		.select((eb) => eb.fn.countAll<string>().as("count"))
-		.where("design_session_id", "=", args.designSessionId)
-		.where("build_plan_id", "=", args.buildPlanId)
-		.where("slice_id", "=", args.sliceId)
-		.where("status", "=", "design-issue")
-		.executeTakeFirst();
-	return Number(row?.count ?? 0);
 }

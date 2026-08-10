@@ -47,20 +47,17 @@ import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { markStablePrefixBoundary } from "@/lib/agent/prompts";
-import {
-	modelMessagesContainCompaction,
-	projectModelHistoryFromNewestCompaction,
-} from "@/lib/chat/compaction";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import type { SliceExecutionBudget } from "./budgets";
+import {
+	type ArchitectBlockerDecision,
+	type ExecutionBlocker,
+	executionBlockerSchema,
+} from "./executionBlocker";
 import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 import { EXECUTOR_SYSTEM } from "./executorPrompt";
 import { executorWireToolSchema } from "./executorWireSchemas";
-import {
-	type DesignExecutionIssue,
-	designExecutionIssueSchema,
-} from "./issueEscalation";
 
 /**
  * The workspace surface the loop uses. Structurally the change-set workspace
@@ -69,7 +66,7 @@ import {
  */
 export type ExecutorWorkspace = Pick<
 	ChangeSetMutationWorkspace,
-	"stageDispatch" | "inspect" | "currentSnapshot"
+	"stageDispatch" | "inspect" | "currentSnapshot" | "currentExecutionCheckpoint"
 >;
 
 /** One model step: the messages in, the model's tool calls and text out. The
@@ -106,22 +103,31 @@ export type SliceExecutionOutcome =
 			receipt: CommittedSliceReceipt | AppMaterializationReceipt;
 	  }
 	| { kind: "rebase-conflict"; report: unknown }
-	| { kind: "design-issue"; issue: DesignExecutionIssue }
+	| { kind: "architect-decision"; decision: ArchitectBlockerDecision }
 	| {
 			kind: "budget-exhausted";
 			spent: { modelSteps: number; stagedRequests: number };
 	  }
 	| { kind: "protocol-failure"; code: string; message: string };
 
+export type SliceBlockerResolver = (args: {
+	readonly blocker: ExecutionBlocker;
+	readonly brief: SliceExecutionBrief;
+	readonly diagnostics: unknown;
+	readonly signal: AbortSignal;
+}) => Promise<ArchitectBlockerDecision>;
+
 // ── The mounted tool surface ─────────────────────────────────────────
 
 const INSPECT_TOOL = "inspectChangeSet";
 const COMMIT_TOOL = "commitChangeSet";
-const RAISE_ISSUE_TOOL = "raiseDesignExecutionIssue";
+const REPORT_BLOCKER_TOOL = "reportExecutionBlocker";
+const STAGE_BATCH_TOOL = "stageBatch";
+const MAX_STAGE_BATCH_OPERATIONS = 12;
 
 const noArgumentsSchema = z.object({}).strict();
 
-/** The three server-owned tools, mounted beside the staged registry. */
+/** Server-owned tools mounted beside the compiler's read and batch surface. */
 const SERVER_TOOLS: Readonly<
 	Record<string, { description: string; schema: z.ZodType }>
 > = {
@@ -135,12 +141,85 @@ const SERVER_TOOLS: Readonly<
 			"Request that this change set commit as one canonical revision. The server independently re-proves the diagnostics and the design digests; if anything blocks the commit you get back what it was.",
 		schema: noArgumentsSchema,
 	},
-	[RAISE_ISSUE_TOOL]: {
+	[REPORT_BLOCKER_TOOL]: {
 		description:
-			"Report that the accepted slice cannot be implemented as designed, and end work on it. Name the affected design intents, explain specifically what blocks the implementation, and offer at most three options. Use this instead of choosing a different architecture yourself.",
-		schema: designExecutionIssueSchema,
+			"Report exact observations that cannot be resolved locally and request one construction decision. This is evidence for the server-owned architect, not a design verdict or a user message.",
+		schema: executionBlockerSchema,
 	},
 };
+
+const BATCH_LOCAL_HANDLE_FAMILIES = [
+	"worker-property",
+	"user-type",
+	"persona",
+] as const;
+
+const SERVER_MINTED_OUTPUT_COLLECTIONS = new Map<string, string>([
+	["addUserProperties", "properties"],
+	["addUserTypes", "userTypes"],
+	["addPersonas", "personas"],
+]);
+
+function mutatingInputSchema(name: string): JSONSchema7 {
+	const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
+	if (entry === undefined || entry.policy.effect !== "mutate-blueprint") {
+		throw new Error(`The stage batch cannot mount non-mutating tool ${name}.`);
+	}
+	const inputSchema = executorWireToolSchema(name, entry.tool.inputSchema, {
+		additionalHandleFamilies: BATCH_LOCAL_HANDLE_FAMILIES,
+	});
+	inputSchema.properties ??= {};
+	inputSchema.properties.implementedIntentIds = {
+		type: "array",
+		items: { type: "string", format: "uuid" },
+		minItems: 1,
+		uniqueItems: true,
+		description: "The exact owned design intent ids this operation implements.",
+	};
+	inputSchema.required = [
+		...new Set([...(inputSchema.required ?? []), "implementedIntentIds"]),
+	];
+	return inputSchema;
+}
+
+function stageBatchSchema(): JSONSchema7 {
+	const operationArms = Array.from(CHANGE_SET_TOOL_REGISTRY.values())
+		.filter((entry) => entry.policy.effect === "mutate-blueprint")
+		.map((entry) => ({
+			type: "object",
+			properties: {
+				toolName: { const: entry.name },
+				input: mutatingInputSchema(entry.name),
+				...(SERVER_MINTED_OUTPUT_COLLECTIONS.has(entry.name) && {
+					outputHandles: {
+						type: "array",
+						items: {
+							type: "string",
+							pattern: "^@[a-z][a-z0-9_-]{0,63}$",
+						},
+						uniqueItems: true,
+						description:
+							"Bind returned uuids to these batch-local handles in result order, one per created item.",
+					},
+				}),
+			},
+			required: ["toolName", "input"],
+			additionalProperties: false,
+		})) satisfies JSONSchema7[];
+	return {
+		type: "object",
+		properties: {
+			operations: {
+				type: "array",
+				items: { oneOf: operationArms },
+				minItems: 1,
+				maxItems: MAX_STAGE_BATCH_OPERATIONS,
+			},
+		},
+		required: ["operations"],
+		additionalProperties: false,
+	};
+}
 
 /** The complete mounted tool definitions, built once — every stageable
  *  change-set tool plus the three server-owned ones. */
@@ -153,27 +232,18 @@ function buildExecutorTools(): Record<
 		{ description: string; inputSchema: JSONSchema7 }
 	> = {};
 	for (const [name, entry] of CHANGE_SET_TOOL_REGISTRY) {
+		if (entry.policy.effect !== "read-blueprint") continue;
 		const inputSchema = executorWireToolSchema(name, entry.tool.inputSchema);
-		if (entry.policy.effect === "mutate-blueprint") {
-			inputSchema.properties ??= {};
-			const properties = inputSchema.properties;
-			properties.implementedIntentIds = {
-				type: "array",
-				items: { type: "string", format: "uuid" },
-				minItems: 1,
-				uniqueItems: true,
-				description:
-					"The exact owned design intent ids this staged mutation call implements.",
-			};
-			inputSchema.required = [
-				...new Set([...(inputSchema.required ?? []), "implementedIntentIds"]),
-			];
-		}
 		tools[name] = {
 			description: entry.tool.description,
 			inputSchema,
 		};
 	}
+	tools[STAGE_BATCH_TOOL] = {
+		description:
+			"Stage one ordered semantic group. Operations run serially, each is durably idempotent, and execution stops at the first rejected operation while preserving every earlier admitted operation.",
+		inputSchema: stageBatchSchema(),
+	};
 	for (const [name, definition] of Object.entries(SERVER_TOOLS)) {
 		tools[name] = {
 			description: definition.description,
@@ -191,6 +261,33 @@ let cachedTools: Record<
 function executorTools() {
 	cachedTools ??= buildExecutorTools();
 	return cachedTools;
+}
+
+function carriesPromptCacheBreakpoint(message: ModelMessage): boolean {
+	const hasBreakpoint = (providerOptions: unknown): boolean => {
+		if (providerOptions === null || typeof providerOptions !== "object") {
+			return false;
+		}
+		const openai = (providerOptions as { openai?: unknown }).openai;
+		return (
+			openai !== null &&
+			typeof openai === "object" &&
+			"promptCacheBreakpoint" in openai
+		);
+	};
+	if (
+		hasBreakpoint(
+			(message as ModelMessage & { providerOptions?: unknown }).providerOptions,
+		)
+	) {
+		return true;
+	}
+	return (
+		Array.isArray(message.content) &&
+		message.content.some((part) =>
+			hasBreakpoint((part as { providerOptions?: unknown }).providerOptions),
+		)
+	);
 }
 
 // ── The production step ──────────────────────────────────────────────
@@ -219,9 +316,10 @@ export function productionExecutorStep(
 			model,
 			system,
 			messages:
-				promptCacheKey === undefined
-					? messages
-					: markStablePrefixBoundary(messages),
+				promptCacheKey !== undefined &&
+				!messages.some(carriesPromptCacheBreakpoint)
+					? markStablePrefixBoundary(messages)
+					: messages,
 			tools: Object.fromEntries(
 				Object.entries(definitions).map(([name, definition]) => [
 					name,
@@ -315,6 +413,82 @@ const ONE_CALL_PROTOCOL_RESULT = {
 		"One executable call per step; nothing was executed. Re-send exactly one call.",
 } as const;
 
+const stageBatchEnvelopeSchema = z
+	.object({
+		operations: z
+			.array(
+				z
+					.object({
+						toolName: z.string().min(1),
+						input: z.unknown(),
+						outputHandles: z
+							.array(z.string().regex(/^@[a-z][a-z0-9_-]{0,63}$/))
+							.optional(),
+					})
+					.strict(),
+			)
+			.min(1)
+			.max(MAX_STAGE_BATCH_OPERATIONS),
+	})
+	.strict();
+
+function resolveBatchLocalHandles(
+	value: unknown,
+	bindings: ReadonlyMap<string, string>,
+): unknown {
+	if (Array.isArray(value)) {
+		return value.map((member) => resolveBatchLocalHandles(member, bindings));
+	}
+	if (value === null || typeof value !== "object") return value;
+	const record = value as Record<string, unknown>;
+	if (
+		Object.keys(record).length === 1 &&
+		typeof record.handle === "string" &&
+		bindings.has(record.handle)
+	) {
+		return bindings.get(record.handle);
+	}
+	return Object.fromEntries(
+		Object.entries(record).map(([key, member]) => [
+			key,
+			resolveBatchLocalHandles(member, bindings),
+		]),
+	);
+}
+
+function createdUuids(result: unknown): readonly string[] | null {
+	if (result === null || typeof result !== "object") return null;
+	const envelope = result as { kind?: unknown; result?: unknown };
+	if (envelope.kind !== "mutate") return null;
+	if (envelope.result === null || typeof envelope.result !== "object")
+		return null;
+	const uuids = (envelope.result as { uuids?: unknown }).uuids;
+	return Array.isArray(uuids) && uuids.every((uuid) => typeof uuid === "string")
+		? uuids
+		: null;
+}
+
+function resultHasError(result: unknown): boolean {
+	return (
+		result !== null &&
+		typeof result === "object" &&
+		typeof (result as { error?: unknown }).error === "string"
+	);
+}
+
+function expectedServerMintedIdentityCount(
+	toolName: string,
+	input: unknown,
+): number | null {
+	if (input === null || typeof input !== "object" || Array.isArray(input)) {
+		return null;
+	}
+	const record = input as Record<string, unknown>;
+	const key = SERVER_MINTED_OUTPUT_COLLECTIONS.get(toolName);
+	if (key === undefined) return null;
+	return Array.isArray(record[key]) ? record[key].length : null;
+}
+
 const CONTINUE_NUDGE =
 	"Continue with exactly one tool call. Stage every remaining owned intent before inspecting; once none remain, inspect once and commit if it reports no findings.";
 
@@ -324,6 +498,7 @@ const INVENTORY_FIELD_LIMIT_PER_FORM = 12;
 const INVENTORY_USER_PROPERTY_LIMIT = 16;
 const INVENTORY_CASE_TYPE_LIMIT = 12;
 const INVENTORY_CASE_PROPERTY_LIMIT = 24;
+const INVENTORY_HANDLE_LIMIT = 128;
 
 function more(count: number, shown: number): string {
 	return count > shown ? `; +${count - shown} more` : "";
@@ -337,6 +512,7 @@ export function renderExecutorWorkspaceSummary(
 	workspace: ExecutorWorkspace,
 ): string {
 	const snapshot = workspace.currentSnapshot();
+	const execution = workspace.currentExecutionCheckpoint();
 	const doc = snapshot.doc;
 	const moduleCount = snapshot.doc.moduleOrder.length;
 	const formCount = Object.keys(snapshot.doc.forms).length;
@@ -347,7 +523,26 @@ export function renderExecutorWorkspaceSummary(
 			? "Nothing has been staged yet — this is the first step."
 			: "Build on what is already staged; never re-create it.",
 		`App: ${JSON.stringify(doc.appName)} (${doc.appId})`,
+		execution.intentCoverage.length === 0
+			? "Durable intent coverage: none yet."
+			: `Durable intent coverage: ${execution.intentCoverage
+					.map(
+						(coverage) =>
+							`${coverage.intentId} (${coverage.stepCount} step${coverage.stepCount === 1 ? "" : "s"})`,
+					)
+					.join(", ")}.`,
 	];
+	const handles = execution.handles.slice(0, INVENTORY_HANDLE_LIMIT);
+	if (handles.length > 0) {
+		lines.push(
+			`Durable handles: ${handles
+				.map(
+					(binding) =>
+						`${binding.handle}=${binding.entityKind}:${binding.uuid}`,
+				)
+				.join(", ")}${more(execution.handles.length, handles.length)}`,
+		);
+	}
 
 	const userPropertyOrder = doc.userPropertyOrder ?? [];
 	const userProperties = doc.userProperties ?? {};
@@ -425,15 +620,29 @@ export function renderExecutorWorkspaceSummary(
 function executorCheckpoint(
 	brief: SliceExecutionBrief,
 	workspace: ExecutorWorkspace,
-): ModelMessage {
-	return userMessage(
-		[
-			"## Current authoritative execution context",
-			"Use this exact accepted slice and the current durable private candidate. Do not rely on an older summarized copy of either.",
-			renderBriefMessage(brief),
-			renderExecutorWorkspaceSummary(workspace),
-		].join("\n\n---\n\n"),
-	);
+): ModelMessage[] {
+	const stableBrief = markStablePrefixBoundary([
+		userMessage(
+			[
+				"## Accepted execution brief",
+				"This is the exact accepted slice. It is immutable for this attempt.",
+				renderBriefMessage(brief),
+			].join("\n\n"),
+		),
+	])[0];
+	if (stableBrief === undefined) {
+		throw new Error("The executor's accepted brief could not be rendered.");
+	}
+	return [
+		stableBrief,
+		userMessage(
+			[
+				"## Current authoritative private candidate",
+				"Use this current durable checkpoint. Do not rely on an older summarized workspace.",
+				renderExecutorWorkspaceSummary(workspace),
+			].join("\n\n"),
+		),
+	];
 }
 
 // ── The loop ─────────────────────────────────────────────────────────
@@ -452,6 +661,7 @@ export async function runSliceExecutor(args: {
 		signal: AbortSignal,
 		deadlineAt: number,
 	) => Promise<SliceCommitResult>;
+	resolveBlocker?: SliceBlockerResolver;
 	signal: AbortSignal;
 	onProgress?: (phase: "building" | "validating" | "committing") => void;
 	/** Each step's display-safe reasoning summary → the run event log, so
@@ -480,6 +690,7 @@ export async function runSliceExecutor(args: {
 	let modelSteps = 0;
 	let stagedRequests = 0;
 	let commitAttempts = 0;
+	let blockerReports = 0;
 	let consecutiveEmptySteps = 0;
 
 	const spent = () => ({ modelSteps, stagedRequests });
@@ -488,11 +699,7 @@ export async function runSliceExecutor(args: {
 		spent: spent(),
 	});
 
-	let messages: ModelMessage[] = [
-		userMessage(
-			`${renderBriefMessage(brief)}\n\n---\n\n${renderExecutorWorkspaceSummary(workspace)}`,
-		),
-	];
+	let messages: ModelMessage[] = executorCheckpoint(brief, workspace);
 
 	args.onProgress?.("building");
 
@@ -535,18 +742,6 @@ export async function runSliceExecutor(args: {
 				return exhausted();
 			modelSteps += 1;
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
-			messages = [...messages, ...step.responseMessages];
-			let checkpointPending = modelMessagesContainCompaction(
-				step.responseMessages,
-			);
-			const appendCheckpoint = (): void => {
-				if (!checkpointPending) return;
-				messages = [
-					...projectModelHistoryFromNewestCompaction(messages),
-					executorCheckpoint(brief, workspace),
-				];
-				checkpointPending = false;
-			};
 
 			if (step.toolCalls.length === 0) {
 				consecutiveEmptySteps += 1;
@@ -558,8 +753,11 @@ export async function runSliceExecutor(args: {
 							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
 					};
 				}
-				appendCheckpoint();
-				messages = [...messages, userMessage(CONTINUE_NUDGE)];
+				messages = [
+					...executorCheckpoint(brief, workspace),
+					...step.responseMessages,
+					userMessage(CONTINUE_NUDGE),
+				];
 				continue;
 			}
 			consecutiveEmptySteps = 0;
@@ -567,7 +765,8 @@ export async function runSliceExecutor(args: {
 			if (step.toolCalls.length > 1) {
 				/* §13.6.3: execute none, answer every call deterministically. */
 				messages = [
-					...messages,
+					...executorCheckpoint(brief, workspace),
+					...step.responseMessages,
 					...step.toolCalls.map((call) =>
 						toolMessage(
 							call.toolCallId,
@@ -576,7 +775,6 @@ export async function runSliceExecutor(args: {
 						),
 					),
 				];
-				appendCheckpoint();
 				continue;
 			}
 
@@ -584,23 +782,179 @@ export async function runSliceExecutor(args: {
 			if (call === undefined) continue;
 			const answer = (value: unknown): void => {
 				messages = [
-					...messages,
+					...executorCheckpoint(brief, workspace),
+					...step.responseMessages,
 					toolMessage(call.toolCallId, call.toolName, value),
 				];
-				appendCheckpoint();
 			};
 
+			if (call.toolName === STAGE_BATCH_TOOL) {
+				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
+				if (!parsed.success) {
+					answer({
+						error: `The batch shape is invalid: ${parsed.error.issues
+							.map(
+								(issue) =>
+									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+							)
+							.join("; ")}`,
+					});
+					continue;
+				}
+				const bindings = new Map<string, string>();
+				const completed: Array<{
+					index: number;
+					toolName: string;
+					result: unknown;
+				}> = [];
+				let failed: { index: number; toolName: string; error: string } | null =
+					null;
+				for (const [index, operation] of parsed.data.operations.entries()) {
+					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
+					if (
+						entry === undefined ||
+						entry.policy.effect !== "mutate-blueprint"
+					) {
+						failed = {
+							index,
+							toolName: operation.toolName,
+							error:
+								"Only private Blueprint mutations are valid batch operations.",
+						};
+						break;
+					}
+					if (operation.outputHandles !== undefined) {
+						const expectedCount = expectedServerMintedIdentityCount(
+							operation.toolName,
+							operation.input,
+						);
+						if (
+							expectedCount === null ||
+							expectedCount !== operation.outputHandles.length ||
+							new Set(operation.outputHandles).size !==
+								operation.outputHandles.length
+						) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error:
+									"outputHandles are allowed only for server-minted worker properties, roles, and personas, with one handle for each created item.",
+							};
+							break;
+						}
+						if (
+							operation.outputHandles.some((handle) => bindings.has(handle))
+						) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error: "A batch-local output handle was already bound.",
+							};
+							break;
+						}
+					}
+					stagedRequests += 1;
+					if (stagedRequests > budget.maxStagedRequests) return exhausted();
+					try {
+						if (Date.now() >= deadlineAt || deadline.signal.aborted)
+							return exhausted();
+						const resolved = resolveBatchLocalHandles(
+							operation.input,
+							bindings,
+						);
+						const projected = extractStagingInput(resolved, brief);
+						const dispatched = await awaitWithAbort(
+							workspace.stageDispatch({
+								toolName: operation.toolName,
+								requestId: `${call.toolCallId}:${index}`,
+								input: projected.input,
+								intentIds: projected.intentIds,
+								deadlineAt,
+							}),
+							boundedSignal,
+						);
+						const projectedResult = projectToolResult(dispatched.result);
+						if (resultHasError(projectedResult)) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error: (projectedResult as { error: string }).error,
+							};
+							break;
+						}
+						if (operation.outputHandles !== undefined) {
+							const uuids = createdUuids(dispatched.result);
+							if (
+								uuids === null ||
+								uuids.length !== operation.outputHandles.length
+							) {
+								return {
+									kind: "protocol-failure",
+									code: "batch-output-contract-invalid",
+									message:
+										"A staged operation returned identities that do not match its declared output handles.",
+								};
+							}
+							for (const [
+								handleIndex,
+								handle,
+							] of operation.outputHandles.entries()) {
+								const uuid = uuids[handleIndex];
+								if (uuid !== undefined) bindings.set(handle, uuid);
+							}
+						}
+						completed.push({
+							index,
+							toolName: operation.toolName,
+							result: projectedResult,
+						});
+					} catch (error) {
+						if (deadlineExceeded()) return exhausted();
+						if (error instanceof ChangeSetStagingRejectedError) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error: error.message,
+							};
+							break;
+						}
+						const terminal = terminalProtocolCode(error);
+						if (terminal === null) throw error;
+						return {
+							kind: "protocol-failure",
+							code: terminal,
+							message: (error as Error).message,
+						};
+					}
+				}
+				answer({
+					completed,
+					bindings: Object.fromEntries(bindings),
+					...(failed === null
+						? { status: "completed" }
+						: {
+								status: "stopped",
+								failed,
+								unattemptedCount:
+									parsed.data.operations.length - failed.index - 1,
+							}),
+				});
+				continue;
+			}
+
 			if (CHANGE_SET_TOOL_REGISTRY.has(call.toolName)) {
-				stagedRequests += 1;
-				if (stagedRequests > budget.maxStagedRequests) return exhausted();
 				try {
 					if (Date.now() >= deadlineAt || deadline.signal.aborted)
 						return exhausted();
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
-					const projected =
-						entry?.policy.effect === "mutate-blueprint"
-							? extractStagingInput(call.input, brief)
-							: { input: call.input, intentIds: [] as const };
+					if (entry?.policy.effect === "mutate-blueprint") {
+						answer({
+							error:
+								"Mutations are available only inside stageBatch; put this operation into one ordered semantic batch.",
+						});
+						continue;
+					}
+					const projected = { input: call.input, intentIds: [] as const };
 					const dispatched = await awaitWithAbort(
 						workspace.stageDispatch({
 							toolName: call.toolName,
@@ -717,25 +1071,66 @@ export async function runSliceExecutor(args: {
 				continue;
 			}
 
-			if (call.toolName === RAISE_ISSUE_TOOL) {
-				const parsed = designExecutionIssueSchema.safeParse(call.input);
+			if (call.toolName === REPORT_BLOCKER_TOOL) {
+				const parsed = executionBlockerSchema.safeParse(call.input);
 				if (!parsed.success) {
 					answer({
-						error: `That design issue could not be recorded: ${parsed.error.issues
+						error: `That blocker report is invalid: ${parsed.error.issues
 							.map(
 								(issue) =>
 									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
 							)
-							.join(
-								"; ",
-							)}. Re-send it with schemaVersion 1, a fresh id, one of the listed categories, at least one affected design intent id, an explanation, a local or architecture structural impact, and at most three proposed options.`,
+							.join("; ")}`,
 					});
 					continue;
 				}
-				/* An escalation ends the loop, so `maxDesignIssueEscalations` is an
-				 * ACROSS-attempt budget the orchestrator enforces when it decides
-				 * whether to resume this slice with a new brief. */
-				return { kind: "design-issue", issue: parsed.data };
+				blockerReports += 1;
+				if (blockerReports > budget.maxBlockerResolutions) {
+					return {
+						kind: "protocol-failure",
+						code: "blocker-resolution-budget-exhausted",
+						message:
+							"The compiler exhausted its bounded architect-resolution budget without reaching a safe construction.",
+					};
+				}
+				let diagnostics: ReturnType<typeof projectDiagnostics>;
+				try {
+					diagnostics = projectDiagnostics(
+						await awaitWithAbort(workspace.inspect(), boundedSignal),
+						brief,
+					);
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				if (args.resolveBlocker === undefined) {
+					return {
+						kind: "protocol-failure",
+						code: "architect-resolver-unavailable",
+						message:
+							"The server-owned architect resolver is unavailable for this execution.",
+					};
+				}
+				let decision: ArchitectBlockerDecision;
+				try {
+					decision = await awaitWithAbort(
+						args.resolveBlocker({
+							blocker: parsed.data,
+							brief,
+							diagnostics,
+							signal: boundedSignal,
+						}),
+						boundedSignal,
+					);
+				} catch (error) {
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				if (decision.kind === "continue") {
+					answer({ decision: "continue", guidance: decision.guidance });
+					continue;
+				}
+				return { kind: "architect-decision", decision };
 			}
 
 			answer({
@@ -830,7 +1225,7 @@ function projectDiagnostics(
 				/* Coordinates and structured details are what distinguish several
 				 * instances of the same validator code. They stay inside the private
 				 * executor context; stripping them made the worker guess which carrier
-				 * to repair and turn a local correction into a false design issue. */
+				 * to repair and turn a local correction into a false design blocker. */
 				location: finding.location,
 				details: finding.details,
 			})),

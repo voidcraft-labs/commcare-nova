@@ -44,15 +44,17 @@ direct MCP edit.
   proves the artifact unchanged since its validated write. The
   sensitivity pair rule (`validateSensitivityNotSilentlyLowered`) runs in
   the reviser call.
-- `buildPlan.ts` — slices/external actions/ownership;
-  `validateSlicePlanStructure` (one materialization root, acyclic DAG,
-  ownership coherence, root-closure external-action timing, no pre-app
-  data migration) plus `buildPlanSchemaFor(contract)` (exact ownership
-  over the implementable intents, scenario coverage, parent-selection
-  reachability). New-plan admission additionally caps one slice at 30 owned
-  intents so the bounded executor receives task-complete work it can finish;
-  persisted schemas still read older wider plans. `buildPlanDraftSchema` is
-  the planner MODEL's shape — the server stamps plan id and revision identity.
+- `buildPlan.ts` — slices/external actions/ownership plus each slice's
+  construction strategy; `validateSlicePlanStructure` proves one
+  materialization root, acyclic DAG, ownership coherence, root-closure
+  external-action timing, no pre-app data migration, and exact semantic-group
+  and lowering coverage. `buildPlanSchemaFor(contract)` additionally proves
+  task mode/context/transitions, fact storage/writer/unanswered behavior,
+  read-model search and actor partitioning, access layers, navigation, and
+  manual setup against the accepted contract. Slice/group admission bounds
+  keep each task-complete unit inside the executor ceiling.
+  `buildPlanDraftSchema` is the planner MODEL's shape; the server stamps plan
+  id, schema version 1, and revision identity.
 - `complexity.ts` — deterministic depth (`compact|standard|extended`),
   persisted with each contract envelope; controls process depth and the
   conservative user estimates (about 25 / 45 / 75 minutes), never

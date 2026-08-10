@@ -40,10 +40,13 @@ import { wireToolSchema } from "@/lib/agent/wireSchemas";
  * move the executor can make to escape its own diagnostics.
  */
 export const EXECUTOR_TOOL_SURFACE: readonly string[] = [
-	...CHANGE_SET_TOOL_REGISTRY.keys(),
+	...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
+		.filter((entry) => entry.policy.effect === "read-blueprint")
+		.map((entry) => entry.name),
+	"stageBatch",
 	"inspectChangeSet",
 	"commitChangeSet",
-	"raiseDesignExecutionIssue",
+	"reportExecutionBlocker",
 ];
 
 /** The `{ handle }` arm every widened slot gains. */
@@ -88,6 +91,7 @@ function unescapePointerToken(token: string): string {
 function handleEligiblePointers(
 	toolName: string,
 	json: JSONSchema7,
+	additionalFamilies: ReadonlySet<AuthorableIdentityFamily>,
 ): readonly string[] {
 	const mcpName = MCP_NAME_BY_SA_NAME.get(toolName);
 	if (mcpName !== undefined) {
@@ -95,7 +99,11 @@ function handleEligiblePointers(
 			mcpName,
 			json as unknown as Record<string, unknown>,
 		)
-			.filter((pointer) => familyIsHandleEligible(pointer.family))
+			.filter(
+				(pointer) =>
+					familyIsHandleEligible(pointer.family) ||
+					additionalFamilies.has(pointer.family),
+			)
 			.map((pointer) => pointer.schemaPointer);
 	}
 	const declared = STAGE_TOOL_IDENTITY_FAMILIES[toolName];
@@ -154,6 +162,9 @@ function widenAtPointer(root: JSONSchema7, pointer: string): void {
 export function executorWireToolSchema(
 	name: string,
 	zodSchema: z.ZodType,
+	options?: {
+		readonly additionalHandleFamilies?: readonly AuthorableIdentityFamily[];
+	},
 ): JSONSchema7 {
 	const source = wireToolSchema(zodSchema).jsonSchema;
 	if (typeof source !== "object" || source === null) {
@@ -162,7 +173,12 @@ export function executorWireToolSchema(
 		);
 	}
 	const projected = structuredClone(source) as JSONSchema7;
-	for (const pointer of handleEligiblePointers(name, projected)) {
+	const additionalFamilies = new Set(options?.additionalHandleFamilies ?? []);
+	for (const pointer of handleEligiblePointers(
+		name,
+		projected,
+		additionalFamilies,
+	)) {
 		widenAtPointer(projected, pointer);
 	}
 	return projected;

@@ -155,11 +155,12 @@ describe("buildPlanSchema (structural)", () => {
 			completionEvidence: "The project space exists.",
 		});
 		plan.slices[0]?.externalActionIds.push(did(501));
+		plan.slices[0]?.constructionStrategy.externalSetupActionIds.push(did(501));
 		const result = buildPlanSchema.safeParse(plan);
 		expect(result.success, messages(result)).toBe(true);
 	});
 
-	it("keeps historical blocking actions parseable but rejects them for new admission", () => {
+	it("keeps producer-bound timings in v1 but rejects them without a producer", () => {
 		for (const timing of ["before-materialization", "before-slice"] as const) {
 			const plan = makeBuildPlan();
 			plan.externalActions.push({
@@ -181,25 +182,99 @@ describe("buildPlanSchema (structural)", () => {
 		}
 	});
 
-	it("keeps an older wide slice readable but refuses that shape for a new plan", () => {
+	it("enforces executor sizing in every v1 plan parse", () => {
 		const plan = makeBuildPlan();
 		const root = plan.slices[0];
 		if (!root) throw new Error("fixture has a root slice");
+		const added: ReturnType<typeof did>[] = [];
 		for (let index = 0; root.ownedIntentIds.length <= 30; index += 1) {
 			const intentId = did(1_000 + index);
+			added.push(intentId);
 			root.intentIds.push(intentId);
 			root.ownedIntentIds.push(intentId);
+			root.constructionStrategy.lowerings.push({
+				intentId,
+				target: "task-form",
+			});
 			plan.intentOwnership.push({
 				intentId,
 				owningSliceId: root.id,
 				contributingSliceIds: [],
 			});
 		}
+		for (let index = 0; index < added.length; index += 12) {
+			root.constructionStrategy.semanticGroups.push({
+				name: `Additional group ${index / 12 + 1}`,
+				kind: "workflow",
+				intentIds: added.slice(index, index + 12),
+				blueprintAreas: ["forms"],
+			});
+		}
 
-		expect(buildPlanSchema.safeParse(plan).success).toBe(true);
-		expect(newPlanAdmissionMessages(plan).join("\n")).toContain(
+		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
 			"may own at most 30",
 		);
+	});
+
+	it("bounds semantic-group count in every v1 plan parse", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		if (!root) throw new Error("fixture has a root slice");
+		root.constructionStrategy.semanticGroups = root.ownedIntentIds.map(
+			(intentId, index) => ({
+				name: `Group ${index + 1}`,
+				kind: "workflow" as const,
+				intentIds: [intentId],
+				blueprintAreas: ["forms" as const],
+			}),
+		);
+		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
+			"may have at most 8",
+		);
+	});
+
+	it("bounds one semantic group's intent count in every v1 plan parse", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		if (!root) throw new Error("fixture has a root slice");
+		for (const intentId of [did(2_000), did(2_001)]) {
+			root.intentIds.push(intentId);
+			root.ownedIntentIds.push(intentId);
+			root.constructionStrategy.lowerings.push({
+				intentId,
+				target: "task-form",
+			});
+			plan.intentOwnership.push({
+				intentId,
+				owningSliceId: root.id,
+				contributingSliceIds: [],
+			});
+		}
+		root.constructionStrategy.semanticGroups = [
+			{
+				name: "Oversized group",
+				kind: "workflow",
+				intentIds: [...root.ownedIntentIds],
+				blueprintAreas: ["forms"],
+			},
+		];
+		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
+			"A group may contain at most 12",
+		);
+	});
+
+	it("requires semantic groups and lowerings to cover each owned intent exactly once", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		if (!root) throw new Error("fixture has a root slice");
+		root.constructionStrategy.semanticGroups[0]?.intentIds.pop();
+		root.constructionStrategy.lowerings.push({
+			intentId: ids.factName,
+			target: "case-property",
+		});
+		const result = messages(buildPlanSchema.safeParse(plan));
+		expect(result).toContain("semantic groups must cover every owned intent");
+		expect(result).toContain("lowering table names one intent more than once");
 	});
 });
 
@@ -262,6 +337,65 @@ describe("buildPlanSchemaFor (contract-bound)", () => {
 		// surface, so the closure is intact without the prerequisite.
 		const result = buildPlanSchemaFor(contract).safeParse(plan);
 		expect(result.success, messages(result)).toBe(true);
+	});
+
+	it("rejects a task strategy with the wrong mode, context, or transitions", () => {
+		const plan = makeBuildPlan();
+		const visitTask = plan.slices[1]?.constructionStrategy.tasks[0];
+		if (!visitTask) throw new Error("fixture has a visit task strategy");
+		visitTask.mode = "survey";
+		visitTask.contextRecordId = ids.recVisit;
+		visitTask.transitionIds = [];
+		const result = messages(buildPlanSchemaFor(contract).safeParse(plan));
+		expect(result).toContain("selected-case context");
+		expect(result).toContain("accepted lifecycle transitions");
+		expect(result).toContain("requires case-action mode");
+	});
+
+	it("rejects a fact strategy that changes storage, writer, or blank behavior", () => {
+		const plan = makeBuildPlan();
+		const fact = plan.slices[0]?.constructionStrategy.facts[0];
+		if (!fact) throw new Error("fixture has a fact strategy");
+		fact.storage = "form-only";
+		fact.writer = "constant";
+		fact.unanswered = "clear";
+		const result = messages(buildPlanSchemaFor(contract).safeParse(plan));
+		expect(result).toContain("must lower to a case property");
+		expect(result).toContain("requires the task-input writer");
+		expect(result).toContain("does not authorize clearing");
+	});
+
+	it("rejects a read strategy that drops search and role boundaries", () => {
+		const plan = makeBuildPlan();
+		const read = plan.slices[0]?.constructionStrategy.readModels[0];
+		if (!read) throw new Error("fixture has a read-model strategy");
+		read.rolePartition = "shared";
+		read.searchFilterFactIds = [];
+		const result = messages(buildPlanSchemaFor(contract).safeParse(plan));
+		expect(result).toContain("Search filters must cover exactly");
+		expect(result).toContain("requires actor-gated role partitioning");
+	});
+
+	it("rejects a read lowering that disagrees with its explicit mode", () => {
+		const plan = makeBuildPlan();
+		const lowering = plan.slices[0]?.constructionStrategy.lowerings.find(
+			(entry) => entry.intentId === ids.rmPatients,
+		);
+		if (!lowering) throw new Error("fixture has a read-model lowering");
+		lowering.target = "case-list";
+		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
+			"must lower to its explicit case-search construction mode",
+		);
+	});
+
+	it("rejects discover or view access enforced only by hidden navigation", () => {
+		const plan = makeBuildPlan();
+		const access = plan.slices[0]?.constructionStrategy.access[0];
+		if (!access) throw new Error("fixture has an access strategy");
+		access.layers = ["navigation-visibility"];
+		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
+			"cannot rely only on hidden navigation",
+		);
 	});
 });
 

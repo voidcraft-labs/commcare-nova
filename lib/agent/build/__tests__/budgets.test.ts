@@ -10,6 +10,15 @@ import type { BuildSlice } from "@/lib/agent/design/buildPlan";
 
 function sliceWithOwnedIntents(count: number): BuildSlice {
 	const owned = Array.from({ length: count }, (_, index) => did(1000 + index));
+	const groups = Array.from(
+		{ length: Math.max(1, Math.ceil(count / 10)) },
+		(_, index) => ({
+			name: `Group ${index + 1}`,
+			kind: "workflow" as const,
+			intentIds: owned.slice(index * 10, (index + 1) * 10),
+			blueprintAreas: ["forms" as const],
+		}),
+	);
 	return {
 		id: did(900),
 		name: "Sized slice",
@@ -20,7 +29,19 @@ function sliceWithOwnedIntents(count: number): BuildSlice {
 		acceptanceScenarioIds: [],
 		risk: "ordinary",
 		role: "ordinary",
-		expectedBlueprintAreas: [],
+		constructionStrategy: {
+			semanticGroups: groups,
+			lowerings: owned.map((intentId) => ({
+				intentId,
+				target: "task-form" as const,
+			})),
+			tasks: [],
+			facts: [],
+			readModels: [],
+			access: [],
+			navigation: [],
+			externalSetupActionIds: [],
+		},
 		externalActionIds: [],
 	};
 }
@@ -28,34 +49,34 @@ function sliceWithOwnedIntents(count: number): BuildSlice {
 describe("budgetForSlice", () => {
 	it("gives a single-intent slice the base budget", () => {
 		expect(budgetForSlice(sliceWithOwnedIntents(1))).toEqual({
-			maxModelSteps: 24,
-			maxStagedRequests: 40,
+			maxModelSteps: 13,
+			maxStagedRequests: 18,
 			maxCommitAttempts: 3,
 			maxRebaseAttempts: 2,
-			maxDesignIssueEscalations: 2,
-			maxWallClockMs: 480_000,
+			maxBlockerResolutions: 2,
+			maxWallClockMs: 315_000,
 		});
 	});
 
 	it("scales the per-step axes with owned intents", () => {
 		expect(budgetForSlice(sliceWithOwnedIntents(5))).toEqual({
-			maxModelSteps: 32,
-			maxStagedRequests: 52,
+			maxModelSteps: 13,
+			maxStagedRequests: 26,
 			maxCommitAttempts: 3,
 			maxRebaseAttempts: 2,
-			maxDesignIssueEscalations: 2,
-			maxWallClockMs: 560_000,
+			maxBlockerResolutions: 2,
+			maxWallClockMs: 315_000,
 		});
 	});
 
 	it("holds every scaled axis at its hard ceiling", () => {
 		expect(budgetForSlice(sliceWithOwnedIntents(500))).toEqual({
-			maxModelSteps: 60,
-			maxStagedRequests: 120,
+			maxModelSteps: 40,
+			maxStagedRequests: 96,
 			maxCommitAttempts: 3,
 			maxRebaseAttempts: 2,
-			maxDesignIssueEscalations: 2,
-			maxWallClockMs: 900_000,
+			maxBlockerResolutions: 2,
+			maxWallClockMs: 720_000,
 		});
 	});
 

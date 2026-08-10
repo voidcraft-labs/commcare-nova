@@ -159,13 +159,12 @@ export interface DesignSessionScope {
 }
 
 /** What a COLD load of an existing design carries from the RSC page: the
- *  scope plus the stage and exact-plan recovery capability the server folded
+ *  scope plus the stage the server folded
  *  from the durable session and its orchestration head. Deliberately no
  *  outline or plan — those exist only in the frames a run streams, and a
  *  reconstructed card would be invented progress. */
 export interface DesignSessionSeed extends DesignSessionScope {
 	readonly stage: DesignBuildStage;
-	readonly retryAcceptedPlan: boolean;
 }
 
 // ── Parsing ────────────────────────────────────────────────────────

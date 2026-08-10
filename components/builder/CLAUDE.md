@@ -103,12 +103,11 @@ fills in read-only around the central progress card, and no human autosave can
 race Nova's remaining slices. Whole-build completion releases it. After a
 settled interruption with committed work, **Use what’s built** invokes the
 server's exact-sequence `accepted-partial` transition and reloads the now-
-complete app; a client never unlocks itself locally. Both partial acceptance
-and exact-plan retry are editor-only affordances. A viewer sees the stopped
-state without controls, while the server remains the authority for either
-write. The server seed re-derives exact-plan retry from the durable execution-
-or rebase-budget failure code, so an eligible stopped build keeps its recovery
-control after refresh without treating every recoverable failure as replayable.
+complete app; a client never unlocks itself locally. Partial acceptance and its
+eligibility are server-owned. A viewer sees the stopped state without controls.
+Provider, transport, transaction, and lost-response recovery stay internal; a
+deterministic failed plan/slice exposes no retry control and cannot be reopened
+by another chat turn.
 
 ## Publishing
 

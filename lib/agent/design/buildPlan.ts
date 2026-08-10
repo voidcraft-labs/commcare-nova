@@ -76,6 +76,130 @@ export const blueprintAreaSchema = z.enum([
 ]);
 export type BlueprintArea = z.infer<typeof blueprintAreaSchema>;
 
+/**
+ * A Build Slice is admitted only after the planner has made the lowering
+ * choices the compiler needs. These are design-to-Nova decisions, not a
+ * second Blueprint document: every row points back to a DesignId and names a
+ * closed strategy choice while UUIDs, names, expressions, and mutations stay
+ * the executor's job.
+ */
+export const constructionLoweringTargetSchema = z.enum([
+	"case-type",
+	"case-property",
+	"form-logic",
+	"task-form",
+	"case-operation",
+	"case-list",
+	"case-search",
+	"access-control",
+	"navigation",
+]);
+export type ConstructionLoweringTarget = z.infer<
+	typeof constructionLoweringTargetSchema
+>;
+
+export const constructionStrategySchema = z
+	.object({
+		semanticGroups: z
+			.array(
+				z
+					.object({
+						name: z.string().min(1),
+						kind: z.enum([
+							"foundation",
+							"capture",
+							"workflow",
+							"work-queue",
+							"access-navigation",
+						]),
+						intentIds: z.array(designIdSchema).min(1),
+						blueprintAreas: z.array(blueprintAreaSchema).min(1),
+					})
+					.strict(),
+			)
+			.min(1),
+		lowerings: z
+			.array(
+				z
+					.object({
+						intentId: designIdSchema,
+						target: constructionLoweringTargetSchema,
+					})
+					.strict(),
+			)
+			.min(1),
+		tasks: z.array(
+			z
+				.object({
+					taskId: designIdSchema,
+					mode: z.enum(["registration", "case-action", "survey"]),
+					contextRecordId: designIdSchema.optional(),
+					transitionIds: z.array(designIdSchema),
+				})
+				.strict(),
+		),
+		facts: z.array(
+			z
+				.object({
+					factId: designIdSchema,
+					storage: z.enum(["case-property", "form-only"]),
+					writer: z.enum([
+						"task-input",
+						"calculation",
+						"session",
+						"lookup",
+						"external",
+						"constant",
+					]),
+					unanswered: z.enum(["preserve", "clear"]),
+				})
+				.strict(),
+		),
+		readModels: z.array(
+			z
+				.object({
+					readModelId: designIdSchema,
+					mode: z.enum(["case-list", "case-search"]),
+					rolePartition: z.enum([
+						"shared",
+						"actor-gated",
+						"separate-navigation",
+					]),
+					searchFilterFactIds: z.array(designIdSchema),
+				})
+				.strict(),
+		),
+		access: z.array(
+			z
+				.object({
+					accessPolicyId: designIdSchema,
+					layers: z
+						.array(
+							z.enum([
+								"navigation-visibility",
+								"case-context",
+								"location-scope",
+								"search-filter",
+								"manual-setup",
+							]),
+						)
+						.min(1),
+				})
+				.strict(),
+		),
+		navigation: z.array(
+			z
+				.object({
+					navigationId: designIdSchema,
+					mode: z.enum(["module", "menu"]),
+				})
+				.strict(),
+		),
+		externalSetupActionIds: z.array(designIdSchema),
+	})
+	.strict();
+export type ConstructionStrategy = z.infer<typeof constructionStrategySchema>;
+
 export const buildSliceSchema = z
 	.object({
 		id: designIdSchema,
@@ -87,16 +211,17 @@ export const buildSliceSchema = z
 		acceptanceScenarioIds: z.array(designIdSchema),
 		risk: buildSliceRiskSchema,
 		role: z.enum(["materialization-root", "ordinary", "exclusive"]),
-		expectedBlueprintAreas: z.array(blueprintAreaSchema),
+		constructionStrategy: constructionStrategySchema,
 		externalActionIds: z.array(designIdSchema),
 	})
 	.strict();
 export type BuildSlice = z.infer<typeof buildSliceSchema>;
 
-/** Above this, the executor's bounded correction loop cannot reliably lower
- * one slice before its hard wall-clock ceiling. This is an admission bound,
- * not a persisted-schema reinterpretation: older plans remain readable. */
+/** Above this, the bounded executor cannot reliably lower one slice before its
+ * hard wall-clock ceiling. */
 export const MAX_OWNED_INTENTS_PER_SLICE = 30;
+export const MAX_CONSTRUCTION_GROUPS_PER_SLICE = 8;
+export const MAX_INTENTS_PER_CONSTRUCTION_GROUP = 12;
 
 export const intentOwnershipEntrySchema = z
 	.object({
@@ -109,7 +234,7 @@ export type IntentOwnershipEntry = z.infer<typeof intentOwnershipEntrySchema>;
 
 const buildPlanBaseSchema = z
 	.object({
-		schemaVersion: z.literal(2),
+		schemaVersion: z.literal(1),
 		designRevisionId: z.string().uuid(),
 		designRevisionDigest: sha256HexSchema,
 		id: z.string().uuid(),
@@ -232,6 +357,114 @@ export function validateSlicePlanStructure(
 				);
 			}
 		});
+
+		const exactlyOnce = (
+			ids: readonly string[],
+			path: Array<string | number>,
+			label: string,
+		): void => {
+			const seen = new Set<string>();
+			for (const id of ids) {
+				if (seen.has(id)) {
+					issue(path, `${label} names one intent more than once.`);
+					break;
+				}
+				seen.add(id);
+			}
+			const owned = new Set<string>(slice.ownedIntentIds);
+			if (seen.size !== owned.size || [...seen].some((id) => !owned.has(id))) {
+				issue(
+					path,
+					`${label} must cover every owned intent exactly once and may not include dependency-only intents.`,
+				);
+			}
+		};
+		exactlyOnce(
+			slice.constructionStrategy.semanticGroups.flatMap(
+				(group) => group.intentIds,
+			),
+			["slices", i, "constructionStrategy", "semanticGroups"],
+			"The construction strategy's semantic groups",
+		);
+		exactlyOnce(
+			slice.constructionStrategy.lowerings.map((entry) => entry.intentId),
+			["slices", i, "constructionStrategy", "lowerings"],
+			"The construction strategy's lowering table",
+		);
+		if (slice.ownedIntentIds.length > MAX_OWNED_INTENTS_PER_SLICE) {
+			issue(
+				["slices", i, "ownedIntentIds"],
+				`The slice "${slice.name}" owns ${slice.ownedIntentIds.length} intents. A slice may own at most ${MAX_OWNED_INTENTS_PER_SLICE}; split it around smaller task-complete outcomes. For the materialization root, keep only the minimal registration path and its first usable registry, leaving downstream status rules and work queues to later slices.`,
+			);
+		}
+		if (
+			slice.constructionStrategy.semanticGroups.length >
+			MAX_CONSTRUCTION_GROUPS_PER_SLICE
+		) {
+			issue(
+				["slices", i, "constructionStrategy", "semanticGroups"],
+				`The slice "${slice.name}" has ${slice.constructionStrategy.semanticGroups.length} construction groups. A slice may have at most ${MAX_CONSTRUCTION_GROUPS_PER_SLICE}; split it at a task-complete boundary before execution.`,
+			);
+		}
+		for (const [
+			groupIndex,
+			group,
+		] of slice.constructionStrategy.semanticGroups.entries()) {
+			if (group.intentIds.length <= MAX_INTENTS_PER_CONSTRUCTION_GROUP)
+				continue;
+			issue(
+				[
+					"slices",
+					i,
+					"constructionStrategy",
+					"semanticGroups",
+					groupIndex,
+					"intentIds",
+				],
+				`The construction group "${group.name}" in slice "${slice.name}" contains ${group.intentIds.length} intents. A group may contain at most ${MAX_INTENTS_PER_CONSTRUCTION_GROUP}; separate its independently constructible record, workflow, queue, or access work.`,
+			);
+		}
+
+		for (const [collection, ids] of [
+			["tasks", slice.constructionStrategy.tasks.map((entry) => entry.taskId)],
+			["facts", slice.constructionStrategy.facts.map((entry) => entry.factId)],
+			[
+				"readModels",
+				slice.constructionStrategy.readModels.map((entry) => entry.readModelId),
+			],
+			[
+				"access",
+				slice.constructionStrategy.access.map((entry) => entry.accessPolicyId),
+			],
+			[
+				"navigation",
+				slice.constructionStrategy.navigation.map(
+					(entry) => entry.navigationId,
+				),
+			],
+		] as const) {
+			if (new Set(ids).size !== ids.length) {
+				issue(
+					["slices", i, "constructionStrategy", collection],
+					`The construction strategy has two ${collection} rows for one intent.`,
+				);
+			}
+		}
+
+		const manualActionIds = slice.externalActionIds.filter(
+			(id) => actionById.get(id)?.timing === "manual-setup",
+		);
+		const declaredSetup = slice.constructionStrategy.externalSetupActionIds;
+		if (
+			new Set(declaredSetup).size !== declaredSetup.length ||
+			new Set(declaredSetup).size !== new Set(manualActionIds).size ||
+			declaredSetup.some((id) => !manualActionIds.includes(id))
+		) {
+			issue(
+				["slices", i, "constructionStrategy", "externalSetupActionIds"],
+				"The construction strategy must name exactly this slice's manual-setup external actions, once each.",
+			);
+		}
 	});
 
 	/* Acyclic prerequisite DAG. */
@@ -380,14 +613,13 @@ export function validateSlicePlanStructure(
 	}
 }
 
-/** Admission policy for newly produced plans. This deliberately stays out of
- * `buildPlanSchema`: persisted artifacts accepted before a producer rollout
- * remain readable and can reach the orchestrator's fail-closed receipt check.
- * New plans may not introduce a blocking action until its producer exists. */
+/** Environment-dependent admission policy. The v1 schema retains producer-
+ * bound blocking-action timings, but this deployment may not persist one
+ * until its durable receipt producer is registered. */
 export function newPlanAdmissionMessages(
-	plan: Pick<BuildPlan, "externalActions" | "slices">,
+	plan: Pick<BuildPlan, "externalActions">,
 ): string[] {
-	const actionMessages = plan.externalActions.flatMap((action) =>
+	return plan.externalActions.flatMap((action) =>
 		action.timing === "before-materialization" ||
 		action.timing === "before-slice"
 			? [
@@ -395,14 +627,6 @@ export function newPlanAdmissionMessages(
 				]
 			: [],
 	);
-	const sliceMessages = plan.slices.flatMap((slice) =>
-		slice.ownedIntentIds.length > MAX_OWNED_INTENTS_PER_SLICE
-			? [
-					`The slice "${slice.name}" owns ${slice.ownedIntentIds.length} intents. A new slice may own at most ${MAX_OWNED_INTENTS_PER_SLICE}; split it around smaller task-complete outcomes. For the materialization root, keep only the minimal registration path and its first usable registry, leaving downstream status rules and work queues to later slices.`,
-				]
-			: [],
-	);
-	return [...actionMessages, ...sliceMessages];
 }
 
 /**
@@ -434,6 +658,54 @@ export function validateSlicePlanAgainstContract(
 	const sliceById = new Map<string, BuildSlice>(
 		plan.slices.map((slice) => [slice.id, slice]),
 	);
+	const recordById: ReadonlyMap<string, (typeof contract.records)[number]> =
+		new Map(contract.records.map((entry) => [entry.id, entry]));
+	const factById: ReadonlyMap<string, (typeof contract.facts)[number]> =
+		new Map(contract.facts.map((entry) => [entry.id, entry]));
+	const ruleById: ReadonlyMap<string, (typeof contract.rules)[number]> =
+		new Map(contract.rules.map((entry) => [entry.id, entry]));
+	const taskById: ReadonlyMap<string, (typeof contract.tasks)[number]> =
+		new Map(contract.tasks.map((entry) => [entry.id, entry]));
+	const transitionById: ReadonlyMap<
+		string,
+		(typeof contract.transitions)[number]
+	> = new Map(contract.transitions.map((entry) => [entry.id, entry]));
+	const readModelById: ReadonlyMap<
+		string,
+		(typeof contract.readModels)[number]
+	> = new Map(contract.readModels.map((entry) => [entry.id, entry]));
+	const accessById: ReadonlyMap<
+		string,
+		(typeof contract.accessPolicies)[number]
+	> = new Map(contract.accessPolicies.map((entry) => [entry.id, entry]));
+	const navigationById: ReadonlyMap<
+		string,
+		(typeof contract.navigation)[number]
+	> = new Map(contract.navigation.map((entry) => [entry.id, entry]));
+	const expectedTarget = (id: string): ConstructionLoweringTarget | null => {
+		if (recordById.has(id)) return "case-type";
+		if (factById.has(id)) return "case-property";
+		if (ruleById.has(id)) return "form-logic";
+		if (taskById.has(id)) return "task-form";
+		if (transitionById.has(id)) return "case-operation";
+		/* A read model's accepted facts describe what can be searched, not
+		 * whether the app should use a synced list or live case search. The
+		 * construction strategy makes that lowering explicit below. */
+		if (readModelById.has(id)) return null;
+		if (accessById.has(id)) return "access-control";
+		if (navigationById.has(id)) return "navigation";
+		return null;
+	};
+	const sameIds = (
+		left: readonly string[],
+		right: readonly string[],
+	): boolean =>
+		new Set(left).size === new Set(right).size &&
+		left.every((id) => right.includes(id));
+	const expectedOwnedIds = <T>(
+		slice: BuildSlice,
+		index: ReadonlyMap<string, T>,
+	): string[] => slice.ownedIntentIds.filter((id) => index.has(id));
 
 	plan.slices.forEach((slice, i) => {
 		slice.intentIds.forEach((id, j) => {
@@ -452,6 +724,226 @@ export function validateSlicePlanAgainstContract(
 				);
 			}
 		});
+
+		for (const [
+			j,
+			lowering,
+		] of slice.constructionStrategy.lowerings.entries()) {
+			const expected = expectedTarget(lowering.intentId);
+			if (expected !== null && lowering.target !== expected) {
+				issue(
+					["slices", i, "constructionStrategy", "lowerings", j, "target"],
+					`Intent ${lowering.intentId} lowers to ${expected}, not ${lowering.target}.`,
+				);
+			}
+		}
+
+		const strategy = slice.constructionStrategy;
+		const requireExactRows = (
+			actual: readonly string[],
+			expected: readonly string[],
+			collection: "tasks" | "facts" | "readModels" | "access" | "navigation",
+		): void => {
+			if (!sameIds(actual, expected)) {
+				issue(
+					["slices", i, "constructionStrategy", collection],
+					`The ${collection} strategy rows must name exactly the owned ${collection} intents.`,
+				);
+			}
+		};
+		requireExactRows(
+			strategy.tasks.map((entry) => entry.taskId),
+			expectedOwnedIds(slice, taskById),
+			"tasks",
+		);
+		requireExactRows(
+			strategy.facts.map((entry) => entry.factId),
+			expectedOwnedIds(slice, factById),
+			"facts",
+		);
+		requireExactRows(
+			strategy.readModels.map((entry) => entry.readModelId),
+			expectedOwnedIds(slice, readModelById),
+			"readModels",
+		);
+		requireExactRows(
+			strategy.access.map((entry) => entry.accessPolicyId),
+			expectedOwnedIds(slice, accessById),
+			"access",
+		);
+		requireExactRows(
+			strategy.navigation.map((entry) => entry.navigationId),
+			expectedOwnedIds(slice, navigationById),
+			"navigation",
+		);
+
+		for (const [j, binding] of strategy.tasks.entries()) {
+			const task = taskById.get(binding.taskId);
+			if (task === undefined) continue;
+			if (binding.contextRecordId !== task.contextRecordId) {
+				issue(
+					["slices", i, "constructionStrategy", "tasks", j, "contextRecordId"],
+					"A task's selected-case context must match the accepted contract exactly.",
+				);
+			}
+			if (!sameIds(binding.transitionIds, task.transitionIds)) {
+				issue(
+					["slices", i, "constructionStrategy", "tasks", j, "transitionIds"],
+					"A task strategy must name exactly the task's accepted lifecycle transitions.",
+				);
+			}
+			const hasCreate = task.transitionIds.some(
+				(id) => transitionById.get(id)?.transitionKind === "create",
+			);
+			const expectedMode =
+				task.contextRecordId !== undefined
+					? "case-action"
+					: hasCreate
+						? "registration"
+						: "survey";
+			if (binding.mode !== expectedMode) {
+				issue(
+					["slices", i, "constructionStrategy", "tasks", j, "mode"],
+					`This task requires ${expectedMode} mode from its selected-case context and transitions.`,
+				);
+			}
+		}
+
+		const writerForSource = (
+			kind: (typeof contract.facts)[number]["source"]["kind"],
+		) =>
+			({
+				answer: "task-input",
+				derived: "calculation",
+				session: "session",
+				lookup: "lookup",
+				external: "external",
+				constant: "constant",
+			})[kind] as (typeof strategy.facts)[number]["writer"];
+		for (const [j, binding] of strategy.facts.entries()) {
+			const fact = factById.get(binding.factId);
+			if (fact === undefined) continue;
+			if (binding.storage !== "case-property") {
+				issue(
+					["slices", i, "constructionStrategy", "facts", j, "storage"],
+					"A contract fact is durable record data and must lower to a case property; form-only values belong in task inputs, not facts.",
+				);
+			}
+			const expectedWriter = writerForSource(fact.source.kind);
+			if (binding.writer !== expectedWriter) {
+				issue(
+					["slices", i, "constructionStrategy", "facts", j, "writer"],
+					`This fact's accepted source requires the ${expectedWriter} writer.`,
+				);
+			}
+			if (binding.unanswered !== "preserve") {
+				issue(
+					["slices", i, "constructionStrategy", "facts", j, "unanswered"],
+					"The contract does not authorize clearing this fact when an input is unanswered; preserve the existing value.",
+				);
+			}
+		}
+
+		for (const [j, binding] of strategy.readModels.entries()) {
+			const readModel = readModelById.get(binding.readModelId);
+			if (readModel === undefined) continue;
+			const lowering = strategy.lowerings.find(
+				(entry) => entry.intentId === binding.readModelId,
+			);
+			if (lowering?.target !== binding.mode) {
+				issue(
+					["slices", i, "constructionStrategy", "lowerings"],
+					`Read model ${binding.readModelId} must lower to its explicit ${binding.mode} construction mode.`,
+				);
+			}
+			if (!sameIds(binding.searchFilterFactIds, readModel.searchFactIds)) {
+				issue(
+					[
+						"slices",
+						i,
+						"constructionStrategy",
+						"readModels",
+						j,
+						"searchFilterFactIds",
+					],
+					"Search filters must cover exactly the accepted read model's search facts.",
+				);
+			}
+			const navigationActorSets = contract.navigation
+				.filter((entry) => entry.readModelIds.includes(readModel.id))
+				.map((entry) => [...entry.actorIds].sort().join("\u0000"));
+			const hasDistinctNavigationPartitions =
+				new Set(navigationActorSets).size > 1;
+			const navigationActors = new Set(
+				contract.navigation
+					.filter((entry) => entry.readModelIds.includes(readModel.id))
+					.flatMap((entry) => entry.actorIds),
+			);
+			const navigationOmitsActors =
+				navigationActors.size > 0 &&
+				!sameIds([...navigationActors], readModel.actorIds);
+			const hasTargetedAccess = contract.accessPolicies.some((policy) =>
+				policy.targetIntentIds.includes(readModel.id),
+			);
+			const expectedRolePartition = hasDistinctNavigationPartitions
+				? "separate-navigation"
+				: hasTargetedAccess || navigationOmitsActors
+					? "actor-gated"
+					: "shared";
+			if (binding.rolePartition !== expectedRolePartition) {
+				issue(
+					[
+						"slices",
+						i,
+						"constructionStrategy",
+						"readModels",
+						j,
+						"rolePartition",
+					],
+					`This read model requires ${expectedRolePartition} role partitioning from its accepted actors, access policies, and navigation entries.`,
+				);
+			}
+		}
+
+		for (const [j, binding] of strategy.access.entries()) {
+			const policy = accessById.get(binding.accessPolicyId);
+			if (policy === undefined) continue;
+			const layers = new Set(binding.layers);
+			if (
+				policy.condition !== undefined &&
+				!layers.has("navigation-visibility")
+			) {
+				issue(
+					["slices", i, "constructionStrategy", "access", j, "layers"],
+					"A conditional access policy must state its navigation-visibility gate.",
+				);
+			}
+			if (
+				policy.locationScopeIntent !== undefined &&
+				(!layers.has("location-scope") || !layers.has("search-filter"))
+			) {
+				issue(
+					["slices", i, "constructionStrategy", "access", j, "layers"],
+					"Location-scoped access requires both the location scope and the matching search filter.",
+				);
+			}
+			if (
+				(policy.capability === "discover" || policy.capability === "view") &&
+				!(
+					[
+						"case-context",
+						"location-scope",
+						"search-filter",
+						"manual-setup",
+					] as const
+				).some((layer) => layers.has(layer))
+			) {
+				issue(
+					["slices", i, "constructionStrategy", "access", j, "layers"],
+					"Discover/view access cannot rely only on hidden navigation; name the data-access or explicit setup layer that enforces it.",
+				);
+			}
+		}
 	});
 
 	/* Exact ownership coverage. */
@@ -490,9 +982,6 @@ export function validateSlicePlanAgainstContract(
 	});
 
 	/* Parent selection precedes child creation. */
-	const recordById = new Map(contract.records.map((r) => [r.id, r]));
-	const transitionById = new Map(contract.transitions.map((t) => [t.id, t]));
-	const taskById = new Map(contract.tasks.map((t) => [t.id, t]));
 	const parentReadModelRecordIds = (sliceId: string): Set<string> => {
 		const seen = new Set<string>();
 		const records = new Set<string>();

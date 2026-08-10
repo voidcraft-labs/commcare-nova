@@ -2,7 +2,7 @@
  * Bounded slice execution (the plan's §13.8).
  *
  * Every axis a slice attempt can spend is capped before the first model call,
- * and every cap is a pure function of the slice's own shape — so a budget is
+ * and every cap is a pure function of the admitted construction strategy — so a budget is
  * reproducible from the plan alone, comparable across attempts, and provable
  * in a test rather than tuned at runtime. Exceeding any axis ends the attempt
  * as `budget-exhausted`: it never commits a partial canonical prefix and never
@@ -16,7 +16,7 @@ export interface SliceExecutionBudget {
 	readonly maxStagedRequests: number;
 	readonly maxCommitAttempts: number;
 	readonly maxRebaseAttempts: number;
-	readonly maxDesignIssueEscalations: number;
+	readonly maxBlockerResolutions: number;
 	readonly maxWallClockMs: number;
 }
 
@@ -26,23 +26,33 @@ export interface SliceExecutionBudget {
  * rejected stage, and an inspect before commit.
  */
 const BASE_BUDGET: SliceExecutionBudget = {
-	maxModelSteps: 24,
-	maxStagedRequests: 40,
+	maxModelSteps: 10,
+	maxStagedRequests: 16,
 	/* Three commit attempts: the first, one after a rebase refresh, one after
 	 * a diagnostics fix. A fourth is a replan, not a retry. */
 	maxCommitAttempts: 3,
 	maxRebaseAttempts: 2,
-	/* Two escalations: one question, and one more if answering the first
-	 * exposed a second gap. A third means the design is wrong, not thin. */
-	maxDesignIssueEscalations: 2,
-	maxWallClockMs: 8 * 60_000,
+	/* Two fresh architect decisions are enough to turn compiler evidence into
+	 * exact guidance. A third unresolved report is a construction defect. */
+	maxBlockerResolutions: 2,
+	maxWallClockMs: 4 * 60_000,
 };
 
-/** Per owned intent beyond the first — one intent is roughly one entity plus
- *  the call that corrects it. */
-const STEPS_PER_EXTRA_INTENT = 2;
-const STAGED_REQUESTS_PER_EXTRA_INTENT = 3;
-const WALL_CLOCK_MS_PER_EXTRA_INTENT = 20_000;
+const MODEL_STEPS_PER_GROUP = 3;
+const STAGED_REQUESTS_PER_INTENT = 2;
+const WALL_CLOCK_MS_PER_GROUP = 75_000;
+
+const RISK_ALLOWANCE: Readonly<
+	Record<
+		BuildSlice["risk"],
+		{ modelSteps: number; stagedRequests: number; ms: number }
+	>
+> = {
+	ordinary: { modelSteps: 0, stagedRequests: 0, ms: 0 },
+	"cross-record": { modelSteps: 3, stagedRequests: 6, ms: 90_000 },
+	"external-effect": { modelSteps: 2, stagedRequests: 4, ms: 60_000 },
+	"data-migration": { modelSteps: 4, stagedRequests: 8, ms: 120_000 },
+};
 
 /**
  * Hard global ceilings. A slice that would need more than this is mis-sized:
@@ -50,31 +60,36 @@ const WALL_CLOCK_MS_PER_EXTRA_INTENT = 20_000;
  * numbers only converts a planning defect into a long, expensive failure.
  */
 const CEILINGS = {
-	maxModelSteps: 60,
-	maxStagedRequests: 120,
-	maxWallClockMs: 15 * 60_000,
+	maxModelSteps: 40,
+	maxStagedRequests: 96,
+	maxWallClockMs: 12 * 60_000,
 } as const;
 
 /** Deterministic budget for one slice — pure, and pinned by test. */
 export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
-	const extraIntents = Math.max(0, slice.ownedIntentIds.length - 1);
+	const groupCount = slice.constructionStrategy.semanticGroups.length;
+	const risk = RISK_ALLOWANCE[slice.risk];
 	return {
 		maxModelSteps: Math.min(
 			CEILINGS.maxModelSteps,
-			BASE_BUDGET.maxModelSteps + extraIntents * STEPS_PER_EXTRA_INTENT,
+			BASE_BUDGET.maxModelSteps +
+				groupCount * MODEL_STEPS_PER_GROUP +
+				risk.modelSteps,
 		),
 		maxStagedRequests: Math.min(
 			CEILINGS.maxStagedRequests,
 			BASE_BUDGET.maxStagedRequests +
-				extraIntents * STAGED_REQUESTS_PER_EXTRA_INTENT,
+				slice.ownedIntentIds.length * STAGED_REQUESTS_PER_INTENT +
+				risk.stagedRequests,
 		),
 		maxCommitAttempts: BASE_BUDGET.maxCommitAttempts,
 		maxRebaseAttempts: BASE_BUDGET.maxRebaseAttempts,
-		maxDesignIssueEscalations: BASE_BUDGET.maxDesignIssueEscalations,
+		maxBlockerResolutions: BASE_BUDGET.maxBlockerResolutions,
 		maxWallClockMs: Math.min(
 			CEILINGS.maxWallClockMs,
 			BASE_BUDGET.maxWallClockMs +
-				extraIntents * WALL_CLOCK_MS_PER_EXTRA_INTENT,
+				groupCount * WALL_CLOCK_MS_PER_GROUP +
+				risk.ms,
 		),
 	};
 }
