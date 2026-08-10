@@ -4,7 +4,11 @@ import {
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
-import { architectBlockerDecisionSchemaFor } from "../executionBlocker";
+import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
+import {
+	architectBlockerDecisionSchemaFor,
+	architectBlockerDecisionWireSchemaFor,
+} from "../executionBlocker";
 
 function repairContext(planRepairAllowed: boolean) {
 	return {
@@ -24,6 +28,14 @@ function planDraft() {
 }
 
 describe("architect blocker decisions", () => {
+	it("wraps the decision union in an object for provider strict mode", () => {
+		const wire = strictWireJsonSchema(
+			architectBlockerDecisionWireSchemaFor(repairContext(true)),
+		);
+		expect(wire.type).toBe("object");
+		expect(wire.properties).toHaveProperty("decision");
+	});
+
 	it("accepts exact compiler guidance without reopening design authority", () => {
 		const parsed = architectBlockerDecisionSchemaFor(
 			repairContext(false),

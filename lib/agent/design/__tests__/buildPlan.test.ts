@@ -352,6 +352,34 @@ describe("buildPlanSchemaFor (contract-bound)", () => {
 		expect(result).toContain("requires case-action mode");
 	});
 
+	it("keeps the primary registration create out of advanced case operations", () => {
+		const plan = makeBuildPlan();
+		const root = plan.slices[0];
+		const task = root?.constructionStrategy.tasks[0];
+		const lowering = root?.constructionStrategy.lowerings.find(
+			(entry) => entry.intentId === ids.transCreatePatient,
+		);
+		if (!task || !lowering)
+			throw new Error("fixture has registration strategy");
+		delete task.primaryCreateTransitionId;
+		lowering.target = "case-operation";
+
+		const result = messages(buildPlanSchemaFor(contract).safeParse(plan));
+		expect(result).toContain("ordinary primary registration action");
+		expect(result).toContain("lowers to registration-create");
+	});
+
+	it("forbids a primary registration create on a selected-case task", () => {
+		const plan = makeBuildPlan();
+		const task = plan.slices[1]?.constructionStrategy.tasks[0];
+		if (!task) throw new Error("fixture has selected-case strategy");
+		task.primaryCreateTransitionId = ids.transCreateVisit;
+
+		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
+			"Only a registration task may name a primary registration create",
+		);
+	});
+
 	it("rejects a fact strategy that changes storage, writer, or blank behavior", () => {
 		const plan = makeBuildPlan();
 		const fact = plan.slices[0]?.constructionStrategy.facts[0];
@@ -384,6 +412,29 @@ describe("buildPlanSchemaFor (contract-bound)", () => {
 		if (!lowering) throw new Error("fixture has a read-model lowering");
 		lowering.target = "case-list";
 		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
+			"must lower to its explicit case-search construction mode",
+		);
+	});
+
+	it("diagnoses dependency-only strategy rows as removals without validating them as owned work", () => {
+		const plan = makeBuildPlan();
+		const visit = plan.slices[1];
+		if (!visit) throw new Error("fixture has the visit slice");
+		visit.constructionStrategy.readModels.push({
+			readModelId: ids.rmPatients,
+			mode: "case-search",
+			rolePartition: "shared",
+			searchFilterFactIds: [],
+		});
+		visit.constructionStrategy.lowerings.push({
+			intentId: ids.rmPatients,
+			target: "case-list",
+		});
+
+		const result = messages(buildPlanSchemaFor(contract).safeParse(plan));
+		expect(result).toContain("Remove dependency-only ids");
+		expect(result).toContain(ids.rmPatients);
+		expect(result).not.toContain(
 			"must lower to its explicit case-search construction mode",
 		);
 	});

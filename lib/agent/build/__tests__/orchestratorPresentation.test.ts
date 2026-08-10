@@ -18,6 +18,9 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain(
 			"an empty property catalog is not by itself a stale external dependency",
 		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"A registration task's `primaryCreateTransitionId` lowers as `registration-create`",
+		);
 	});
 
 	it("does not synthesize canned assistant prose between model work", () => {

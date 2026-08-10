@@ -18,6 +18,9 @@ import {
 	type BuildPlan,
 	buildPlanDraftSchema,
 	buildPlanSchemaFor,
+	MAX_CONSTRUCTION_GROUPS_PER_SLICE,
+	MAX_INTENTS_PER_CONSTRUCTION_GROUP,
+	MAX_OWNED_INTENTS_PER_SLICE,
 	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
@@ -135,6 +138,17 @@ export function architectBlockerDecisionSchemaFor(args: {
 	});
 }
 
+/** OpenAI strict structured output requires an object at the schema root.
+ * Keep the architect's closed decision union nested on the provider wire and
+ * unwrap it before returning the server-owned decision to orchestration. */
+export function architectBlockerDecisionWireSchemaFor(
+	args: Parameters<typeof architectBlockerDecisionSchemaFor>[0],
+) {
+	return z
+		.object({ decision: architectBlockerDecisionSchemaFor(args) })
+		.strict();
+}
+
 const ARCHITECT_SYSTEM = `You are Nova's build architect. A bounded compiler reported an execution blocker while implementing one already accepted slice.
 
 Decide from the accepted brief and the server's exact diagnostics. A compiler report is evidence, never proof that the design is wrong.
@@ -145,6 +159,8 @@ Decide from the accepted brief and the server's exact diagnostics. A compiler re
 - Choose ask-user only when the accepted contract itself explicitly lacks a necessary user choice.
 - Choose unsupported only when the accepted meaning cannot be represented by Nova's current capabilities.
 
+A replacement plan must remain bounded and pass the same admission as an original plan: no slice may own more than ${MAX_OWNED_INTENTS_PER_SLICE} intents, no slice may have more than ${MAX_CONSTRUCTION_GROUPS_PER_SLICE} semantic groups, and no group may contain more than ${MAX_INTENTS_PER_CONSTRUCTION_GROUP} intents. Repair the smallest necessary slice boundary or construction group. Never merge otherwise valid slices merely to escape a local compiler rejection.
+
 Do not expose schemas, tool names, UUIDs, validator codes, model behavior, or implementation details in a user question. Do not turn a local authoring rejection, ownership error, or validator repair into a contract revision.`;
 
 export async function resolveExecutionBlocker(
@@ -153,7 +169,7 @@ export async function resolveExecutionBlocker(
 	signal: AbortSignal,
 ): Promise<ArtifactResult<ArchitectBlockerDecision>> {
 	const result = await ctx.runStructured({
-		schema: architectBlockerDecisionSchemaFor(args),
+		schema: architectBlockerDecisionWireSchemaFor(args),
 		modelId: DESIGN_AUTHOR_MODEL,
 		system: ARCHITECT_SYSTEM,
 		prompt: [
@@ -173,5 +189,10 @@ export async function resolveExecutionBlocker(
 		providerOptions: reasoningProviderOptions("high"),
 		signal,
 	});
-	return toArtifactResult(result, signal);
+	const artifactResult = toArtifactResult(result, signal);
+	if (artifactResult.kind === "not-produced") return artifactResult;
+	return {
+		...artifactResult,
+		artifact: artifactResult.artifact.decision,
+	};
 }

@@ -88,6 +88,7 @@ export const constructionLoweringTargetSchema = z.enum([
 	"case-property",
 	"form-logic",
 	"task-form",
+	"registration-create",
 	"case-operation",
 	"case-list",
 	"case-search",
@@ -135,6 +136,7 @@ export const constructionStrategySchema = z
 					mode: z.enum(["registration", "case-action", "survey"]),
 					contextRecordId: designIdSchema.optional(),
 					transitionIds: z.array(designIdSchema),
+					primaryCreateTransitionId: designIdSchema.optional(),
 				})
 				.strict(),
 		),
@@ -373,9 +375,11 @@ export function validateSlicePlanStructure(
 			}
 			const owned = new Set<string>(slice.ownedIntentIds);
 			if (seen.size !== owned.size || [...seen].some((id) => !owned.has(id))) {
+				const missing = [...owned].filter((id) => !seen.has(id));
+				const dependencyOnly = [...seen].filter((id) => !owned.has(id));
 				issue(
 					path,
-					`${label} must cover every owned intent exactly once and may not include dependency-only intents.`,
+					`${label} must cover every owned intent exactly once and may not include dependency-only intents. Missing owned ids: ${missing.length > 0 ? missing.join(", ") : "none"}. Remove dependency-only ids: ${dependencyOnly.length > 0 ? dependencyOnly.join(", ") : "none"}.`,
 				);
 			}
 		};
@@ -682,12 +686,19 @@ export function validateSlicePlanAgainstContract(
 		string,
 		(typeof contract.navigation)[number]
 	> = new Map(contract.navigation.map((entry) => [entry.id, entry]));
-	const expectedTarget = (id: string): ConstructionLoweringTarget | null => {
+	const expectedTarget = (
+		id: string,
+		registrationCreateIds: ReadonlySet<string>,
+	): ConstructionLoweringTarget | null => {
 		if (recordById.has(id)) return "case-type";
 		if (factById.has(id)) return "case-property";
 		if (ruleById.has(id)) return "form-logic";
 		if (taskById.has(id)) return "task-form";
-		if (transitionById.has(id)) return "case-operation";
+		if (transitionById.has(id)) {
+			return registrationCreateIds.has(id)
+				? "registration-create"
+				: "case-operation";
+		}
 		/* A read model's accepted facts describe what can be searched, not
 		 * whether the app should use a synced list or live case search. The
 		 * construction strategy makes that lowering explicit below. */
@@ -708,6 +719,26 @@ export function validateSlicePlanAgainstContract(
 	): string[] => slice.ownedIntentIds.filter((id) => index.has(id));
 
 	plan.slices.forEach((slice, i) => {
+		const strategy = slice.constructionStrategy;
+		const registrationCreateIds = new Set(
+			strategy.tasks.flatMap((binding) => {
+				if (!slice.ownedIntentIds.includes(binding.taskId)) return [];
+				const task = taskById.get(binding.taskId);
+				if (task?.contextRecordId !== undefined) return [];
+				const contractCreateIds =
+					task?.transitionIds.filter(
+						(id) => transitionById.get(id)?.transitionKind === "create",
+					) ?? [];
+				/* A single create is unambiguously the registration action even
+				 * when the planner omitted or mistyped the explicit selection. Use
+				 * it here so one validation pass reports both plan defects. */
+				const selected =
+					contractCreateIds.length === 1
+						? contractCreateIds[0]
+						: binding.primaryCreateTransitionId;
+				return selected === undefined ? [] : [selected];
+			}),
+		);
 		slice.intentIds.forEach((id, j) => {
 			if (!implementable.has(id)) {
 				issue(
@@ -725,11 +756,13 @@ export function validateSlicePlanAgainstContract(
 			}
 		});
 
+		const ownedIntentIds = new Set(slice.ownedIntentIds);
 		for (const [
 			j,
 			lowering,
 		] of slice.constructionStrategy.lowerings.entries()) {
-			const expected = expectedTarget(lowering.intentId);
+			if (!ownedIntentIds.has(lowering.intentId)) continue;
+			const expected = expectedTarget(lowering.intentId, registrationCreateIds);
 			if (expected !== null && lowering.target !== expected) {
 				issue(
 					["slices", i, "constructionStrategy", "lowerings", j, "target"],
@@ -738,16 +771,19 @@ export function validateSlicePlanAgainstContract(
 			}
 		}
 
-		const strategy = slice.constructionStrategy;
 		const requireExactRows = (
 			actual: readonly string[],
 			expected: readonly string[],
 			collection: "tasks" | "facts" | "readModels" | "access" | "navigation",
 		): void => {
 			if (!sameIds(actual, expected)) {
+				const actualIds = new Set(actual);
+				const expectedIds = new Set(expected);
+				const missing = expected.filter((id) => !actualIds.has(id));
+				const dependencyOnly = actual.filter((id) => !expectedIds.has(id));
 				issue(
 					["slices", i, "constructionStrategy", collection],
-					`The ${collection} strategy rows must name exactly the owned ${collection} intents.`,
+					`The ${collection} strategy rows must name exactly the owned ${collection} intents. Missing owned ids: ${missing.length > 0 ? missing.join(", ") : "none"}. Remove dependency-only ids: ${dependencyOnly.length > 0 ? dependencyOnly.join(", ") : "none"}.`,
 				);
 			}
 		};
@@ -778,6 +814,7 @@ export function validateSlicePlanAgainstContract(
 		);
 
 		for (const [j, binding] of strategy.tasks.entries()) {
+			if (!ownedIntentIds.has(binding.taskId)) continue;
 			const task = taskById.get(binding.taskId);
 			if (task === undefined) continue;
 			if (binding.contextRecordId !== task.contextRecordId) {
@@ -807,6 +844,38 @@ export function validateSlicePlanAgainstContract(
 					`This task requires ${expectedMode} mode from its selected-case context and transitions.`,
 				);
 			}
+			if (expectedMode === "registration") {
+				const primaryId = binding.primaryCreateTransitionId;
+				if (
+					primaryId === undefined ||
+					!binding.transitionIds.includes(primaryId) ||
+					transitionById.get(primaryId)?.transitionKind !== "create"
+				) {
+					issue(
+						[
+							"slices",
+							i,
+							"constructionStrategy",
+							"tasks",
+							j,
+							"primaryCreateTransitionId",
+						],
+						"A registration task must name exactly one of its accepted create transitions as the ordinary primary registration action.",
+					);
+				}
+			} else if (binding.primaryCreateTransitionId !== undefined) {
+				issue(
+					[
+						"slices",
+						i,
+						"constructionStrategy",
+						"tasks",
+						j,
+						"primaryCreateTransitionId",
+					],
+					"Only a registration task may name a primary registration create.",
+				);
+			}
 		}
 
 		const writerForSource = (
@@ -821,6 +890,7 @@ export function validateSlicePlanAgainstContract(
 				constant: "constant",
 			})[kind] as (typeof strategy.facts)[number]["writer"];
 		for (const [j, binding] of strategy.facts.entries()) {
+			if (!ownedIntentIds.has(binding.factId)) continue;
 			const fact = factById.get(binding.factId);
 			if (fact === undefined) continue;
 			if (binding.storage !== "case-property") {
@@ -845,6 +915,7 @@ export function validateSlicePlanAgainstContract(
 		}
 
 		for (const [j, binding] of strategy.readModels.entries()) {
+			if (!ownedIntentIds.has(binding.readModelId)) continue;
 			const readModel = readModelById.get(binding.readModelId);
 			if (readModel === undefined) continue;
 			const lowering = strategy.lowerings.find(
@@ -906,6 +977,7 @@ export function validateSlicePlanAgainstContract(
 		}
 
 		for (const [j, binding] of strategy.access.entries()) {
+			if (!ownedIntentIds.has(binding.accessPolicyId)) continue;
 			const policy = accessById.get(binding.accessPolicyId);
 			if (policy === undefined) continue;
 			const layers = new Set(binding.layers);

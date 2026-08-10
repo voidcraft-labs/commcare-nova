@@ -98,6 +98,9 @@ export type DesignLoopOutcome =
 			readonly recoverable: boolean;
 	  };
 
+export const DESIGN_LOOP_STOP_MESSAGE =
+	"Your reviewed design is saved, but Nova couldn't finish preparing the build. Nothing incomplete was added.";
+
 /** A fresh contract is being designed; replacing any persisted contract is a
  * revision from the person's point of view even though immutable artifacts
  * require another `submitContract` call on the wire. */
@@ -454,7 +457,7 @@ export async function runDesignAgentLoop(
 		return {
 			kind: "failed",
 			errorType: "design-loop-budget",
-			message: fatal.message,
+			message: DESIGN_LOOP_STOP_MESSAGE,
 			recoverable: true,
 		};
 	}

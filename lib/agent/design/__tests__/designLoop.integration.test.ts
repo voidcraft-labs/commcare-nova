@@ -293,7 +293,7 @@ describe("clean path: contract → clean review → server acceptance → plan",
 		expect(submitted).toMatchObject({
 			ok: true,
 			effortLevel: "standard",
-			roughTimeEstimate: "about 45 minutes",
+			roughTimeEstimate: "about an hour",
 		});
 		expect(String(submitted.message)).toContain("requestReview");
 
@@ -419,7 +419,7 @@ describe("findings path and the second round", () => {
 		expect(submitted).toMatchObject({
 			ok: true,
 			effortLevel: "extended",
-			roughTimeEstimate: "about 75 minutes",
+			roughTimeEstimate: "about 90 minutes",
 		});
 		await call(tools.requestReview);
 		const revised = await call(tools.submitRevision, {
@@ -527,7 +527,7 @@ describe("repairs", () => {
 		);
 	});
 
-	it("returns refinement messages and latches the budget after two rejections", async () => {
+	it("returns refinement messages and stops a non-improving second rejection", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
 		const { tools, repair } = mountTools({ pkg });

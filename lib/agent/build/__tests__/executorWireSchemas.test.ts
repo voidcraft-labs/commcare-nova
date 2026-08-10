@@ -79,6 +79,7 @@ describe("EXECUTOR_TOOL_SURFACE", () => {
 			...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
 				.filter((entry) => entry.policy.effect === "read-blueprint")
 				.map((entry) => entry.name),
+			"readBatch",
 			"stageBatch",
 			"inspectChangeSet",
 			"commitChangeSet",
@@ -93,6 +94,7 @@ describe("EXECUTOR_TOOL_SURFACE", () => {
 	});
 
 	it("keeps granular staging operations inside the batch grammar", () => {
+		expect(EXECUTOR_TOOL_SURFACE).toContain("readBatch");
 		expect(EXECUTOR_TOOL_SURFACE).toContain("stageBatch");
 		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageModule");
 		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageForm");

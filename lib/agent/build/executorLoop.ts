@@ -122,7 +122,9 @@ export type SliceBlockerResolver = (args: {
 const INSPECT_TOOL = "inspectChangeSet";
 const COMMIT_TOOL = "commitChangeSet";
 const REPORT_BLOCKER_TOOL = "reportExecutionBlocker";
+const READ_BATCH_TOOL = "readBatch";
 const STAGE_BATCH_TOOL = "stageBatch";
+const MAX_READ_BATCH_OPERATIONS = 4;
 const MAX_STAGE_BATCH_OPERATIONS = 12;
 
 const noArgumentsSchema = z.object({}).strict();
@@ -182,6 +184,33 @@ function mutatingInputSchema(name: string): JSONSchema7 {
 	return inputSchema;
 }
 
+function readBatchSchema(): JSONSchema7 {
+	const operationArms = Array.from(CHANGE_SET_TOOL_REGISTRY.values())
+		.filter((entry) => entry.policy.effect === "read-blueprint")
+		.map((entry) => ({
+			type: "object",
+			properties: {
+				toolName: { const: entry.name },
+				input: executorWireToolSchema(entry.name, entry.tool.inputSchema),
+			},
+			required: ["toolName", "input"],
+			additionalProperties: false,
+		})) satisfies JSONSchema7[];
+	return {
+		type: "object",
+		properties: {
+			operations: {
+				type: "array",
+				items: { oneOf: operationArms },
+				minItems: 1,
+				maxItems: MAX_READ_BATCH_OPERATIONS,
+			},
+		},
+		required: ["operations"],
+		additionalProperties: false,
+	};
+}
+
 function stageBatchSchema(): JSONSchema7 {
 	const operationArms = Array.from(CHANGE_SET_TOOL_REGISTRY.values())
 		.filter((entry) => entry.policy.effect === "mutate-blueprint")
@@ -239,6 +268,11 @@ function buildExecutorTools(): Record<
 			inputSchema,
 		};
 	}
+	tools[READ_BATCH_TOOL] = {
+		description:
+			"Read up to four related current Blueprint structures in one step. Use this when one construction decision needs several views such as a form, its module, case operations, and worker schema. Reads run serially and never mutate the candidate.",
+		inputSchema: readBatchSchema(),
+	};
 	tools[STAGE_BATCH_TOOL] = {
 		description:
 			"Stage one ordered semantic group. Operations run serially, each is durably idempotent, and execution stops at the first rejected operation while preserving every earlier admitted operation.",
@@ -432,6 +466,22 @@ const stageBatchEnvelopeSchema = z
 	})
 	.strict();
 
+const readBatchEnvelopeSchema = z
+	.object({
+		operations: z
+			.array(
+				z
+					.object({
+						toolName: z.string().min(1),
+						input: z.unknown(),
+					})
+					.strict(),
+			)
+			.min(1)
+			.max(MAX_READ_BATCH_OPERATIONS),
+	})
+	.strict();
+
 function resolveBatchLocalHandles(
 	value: unknown,
 	bindings: ReadonlyMap<string, string>,
@@ -491,6 +541,12 @@ function expectedServerMintedIdentityCount(
 
 const CONTINUE_NUDGE =
 	"Continue with exactly one tool call. Stage every remaining owned intent before inspecting; once none remain, inspect once and commit if it reports no findings.";
+
+/* One-call read discipline sometimes needs several current structures together
+ * (for example a module, a form, and its operations). Keep only this small
+ * volatile working set; durable mutations, handles, and intent coverage still
+ * come exclusively from the freshly rendered workspace checkpoint. */
+const RECENT_READ_TURN_LIMIT = 4;
 
 const INVENTORY_MODULE_LIMIT = 12;
 const INVENTORY_FORM_LIMIT = 24;
@@ -671,6 +727,11 @@ export async function runSliceExecutor(args: {
 	/** Meter spent provider usage as soon as an awaited response returns and
 	 * before the post-await deadline decision. */
 	onUsage?: (usage: LanguageModelUsage) => void;
+	onToolCall?: (call: {
+		readonly modelStep: number;
+		readonly toolName: string;
+		readonly workspaceRevision: number;
+	}) => void;
 }): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
 	const tools = executorTools();
@@ -692,6 +753,21 @@ export async function runSliceExecutor(args: {
 	let commitAttempts = 0;
 	let blockerReports = 0;
 	let consecutiveEmptySteps = 0;
+	let recentReadTurns: ModelMessage[][] = [];
+
+	const withCheckpoint = (...tail: ModelMessage[]): ModelMessage[] => [
+		...executorCheckpoint(brief, workspace),
+		...recentReadTurns.flat(),
+		...tail,
+	];
+	const rememberReadTurn = (turn: ModelMessage[]): void => {
+		recentReadTurns = [...recentReadTurns, turn].slice(-RECENT_READ_TURN_LIMIT);
+		messages = withCheckpoint();
+	};
+	const replaceWorkingTurn = (turn: ModelMessage[]): void => {
+		recentReadTurns = [];
+		messages = [...executorCheckpoint(brief, workspace), ...turn];
+	};
 
 	const spent = () => ({ modelSteps, stagedRequests });
 	const exhausted = (): SliceExecutionOutcome => ({
@@ -753,19 +829,17 @@ export async function runSliceExecutor(args: {
 							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
 					};
 				}
-				messages = [
-					...executorCheckpoint(brief, workspace),
+				messages = withCheckpoint(
 					...step.responseMessages,
 					userMessage(CONTINUE_NUDGE),
-				];
+				);
 				continue;
 			}
 			consecutiveEmptySteps = 0;
 
 			if (step.toolCalls.length > 1) {
 				/* §13.6.3: execute none, answer every call deterministically. */
-				messages = [
-					...executorCheckpoint(brief, workspace),
+				messages = withCheckpoint(
 					...step.responseMessages,
 					...step.toolCalls.map((call) =>
 						toolMessage(
@@ -774,19 +848,125 @@ export async function runSliceExecutor(args: {
 							ONE_CALL_PROTOCOL_RESULT,
 						),
 					),
-				];
+				);
 				continue;
 			}
 
 			const call = step.toolCalls[0];
 			if (call === undefined) continue;
-			const answer = (value: unknown): void => {
-				messages = [
-					...executorCheckpoint(brief, workspace),
+			args.onToolCall?.({
+				modelStep: modelSteps,
+				toolName: call.toolName,
+				workspaceRevision: workspace.currentSnapshot().revision,
+			});
+			const answer = (
+				value: unknown,
+				options: { readonly rememberRead?: boolean } = {},
+			): void => {
+				const turn = [
 					...step.responseMessages,
 					toolMessage(call.toolCallId, call.toolName, value),
 				];
+				if (options.rememberRead === true) rememberReadTurn(turn);
+				else replaceWorkingTurn(turn);
 			};
+
+			if (call.toolName === READ_BATCH_TOOL) {
+				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
+				if (!parsed.success) {
+					answer(
+						{
+							error: `The read batch shape is invalid: ${parsed.error.issues
+								.map(
+									(issue) =>
+										`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+								)
+								.join("; ")}`,
+						},
+						{ rememberRead: true },
+					);
+					continue;
+				}
+				const completed: Array<{
+					index: number;
+					toolName: string;
+					result: unknown;
+				}> = [];
+				let failed: { index: number; toolName: string; error: string } | null =
+					null;
+				for (const [index, operation] of parsed.data.operations.entries()) {
+					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
+					if (entry === undefined || entry.policy.effect !== "read-blueprint") {
+						failed = {
+							index,
+							toolName: operation.toolName,
+							error:
+								"Only read-only Blueprint tools are valid read operations.",
+						};
+						break;
+					}
+					try {
+						if (Date.now() >= deadlineAt || deadline.signal.aborted)
+							return exhausted();
+						const dispatched = await awaitWithAbort(
+							workspace.stageDispatch({
+								toolName: operation.toolName,
+								requestId: `${call.toolCallId}:${index}`,
+								input: operation.input,
+								intentIds: [],
+								deadlineAt,
+							}),
+							boundedSignal,
+						);
+						const projectedResult = projectToolResult(dispatched.result);
+						if (resultHasError(projectedResult)) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error: (projectedResult as { error: string }).error,
+							};
+							break;
+						}
+						completed.push({
+							index,
+							toolName: operation.toolName,
+							result: projectedResult,
+						});
+					} catch (error) {
+						if (deadlineExceeded()) return exhausted();
+						if (error instanceof ChangeSetStagingRejectedError) {
+							failed = {
+								index,
+								toolName: operation.toolName,
+								error: error.message,
+							};
+							break;
+						}
+						const terminal = terminalProtocolCode(error);
+						if (terminal === null) throw error;
+						return {
+							kind: "protocol-failure",
+							code: terminal,
+							message: (error as Error).message,
+						};
+					}
+				}
+				answer(
+					{
+						completed,
+						...(failed === null
+							? { status: "completed" }
+							: {
+									status: "stopped",
+									failed,
+									unattemptedCount:
+										parsed.data.operations.length - failed.index - 1,
+								}),
+					},
+					{ rememberRead: true },
+				);
+				continue;
+			}
 
 			if (call.toolName === STAGE_BATCH_TOOL) {
 				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
@@ -965,7 +1145,7 @@ export async function runSliceExecutor(args: {
 						}),
 						boundedSignal,
 					);
-					answer(projectToolResult(dispatched.result));
+					answer(projectToolResult(dispatched.result), { rememberRead: true });
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					if (signal.aborted) {
@@ -977,7 +1157,7 @@ export async function runSliceExecutor(args: {
 					}
 					if (error instanceof ChangeSetStagingRejectedError) {
 						/* An ordinary refusal — the model self-corrects. */
-						answer({ error: error.message });
+						answer({ error: error.message }, { rememberRead: true });
 						continue;
 					}
 					const terminal = terminalProtocolCode(error);
@@ -1001,6 +1181,7 @@ export async function runSliceExecutor(args: {
 							await awaitWithAbort(workspace.inspect(), boundedSignal),
 							brief,
 						),
+						{ rememberRead: true },
 					);
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();

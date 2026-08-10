@@ -8,6 +8,7 @@ const MODULE = testUuid("61000000-0000-4000-8000-000000000000");
 const FORM = testUuid("62000000-0000-4000-8000-000000000000");
 const FIELD = testUuid("63000000-0000-4000-8000-000000000000");
 const COLUMN = testUuid("64000000-0000-4000-8000-000000000000");
+const OPERATION = testUuid("65000000-0000-4000-8000-000000000000");
 
 function fixture(property: string): BlueprintDoc {
 	return {
@@ -94,5 +95,43 @@ describe("blueprint stats case-write quality", () => {
 					"Registration form has no field writing case_name to its own case type — case will have no name",
 			}),
 		);
+	});
+
+	it("recognizes an advanced case operation as persisted form work", () => {
+		const doc = fixture("nickname");
+		const field = doc.fields[FIELD];
+		if (field === undefined || !("caseWrite" in field)) {
+			throw new Error("fixture field supports case writes");
+		}
+		delete field.caseWrite;
+		doc.forms[FORM] = {
+			...doc.forms[FORM],
+			type: "followup",
+			caseOperations: [
+				{
+					uuid: OPERATION,
+					id: "create_visit",
+					action: "create",
+					caseType: "patient",
+					target: { kind: "new" },
+					name: {
+						kind: "term",
+						term: { kind: "literal", value: "Visit", data_type: "text" },
+					},
+				},
+			],
+		};
+
+		const stats = analyzeBlueprint(doc);
+
+		expect(stats.modules[0]?.forms[0]).toMatchObject({
+			casePropertyCount: 0,
+			caseOperationCount: 1,
+		});
+		expect(
+			stats.qualityFlags.some((flag) =>
+				flag.message.includes("saves nothing to the case"),
+			),
+		).toBe(false);
 	});
 });

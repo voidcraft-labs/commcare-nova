@@ -19,9 +19,9 @@ export type DesignDepth = "compact" | "standard" | "extended";
 
 /** Conservative user-facing estimate for each deterministic effort level. */
 export const DESIGN_EFFORT_TIME_ESTIMATES: Record<DesignDepth, string> = {
-	compact: "about 25 minutes",
-	standard: "about 45 minutes",
-	extended: "about 75 minutes",
+	compact: "about 30 minutes",
+	standard: "about an hour",
+	extended: "about 90 minutes",
 };
 
 export interface DesignComplexityEvidence {

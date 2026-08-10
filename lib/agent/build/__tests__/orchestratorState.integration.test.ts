@@ -627,6 +627,29 @@ describe("slice attempts", () => {
 		});
 	});
 
+	it("permits a fresh attempt after the immutable compiler inputs change", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		await openGenesisForAttempt(args, attempt.id);
+		await markSliceAttempt({
+			...args,
+			attemptId: attempt.id,
+			to: "failed",
+			failureCode: "budget-exhausted",
+		});
+
+		const next = await beginOrRecoverSliceAttempt({
+			...args,
+			briefDigest: "c".repeat(64),
+		});
+
+		expect(next.recovered).toBe(false);
+		expect(next.attempt.attempt).toBe(2);
+		expect(next.attempt.status).toBe("running");
+		expect(next.attempt.briefDigest).toBe("c".repeat(64));
+	});
+
 	it("refuses attempt transitions after the holder is superseded", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);

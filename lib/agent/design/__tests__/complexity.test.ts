@@ -26,9 +26,7 @@ describe("computeDesignComplexity", () => {
 		const evidence = computeDesignComplexity(makeContract());
 		expect(evidence.score).toBe(6);
 		expect(evidence.depth).toBe("standard");
-		expect(DESIGN_EFFORT_TIME_ESTIMATES[evidence.depth]).toBe(
-			"about 45 minutes",
-		);
+		expect(DESIGN_EFFORT_TIME_ESTIMATES[evidence.depth]).toBe("about an hour");
 	});
 
 	it("scores a single-actor, single-record survey as compact", () => {

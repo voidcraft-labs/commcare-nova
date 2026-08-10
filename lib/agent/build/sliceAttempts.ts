@@ -379,15 +379,30 @@ export async function beginOrRecoverSliceAttempt(
 
 		const latest = await tx
 			.selectFrom("design_slice_attempts")
-			.select(["attempt", "status", "failure_code"])
+			.select([
+				"attempt",
+				"status",
+				"failure_code",
+				"executor_model",
+				"prompt_version",
+				"brief_digest",
+			])
 			.where("design_session_id", "=", args.designSessionId)
 			.where("build_plan_id", "=", args.buildPlanId)
 			.where("slice_id", "=", args.sliceId)
 			.orderBy("attempt", "desc")
 			.executeTakeFirst();
-		if (latest?.status === "failed" || latest?.status === "committed") {
+		const compilerInputsChanged =
+			latest !== undefined &&
+			(latest.executor_model !== args.executorModel ||
+				latest.prompt_version !== args.promptVersion ||
+				latest.brief_digest !== args.briefDigest);
+		if (
+			latest?.status === "committed" ||
+			(latest?.status === "failed" && !compilerInputsChanged)
+		) {
 			throw new TerminalSliceAttemptError(
-				`Slice ${args.sliceId} already ended as ${latest.status}; the same accepted plan cannot rerun it.`,
+				`Slice ${args.sliceId} already ended as ${latest.status}; unchanged compiler inputs cannot rerun it.`,
 			);
 		}
 		const attemptNumber = Number(latest?.attempt ?? 0) + 1;

@@ -51,11 +51,11 @@ export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
  *  hope. */
 export const DESIGN_LOOP_STEP_BUDGET = 40;
 
-/** Consecutive schema rejections of one submission kind before the run
- *  fails honestly with the diagnostics. Two is deliberate: the first
- *  rejection carries the exact refinement messages, so a second identical
- *  failure means the loop is not converging. */
-export const DESIGN_SUBMISSION_REPAIR_BUDGET = 2;
+/** Maximum consecutive schema rejections of one submission kind. A third
+ *  rejection always stops the run. The tracker permits the third attempt only
+ *  when the second rejection has strictly fewer diagnostics than the first;
+ *  an unchanged or broader repair still stops after two. */
+export const DESIGN_SUBMISSION_REPAIR_BUDGET = 3;
 
 /** Consecutive illegal-sequence calls (any tool) before the run fails.
  *  Persistent illegality means the model has lost the protocol; the state
@@ -331,16 +331,22 @@ function deriveExpectedNext(
  * refinement loop.
  */
 export class DesignRepairTracker {
-	private rejectionsByKind = new Map<DesignLoopToolName, number>();
+	private rejectionsByKind = new Map<
+		DesignLoopToolName,
+		{ count: number; issueCount: number }
+	>();
 	private sequenceErrors = 0;
 	private fatal: DesignLoopBudgetError | undefined;
 
-	noteSchemaRejection(kind: DesignLoopToolName): void {
-		const count = (this.rejectionsByKind.get(kind) ?? 0) + 1;
-		this.rejectionsByKind.set(kind, count);
-		if (count >= DESIGN_SUBMISSION_REPAIR_BUDGET) {
+	noteSchemaRejection(kind: DesignLoopToolName, issueCount = 1): void {
+		const previous = this.rejectionsByKind.get(kind);
+		const count = (previous?.count ?? 0) + 1;
+		this.rejectionsByKind.set(kind, { count, issueCount });
+		const stoppedImproving =
+			previous !== undefined && issueCount >= previous.issueCount;
+		if (count >= DESIGN_SUBMISSION_REPAIR_BUDGET || stoppedImproving) {
 			this.fatal = new DesignLoopBudgetError(
-				`The ${kind} submission was rejected ${count} times in a row by Nova's own design schemas. The turn ends here so nothing degrades further; the validation messages are in the run diagnostics, and sending the message again retries from the committed artifacts.`,
+				`The ${kind} submission did not converge after ${count} schema rejections. The committed artifacts are intact; inspect the run diagnostics before restarting this phase.`,
 			);
 		}
 	}
@@ -355,7 +361,7 @@ export class DesignRepairTracker {
 	}
 
 	noteAccepted(kind: DesignLoopToolName): void {
-		this.rejectionsByKind.set(kind, 0);
+		this.rejectionsByKind.delete(kind);
 		this.sequenceErrors = 0;
 	}
 

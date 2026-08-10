@@ -69,6 +69,8 @@ export interface FormStats {
 	hasConnect: boolean;
 	/** Number of case properties saved by this form (fields with caseWrite). */
 	casePropertyCount: number;
+	/** Number of advanced case operations executed on submission. */
+	caseOperationCount: number;
 }
 
 /** Per-module summary statistics. */
@@ -289,6 +291,7 @@ function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
 		hasFormLinks: (form.formLinks?.length ?? 0) > 0,
 		hasConnect: form.connect != null,
 		casePropertyCount: countCasePropertiesFromList(fields),
+		caseOperationCount: form.caseOperations?.length ?? 0,
 	};
 	return { stats, fields };
 }
@@ -538,7 +541,7 @@ function walkForLogic(
  *   - Registration forms without an own-type `case_name` writer
  *   - Modules with caseType but no displayed columns (invisible columns)
  *   - Hidden fields without calculate/default (orphaned, always blank)
- *   - Forms with zero caseWrite fields (form saves nothing)
+ *   - Forms with neither caseWrite fields nor case operations
  *
  * NOTE: post_submit is NOT flagged. The system applies form-type
  * defaults automatically, so omitting it is correct behavior.
@@ -585,14 +588,15 @@ function checkQuality(
 				mod.caseType &&
 				!mod.caseListOnly &&
 				form.type !== "survey" &&
-				form.casePropertyCount === 0
+				form.casePropertyCount === 0 &&
+				form.caseOperationCount === 0
 			) {
 				flags.push({
 					severity: "warn",
 					module: mod.name,
 					form: form.name,
 					message:
-						"Form has no fields with caseWrite — saves nothing to the case",
+						"Form has no case-writing fields or case operations — saves nothing to the case",
 				});
 			}
 

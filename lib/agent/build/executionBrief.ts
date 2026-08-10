@@ -58,6 +58,7 @@ export interface SliceExecutionBrief {
 	readonly designRevisionDigest: string;
 	readonly buildPlanId: string;
 	readonly buildPlanDigest: string;
+	readonly appName: string;
 	readonly appObjective: string;
 	readonly slice: BuildSlice;
 	readonly owningIntentIds: readonly DesignId[];
@@ -316,6 +317,7 @@ export function deriveSliceExecutionBrief(args: {
 		designRevisionDigest: args.revision.digest,
 		buildPlanId: args.plan.id,
 		buildPlanDigest: args.planDigest ?? canonicalJsonDigest(args.plan),
+		appName: contract.title,
 		appObjective: contract.objective,
 		slice,
 		owningIntentIds: [...slice.ownedIntentIds],
@@ -378,7 +380,7 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 	const blocks: (string | null)[] = [
 		section(
 			"App objective",
-			`${brief.appObjective}\n\nDesign revision ${brief.designRevisionId} (${brief.designRevisionDigest}), build plan ${brief.buildPlanId}.`,
+			`Name: ${brief.appName}\n${brief.appObjective}\n\nDesign revision ${brief.designRevisionId} (${brief.designRevisionDigest}), build plan ${brief.buildPlanId}.`,
 		),
 		section(
 			"This slice",

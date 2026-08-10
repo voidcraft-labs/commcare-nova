@@ -386,6 +386,94 @@ describe("runSliceExecutor — the one-call law", () => {
 		expect(first[0]).toEqual(second[0]);
 	});
 
+	it("keeps consecutive read results together until a mutation refreshes the checkpoint", async () => {
+		const workspace = fakeWorkspace({
+			stage: async ({ toolName }) =>
+				toolName === "getModule" || toolName === "getForm"
+					? { kind: "read", data: { marker: toolName } }
+					: {
+							kind: "mutate",
+							mutations: [],
+							result: { message: `Staged ${toolName}.` },
+						},
+		});
+		const { step, seen } = scriptedStep([
+			{ calls: [{ toolCallId: "module", toolName: "getModule" }] },
+			{ calls: [{ toolCallId: "form", toolName: "getForm" }] },
+			{
+				calls: [
+					{
+						toolCallId: "stage",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		expect(
+			toolResults(seen[2] ?? []).map((result) => result.toolCallId),
+		).toEqual(["module", "form"]);
+		expect(
+			toolResults(seen[3] ?? []).map((result) => result.toolCallId),
+		).toEqual(["stage"]);
+	});
+
+	it("reads several related structures in one model step", async () => {
+		const workspace = fakeWorkspace({
+			stage: async ({ toolName }) => ({
+				kind: "read",
+				data: { marker: toolName },
+			}),
+		});
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "read",
+						toolName: "readBatch",
+						input: {
+							operations: [
+								{
+									toolName: "getModule",
+									input: {
+										moduleUuid: testUuid(
+											"11111111-1111-4111-8111-111111111111",
+										),
+									},
+								},
+								{
+									toolName: "getForm",
+									input: {
+										formUuid: testUuid("22222222-2222-4222-8222-222222222222"),
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		expect(workspace.staged.map((entry) => entry.toolName)).toEqual([
+			"getModule",
+			"getForm",
+		]);
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			status: "completed",
+			completed: [
+				{ index: 0, toolName: "getModule", result: { marker: "getModule" } },
+				{ index: 1, toolName: "getForm", result: { marker: "getForm" } },
+			],
+		});
+	});
+
 	it("executes none of a multi-call step and answers both calls", async () => {
 		const workspace = fakeWorkspace();
 		const { step, seen } = scriptedStep([

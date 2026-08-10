@@ -344,21 +344,29 @@ describe("submitPlan gating", () => {
 });
 
 describe("repair budgets", () => {
-	it("latches fatal after consecutive schema rejections of one kind", () => {
+	it("allows one final repair only while diagnostics strictly shrink", () => {
 		const repair = new DesignRepairTracker();
-		for (let i = 0; i < DESIGN_SUBMISSION_REPAIR_BUDGET - 1; i += 1) {
-			repair.noteSchemaRejection("submitContract");
-			expect(repair.fatalError()).toBeUndefined();
-		}
-		repair.noteSchemaRejection("submitContract");
+		repair.noteSchemaRejection("submitContract", 5);
+		expect(repair.fatalError()).toBeUndefined();
+		repair.noteSchemaRejection("submitContract", 1);
+		expect(repair.fatalError()).toBeUndefined();
+		repair.noteSchemaRejection("submitContract", 1);
 		expect(repair.fatalError()?.message).toContain("submitContract");
+		expect(DESIGN_SUBMISSION_REPAIR_BUDGET).toBe(3);
+	});
+
+	it("stops a non-improving second rejection", () => {
+		const repair = new DesignRepairTracker();
+		repair.noteSchemaRejection("submitPlan", 2);
+		repair.noteSchemaRejection("submitPlan", 2);
+		expect(repair.fatalError()?.message).toContain("submitPlan");
 	});
 
 	it("an accepted submission resets the counter", () => {
 		const repair = new DesignRepairTracker();
-		repair.noteSchemaRejection("submitPlan");
+		repair.noteSchemaRejection("submitPlan", 4);
 		repair.noteAccepted("submitPlan");
-		repair.noteSchemaRejection("submitPlan");
+		repair.noteSchemaRejection("submitPlan", 4);
 		expect(repair.fatalError()).toBeUndefined();
 	});
 

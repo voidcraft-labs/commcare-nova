@@ -270,8 +270,17 @@ export function useGetEditScroll(): (
 /** Furthest cumulative generation milestone established by the events buffer
  *  — `null` during the askQuestions / thinking window before a mutation. */
 export function useAgentStage(): GenerationStage | null {
-	const events = useBuilderSession((s) => s.events);
-	return useMemo(() => deriveAgentStage(events), [events]);
+	const session = useBuilderSessionShallow((s) => ({
+		events: s.events,
+		buildUnfinished: s.buildUnfinished,
+		appId: s.appId,
+	}));
+	const materializedBuildActive =
+		session.buildUnfinished && session.appId !== undefined;
+	return useMemo(
+		() => deriveAgentStage(session.events, materializedBuildActive),
+		[session.events, materializedBuildActive],
+	);
 }
 
 /** Latest classified error on the buffer, or null. */
@@ -282,13 +291,19 @@ export function useAgentError(): GenerationError {
 
 /** Human-readable status text for the current generation stage or error. */
 export function useStatusMessage(): string {
-	const events = useBuilderSession((s) => s.events);
+	const session = useBuilderSessionShallow((s) => ({
+		events: s.events,
+		buildUnfinished: s.buildUnfinished,
+		appId: s.appId,
+	}));
+	const materializedBuildActive =
+		session.buildUnfinished && session.appId !== undefined;
 	return useMemo(() => {
-		const stage = deriveAgentStage(events);
-		const error = deriveAgentError(events);
-		const attempt = deriveValidationAttempt(events);
+		const stage = deriveAgentStage(session.events, materializedBuildActive);
+		const error = deriveAgentError(session.events);
+		const attempt = deriveValidationAttempt(session.events);
 		return deriveStatusMessage(stage, error, attempt);
-	}, [events]);
+	}, [session.events, materializedBuildActive]);
 }
 
 /** Whether the run is reading document attachments right now — the pre-agent

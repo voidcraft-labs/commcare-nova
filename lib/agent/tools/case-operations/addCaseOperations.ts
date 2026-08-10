@@ -98,7 +98,7 @@ export type AddCaseOperationsResult =
 
 export const addCaseOperationsTool = {
 	description:
-		"Add one or more complete case operations to a form. Operations create, update, or close cases when the form is submitted.",
+		"Add one or more complete advanced case operations to a form. Operations create additional records or update/close targeted records when the form is submitted. A registration form's direct caseWrite fields already create its primary case; never add a create operation for that same record.",
 	inputSchema: addCaseOperationsInputSchema,
 	async execute(
 		input: AddCaseOperationsInput,

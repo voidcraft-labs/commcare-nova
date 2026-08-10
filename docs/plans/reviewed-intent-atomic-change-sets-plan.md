@@ -821,7 +821,9 @@ The tool surface:
   carry a top-level repair that replaces only the invalid or dependent
   sections; the server merges it over that rejected candidate and reruns
   the complete schema and graph proof before anything persists. The repair
-  remains bounded at two consecutive rejections per submission kind. The
+  remains convergence-bounded per submission kind: an unchanged or broader
+  second diagnostic set stops, a strictly smaller second set permits one
+  final repair, and a third rejection always stops. The
   strict wire's fixed `schemaVersion: 1` marker may accompany that repair as
   envelope scaffolding; any authored full-contract field beside the repair
   is still a mixed submission and is rejected.
@@ -884,9 +886,12 @@ constants. The design author/planner and independent reviewer use Sol at
 record the producing model, so a role-specific model change does not alter the
 artifact or orchestration contracts. Reviewer calls remain fresh-context. The
 author uses its session context; every executor call instead starts from the
-immutable slice brief, the authoritative current workspace checkpoint, and
-only the latest model/tool result. Successful work lives in the durable change
-set rather than an ever-growing executor transcript.
+immutable slice brief, the authoritative current workspace checkpoint, and a
+bounded working set of at most four consecutive read/inspection turns. One
+`readBatch` fetches up to four related current structures in a single model
+step. A mutation refreshes the checkpoint and clears that volatile read window.
+Successful work lives in the durable change set rather than an ever-growing
+executor transcript.
 
 Every Responses API call enables OpenAI server-side context management at
 `256_000` input tokens. OpenAI owns the compaction pass and opaque encrypted
@@ -910,9 +915,9 @@ Compaction does not become application authority. After projecting model
 history, the server re-injects the current persisted Design Contract and open
 review findings for the design loop. The slice executor does not depend on a
 compacted conversation: every step receives the immutable execution brief, a
-fresh workspace summary, and only the latest result needed for its next
-decision. Earlier handles, receipts, and staged mutations remain durable and
-the workspace checkpoint is authoritative. The client
+fresh workspace summary, and related structures fetched through `readBatch` or
+at most four recent read turns. Earlier handles, receipts, and staged mutations
+remain durable and the workspace checkpoint is authoritative. The client
 keeps old messages visible and shows the transient status “Organizing what
 we’ve covered” only for the main conversation whose model context is being
 compacted; the status occupies the same final line above the composer and does
@@ -1029,9 +1034,9 @@ interface DesignComplexityEvidence {
 }
 ```
 
-- `compact`, score `0–2`: one draft and one review; revise only for critical/important findings; user expectation `about 25 minutes`.
-- `standard`, score `3–6`: full contract, one review, required revision for important findings; user expectation `about 45 minutes`.
-- `extended`, score `7+`: full contract, explicit architecture decisions, review, and required revision for important findings; user expectation `about 75 minutes`.
+- `compact`, score `0–2`: one draft and one review; revise only for critical/important findings; user expectation `about 30 minutes`.
+- `standard`, score `3–6`: full contract, one review, required revision for important findings; user expectation `about an hour`.
+- `extended`, score `7+`: full contract, explicit architecture decisions, review, and required revision for important findings; user expectation `about 90 minutes`.
 
 The score controls process depth and the rough elapsed-time expectation, not
 Blueprint features, model authority, or validity. The estimates deliberately
@@ -1149,8 +1154,8 @@ const buildSliceSchema = z.object({
       intentId: designIdSchema,
       target: z.enum([
         "case-type", "case-property", "form-logic", "task-form",
-        "case-operation", "case-list", "case-search", "access-control",
-        "navigation",
+        "registration-create", "case-operation", "case-list", "case-search",
+        "access-control", "navigation",
       ]),
     })).min(1),
     tasks: z.array(taskConstructionSchema),
@@ -1205,8 +1210,12 @@ const buildPlanSchema = z.object({
 16. Semantic groups and lowering rows each cover every owned intent exactly
     once. A group contains at most 12 intents and a slice at most eight groups.
 17. Task mode, selected-record context, and transition IDs match the accepted
-    task exactly; fact storage, writer source, and unanswered-value behavior
-    match the accepted fact exactly.
+    task exactly. Each registration task selects one accepted create transition
+    as `primaryCreateTransitionId`; that transition lowers to
+    `registration-create` and is realized by the form's ordinary primary-case
+    creation, while every other transition lowers to `case-operation`. Fact
+    storage, writer source, and unanswered-value behavior match the accepted
+    fact exactly.
 18. Read-model mode is explicit and agrees with its lowering; actor partition
     and search facts agree with the accepted actors/access/navigation. Having
     search facts does not by itself force live case search because synced lists
@@ -1216,6 +1225,11 @@ const buildPlanSchema = z.object({
 19. Manual setup rows name exactly the slice's `manual-setup` external actions.
     A structurally parseable plan that fails any construction proof is rejected
     before persistence and never reaches an executor.
+20. A semantic group may append genuinely new properties to a case type
+    authored by an earlier group. The data-model operation preserves every
+    existing property and parent relation, rejects conflicting redefinitions,
+    and emits only additive catalog mutations. Large record catalogs therefore
+    remain bounded without forcing one oversized group or one-field fallbacks.
 
 ### 8.3 Materialization-root quality
 
@@ -1287,6 +1301,7 @@ interface SliceExecutionBrief {
   designRevisionDigest: string;
   buildPlanId: string;
   buildPlanDigest: string;
+  appName: string;
   appObjective: string;
   slice: BuildSlice;
   owningIntentIds: DesignId[];
@@ -3088,7 +3103,7 @@ interface SliceExecutionAttempt {
 }
 ```
 
-`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests. A bound open set is recoverable only when its owner actor/run matches the current delegated holder; holder drift or artifact drift atomically supersedes both the private set and attempt before a fresh attempt opens. A failure atomically abandons its open private change set. The same accepted plan/slice cannot open a later attempt after deterministic failure; terminal replay is idempotent only when status and failure metadata agree. Rebase supersession and recovery of one still-running exact attempt remain available because they respond to changed state or lost transport, not a second draw of the same execution.
+`buildPlanDigest` / `designRevisionDigest` are those artifacts' ENVELOPE digests (`artifactDigest`) — a plan has no second self-digest. Unique `(design_session_id, build_plan_id, slice_id, attempt)` and a partial one-`running` constraint prevent duplicate workers. Begin/recover, change-set creation plus once-only binding, supersession, and terminal transitions lock and reauthorize the exact live delegated session/app holder in the same transaction as the control write. A replacement draft atomically supersedes every open change set and running attempt from its deactivated historical plan. Recovery compares every immutable identity above, not only artifact digests. A bound open set is recoverable only when its owner actor/run matches the current delegated holder; holder drift or artifact drift atomically supersedes both the private set and attempt before a fresh attempt opens. A failure atomically abandons its open private change set. The same accepted plan/slice cannot open a later attempt after deterministic failure while its recorded executor model, prompt version, and brief digest remain unchanged; changing one of those immutable compiler inputs may open a new numbered attempt because it is not a second draw of the failed execution. Terminal replay is idempotent only when status and failure metadata agree. Rebase supersession and recovery of one still-running exact attempt remain available because they respond to changed state or lost transport, not a second draw of the same execution.
 
 ### 13.4 Execution brief
 
@@ -3101,6 +3116,7 @@ interface SliceExecutionBrief {
   designRevisionDigest: Sha256;
   buildPlanId: string;
   buildPlanDigest: Sha256;
+  appName: string;
   appObjective: string;
   slice: BuildSlice;
   owningIntentIds: DesignId[];
@@ -3134,8 +3150,11 @@ Rules:
 
 The system prompt stays static for cacheability. Each step reconstructs a
 current checkpoint from the immutable brief plus the workspace's durable
-snapshot, diagnostics, intent coverage, and handle state, then includes only
-the latest assistant/tool result. Each design session supplies one executor
+snapshot, diagnostics, intent coverage, and handle state. A `readBatch` fetches
+up to four related structures in one model step, and the checkpoint tail keeps
+at most four consecutive read/inspection turns. A mutation clears that volatile
+window because the refreshed checkpoint is then authoritative. Each design
+session supplies one executor
 prompt-cache routing key and the brief remains the stable cached prefix. No
 slice transcript grows across the build.
 
@@ -3294,12 +3313,15 @@ the ceilings is split before persistence. Exceeding a budget:
 - never commits a partial canonical prefix;
 - never reports completion.
 
-Budget or protocol failure is terminal for that exact accepted plan/slice. It
-cannot reopen under a later user turn. Transport/provider retries remain
-bounded inside the call path, a still-running attempt can recover after process
-death, and a semantic rebase can supersede onto a changed canonical base; none
-of those mechanisms reruns unchanged deterministic work because a person sent
-another message.
+Budget or protocol failure is terminal for that exact accepted plan/slice and
+its recorded executor model, prompt version, and brief digest. It cannot reopen
+under a later user turn with unchanged compiler inputs. A deployed compiler
+input change may open a new numbered attempt against the same accepted design
+because the failed execution is no longer being repeated. Transport/provider
+retries remain bounded inside the call path, a still-running attempt can recover
+after process death, and a semantic rebase can supersede onto a changed
+canonical base; none of those mechanisms reruns unchanged deterministic work
+because a person sent another message.
 
 The wall-clock budget is an absolute deadline, not a between-step check. The
 executor races provider, staging, and inspection awaits against one combined
@@ -3335,7 +3357,10 @@ The executor prompt and deterministic checks enforce:
 6. use granular private creation only when a real dependency or call-size
    boundary requires an incomplete private intermediate rather than canonical
    completeness scaffolds;
-7. prefer direct answer-to-case writes when source semantics allow;
+7. prefer direct answer-to-case writes when source semantics allow. A
+   registration task names its ordinary primary create with
+   `primaryCreateTransitionId`; its `registration-create` lowering is realized
+   by those form writes, never duplicated with an advanced create operation;
 8. while owned intents remain uncovered, stage complete semantic groups; a
    stopped batch keeps its accepted prefix, so correct only the failed
    operation and dependent unattempted suffix; then inspect before commit;
@@ -3455,6 +3480,10 @@ const architectBlockerDecisionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("unsupported"), reason: z.string().min(1) }),
 ]);
+
+const architectBlockerDecisionWireSchema = z.object({
+  decision: architectBlockerDecisionSchema,
+}).strict();
 ```
 
 Luna reports observations only. A fresh Sol call receives the exact accepted
@@ -3462,7 +3491,9 @@ contract, current plan and slice brief, plus server-produced diagnostics. It
 decides whether existing operations can continue, the pre-materialization plan
 alone needs replacement, the contract meaning needs a reviewed revision, the
 accepted contract explicitly lacks a user decision, or Nova cannot represent
-the work.
+the work. The provider-facing wrapper keeps the strict JSON-schema root an
+object; the server unwraps `decision` before orchestration sees the closed
+union.
 
 `continue` guidance returns to the same bounded compiler loop. A `plan-repair`
 is valid only before the materialization root commits; the complete replacement
@@ -3504,8 +3535,9 @@ On process restart:
 6. return persisted receipts for replayed stage subrequest IDs;
 7. reconstruct the executor checkpoint from the current brief, exact durable
    intent coverage, handle bindings, current candidate summary, and
-   diagnostics, then run a fresh bounded step without replaying a growing
-   model transcript.
+   diagnostics, then run a fresh bounded step; recent read turns are volatile
+   and therefore absent after a process restart, while the executor can repeat
+   those reads without repeating any mutation.
 
 A model response itself is not replay authority. Durable staged requests and orchestration events are.
 
@@ -4059,7 +4091,8 @@ When `data-app-materialized` arrives:
 2. promote the URL without a second history entry;
 3. initialize collaboration at sequence `1`;
 4. mount the normal builder with its committed tree read-only;
-5. show the first coherent workflow around a central build-progress card;
+5. show the first coherent workflow around a central build-progress card whose
+   active milestone is Build while the materialized plan remains unfinished;
 6. continue chat/build progress in place;
 7. release direct editing only when the entire accepted plan completes or the
    user explicitly accepts the interrupted partial build.
@@ -4757,12 +4790,14 @@ The event fold strict-parses the complete suffix. Runtime may `SELECT, INSERT` o
 `design_slice_attempts` is the mutable execution-control row described in section 13. It holds immutable input identities plus status and failure metadata. One partial unique index permits one `running` attempt per `(design_session_id, build_plan_id, slice_id)`.
 
 Its status vocabulary is `running | committed | superseded | failed`. A
-`failed` attempt atomically abandons its bound open change set and permanently
-closes that exact `(build plan, slice)` execution. `superseded` is reserved for
+`failed` attempt atomically abandons its bound open change set and closes that
+exact `(build plan, slice, executor model, prompt version, brief digest)`
+execution. `superseded` is reserved for
 a changed authoritative base or the one pre-materialization replacement plan;
 it is not a retry spelling. Recovery may reacquire one exact still-running
 attempt after holder loss, but may not create a fresh attempt after a
-deterministic terminal result.
+deterministic terminal result unless one of those immutable executor inputs
+changes.
 
 `design_committed_slices` is append-only and stores the exact `CommittedSliceReceipt`:
 
@@ -5565,7 +5600,9 @@ Unit/browser tests:
 - artifact digest mismatch stops execution;
 - active slice attempt uniqueness;
 - resume returns stored tool receipts;
-- checkpoint reconstruction does not replay a growing model transcript;
+- checkpoint reconstruction does not replay a growing model transcript, one
+  read batch can fetch up to four related structures, and a live executor
+  retains no more than four consecutive current read turns;
 - compound staging stops at the first rejected subrequest and preserves the
   accepted prefix exactly;
 - blocker evidence cannot choose a plan or contract outcome;
@@ -5574,7 +5611,7 @@ Unit/browser tests:
 - later plan-repair requests, output-handle contract failures, and budget
   exhaustion persist terminal honest failure;
 - failed attempts atomically abandon their open change set and cannot reopen
-  under a new run or holder;
+  under a new run or holder with unchanged compiler inputs;
 - a real contract revision supersedes obsolete attempts/change sets;
 - commit receipt is the only slice-completed authority;
 - model saying “done” without receipt changes nothing;
@@ -6129,14 +6166,16 @@ The program is complete only when all of the following are true.
     process death.
 19. Server-minted local handles resolve before original tool-schema and
     mutation admission and never enter canonical history.
-20. The executor reconstructs bounded checkpoints from durable state rather
-    than accumulating a model transcript.
+20. The executor reconstructs bounded checkpoints from durable state, can read
+    up to four related structures in one batch, and keeps at most four
+    consecutive read turns rather than accumulating a model transcript.
 21. Open change sets may be incomplete but never executable or user/peer visible.
 22. A rejected batch preserves its accepted prefix and does not resend
     successful payloads.
 23. External-effect tools are impossible in an open change set.
 24. Every executor/review/rebase/correction loop has a hard bound, and a
-    deterministic failed plan/slice cannot be reopened by another user turn.
+    deterministic failed plan/slice cannot be reopened by another user turn
+    with unchanged compiler inputs.
 
 ### Canonical commit parity
 

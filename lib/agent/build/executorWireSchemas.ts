@@ -43,6 +43,7 @@ export const EXECUTOR_TOOL_SURFACE: readonly string[] = [
 	...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
 		.filter((entry) => entry.policy.effect === "read-blueprint")
 		.map((entry) => entry.name),
+	"readBatch",
 	"stageBatch",
 	"inspectChangeSet",
 	"commitChangeSet",

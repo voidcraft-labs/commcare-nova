@@ -572,7 +572,7 @@ export function makeBuildPlan(): BuildPlan {
 						{ intentId: ids.taskRegister, target: "task-form" },
 						{
 							intentId: ids.transCreatePatient,
-							target: "case-operation",
+							target: "registration-create",
 						},
 						{ intentId: ids.rmPatients, target: "case-search" },
 						{ intentId: ids.navMain, target: "navigation" },
@@ -583,6 +583,7 @@ export function makeBuildPlan(): BuildPlan {
 							taskId: ids.taskRegister,
 							mode: "registration",
 							transitionIds: [ids.transCreatePatient],
+							primaryCreateTransitionId: ids.transCreatePatient,
 						},
 					],
 					facts: [

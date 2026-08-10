@@ -140,6 +140,7 @@ describe("deriveSliceExecutionBrief", () => {
 	it("binds the revision and plan identity", () => {
 		const brief = rootBrief();
 		expect(brief.schemaVersion).toBe(1);
+		expect(brief.appName).toBe(makeContract().title);
 		expect(brief.designRevisionId).toBe(REVISION.id);
 		expect(brief.designRevisionDigest).toBe(REVISION.digest);
 		expect(brief.buildPlanId).toBe(makeBuildPlan().id);
@@ -219,6 +220,7 @@ describe("renderBriefMessage", () => {
 		const brief = rootBrief();
 		const message = renderBriefMessage(brief);
 
+		expect(message).toContain(brief.appName);
 		expect(message).toContain(brief.appObjective);
 		expect(message).toContain(brief.slice.name);
 		expect(message).toContain(brief.slice.goal);

@@ -338,10 +338,38 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("generateSchema rejects a case type whose record is already authored", async () => {
-		// The fixture's "patient" record carries an authored property (label
-		// "Full name" ≠ its name) — re-declaring would replace definitions
-		// fields were seeded from, so the whole call is rejected.
+	it("generateSchema appends new properties to an authored record without replacing it", async () => {
+		const sa = makeSa(ctx, makeFixtureDoc());
+
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "phone_number", label: proseText("Phone number") },
+					],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			message: expect.stringContaining("Added new properties"),
+		});
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].mutations).toEqual([
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: {
+					name: "phone_number",
+					label: proseText("Phone number"),
+				},
+			},
+		]);
+	});
+
+	it("generateSchema rejects a conflicting definition on an authored record", async () => {
 		const sa = makeSa(ctx, makeFixtureDoc());
 
 		const result = await runTool(sa, "generateSchema", {
@@ -354,7 +382,9 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		});
 
 		expect(result).toMatchObject({
-			error: expect.stringContaining('"patient"'),
+			error: expect.stringContaining(
+				"already exists with a different definition",
+			),
 		});
 		expect(mutationEvents(writer)).toHaveLength(0);
 	});

@@ -1387,15 +1387,21 @@ export function ChatContainer({
 	stopRef.current = stop;
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
+	const designStreamOpenRef = useRef(false);
 
 	/* A blocking question round parks the run (§15.8), and the transcript is
 	 * the only place that pause is visible from here: the stream closes and an
 	 * unanswered card is left standing. Report it so the progress region stops
-	 * claiming work is moving while it waits on a person. */
+	 * claiming work is moving while it waits on a person. Retire the previous
+	 * turn's progress only on the CLOSED -> OPEN transport edge. Calling
+	 * `noteTurnOpened` after every streamed message update would erase the live
+	 * review/revision/planning pulse between its two-second frames and make the
+	 * status fall back to first-turn copy during long reasoning stretches. */
 	useEffect(() => {
 		const streamOpen = status === "submitted" || status === "streaming";
 		const store = designProgressStore.getState();
-		if (streamOpen) store.noteTurnOpened();
+		if (streamOpen && !designStreamOpenRef.current) store.noteTurnOpened();
+		designStreamOpenRef.current = streamOpen;
 		store.setAwaitingInput(
 			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
 		);

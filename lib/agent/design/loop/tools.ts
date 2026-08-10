@@ -212,7 +212,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}
 				const repair = appDesignContractRepairSchema.safeParse(raw.repair);
 				if (!repair.success) {
-					deps.repair.noteSchemaRejection("submitContract");
+					deps.repair.noteSchemaRejection(
+						"submitContract",
+						repair.error.issues.length,
+					);
 					return { error: renderZodIssues(repair.error) };
 				}
 				if (rejectedContractCandidate === null) {
@@ -227,7 +230,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const parsed = appDesignContractSchema.safeParse(candidate);
 			if (!parsed.success) {
 				rejectedContractCandidate = recordValue(candidate);
-				deps.repair.noteSchemaRejection("submitContract");
+				deps.repair.noteSchemaRejection(
+					"submitContract",
+					parsed.error.issues.length,
+				);
 				return { error: renderZodIssues(parsed.error) };
 			}
 			const head = gates.head;
@@ -396,7 +402,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}
 				const patch = designRevisionPatchSchema.safeParse(raw.patch);
 				if (!patch.success) {
-					deps.repair.noteSchemaRejection("submitRevision");
+					deps.repair.noteSchemaRejection(
+						"submitRevision",
+						patch.error.issues.length,
+					);
 					return { error: renderZodIssues(patch.error) };
 				}
 				candidate = {
@@ -416,7 +425,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}
 				const repair = designRevisionRepairSchema.safeParse(raw.repair);
 				if (!repair.success) {
-					deps.repair.noteSchemaRejection("submitRevision");
+					deps.repair.noteSchemaRejection(
+						"submitRevision",
+						repair.error.issues.length,
+					);
 					return { error: renderZodIssues(repair.error) };
 				}
 				if (rejectedRevisionCandidate === null) {
@@ -446,7 +458,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				designRevisionResultSchemaFor(reviewPayloads).safeParse(candidate);
 			if (!parsed.success) {
 				rejectedRevisionCandidate = recordValue(candidate);
-				deps.repair.noteSchemaRejection("submitRevision");
+				deps.repair.noteSchemaRejection(
+					"submitRevision",
+					parsed.error.issues.length,
+				);
 				return { error: renderZodIssues(parsed.error) };
 			}
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
@@ -455,7 +470,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			);
 			if (sensitivityViolations.length > 0) {
 				rejectedRevisionCandidate = recordValue(candidate);
-				deps.repair.noteSchemaRejection("submitRevision");
+				deps.repair.noteSchemaRejection(
+					"submitRevision",
+					sensitivityViolations.length,
+				);
 				return {
 					error: [
 						"The revision quietly lowered declared sensitivity:",
@@ -543,7 +561,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}
 				const repair = buildPlanDraftRepairSchema.safeParse(raw.repair);
 				if (!repair.success) {
-					deps.repair.noteSchemaRejection("submitPlan");
+					deps.repair.noteSchemaRejection(
+						"submitPlan",
+						repair.error.issues.length,
+					);
 					return { error: renderZodIssues(repair.error) };
 				}
 				if (rejectedPlanCandidate === null) {
@@ -558,7 +579,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const draftParsed = buildPlanDraftSchema.safeParse(candidate);
 			if (!draftParsed.success) {
 				rejectedPlanCandidate = recordValue(candidate);
-				deps.repair.noteSchemaRejection("submitPlan");
+				deps.repair.noteSchemaRejection(
+					"submitPlan",
+					draftParsed.error.issues.length,
+				);
 				return { error: renderZodIssues(draftParsed.error) };
 			}
 			const composed = composePlan(accepted, draftParsed.data);
@@ -573,7 +597,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			).safeParse(composed);
 			if (!planParsed.success) {
 				rejectedPlanCandidate = recordValue(draftParsed.data);
-				deps.repair.noteSchemaRejection("submitPlan");
+				deps.repair.noteSchemaRejection(
+					"submitPlan",
+					planParsed.error.issues.length + admissionMessages.length,
+				);
 				return {
 					error: [renderZodIssues(planParsed.error), ...admissionMessages].join(
 						"\n",
@@ -582,7 +609,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			if (admissionMessages.length > 0) {
 				rejectedPlanCandidate = recordValue(draftParsed.data);
-				deps.repair.noteSchemaRejection("submitPlan");
+				deps.repair.noteSchemaRejection("submitPlan", admissionMessages.length);
 				return { error: admissionMessages.join("\n") };
 			}
 			const plan = await insertDesignBuildPlan({

@@ -1357,5 +1357,12 @@ async function executeOneSlice(
 		...(deps.onReasoningSummary !== undefined && {
 			onReasoning: deps.onReasoningSummary,
 		}),
+		onToolCall: (call) => {
+			log.info("[buildExecutor] model tool", {
+				designSessionId: args.designSessionId,
+				sliceId: slice.slice.id,
+				...call,
+			});
+		},
 	});
 }

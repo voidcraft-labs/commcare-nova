@@ -106,7 +106,7 @@ controller retires the old form entry. Chat owns the matching transport stop
 and closes any open document run bracket. Authoring state and the unsent
 composer draft are deliberately retained.
 
-**Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag or clamping against hidden state. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
+**Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag. Strict materialization is the one additional proof: its private genesis mutations do not enter the client event buffer, so an unfinished build with an app identity establishes Build for the central progress card. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` as a run-mode fact captured before canonical genesis is activated — an initial build uses the Generating layout even though its persisted app is already the born-valid survey starter; an edit keeps the builder Ready/interactive while the agent works.
 
@@ -137,8 +137,10 @@ state machine holds. The live refinement inside the design span is the
 right now (author/review/revise/plan) — which is the only source that can say
 `reviewing-design`/`revising-design` while those calls run; the store keeps
 just the latest phase (`pulsePhase`), outranked by any real progress frame and
-cleared at every turn boundary because a pulse describes only the stream it
-rode on. A slice-start frame also clears it immediately, so the last planning
+cleared on the closed-to-open edge of a new turn because a pulse describes
+only the stream it rode on. Ordinary message updates inside that open stream
+do not clear it between the throttled pulse frames. A slice-start frame also
+clears it immediately, so the last planning
 sub-step can never appear beneath live build work. Two details are
 load-bearing: the FIRST slice emits an ordinary `slice-committed` progress
 projection immediately before its strict `data-app-materialized` receipt

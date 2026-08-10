@@ -49,7 +49,8 @@ direct MCP edit.
   materialization root, acyclic DAG, ownership coherence, root-closure
   external-action timing, no pre-app data migration, and exact semantic-group
   and lowering coverage. `buildPlanSchemaFor(contract)` additionally proves
-  task mode/context/transitions, fact storage/writer/unanswered behavior,
+  task mode/context/transitions, the ordinary primary create selected for each
+  registration task, fact storage/writer/unanswered behavior,
   read-model search and actor partitioning, access layers, navigation, and
   manual setup against the accepted contract. Slice/group admission bounds
   keep each task-complete unit inside the executor ceiling.
@@ -113,7 +114,9 @@ direct MCP edit.
   blocking questions reopen a fresh reviewed cycle. Submissions register
   the strict wire projection (`strict: true`) and run the exact schema
   factories inside execute, so a rejection is a repairable tool result,
-  bounded at two consecutive per kind. The immediately preceding rejected
+  bounded by convergence: an unchanged or broader second diagnostic set
+  stops, a strictly smaller second set permits one final repair, and a third
+  rejection always stops. The immediately preceding rejected
   contract/revision stays only in that live loop; a retry may replace named
   top-level contract sections (or the revision's complete disposition set),
   after which the full graph and cross-artifact proofs run again. On a contract

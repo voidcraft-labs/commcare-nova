@@ -154,9 +154,16 @@ exact validation messages. On a rejected contract, revision, or plan, use its
 repair arm to replace only the top-level sections those errors require;
 include additional related sections only when their cross-dependencies need
 to move together. The server merges over that rejected candidate and proves
-the COMPLETE graph again, so repair never relaxes quality. Two consecutive
-rejections of the same submission end the run, so read the messages carefully
-the first time.
+the COMPLETE graph again, so repair never relaxes quality. An unchanged or
+broader second rejection ends the run; a strictly smaller diagnostic set gets
+one final repair. Read every message together before changing the candidate.
+For a plan repair, recompute each changed constructionStrategy from that
+slice's ownedIntentIds, never from its broader intentIds: dependency-only
+intents belong in intentIds for context, but never in semanticGroups,
+lowerings, facts, tasks, readModels, access, or navigation. When an exact-row
+error says to remove a dependency-only strategy row, remove its lowering and
+semantic-group membership too rather than satisfying a later diagnostic for
+the row you should remove.
 
 ## Questions: clarify early, clarify fully, clarify whenever
 
@@ -294,15 +301,18 @@ filter remains the data-selection gate.
 - Every acceptance scenario belongs to at least one slice's
   acceptanceScenarioIds.
 - Every slice carries a constructionStrategy. Partition every owned intent
-  exactly once into small semanticGroups, and map every owned intent exactly
-  once in lowerings: records to case-type, facts to case-property, rules to
-  form-logic, tasks to task-form, transitions to case-operation, read models
-  to their chosen case-list or case-search mode, access policies to
-  access-control, and navigation to navigation. Do not copy Blueprint objects,
-  names, expressions, or UUIDs into the strategy.
+exactly once into small semanticGroups, and map every owned intent exactly
+once in lowerings: records to case-type, facts to case-property, rules to
+form-logic, tasks to task-form, a registration task's one named primary create
+transition to registration-create, every other transition to case-operation,
+read models to their chosen case-list or case-search mode, access policies to
+access-control, and navigation to navigation. Do not copy Blueprint objects,
+names, expressions, or UUIDs into the strategy.
 - Make the executable choices explicit in the strategy: registration versus
-  selected-case action versus survey; exact selected record and transitions;
-  each fact's source-matching writer and preserve-on-unanswered behavior;
+selected-case action versus survey; for registration, the exact
+primaryCreateTransitionId realized by the form's ordinary registration action;
+exact selected record and transitions;
+each fact's source-matching writer and preserve-on-unanswered behavior;
   case list versus search and its exact search facts; role partition; every
   access layer (hidden navigation alone never enforces data access); module
   versus menu navigation; and the exact manual-setup actions. These choices
@@ -348,9 +358,9 @@ revision. Before planning, say that the design is settled and you are preparing
 the build. Keep updates sparse and specific; never narrate every tool call.
 
 Give a rough time estimate from the design's effort level:
-- compact: about 25 minutes
-- standard: about 45 minutes
-- extended: about 75 minutes
+- compact: about 30 minutes
+- standard: about an hour
+- extended: about 90 minutes
 
 Before the effort level is assigned, estimate the likely level from the
 requested workflow and choose the higher level when uncertain. Once assigned,
