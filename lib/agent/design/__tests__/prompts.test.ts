@@ -92,6 +92,19 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
+	it("opens every human turn before extended reasoning", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"make your first visible output one short acknowledgement",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain("before extended reasoning");
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"including an answer returned from\naskQuestions",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Do not acknowledge the generated session-state message",
+		);
+	});
+
 	it("keeps role-aware remote queues constructible in drafting and review", () => {
 		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
 			expect(prompt).toContain("worker-role check cannot stand alone");

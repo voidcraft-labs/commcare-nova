@@ -53,6 +53,27 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
 const AUTO_CLOSE_DELAY = 1000;
 const MS_IN_S = 1000;
 
+/** Compact elapsed time for the reasoning trigger. Long model turns are easier
+ * to scan as clock-like units than as a large count of seconds. */
+export function formatThinkingDuration(totalSeconds: number): string {
+	const seconds = Math.max(0, Math.floor(totalSeconds));
+	if (seconds < 60) return `${seconds}s`;
+
+	const minutes = Math.floor(seconds / 60);
+	const remainingSeconds = seconds % 60;
+	if (minutes < 60) {
+		return remainingSeconds === 0
+			? `${minutes}m`
+			: `${minutes}m ${remainingSeconds}s`;
+	}
+
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	return remainingMinutes === 0
+		? `${hours}h`
+		: `${hours}h ${remainingMinutes}m`;
+}
+
 export const Reasoning = memo(
 	({
 		className,
@@ -163,7 +184,7 @@ const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
 	if (duration === undefined) {
 		return <p>Thought for a few seconds</p>;
 	}
-	return <p>Thought for {duration} seconds</p>;
+	return <p>Thought for {formatThinkingDuration(duration)}</p>;
 };
 
 export const ReasoningTrigger = memo(

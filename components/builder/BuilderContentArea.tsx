@@ -67,6 +67,7 @@ import { Button } from "@/components/shadcn/button";
 import {
 	Drawer,
 	DrawerBackdrop,
+	DrawerContent,
 	DrawerPopup,
 	DrawerPortal,
 	DrawerTitle,
@@ -634,8 +635,10 @@ export function BuilderContentArea({
 								className="border-r border-nova-border-bright [transform:translateX(var(--drawer-swipe-movement-x))] transition-transform duration-200 data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full"
 								style={{ width: `min(${openRailWidth}px, 100vw)` }}
 							>
-								<DrawerTitle className="sr-only">App structure</DrawerTitle>
-								<StructureSidebar />
+								<DrawerContent className="h-full">
+									<DrawerTitle className="sr-only">App structure</DrawerTitle>
+									<StructureSidebar />
+								</DrawerContent>
 							</DrawerPopup>
 						</DrawerViewport>
 					</DrawerPortal>
@@ -739,20 +742,22 @@ export function BuilderContentArea({
 							data-builder-overlay={narrowRightOpen ? "right" : undefined}
 							inert={chatParked}
 						>
-							<DrawerTitle className="sr-only">
-								{inspectorActive ? "Properties" : "Chat"}
-							</DrawerTitle>
-							<ErrorBoundary>
-								<ChatContainer
-									centered={isCentered}
-									isExistingApp={isExistingApp}
-									threads={threads}
-									initialThread={initialThread}
-									appGenerating={appGenerating}
-									currentUserId={currentUserId}
-									initialDesignSession={initialDesignSession}
-								/>
-							</ErrorBoundary>
+							<DrawerContent className="h-full">
+								<DrawerTitle className="sr-only">
+									{inspectorActive ? "Properties" : "Chat"}
+								</DrawerTitle>
+								<ErrorBoundary>
+									<ChatContainer
+										centered={isCentered}
+										isExistingApp={isExistingApp}
+										threads={threads}
+										initialThread={initialThread}
+										appGenerating={appGenerating}
+										currentUserId={currentUserId}
+										initialDesignSession={initialDesignSession}
+									/>
+								</ErrorBoundary>
+							</DrawerContent>
 						</DrawerPopup>
 					</DrawerViewport>
 				</DrawerPortal>

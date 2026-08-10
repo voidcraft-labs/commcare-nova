@@ -87,6 +87,15 @@ function fixtureEmptyDoc(): BlueprintDoc {
 }
 
 describe("buildSolutionsArchitectPrompt", () => {
+	it("opens a human turn before extended reasoning", () => {
+		const sp = buildSolutionsArchitectPrompt();
+		expect(sp).toContain("Make it your first visible output");
+		expect(sp).toContain("before extended reasoning");
+		expect(sp).toContain(
+			"Do not treat the generated current-app-state message as a human turn",
+		);
+	});
+
 	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
 		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Editing Mode");

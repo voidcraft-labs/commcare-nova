@@ -3328,6 +3328,9 @@ test.describe("authenticated builder", () => {
 
 		const assistantMessage = page.getByText(seed.threadAssistantText);
 		await expect(assistantMessage).toBeVisible({ timeout: 20_000 });
+		const chatPanel = page.locator("[data-builder-chat-panel]");
+		const panelBeforeDrag = await chatPanel.boundingBox();
+		expect(panelBeforeDrag).not.toBeNull();
 		const messageBox = await assistantMessage.boundingBox();
 		expect(messageBox).not.toBeNull();
 		if (!messageBox) return;
@@ -3343,14 +3346,18 @@ test.describe("authenticated builder", () => {
 			},
 		);
 
-		/* Selection used to make the rendered shell disappear even though the
-		 * conversation still existed. Assert while the pointer is still held so
-		 * a transient drag state cannot escape this check. */
+		/* Drawer.Popup without Drawer.Content interpreted this ordinary selection
+		 * as a dismiss swipe and translated the whole chat surface away. DOM-only
+		 * visibility still passed, so assert its painted viewport geometry while
+		 * the pointer remains held. */
 		await expect(page.locator("[data-app-header]")).toBeVisible();
 		await expect(page.getByRole("log")).toBeVisible();
 		await expect(
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible();
+		const panelDuringDrag = await chatPanel.boundingBox();
+		expect(panelDuringDrag).not.toBeNull();
+		expect(panelDuringDrag?.x).toBeCloseTo(panelBeforeDrag?.x ?? 0, 0);
 
 		const selectedText = await page.evaluate(
 			() => window.getSelection()?.toString() ?? "",

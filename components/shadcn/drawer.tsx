@@ -57,6 +57,16 @@ function DrawerPopup({ className, ...props }: DrawerPrimitive.Popup.Props) {
 	);
 }
 
+function DrawerContent({ className, ...props }: DrawerPrimitive.Content.Props) {
+	return (
+		<DrawerPrimitive.Content
+			data-slot="drawer-content-region"
+			className={cn("min-h-0", className)}
+			{...props}
+		/>
+	);
+}
+
 function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
 	return (
 		<DrawerPrimitive.Title
@@ -88,6 +98,7 @@ export {
 	Drawer,
 	DrawerBackdrop,
 	DrawerClose,
+	DrawerContent,
 	DrawerDescription,
 	DrawerPopup,
 	DrawerPortal,
