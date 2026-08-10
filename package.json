@@ -114,7 +114,7 @@
 		"mammoth": "^1.12.0",
 		"markdown-to-jsx": "^9.9.0",
 		"mcp-handler": "^1.1.0",
-		"motion": "^12.43.0",
+		"motion": "^13.0.0",
 		"music-metadata": "^11.14.0",
 		"next": "16.2.12",
 		"react": "19.2.8",
