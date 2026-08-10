@@ -17,7 +17,6 @@ import {
 	designArtifactWorkspaceOperationSchema,
 	designWorkspaceCandidateSummary,
 	initialDesignWorkspaceCandidate,
-	MAX_DESIGN_WORKSPACE_STEPS,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
@@ -36,8 +35,7 @@ export class DesignArtifactWorkspaceError extends Error {
 			| "not-found"
 			| "stale-revision"
 			| "not-open"
-			| "idempotency-collision"
-			| "step-limit",
+			| "idempotency-collision",
 		message: string,
 	) {
 		super(message);
@@ -91,6 +89,18 @@ async function validateLineageInTransaction(
 	designSessionId: string,
 	lineage: DesignArtifactWorkspaceLineage,
 ): Promise<void> {
+	const sourcePackage = await tx
+		.selectFrom("design_source_packages")
+		.select("id")
+		.where("design_session_id", "=", designSessionId)
+		.where("package_digest", "=", lineage.sourcePackageDigest)
+		.executeTakeFirst();
+	if (sourcePackage === undefined) {
+		throw new DesignArtifactWorkspaceError(
+			"lineage-invalid",
+			"The workspace source package is not the exact persisted package for this design session.",
+		);
+	}
 	const base = lineage.baseRevision;
 	let baseLifecycle: string | undefined;
 	if (base !== undefined) {
@@ -351,14 +361,8 @@ async function loadWorkspaceState(args: {
 		return { workspace, operations };
 	});
 	let sourceContract: Record<string, unknown> | null = null;
-	if (workspace.artifactKind !== "contract") {
-		const base = workspace.lineage.baseRevision;
-		if (base === undefined) {
-			throw new DesignArtifactWorkspaceError(
-				"lineage-invalid",
-				"The revision workspace lost its base revision.",
-			);
-		}
+	const base = workspace.lineage.baseRevision;
+	if (base !== undefined) {
 		const revision = await readDesignRevision(base.id);
 		if (
 			revision === null ||
@@ -374,6 +378,11 @@ async function loadWorkspaceState(args: {
 			string,
 			unknown
 		>;
+	} else if (workspace.artifactKind !== "contract") {
+		throw new DesignArtifactWorkspaceError(
+			"lineage-invalid",
+			"The design workspace lost its required base revision.",
+		);
 	}
 	const candidate =
 		operations.length === 0
@@ -515,12 +524,6 @@ export async function stageDesignArtifactWorkspace(args: {
 			throw new DesignArtifactWorkspaceError(
 				"stale-revision",
 				`The workspace is at revision ${revision}, not ${args.expectedRevision}. Inspect its current state before staging more work.`,
-			);
-		}
-		if (revision >= MAX_DESIGN_WORKSPACE_STEPS) {
-			throw new DesignArtifactWorkspaceError(
-				"step-limit",
-				`This workspace has reached its ${MAX_DESIGN_WORKSPACE_STEPS}-stage limit.`,
 			);
 		}
 		const next = revision + 1;

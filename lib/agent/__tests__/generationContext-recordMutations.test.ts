@@ -1071,6 +1071,19 @@ describe("GenerationContext.handleAgentStep", () => {
 						toolName: "stageContract",
 						input: { customerDesign: "must-not-enter-the-log" },
 					},
+					{
+						toolCallId: "question-1",
+						toolName: "askQuestions",
+						input: {
+							questions: [
+								{
+									id: "clinic",
+									question: "Which clinic should own the queue?",
+									options: [],
+								},
+							],
+						},
+					},
 				],
 				toolResults: [
 					{
@@ -1082,18 +1095,23 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Design agent",
 		);
 
-		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
-		const call = logWriter.logEvent.mock.calls[0];
-		if (call === undefined) throw new Error("step usage was not logged");
-		const payload = (call[0] as { payload: unknown }).payload;
-		expect(payload).toMatchObject({
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
+		const payloads = logWriter.logEvent.mock.calls.map(
+			(call) => (call[0] as { payload: unknown }).payload,
+		);
+		expect(payloads[0]).toMatchObject({
 			type: "step-usage",
 			finishReason: "length",
 			rawFinishReason: "max_output_tokens",
 			stepTimeMs: 321.75,
 			responseTimeMs: 123.25,
 		});
-		expect(JSON.stringify(payload)).not.toContain("must-not-enter-the-log");
-		expect(usage.snapshot().toolCallCount).toBe(1);
+		expect(payloads[1]).toMatchObject({
+			type: "tool-call",
+			toolCallId: "question-1",
+			toolName: "askQuestions",
+		});
+		expect(JSON.stringify(payloads)).not.toContain("must-not-enter-the-log");
+		expect(usage.snapshot().toolCallCount).toBe(2);
 	});
 });

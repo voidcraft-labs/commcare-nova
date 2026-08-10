@@ -208,8 +208,6 @@ describe("eventSchema", () => {
 					durationMs: 812,
 					outcome: "accepted",
 					code: "tool-completed",
-					finishReason: "tool-calls",
-					rawFinishReason: "tool_calls",
 				},
 			},
 		];

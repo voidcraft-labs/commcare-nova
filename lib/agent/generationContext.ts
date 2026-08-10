@@ -1116,7 +1116,15 @@ export class GenerationContext
 			 * the run is PAUSING for input, not finishing — the signal the route needs
 			 * to mark the app `awaiting_input`. */
 			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
-			if (step.toolEventMode === "metadata-only") continue;
+			// Clarification questions are user-visible conversation history, not
+			// private design protocol payloads. Keep them inspectable even when
+			// stage/inspect/finalize calls from the same agent are suppressed.
+			if (
+				step.toolEventMode === "metadata-only" &&
+				tc.toolName !== "askQuestions"
+			) {
+				continue;
+			}
 			this.emitConversation({
 				type: "tool-call",
 				toolCallId: tc.toolCallId,

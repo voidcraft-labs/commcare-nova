@@ -112,8 +112,6 @@ export interface DesignToolOutcomeEvent {
 	readonly durationMs: number;
 	readonly outcome: "accepted" | "rejected" | "wire-invalid" | "incomplete";
 	readonly code: string;
-	readonly finishReason?: string;
-	readonly rawFinishReason?: string;
 }
 
 export const DESIGN_LOOP_STOP_MESSAGE =
@@ -294,9 +292,6 @@ export async function runDesignAgentLoop(
 		};
 	};
 
-	const agentStepState: { last?: DesignAgentStep } = {};
-	const readLastAgentStep = (): DesignAgentStep | undefined =>
-		agentStepState.last;
 	const agent = createDesignAgent({
 		model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 		tools,
@@ -308,7 +303,6 @@ export async function runDesignAgentLoop(
 		freshStateMessage: async () =>
 			stateMessageFor(evaluateDesignGates(await loadAncestry())),
 		onStepEnd: (step) => {
-			agentStepState.last = step;
 			args.onAgentStep?.(step);
 		},
 	});
@@ -360,7 +354,6 @@ export async function runDesignAgentLoop(
 		if (gates.plan !== null) break;
 		const prompt = [...baseModelMessages, await stateMessageFor(gates)];
 
-		delete agentStepState.last;
 		const result = await agent.stream({ prompt });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
@@ -380,10 +373,6 @@ export async function runDesignAgentLoop(
 				inputChars: number;
 				inputAvailable: boolean;
 				outcomeEmitted: boolean;
-				outcomeReported: boolean;
-				outcome?: DesignToolOutcomeEvent["outcome"];
-				outcomeCode?: string;
-				durationMs?: number;
 			}
 		>();
 		const noteToolOutcome = (
@@ -394,38 +383,13 @@ export async function runDesignAgentLoop(
 			const tracked = toolStreams.get(toolCallId);
 			if (tracked === undefined || tracked.outcomeEmitted) return;
 			tracked.outcomeEmitted = true;
-			tracked.outcome = outcome;
-			tracked.outcomeCode = code;
-			tracked.durationMs = Math.max(0, Date.now() - tracked.startedAt);
-		};
-		const reportToolOutcomes = (
-			finish: Pick<DesignToolOutcomeEvent, "finishReason" | "rawFinishReason">,
-		): void => {
-			for (const tracked of toolStreams.values()) {
-				if (
-					!tracked.outcomeEmitted ||
-					tracked.outcomeReported ||
-					tracked.outcome === undefined ||
-					tracked.outcomeCode === undefined ||
-					tracked.durationMs === undefined
-				) {
-					continue;
-				}
-				tracked.outcomeReported = true;
-				args.onToolOutcome?.({
-					toolName: tracked.toolName,
-					inputChars: tracked.inputChars,
-					durationMs: tracked.durationMs,
-					outcome: tracked.outcome,
-					code: tracked.outcomeCode,
-					...(finish.finishReason !== undefined && {
-						finishReason: finish.finishReason,
-					}),
-					...(finish.rawFinishReason !== undefined && {
-						rawFinishReason: finish.rawFinishReason,
-					}),
-				});
-			}
+			args.onToolOutcome?.({
+				toolName: tracked.toolName,
+				inputChars: tracked.inputChars,
+				durationMs: Math.max(0, Date.now() - tracked.startedAt),
+				outcome,
+				code,
+			});
 		};
 		const trackPulse = (chunk: UIMessageChunk): void => {
 			switch (chunk.type) {
@@ -441,7 +405,6 @@ export async function runDesignAgentLoop(
 						inputChars: 0,
 						inputAvailable: false,
 						outcomeEmitted: false,
-						outcomeReported: false,
 					});
 					livePulsePhase = designToolPulsePhase(
 						chunk.toolName,
@@ -604,16 +567,6 @@ export async function runDesignAgentLoop(
 			});
 		}
 		await drained;
-		const completedStep = readLastAgentStep();
-		const finish = {
-			...(completedStep?.finishReason !== undefined && {
-				finishReason: completedStep.finishReason,
-			}),
-			...(completedStep?.rawFinishReason !== undefined && {
-				rawFinishReason: completedStep.rawFinishReason,
-			}),
-		};
-		reportToolOutcomes(finish);
 
 		const incomplete = [...toolStreams.entries()].find(
 			([, tracked]) => !tracked.inputAvailable && !tracked.outcomeEmitted,
@@ -621,7 +574,6 @@ export async function runDesignAgentLoop(
 		if (incomplete !== undefined) {
 			const [toolCallId] = incomplete;
 			noteToolOutcome(toolCallId, "incomplete", "tool-input-incomplete");
-			reportToolOutcomes(finish);
 			for (const closure of openParts.closures(
 				"Nova stopped before this private design step was complete.",
 			)) {

@@ -867,7 +867,10 @@ never row-locked. A stage is idempotent only for the same provider
 `tool_call_id` and input digest, advances an exact expected revision, and is
 invisible to app history and user surfaces. Finalization validates the replayed
 candidate and changes `open → finalized` in the same transaction that inserts
-the immutable artifact; lineage drift or discard supersedes an open workspace.
+the immutable artifact; lineage binds the exact source package plus immutable
+base/reviews, and lineage drift or discard supersedes an open workspace. Per-call
+and per-POST bounds prevent runaway work without a persistent stage cliff that
+could strand a candidate after final validation.
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read

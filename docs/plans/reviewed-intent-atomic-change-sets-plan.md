@@ -818,8 +818,10 @@ The tool surface:
   workspace revision, and admitted operation digest; exact replay is
   idempotent and a different input under the same identity is rejected.
   One call addresses at most one contract/plan collection (plus optional
-  revision dispositions), changes at most 32 items and 48 KiB, and one
-  workspace admits at most 64 ordered stages. Revision staging
+  revision dispositions) and changes at most 32 items and 48 KiB. Each POST
+  remains bounded to 64 model steps, while the durable workspace has no hard
+  stage cliff that could strand a valid candidate needing one later repair.
+  Revision staging
   begins from the immutable reviewed
   parent and changes only named items/dispositions; unchanged content stays
   in place.
@@ -855,8 +857,10 @@ throw, and the design branch's bounded redrive
 server-derived state message. A tool input that ends before becoming available
 is classified as `design-submission-incomplete`, its dangling stream part is
 closed, and no blind redrive repeats it; prior stages remain authoritative.
-Payload-free diagnostics record tool name, input character count, duration,
-outcome code, and provider finish reasons without customer design content.
+Payload-free tool diagnostics record tool name, input character count,
+duration, and outcome code without customer design content. The owning
+`step-usage` event separately records that exact model step's provider finish
+reason and timing.
 
 The durable transitions are unchanged:
 

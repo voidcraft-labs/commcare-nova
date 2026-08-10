@@ -348,10 +348,6 @@ function printEventVerbose(event: Event): void {
 			console.log(`  │ durationMs:        ${p.durationMs}`);
 			console.log(`  │ outcome:           ${p.outcome}`);
 			console.log(`  │ code:              ${p.code}`);
-			console.log(`  │ finishReason:      ${p.finishReason ?? "not reported"}`);
-			console.log(
-				`  │ rawFinishReason:   ${p.rawFinishReason ?? "not reported"}`,
-			);
 			break;
 		case "executor-tool-outcome":
 			console.log(`  │ modelStep:         ${p.modelStep}`);

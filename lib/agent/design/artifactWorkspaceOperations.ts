@@ -36,7 +36,6 @@ export type DesignArtifactKind = (typeof DESIGN_ARTIFACT_KINDS)[number];
 
 export const MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS = 32;
 export const MAX_DESIGN_WORKSPACE_INPUT_BYTES = 48 * 1024;
-export const MAX_DESIGN_WORKSPACE_STEPS = 64;
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const artifactRefSchema = z
@@ -47,6 +46,7 @@ export const designArtifactWorkspaceLineageSchema = z
 	.object({
 		schemaVersion: z.literal(1),
 		artifactKind: z.enum(DESIGN_ARTIFACT_KINDS),
+		sourcePackageDigest: sha256HexSchema,
 		baseRevision: artifactRefSchema.optional(),
 		reviewArtifacts: z.array(artifactRefSchema),
 	})
@@ -405,6 +405,7 @@ export function initialDesignWorkspaceCandidate(
 		}
 		return { ...baseContract, dispositions: [] };
 	}
+	if (baseContract !== undefined) return { ...baseContract };
 	return {
 		schemaVersion: 1,
 		sourceClaims: [],

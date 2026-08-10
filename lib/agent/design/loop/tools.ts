@@ -114,7 +114,10 @@ function refuse(
 	name: DesignLoopToolName,
 ): ToolError | null {
 	const verdict = gates.verdicts[name];
-	if (verdict.legal) return null;
+	if (verdict.legal) {
+		deps.repair.noteLegalCall();
+		return null;
+	}
 	deps.repair.noteSequenceError();
 	return { error: verdict.refusal };
 }
@@ -135,6 +138,7 @@ export function designWorkspaceLineageForGates(
 	return {
 		schemaVersion: 1,
 		artifactKind: kind,
+		sourcePackageDigest: gates.currentPackageDigest,
 		...(base !== null && {
 			baseRevision: { id: base.id, digest: base.artifactDigest },
 		}),
@@ -382,7 +386,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const draft = await insertDesignRevision({
 				envelope: contractEnvelope({
 					designSessionId: deps.designSessionId,
-					packageDigest: deps.currentPkg.packageDigest,
+					packageDigest: state.workspace.lineage.sourcePackageDigest,
 					contract: parsed.data,
 					revision: (head?.revision ?? 0) + 1,
 					parentId: head?.id ?? null,
@@ -585,7 +589,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const revision = await insertDesignRevision({
 				envelope: contractEnvelope({
 					designSessionId: deps.designSessionId,
-					packageDigest: deps.currentPkg.packageDigest,
+					packageDigest: state.workspace.lineage.sourcePackageDigest,
 					contract: parsed.data.contract,
 					revision: head.revision + 1,
 					parentId: head.id,
@@ -686,7 +690,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const plan = await insertDesignBuildPlan({
 				envelope: planEnvelope({
 					accepted,
-					packageDigest: deps.currentPkg.packageDigest,
+					packageDigest: state.workspace.lineage.sourcePackageDigest,
 					plan: planParsed.data,
 					finishReason: null,
 				}),

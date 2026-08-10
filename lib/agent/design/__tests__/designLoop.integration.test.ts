@@ -431,6 +431,54 @@ describe("durable staged contract and plan", () => {
 		});
 	});
 
+	it("inherits a prior contract while isolating work by source package", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const initial = mountTools({ pkg });
+		const contract = makeContract();
+		const initialRevision = await stageContract(initial.tools, contract);
+		await call(initial.tools.submitContract, {
+			expectedRevision: initialRevision,
+		});
+
+		const updatedPkg = makePackage("Track visits and include a consent note.");
+		await persistPackage(updatedPkg);
+		const updated = mountTools({ pkg: updatedPkg });
+		const inherited = await call(updated.tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 0,
+			selection: {
+				kind: "collection",
+				collection: "facts",
+				ids: [],
+				offset: 0,
+				limit: 20,
+			},
+		});
+		expect(inherited).toMatchObject({
+			ok: true,
+			view: { total: contract.facts.length },
+		});
+		await call(updated.tools.stageContract, {
+			expectedRevision: 0,
+			root: { title: "Updated title" },
+			collections: [],
+		});
+
+		const newestPkg = makePackage("Track visits and require verbal consent.");
+		await persistPackage(newestPkg);
+		const newest = mountTools({ pkg: newestPkg });
+		const isolated = await call(newest.tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 0,
+			selection: { kind: "root" },
+		});
+		expect(isolated).toMatchObject({
+			ok: true,
+			view: { root: { title: contract.title } },
+		});
+	});
+
 	it("deduplicates an exact provider call and rejects identity reuse with new bytes", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);

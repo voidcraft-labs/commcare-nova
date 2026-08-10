@@ -377,4 +377,19 @@ describe("repair budgets", () => {
 		}
 		expect(repair.fatalError()?.message).toContain("out-of-order");
 	});
+
+	it("counts only consecutive sequence errors without erasing validation history", () => {
+		const repair = new DesignRepairTracker();
+		repair.noteSequenceError();
+		repair.noteSequenceError();
+		repair.noteLegalCall();
+		repair.noteSequenceError();
+		repair.noteSequenceError();
+		expect(repair.fatalError()).toBeUndefined();
+
+		repair.noteSchemaRejection("submitPlan", 4);
+		repair.noteLegalCall();
+		repair.noteSchemaRejection("submitPlan", 4);
+		expect(repair.fatalError()?.message).toContain("submitPlan");
+	});
 });

@@ -109,6 +109,8 @@ export type GateVerdict =
 	| { readonly legal: false; readonly refusal: string };
 
 export interface DesignGateState {
+	/** The exact source package this turn is allowed to author against. */
+	readonly currentPackageDigest: string;
 	readonly head: DesignRevisionRecord | null;
 	readonly newestAccepted: DesignRevisionRecord | null;
 	/** Reviews of the head draft specifically. */
@@ -286,6 +288,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		submitPlan,
 	};
 	return {
+		currentPackageDigest: ancestry.currentPackageDigest,
 		head,
 		newestAccepted,
 		headReviews,
@@ -358,6 +361,12 @@ export class DesignRepairTracker {
 				`The design agent made ${this.sequenceErrors} out-of-order tool calls in a row. The turn ends here; the committed artifacts are intact, and sending the message again resumes from them.`,
 			);
 		}
+	}
+
+	/** A phase-legal call breaks a run of out-of-order calls without erasing
+	 * the independent final-validation convergence history. */
+	noteLegalCall(): void {
+		this.sequenceErrors = 0;
 	}
 
 	noteAccepted(kind: DesignLoopToolName): void {

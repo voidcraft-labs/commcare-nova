@@ -126,8 +126,9 @@ direct MCP edit.
   every accepted stage durable and returns repairable diagnostics. The agent
   inspects and upserts only affected identity-addressed items plus required
   cross-dependencies, then re-finalizes the complete graph. Each stage is
-  bounded to 32 item changes and 48 KiB; each workspace is bounded to 64
-  stages. A second
+  bounded to 32 item changes and 48 KiB; each POST is bounded to 64 model
+  steps, while a durable workspace never becomes unrepairable at a hard
+  persistent stage ceiling. A second
   review is evidence-based: unresolved critical risk, at least two critical
   first-pass findings, or critical feedback that changed architecture; depth
   alone is not a trigger. `claimSeeding.ts` derives
@@ -141,8 +142,10 @@ direct MCP edit.
   message with the exact workspace revision/counts; exact staged content is
   recovered through inspection rather than trusting the opaque checkpoint.
   Tool lifecycle diagnostics record only tool name, character count, duration,
-  outcome code, and finish reason — never private candidate payloads or raw
-  validation prose.
+  and outcome code — never private candidate payloads or raw validation prose.
+  The owning step's separate usage annotation records its finish reason and
+  timing. User-visible `askQuestions` calls remain in admin conversation
+  history.
 - `reviewer.ts` — the one call that stays a fresh-context one-shot
   structured call over `lib/agent/modelRunContext.ts` (the §7.5 seam;
   `designGenerationContext.ts` is the pre-app implementation), because
