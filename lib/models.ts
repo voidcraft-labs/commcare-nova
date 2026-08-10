@@ -140,11 +140,10 @@ export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
 export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-luna";
 
 /** Construction is bounded by an accepted brief, exact intent coverage, and
- * the canonical validator. Medium effort keeps Luna focused on choosing the
- * next semantic tool call; architectural judgment remains with the Sol
- * author/reviewer rather than being re-spent inside every executor step. */
+ * the canonical validator. Xhigh gives Luna the reasoning room to produce
+ * complete semantic batches within those fixed architectural boundaries. */
 export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
-	effort: "medium",
+	effort: "xhigh",
 };
 
 /** Backward-compatible name for the design author/planner role. */
