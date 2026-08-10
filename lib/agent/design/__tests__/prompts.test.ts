@@ -111,6 +111,13 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
+	it("keeps server-current claiming guarantees out of accepted designs", () => {
+		const constraints = renderPlatformConstraintsSection();
+		expect(constraints).toContain(
+			"cannot guarantee one winner when two users submit from the same prior state",
+		);
+	});
+
 	it("neutralizes a forged close (and reopen) inside message text", () => {
 		const rendered = renderSourcePackage(
 			packageWith({

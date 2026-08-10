@@ -32,6 +32,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
 	"CASE_SEARCH_IS_LIVE_AND_ONLINE",
+	"CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",
 	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 	"STANDARD_SCALAR_WRITERS_LIMITED",
 	"CASE_NAME_REQUIRED_ON_CREATE",
@@ -111,6 +112,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"Case search queries the server live: a Web Apps user is connected anyway, but on mobile a search (and the claim that follows selecting a result) fails without connectivity, so an offline-first design must not gate its primary workflow behind case search.",
 		sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+	},
+	CASE_UPDATES_ARE_NOT_COMPARE_AND_SET: {
+		code: "CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",
+		statement:
+			"A form decides whether to include a case operation using the case state loaded into that form. CommCare HQ receives only the resulting case update, not the condition, and applies it without comparing the condition to current server state. An app-only claim can hide later work after sync but cannot guarantee one winner when two users submit from the same prior state; a design requiring exclusive concurrent claiming needs a server endpoint or must disclose that limitation.",
+		sourceAnchor: "lib/commcare/xform/caseOps.ts::buildCaseOperations",
 	},
 	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: {
 		code: "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",

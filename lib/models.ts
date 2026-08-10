@@ -134,13 +134,12 @@ export const DESIGN_AUTHOR_MODEL = "gpt-5.6-sol";
 /** The independent reviewer remains the highest-quality fresh-context role. */
 export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
 
-/** The slice executor works inside an accepted, server-gated brief: Luna buys
- * lower latency and cost for structured construction while Sol retains the
- * architectural author and independent-review roles. */
-export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-luna";
+/** The slice executor uses the highest-quality model for translating each
+ * accepted, server-gated brief into a complete canonical change set. */
+export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
 
 /** Construction is bounded by an accepted brief, exact intent coverage, and
- * the canonical validator. Xhigh gives Luna the reasoning room to produce
+ * the canonical validator. Xhigh gives Sol the reasoning room to produce
  * complete semantic batches within those fixed architectural boundaries. */
 export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",

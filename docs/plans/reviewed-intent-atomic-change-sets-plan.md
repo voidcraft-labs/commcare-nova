@@ -882,7 +882,7 @@ A later model-diversity experiment changes only producer configuration, not arti
 
 Authoring, independent review, and slice execution have separate model-role
 constants. The design author/planner and independent reviewer use Sol at
-`xhigh`; the constrained slice executor uses Luna at `xhigh`. Artifact envelopes
+`xhigh`; the constrained slice executor uses Sol at `xhigh`. Artifact envelopes
 record the producing model, so a role-specific model change does not alter the
 artifact or orchestration contracts. Reviewer calls remain fresh-context. The
 author uses its session context; every executor call instead starts from the
