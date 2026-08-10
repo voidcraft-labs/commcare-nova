@@ -179,6 +179,22 @@ describe("eventSchema", () => {
 					},
 				},
 			},
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 7,
+				seq: 7,
+				source: "chat",
+				payload: {
+					type: "executor-tool-outcome",
+					modelStep: 3,
+					toolName: "addUserProperties",
+					operationIndex: 0,
+					workspaceRevision: 2,
+					outcome: "stage-rejected",
+					code: "STAGING_FORBIDDEN",
+				},
+			},
 		];
 		for (const ev of samples) {
 			expect(eventSchema.parse(ev)).toEqual(ev);
@@ -225,6 +241,26 @@ describe("eventSchema", () => {
 				payload: { ...base.payload, futurePayload: true },
 			}),
 		).toThrow();
+	});
+
+	it("refuses raw executor payloads in outcome annotations", () => {
+		const event = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: {
+				type: "executor-tool-outcome",
+				modelStep: 1,
+				toolName: "stageBatch",
+				workspaceRevision: 1,
+				outcome: "wire-invalid",
+				code: "STAGE_BATCH_ENVELOPE_INVALID",
+				input: { customerAuthored: "must not persist" },
+			},
+		};
+		expect(() => eventSchema.parse(event)).toThrow();
 	});
 
 	it("keeps archived bytes opaque while enforcing their envelope", () => {

@@ -263,6 +263,8 @@ function summarizeConversation(payload: ConversationPayload): string {
 					: "";
 			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}`;
 		}
+		case "executor-tool-outcome":
+			return `executor ${payload.outcome}: ${payload.toolName}${payload.operationIndex === undefined ? "" : `[${payload.operationIndex}]`} (${payload.code}) at workspace r${payload.workspaceRevision}`;
 	}
 }
 
@@ -337,6 +339,14 @@ function printEventVerbose(event: Event): void {
 				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
 			);
 			console.log(`  │ outputTokens:     ${p.outputTokens}`);
+			break;
+		case "executor-tool-outcome":
+			console.log(`  │ modelStep:         ${p.modelStep}`);
+			console.log(`  │ toolName:          ${p.toolName}`);
+			console.log(`  │ operationIndex:    ${p.operationIndex ?? "batch"}`);
+			console.log(`  │ workspaceRevision: ${p.workspaceRevision}`);
+			console.log(`  │ outcome:           ${p.outcome}`);
+			console.log(`  │ code:              ${p.code}`);
 			break;
 	}
 	console.log("  └─");

@@ -98,6 +98,7 @@ import {
 } from "./executionBrief";
 import {
 	type ExecutorStepFn,
+	type ExecutorToolOutcomeEvent,
 	productionExecutorStep,
 	runSliceExecutor,
 	type SliceExecutionOutcome,
@@ -185,6 +186,8 @@ export interface BuildOrchestrationDeps {
 	 *  thread (the independent reviewer, each executor step) → the run
 	 *  event log. */
 	readonly onReasoningSummary?: (text: string) => void;
+	/** Payload-free private-compiler outcome annotations for run inspection. */
+	readonly onExecutorToolOutcome?: (event: ExecutorToolOutcomeEvent) => void;
 	/** A transient design-turn failure being redriven, rendered as a
 	 *  recoverable warning with the real classified type. */
 	readonly onRecoverableRetry?: (classified: ClassifiedError) => void;
@@ -953,6 +956,9 @@ function productionDeps(
 		...(overrides.onReasoningSummary !== undefined && {
 			onReasoningSummary: overrides.onReasoningSummary,
 		}),
+		...(overrides.onExecutorToolOutcome !== undefined && {
+			onExecutorToolOutcome: overrides.onExecutorToolOutcome,
+		}),
 		...(overrides.onRecoverableRetry !== undefined && {
 			onRecoverableRetry: overrides.onRecoverableRetry,
 		}),
@@ -1363,6 +1369,14 @@ async function executeOneSlice(
 				sliceId: slice.slice.id,
 				...call,
 			});
+		},
+		onToolOutcome: (event) => {
+			log.info("[buildExecutor] tool outcome", {
+				designSessionId: args.designSessionId,
+				sliceId: slice.slice.id,
+				...event,
+			});
+			deps.onExecutorToolOutcome?.(event);
 		},
 	});
 }

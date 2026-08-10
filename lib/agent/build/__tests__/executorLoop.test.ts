@@ -36,6 +36,7 @@ import {
 } from "@/lib/agent/design/__tests__/fixtures";
 import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { conversationPayloadSchema } from "@/lib/log/types";
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -316,6 +317,7 @@ function run(args: {
 	onProgress?: (note: string) => void;
 	onUsage?: Parameters<typeof runSliceExecutor>[0]["onUsage"];
 	resolveBlocker?: Parameters<typeof runSliceExecutor>[0]["resolveBlocker"];
+	onToolOutcome?: Parameters<typeof runSliceExecutor>[0]["onToolOutcome"];
 }) {
 	const plan = makeBuildPlan();
 	const slice = plan.slices[0];
@@ -339,6 +341,9 @@ function run(args: {
 			})),
 		...(args.onProgress !== undefined && { onProgress: args.onProgress }),
 		...(args.onUsage !== undefined && { onUsage: args.onUsage }),
+		...(args.onToolOutcome !== undefined && {
+			onToolOutcome: args.onToolOutcome,
+		}),
 	});
 }
 
@@ -520,7 +525,7 @@ describe("runSliceExecutor — the one-call law", () => {
 });
 
 describe("runSliceExecutor — staged dispatch", () => {
-	it("offers output handles only on server-minted identity operations", async () => {
+	it("declares item-local handles only on server-minted identity items", async () => {
 		let definitions: Parameters<ExecutorStepFn>[0]["tools"] | undefined;
 		const step: ExecutorStepFn = async (args) => {
 			definitions = args.tools;
@@ -546,14 +551,43 @@ describe("runSliceExecutor — staged dispatch", () => {
 			};
 		};
 		const arms = (batch.properties?.operations?.items?.oneOf ?? []) as Array<{
-			properties?: Record<string, { const?: string }>;
+			properties?: Record<string, unknown>;
 		}>;
 		const arm = (name: string) =>
-			arms.find((candidate) => candidate.properties?.toolName?.const === name);
-		expect(arm("addUserProperties")?.properties).toHaveProperty(
-			"outputHandles",
-		);
-		expect(arm("stageModule")?.properties).not.toHaveProperty("outputHandles");
+			arms.find(
+				(candidate) =>
+					(candidate.properties?.toolName as { const?: string } | undefined)
+						?.const === name,
+			);
+		const itemSchema = (name: string, collection: string) => {
+			const input = arm(name)?.properties?.input as
+				| { properties?: Record<string, unknown> }
+				| undefined;
+			const array = input?.properties?.[collection] as
+				| { items?: unknown }
+				| undefined;
+			return array?.items as
+				| { properties?: Record<string, unknown>; required?: string[] }
+				| undefined;
+		};
+		for (const [name, collection] of [
+			["addUserProperties", "properties"],
+			["addUserTypes", "userTypes"],
+			["addPersonas", "personas"],
+		] as const) {
+			const item = itemSchema(name, collection);
+			expect(item?.properties?.handle).toMatchObject({
+				type: "string",
+				pattern: "^@[a-z][a-z0-9_-]{0,63}$",
+			});
+			expect(item?.required).toContain("handle");
+		}
+		expect(
+			arms.every(
+				(candidate) => !("outputHandles" in (candidate.properties ?? {})),
+			),
+		).toBe(true);
+		expect(itemSchema("stageModule", "modules")).toBeUndefined();
 	});
 
 	it("passes the absolute slice deadline into the staging write", async () => {
@@ -708,13 +742,14 @@ describe("runSliceExecutor — staged dispatch", () => {
 
 	it("resolves server-minted worker identities through batch-local handles", async () => {
 		const propertyUuid = "11111111-1111-4111-8111-111111111111";
+		const roleUuid = "22222222-2222-4222-8222-222222222222";
 		const workspace = fakeWorkspace({
 			stage: async ({ toolName }) => ({
 				kind: "mutate",
 				result:
 					toolName === "addUserProperties"
 						? { message: "Added property.", uuids: [propertyUuid] }
-						: { message: "Added role.", uuids: [] },
+						: { message: "Added role.", uuids: [roleUuid] },
 			}),
 		});
 		const { step, seen } = scriptedStep([
@@ -728,16 +763,22 @@ describe("runSliceExecutor — staged dispatch", () => {
 								{
 									toolName: "addUserProperties",
 									input: {
-										properties: [{ slug: "role", label: "Role" }],
+										properties: [
+											{
+												handle: "@role_property",
+												slug: "role",
+												label: "Role",
+											},
+										],
 										implementedIntentIds: [ids.accessSupervisor],
 									},
-									outputHandles: ["@role_property"],
 								},
 								{
 									toolName: "addUserTypes",
 									input: {
 										userTypes: [
 											{
+												handle: "@supervisor_role",
 												name: "Supervisor",
 												values: [
 													{
@@ -769,10 +810,232 @@ describe("runSliceExecutor — staged dispatch", () => {
 				},
 			],
 		});
+		expect(workspace.staged[0]?.input).not.toHaveProperty(
+			"properties.0.handle",
+		);
+		expect(workspace.staged[1]?.input).not.toHaveProperty("userTypes.0.handle");
 		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
 			status: "completed",
-			bindings: { "@role_property": propertyUuid },
+			bindings: {
+				"@role_property": propertyUuid,
+				"@supervisor_role": roleUuid,
+			},
 		});
+	});
+
+	it("rejects the legacy operation-level outputHandles shape before staging", async () => {
+		const workspace = fakeWorkspace();
+		const outcomes: Array<Record<string, unknown>> = [];
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "legacy",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								{
+									toolName: "addUserProperties",
+									input: {
+										properties: [{ slug: "role", label: "Role" }],
+										implementedIntentIds: [ids.accessSupervisor],
+									},
+									outputHandles: ["@role_property"],
+								},
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({
+			workspace,
+			step,
+			onToolOutcome: (event) => outcomes.push({ ...event }),
+		});
+
+		expect(workspace.staged).toHaveLength(0);
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			error: expect.stringContaining("batch shape is invalid"),
+		});
+		expect(outcomes[0]).toEqual({
+			modelStep: 1,
+			toolName: "stageBatch",
+			workspaceRevision: 1,
+			outcome: "wire-invalid",
+			code: "STAGE_BATCH_ENVELOPE_INVALID",
+		});
+		expect(
+			conversationPayloadSchema.safeParse({
+				type: "executor-tool-outcome",
+				...outcomes[0],
+			}).success,
+		).toBe(true);
+	});
+
+	it("validates duplicate and forward item handles before staging any prefix", async () => {
+		for (const operations of [
+			[
+				{
+					toolName: "addUserProperties",
+					input: {
+						properties: [
+							{ handle: "@identity", slug: "role", label: "Role" },
+							{ handle: "@identity", slug: "region", label: "Region" },
+						],
+						implementedIntentIds: [ids.accessSupervisor],
+					},
+				},
+			],
+			[
+				{
+					toolName: "addUserTypes",
+					input: {
+						userTypes: [
+							{
+								handle: "@supervisor",
+								name: "Supervisor",
+								values: [
+									{
+										userPropertyUuid: { handle: "@role_property" },
+										value: "supervisor",
+									},
+								],
+							},
+						],
+						implementedIntentIds: [ids.accessSupervisor],
+					},
+				},
+				{
+					toolName: "addUserProperties",
+					input: {
+						properties: [
+							{
+								handle: "@role_property",
+								slug: "role",
+								label: "Role",
+							},
+						],
+						implementedIntentIds: [ids.accessSupervisor],
+					},
+				},
+			],
+			[
+				{
+					toolName: "stageModule",
+					input: {
+						moduleUuid: { handle: "@identity" },
+						implementedIntentIds: [ids.accessSupervisor],
+					},
+				},
+				{
+					toolName: "addUserProperties",
+					input: {
+						properties: [{ handle: "@identity", slug: "role", label: "Role" }],
+						implementedIntentIds: [ids.accessSupervisor],
+					},
+				},
+			],
+		] as const) {
+			const workspace = fakeWorkspace();
+			const { step } = scriptedStep([
+				{
+					calls: [
+						{
+							toolCallId: "invalid",
+							toolName: "stageBatch",
+							input: { operations },
+						},
+					],
+				},
+				{
+					calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }],
+				},
+			]);
+
+			await run({ workspace, step });
+			expect(workspace.staged).toHaveLength(0);
+		}
+	});
+
+	it.each([
+		["missing", { slug: "role", label: "Role" }],
+		["malformed", { handle: "Role Property", slug: "role", label: "Role" }],
+	])("rejects a %s item handle before staging", async (_label, property) => {
+		const workspace = fakeWorkspace();
+		const { step } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "invalid-handle",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								{
+									toolName: "addUserProperties",
+									input: {
+										properties: [property],
+										implementedIntentIds: [ids.accessSupervisor],
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+		expect(workspace.staged).toHaveLength(0);
+	});
+
+	it("rejects an item handle already bound in the durable workspace", async () => {
+		const workspace = fakeWorkspace({
+			executionCheckpoint: {
+				intentCoverage: [],
+				handles: [
+					{
+						handle: "@role_property",
+						uuid: testUuid("existing-handle"),
+						entityKind: "field",
+					},
+				],
+			},
+		});
+		const { step } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "rebind",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								{
+									toolName: "addUserProperties",
+									input: {
+										properties: [
+											{
+												handle: "@role_property",
+												slug: "role",
+												label: "Role",
+											},
+										],
+										implementedIntentIds: [ids.accessSupervisor],
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+		expect(workspace.staged).toHaveLength(0);
 	});
 
 	it("ends the attempt on lost scope", async () => {

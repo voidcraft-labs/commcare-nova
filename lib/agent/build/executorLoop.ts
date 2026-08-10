@@ -43,6 +43,7 @@ import {
 	ChangeSetWorkspaceRevisionStaleError,
 } from "@/lib/agent/change-set/errors";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
+import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { designIdSchema } from "@/lib/agent/design/ids";
@@ -117,6 +118,23 @@ export type SliceBlockerResolver = (args: {
 	readonly signal: AbortSignal;
 }) => Promise<ArchitectBlockerDecision>;
 
+export type ExecutorToolOutcomeKind =
+	| "accepted"
+	| "wire-invalid"
+	| "stage-rejected"
+	| "validator-repair"
+	| "committed"
+	| "terminal-protocol";
+
+export interface ExecutorToolOutcomeEvent {
+	readonly modelStep: number;
+	readonly toolName: string;
+	readonly operationIndex?: number;
+	readonly workspaceRevision: number;
+	readonly outcome: ExecutorToolOutcomeKind;
+	readonly code: string;
+}
+
 // ── The mounted tool surface ─────────────────────────────────────────
 
 const INSPECT_TOOL = "inspectChangeSet";
@@ -162,6 +180,41 @@ const SERVER_MINTED_OUTPUT_COLLECTIONS = new Map<string, string>([
 	["addPersonas", "personas"],
 ]);
 
+const ITEM_HANDLE_SCHEMA: JSONSchema7 = {
+	type: "string",
+	pattern: CHANGE_SET_HANDLE_PATTERN.source,
+	description:
+		'A compiler-local name for this new item. Later operations in the same batch may reference it as { handle: "@name" }.',
+};
+
+/** Put a server-minted identity declaration beside the item it names. This is
+ * executor-only projection: the declaration is stripped before the original
+ * shared-tool schema parses, so canonical tools remain UUID-only. */
+function addItemHandleDeclarations(
+	name: string,
+	inputSchema: JSONSchema7,
+): void {
+	const collectionName = SERVER_MINTED_OUTPUT_COLLECTIONS.get(name);
+	if (collectionName === undefined) return;
+	const collection = inputSchema.properties?.[collectionName];
+	if (
+		collection === undefined ||
+		typeof collection === "boolean" ||
+		collection === null ||
+		collection.items === undefined ||
+		Array.isArray(collection.items) ||
+		typeof collection.items === "boolean"
+	) {
+		throw new Error(
+			`The executor cannot project item handles onto ${name}.${collectionName}.`,
+		);
+	}
+	const item = collection.items;
+	item.properties ??= {};
+	item.properties.handle = ITEM_HANDLE_SCHEMA;
+	item.required = [...new Set([...(item.required ?? []), "handle"])];
+}
+
 function mutatingInputSchema(name: string): JSONSchema7 {
 	const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
 	if (entry === undefined || entry.policy.effect !== "mutate-blueprint") {
@@ -181,6 +234,7 @@ function mutatingInputSchema(name: string): JSONSchema7 {
 	inputSchema.required = [
 		...new Set([...(inputSchema.required ?? []), "implementedIntentIds"]),
 	];
+	addItemHandleDeclarations(name, inputSchema);
 	return inputSchema;
 }
 
@@ -219,18 +273,6 @@ function stageBatchSchema(): JSONSchema7 {
 			properties: {
 				toolName: { const: entry.name },
 				input: mutatingInputSchema(entry.name),
-				...(SERVER_MINTED_OUTPUT_COLLECTIONS.has(entry.name) && {
-					outputHandles: {
-						type: "array",
-						items: {
-							type: "string",
-							pattern: "^@[a-z][a-z0-9_-]{0,63}$",
-						},
-						uniqueItems: true,
-						description:
-							"Bind returned uuids to these batch-local handles in result order, one per created item.",
-					},
-				}),
 			},
 			required: ["toolName", "input"],
 			additionalProperties: false,
@@ -455,9 +497,6 @@ const stageBatchEnvelopeSchema = z
 					.object({
 						toolName: z.string().min(1),
 						input: z.unknown(),
-						outputHandles: z
-							.array(z.string().regex(/^@[a-z][a-z0-9_-]{0,63}$/))
-							.optional(),
 					})
 					.strict(),
 			)
@@ -518,25 +557,140 @@ function createdUuids(result: unknown): readonly string[] | null {
 		: null;
 }
 
+const itemHandleSchema = z.string().regex(CHANGE_SET_HANDLE_PATTERN);
+
+interface PreparedStageOperation {
+	readonly toolName: string;
+	readonly input: unknown;
+	readonly itemHandles: readonly string[] | null;
+}
+
+function prepareStageOperation(
+	operation: z.infer<typeof stageBatchEnvelopeSchema>["operations"][number],
+): PreparedStageOperation {
+	const collectionName = SERVER_MINTED_OUTPUT_COLLECTIONS.get(
+		operation.toolName,
+	);
+	if (collectionName === undefined) {
+		return { ...operation, itemHandles: null };
+	}
+	if (
+		operation.input === null ||
+		typeof operation.input !== "object" ||
+		Array.isArray(operation.input)
+	) {
+		throw new ChangeSetStagingRejectedError(
+			"STAGING_FORBIDDEN",
+			`${operation.toolName} input must be an object whose ${collectionName} items each declare a handle.`,
+		);
+	}
+	const input = operation.input as Record<string, unknown>;
+	const collection = input[collectionName];
+	if (!Array.isArray(collection) || collection.length === 0) {
+		throw new ChangeSetStagingRejectedError(
+			"STAGING_FORBIDDEN",
+			`${operation.toolName}.${collectionName} must contain at least one item, and every item must declare its handle beside the item.`,
+		);
+	}
+	const handles: string[] = [];
+	const stripped = collection.map((item, index) => {
+		if (item === null || typeof item !== "object" || Array.isArray(item)) {
+			throw new ChangeSetStagingRejectedError(
+				"STAGING_FORBIDDEN",
+				`${operation.toolName}.${collectionName}.${index} must be an object with a handle.`,
+			);
+		}
+		const { handle, ...canonicalItem } = item as Record<string, unknown>;
+		const parsed = itemHandleSchema.safeParse(handle);
+		if (!parsed.success) {
+			throw new ChangeSetStagingRejectedError(
+				"STAGING_FORBIDDEN",
+				`${operation.toolName}.${collectionName}.${index}.handle must match @name using lowercase letters, numbers, underscores, or hyphens.`,
+			);
+		}
+		handles.push(parsed.data);
+		return canonicalItem;
+	});
+	return {
+		toolName: operation.toolName,
+		input: { ...input, [collectionName]: stripped },
+		itemHandles: handles,
+	};
+}
+
+function collectHandleReferences(value: unknown, out: Set<string>): void {
+	if (Array.isArray(value)) {
+		for (const member of value) collectHandleReferences(member, out);
+		return;
+	}
+	if (value === null || typeof value !== "object") return;
+	const record = value as Record<string, unknown>;
+	if (
+		Object.keys(record).length === 1 &&
+		typeof record.handle === "string" &&
+		itemHandleSchema.safeParse(record.handle).success
+	) {
+		out.add(record.handle);
+		return;
+	}
+	for (const member of Object.values(record)) {
+		collectHandleReferences(member, out);
+	}
+}
+
+/** Validate the complete declaration graph before staging the first operation.
+ * Unknown references may be durable change-set handles; only references to a
+ * worker identity declared later in THIS batch are forward references. */
+function prepareStageOperations(
+	operations: z.infer<typeof stageBatchEnvelopeSchema>["operations"],
+	existingHandles: ReadonlySet<string>,
+): readonly PreparedStageOperation[] {
+	const prepared = operations.map(prepareStageOperation);
+	const structuralDeclarations = new Set<string>();
+	for (const operation of prepared) {
+		const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
+		for (const declaration of entry?.declaredHandles?.(operation.input) ?? []) {
+			structuralDeclarations.add(declaration.handle);
+		}
+	}
+	const declaredAt = new Map<string, number>();
+	for (const [index, operation] of prepared.entries()) {
+		for (const handle of operation.itemHandles ?? []) {
+			if (
+				existingHandles.has(handle) ||
+				structuralDeclarations.has(handle) ||
+				declaredAt.has(handle)
+			) {
+				throw new ChangeSetStagingRejectedError(
+					"HANDLE_RESOLUTION_FAILED",
+					`Handle ${handle} is already bound or declared; each handle may name exactly one entity.`,
+				);
+			}
+			declaredAt.set(handle, index);
+		}
+	}
+	for (const [index, operation] of prepared.entries()) {
+		const references = new Set<string>();
+		collectHandleReferences(operation.input, references);
+		for (const handle of references) {
+			const declarationIndex = declaredAt.get(handle);
+			if (declarationIndex !== undefined && declarationIndex >= index) {
+				throw new ChangeSetStagingRejectedError(
+					"HANDLE_RESOLUTION_FAILED",
+					`Handle ${handle} is referenced before the operation that creates it.`,
+				);
+			}
+		}
+	}
+	return prepared;
+}
+
 function resultHasError(result: unknown): boolean {
 	return (
 		result !== null &&
 		typeof result === "object" &&
 		typeof (result as { error?: unknown }).error === "string"
 	);
-}
-
-function expectedServerMintedIdentityCount(
-	toolName: string,
-	input: unknown,
-): number | null {
-	if (input === null || typeof input !== "object" || Array.isArray(input)) {
-		return null;
-	}
-	const record = input as Record<string, unknown>;
-	const key = SERVER_MINTED_OUTPUT_COLLECTIONS.get(toolName);
-	if (key === undefined) return null;
-	return Array.isArray(record[key]) ? record[key].length : null;
 }
 
 const CONTINUE_NUDGE =
@@ -732,6 +886,8 @@ export async function runSliceExecutor(args: {
 		readonly toolName: string;
 		readonly workspaceRevision: number;
 	}) => void;
+	/** Payload-free operator diagnostics for the private compiler. */
+	onToolOutcome?: (event: ExecutorToolOutcomeEvent) => void;
 }): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
 	const tools = executorTools();
@@ -854,6 +1010,21 @@ export async function runSliceExecutor(args: {
 
 			const call = step.toolCalls[0];
 			if (call === undefined) continue;
+			const toolOutcome = (
+				outcome: ExecutorToolOutcomeKind,
+				code: string,
+				operationIndex?: number,
+				toolName = call.toolName,
+			): void => {
+				args.onToolOutcome?.({
+					modelStep: modelSteps,
+					toolName,
+					...(operationIndex !== undefined && { operationIndex }),
+					workspaceRevision: workspace.currentSnapshot().revision,
+					outcome,
+					code,
+				});
+			};
 			args.onToolCall?.({
 				modelStep: modelSteps,
 				toolName: call.toolName,
@@ -874,6 +1045,7 @@ export async function runSliceExecutor(args: {
 			if (call.toolName === READ_BATCH_TOOL) {
 				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
 				if (!parsed.success) {
+					toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
 					answer(
 						{
 							error: `The read batch shape is invalid: ${parsed.error.issues
@@ -897,6 +1069,12 @@ export async function runSliceExecutor(args: {
 				for (const [index, operation] of parsed.data.operations.entries()) {
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
 					if (entry === undefined || entry.policy.effect !== "read-blueprint") {
+						toolOutcome(
+							"wire-invalid",
+							"READ_OPERATION_NOT_ALLOWED",
+							index,
+							operation.toolName,
+						);
 						failed = {
 							index,
 							toolName: operation.toolName,
@@ -920,6 +1098,12 @@ export async function runSliceExecutor(args: {
 						);
 						const projectedResult = projectToolResult(dispatched.result);
 						if (resultHasError(projectedResult)) {
+							toolOutcome(
+								"stage-rejected",
+								"TOOL_RESULT_ERROR",
+								index,
+								operation.toolName,
+							);
 							failed = {
 								index,
 								toolName: operation.toolName,
@@ -927,6 +1111,12 @@ export async function runSliceExecutor(args: {
 							};
 							break;
 						}
+						toolOutcome(
+							"accepted",
+							"READ_COMPLETED",
+							index,
+							operation.toolName,
+						);
 						completed.push({
 							index,
 							toolName: operation.toolName,
@@ -935,6 +1125,12 @@ export async function runSliceExecutor(args: {
 					} catch (error) {
 						if (deadlineExceeded()) return exhausted();
 						if (error instanceof ChangeSetStagingRejectedError) {
+							toolOutcome(
+								"stage-rejected",
+								error.code,
+								index,
+								operation.toolName,
+							);
 							failed = {
 								index,
 								toolName: operation.toolName,
@@ -944,6 +1140,12 @@ export async function runSliceExecutor(args: {
 						}
 						const terminal = terminalProtocolCode(error);
 						if (terminal === null) throw error;
+						toolOutcome(
+							"terminal-protocol",
+							terminal,
+							index,
+							operation.toolName,
+						);
 						return {
 							kind: "protocol-failure",
 							code: terminal,
@@ -971,6 +1173,7 @@ export async function runSliceExecutor(args: {
 			if (call.toolName === STAGE_BATCH_TOOL) {
 				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
 				if (!parsed.success) {
+					toolOutcome("wire-invalid", "STAGE_BATCH_ENVELOPE_INVALID");
 					answer({
 						error: `The batch shape is invalid: ${parsed.error.issues
 							.map(
@@ -981,6 +1184,22 @@ export async function runSliceExecutor(args: {
 					});
 					continue;
 				}
+				let operations: readonly PreparedStageOperation[];
+				try {
+					operations = prepareStageOperations(
+						parsed.data.operations,
+						new Set(
+							workspace
+								.currentExecutionCheckpoint()
+								.handles.map((binding) => binding.handle),
+						),
+					);
+				} catch (error) {
+					if (!(error instanceof ChangeSetStagingRejectedError)) throw error;
+					toolOutcome("wire-invalid", error.code);
+					answer({ error: error.message });
+					continue;
+				}
 				const bindings = new Map<string, string>();
 				const completed: Array<{
 					index: number;
@@ -989,12 +1208,18 @@ export async function runSliceExecutor(args: {
 				}> = [];
 				let failed: { index: number; toolName: string; error: string } | null =
 					null;
-				for (const [index, operation] of parsed.data.operations.entries()) {
+				for (const [index, operation] of operations.entries()) {
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
 					if (
 						entry === undefined ||
 						entry.policy.effect !== "mutate-blueprint"
 					) {
+						toolOutcome(
+							"wire-invalid",
+							"STAGE_OPERATION_NOT_ALLOWED",
+							index,
+							operation.toolName,
+						);
 						failed = {
 							index,
 							toolName: operation.toolName,
@@ -1002,36 +1227,6 @@ export async function runSliceExecutor(args: {
 								"Only private Blueprint mutations are valid batch operations.",
 						};
 						break;
-					}
-					if (operation.outputHandles !== undefined) {
-						const expectedCount = expectedServerMintedIdentityCount(
-							operation.toolName,
-							operation.input,
-						);
-						if (
-							expectedCount === null ||
-							expectedCount !== operation.outputHandles.length ||
-							new Set(operation.outputHandles).size !==
-								operation.outputHandles.length
-						) {
-							failed = {
-								index,
-								toolName: operation.toolName,
-								error:
-									"outputHandles are allowed only for server-minted worker properties, roles, and personas, with one handle for each created item.",
-							};
-							break;
-						}
-						if (
-							operation.outputHandles.some((handle) => bindings.has(handle))
-						) {
-							failed = {
-								index,
-								toolName: operation.toolName,
-								error: "A batch-local output handle was already bound.",
-							};
-							break;
-						}
 					}
 					stagedRequests += 1;
 					if (stagedRequests > budget.maxStagedRequests) return exhausted();
@@ -1055,6 +1250,12 @@ export async function runSliceExecutor(args: {
 						);
 						const projectedResult = projectToolResult(dispatched.result);
 						if (resultHasError(projectedResult)) {
+							toolOutcome(
+								"stage-rejected",
+								"TOOL_RESULT_ERROR",
+								index,
+								operation.toolName,
+							);
 							failed = {
 								index,
 								toolName: operation.toolName,
@@ -1062,27 +1263,39 @@ export async function runSliceExecutor(args: {
 							};
 							break;
 						}
-						if (operation.outputHandles !== undefined) {
+						if (operation.itemHandles !== null) {
 							const uuids = createdUuids(dispatched.result);
 							if (
 								uuids === null ||
-								uuids.length !== operation.outputHandles.length
+								uuids.length !== operation.itemHandles.length
 							) {
+								toolOutcome(
+									"terminal-protocol",
+									"BATCH_OUTPUT_CONTRACT_INVALID",
+									index,
+									operation.toolName,
+								);
 								return {
 									kind: "protocol-failure",
 									code: "batch-output-contract-invalid",
 									message:
-										"A staged operation returned identities that do not match its declared output handles.",
+										"A staged operation returned identities that do not match its item handle declarations.",
 								};
 							}
 							for (const [
 								handleIndex,
 								handle,
-							] of operation.outputHandles.entries()) {
+							] of operation.itemHandles.entries()) {
 								const uuid = uuids[handleIndex];
 								if (uuid !== undefined) bindings.set(handle, uuid);
 							}
 						}
+						toolOutcome(
+							"accepted",
+							"STAGE_COMPLETED",
+							index,
+							operation.toolName,
+						);
 						completed.push({
 							index,
 							toolName: operation.toolName,
@@ -1091,6 +1304,12 @@ export async function runSliceExecutor(args: {
 					} catch (error) {
 						if (deadlineExceeded()) return exhausted();
 						if (error instanceof ChangeSetStagingRejectedError) {
+							toolOutcome(
+								"stage-rejected",
+								error.code,
+								index,
+								operation.toolName,
+							);
 							failed = {
 								index,
 								toolName: operation.toolName,
@@ -1100,6 +1319,12 @@ export async function runSliceExecutor(args: {
 						}
 						const terminal = terminalProtocolCode(error);
 						if (terminal === null) throw error;
+						toolOutcome(
+							"terminal-protocol",
+							terminal,
+							index,
+							operation.toolName,
+						);
 						return {
 							kind: "protocol-failure",
 							code: terminal,
@@ -1128,6 +1353,7 @@ export async function runSliceExecutor(args: {
 						return exhausted();
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
 					if (entry?.policy.effect === "mutate-blueprint") {
+						toolOutcome("wire-invalid", "MUTATION_OUTSIDE_STAGE_BATCH");
 						answer({
 							error:
 								"Mutations are available only inside stageBatch; put this operation into one ordered semantic batch.",
@@ -1145,7 +1371,14 @@ export async function runSliceExecutor(args: {
 						}),
 						boundedSignal,
 					);
-					answer(projectToolResult(dispatched.result), { rememberRead: true });
+					const projectedResult = projectToolResult(dispatched.result);
+					toolOutcome(
+						resultHasError(projectedResult) ? "stage-rejected" : "accepted",
+						resultHasError(projectedResult)
+							? "TOOL_RESULT_ERROR"
+							: "READ_COMPLETED",
+					);
+					answer(projectedResult, { rememberRead: true });
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					if (signal.aborted) {
@@ -1157,11 +1390,13 @@ export async function runSliceExecutor(args: {
 					}
 					if (error instanceof ChangeSetStagingRejectedError) {
 						/* An ordinary refusal — the model self-corrects. */
+						toolOutcome("stage-rejected", error.code);
 						answer({ error: error.message }, { rememberRead: true });
 						continue;
 					}
 					const terminal = terminalProtocolCode(error);
 					if (terminal === null) throw error;
+					toolOutcome("terminal-protocol", terminal);
 					return {
 						kind: "protocol-failure",
 						code: terminal,
@@ -1176,13 +1411,21 @@ export async function runSliceExecutor(args: {
 					return exhausted();
 				args.onProgress?.("validating");
 				try {
-					answer(
-						projectDiagnostics(
-							await awaitWithAbort(workspace.inspect(), boundedSignal),
-							brief,
-						),
-						{ rememberRead: true },
+					const diagnostics = await awaitWithAbort(
+						workspace.inspect(),
+						boundedSignal,
 					);
+					toolOutcome(
+						diagnostics.allFindings.length > 0
+							? "validator-repair"
+							: "accepted",
+						diagnostics.allFindings.length > 0
+							? "VALIDATOR_FINDINGS"
+							: "INSPECTION_CLEAN",
+					);
+					answer(projectDiagnostics(diagnostics, brief), {
+						rememberRead: true,
+					});
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					throw error;
@@ -1208,6 +1451,14 @@ export async function runSliceExecutor(args: {
 				const remainingIntents = remainingOwnedIntentIds(diagnostics, brief);
 				if (!diagnostics.canCommit || remainingIntents.length > 0) {
 					/* A blocked request is not an attempt — nothing was tried. */
+					toolOutcome(
+						diagnostics.allFindings.length > 0
+							? "validator-repair"
+							: "stage-rejected",
+						diagnostics.allFindings.length > 0
+							? "VALIDATOR_FINDINGS"
+							: "COMMIT_PRECONDITION_FAILED",
+					);
 					answer({
 						error: `The change set cannot commit yet: ${describeBlockers(
 							diagnostics,
@@ -1231,19 +1482,23 @@ export async function runSliceExecutor(args: {
 					throw error;
 				}
 				if (result.kind === "committed") {
+					toolOutcome("committed", "CHANGE_SET_COMMITTED");
 					return { kind: "committed", receipt: result.receipt };
 				}
 				if (result.kind === "gate-rejected") {
+					toolOutcome("stage-rejected", "CANONICAL_GATE_REJECTED");
 					answer({ error: result.message });
 					continue;
 				}
 				if (result.kind === "rebase-conflict") {
+					toolOutcome("stage-rejected", "REBASE_CONFLICT");
 					/* Admitted steps are append-only. A semantic conflict cannot be
 					 * repaired by appending after the invalid step because replay would
 					 * still execute it. The orchestrator owns bounded supersession and
 					 * restarts from the fresh canonical base. */
 					return { kind: "rebase-conflict", report: result.report };
 				}
+				toolOutcome("stage-rejected", "READ_SET_STALE");
 				answer({
 					error:
 						"External data this change set read has changed since it was staged. Re-read what changed, correct the affected steps, and request the commit again.",
@@ -1255,6 +1510,7 @@ export async function runSliceExecutor(args: {
 			if (call.toolName === REPORT_BLOCKER_TOOL) {
 				const parsed = executionBlockerSchema.safeParse(call.input);
 				if (!parsed.success) {
+					toolOutcome("wire-invalid", "BLOCKER_REPORT_INVALID");
 					answer({
 						error: `That blocker report is invalid: ${parsed.error.issues
 							.map(
@@ -1308,12 +1564,15 @@ export async function runSliceExecutor(args: {
 					throw error;
 				}
 				if (decision.kind === "continue") {
+					toolOutcome("accepted", "ARCHITECT_CONTINUE");
 					answer({ decision: "continue", guidance: decision.guidance });
 					continue;
 				}
+				toolOutcome("accepted", "ARCHITECT_DECISION");
 				return { kind: "architect-decision", decision };
 			}
 
+			toolOutcome("wire-invalid", "UNKNOWN_TOOL");
 			answer({
 				error: `There is no tool named ${call.toolName}. The tools available are: ${Object.keys(tools).join(", ")}.`,
 			});

@@ -133,6 +133,27 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		cacheReadTokens: z.number().int().nonnegative().optional(),
 		cacheWriteTokens: z.number().int().nonnegative().optional(),
 	}),
+	/* Executor-tool-outcome annotation — the payload-free audit trail for the
+	 * private slice compiler. Raw executor inputs, outputs, and rejection prose
+	 * may contain customer-authored design material and never enter this log;
+	 * these stable categories and codes are enough to distinguish wire-shape
+	 * friction, ordinary staging refusal, validator repair, and completion. */
+	z.strictObject({
+		type: z.literal("executor-tool-outcome"),
+		modelStep: z.number().int().positive(),
+		toolName: z.string().min(1),
+		operationIndex: z.number().int().nonnegative().optional(),
+		workspaceRevision: z.number().int().nonnegative(),
+		outcome: z.enum([
+			"accepted",
+			"wire-invalid",
+			"stage-rejected",
+			"validator-repair",
+			"committed",
+			"terminal-protocol",
+		]),
+		code: z.string().min(1),
+	}),
 	/* Attachment-prep annotation — brackets the pre-Opus resolve step
 	 * (`resolveAttachments`), which reads each document ref's stored extract
 	 * (and lazily extracts one that has none yet). It's emitted ONLY when a

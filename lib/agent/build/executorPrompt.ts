@@ -58,7 +58,7 @@ An entity you create privately has no UUID you can know in advance. Address it b
 - A handle is \`@\` followed by a lowercase letter, then lowercase letters, digits, \`_\`, or \`-\` — up to 64 characters total (\`@household\`, \`@visit_date\`, \`@case-list-name\`).
 - DECLARE a handle by putting it in the identity slot of the batch operation that creates the entity. This includes modules, forms, fields, options, columns, search inputs, case operations, organization levels, automations, and every UUID-bearing nested automation item. It binds once, to that entity, for the life of the change set.
 - REFERENCE it afterwards by passing the same \`{ "handle": ... }\` object anywhere that entity's uuid belongs — including inside typed expression and prose ASTs.
-- For \`addUserProperties\`, \`addUserTypes\`, and \`addPersonas\`, identities are server-minted. Put one name per created item in that operation's \`outputHandles\`; later operations in the SAME batch may reference those handles. The batch result also returns their UUID bindings if a later correction batch needs them.
+- For \`addUserProperties\`, \`addUserTypes\`, and \`addPersonas\`, identities are server-minted. Give every created item its required \`handle\` beside its other fields; later operations in the SAME batch may reference it as \`{ "handle": "@name" }\`. The batch result returns the UUID bindings for later correction batches.
 - A handle binds ONCE. Re-declaring one is rejected; referencing one you have not declared yet is rejected. Reference only handles you already created.
 - NEVER invent a raw UUID. Use handles for handle-capable entities. Location properties still mint identities on the server and return their UUIDs.
 

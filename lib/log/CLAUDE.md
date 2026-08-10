@@ -51,6 +51,11 @@ re-billed uncached input" is a per-step question the run summary's
 aggregates cannot answer. No money values on events; sub-generation usage
 (document extraction etc.) stays summary-only.
 
+The private build executor also emits `executor-tool-outcome` annotations for
+operator diagnosis. They carry only model step, tool name, operation index,
+workspace revision, a closed outcome category, and a stable code. Raw inputs,
+outputs, rejection prose, and customer-authored names never enter this event.
+
 ## Writer semantics
 
 Fire-and-forget. `LogWriter.logEvent(event)` enqueues; a 100ms timer (or

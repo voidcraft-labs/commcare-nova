@@ -1989,13 +1989,16 @@ Rules:
     workspace state only when the step commits.
 
 Server-minted worker properties, user types, and personas use a second narrow
-compiler convenience: their `stageBatch` operation declares one
-`outputHandles` name per created item. Later operations in that same batch may
-reference those names; the batch result returns the canonical bindings when a
-later correction batch needs them. Resolution occurs before the original tool
-schema parses, and only canonical UUIDs reach the durable request and mutation
-ledgers. These compiler-local names do not alter the canonical schemas or the
-change-set handle namespace above.
+compiler convenience: every item in their executor-projected creation arrays
+declares its required `handle` beside the item it names. The executor strips
+the declaration before the original tool schema parses, stages the canonical
+input, and binds each returned UUID to the corresponding item handle. Later
+operations in that same batch may reference those names; the batch result
+returns the canonical bindings when a later correction batch needs them. The
+complete declaration graph is checked before the first operation stages, and
+only canonical UUIDs reach the durable request and mutation ledgers. These
+compiler-local names do not alter the canonical schemas or the change-set
+handle namespace above.
 
 This is a private symbol table, not a second authored identity system.
 
@@ -2635,7 +2638,7 @@ interface GenerationTelemetrySink {
 - Design/review/build artifacts store typed work products.
 - Resumable chunks store transient wire replay.
 - After materialization, canonical mutation/conversation events may use the existing app `LogWriter`.
-- Raw Design Contracts, prompts, source extracts, and private mutation steps never enter Sentry or generic app events. Display-safe reasoning SUMMARIES are the one deliberate admission: the independent reviewer's and each executor step's summaries land in the run event log as `assistant-reasoning` events (the same elevated admin read surface as the run's other diagnostics), joined to their artifacts by `created_by_run_id`, because the WHY behind a design outcome is the record its tuning reads. A session that never materializes keeps those rows reachable through the session's run ids (`scripts/inspect-design-artifacts.ts --reasoning`), and they follow the design session's §11.12 retention and discard policy, never an app's.
+- Raw Design Contracts, prompts, source extracts, and private mutation steps never enter Sentry or generic app events. Display-safe reasoning SUMMARIES are one deliberate admission: the independent reviewer's and each executor step's summaries land in the run event log as `assistant-reasoning` events (the same elevated admin read surface as the run's other diagnostics), joined to their artifacts by `created_by_run_id`, because the WHY behind a design outcome is the record its tuning reads. Payload-free `executor-tool-outcome` annotations are the other: they retain only model step, tool name, operation index, workspace revision, stable outcome category, and stable code, never an input, output, rejection message, or customer-authored name. A session that never materializes keeps those rows reachable through the session's run ids (`scripts/inspect-design-artifacts.ts --reasoning`), and they follow the design session's §11.12 retention and discard policy, never an app's.
 
 UI stage is derived from durable artifacts, not an event-log replay.
 
@@ -3187,7 +3190,6 @@ interface ExecutorToolRequest {
     toolName: string;
     input: unknown;
     implementedIntentIds: DesignId[];
-    outputHandles?: string[];
   }>;
 }
 ```
@@ -3202,12 +3204,14 @@ commit authority, or invented UUID. It uses handles for handle-capable
 structural entities, including organization levels, automations, and their
 nested authored items. Server-owned creation tools mint and return identities
 for authorable families that are not handle-projected. Worker properties, user
-types, and personas declare batch-local output handles so later operations in
-the same semantic group can consume their server-minted identities without an
-extra model round; the batch result returns the canonical bindings for later
-correction batches. Location properties return their canonical identities
-through their ordinary result. References to pre-existing entities remain
-canonical UUIDs read from the brief or workspace.
+types, and personas declare one item-local handle beside each
+executor-projected creation item so later operations in the same semantic
+group can consume their server-minted identities without an extra model round;
+the declaration is stripped before canonical parsing and the batch result
+returns the canonical bindings for later correction batches. Location
+properties return their canonical identities through their ordinary result.
+References to pre-existing entities remain canonical UUIDs read from the brief
+or workspace.
 
 ### 13.6 No parallel mutation semantics
 
@@ -3348,9 +3352,9 @@ The executor prompt and deterministic checks enforce:
 1. implement the accepted slice, not a module-by-module sketch;
 2. begin or recover one change set;
 3. attach the exact implemented owned-intent IDs to every mutating call;
-4. use local handles for new structural entity references and batch-local
-   output handles for server-minted worker properties, user types, and
-   personas; never fabricate UUIDs;
+4. use local handles for new structural entity references and declare the
+   required item-local handle beside each server-minted worker property, user
+   type, and persona; never fabricate UUIDs;
 5. compile each admitted semantic group through one ordered `stageBatch`,
    normally using complete module/form creation operations when the accepted
    strategy already specifies their nested structure;
@@ -5145,7 +5149,7 @@ the contracts in Sections 1–13 and 18:
 2. **Atomic Change Sets:** private candidates persist exact admitted steps, handles, read sets, diagnostics, and idempotency receipts. Staged state reaches no canonical reader or stream. Commit replays the complete candidate and writes the canonical revision, exact running-attempt transition, committed-slice receipt, and implementation provenance in one transaction.
 3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
 4. **Pre-app generation target:** owner-private build design sessions carry run, reservation, thread, stream, pause, resume, failure, discard cleanup, and reaper semantics before an app exists. Materialization transfers that authority once to the Project-shared app; all later writers lock and authorize the delegated app holder.
-5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. Every accepted slice carries mechanically checked semantic construction strategies for its owned tasks, facts, reads, access, and navigation. The bounded executor receives a reconstructed checkpoint, stages compound batches with server-minted output handles and exact per-step intent ownership, and reports blockers as evidence rather than choosing architecture. A fresh server-owned architect may continue, request a real contract/user decision, or replace the plan once before materialization; deterministic failures permanently close the exact plan/slice instead of becoming a user-visible retry. Required external actions must have a registered receipt producer before their dependent slice opens, and each later slice commits as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. A valid materialized app remains reachable after a later terminal slice failure.
+5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. Every accepted slice carries mechanically checked semantic construction strategies for its owned tasks, facts, reads, access, and navigation. The bounded executor receives a reconstructed checkpoint, stages compound batches with item-local declarations for server-minted worker identities and exact per-step intent ownership, records payload-free tool outcome codes for operator inspection, and reports blockers as evidence rather than choosing architecture. A fresh server-owned architect may continue, request a real contract/user decision, or replace the plan once before materialization; deterministic failures permanently close the exact plan/slice instead of becoming a user-visible retry. Required external actions must have a registered receipt producer before their dependent slice opens, and each later slice commits as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. A valid materialized app remains reachable after a later terminal slice failure.
    Every accepted plan keeps each slice within the 30-owned-intent admission
    bound. On-device date lowering uses only supported fixed durations and
    never substitutes hand-built calendar math.

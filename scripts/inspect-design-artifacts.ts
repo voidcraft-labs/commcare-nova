@@ -14,9 +14,9 @@
  * (see `./lib/prodDb.ts`). Never writes.
  *
  * `--reasoning` additionally prints each artifact's display-safe reasoning
- * summaries from the run event log, joined by the run that produced it:
- * the WHY beside the outcome, which is the record the design method's
- * tuning reads.
+ * summaries and payload-free executor outcomes from the run event log, joined
+ * by the run that produced it: the WHY and stable interface result beside the
+ * outcome, which is the record the design method's tuning reads.
  *
  * Usage:
  *   npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--reasoning] [--prod]
@@ -49,7 +49,7 @@ async function eventLogAppId(sessionId: string): Promise<string | null> {
 	return session?.app_id ?? session?.proposed_app_id ?? null;
 }
 
-async function printReasoning(
+async function printRunDiagnostics(
 	appId: string | null,
 	runId: string,
 	indent: string,
@@ -66,6 +66,18 @@ async function printReasoning(
 		const flattened = summary.replace(/\s+/g, " ").trim();
 		console.log(
 			`${indent}reasoning: ${flattened.slice(0, 300)}${flattened.length > 300 ? "…" : ""}`,
+		);
+	}
+	for (const event of events) {
+		if (
+			event.kind !== "conversation" ||
+			event.payload.type !== "executor-tool-outcome"
+		) {
+			continue;
+		}
+		const outcome = event.payload;
+		console.log(
+			`${indent}executor ${outcome.outcome}: ${outcome.toolName}${outcome.operationIndex === undefined ? "" : `[${outcome.operationIndex}]`} (${outcome.code}) at workspace r${outcome.workspaceRevision}`,
 		);
 	}
 }
@@ -114,7 +126,7 @@ async function main(): Promise<void> {
 			);
 		}
 		if (withReasoning) {
-			await printReasoning(appId, revision.createdByRunId, "  ");
+			await printRunDiagnostics(appId, revision.createdByRunId, "  ");
 		}
 		const reviews = await readDesignReviews(revision.id);
 		for (const review of reviews) {

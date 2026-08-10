@@ -2292,6 +2292,16 @@ export async function POST(req: Request) {
 										/* Event logging never fails the run. */
 									}
 								},
+								onExecutorToolOutcome: (event) => {
+									try {
+										ctx.emitConversation({
+											type: "executor-tool-outcome",
+											...event,
+										});
+									} catch {
+										/* Event logging never fails the run. */
+									}
+								},
 								/* A transient design-turn fault being redriven renders as
 								 * a RECOVERABLE warning with the real classified type, the
 								 * same admin-inspect breadcrumb as an SA turn retry. */
