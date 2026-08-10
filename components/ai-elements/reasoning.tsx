@@ -213,7 +213,7 @@ export const ReasoningContent = memo(
 	({ className, children, ...props }: ReasoningContentProps) => (
 		<CollapsibleContent
 			className={cn(
-				"mt-4 text-sm text-muted-foreground outline-none",
+				"chat-markdown mt-4 text-sm text-muted-foreground outline-none",
 				className,
 			)}
 			{...props}
