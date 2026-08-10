@@ -13,8 +13,9 @@
  *    through their content digest, not re-hashed base64) — the proof of
  *    what the models saw.
  *  - `persistedSourcePackageSchema` is what `design_source_packages` rows
- *    store: the digest, the normalized claims, and the labeled source
- *    INDEX. Raw extracts, transcripts, and attachment bodies are never
+ *    store: the digest, the normalized claims, the labeled source INDEX, and
+ *    content-free hashes that can prove a later package preserved every prior
+ *    projection. Raw extracts, transcripts, and attachment bodies are never
  *    duplicated into design tables — the reference is the persisted fact,
  *    and re-reading the material goes through its own authorized boundary.
  *
@@ -169,8 +170,32 @@ export interface DesignSourcePackage {
  *  authored claim. */
 export type SourceClaimSeed = z.infer<typeof sourceClaimSchema>;
 
-/** What `design_source_packages.payload` stores: references and normalized
- *  claims only — no extract bodies, no transcripts, no image bytes. */
+const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+/**
+ * Content-free proof that one package is a cumulative extension of another.
+ * Every digest binds one complete projected unit, including its source
+ * coordinate. Prefixes are deliberate: answered rounds append source units;
+ * changing, removing, or reordering prior material is a different source, not
+ * an extension that may inherit staged authoring work.
+ */
+export const sourcePackageExtensionProofSchema = z
+	.object({
+		foundationDigest: sha256DigestSchema,
+		requestBlockDigests: z.array(sha256DigestSchema),
+		claimDigests: z.array(sha256DigestSchema),
+		attachmentDigests: z.array(sha256DigestSchema),
+		imageDigests: z.array(sha256DigestSchema),
+		sourceIndexDigests: z.array(sha256DigestSchema),
+	})
+	.strict();
+export type SourcePackageExtensionProof = z.infer<
+	typeof sourcePackageExtensionProofSchema
+>;
+
+/** What `design_source_packages.payload` stores: references, normalized
+ *  claims, and content-free projection hashes — no extract bodies,
+ *  transcripts, or image bytes. */
 export const persistedSourcePackageSchema = z
 	.object({
 		schemaVersion: z.literal(1),
@@ -185,6 +210,9 @@ export const persistedSourcePackageSchema = z
 		attachmentCount: z.number().int().nonnegative(),
 		imageCount: z.number().int().nonnegative(),
 		projectedBytes: z.number().int().nonnegative(),
+		/** Added before v1 shipped. Optional only so local/pre-release rows remain
+		 * readable; a row without it can never authorize workspace rebinding. */
+		extensionProof: sourcePackageExtensionProofSchema.optional(),
 	})
 	.strict();
 export type PersistedSourcePackage = z.infer<
@@ -206,6 +234,60 @@ export function computeSourcePackageDigest(
 		...pkg,
 		images: pkg.images.map(({ dataUrl: _transport, ...identity }) => identity),
 	});
+}
+
+export function computeSourcePackageExtensionProof(
+	pkg: Omit<DesignSourcePackage, "packageDigest">,
+): SourcePackageExtensionProof {
+	const digests = (values: readonly unknown[]) =>
+		values.map((value) => canonicalJsonDigest(value));
+	return {
+		foundationDigest: canonicalJsonDigest({
+			schemaVersion: pkg.schemaVersion,
+			designSessionId: pkg.designSessionId,
+			projectId: pkg.projectId,
+			platformConstraints: pkg.platformConstraints,
+		}),
+		requestBlockDigests: digests(pkg.request.blocks),
+		claimDigests: digests(pkg.claims),
+		attachmentDigests: digests(pkg.attachments),
+		imageDigests: digests(
+			pkg.images.map(({ dataUrl: _transport, ...identity }) => identity),
+		),
+		sourceIndexDigests: digests(pkg.sources),
+	};
+}
+
+function isDigestPrefix(
+	previous: readonly string[],
+	next: readonly string[],
+): boolean {
+	return (
+		previous.length <= next.length &&
+		previous.every((digest, index) => next[index] === digest)
+	);
+}
+
+/** True only when every prior projected unit remains byte-identical and in
+ * the same position, with any new material appended after it. */
+export function sourcePackageProofExtends(
+	previous: SourcePackageExtensionProof | undefined,
+	next: SourcePackageExtensionProof | undefined,
+): boolean {
+	if (
+		previous === undefined ||
+		next === undefined ||
+		previous.foundationDigest !== next.foundationDigest
+	) {
+		return false;
+	}
+	return (
+		isDigestPrefix(previous.requestBlockDigests, next.requestBlockDigests) &&
+		isDigestPrefix(previous.claimDigests, next.claimDigests) &&
+		isDigestPrefix(previous.attachmentDigests, next.attachmentDigests) &&
+		isDigestPrefix(previous.imageDigests, next.imageDigests) &&
+		isDigestPrefix(previous.sourceIndexDigests, next.sourceIndexDigests)
+	);
 }
 
 /** Derive the persisted row payload from the in-memory package. */
@@ -232,6 +314,7 @@ export function toPersistedSourcePackage(
 		attachmentCount: pkg.attachments.length,
 		imageCount: pkg.images.length,
 		projectedBytes,
+		extensionProof: computeSourcePackageExtensionProof(pkg),
 	});
 }
 

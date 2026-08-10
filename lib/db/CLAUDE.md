@@ -868,9 +868,10 @@ never row-locked. A stage is idempotent only for the same provider
 invisible to app history and user surfaces. Finalization validates the replayed
 candidate and changes `open → finalized` in the same transaction that inserts
 the immutable artifact; lineage binds the exact source package plus immutable
-base/reviews. A cumulative source-package change rebinds same-phase/base/review
-work in place, while different immutable ancestry or discard supersedes the
-open workspace. Per-call and cumulative per-POST bounds prevent runaway work
+base/reviews. A source-package change rebinds same-phase/base/review work only
+when content-free projection digests prove a byte-identical prefix extension;
+different or missing source and different immutable ancestry supersede the open
+workspace. Per-call and cumulative per-POST bounds prevent runaway work
 without a persistent stage cliff that could strand a candidate after final
 validation.
 

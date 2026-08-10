@@ -160,6 +160,25 @@ function scriptedCtx(script: ReviewerScript): ScriptedContext {
 	};
 }
 
+function extendPackage(
+	previous: DesignSourcePackage,
+	text: string,
+): DesignSourcePackage {
+	const { packageDigest: _previousDigest, ...base } = previous;
+	const ref = messageRef(previous.request.blocks.length);
+	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
+		...base,
+		request: {
+			blocks: [...previous.request.blocks, { ref, text, truncated: false }],
+		},
+		sources: [...previous.sources, { ref }],
+	};
+	return {
+		...unsealed,
+		packageDigest: computeSourcePackageDigest(unsealed),
+	};
+}
+
 function cleanReview(): DesignReview {
 	return {
 		schemaVersion: 1,
@@ -442,8 +461,9 @@ describe("durable staged contract and plan", () => {
 			collections: [],
 		});
 
-		const answeredPkg = makePackage(
-			"Track visits; the user confirmed that Clinic North owns the queue.",
+		const answeredPkg = extendPackage(
+			pkg,
+			"The user confirmed that Clinic North owns the queue.",
 		);
 		await persistPackage(answeredPkg);
 		const resumed = mountTools({ pkg: answeredPkg });
@@ -459,6 +479,31 @@ describe("durable staged contract and plan", () => {
 		});
 	});
 
+	it("supersedes staged work when a stale source package is not cumulative", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const first = mountTools({ pkg });
+		await call(first.tools.stageContract, {
+			expectedRevision: 0,
+			root: { title: "Must not cross the source boundary" },
+			collections: [],
+		});
+
+		const stalePkg = makePackage("A different stale-tab request.");
+		await persistPackage(stalePkg);
+		const resumed = mountTools({ pkg: stalePkg });
+		const inspected = await call(resumed.tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 0,
+			selection: { kind: "root" },
+		});
+		expect(inspected).toMatchObject({
+			ok: true,
+			workspaceRevision: 0,
+			view: { root: {} },
+		});
+	});
+
 	it("inherits a prior contract and carries staged work into a newer source package", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
@@ -469,7 +514,7 @@ describe("durable staged contract and plan", () => {
 			expectedRevision: initialRevision,
 		});
 
-		const updatedPkg = makePackage("Track visits and include a consent note.");
+		const updatedPkg = extendPackage(pkg, "Include a consent note.");
 		await persistPackage(updatedPkg);
 		const updated = mountTools({ pkg: updatedPkg });
 		const inherited = await call(updated.tools.inspectDesignWorkspace, {
@@ -493,7 +538,7 @@ describe("durable staged contract and plan", () => {
 			collections: [],
 		});
 
-		const newestPkg = makePackage("Track visits and require verbal consent.");
+		const newestPkg = extendPackage(updatedPkg, "Require verbal consent.");
 		await persistPackage(newestPkg);
 		const newest = mountTools({ pkg: newestPkg });
 		const carried = await call(newest.tools.inspectDesignWorkspace, {

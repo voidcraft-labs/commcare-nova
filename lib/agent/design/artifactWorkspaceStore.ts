@@ -19,6 +19,10 @@ import {
 	initialDesignWorkspaceCandidate,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
+import {
+	persistedSourcePackageSchema,
+	sourcePackageProofExtends,
+} from "@/lib/agent/design/sourcePackage";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
@@ -196,11 +200,11 @@ async function ensureOpenWorkspaceInTransaction(args: {
 	);
 	if (exact !== undefined && current.length === 1) return exact.id;
 
-	/* An answer extends the cumulative source package without invalidating
-	 * accepted work in the same artifact phase. When only that package digest
-	 * moved, rebind the one open workspace in place so its ordered stages remain
-	 * the candidate. A phase/base/review change is real ancestry drift and still
-	 * supersedes the workspace below. */
+	/* A proven cumulative answer extends the source package without invalidating
+	 * accepted work in the same artifact phase. Rebind only when content-free
+	 * projection digests prove every old unit is an unchanged prefix; stale or
+	 * changed source falls through and supersedes the workspace. A
+	 * phase/base/review change is real ancestry drift and also supersedes it. */
 	const ancestryDigest = (value: DesignArtifactWorkspaceLineage): string =>
 		canonicalJsonDigest({
 			schemaVersion: value.schemaVersion,
@@ -208,7 +212,8 @@ async function ensureOpenWorkspaceInTransaction(args: {
 			baseRevision: value.baseRevision,
 			reviewArtifacts: value.reviewArtifacts,
 		});
-	const rebindable = current.find((row) => {
+	let rebindable: (typeof current)[number] | undefined;
+	for (const row of current) {
 		const persisted = designArtifactWorkspaceLineageSchema.parse(
 			parsePersistedJsonText(
 				row.lineage_text,
@@ -221,8 +226,50 @@ async function ensureOpenWorkspaceInTransaction(args: {
 				"The open design workspace lineage no longer matches its digest.",
 			);
 		}
-		return ancestryDigest(persisted) === ancestryDigest(lineage);
-	});
+		if (ancestryDigest(persisted) !== ancestryDigest(lineage)) continue;
+		const packageRows = await args.tx
+			.selectFrom("design_source_packages")
+			.select(["package_digest"])
+			.select(
+				sql<string>`${sql.ref("design_source_packages.payload")}::text`.as(
+					"payload_text",
+				),
+			)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("package_digest", "in", [
+				persisted.sourcePackageDigest,
+				lineage.sourcePackageDigest,
+			])
+			.execute();
+		const packages = new Map(
+			packageRows.map((packageRow) => {
+				const payload = persistedSourcePackageSchema.parse(
+					parsePersistedJsonText(
+						packageRow.payload_text,
+						`design_source_packages.payload for session ${args.designSessionId}`,
+					),
+				);
+				if (payload.packageDigest !== packageRow.package_digest) {
+					throw new DesignArtifactWorkspaceError(
+						"lineage-invalid",
+						"A source package payload no longer matches its persisted digest.",
+					);
+				}
+				return [packageRow.package_digest, payload] as const;
+			}),
+		);
+		const previousPackage = packages.get(persisted.sourcePackageDigest);
+		const nextPackage = packages.get(lineage.sourcePackageDigest);
+		if (
+			sourcePackageProofExtends(
+				previousPackage?.extensionProof,
+				nextPackage?.extensionProof,
+			)
+		) {
+			rebindable = row;
+			break;
+		}
+	}
 	if (rebindable !== undefined && current.length === 1) {
 		await args.tx
 			.updateTable("design_artifact_workspaces")

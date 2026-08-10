@@ -822,8 +822,9 @@ The tool surface:
   remains bounded to 64 model steps cumulatively across transient stream
   redrives, while the durable workspace has no hard stage cliff that could
   strand a valid candidate needing one later repair. An answered question
-  rebinds same-phase staged work to the cumulative newer source package rather
-  than discarding it.
+  rebinds same-phase staged work only when content-free projection digests
+  prove the newer package is a byte-identical prefix extension; stale,
+  changed, or incomplete source supersedes the workspace instead.
   Revision staging
   begins from the immutable reviewed
   parent and changes only named items/dispositions; unchanged content stays

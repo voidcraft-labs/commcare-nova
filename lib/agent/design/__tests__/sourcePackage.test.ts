@@ -9,10 +9,12 @@ import { describe, expect, it } from "vitest";
 import {
 	buildDesignSourcePackage,
 	computeSourcePackageDigest,
+	computeSourcePackageExtensionProof,
 	MAX_DOCUMENT_ATTACHMENTS,
 	MAX_REQUEST_BLOCK_CHARS,
 	type SourcePackageDeps,
 	SourcePackageError,
+	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
@@ -154,6 +156,33 @@ describe("buildDesignSourcePackage", () => {
 			}),
 		});
 		expect(second.packageDigest).toBe(first.packageDigest);
+	});
+
+	it("proves only byte-identical cumulative source extensions", async () => {
+		const first = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build it.")]),
+		);
+		const extended = await buildDesignSourcePackage(
+			baseArgs([
+				userMessage("m1", "Build it."),
+				userMessage("m2", "The intake team owns the queue."),
+			]),
+		);
+		const changed = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build something else.")]),
+		);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(first),
+				computeSourcePackageExtensionProof(extended),
+			),
+		).toBe(true);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(first),
+				computeSourcePackageExtensionProof(changed),
+			),
+		).toBe(false);
 	});
 
 	it("clips an oversized message part and flags the truncation", async () => {

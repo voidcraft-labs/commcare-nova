@@ -129,8 +129,9 @@ direct MCP edit.
   bounded to 32 item changes and 48 KiB; each POST is bounded to 64 model
   steps cumulatively across transient redrives, while a durable workspace
   never becomes unrepairable at a hard persistent stage ceiling. An answered
-  question rebinds same-phase saved stages to the cumulative newer source
-  package rather than replacing their workspace. A second
+  question rebinds same-phase saved stages only when content-free projection
+  digests prove the newer package is a byte-identical prefix extension; stale
+  or changed source supersedes the workspace instead. A second
   review is evidence-based: unresolved critical risk, at least two critical
   first-pass findings, or critical feedback that changed architecture; depth
   alone is not a trigger. `claimSeeding.ts` derives
