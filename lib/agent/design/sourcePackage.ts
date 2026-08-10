@@ -268,8 +268,17 @@ function isDigestPrefix(
 	);
 }
 
-/** True only when every prior projected unit remains byte-identical and in
- * the same position, with any new material appended after it. */
+function isDigestSubset(
+	previous: readonly string[],
+	next: readonly string[],
+): boolean {
+	const nextDigests = new Set(next);
+	return previous.every((digest) => nextDigests.has(digest));
+}
+
+/** True only when every prior projected unit remains byte-identical. Authored
+ * source families must remain positional prefixes; the derived citable index
+ * must retain the same closed-set members even when kind grouping moves them. */
 export function sourcePackageProofExtends(
 	previous: SourcePackageExtensionProof | undefined,
 	next: SourcePackageExtensionProof | undefined,
@@ -286,7 +295,11 @@ export function sourcePackageProofExtends(
 		isDigestPrefix(previous.claimDigests, next.claimDigests) &&
 		isDigestPrefix(previous.attachmentDigests, next.attachmentDigests) &&
 		isDigestPrefix(previous.imageDigests, next.imageDigests) &&
-		isDigestPrefix(previous.sourceIndexDigests, next.sourceIndexDigests)
+		/* The citable index is derived in kind groups (messages, documents,
+		 * images), so appending a message legitimately shifts unchanged document
+		 * and image refs. Its closed-set meaning requires subset preservation, not
+		 * positional prefix preservation. */
+		isDigestSubset(previous.sourceIndexDigests, next.sourceIndexDigests)
 	);
 }
 

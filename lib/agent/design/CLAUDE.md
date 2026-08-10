@@ -86,8 +86,9 @@ direct MCP edit.
   attachments through the extraction store, image projections bound by
   content digest (that digest is also the image's citable coordinate, in
   the labeled `sources` index and on the rendered image label), honest
-  over-bound REJECTION (never silent clipping of a source away), and a persisted payload of references + normalized claims
-  only — no extract bodies, no transcripts, no image bytes.
+  over-bound REJECTION (never silent clipping of a source away), and a
+  persisted payload of references, normalized claims, and content-free
+  extension-proof hashes — no extract bodies, transcripts, or image bytes.
 - `prompts.ts` — versioned static system prompts + renderers.
   `DESIGN_PROMPT_VERSIONS` rides every envelope; bump on any
   meaning-bearing change after the prompt has shipped; one version key never

@@ -183,6 +183,27 @@ describe("buildDesignSourcePackage", () => {
 				computeSourcePackageExtensionProof(changed),
 			),
 		).toBe(false);
+
+		const attachment = {
+			assetId: DOC_ASSET,
+			filename: "spec.pdf",
+			kind: "pdf" as const,
+		};
+		const withAttachment = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build it.", [attachment])]),
+		);
+		const attachmentThenAnswer = await buildDesignSourcePackage(
+			baseArgs([
+				userMessage("m1", "Build it.", [attachment]),
+				userMessage("m2", "The intake team owns the queue."),
+			]),
+		);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(withAttachment),
+				computeSourcePackageExtensionProof(attachmentThenAnswer),
+			),
+		).toBe(true);
 	});
 
 	it("clips an oversized message part and flags the truncation", async () => {

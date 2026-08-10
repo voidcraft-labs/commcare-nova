@@ -7,6 +7,7 @@
 import { type Kysely, sql, type Transaction } from "kysely";
 import {
 	type DesignArtifactWriteAuthority,
+	isCumulativeDesignSourcePackageExtensionInTransaction,
 	readDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import {
@@ -19,10 +20,6 @@ import {
 	initialDesignWorkspaceCandidate,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
-import {
-	persistedSourcePackageSchema,
-	sourcePackageProofExtends,
-} from "@/lib/agent/design/sourcePackage";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
@@ -227,44 +224,12 @@ async function ensureOpenWorkspaceInTransaction(args: {
 			);
 		}
 		if (ancestryDigest(persisted) !== ancestryDigest(lineage)) continue;
-		const packageRows = await args.tx
-			.selectFrom("design_source_packages")
-			.select(["package_digest"])
-			.select(
-				sql<string>`${sql.ref("design_source_packages.payload")}::text`.as(
-					"payload_text",
-				),
-			)
-			.where("design_session_id", "=", args.designSessionId)
-			.where("package_digest", "in", [
-				persisted.sourcePackageDigest,
-				lineage.sourcePackageDigest,
-			])
-			.execute();
-		const packages = new Map(
-			packageRows.map((packageRow) => {
-				const payload = persistedSourcePackageSchema.parse(
-					parsePersistedJsonText(
-						packageRow.payload_text,
-						`design_source_packages.payload for session ${args.designSessionId}`,
-					),
-				);
-				if (payload.packageDigest !== packageRow.package_digest) {
-					throw new DesignArtifactWorkspaceError(
-						"lineage-invalid",
-						"A source package payload no longer matches its persisted digest.",
-					);
-				}
-				return [packageRow.package_digest, payload] as const;
-			}),
-		);
-		const previousPackage = packages.get(persisted.sourcePackageDigest);
-		const nextPackage = packages.get(lineage.sourcePackageDigest);
 		if (
-			sourcePackageProofExtends(
-				previousPackage?.extensionProof,
-				nextPackage?.extensionProof,
-			)
+			await isCumulativeDesignSourcePackageExtensionInTransaction(args.tx, {
+				designSessionId: args.designSessionId,
+				previousPackageDigest: persisted.sourcePackageDigest,
+				nextPackageDigest: lineage.sourcePackageDigest,
+			})
 		) {
 			rebindable = row;
 			break;

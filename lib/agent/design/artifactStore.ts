@@ -48,6 +48,7 @@ import {
 	type DesignSourcePackage,
 	type PersistedSourcePackage,
 	persistedSourcePackageSchema,
+	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
@@ -306,6 +307,34 @@ async function readSourcePackageInTx(
 		payload,
 		createdAt: row.created_at,
 	};
+}
+
+/** Workspace lineage asks the artifact boundary—not the workspace store—to
+ * compare persisted package projections. Missing pre-release proofs fail
+ * closed, so only a cryptographically demonstrated cumulative extension can
+ * inherit staged authoring work. */
+export async function isCumulativeDesignSourcePackageExtensionInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		previousPackageDigest: string;
+		nextPackageDigest: string;
+	},
+): Promise<boolean> {
+	const previous = await readSourcePackageInTx(
+		tx,
+		args.designSessionId,
+		args.previousPackageDigest,
+	);
+	const next = await readSourcePackageInTx(
+		tx,
+		args.designSessionId,
+		args.nextPackageDigest,
+	);
+	return sourcePackageProofExtends(
+		previous?.payload.extensionProof,
+		next?.payload.extensionProof,
+	);
 }
 
 /* ------------------------------------------------------------------ */
