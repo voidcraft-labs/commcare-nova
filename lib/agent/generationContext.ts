@@ -42,7 +42,9 @@
 import type { OpenAIProvider } from "@ai-sdk/openai";
 import type {
 	CallWarning,
+	FinishReason,
 	LanguageModelUsage,
+	StepResultPerformance,
 	UIMessageStreamWriter,
 } from "ai";
 import { generateText, Output, streamText } from "ai";
@@ -226,6 +228,12 @@ export interface AgentStep {
 		error: unknown;
 	}>;
 	warnings?: CallWarning[];
+	finishReason?: FinishReason;
+	rawFinishReason?: string;
+	performance?: StepResultPerformance;
+	/** Private protocols keep raw tool inputs/results out of the supplemental
+	 * event log while retaining usage, tool counts, and pause detection. */
+	toolEventMode?: "full" | "metadata-only";
 }
 
 export class GenerationContext
@@ -1047,6 +1055,10 @@ export class GenerationContext
 			outputTokens: usage.outputTokens ?? 0,
 			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+			finishReason: step.finishReason,
+			rawFinishReason: step.rawFinishReason,
+			stepTimeMs: step.performance?.stepTimeMs,
+			responseTimeMs: step.performance?.responseTimeMs,
 		});
 
 		if (step.reasoningText) {
@@ -1075,7 +1087,9 @@ export class GenerationContext
 			if (resultByCallId.has(te.toolCallId)) continue;
 			const message =
 				te.error instanceof Error ? te.error.message : String(te.error);
-			resultByCallId.set(te.toolCallId, { error: message });
+			resultByCallId.set(te.toolCallId, {
+				error: step.toolEventMode === "metadata-only" ? "tool-error" : message,
+			});
 			// Surface it in Cloud Logging too — the fold above only records it in
 			// the per-run event log (Postgres). A tool call reaching the SDK's
 			// error path (invalid input, or an execution throw) is abnormal: tool
@@ -1090,7 +1104,9 @@ export class GenerationContext
 				toolCallId: te.toolCallId,
 				toolName: step.toolCalls?.find((c) => c.toolCallId === te.toolCallId)
 					?.toolName,
-				error: message,
+				...(step.toolEventMode === "metadata-only"
+					? { code: "private-tool-error" }
+					: { error: message }),
 			});
 		}
 		for (const tc of step.toolCalls ?? []) {
@@ -1100,6 +1116,7 @@ export class GenerationContext
 			 * the run is PAUSING for input, not finishing — the signal the route needs
 			 * to mark the app `awaiting_input`. */
 			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
+			if (step.toolEventMode === "metadata-only") continue;
 			this.emitConversation({
 				type: "tool-call",
 				toolCallId: tc.toolCallId,

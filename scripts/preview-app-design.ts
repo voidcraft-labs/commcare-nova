@@ -370,6 +370,11 @@ async function main(): Promise<void> {
 		instructions: DESIGN_AGENT_SYSTEM,
 		promptCacheKey: `nova:design-preview:${sessionId}`,
 		fatalError: () => undefined,
+		freshStateMessage: async () => ({
+			role: "user",
+			content:
+				"# Design session state (server-derived)\n\nContinue from the durable preview state.",
+		}),
 		onStepEnd: (step) => {
 			if (step.text) console.log(`\nNova: ${step.text}`);
 		},

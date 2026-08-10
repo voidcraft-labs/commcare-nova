@@ -1045,4 +1045,55 @@ describe("GenerationContext.handleAgentStep", () => {
 			.find((p) => p.type === "tool-result");
 		expect(resultPayload?.output).toEqual({ success: true });
 	});
+
+	it("keeps private design tool payloads out of events while retaining finish diagnostics", () => {
+		const { ctx, logWriter, usage } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				finishReason: "length",
+				rawFinishReason: "max_output_tokens",
+				performance: {
+					effectiveOutputTokensPerSecond: 10,
+					outputTokensPerSecond: 11,
+					inputTokensPerSecond: 12,
+					effectiveTotalTokensPerSecond: 13,
+					stepTimeMs: 321.75,
+					responseTimeMs: 123.25,
+					toolExecutionMs: { "private-1": 17 },
+					timeToFirstOutputMs: 40,
+				},
+				toolEventMode: "metadata-only",
+				toolCalls: [
+					{
+						toolCallId: "private-1",
+						toolName: "stageContract",
+						input: { customerDesign: "must-not-enter-the-log" },
+					},
+				],
+				toolResults: [
+					{
+						toolCallId: "private-1",
+						output: { candidate: "must-not-enter-the-log" },
+					},
+				],
+			},
+			"Design agent",
+		);
+
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
+		const call = logWriter.logEvent.mock.calls[0];
+		if (call === undefined) throw new Error("step usage was not logged");
+		const payload = (call[0] as { payload: unknown }).payload;
+		expect(payload).toMatchObject({
+			type: "step-usage",
+			finishReason: "length",
+			rawFinishReason: "max_output_tokens",
+			stepTimeMs: 321.75,
+			responseTimeMs: 123.25,
+		});
+		expect(JSON.stringify(payload)).not.toContain("must-not-enter-the-log");
+		expect(usage.snapshot().toolCallCount).toBe(1);
+	});
 });

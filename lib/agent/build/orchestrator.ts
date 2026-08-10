@@ -86,7 +86,11 @@ import {
 } from "@/lib/models";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { budgetForSlice } from "./budgets";
-import { type DesignLoopOutcome, runDesignAgentLoop } from "./designLoopRunner";
+import {
+	type DesignLoopOutcome,
+	type DesignToolOutcomeEvent,
+	runDesignAgentLoop,
+} from "./designLoopRunner";
 import {
 	type ExecutionBlockerResolver,
 	resolveExecutionBlocker,
@@ -186,6 +190,8 @@ export interface BuildOrchestrationDeps {
 	 *  thread (the independent reviewer, each executor step) → the run
 	 *  event log. */
 	readonly onReasoningSummary?: (text: string) => void;
+	/** Payload-free private design-tool lifecycle annotations. */
+	readonly onDesignToolOutcome?: (event: DesignToolOutcomeEvent) => void;
 	/** Payload-free private-compiler outcome annotations for run inspection. */
 	readonly onExecutorToolOutcome?: (event: ExecutorToolOutcomeEvent) => void;
 	/** A transient design-turn failure being redriven, rendered as a
@@ -395,6 +401,9 @@ export async function runBuildOrchestration(
 			...(deps.onAgentStep !== undefined && { onAgentStep: deps.onAgentStep }),
 			...(deps.onReasoningSummary !== undefined && {
 				onReviewerReasoning: deps.onReasoningSummary,
+			}),
+			...(deps.onDesignToolOutcome !== undefined && {
+				onToolOutcome: deps.onDesignToolOutcome,
 			}),
 			...(deps.onRecoverableRetry !== undefined && {
 				onRecoverableRetry: deps.onRecoverableRetry,
@@ -955,6 +964,9 @@ function productionDeps(
 		}),
 		...(overrides.onReasoningSummary !== undefined && {
 			onReasoningSummary: overrides.onReasoningSummary,
+		}),
+		...(overrides.onDesignToolOutcome !== undefined && {
+			onDesignToolOutcome: overrides.onDesignToolOutcome,
 		}),
 		...(overrides.onExecutorToolOutcome !== undefined && {
 			onExecutorToolOutcome: overrides.onExecutorToolOutcome,

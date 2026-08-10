@@ -111,9 +111,11 @@ The standalone `/responses/compact` endpoint can take separate instructions,
 but automatic `context_management` exposes only the compaction type and token
 threshold; Nova stays on that automatic path rather than owning a second
 trigger/retry/canonical-window protocol merely to customize a compaction prompt.
-Compaction is never app authority: the design loop re-injects
-its persisted contract/open findings and the executor re-injects its immutable
-brief plus fresh workspace summary after the boundary. `ChatMessage` hides the
+Compaction is never app authority: the design loop re-injects its current
+artifact ancestry, open findings, and durable authoring-workspace checkpoint;
+exact staged items remain available through bounded inspection. The executor
+re-injects its immutable brief plus fresh workspace summary after the boundary.
+`ChatMessage` hides the
 opaque compaction item while keeping every ordinary old message visible. A turn
 whose prefix has fallen out of the provider cache (~30-minute guaranteed floor)
 pays one cache re-write; the other cost levers remain

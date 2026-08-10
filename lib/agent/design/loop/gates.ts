@@ -49,7 +49,7 @@ export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
  *  pathological loop cannot run away. The executor's `budgets.ts` is the
  *  precedent: a deterministic cap, enforced structurally, never prompt
  *  hope. */
-export const DESIGN_LOOP_STEP_BUDGET = 40;
+export const DESIGN_LOOP_STEP_BUDGET = 64;
 
 /** Maximum consecutive schema rejections of one submission kind. A third
  *  rejection always stops the run. The tracker permits the third attempt only

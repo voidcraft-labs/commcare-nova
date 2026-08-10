@@ -800,6 +800,36 @@ export interface DesignBuildPlansTable {
 	created_at: Timestamp;
 }
 
+/** Mutable authority row for one private contract/revision/plan authoring
+ * workspace. Its append-only steps are replayed into the candidate; only a
+ * complete validated candidate can atomically finalize an immutable artifact. */
+export interface DesignArtifactWorkspacesTable {
+	id: string;
+	design_session_id: string;
+	artifact_kind: string;
+	lineage_digest: string;
+	lineage: JSONColumnType<Record<string, unknown>>;
+	revision: BigIntColumn;
+	status: string;
+	finalized_artifact_id: string | null;
+	created_by_run_id: string;
+	updated_by_run_id: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	finalized_at: Timestamp | null;
+}
+
+/** One exact, idempotent, bounded operation in an artifact workspace. */
+export interface DesignArtifactWorkspaceStepsTable {
+	workspace_id: string;
+	revision: BigIntColumn;
+	tool_call_id: string;
+	input_digest: string;
+	operation: JSONColumnType<Record<string, unknown>>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
 /**
  * One design session — the pre-app generation target (mode `build`) or a
  * design-aware edit's artifact scope (mode `edit`, whose bound app row stays
@@ -964,6 +994,8 @@ export interface AppDatabase {
 	design_reviews: DesignReviewsTable;
 	design_review_dispositions: DesignReviewDispositionsTable;
 	design_build_plans: DesignBuildPlansTable;
+	design_artifact_workspaces: DesignArtifactWorkspacesTable;
+	design_artifact_workspace_steps: DesignArtifactWorkspaceStepsTable;
 	design_sessions: DesignSessionsTable;
 	design_orchestration_events: DesignOrchestrationEventsTable;
 	design_slice_attempts: DesignSliceAttemptsTable;

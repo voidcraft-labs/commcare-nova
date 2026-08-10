@@ -52,8 +52,8 @@ The repository has the non-executable design frontend and private compiler works
 
 - `lib/agent/workspace` gives shared tools one workspace-owned snapshot and serialized mutation host; direct chat/MCP edits still commit immediately through the canonical host.
 - `lib/agent/change-set` persists admitted private steps, local handles, read sets, diagnostics, exact intent coverage, and all-or-nothing canonical commits.
-- `lib/agent/design` owns strict, immutable, digest-bound source packages, contracts, independent reviews, dispositions, and build plans.
-- `lib/agent/design/loop` runs design as one server-gated agent loop whose durable artifact ancestry, not transcript prose, decides what is legal next.
+- `lib/agent/design` owns strict, immutable, digest-bound source packages, contracts, independent reviews, dispositions, and build plans, plus the private durable staged-authoring workspace that composes each large artifact before final validation.
+- `lib/agent/design/loop` runs design as one server-gated agent loop whose durable artifact ancestry, not transcript prose, decides what is legal next; bounded stage/inspect/finalize tools preserve completed authoring work across interruption and provider compaction.
 - `lib/db/designSessions.ts`, target-polymorphic threads/streams/summaries, and `app/api/chat/route.ts` provide pre-app run, credit, conversation, pause, resume, and recovery scope.
 - `lib/agent/build` admits construction-ready slice strategies, derives slice briefs and budgets from them, compiles each semantic group through an ordered batched staging call, resolves compiler blockers through a fresh architect decision, blocks on receipted external prerequisites, and folds an append-only orchestration chain under the exact live holder.
 - `lib/agent/change-set/materializeGenesis.ts` and `lib/db/appGenesis.ts` create the first meaningful export-ready app revision atomically, including organization/media/lookup/runtime-schema integrity and holder transfer.
@@ -812,47 +812,51 @@ The tool surface:
 
 - `askQuestions`: the existing client pause tool, always legal, any
   number of rounds; free-text questions carry an empty options list.
-- `submitContract`: the complete contract, parsed through the exact
-  schema and graph proof. Opens a design cycle; legal at session start
-  and again only when later user input reopened design work (a stale
-  unreviewed draft, or answers to an accepted design's blocking
-  questions). A rejection keeps that candidate only in the live loop and
-  returns the refinement messages AS THE TOOL RESULT. Its next call may
-  carry a top-level repair that replaces only the invalid or dependent
-  sections; the server merges it over that rejected candidate and reruns
-  the complete schema and graph proof before anything persists. The repair
-  remains convergence-bounded per submission kind: an unchanged or broader
-  second diagnostic set stops, a strictly smaller second set permits one
-  final repair, and a third rejection always stops. The
-  strict wire's fixed `schemaVersion: 1` marker may accompany that repair as
-  envelope scaffolding; any authored full-contract field beside the repair
-  is still a mixed submission and is rejected.
+- `stageContract`, `stageRevision`, and `stagePlan`: bounded
+  identity-addressed authoring calls over one durable private artifact
+  workspace. Each call carries the provider `toolCallId`, exact expected
+  workspace revision, and admitted operation digest; exact replay is
+  idempotent and a different input under the same identity is rejected.
+  One call addresses at most one contract/plan collection (plus optional
+  revision dispositions), changes at most 32 items and 48 KiB, and one
+  workspace admits at most 64 ordered stages. Revision staging
+  begins from the immutable reviewed
+  parent and changes only named items/dispositions; unchanged content stays
+  in place.
+- `inspectDesignWorkspace`: reads the authoritative workspace summary, root,
+  or at most 20 exact items from one collection. It is the recovery path after
+  process loss, resume, or model compaction and never exposes staged content to
+  the user transcript. Revision and plan workspaces also expose bounded reads
+  of their immutable source contract, so compaction never forces that contract
+  back into one prompt tail.
+- `submitContract`, `submitRevision`, and `submitPlan`: small finalizers that
+  carry only the exact workspace revision. The server replays every admitted
+  stage, runs the complete artifact schema, graph, closure, sensitivity, and
+  cross-artifact proofs, and atomically inserts the immutable artifact while
+  changing the workspace from `open` to `finalized`. A rejection leaves the
+  workspace and its completed stages intact; the agent inspects and upserts
+  only affected identity-addressed items plus required cross-dependencies,
+  then finalizes the new revision. `submitContract` is legal at session start
+  and when later input reopens design work; `submitRevision` follows a review;
+  `submitPlan` follows an accepted design with no blocking question.
 - `requestReview`: the server runs the independent reviewer (§7.1 below)
   over the draft's OWN package, re-rendered from its persisted reference
   row when the digest has moved (`loop/packageRebuild.ts`) and refused
   honestly when the sources no longer reproduce it. A review with no
   gated findings is accepted by the server on the spot (the draft's
   content re-issues as the accepted revision with empty dispositions).
-- `submitRevision`: revised contract plus dispositions, validated by
-  `designRevisionResultSchemaFor` plus the sensitivity-pair rule inside
-  execute. A rejected revision has the same live top-level repair protocol:
-  contract sections may be replaced independently, while dispositions are
-  replaced as one closed set, and every cross-artifact proof reruns. The
-  server decides acceptance or a required second round.
-- `submitPlan`: the build plan, legal only once the accepted design
-  carries no blocking open questions. A rejected candidate remains live for
-  the immediately following call, which may replace only invalid or dependent
-  plan sections through the same bounded repair envelope; the server composes
-  and validates the complete plan before persistence.
-
-Submissions register the strict wire projection (`strict: true`
+Stage calls and finalizers register the strict wire projection (`strict: true`
 constrained decoding); the exact factory schemas run inside execute, so a
 refinement failure is a repairable tool result rather than an SDK
-invalid-input abort. Provider/network failures are not results — they
+invalid-input abort. OpenAI parallel tool calls are disabled for the ordered
+workspace protocol. Provider/network failures are not results — they
 throw, and the design branch's bounded redrive
 (`lib/agent/build/designLoopRunner.ts`) re-drives the turn with a fresh
-content-bearing state message (the persisted contract and any findings
-awaiting disposition, whenever the thread does not already hold them).
+server-derived state message. A tool input that ends before becoming available
+is classified as `design-submission-incomplete`, its dangling stream part is
+closed, and no blind redrive repeats it; prior stages remain authoritative.
+Payload-free diagnostics record tool name, input character count, duration,
+outcome code, and provider finish reasons without customer design content.
 
 The durable transitions are unchanged:
 
@@ -912,12 +916,15 @@ removed before the ordinary sanitized history is projected, so an opaque
 checkpoint is never replayed across model or context contracts.
 
 Compaction does not become application authority. After projecting model
-history, the server re-injects the current persisted Design Contract and open
-review findings for the design loop. The slice executor does not depend on a
-compacted conversation: every step receives the immutable execution brief, a
-fresh workspace summary, and related structures fetched through `readBatch` or
-at most four recent read turns. Earlier handles, receipts, and staged mutations
-remain durable and the workspace checkpoint is authoritative. The client
+history, the server re-injects the current artifact ancestry, open review
+findings, and the exact revision/count summary of the private design-authoring
+workspace. The author retrieves exact staged items through
+`inspectDesignWorkspace`; it never reconstructs them from the opaque checkpoint.
+The slice executor does not depend on a compacted conversation: every step
+receives the immutable execution brief, a fresh workspace summary, and related
+structures fetched through `readBatch` or at most four recent read turns.
+Earlier handles, receipts, and staged mutations remain durable and each
+workspace checkpoint is authoritative. The client
 keeps old messages visible and shows the transient status “Organizing what
 we’ve covered” only for the main conversation whose model context is being
 compacted; the status occupies the same final line above the composer and does
@@ -4023,7 +4030,7 @@ The outline is informational. User approval is not a mandatory gate unless a que
 Server events:
 
 - `data-design-session` — the turn's scope announce (`{designSessionId, materializedAppId}`; the one frame outside the envelope below, since it precedes any orchestration event);
-- `data-design-pulse` — the throttled live-activity signal while design-phase model work streams (`{phase: design|review|revise|plan, chars, step?}` — the phase from the server's own control flow, the cumulative delivered character count, and optionally the sub-step label the key-order narrator derived from a streaming submission's top-level keys, e.g. "Working out the records"; volume and a canned label, never content). The pulse is what keeps the stage line truthful through the reviewer's silent minutes, and it is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
+- `data-design-pulse` — the throttled live-activity signal while design-phase model work streams (`{phase: design|review|revise|plan, chars, step?}` — the phase from the server's own control flow, the cumulative delivered character count, and optionally the sub-step label the key-order narrator derived from a bounded stage's collection keys, e.g. "Working out the records"; volume and a canned label, never content). Starting `requestReview` switches the pulse to `review` before its input or silent reviewer call, and revision staging switches it back to `revise`; stale narrator state never chooses a phase. The pulse keeps the stage line truthful through the reviewer's silent minutes and is the one legitimate live source for the `reviewing-design`/`revising-design` stages, which no durable frame can name until the phase has already ended;
 - `data-design-outline`;
 - `data-build-plan-summary`;
 - `data-build-slice-started`;
@@ -5147,7 +5154,7 @@ the contracts in Sections 1–13 and 18:
 
 1. **Canonical workspace and commit kernel:** shared tools execute against a workspace-owned snapshot; canonical chat, MCP, and builder mutations retain one admission, authorization, holder, integrity, history, notification, and post-commit convergence path.
 2. **Atomic Change Sets:** private candidates persist exact admitted steps, handles, read sets, diagnostics, and idempotency receipts. Staged state reaches no canonical reader or stream. Commit replays the complete candidate and writes the canonical revision, exact running-attempt transition, committed-slice receipt, and implementation provenance in one transaction.
-3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
+3. **Reviewed design artifacts:** source packages, Design Contracts, independent reviews, dispositions, and build plans are immutable, strict-parsed, digest-bound artifacts. Contract, revision, and plan authoring uses bounded identity-addressed stages in an authority-fenced private workspace with exact tool-call idempotency and monotonic revisions; tiny finalizers validate the replayed whole and close the workspace atomically with artifact persistence. Provider compaction receives a fresh server checkpoint and bounded inspection rather than resetting in-flight work. The design loop advances only through server-derived durable ancestry, makes a plan inactive when newer source content reopens the design, and persists every artifact under the exact live holder, actor, owner-before-materialization, and current Project membership.
 4. **Pre-app generation target:** owner-private build design sessions carry run, reservation, thread, stream, pause, resume, failure, discard cleanup, and reaper semantics before an app exists. Materialization transfers that authority once to the Project-shared app; all later writers lock and authorize the delegated app holder.
 5. **Meaningful genesis and slice execution:** chat materializes only an export-ready meaningful root with no prerequisite slices. Every accepted slice carries mechanically checked semantic construction strategies for its owned tasks, facts, reads, access, and navigation. The bounded executor receives a reconstructed checkpoint, stages compound batches with item-local declarations for server-minted worker identities and exact per-step intent ownership, records payload-free tool outcome codes for operator inspection, and reports blockers as evidence rather than choosing architecture. A fresh server-owned architect may continue, request a real contract/user decision, or replace the plan once before materialization; deterministic failures permanently close the exact plan/slice instead of becoming a user-visible retry. Required external actions must have a registered receipt producer before their dependent slice opens, and each later slice commits as one canonical revision. Attempt-control writes and production change-set open/bind use the same exact-holder transaction as their lifecycle transition. A valid materialized app remains reachable after a later terminal slice failure.
    Every accepted plan keeps each slice within the 30-owned-intent admission

@@ -32,6 +32,17 @@ import type {
 
 type PackageImage = DesignSourcePackage["images"][number];
 
+export const DESIGN_STATE_MESSAGE_HEADING =
+	"# Design session state (server-derived)";
+
+export interface DesignWorkspaceStateSummary {
+	readonly artifactKind: "contract" | "revision" | "plan";
+	readonly revision: number;
+	readonly stepCount: number;
+	readonly counts: Readonly<Record<string, number>>;
+	readonly missingRootFields: readonly string[];
+}
+
 export interface MessageSourceProjection {
 	/** The delimited source text replacing the message's text parts. */
 	readonly text: string;
@@ -142,28 +153,25 @@ export function applySourceProjection<M extends UIMessage>(
 
 /**
  * The per-turn state message: the volatile tail that makes resume
- * explicit, never assumed. It carries CONTENT, not just status: a redrive
- * drops the model's earlier in-POST steps and a crash loses them, so
- * whenever the thread itself does not already hold the persisted contract
- * or the findings awaiting disposition, they ride here. Without this the
- * loop would re-create the reviser-amnesia defect it exists to kill.
+ * explicit, never assumed. It carries the open findings and a bounded durable
+ * workspace checkpoint; exact candidate/source content stays recoverable
+ * through inspectDesignWorkspace. A redrive, process loss, or provider
+ * compaction therefore cannot erase accepted authoring work or force a large
+ * artifact back into one prompt tail.
  */
 export function renderDesignStateMessage(args: {
 	gates: DesignGateState;
 	claims: readonly SourceClaimSeed[];
-	/** The head revision's payload, included when the thread's own tool
-	 *  parts do not carry it. */
-	persistedContract: {
-		revision: number;
-		lifecycle: string;
-		contractJson: string;
-	} | null;
 	/** Reviews of the head draft whose findings await disposition, included
 	 *  when the thread does not carry them. */
 	openReviews: readonly DesignReview[] | null;
+	/** Private staged authoring survives provider compaction and process loss.
+	 * This bounded summary tells the model where to resume; exact items remain
+	 * available through inspectDesignWorkspace. */
+	workspace: DesignWorkspaceStateSummary | null;
 }): string {
 	const lines: string[] = [
-		"# Design session state (server-derived)",
+		DESIGN_STATE_MESSAGE_HEADING,
 		"",
 		args.gates.expectedNext,
 	];
@@ -177,13 +185,6 @@ export function renderDesignStateMessage(args: {
 	lines.push(
 		args.claims.length > 0 ? JSON.stringify(args.claims, null, 1) : "None yet.",
 	);
-	if (args.persistedContract) {
-		lines.push(
-			"",
-			`## Current persisted contract (revision ${args.persistedContract.revision}, ${args.persistedContract.lifecycle})`,
-			args.persistedContract.contractJson,
-		);
-	}
 	if (args.openReviews && args.openReviews.length > 0) {
 		lines.push("", "## Review findings awaiting disposition");
 		lines.push(
@@ -192,6 +193,24 @@ export function renderDesignStateMessage(args: {
 					summary: review.summary,
 					findings: review.findings,
 				})),
+				null,
+				1,
+			),
+		);
+	}
+	if (args.workspace) {
+		lines.push("", "## Durable authoring workspace");
+		lines.push(
+			JSON.stringify(
+				{
+					artifactKind: args.workspace.artifactKind,
+					revision: args.workspace.revision,
+					stepCount: args.workspace.stepCount,
+					counts: args.workspace.counts,
+					missingRootFields: args.workspace.missingRootFields,
+					instruction:
+						"Continue from this workspace revision. Use inspectDesignWorkspace for exact root or collection items; revision and plan workspaces also expose their immutable source contract. Do not recreate saved stages.",
+				},
 				null,
 				1,
 			),

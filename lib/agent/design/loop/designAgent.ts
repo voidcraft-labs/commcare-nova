@@ -9,15 +9,26 @@
  * re-design.
  */
 
-import type { CallWarning, LanguageModel, LanguageModelUsage } from "ai";
+import type {
+	CallWarning,
+	FinishReason,
+	LanguageModel,
+	LanguageModelUsage,
+	ModelMessage,
+	StepResultPerformance,
+} from "ai";
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
-import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
+import {
+	modelMessagesContainCompaction,
+	projectModelHistoryFromNewestCompaction,
+} from "@/lib/chat/compaction";
 import {
 	DESIGN_AUTHOR_REASONING,
 	reasoningProviderOptions,
 } from "@/lib/models";
 import { DESIGN_LOOP_STEP_BUDGET } from "./gates";
+import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type { createDesignLoopTools } from "./tools";
 
 /** The design registration of the client pause tool: same schema, same
@@ -41,6 +52,10 @@ export interface DesignAgentArgs {
 	 *  exhausted repair or sequence budget ends the turn instead of asking
 	 *  the model for another step. */
 	readonly fatalError: () => Error | undefined;
+	/** A compact server-derived checkpoint appended immediately after a new
+	 * provider compaction item. Durable workspace state, not the summarized
+	 * model history, remains authoritative across the boundary. */
+	readonly freshStateMessage: () => Promise<ModelMessage>;
 	readonly onStepEnd?: (step: DesignAgentStep) => void;
 }
 
@@ -54,6 +69,33 @@ export interface DesignAgentStep {
 	toolResults?: Array<{ toolCallId: string; output: unknown }>;
 	toolErrors?: Array<{ toolCallId: string; error: unknown }>;
 	warnings?: CallWarning[];
+	finishReason?: FinishReason;
+	rawFinishReason?: string;
+	performance?: StepResultPerformance;
+	toolEventMode?: "full" | "metadata-only";
+}
+
+function isDesignStateMessage(message: ModelMessage): boolean {
+	if (message.role !== "user") return false;
+	if (typeof message.content === "string") {
+		return message.content.startsWith(DESIGN_STATE_MESSAGE_HEADING);
+	}
+	return message.content.some(
+		(part) =>
+			part.type === "text" &&
+			part.text.startsWith(DESIGN_STATE_MESSAGE_HEADING),
+	);
+}
+
+export async function projectDesignStepMessages(
+	messages: readonly ModelMessage[],
+	freshStateMessage: () => Promise<ModelMessage>,
+): Promise<ModelMessage[]> {
+	const containedCompaction = modelMessagesContainCompaction(messages);
+	const projected = projectModelHistoryFromNewestCompaction(messages);
+	return containedCompaction && !projected.some(isDesignStateMessage)
+		? [...projected, await freshStateMessage()]
+		: projected;
 }
 
 export function createDesignAgent(args: DesignAgentArgs) {
@@ -70,15 +112,22 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,
-		prepareStep: ({ messages }) => {
+		prepareStep: async ({ messages }) => {
 			const fatal = args.fatalError();
 			if (fatal !== undefined) throw fatal;
+			const withFreshState = await projectDesignStepMessages(
+				messages,
+				args.freshStateMessage,
+			);
+			const providerOptions = reasoningProviderOptions(
+				DESIGN_AUTHOR_REASONING.effort,
+				{ promptCacheKey: args.promptCacheKey },
+			);
 			return {
-				messages: projectModelHistoryFromNewestCompaction(messages),
-				providerOptions: reasoningProviderOptions(
-					DESIGN_AUTHOR_REASONING.effort,
-					{ promptCacheKey: args.promptCacheKey },
-				),
+				messages: withFreshState,
+				providerOptions: {
+					openai: { ...providerOptions.openai, parallelToolCalls: false },
+				},
 			};
 		},
 		onStepEnd: (step) => {
@@ -98,6 +147,10 @@ export function createDesignAgent(args: DesignAgentArgs) {
 						: [],
 				),
 				warnings: step.warnings,
+				finishReason: step.finishReason,
+				rawFinishReason: step.rawFinishReason,
+				performance: step.performance,
+				toolEventMode: "metadata-only",
 			});
 		},
 		tools: {

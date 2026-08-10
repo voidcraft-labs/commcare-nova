@@ -134,36 +134,45 @@ its tool result.
 - askQuestions: pause and ask the user. ALWAYS legal, any number of
   rounds. Questions may be free text (an empty options list) or carry 2-4
   concrete options when real alternatives exist.
-- submitContract: the complete Design Contract. Opens a design cycle;
-  legal at the start, and again only when later user input has genuinely
-  reopened design work (a stale unreviewed draft, or answers to an
-  accepted design's blocking questions).
+- stageContract: save one coherent, bounded part of the Design Contract.
+  Set root fields and upsert or remove complete identity-addressed items.
+  Use the returned workspace revision as expectedRevision on the next call.
+- stageRevision: save only the reviewed contract items that must change plus
+  finding dispositions. Unchanged parent content stays in place. Use the
+  returned workspace revision on the next call.
+- stagePlan: save complete build slices, external actions, and intent-ownership
+  rows in bounded groups, carrying the returned workspace revision forward.
+- inspectDesignWorkspace: read the authoritative staged summary, root, or a
+  bounded exact collection selection. A revision or plan workspace also exposes
+  its immutable accepted/reviewed source contract through sourceRoot and
+  sourceCollection. Use it after resume or compaction, when the revision is
+  uncertain, or before correcting cross-dependent items.
+- submitContract, submitRevision, and submitPlan: tiny finalizers. Pass only
+  the exact expectedRevision after the complete candidate has been staged.
+  The server composes every saved stage, proves the whole artifact, and either
+  persists it atomically or leaves the workspace open with exact diagnostics.
 - requestReview: the server runs an INDEPENDENT fresh-context reviewer
   over your persisted draft, the same sources, and the capability catalog.
   Its findings come back as the tool result. A clean review is accepted by
   the server on the spot.
-- submitRevision: normally a persisted-parent patch containing only changed
-  top-level contract sections plus the complete disposition set. A complete
-  revised contract remains legal. The server composes the whole revision and
-  decides acceptance or a required second review round.
-- submitPlan: the build-slice plan, legal only once the accepted design
-  carries no blocking open questions.
 
-A submission the schemas reject comes back as a tool error carrying the
-exact validation messages. On a rejected contract, revision, or plan, use its
-repair arm to replace only the top-level sections those errors require;
-include additional related sections only when their cross-dependencies need
-to move together. The server merges over that rejected candidate and proves
-the COMPLETE graph again, so repair never relaxes quality. An unchanged or
-broader second rejection ends the run; a strictly smaller diagnostic set gets
-one final repair. Read every message together before changing the candidate.
-For a plan repair, recompute each changed constructionStrategy from that
-slice's ownedIntentIds, never from its broader intentIds: dependency-only
-intents belong in intentIds for context, but never in semanticGroups,
-lowerings, facts, tasks, readModels, access, or navigation. When an exact-row
-error says to remove a dependency-only strategy row, remove its lowering and
-semantic-group membership too rather than satisfying a later diagnostic for
-the row you should remove.
+Each stage accepts at most 32 item changes and 48 KiB. Prefer a few coherent
+stages grouped by connected concepts, with at most one collection in a stage;
+do not collapse a large artifact into one call, and do not fall back to one
+call per field. Stages are durable and ordered. After any interruption, resume
+from the workspace revision in the server state and inspect exact items instead
+of recreating saved work.
+
+If final validation rejects an artifact, read every diagnostic together,
+inspect the affected root or collections, and stage only the required changes
+plus any cross-dependent items that must move with them. Then finalize the new
+workspace revision. The full candidate is always re-proved, so a focused
+correction never relaxes quality. For a plan correction, recompute each changed
+constructionStrategy from that slice's ownedIntentIds, never from its broader
+intentIds: dependency-only intents belong in intentIds for context, but never
+in semanticGroups, lowerings, facts, tasks, readModels, access, or navigation.
+When an exact-row error says to remove a dependency-only strategy row, remove
+its lowering and semantic-group membership too.
 
 ## Questions: clarify early, clarify fully, clarify whenever
 

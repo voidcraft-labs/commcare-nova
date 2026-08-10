@@ -265,6 +265,8 @@ function summarizeConversation(payload: ConversationPayload): string {
 		}
 		case "executor-tool-outcome":
 			return `executor ${payload.outcome}: ${payload.toolName}${payload.operationIndex === undefined ? "" : `[${payload.operationIndex}]`} (${payload.code}) at workspace r${payload.workspaceRevision}`;
+		case "design-tool-outcome":
+			return `design ${payload.outcome}: ${payload.toolName} (${payload.code}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
 	}
 }
 
@@ -339,6 +341,17 @@ function printEventVerbose(event: Event): void {
 				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
 			);
 			console.log(`  │ outputTokens:     ${p.outputTokens}`);
+			break;
+		case "design-tool-outcome":
+			console.log(`  │ toolName:          ${p.toolName}`);
+			console.log(`  │ inputChars:        ${p.inputChars}`);
+			console.log(`  │ durationMs:        ${p.durationMs}`);
+			console.log(`  │ outcome:           ${p.outcome}`);
+			console.log(`  │ code:              ${p.code}`);
+			console.log(`  │ finishReason:      ${p.finishReason ?? "not reported"}`);
+			console.log(
+				`  │ rawFinishReason:   ${p.rawFinishReason ?? "not reported"}`,
+			);
 			break;
 		case "executor-tool-outcome":
 			console.log(`  │ modelStep:         ${p.modelStep}`);

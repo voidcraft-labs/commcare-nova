@@ -8,10 +8,10 @@
  *
  * Resume is by ANCESTRY plus thread, never by digest convergence: the
  * persisted artifacts decide what is legal (`gates.ts`), the thread carries
- * the dialogue, and the per-turn state message carries CONTENT the thread
- * may lack (the persisted contract, findings awaiting disposition): so a
- * redrive or a fresh-POST resume never re-produces committed work and never
- * re-creates the reviser-amnesia defect.
+ * the dialogue, and the per-turn state message carries findings plus the
+ * durable workspace checkpoint the thread may lack. Exact candidate/source
+ * content remains available through bounded inspection, so a redrive,
+ * compaction, or fresh-POST resume never re-produces committed work.
  */
 
 import type {
@@ -26,6 +26,11 @@ import type {
 	DesignRevisionRecord,
 } from "@/lib/agent/design/artifactStore";
 import { insertDesignSourcePackage } from "@/lib/agent/design/artifactStore";
+import {
+	type DesignArtifactKind,
+	designWorkspaceCandidateSummary,
+} from "@/lib/agent/design/artifactWorkspaceOperations";
+import { openDesignArtifactWorkspace } from "@/lib/agent/design/artifactWorkspaceStore";
 import {
 	buildCapabilityCatalog,
 	renderCapabilityCatalog,
@@ -47,7 +52,10 @@ import {
 	projectPackageOntoMessages,
 	renderDesignStateMessage,
 } from "@/lib/agent/design/loop/packageRender";
-import { createDesignLoopTools } from "@/lib/agent/design/loop/tools";
+import {
+	createDesignLoopTools,
+	designWorkspaceLineageForGates,
+} from "@/lib/agent/design/loop/tools";
 import {
 	DESIGN_AGENT_SYSTEM,
 	renderPlatformConstraintsSection,
@@ -98,6 +106,16 @@ export type DesignLoopOutcome =
 			readonly recoverable: boolean;
 	  };
 
+export interface DesignToolOutcomeEvent {
+	readonly toolName: string;
+	readonly inputChars: number;
+	readonly durationMs: number;
+	readonly outcome: "accepted" | "rejected" | "wire-invalid" | "incomplete";
+	readonly code: string;
+	readonly finishReason?: string;
+	readonly rawFinishReason?: string;
+}
+
 export const DESIGN_LOOP_STOP_MESSAGE =
 	"Your reviewed design is saved, but Nova couldn't finish preparing the build. Nothing incomplete was added.";
 
@@ -108,6 +126,31 @@ export function contractSubmissionPulsePhase(
 	hasPersistedContract: boolean,
 ): DesignPulsePhase {
 	return hasPersistedContract ? "revise" : "design";
+}
+
+export function designToolPulsePhase(
+	toolName: string,
+	current: DesignPulsePhase,
+	contractPhase: DesignPulsePhase,
+): DesignPulsePhase {
+	if (toolName === "stageContract" || toolName === "submitContract") {
+		return contractPhase;
+	}
+	if (toolName === "requestReview") return "review";
+	if (toolName === "stageRevision" || toolName === "submitRevision") {
+		return "revise";
+	}
+	if (toolName === "stagePlan" || toolName === "submitPlan") return "plan";
+	return current;
+}
+
+function activeWorkspaceKind(
+	gates: DesignGateState,
+): DesignArtifactKind | null {
+	if (gates.verdicts.submitPlan.legal) return "plan";
+	if (gates.verdicts.submitRevision.legal) return "revision";
+	if (gates.verdicts.submitContract.legal) return "contract";
+	return null;
 }
 
 export interface DesignLoopRunnerArgs {
@@ -132,6 +175,9 @@ export interface DesignLoopRunnerArgs {
 	readonly onAgentStep?: (step: DesignAgentStep) => void;
 	/** The reviewer's display-safe reasoning summary → run event log. */
 	readonly onReviewerReasoning?: (text: string) => void;
+	/** Payload-free lifecycle facts for private design tools. Raw candidate
+	 * content and validation prose stay out of the event log. */
+	readonly onToolOutcome?: (event: DesignToolOutcomeEvent) => void;
 	/** A transient mid-stream failure is being redriven: the route renders
 	 *  it as a recoverable warning with the real classified type. */
 	readonly onRecoverableRetry?: (classified: ClassifiedError) => void;
@@ -204,6 +250,53 @@ export async function runDesignAgentLoop(
 			onReviewerReasoning: args.onReviewerReasoning,
 		}),
 	});
+	const stateMessageFor = async (
+		gates: DesignGateState,
+	): Promise<ModelMessage> => {
+		const head = gates.head;
+		const openReviews =
+			head !== null &&
+			head.lifecycle === "draft" &&
+			gates.headReviews.length > 0
+				? gates.headReviews
+				: [];
+		const workspaceKind = activeWorkspaceKind(gates);
+		const workspace =
+			workspaceKind === null
+				? null
+				: await openDesignArtifactWorkspace({
+						designSessionId: args.designSessionId,
+						lineage: designWorkspaceLineageForGates(workspaceKind, gates),
+						authority,
+					});
+		return {
+			role: "user",
+			content: renderDesignStateMessage({
+				gates,
+				claims: args.pkg.claims,
+				openReviews:
+					openReviews.length > 0
+						? openReviews.map((review) => review.envelope.payload)
+						: null,
+				workspace:
+					workspace === null || workspaceKind === null
+						? null
+						: {
+								artifactKind: workspaceKind,
+								revision: workspace.workspace.revision,
+								stepCount: workspace.operations.length,
+								...designWorkspaceCandidateSummary(
+									workspaceKind,
+									workspace.candidate,
+								),
+							},
+			}),
+		};
+	};
+
+	const agentStepState: { last?: DesignAgentStep } = {};
+	const readLastAgentStep = (): DesignAgentStep | undefined =>
+		agentStepState.last;
 	const agent = createDesignAgent({
 		model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 		tools,
@@ -212,7 +305,12 @@ export async function runDesignAgentLoop(
 		instructions: DESIGN_AGENT_SYSTEM,
 		promptCacheKey: `nova:design:${args.designSessionId}`,
 		fatalError: () => repair.fatalError(),
-		...(args.onAgentStep !== undefined && { onStepEnd: args.onAgentStep }),
+		freshStateMessage: async () =>
+			stateMessageFor(evaluateDesignGates(await loadAncestry())),
+		onStepEnd: (step) => {
+			agentStepState.last = step;
+			args.onAgentStep?.(step);
+		},
 	});
 
 	/* History repair + source projection, exactly once per POST: drop tool
@@ -247,39 +345,11 @@ export async function runDesignAgentLoop(
 		await convertToModelMessages(validated, { tools: agent.tools }),
 	);
 
-	const stateMessageFor = (gates: DesignGateState): ModelMessage => {
-		const head = gates.head;
-		const openReviews =
-			head !== null &&
-			head.lifecycle === "draft" &&
-			gates.headReviews.length > 0
-				? gates.headReviews
-				: [];
-		return {
-			role: "user",
-			content: renderDesignStateMessage({
-				gates,
-				claims: args.pkg.claims,
-				persistedContract:
-					head !== null
-						? {
-								revision: head.revision,
-								lifecycle: head.lifecycle,
-								contractJson: JSON.stringify(head.envelope.payload, null, 1),
-							}
-						: null,
-				openReviews:
-					openReviews.length > 0
-						? openReviews.map((review) => review.envelope.payload)
-						: null,
-			}),
-		};
-	};
-
 	let turnRetries = 0;
 	const openParts = createOpenPartTracker();
 	let pausedOnQuestions = false;
 	let failure: ClassifiedError | null = null;
+	let protocolFailure: DesignLoopOutcome | null = null;
 
 	for (;;) {
 		pausedOnQuestions = false;
@@ -288,8 +358,9 @@ export async function runDesignAgentLoop(
 
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
-		const prompt = [...baseModelMessages, stateMessageFor(gates)];
+		const prompt = [...baseModelMessages, await stateMessageFor(gates)];
 
+		delete agentStepState.last;
 		const result = await agent.stream({ prompt });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
@@ -301,6 +372,61 @@ export async function runDesignAgentLoop(
 		let narrator: SubmissionStepNarrator | null = null;
 		let narratorPhase: DesignPulsePhase = "design";
 		const toolNames = new Map<string, string>();
+		const toolStreams = new Map<
+			string,
+			{
+				toolName: string;
+				startedAt: number;
+				inputChars: number;
+				inputAvailable: boolean;
+				outcomeEmitted: boolean;
+				outcomeReported: boolean;
+				outcome?: DesignToolOutcomeEvent["outcome"];
+				outcomeCode?: string;
+				durationMs?: number;
+			}
+		>();
+		const noteToolOutcome = (
+			toolCallId: string,
+			outcome: DesignToolOutcomeEvent["outcome"],
+			code: string,
+		): void => {
+			const tracked = toolStreams.get(toolCallId);
+			if (tracked === undefined || tracked.outcomeEmitted) return;
+			tracked.outcomeEmitted = true;
+			tracked.outcome = outcome;
+			tracked.outcomeCode = code;
+			tracked.durationMs = Math.max(0, Date.now() - tracked.startedAt);
+		};
+		const reportToolOutcomes = (
+			finish: Pick<DesignToolOutcomeEvent, "finishReason" | "rawFinishReason">,
+		): void => {
+			for (const tracked of toolStreams.values()) {
+				if (
+					!tracked.outcomeEmitted ||
+					tracked.outcomeReported ||
+					tracked.outcome === undefined ||
+					tracked.outcomeCode === undefined ||
+					tracked.durationMs === undefined
+				) {
+					continue;
+				}
+				tracked.outcomeReported = true;
+				args.onToolOutcome?.({
+					toolName: tracked.toolName,
+					inputChars: tracked.inputChars,
+					durationMs: tracked.durationMs,
+					outcome: tracked.outcome,
+					code: tracked.outcomeCode,
+					...(finish.finishReason !== undefined && {
+						finishReason: finish.finishReason,
+					}),
+					...(finish.rawFinishReason !== undefined && {
+						rawFinishReason: finish.rawFinishReason,
+					}),
+				});
+			}
+		};
 		const trackPulse = (chunk: UIMessageChunk): void => {
 			switch (chunk.type) {
 				case "reasoning-delta":
@@ -309,33 +435,74 @@ export async function runDesignAgentLoop(
 					return;
 				case "tool-input-start":
 					toolNames.set(chunk.toolCallId, chunk.toolName);
-					if (chunk.toolName === "submitContract") {
+					toolStreams.set(chunk.toolCallId, {
+						toolName: chunk.toolName,
+						startedAt: Date.now(),
+						inputChars: 0,
+						inputAvailable: false,
+						outcomeEmitted: false,
+						outcomeReported: false,
+					});
+					livePulsePhase = designToolPulsePhase(
+						chunk.toolName,
+						livePulsePhase,
+						contractPulsePhase,
+					);
+					if (chunk.toolName === "stageContract") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = contractPulsePhase;
-						livePulsePhase = contractPulsePhase;
-					} else if (chunk.toolName === "submitRevision") {
+					} else if (chunk.toolName === "stageRevision") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = "revise";
-						livePulsePhase = "revise";
-					} else if (chunk.toolName === "submitPlan") {
+					} else if (chunk.toolName === "stagePlan") {
 						narrator = createSubmissionStepNarrator(PLAN_STEP_LABELS);
 						narratorPhase = "plan";
-						livePulsePhase = "plan";
 					} else if (chunk.toolName === "requestReview") {
 						narrator = null;
-						livePulsePhase = "review";
+						pulse("review", 0);
+					} else if (chunk.toolName === "submitRevision") {
+						narrator = null;
+						pulse("revise", 0);
+					} else if (chunk.toolName === "submitPlan") {
+						narrator = null;
+						pulse("plan", 0);
+					} else if (chunk.toolName === "submitContract") {
+						narrator = null;
+						pulse(contractPulsePhase, 0);
 					} else {
 						narrator = null;
 					}
 					return;
 				case "tool-input-delta": {
+					const tracked = toolStreams.get(chunk.toolCallId);
+					if (tracked !== undefined) {
+						tracked.inputChars += chunk.inputTextDelta.length;
+					}
 					const step = narrator?.feed(chunk.inputTextDelta);
-					pulse(narratorPhase, chunk.inputTextDelta.length, step);
+					if (narrator !== null) {
+						pulse(narratorPhase, chunk.inputTextDelta.length, step);
+					}
 					return;
 				}
 				case "tool-input-available":
 					toolNames.set(chunk.toolCallId, chunk.toolName);
+					{
+						const tracked = toolStreams.get(chunk.toolCallId);
+						if (tracked !== undefined) {
+							tracked.inputAvailable = true;
+							if (tracked.inputChars === 0) {
+								tracked.inputChars = JSON.stringify(chunk.input)?.length ?? 0;
+							}
+						}
+					}
 					narrator = null;
+					return;
+				case "tool-input-error":
+					noteToolOutcome(
+						chunk.toolCallId,
+						"wire-invalid",
+						"tool-input-invalid",
+					);
 					return;
 				case "tool-output-available": {
 					const toolName = toolNames.get(chunk.toolCallId);
@@ -346,6 +513,11 @@ export async function runDesignAgentLoop(
 							? (chunk.output as Record<string, unknown>)
 							: null;
 					const failed = typeof output?.error === "string";
+					noteToolOutcome(
+						chunk.toolCallId,
+						failed ? "rejected" : "accepted",
+						failed ? "tool-refused" : "tool-completed",
+					);
 					if (toolName === "submitContract") {
 						livePulsePhase = failed ? contractPulsePhase : "review";
 					} else if (toolName === "requestReview") {
@@ -366,6 +538,9 @@ export async function runDesignAgentLoop(
 					pulse(livePulsePhase, 0);
 					return;
 				}
+				case "tool-output-error":
+					noteToolOutcome(chunk.toolCallId, "rejected", "tool-execution-error");
+					return;
 				default:
 					return;
 			}
@@ -429,6 +604,38 @@ export async function runDesignAgentLoop(
 			});
 		}
 		await drained;
+		const completedStep = readLastAgentStep();
+		const finish = {
+			...(completedStep?.finishReason !== undefined && {
+				finishReason: completedStep.finishReason,
+			}),
+			...(completedStep?.rawFinishReason !== undefined && {
+				rawFinishReason: completedStep.rawFinishReason,
+			}),
+		};
+		reportToolOutcomes(finish);
+
+		const incomplete = [...toolStreams.entries()].find(
+			([, tracked]) => !tracked.inputAvailable && !tracked.outcomeEmitted,
+		);
+		if (incomplete !== undefined) {
+			const [toolCallId] = incomplete;
+			noteToolOutcome(toolCallId, "incomplete", "tool-input-incomplete");
+			reportToolOutcomes(finish);
+			for (const closure of openParts.closures(
+				"Nova stopped before this private design step was complete.",
+			)) {
+				args.writer.write(closure);
+			}
+			protocolFailure = {
+				kind: "failed",
+				errorType: "design-submission-incomplete",
+				message:
+					"Nova saved the completed parts of your design, but one design step stopped before it was ready. Nothing incomplete was accepted.",
+				recoverable: true,
+			};
+			break;
+		}
 
 		if (!sawFatalError || pausedOnQuestions) break;
 		const classified = classifyError(
@@ -453,6 +660,7 @@ export async function runDesignAgentLoop(
 	 * retriable design-session error, never a silent success or a
 	 * forever-designing hang. */
 	const fatal = repair.fatalError();
+	if (protocolFailure !== null) return protocolFailure;
 	if (fatal !== undefined) {
 		return {
 			kind: "failed",

@@ -2292,6 +2292,16 @@ export async function POST(req: Request) {
 										/* Event logging never fails the run. */
 									}
 								},
+								onDesignToolOutcome: (event) => {
+									try {
+										ctx.emitConversation({
+											type: "design-tool-outcome",
+											...event,
+										});
+									} catch {
+										/* Event logging never fails the run. */
+									}
+								},
 								onExecutorToolOutcome: (event) => {
 									try {
 										ctx.emitConversation({

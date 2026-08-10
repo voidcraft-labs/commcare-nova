@@ -858,6 +858,17 @@ boundary and
 integrity rules live in `lib/agent/design/artifactStore.ts`
 (`lib/agent/design/CLAUDE.md` is the contract).
 
+`design_artifact_workspaces` is the private mutable authoring carrier for one
+contract, revision, or plan candidate; `design_artifact_workspace_steps` is
+its append-only operation ledger. Every open/read/stage/finalize transaction
+locks and authorizes the exact live design-session/app holder plus current
+Project membership before touching the workspace. The operation ledger is
+never row-locked. A stage is idempotent only for the same provider
+`tool_call_id` and input digest, advances an exact expected revision, and is
+invisible to app history and user surfaces. Finalization validates the replayed
+candidate and changes `open → finalized` in the same transaction that inserts
+the immutable artifact; lineage drift or discard supersedes an open workspace.
+
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required

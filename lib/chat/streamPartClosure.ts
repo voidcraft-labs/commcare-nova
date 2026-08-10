@@ -34,7 +34,7 @@ export interface OpenPartTracker {
 	 * (parts first, then the step). Resets the tracker — the retried attempt
 	 * starts from a clean slate, exactly like the client does.
 	 */
-	closures(): UIMessageChunk[];
+	closures(toolErrorText?: string): UIMessageChunk[];
 }
 
 export function createOpenPartTracker(): OpenPartTracker {
@@ -80,7 +80,9 @@ export function createOpenPartTracker(): OpenPartTracker {
 		}
 	}
 
-	function closures(): UIMessageChunk[] {
+	function closures(
+		toolErrorText = INTERRUPTED_TOOL_MESSAGE,
+	): UIMessageChunk[] {
 		const out: UIMessageChunk[] = [];
 		for (const id of openText) {
 			out.push({ type: "text-end", id } as UIMessageChunk);
@@ -92,7 +94,7 @@ export function createOpenPartTracker(): OpenPartTracker {
 			out.push({
 				type: "tool-output-error",
 				toolCallId,
-				errorText: INTERRUPTED_TOOL_MESSAGE,
+				errorText: toolErrorText,
 			} as UIMessageChunk);
 		}
 		if (stepOpen || out.length > 0) {

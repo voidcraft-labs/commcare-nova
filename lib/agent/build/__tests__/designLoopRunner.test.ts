@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	contractSubmissionPulsePhase,
 	DESIGN_LOOP_STOP_MESSAGE,
+	designToolPulsePhase,
 } from "@/lib/agent/build/designLoopRunner";
 
 describe("contractSubmissionPulsePhase", () => {
@@ -15,5 +16,20 @@ describe("contractSubmissionPulsePhase", () => {
 		expect(DESIGN_LOOP_STOP_MESSAGE).not.toMatch(
 			/schema|submission|diagnostic|tool/i,
 		);
+	});
+});
+
+describe("designToolPulsePhase", () => {
+	it("switches to review as soon as requestReview starts", () => {
+		expect(designToolPulsePhase("requestReview", "revise", "design")).toBe(
+			"review",
+		);
+	});
+
+	it("returns to revision and plan phases for their bounded stages", () => {
+		expect(designToolPulsePhase("stageRevision", "review", "design")).toBe(
+			"revise",
+		);
+		expect(designToolPulsePhase("stagePlan", "review", "design")).toBe("plan");
 	});
 });

@@ -195,6 +195,23 @@ describe("eventSchema", () => {
 					code: "STAGING_FORBIDDEN",
 				},
 			},
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 8,
+				seq: 8,
+				source: "chat",
+				payload: {
+					type: "design-tool-outcome",
+					toolName: "stageContract",
+					inputChars: 2400,
+					durationMs: 812,
+					outcome: "accepted",
+					code: "tool-completed",
+					finishReason: "tool-calls",
+					rawFinishReason: "tool_calls",
+				},
+			},
 		];
 		for (const ev of samples) {
 			expect(eventSchema.parse(ev)).toEqual(ev);
@@ -257,6 +274,26 @@ describe("eventSchema", () => {
 				workspaceRevision: 1,
 				outcome: "wire-invalid",
 				code: "STAGE_BATCH_ENVELOPE_INVALID",
+				input: { customerAuthored: "must not persist" },
+			},
+		};
+		expect(() => eventSchema.parse(event)).toThrow();
+	});
+
+	it("refuses raw design payloads in outcome annotations", () => {
+		const event = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: {
+				type: "design-tool-outcome",
+				toolName: "stageContract",
+				inputChars: 24,
+				durationMs: 12,
+				outcome: "accepted",
+				code: "tool-completed",
 				input: { customerAuthored: "must not persist" },
 			},
 		};

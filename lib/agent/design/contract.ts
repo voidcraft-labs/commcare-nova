@@ -427,6 +427,14 @@ export const acceptanceScenarioSchema = z
 	.strict();
 export type AcceptanceScenario = z.infer<typeof acceptanceScenarioSchema>;
 
+export const deferredRequirementSchema = z
+	.object({
+		claimId: designIdSchema,
+		reason: z.string().min(1),
+	})
+	.strict();
+export type DeferredRequirement = z.infer<typeof deferredRequirementSchema>;
+
 /**
  * The root Design Contract. `schemaVersion` is the artifact dialect —
  * a prompt/schema change that alters meaning bumps it and re-produces
@@ -455,31 +463,11 @@ export const appDesignContractBaseSchema = z
 		assumptions: z.array(assumptionSchema),
 		openQuestions: z.array(openQuestionSchema),
 		acceptanceScenarios: z.array(acceptanceScenarioSchema).min(1),
-		deferredRequirements: z.array(
-			z
-				.object({
-					claimId: designIdSchema,
-					reason: z.string().min(1),
-				})
-				.strict(),
-		),
+		deferredRequirements: z.array(deferredRequirementSchema),
 	})
 	.strict();
 
 export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
-
-/** A retry replaces only the named top-level collections or scalar slots.
- * The server merges it over the immediately preceding rejected candidate and
- * then runs the complete graph proof again, so partial authoring never means
- * partial validation or partial persistence. */
-export const appDesignContractRepairSchema = appDesignContractBaseSchema
-	.partial()
-	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "A contract repair must replace at least one top-level slot.",
-	});
-export type AppDesignContractRepair = z.infer<
-	typeof appDesignContractRepairSchema
->;
 
 /** The parse-time authority: structural shape plus the full deterministic
  *  graph proof. Every producer and every persisted read uses THIS schema. */

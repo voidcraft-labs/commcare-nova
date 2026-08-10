@@ -3,9 +3,9 @@
  * through the REAL factory (`createDesignAgent` + `createDesignLoopTools`)
  * against a capturing fetch that never sends. The drift guards:
  *
- *  - the submit tools ride `strict: true` with the strict wire projection
- *    (constrained decoding is what makes a 50k-char contract structurally
- *    unable to freehand its JSON), while askQuestions stays non-strict;
+ *  - bounded stages, inspection, and tiny finalizers ride `strict: true`
+ *    with the strict wire projection, while askQuestions stays non-strict;
+ *  - parallel tool calls are disabled because workspace revisions are ordered;
  *  - the per-session prompt-cache triple and the statelessness pair are on
  *    the wire exactly as the SA's (`wireCacheConfig.test.ts` discipline);
  *  - the loop runs at the drafting ceiling (xhigh).
@@ -27,6 +27,7 @@ interface CapturedBody {
 	reasoning?: { effort?: string; summary?: string };
 	prompt_cache_key?: string;
 	prompt_cache_options?: { mode?: string; ttl?: string };
+	parallel_tool_calls?: boolean;
 	tools?: Array<{
 		name?: string;
 		strict?: boolean;
@@ -107,6 +108,10 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 		instructions: "You are Nova's designer.",
 		promptCacheKey: "nova:design:session-probe",
 		fatalError: () => undefined,
+		freshStateMessage: async () => ({
+			role: "user",
+			content: "# Design session state (server-derived)",
+		}),
 	});
 	/* `generate`, not `stream`: the capturing fetch fails every request, and
 	 * a failed stream strands the SDK's internal tee/result promises as
@@ -125,7 +130,7 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 }
 
 describe("design agent Responses wire body", () => {
-	it("carries strict submit tools, the cache triple, and xhigh reasoning", async () => {
+	it("carries strict ordered tools, the cache triple, and xhigh reasoning", async () => {
 		const body = await captureDesignTurnBody();
 
 		expect(body.model).toBe(DESIGN_MODEL);
@@ -135,9 +140,14 @@ describe("design agent Responses wire body", () => {
 		expect(body.reasoning?.summary).toBeTruthy();
 		expect(body.prompt_cache_key).toBe("nova:design:session-probe");
 		expect(body.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
+		expect(body.parallel_tool_calls).toBe(false);
 
 		const byName = new Map((body.tools ?? []).map((t) => [t.name, t]));
 		for (const name of [
+			"stageContract",
+			"stageRevision",
+			"stagePlan",
+			"inspectDesignWorkspace",
 			"submitContract",
 			"requestReview",
 			"submitRevision",

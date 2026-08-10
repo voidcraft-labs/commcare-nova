@@ -3,6 +3,10 @@ import { isInternalDesignToolPartType } from "@/lib/chat/internalToolParts";
 
 describe("internal design tool presentation", () => {
 	it.each([
+		"tool-stageContract",
+		"tool-stageRevision",
+		"tool-stagePlan",
+		"tool-inspectDesignWorkspace",
 		"tool-submitContract",
 		"tool-requestReview",
 		"tool-submitRevision",

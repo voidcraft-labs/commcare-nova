@@ -1,28 +1,9 @@
 /**
- * The design loop's server tools against the real artifact store, with a
- * SCRIPTED reviewer: offline, no provider, no spend. The scripted
- * `runStructured` parses every fixture through the REAL schema it was
- * handed, so these tests also prove the factory schemas accept what the
- * loop persists.
- *
- * What must hold (the loop plan §1, §6, §7, §13):
- *  - clean path: submitContract → requestReview (clean) → the SERVER
- *    persists the acceptance itself (empty dispositions, inputs binding
- *    the review digest) → submitPlan;
- *  - findings path: submitRevision proves disposition closure and lands
- *    the dispositions beside the accepted revision; an architecture
- *    change forces the second round, and the second revision is accepted
- *    outright (no third loop);
- *  - repairs: a submission our schemas reject returns the refinement
- *    MESSAGES as the tool result, twice latches the fatal budget error,
- *    and a quiet sensitivity downgrade rejects;
- *  - sequence gates are tool results naming the legal next action;
- *  - the §7.3 outcome: blocking questions on the accepted design refuse
- *    submitPlan, and the answers (a moved digest) reopen a fresh cycle;
- *  - requestReview reviews the draft under its OWN package: a moved digest
- *    re-renders (stubbed here), a failed re-render refuses honestly, and
- *    the reviewer receives EXACTLY the package, contract, and catalog;
- *  - the reviewer's reasoning summary reaches the event-log callback.
+ * The design loop's staged server tools against the real artifact store, with
+ * a scripted reviewer: offline, no provider, no spend. These tests pin the
+ * durable authoring protocol: bounded stages survive remounts, exact
+ * tool-call replay is idempotent, finalization is atomic, and review/plan
+ * legality still derives from immutable ancestry.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -30,12 +11,17 @@ import {
 	type DesignArtifactWriteAuthority,
 	insertDesignSourcePackage,
 	readDesignReviews,
-	readDesignRevisionsForSession,
 	readDispositions,
 	readLatestAcceptedDesignRevision,
 	readLatestDesignBuildPlanForRevision,
 	readLatestDesignRevision,
 } from "@/lib/agent/design/artifactStore";
+import {
+	loadDesignArtifactWorkspaceSummary,
+	stageDesignArtifactWorkspace,
+} from "@/lib/agent/design/artifactWorkspaceStore";
+import type { BuildPlanDraft } from "@/lib/agent/design/buildPlan";
+import type { AppDesignContract } from "@/lib/agent/design/contract";
 import {
 	DesignRepairTracker,
 	evaluateDesignGates,
@@ -44,6 +30,7 @@ import {
 import {
 	createDesignLoopTools,
 	type DesignLoopToolDeps,
+	designWorkspaceLineageForGates,
 } from "@/lib/agent/design/loop/tools";
 import {
 	DESIGN_REVIEWER_SYSTEM,
@@ -59,6 +46,7 @@ import type {
 	StructuredModelRunContext,
 } from "@/lib/agent/modelRunContext";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { getAppDb } from "@/lib/db/pg";
 import {
 	cloneContract,
 	did,
@@ -68,9 +56,10 @@ import {
 	messageRef,
 } from "./fixtures";
 
-const h = setupAppStateTestDb("design_loop_");
+const h = setupAppStateTestDb("design_loop_staged_");
 
 let sessionId: string;
+let toolCallSequence = 0;
 const RUN_ID = "run-1";
 const ACTOR = "owner-test";
 const PROJECT = "proj-1";
@@ -81,7 +70,9 @@ const authority: DesignArtifactWriteAuthority = {
 	holderNonce: NONCE,
 	expectedProjectId: PROJECT,
 };
+
 beforeEach(async () => {
+	toolCallSequence = 0;
 	sessionId = await h.seedDesignSession({
 		owner_user_id: ACTOR,
 		project_id: PROJECT,
@@ -103,10 +94,8 @@ function makePackage(text = "Track CHW visits."): DesignSourcePackage {
 	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
 		schemaVersion: 1,
 		designSessionId: sessionId,
-		projectId: "proj-1",
-		request: {
-			blocks: [{ ref: messageRef(), text, truncated: false }],
-		},
+		projectId: PROJECT,
+		request: { blocks: [{ ref: messageRef(), text, truncated: false }] },
 		claims: [],
 		attachments: [],
 		images: [],
@@ -125,16 +114,13 @@ interface ScriptedContext extends StructuredModelRunContext {
 	calls: Array<{ system: string; prompt: string | undefined }>;
 }
 
-/** A scripted reviewer context: the fixture parses through the REAL schema
- *  the tool handed in, so an unparseable fixture behaves exactly like an
- *  unparseable model response. */
 function scriptedCtx(script: ReviewerScript): ScriptedContext {
 	const calls: Array<{ system: string; prompt: string | undefined }> = [];
 	return {
 		calls,
-		userId: "u",
-		projectId: "proj-1",
-		runId: "run-1",
+		userId: ACTOR,
+		projectId: PROJECT,
+		runId: RUN_ID,
 		get target() {
 			return { kind: "design-session" as const, designSessionId: sessionId };
 		},
@@ -154,23 +140,22 @@ function scriptedCtx(script: ReviewerScript): ScriptedContext {
 				};
 			}
 			const parsed = args.schema.safeParse(fixture);
-			if (!parsed.success) {
-				return {
-					object: null,
-					usage: undefined,
-					warnings: undefined,
-					finishReason: "stop" as const,
-				};
-			}
-			return {
-				object: parsed.data,
-				usage: undefined,
-				warnings: undefined,
-				finishReason: "stop" as const,
-				...(script.reasoningText !== undefined && {
-					reasoningText: script.reasoningText,
-				}),
-			};
+			return parsed.success
+				? {
+						object: parsed.data,
+						usage: undefined,
+						warnings: undefined,
+						finishReason: "stop" as const,
+						...(script.reasoningText !== undefined && {
+							reasoningText: script.reasoningText,
+						}),
+					}
+				: {
+						object: null,
+						usage: undefined,
+						warnings: undefined,
+						finishReason: "stop" as const,
+					};
 		},
 	};
 }
@@ -195,40 +180,13 @@ function gatedReview(): DesignReview {
 				category: "requirement-coverage",
 				severity: "important",
 				basis: "source-supported",
-				claim: "Visit recording lacks a follow-up marker the request implies.",
+				claim: "Visit recording needs an explicit follow-up marker.",
 				evidenceRefs: [messageRef()],
 				affectedIntentIds: [ids.taskVisit],
 				confidence: 0.8,
 			},
 		],
 	};
-}
-
-function criticalReview(): DesignReview {
-	const review = gatedReview();
-	const finding = review.findings[0];
-	if (finding) finding.severity = "critical";
-	return review;
-}
-
-function extendedContract() {
-	const contract = cloneContract(makeContract());
-	contract.tasks.push({
-		id: did(700),
-		name: "Review visit coverage",
-		actorId: ids.actorSupervisor,
-		goal: "Check whether expected visits are being recorded.",
-		trigger: "Weekly supervision",
-		preconditions: [],
-		inputs: [],
-		decisionRuleIds: [],
-		writes: [],
-		transitionIds: [],
-		readBackIds: [ids.rmPatients],
-		exceptionPaths: [],
-		evidence: [ids.claimVisits],
-	});
-	return contract;
 }
 
 interface LoopHarness {
@@ -257,31 +215,110 @@ function mountTools(args: {
 		repair,
 		loadAncestry: () => loadDesignAncestry(sessionId, args.pkg.packageDigest),
 		rebuildPackageForDigest: args.rebuild ?? (async () => null),
-		onReviewerReasoning: (text) => {
-			reasoningSeen.push(text);
-		},
+		onReviewerReasoning: (text) => reasoningSeen.push(text),
 	});
 	return { tools, repair, ctx, reasoningSeen };
+}
+
+type ToolResult = Record<string, unknown>;
+
+async function call(
+	tool: {
+		execute:
+			| ((input: unknown) => Promise<unknown>)
+			| ((
+					input: unknown,
+					options: { readonly toolCallId: string },
+			  ) => Promise<unknown>);
+	},
+	input: unknown = {},
+	toolCallId = `tool-${++toolCallSequence}`,
+): Promise<ToolResult> {
+	const execute = tool.execute as (
+		input: unknown,
+		options: { readonly toolCallId: string },
+	) => Promise<unknown>;
+	return (await execute(input, { toolCallId })) as ToolResult;
+}
+
+const CONTRACT_COLLECTIONS = [
+	"sourceClaims",
+	"actors",
+	"records",
+	"facts",
+	"rules",
+	"tasks",
+	"transitions",
+	"readModels",
+	"lookupIntents",
+	"accessPolicies",
+	"navigation",
+	"decisions",
+	"assumptions",
+	"openQuestions",
+	"acceptanceScenarios",
+	"deferredRequirements",
+] as const;
+
+async function stageContract(
+	tools: LoopHarness["tools"],
+	contract: AppDesignContract,
+): Promise<number> {
+	let revision = 0;
+	const root = await call(tools.stageContract, {
+		expectedRevision: revision,
+		root: {
+			id: contract.id,
+			title: contract.title,
+			objective: contract.objective,
+			inScope: contract.inScope,
+			outOfScope: contract.outOfScope,
+		},
+		collections: [],
+	});
+	revision = Number(root.workspaceRevision);
+	for (const collection of CONTRACT_COLLECTIONS) {
+		const items = contract[collection];
+		if (items.length === 0) continue;
+		const staged = await call(tools.stageContract, {
+			expectedRevision: revision,
+			collections: [{ collection, upserts: items, removeIds: [] }],
+		});
+		revision = Number(staged.workspaceRevision);
+	}
+	return revision;
+}
+
+async function stagePlan(
+	tools: LoopHarness["tools"],
+	plan: BuildPlanDraft,
+): Promise<number> {
+	let revision = 0;
+	for (const collection of [
+		"slices",
+		"externalActions",
+		"intentOwnership",
+	] as const) {
+		const items = plan[collection];
+		if (items.length === 0) continue;
+		const staged = await call(tools.stagePlan, {
+			expectedRevision: revision,
+			collections: [{ collection, upserts: items, removeIds: [] }],
+		});
+		revision = Number(staged.workspaceRevision);
+	}
+	return revision;
 }
 
 async function persistPackage(pkg: DesignSourcePackage): Promise<void> {
 	await insertDesignSourcePackage({ pkg, authority });
 }
 
-type ToolResult = Record<string, unknown>;
-
-async function call(
-	tool: { execute: (input: unknown) => Promise<unknown> },
-	input: unknown = {},
-): Promise<ToolResult> {
-	return (await tool.execute(input)) as ToolResult;
-}
-
-describe("clean path: contract → clean review → server acceptance → plan", () => {
-	it("persists every artifact in order with the store's bindings intact", async () => {
+describe("durable staged contract and plan", () => {
+	it("persists each immutable artifact in order and closes its workspace", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
-		const { tools, ctx, reasoningSeen } = mountTools({
+		const mounted = mountTools({
 			pkg,
 			reviewer: {
 				review: cleanReview,
@@ -289,390 +326,321 @@ describe("clean path: contract → clean review → server acceptance → plan",
 			},
 		});
 
-		const submitted = await call(tools.submitContract, makeContract());
+		const contractRevision = await stageContract(mounted.tools, makeContract());
+		const submitted = await call(mounted.tools.submitContract, {
+			expectedRevision: contractRevision,
+		});
 		expect(submitted).toMatchObject({
 			ok: true,
 			effortLevel: "standard",
 			roughTimeEstimate: "about an hour",
 		});
-		expect(String(submitted.message)).toContain("requestReview");
+		const db = await getAppDb();
+		const finalized = await db
+			.selectFrom("design_artifact_workspaces")
+			.select(["status", "finalized_artifact_id"])
+			.where("design_session_id", "=", sessionId)
+			.where("artifact_kind", "=", "contract")
+			.executeTakeFirstOrThrow();
+		expect(finalized).toMatchObject({
+			status: "finalized",
+			finalized_artifact_id: submitted.revisionId,
+		});
 
-		const reviewed = await call(tools.requestReview);
+		const reviewed = await call(mounted.tools.requestReview);
 		expect(reviewed).toMatchObject({ ok: true, accepted: true });
-		/* The reviewer received EXACTLY the package, the contract, and the
-		 * catalog, under its own fresh-context prompt. */
-		expect(ctx.calls).toHaveLength(1);
-		expect(ctx.calls[0]?.system).toBe(DESIGN_REVIEWER_SYSTEM);
-		expect(ctx.calls[0]?.prompt).toBe(
-			renderReviewPrompt(pkg, makeContract(), "CATALOG"),
-		);
-		expect(reasoningSeen).toEqual(["Weighed the queue shape."]);
+		expect(mounted.ctx.calls[0]).toEqual({
+			system: DESIGN_REVIEWER_SYSTEM,
+			prompt: renderReviewPrompt(pkg, makeContract(), "CATALOG"),
+		});
+		expect(mounted.reasoningSeen).toEqual(["Weighed the queue shape."]);
 
-		/* The server minted the acceptance: same content, empty dispositions,
-		 * inputs binding the draft AND the review. */
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		expect(accepted).not.toBeNull();
 		const reviews = await readDesignReviews(accepted?.parentRevisionId ?? "");
-		expect(reviews).toHaveLength(1);
 		expect(accepted?.envelope.inputArtifactDigests).toContain(
 			reviews[0]?.artifactDigest,
 		);
 		expect(await readDispositions(reviews[0]?.id ?? "")).toHaveLength(0);
 
-		const planned = await call(tools.submitPlan, {
-			slices: makeBuildPlan().slices,
-			externalActions: [],
-			intentOwnership: makeBuildPlan().intentOwnership,
+		const sourceTasks = await call(mounted.tools.inspectDesignWorkspace, {
+			artifactKind: "plan",
+			expectedRevision: 0,
+			selection: {
+				kind: "sourceCollection",
+				collection: "tasks",
+				ids: [],
+				offset: 0,
+				limit: 20,
+			},
 		});
-		expect(planned).toMatchObject({ ok: true });
-		const plan = await readLatestDesignBuildPlanForRevision(accepted?.id ?? "");
-		expect(plan).not.toBeNull();
+		expect(sourceTasks).toMatchObject({
+			ok: true,
+			workspaceRevision: 0,
+			view: {
+				kind: "sourceCollection",
+				collection: "tasks",
+				total: makeContract().tasks.length,
+			},
+		});
+
+		const planRevision = await stagePlan(mounted.tools, makeBuildPlan());
+		expect(
+			await call(mounted.tools.submitPlan, {
+				expectedRevision: planRevision,
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			await readLatestDesignBuildPlanForRevision(accepted?.id ?? ""),
+		).not.toBeNull();
+
+		const finalGates = evaluateDesignGates(
+			await loadDesignAncestry(sessionId, pkg.packageDigest),
+		);
+		expect(finalGates.plan).not.toBeNull();
 	});
 
-	it("reports blocking-action policy with structural plan errors so one repair can address both", async () => {
+	it("resumes staged work after a remount and inspects exact state", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
-		const { tools, repair } = mountTools({ pkg });
-		await call(tools.submitContract, makeContract());
-		await call(tools.requestReview);
+		const first = mountTools({ pkg });
+		const contract = makeContract();
+		const root = await call(first.tools.stageContract, {
+			expectedRevision: 0,
+			root: {
+				id: contract.id,
+				title: contract.title,
+				objective: contract.objective,
+				inScope: contract.inScope,
+				outOfScope: contract.outOfScope,
+			},
+			collections: [],
+		});
+		expect(root.workspaceRevision).toBe(1);
 
-		const invalid = makeBuildPlan();
-		const actionId = did(998);
-		const slice = invalid.slices[1];
-		if (slice === undefined)
-			throw new Error("Fixture is missing its second slice.");
-		slice.prerequisiteSliceIds = [did(999)];
-		slice.externalActionIds = [actionId];
-		invalid.externalActions = [
+		const resumed = mountTools({ pkg });
+		const inspected = await call(resumed.tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 1,
+			selection: { kind: "root" },
+		});
+		expect(inspected).toMatchObject({
+			ok: true,
+			workspaceRevision: 1,
+			view: { root: { id: contract.id, title: contract.title } },
+		});
+	});
+
+	it("deduplicates an exact provider call and rejects identity reuse with new bytes", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const { tools } = mountTools({ pkg });
+		const contract = makeContract();
+		const input = {
+			expectedRevision: 0,
+			root: { id: contract.id, title: contract.title },
+			collections: [],
+		};
+		const first = await call(tools.stageContract, input, "same-call");
+		const replay = await call(tools.stageContract, input, "same-call");
+		expect(first).toMatchObject({ ok: true, workspaceRevision: 1 });
+		expect(replay).toMatchObject({
+			ok: true,
+			workspaceRevision: 1,
+			deduplicated: true,
+		});
+		const collision = await call(
+			tools.stageContract,
 			{
-				id: actionId,
-				kind: "manual",
-				timing: "before-slice",
-				requiredFor: "construction",
-				description: "Complete an external prerequisite.",
-				idempotencyOwner: "user",
-				completionEvidence: "The prerequisite is complete.",
+				expectedRevision: 1,
+				root: { id: contract.id, title: "Different" },
+				collections: [],
 			},
-		];
-		const rejected = await call(tools.submitPlan, {
-			slices: invalid.slices,
-			externalActions: invalid.externalActions,
-			intentOwnership: invalid.intentOwnership,
-		});
-		expect(String(rejected.error)).toContain("prerequisite");
-		expect(String(rejected.error)).toContain(
-			"no registered completion producer",
+			"same-call",
 		);
-		expect(repair.fatalError()).toBeUndefined();
-
-		const repaired = makeBuildPlan();
-		const planned = await call(tools.submitPlan, {
-			repair: {
-				/* The valid ownership map is inherited from the rejected candidate;
-				 * only the dependent plan sections are replaced. */
-				slices: repaired.slices,
-				externalActions: repaired.externalActions,
+		expect(String(collision.error)).toContain("different staged input");
+		const revisionCollision = await call(
+			tools.stageContract,
+			{
+				expectedRevision: 1,
+				root: { id: contract.id, title: contract.title },
+				collections: [],
 			},
-		});
-		expect(planned).toMatchObject({ ok: true });
-		expect(repair.fatalError()).toBeUndefined();
+			"same-call",
+		);
+		expect(String(revisionCollision.error)).toContain("different staged input");
+	});
+
+	it("rejects staging after the exact live holder capability changes", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const gates = evaluateDesignGates(
+			await loadDesignAncestry(sessionId, pkg.packageDigest),
+		);
+		await expect(
+			stageDesignArtifactWorkspace({
+				designSessionId: sessionId,
+				lineage: designWorkspaceLineageForGates("contract", gates),
+				authority: { ...authority, holderNonce: did(997) },
+				toolCallId: "stale-holder",
+				expectedRevision: 0,
+				operation: {
+					kind: "contract",
+					root: { id: makeContract().id, title: "Stale" },
+					collections: [],
+				},
+			}),
+		).rejects.toThrow(/newer request took over/i);
 	});
 });
 
-describe("findings path and the second round", () => {
-	it("lands dispositions beside the revision, and accepts without a second round when nothing warrants one", async () => {
+describe("focused repair and reviewed revision", () => {
+	it("keeps a rejected candidate durable and accepts only the corrected item", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg, reviewer: { review: gatedReview } });
+		const mounted = mountTools({ pkg });
+		const complete = makeContract();
+		const broken = cloneContract(complete);
+		broken.acceptanceScenarios = [];
+		let revision = await stageContract(mounted.tools, broken);
 
-		await call(tools.submitContract, makeContract());
-		const reviewed = await call(tools.requestReview);
-		expect(reviewed).toMatchObject({ ok: true, accepted: false });
+		const rejected = await call(mounted.tools.submitContract, {
+			expectedRevision: revision,
+		});
+		expect(String(rejected.error)).toContain("acceptanceScenarios");
+		expect(await readLatestDesignRevision(sessionId)).toBeNull();
 
-		const revised = await call(tools.submitRevision, {
-			contract: makeContract(),
-			dispositions: [
+		const correction = await call(mounted.tools.stageContract, {
+			expectedRevision: revision,
+			collections: [
 				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Added a follow-up marker to visit recording.",
-					resultingIntentIds: [ids.taskVisit],
+					collection: "acceptanceScenarios",
+					upserts: complete.acceptanceScenarios,
+					removeIds: [],
 				},
 			],
+		});
+		revision = Number(correction.workspaceRevision);
+		expect(
+			await call(mounted.tools.submitContract, {
+				expectedRevision: revision,
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			(await readLatestDesignRevision(sessionId))?.envelope.payload,
+		).toEqual(complete);
+	});
+
+	it("inherits unchanged reviewed content and persists complete dispositions", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const mounted = mountTools({ pkg, reviewer: { review: gatedReview } });
+		const contractRevision = await stageContract(mounted.tools, makeContract());
+		await call(mounted.tools.submitContract, {
+			expectedRevision: contractRevision,
+		});
+		await call(mounted.tools.requestReview);
+
+		const staged = await call(mounted.tools.stageRevision, {
+			expectedRevision: 0,
+			collections: [],
+			dispositions: {
+				collection: "dispositions",
+				upserts: [
+					{
+						findingId: did(502),
+						status: "accepted",
+						rationale: "Added the follow-up marker to visit recording.",
+						resultingIntentIds: [ids.taskVisit],
+					},
+				],
+				removeIds: [],
+			},
+		});
+		const revised = await call(mounted.tools.submitRevision, {
+			expectedRevision: staged.workspaceRevision,
 		});
 		expect(revised).toMatchObject({ ok: true, accepted: true });
 
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		const reviews = await readDesignReviews(accepted?.parentRevisionId ?? "");
-		const dispositions = await readDispositions(reviews[0]?.id ?? "");
-		expect(dispositions).toHaveLength(1);
-		expect(dispositions[0]?.disposition.status).toBe("accepted");
+		expect(await readDispositions(reviews[0]?.id ?? "")).toHaveLength(1);
 	});
 
-	it("does not force a second review just because the design is extended", async () => {
+	it("rejects an undispositioned sensitivity downgrade", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg, reviewer: { review: gatedReview } });
-		const contract = extendedContract();
-
-		const submitted = await call(tools.submitContract, contract);
-		expect(submitted).toMatchObject({
-			ok: true,
-			effortLevel: "extended",
-			roughTimeEstimate: "about 90 minutes",
+		const mounted = mountTools({ pkg, reviewer: { review: gatedReview } });
+		const contract = makeContract();
+		const contractRevision = await stageContract(mounted.tools, contract);
+		await call(mounted.tools.submitContract, {
+			expectedRevision: contractRevision,
 		});
-		await call(tools.requestReview);
-		const revised = await call(tools.submitRevision, {
-			contract,
-			dispositions: [
-				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Added the follow-up marker to visit recording.",
-					resultingIntentIds: [ids.taskVisit],
-				},
-			],
-		});
-		expect(revised).toMatchObject({ ok: true, accepted: true });
-	});
+		await call(mounted.tools.requestReview);
 
-	it("an architecture change forces the second review, and the second revision accepts outright", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg, reviewer: { review: criticalReview } });
-
-		await call(tools.submitContract, makeContract());
-		await call(tools.requestReview);
-
-		const flipped = cloneContract(makeContract());
-		const decision = flipped.decisions[0];
-		if (decision) decision.selectedOptionId = ids.decisionOptionB;
-		const revised = await call(tools.submitRevision, {
-			contract: flipped,
-			dispositions: [
-				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Reshaped visits to address the gap.",
-					resultingIntentIds: [ids.taskVisit],
-				},
-			],
-		});
-		expect(revised).toMatchObject({ ok: true, accepted: false });
-		expect(String(revised.message)).toContain("requestReview");
-
-		const secondReview = await call(tools.requestReview);
-		expect(secondReview).toMatchObject({ ok: true, accepted: false });
-		const revisedAgain = await call(tools.submitRevision, {
-			contract: flipped,
-			dispositions: [
-				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Held the reshaped visits.",
-					resultingIntentIds: [ids.taskVisit],
-				},
-			],
-		});
-		/* Round 2 never opens a third loop: the revision lands accepted. */
-		expect(revisedAgain).toMatchObject({ ok: true, accepted: true });
-	});
-});
-
-describe("repairs", () => {
-	it("repairs only rejected contract sections and revalidates the whole graph", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools, repair } = mountTools({ pkg });
-		const original = makeContract();
-		const broken = cloneContract(original);
-		broken.acceptanceScenarios = [];
-
-		const rejected = await call(tools.submitContract, broken);
-		expect(String(rejected.error)).toContain("acceptanceScenarios");
-		const repaired = await call(tools.submitContract, {
-			/* Exact strict-wire shape observed locally: nullable full-contract
-			 * slots strip away, but the model can preserve the fixed v1 marker
-			 * both outside and inside the repair envelope. */
-			schemaVersion: 1,
-			id: null,
-			facts: null,
-			repair: {
-				schemaVersion: 1,
-				acceptanceScenarios: original.acceptanceScenarios,
+		const risk = cloneContract(contract).facts.find(
+			(fact) => fact.id === ids.factRisk,
+		);
+		if (risk === undefined) throw new Error("fixture risk fact is missing");
+		risk.sensitivity = "ordinary";
+		const staged = await call(mounted.tools.stageRevision, {
+			expectedRevision: 0,
+			collections: [{ collection: "facts", upserts: [risk], removeIds: [] }],
+			dispositions: {
+				collection: "dispositions",
+				upserts: [
+					{
+						findingId: did(502),
+						status: "accepted",
+						rationale: "Addressed the coverage gap.",
+						resultingIntentIds: [ids.taskVisit],
+					},
+				],
+				removeIds: [],
 			},
 		});
-		expect(repaired).toMatchObject({ ok: true });
-		expect(repair.fatalError()).toBeUndefined();
-
-		const persisted = await readLatestDesignRevision(sessionId);
-		expect(persisted?.envelope.payload).toEqual(original);
-	});
-
-	it("still rejects an authored full-contract field beside a repair", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg });
-		const original = makeContract();
-		const broken = cloneContract(original);
-		broken.acceptanceScenarios = [];
-		await call(tools.submitContract, broken);
-
-		const mixed = await call(tools.submitContract, {
-			title: "A second full submission",
-			repair: { acceptanceScenarios: original.acceptanceScenarios },
-		});
-		expect(String(mixed.error)).toContain(
-			"either a complete contract or one repair object",
-		);
-	});
-
-	it("returns refinement messages and stops a non-improving second rejection", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools, repair } = mountTools({ pkg });
-
-		const broken = cloneContract(makeContract());
-		broken.acceptanceScenarios = [];
-		const first = await call(tools.submitContract, broken);
-		expect(String(first.error)).toContain("acceptanceScenarios");
-		expect(repair.fatalError()).toBeUndefined();
-		const second = await call(tools.submitContract, broken);
-		expect(String(second.error)).toBeTruthy();
-		expect(repair.fatalError()?.message).toContain("submitContract");
-	});
-
-	it("repairs one rejected revision section without re-emitting the contract", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools, repair } = mountTools({
-			pkg,
-			reviewer: { review: gatedReview },
-		});
-		const original = makeContract();
-		await call(tools.submitContract, original);
-		await call(tools.requestReview);
-
-		const lowered = cloneContract(original);
-		const risk = lowered.facts.find((fact) => fact.id === ids.factRisk);
-		if (risk) risk.sensitivity = "ordinary";
-		const rejected = await call(tools.submitRevision, {
-			contract: lowered,
-			dispositions: [
-				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Addressed the coverage gap.",
-					resultingIntentIds: [ids.taskVisit],
-				},
-			],
+		const rejected = await call(mounted.tools.submitRevision, {
+			expectedRevision: staged.workspaceRevision,
 		});
 		expect(String(rejected.error)).toContain("sensitivity");
-
-		const repaired = await call(tools.submitRevision, {
-			repair: { contract: { facts: original.facts } },
-		});
-		expect(repaired).toMatchObject({ ok: true, accepted: true });
-		expect(repair.fatalError()).toBeUndefined();
-	});
-
-	it("rejects a quiet sensitivity downgrade", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg, reviewer: { review: gatedReview } });
-		await call(tools.submitContract, makeContract());
-		await call(tools.requestReview);
-
-		const lowered = cloneContract(makeContract());
-		const risk = lowered.facts.find((fact) => fact.id === ids.factRisk);
-		if (risk) risk.sensitivity = "ordinary";
-		const revised = await call(tools.submitRevision, {
-			contract: lowered,
-			dispositions: [
-				{
-					findingId: did(502),
-					status: "accepted",
-					rationale: "Addressed the coverage gap.",
-					resultingIntentIds: [ids.taskVisit],
-				},
-			],
-		});
-		expect(String(revised.error)).toContain("sensitivity");
 	});
 });
 
-describe("sequence gates", () => {
-	it("every out-of-order call is a tool result naming the legal action", async () => {
+describe("ancestry gates and reviewer recovery", () => {
+	it("names the legal next action for out-of-order staging and finalization", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
 		const { tools } = mountTools({ pkg });
-
 		expect(String((await call(tools.requestReview)).error)).toContain(
 			"submitContract",
 		);
-		expect(String((await call(tools.submitPlan, {})).error)).toContain(
-			"submitContract",
-		);
-
-		await call(tools.submitContract, makeContract());
 		expect(
-			String((await call(tools.submitContract, makeContract())).error),
-		).toContain("requestReview");
-		expect(String((await call(tools.submitRevision, {})).error)).toContain(
-			"requestReview",
-		);
+			String(
+				(
+					await call(tools.stagePlan, {
+						expectedRevision: 0,
+						collections: [
+							{
+								collection: "slices",
+								upserts: [],
+								removeIds: [did(999)],
+							},
+						],
+					})
+				).error,
+			),
+		).toContain("submitContract");
 	});
-});
 
-describe("the §7.3 outcome: blocking questions reopen a fresh cycle", () => {
-	it("refuses the plan, then reopens on the moved digest", async () => {
+	it("reviews the draft under its own reproducible source package", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
-		const withBlocking = cloneContract(makeContract());
-		const question = withBlocking.openQuestions[0];
-		if (question) question.blocking = true;
-		const { tools } = mountTools({ pkg });
+		const first = mountTools({ pkg });
+		const contractRevision = await stageContract(first.tools, makeContract());
+		await call(first.tools.submitContract, {
+			expectedRevision: contractRevision,
+		});
 
-		await call(tools.submitContract, withBlocking);
-		const reviewed = await call(tools.requestReview);
-		expect(reviewed).toMatchObject({ ok: true, accepted: true });
-		expect(String(reviewed.message)).toContain("askQuestions");
-
-		const planned = await call(tools.submitPlan, {});
-		expect(String(planned.error)).toContain("askQuestions");
-
-		/* The answered round moves the digest: a new turn mounts new deps. */
-		const answeredPkg = makePackage("Track CHW visits. Archived: yes.");
-		await persistPackage(answeredPkg);
-		const reopened = mountTools({ pkg: answeredPkg });
-		const resubmitted = await call(
-			reopened.tools.submitContract,
-			makeContract(),
-		);
-		expect(resubmitted).toMatchObject({ ok: true });
-
-		/* The new draft parents the accepted revision: one linear chain. */
-		const revisions = await readDesignRevisionsForSession(sessionId);
-		const head = revisions.at(-1);
-		expect(head?.lifecycle).toBe("draft");
-		expect(head?.parentRevisionId).toBe(revisions.at(-2)?.id);
-		/* And the reopened cycle's review budget is fresh. */
-		const gates = evaluateDesignGates(
-			await loadDesignAncestry(sessionId, answeredPkg.packageDigest),
-		);
-		expect(gates.openCycleReviews).toBe(0);
-		expect(gates.verdicts.requestReview.legal).toBe(true);
-	});
-});
-
-describe("reviewing a draft under its own package", () => {
-	it("re-renders the draft's package when the digest moved, and the review binds it", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const mounted = mountTools({ pkg });
-		await call(mounted.tools.submitContract, makeContract());
-
-		/* A question round intervened: this turn's package differs. */
 		const laterPkg = makePackage("Track CHW visits. Answered: offline.");
 		await persistPackage(laterPkg);
 		const rebuilt: string[] = [];
@@ -683,63 +651,46 @@ describe("reviewing a draft under its own package", () => {
 				return pkg;
 			},
 		});
-		const reviewed = await call(later.tools.requestReview);
-		expect(reviewed).toMatchObject({ ok: true });
+		expect(await call(later.tools.requestReview)).toMatchObject({ ok: true });
 		expect(rebuilt).toEqual([pkg.packageDigest]);
-
-		const draft = await readLatestDesignRevision(sessionId);
-		const reviews = await readDesignReviews(
-			draft?.parentRevisionId ?? draft?.id ?? "",
-		);
-		expect(reviews[0]?.envelope.sourcePackageDigest).toBe(pkg.packageDigest);
 	});
 
-	it("refuses honestly when the sources no longer reproduce the draft's digest", async () => {
+	it("keeps a failed reviewer call unreviewed", async () => {
+		const pkg = makePackage();
+		await persistPackage(pkg);
+		const mounted = mountTools({ pkg, reviewer: { review: () => null } });
+		const contractRevision = await stageContract(mounted.tools, makeContract());
+		await call(mounted.tools.submitContract, {
+			expectedRevision: contractRevision,
+		});
+		const reviewed = await call(mounted.tools.requestReview);
+		expect(String(reviewed.error)).toContain("unreviewed");
+		const draft = await readLatestDesignRevision(sessionId);
+		expect(await readDesignReviews(draft?.id ?? "")).toHaveLength(0);
+	});
+
+	it("exposes the exact open workspace summary used after compaction", async () => {
 		const pkg = makePackage();
 		await persistPackage(pkg);
 		const mounted = mountTools({ pkg });
-		await call(mounted.tools.submitContract, makeContract());
-
-		const laterPkg = makePackage("Changed sources.");
-		await persistPackage(laterPkg);
-		const later = mountTools({ pkg: laterPkg, rebuild: async () => null });
-		const reviewed = await call(later.tools.requestReview);
-		expect(String(reviewed.error)).toContain("submitContract");
-	});
-});
-
-describe("a failed reviewer call leaves the draft unreviewed", () => {
-	it("returns an honest error and persists no review", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const { tools } = mountTools({ pkg, reviewer: { review: () => null } });
-		await call(tools.submitContract, makeContract());
-		const reviewed = await call(tools.requestReview);
-		expect(String(reviewed.error)).toContain("unreviewed");
-
-		const draft = await readLatestDesignRevision(sessionId);
-		expect(draft?.lifecycle).toBe("draft");
-		expect(await readDesignReviews(draft?.id ?? "")).toHaveLength(0);
-	});
-});
-
-describe("resume convergence", () => {
-	it("a fresh mount over the same ancestry reaches the same verdicts", async () => {
-		const pkg = makePackage();
-		await persistPackage(pkg);
-		const first = mountTools({ pkg, reviewer: { review: gatedReview } });
-		await call(first.tools.submitContract, makeContract());
-		await call(first.tools.requestReview);
-
-		/* The process died; a new POST mounts fresh tools over the durable
-		 * record. The only legal forward move is still the revision. */
-		const resumed = mountTools({ pkg, reviewer: { review: gatedReview } });
+		const contract = makeContract();
+		await call(mounted.tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: contract.id, title: contract.title },
+			collections: [],
+		});
 		const gates = evaluateDesignGates(
 			await loadDesignAncestry(sessionId, pkg.packageDigest),
 		);
-		expect(gates.verdicts.submitRevision.legal).toBe(true);
-		expect(gates.verdicts.requestReview.legal).toBe(false);
-		const reviewedAgain = await call(resumed.tools.requestReview);
-		expect(String(reviewedAgain.error)).toContain("submitRevision");
+		const summary = await loadDesignArtifactWorkspaceSummary({
+			designSessionId: sessionId,
+			lineage: designWorkspaceLineageForGates("contract", gates),
+			authority,
+		});
+		expect(summary).toMatchObject({
+			revision: 1,
+			stepCount: 1,
+			missingRootFields: ["objective", "inScope", "outOfScope"],
+		});
 	});
 });

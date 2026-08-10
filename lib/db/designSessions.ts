@@ -911,6 +911,16 @@ export async function discardDesignSession(
 			.where("status", "=", "running")
 			.execute();
 		await tx
+			.updateTable("design_artifact_workspaces")
+			.set({
+				status: "superseded",
+				updated_by_run_id: "system:design-session-discard",
+				updated_at: new Date(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "open")
+			.execute();
+		await tx
 			.updateTable("threads")
 			.set({
 				active_stream_id: null,

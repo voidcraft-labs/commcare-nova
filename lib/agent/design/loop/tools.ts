@@ -1,26 +1,8 @@
 /**
- * The design loop's server tools: submitContract, requestReview,
- * submitRevision, submitPlan. Each execute re-derives legality from the
- * durable artifact record (`gates.ts`), parses through the EXACT schema
- * factories, persists through `artifactStore`, and answers with a compact
- * acknowledgment naming what is legal next. An illegal call or a rejected
- * submission is a tool RESULT the model repairs from, never a thrown error.
- *
- * Registration and validation split deliberately: the REGISTERED input
- * schema is the strict wire projection alone (`strict: true` constrained
- * decoding needs the grammar), and the exact schemas run INSIDE execute.
- * They could not be registration-time schemas anyway: the graph proof runs
- * inside `appDesignContractSchema`'s parse, and the factories close over
- * session state (`designRevisionResultSchemaFor` over the parent draft's
- * persisted reviews, `buildPlanSchemaFor` over the accepted contract) that
- * does not exist when the agent mounts. The split is what makes a
- * refinement failure a repairable tool result instead of an SDK
- * invalid-input failure the loop never sees.
- *
- * Writers note: everything persisted here goes through `artifactStore`,
- * this package's own boundary. Streams, orchestration events, and session
- * flags stay with `lib/agent/build` (design CLAUDE.md invariant 6); the
- * callbacks in `DesignLoopToolDeps` are how that layer observes the loop.
+ * Server-gated design tools. Contract, revision, and plan authoring is a
+ * durable sequence of bounded identity-addressed stages; the submit tools are
+ * small finalizers that compose, fully validate, and atomically persist one
+ * immutable artifact.
  */
 
 import { jsonSchema } from "ai";
@@ -32,17 +14,28 @@ import {
 	insertDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import {
-	buildPlanDraftRepairSchema,
+	type DesignArtifactKind,
+	type DesignArtifactWorkspaceLineage,
+	designWorkspaceBoundError,
+	finalizeDesignWorkspaceInputSchema,
+	inspectDesignWorkspaceCandidate,
+	inspectDesignWorkspaceInputSchema,
+	stageContractInputSchema,
+	stagePlanInputSchema,
+	stageRevisionInputSchema,
+} from "@/lib/agent/design/artifactWorkspaceOperations";
+import {
+	DesignArtifactWorkspaceError,
+	inspectDesignArtifactWorkspace,
+	stageDesignArtifactWorkspace,
+} from "@/lib/agent/design/artifactWorkspaceStore";
+import {
 	buildPlanDraftSchema,
 	buildPlanSchemaFor,
 	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
-import {
-	appDesignContractBaseSchema,
-	appDesignContractRepairSchema,
-	appDesignContractSchema,
-} from "@/lib/agent/design/contract";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
 	changesArchitecture,
 	composePlan,
@@ -62,9 +55,6 @@ import {
 } from "@/lib/agent/design/loop/gates";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
-	designRevisionPatchSchema,
-	designRevisionRepairSchema,
-	designRevisionResultSchema,
 	designRevisionResultSchemaFor,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
@@ -80,45 +70,31 @@ export interface DesignLoopToolDeps {
 	readonly designSessionId: string;
 	readonly runId: string;
 	readonly authority: DesignArtifactWriteAuthority;
-	/** THIS turn's source package: already persisted by the loop runner. */
 	readonly currentPkg: DesignSourcePackage;
 	readonly catalogText: string;
-	/** The structured-run context the independent reviewer call rides. */
 	readonly ctx: StructuredModelRunContext;
 	readonly signal: AbortSignal;
 	readonly repair: DesignRepairTracker;
-	/** Fresh durable state for every legality decision. */
 	readonly loadAncestry: () => Promise<DesignAncestry>;
-	/** Re-render a draft's own package from its persisted reference row;
-	 *  null when the underlying sources no longer reproduce its digest. */
 	readonly rebuildPackageForDigest: (
 		digest: string,
 	) => Promise<DesignSourcePackage | null>;
-	/** Live reviewer-call activity (the pulse's chars feed). */
 	readonly onReviewActivity?: (deltaChars: number) => void;
-	/** The reviewer's display-safe reasoning summary, for the run event log. */
 	readonly onReviewerReasoning?: (text: string) => void;
 }
 
-/** Wire-projection-only registration schema: the provider gets the strict
- *  grammar; execute runs the exact Zod parse. No `validate` slot, so the
- *  SDK hands the raw input through instead of aborting the step on a
- *  refinement the model should repair from. */
 function strictWireOnly(schema: z.ZodType) {
 	return jsonSchema<unknown>(strictWireJsonSchema(schema) as never);
 }
 
-/** The submission's failing paths and OUR refinement messages, person to
- *  person: the repair loop's whole input. Bounded so a deeply broken
- *  submission cannot flood the context. */
-function renderZodIssues(error: ZodError): string {
+export function renderDesignValidationIssues(error: ZodError): string {
 	const shown = error.issues.slice(0, 25);
 	const lines = shown.map(
 		(issue) => `- ${issue.path.join(".") || "<root>"}: ${issue.message}`,
 	);
 	const more = error.issues.length - shown.length;
 	return [
-		"The submission failed Nova's design validation. Fix exactly what these name and resubmit:",
+		"The submission failed Nova's design validation. Correct these exact items, then finalize again:",
 		...lines,
 		...(more > 0 ? [`(and ${more} more issues of the same kinds)`] : []),
 	].join("\n");
@@ -126,48 +102,6 @@ function renderZodIssues(error: ZodError): string {
 
 interface ToolError {
 	readonly error: string;
-}
-
-/* Provider strict mode requires an object at the schema root. The registration
- * grammar therefore exposes nullable full-submission slots plus `repair`; the
- * execute path below enforces that a call is exactly one form and then runs
- * the authoritative full or repair schema. */
-const contractSubmissionWireSchema = appDesignContractBaseSchema
-	.partial()
-	.extend({ repair: appDesignContractRepairSchema.optional() })
-	.strict();
-
-const revisionSubmissionWireSchema = designRevisionResultSchema
-	.partial()
-	.extend({
-		patch: designRevisionPatchSchema.optional(),
-		repair: designRevisionRepairSchema.optional(),
-	})
-	.strict();
-
-const planSubmissionWireSchema = buildPlanDraftSchema
-	.partial()
-	.extend({ repair: buildPlanDraftRepairSchema.optional() })
-	.strict();
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-	return value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
-
-/** A contract repair is one closed envelope. The strict wire makes every
- * optional property explicit, and the model may preserve the contract's
- * fixed v1 marker instead of emitting null for that slot. Treat that marker
- * as wire scaffolding while still rejecting any authored full-contract field
- * beside `repair`. */
-function contractRepairHasAuthoredFullFields(
-	raw: Readonly<Record<string, unknown>>,
-): boolean {
-	return Object.entries(raw).some(
-		([key, value]) =>
-			key !== "repair" && !(key === "schemaVersion" && value === 1),
-	);
 }
 
 async function gatesFor(deps: DesignLoopToolDeps): Promise<DesignGateState> {
@@ -185,56 +119,264 @@ function refuse(
 	return { error: verdict.refusal };
 }
 
+function gateNameForKind(kind: DesignArtifactKind): DesignLoopToolName {
+	return kind === "contract"
+		? "submitContract"
+		: kind === "revision"
+			? "submitRevision"
+			: "submitPlan";
+}
+
+export function designWorkspaceLineageForGates(
+	kind: DesignArtifactKind,
+	gates: DesignGateState,
+): DesignArtifactWorkspaceLineage {
+	const base = gates.head;
+	return {
+		schemaVersion: 1,
+		artifactKind: kind,
+		...(base !== null && {
+			baseRevision: { id: base.id, digest: base.artifactDigest },
+		}),
+		reviewArtifacts:
+			kind === "revision"
+				? gates.headReviews.map((review) => ({
+						id: review.id,
+						digest: review.artifactDigest,
+					}))
+				: [],
+	};
+}
+
+function workspaceError(error: unknown): ToolError | null {
+	return error instanceof DesignArtifactWorkspaceError
+		? { error: error.message }
+		: null;
+}
+
+function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
+	const parsed = schema.safeParse(stripNullProperties(input));
+	return parsed.success
+		? ({ ok: true, data: parsed.data } as const)
+		: ({
+				ok: false,
+				error: renderDesignValidationIssues(parsed.error),
+			} as const);
+}
+
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
-	let rejectedContractCandidate: Record<string, unknown> | null = null;
-	let rejectedRevisionCandidate: Record<string, unknown> | null = null;
-	let rejectedPlanCandidate: Record<string, unknown> | null = null;
+	const stageContract = {
+		description:
+			"Stage a bounded part of the Design Contract. Set root fields and/or upsert or remove complete identity-addressed collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
+		inputSchema: strictWireOnly(stageContractInputSchema),
+		strict: true,
+		execute: async (
+			input: unknown,
+			options: { readonly toolCallId: string },
+		) => {
+			const gates = await gatesFor(deps);
+			const refusal = refuse(deps, gates, "submitContract");
+			if (refusal) return refusal;
+			const parsed = parseStage(stageContractInputSchema, input);
+			if (!parsed.ok) return { error: parsed.error };
+			const { expectedRevision, ...body } = parsed.data;
+			const operation = { kind: "contract" as const, ...body };
+			const bound = designWorkspaceBoundError({
+				input: parsed.data,
+				operation,
+			});
+			if (bound !== null) return { error: bound };
+			try {
+				const result = await stageDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("contract", gates),
+					authority: deps.authority,
+					toolCallId: options.toolCallId,
+					expectedRevision,
+					operation,
+				});
+				return {
+					ok: true,
+					workspaceRevision: result.state.workspace.revision,
+					deduplicated: result.deduplicated,
+					message:
+						"This part of the contract is saved. Continue staging related items, inspect the workspace when needed, and submitContract only after the complete graph is ready.",
+				};
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
+			}
+		},
+	};
+
+	const stageRevision = {
+		description:
+			"Stage a bounded part of the reviewed revision. Upsert or remove complete contract items and finding dispositions by identity; unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
+		inputSchema: strictWireOnly(stageRevisionInputSchema),
+		strict: true,
+		execute: async (
+			input: unknown,
+			options: { readonly toolCallId: string },
+		) => {
+			const gates = await gatesFor(deps);
+			const refusal = refuse(deps, gates, "submitRevision");
+			if (refusal) return refusal;
+			const parsed = parseStage(stageRevisionInputSchema, input);
+			if (!parsed.ok) return { error: parsed.error };
+			const { expectedRevision, ...body } = parsed.data;
+			const operation = { kind: "revision" as const, ...body };
+			const bound = designWorkspaceBoundError({
+				input: parsed.data,
+				operation,
+			});
+			if (bound !== null) return { error: bound };
+			try {
+				const result = await stageDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("revision", gates),
+					authority: deps.authority,
+					toolCallId: options.toolCallId,
+					expectedRevision,
+					operation,
+				});
+				return {
+					ok: true,
+					workspaceRevision: result.state.workspace.revision,
+					deduplicated: result.deduplicated,
+					message:
+						"This part of the revision is saved. Continue with the remaining corrections and dispositions, then submitRevision to validate the complete result.",
+				};
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
+			}
+		},
+	};
+
+	const stagePlan = {
+		description:
+			"Stage bounded build-plan rows. Upsert or remove complete slices, external actions, or intent-ownership rows by identity. Use the returned workspace revision for the next stage.",
+		inputSchema: strictWireOnly(stagePlanInputSchema),
+		strict: true,
+		execute: async (
+			input: unknown,
+			options: { readonly toolCallId: string },
+		) => {
+			const gates = await gatesFor(deps);
+			const refusal = refuse(deps, gates, "submitPlan");
+			if (refusal) return refusal;
+			const parsed = parseStage(stagePlanInputSchema, input);
+			if (!parsed.ok) return { error: parsed.error };
+			const { expectedRevision, ...body } = parsed.data;
+			const operation = { kind: "plan" as const, ...body };
+			const bound = designWorkspaceBoundError({
+				input: parsed.data,
+				operation,
+			});
+			if (bound !== null) return { error: bound };
+			try {
+				const result = await stageDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("plan", gates),
+					authority: deps.authority,
+					toolCallId: options.toolCallId,
+					expectedRevision,
+					operation,
+				});
+				return {
+					ok: true,
+					workspaceRevision: result.state.workspace.revision,
+					deduplicated: result.deduplicated,
+					message:
+						"These plan rows are saved. Continue until ownership and slice coverage are complete, then submitPlan to validate the whole plan.",
+				};
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
+			}
+		},
+	};
+
+	const inspectDesignWorkspace = {
+		description:
+			"Inspect the authoritative staged candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. Revision and plan workspaces can also inspect the immutable source contract with sourceRoot or sourceCollection. Use this after resume or compaction and whenever the current workspace revision is uncertain.",
+		inputSchema: strictWireOnly(inspectDesignWorkspaceInputSchema),
+		strict: true,
+		execute: async (input: unknown) => {
+			const parsed = parseStage(inspectDesignWorkspaceInputSchema, input);
+			if (!parsed.ok) return { error: parsed.error };
+			const gates = await gatesFor(deps);
+			const refusal = refuse(
+				deps,
+				gates,
+				gateNameForKind(parsed.data.artifactKind),
+			);
+			if (refusal) return refusal;
+			try {
+				const state = await inspectDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates(
+						parsed.data.artifactKind,
+						gates,
+					),
+					authority: deps.authority,
+					expectedRevision: parsed.data.expectedRevision,
+				});
+				return {
+					ok: true,
+					workspaceRevision: state.workspace.revision,
+					stepCount: state.operations.length,
+					view: inspectDesignWorkspaceCandidate({
+						kind: state.workspace.artifactKind,
+						candidate: state.candidate,
+						...(state.sourceContract !== null && {
+							sourceContract: state.sourceContract,
+						}),
+						selection: parsed.data.selection,
+					}),
+				};
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
+			}
+		},
+	};
 
 	const submitContract = {
 		description:
-			"Submit the complete Design Contract. If that candidate is rejected, retry with { repair: { ...top-level replacements } } to keep every valid section and replace only what the errors require. A repair may replace additional related sections when cross-dependencies require it. The server merges only over the immediately preceding rejected candidate and revalidates the entire graph before persisting anything.",
-		inputSchema: strictWireOnly(contractSubmissionWireSchema),
+			"Finalize the staged complete Design Contract at the exact workspace revision. The server replays every saved stage, validates the whole graph, and atomically persists the immutable draft or leaves the workspace open with exact diagnostics.",
+		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitContract");
 			if (refusal) return refusal;
-			const stripped = stripNullProperties(input);
-			const raw = recordValue(stripped);
-			let candidate: unknown = stripped;
-			if (raw && "repair" in raw) {
-				if (contractRepairHasAuthoredFullFields(raw)) {
-					deps.repair.noteSchemaRejection("submitContract");
-					return {
-						error:
-							"A contract call must be either a complete contract or one repair object, not both.",
-					};
-				}
-				const repair = appDesignContractRepairSchema.safeParse(raw.repair);
-				if (!repair.success) {
-					deps.repair.noteSchemaRejection(
-						"submitContract",
-						repair.error.issues.length,
-					);
-					return { error: renderZodIssues(repair.error) };
-				}
-				if (rejectedContractCandidate === null) {
-					deps.repair.noteSequenceError();
-					return {
-						error:
-							"There is no rejected contract in this live turn to repair. Submit the complete contract.",
-					};
-				}
-				candidate = { ...rejectedContractCandidate, ...repair.data };
+			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
+			if (!parsedInput.ok) return { error: parsedInput.error };
+			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
+			try {
+				state = await inspectDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("contract", gates),
+					authority: deps.authority,
+					expectedRevision: parsedInput.data.expectedRevision,
+				});
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
 			}
-			const parsed = appDesignContractSchema.safeParse(candidate);
+			const parsed = appDesignContractSchema.safeParse(state.candidate);
 			if (!parsed.success) {
-				rejectedContractCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection(
 					"submitContract",
 					parsed.error.issues.length,
 				);
-				return { error: renderZodIssues(parsed.error) };
+				return { error: renderDesignValidationIssues(parsed.error) };
 			}
 			const head = gates.head;
 			const draft = await insertDesignRevision({
@@ -251,8 +393,12 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				lifecycle: "draft",
 				authority: deps.authority,
 				supersedeUncommittedExecution: gates.supersedesPlanExecution,
+				workspaceFinalization: {
+					workspaceId: state.workspace.id,
+					expectedRevision: state.workspace.revision,
+					artifactKind: "contract",
+				},
 			});
-			rejectedContractCandidate = null;
 			deps.repair.noteAccepted("submitContract");
 			return {
 				ok: true,
@@ -277,9 +423,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const refusal = refuse(deps, gates, "requestReview");
 			if (refusal) return refusal;
 			const draft = gates.head;
-			if (draft === null) {
-				return { error: "No draft exists to review." };
-			}
+			if (draft === null) return { error: "No draft exists to review." };
 			const pkg =
 				draft.sourcePackageDigest === deps.currentPkg.packageDigest
 					? deps.currentPkg
@@ -288,7 +432,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				deps.repair.noteSequenceError();
 				return {
 					error:
-						"The sources this draft was written from no longer reproduce exactly (an attachment changed or disappeared), so its review cannot be grounded honestly. Submit a fresh Design Contract from the current sources with submitContract.",
+						"The sources for this draft no longer reproduce exactly. Stage and finalize a fresh Design Contract from the current sources.",
 				};
 			}
 			const reviewed = await runDesignReviewer(
@@ -302,9 +446,6 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				deps.onReviewActivity,
 			);
 			if (reviewed.kind === "not-produced") {
-				/* The draft stays persisted and UNREVIEWED: nothing may label it
-				 * reviewed. Bounded like a submission rejection so a reviewer that
-				 * keeps failing ends the turn instead of burning silently. */
 				deps.repair.noteSchemaRejection("requestReview");
 				return {
 					error: `The independent review did not come back usable this time (${reviewed.reason}). The draft stays unreviewed; request the review again.`,
@@ -329,10 +470,6 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					finding.severity === "critical" || finding.severity === "important",
 			);
 			if (gated.length === 0) {
-				/* Nothing to revise: the server itself re-issues the draft's exact
-				 * content as the accepted revision (empty dispositions), exactly
-				 * the transition the pipeline performed: a deterministic step
-				 * never waits on a model re-emission. */
 				const accepted = await insertDesignRevision({
 					envelope: contractEnvelope({
 						designSessionId: deps.designSessionId,
@@ -360,8 +497,8 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					acceptedRevisionId: accepted.id,
 					message:
 						blocking.length > 0
-							? "The review raised no gated findings, so the server accepted the design. It carries blocking open questions; ask the user with askQuestions, and their answers reopen design work."
-							: "The review raised no gated findings, so the server accepted the design. Submit the build plan with submitPlan.",
+							? "The review raised no gated findings, so the server accepted the design. Ask the user its blocking open questions."
+							: "The review raised no gated findings, so the server accepted the design. Stage the build plan with stagePlan.",
 				};
 			}
 			return {
@@ -370,15 +507,16 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				summary: review.envelope.payload.summary,
 				findings,
 				accepted: false,
-				message: `The review raised ${gated.length} finding(s) that need dispositions. Submit the revised contract plus one disposition per critical and important finding with submitRevision.`,
+				message:
+					"The review has findings that need dispositions. Stage only the required contract corrections and complete dispositions with stageRevision, then finalize with submitRevision.",
 			};
 		},
 	};
 
 	const submitRevision = {
 		description:
-			"Submit either the complete revised Design Contract, or { patch: { contract?: top-level replacements, dispositions: complete replacement set } } to preserve every unchanged collection from the persisted reviewed parent. If rejected, retry with { repair: { contract?: top-level replacements, dispositions?: complete replacement set } }. Every form is composed into a whole revision and reruns all contract, disposition, and cross-artifact proofs.",
-		inputSchema: strictWireOnly(revisionSubmissionWireSchema),
+			"Finalize the staged revision at the exact workspace revision. The server composes the reviewed parent, all saved item changes, and dispositions; then reruns every graph, closure, sensitivity, and cross-artifact proof atomically.",
+		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
@@ -386,90 +524,41 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (refusal) return refusal;
 			const head = gates.head;
 			if (head === null) return { error: "No draft exists to revise." };
+			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
+			if (!parsedInput.ok) return { error: parsedInput.error };
+			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
+			try {
+				state = await inspectDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("revision", gates),
+					authority: deps.authority,
+					expectedRevision: parsedInput.data.expectedRevision,
+				});
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
+			}
+			const { dispositions, ...contract } = state.candidate;
 			const reviewPayloads = gates.headReviews.map(
 				(review) => review.envelope.payload,
 			);
-			const stripped = stripNullProperties(input);
-			const raw = recordValue(stripped);
-			let candidate: unknown = stripped;
-			if (raw && "patch" in raw) {
-				if (Object.keys(raw).some((key) => key !== "patch")) {
-					deps.repair.noteSchemaRejection("submitRevision");
-					return {
-						error:
-							"A revision call must be one complete revision, one persisted-parent patch, or one rejected-candidate repair.",
-					};
-				}
-				const patch = designRevisionPatchSchema.safeParse(raw.patch);
-				if (!patch.success) {
-					deps.repair.noteSchemaRejection(
-						"submitRevision",
-						patch.error.issues.length,
-					);
-					return { error: renderZodIssues(patch.error) };
-				}
-				candidate = {
-					contract: {
-						...head.envelope.payload,
-						...(patch.data.contract ?? {}),
-					},
-					dispositions: patch.data.dispositions,
-				};
-			} else if (raw && "repair" in raw) {
-				if (Object.keys(raw).some((key) => key !== "repair")) {
-					deps.repair.noteSchemaRejection("submitRevision");
-					return {
-						error:
-							"A revision call must be either a complete revision or one repair object, not both.",
-					};
-				}
-				const repair = designRevisionRepairSchema.safeParse(raw.repair);
-				if (!repair.success) {
-					deps.repair.noteSchemaRejection(
-						"submitRevision",
-						repair.error.issues.length,
-					);
-					return { error: renderZodIssues(repair.error) };
-				}
-				if (rejectedRevisionCandidate === null) {
-					deps.repair.noteSequenceError();
-					return {
-						error:
-							"There is no rejected revision in this live turn to repair. Submit the complete revised contract and dispositions.",
-					};
-				}
-				const baseContract = recordValue(rejectedRevisionCandidate.contract);
-				candidate = {
-					...rejectedRevisionCandidate,
-					...(repair.data.contract
-						? {
-								contract: {
-									...(baseContract ?? {}),
-									...repair.data.contract,
-								},
-							}
-						: {}),
-					...(repair.data.dispositions
-						? { dispositions: repair.data.dispositions }
-						: {}),
-				};
-			}
-			const parsed =
-				designRevisionResultSchemaFor(reviewPayloads).safeParse(candidate);
+			const parsed = designRevisionResultSchemaFor(reviewPayloads).safeParse({
+				contract,
+				dispositions,
+			});
 			if (!parsed.success) {
-				rejectedRevisionCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection(
 					"submitRevision",
 					parsed.error.issues.length,
 				);
-				return { error: renderZodIssues(parsed.error) };
+				return { error: renderDesignValidationIssues(parsed.error) };
 			}
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 				head.envelope.payload,
 				parsed.data,
 			);
 			if (sensitivityViolations.length > 0) {
-				rejectedRevisionCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection(
 					"submitRevision",
 					sensitivityViolations.length,
@@ -481,7 +570,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					].join("\n"),
 				};
 			}
-			const dispositions = mapDispositionsToReviews(
+			const mappedDispositions = mapDispositionsToReviews(
 				parsed.data,
 				gates.headReviews,
 			);
@@ -509,9 +598,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				}),
 				lifecycle,
 				authority: deps.authority,
-				dispositions,
+				dispositions: mappedDispositions,
+				workspaceFinalization: {
+					workspaceId: state.workspace.id,
+					expectedRevision: state.workspace.revision,
+					artifactKind: "revision",
+				},
 			});
-			rejectedRevisionCandidate = null;
 			deps.repair.noteAccepted("submitRevision");
 			if (lifecycle === "draft") {
 				return {
@@ -519,7 +612,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					revisionId: revision.id,
 					accepted: false,
 					message:
-						"The revision persisted, and its changes warrant a second independent look because critical risk remains or critical feedback required an architecture change. Request it with requestReview.",
+						"The revision persisted and warrants a second independent look. Request it with requestReview.",
 				};
 			}
 			const blocking = revision.envelope.payload.openQuestions.filter(
@@ -531,16 +624,16 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				accepted: true,
 				message:
 					blocking.length > 0
-						? "The revision persisted as the accepted design. It carries blocking open questions; ask the user with askQuestions, and their answers reopen design work."
-						: "The revision persisted as the accepted design. Submit the build plan with submitPlan.",
+						? "The accepted design carries blocking open questions. Ask the user before planning."
+						: "The revision persisted as the accepted design. Stage its build plan with stagePlan.",
 			};
 		},
 	};
 
 	const submitPlan = {
 		description:
-			"Submit the build plan for the accepted design. If rejected, retry with { repair: { ...top-level collection replacements } } to preserve valid slices, actions, or ownership while replacing only what the errors require. The server recomposes and validates the entire plan.",
-		inputSchema: strictWireOnly(planSubmissionWireSchema),
+			"Finalize the staged build plan at the exact workspace revision. The server stamps artifact identity, composes every saved row, and validates complete ownership, dependencies, construction strategy, and accepted-design coverage atomically.",
+		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
 		strict: true,
 		execute: async (input: unknown) => {
 			const gates = await gatesFor(deps);
@@ -548,69 +641,47 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (refusal) return refusal;
 			const accepted = gates.head;
 			if (accepted === null) return { error: "No accepted design exists." };
-			const stripped = stripNullProperties(input);
-			const raw = recordValue(stripped);
-			let candidate: unknown = stripped;
-			if (raw && "repair" in raw) {
-				if (Object.keys(raw).some((key) => key !== "repair")) {
-					deps.repair.noteSchemaRejection("submitPlan");
-					return {
-						error:
-							"A plan call must be either a complete plan or one repair object, not both.",
-					};
-				}
-				const repair = buildPlanDraftRepairSchema.safeParse(raw.repair);
-				if (!repair.success) {
-					deps.repair.noteSchemaRejection(
-						"submitPlan",
-						repair.error.issues.length,
-					);
-					return { error: renderZodIssues(repair.error) };
-				}
-				if (rejectedPlanCandidate === null) {
-					deps.repair.noteSequenceError();
-					return {
-						error:
-							"There is no rejected plan in this live turn to repair. Submit the complete plan.",
-					};
-				}
-				candidate = { ...rejectedPlanCandidate, ...repair.data };
+			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
+			if (!parsedInput.ok) return { error: parsedInput.error };
+			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
+			try {
+				state = await inspectDesignArtifactWorkspace({
+					designSessionId: deps.designSessionId,
+					lineage: designWorkspaceLineageForGates("plan", gates),
+					authority: deps.authority,
+					expectedRevision: parsedInput.data.expectedRevision,
+				});
+			} catch (error) {
+				const handled = workspaceError(error);
+				if (handled) return handled;
+				throw error;
 			}
-			const draftParsed = buildPlanDraftSchema.safeParse(candidate);
+			const draftParsed = buildPlanDraftSchema.safeParse(state.candidate);
 			if (!draftParsed.success) {
-				rejectedPlanCandidate = recordValue(candidate);
 				deps.repair.noteSchemaRejection(
 					"submitPlan",
 					draftParsed.error.issues.length,
 				);
-				return { error: renderZodIssues(draftParsed.error) };
+				return { error: renderDesignValidationIssues(draftParsed.error) };
 			}
 			const composed = composePlan(accepted, draftParsed.data);
-			/* Blocking-action producer availability is environment-dependent, not
-			 * a second plan dialect. Compute it beside structural refinements: one
-			 * rejected submission must expose every independently visible repair,
-			 * or a newly revealed policy message can consume the final repair
-			 * attempt. */
 			const admissionMessages = newPlanAdmissionMessages(composed);
 			const planParsed = buildPlanSchemaFor(
 				accepted.envelope.payload,
 			).safeParse(composed);
-			if (!planParsed.success) {
-				rejectedPlanCandidate = recordValue(draftParsed.data);
-				deps.repair.noteSchemaRejection(
-					"submitPlan",
-					planParsed.error.issues.length + admissionMessages.length,
-				);
+			if (!planParsed.success || admissionMessages.length > 0) {
+				const issueCount =
+					(planParsed.success ? 0 : planParsed.error.issues.length) +
+					admissionMessages.length;
+				deps.repair.noteSchemaRejection("submitPlan", issueCount);
 				return {
-					error: [renderZodIssues(planParsed.error), ...admissionMessages].join(
-						"\n",
-					),
+					error: [
+						...(planParsed.success
+							? []
+							: [renderDesignValidationIssues(planParsed.error)]),
+						...admissionMessages,
+					].join("\n"),
 				};
-			}
-			if (admissionMessages.length > 0) {
-				rejectedPlanCandidate = recordValue(draftParsed.data);
-				deps.repair.noteSchemaRejection("submitPlan", admissionMessages.length);
-				return { error: admissionMessages.join("\n") };
 			}
 			const plan = await insertDesignBuildPlan({
 				envelope: planEnvelope({
@@ -620,17 +691,30 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					finishReason: null,
 				}),
 				authority: deps.authority,
+				workspaceFinalization: {
+					workspaceId: state.workspace.id,
+					expectedRevision: state.workspace.revision,
+					artifactKind: "plan",
+				},
 			});
 			deps.repair.noteAccepted("submitPlan");
-			rejectedPlanCandidate = null;
 			return {
 				ok: true,
 				planId: plan.id,
 				message:
-					"The build plan persisted; the design phase is complete. Tell the user briefly that the build is starting, then stop: the build continues automatically.",
+					"The build plan persisted; the design phase is complete. Tell the user briefly that the build is starting, then stop.",
 			};
 		},
 	};
 
-	return { submitContract, requestReview, submitRevision, submitPlan };
+	return {
+		stageContract,
+		stageRevision,
+		stagePlan,
+		inspectDesignWorkspace,
+		submitContract,
+		requestReview,
+		submitRevision,
+		submitPlan,
+	};
 }

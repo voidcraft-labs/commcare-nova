@@ -102,7 +102,16 @@ direct MCP edit.
 - `loop/` — the design agent: ONE `ToolLoopAgent` (`designAgent.ts`) that
   asks, drafts, dispositions, and plans through server-executed tools
   (`tools.ts`), with legality decided from durable artifact ancestry
-  (`gates.ts`). `submitContract` opens a design cycle; `requestReview`
+  (`gates.ts`). Contract, revision, and plan candidates are authored through
+  bounded `stage*` calls into one authority-fenced durable workspace; each
+  call carries the provider `toolCallId`, an input digest, and the exact
+  expected workspace revision. `inspectDesignWorkspace` reads a bounded
+  summary/root/collection selection (including bounded immutable-source
+  contract reads for revision/plan workspaces), while the tiny `submit*` finalizers
+  replay and fully validate the saved candidate before atomically persisting
+  the immutable artifact and closing the workspace. Provider parallel tool
+  calls are disabled for this ordered protocol. `submitContract` opens a
+  design cycle; `requestReview`
   runs the independent reviewer over the draft's OWN package, re-rendered
   from its persisted reference row when the digest has moved
   (`packageRebuild.ts`) and refused honestly when the sources no longer
@@ -111,18 +120,14 @@ direct MCP edit.
   revision. Rounds count persisted reviews along the OPEN cycle (above
   the newest accepted revision), so a crash, a resume, or a question
   round can never mint a free review, and answers to an accepted design's
-  blocking questions reopen a fresh reviewed cycle. Submissions register
-  the strict wire projection (`strict: true`) and run the exact schema
-  factories inside execute, so a rejection is a repairable tool result,
-  bounded by convergence: an unchanged or broader second diagnostic set
-  stops, a strictly smaller second set permits one final repair, and a third
-  rejection always stops. The immediately preceding rejected
-  contract/revision stays only in that live loop; a retry may replace named
-  top-level contract sections (or the revision's complete disposition set),
-  after which the full graph and cross-artifact proofs run again. On a contract
-  repair the strict wire's fixed `schemaVersion: 1` sibling is envelope
-  scaffolding, not a second authored form; every other full-contract sibling
-  remains an illegal mixed submission. A second
+  blocking questions reopen a fresh reviewed cycle. Stage inputs and tiny
+  finalizers register the strict wire projection (`strict: true`); the exact
+  full-artifact schema factories run inside finalization, so a rejection leaves
+  every accepted stage durable and returns repairable diagnostics. The agent
+  inspects and upserts only affected identity-addressed items plus required
+  cross-dependencies, then re-finalizes the complete graph. Each stage is
+  bounded to 32 item changes and 48 KiB; each workspace is bounded to 64
+  stages. A second
   review is evidence-based: unresolved critical risk, at least two critical
   first-pass findings, or critical feedback that changed architecture; depth
   alone is not a trigger. `claimSeeding.ts` derives
@@ -132,6 +137,12 @@ direct MCP edit.
   the conversation (per-message source blocks; cumulative claims ride the
   per-turn state message). The package is PURE — its stream/session
   writers live in `lib/agent/build/designLoopRunner.ts` (invariant 6).
+  After provider compaction the runner appends a fresh bounded server-state
+  message with the exact workspace revision/counts; exact staged content is
+  recovered through inspection rather than trusting the opaque checkpoint.
+  Tool lifecycle diagnostics record only tool name, character count, duration,
+  outcome code, and finish reason — never private candidate payloads or raw
+  validation prose.
 - `reviewer.ts` — the one call that stays a fresh-context one-shot
   structured call over `lib/agent/modelRunContext.ts` (the §7.5 seam;
   `designGenerationContext.ts` is the pre-app implementation), because

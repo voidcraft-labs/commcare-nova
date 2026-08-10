@@ -132,6 +132,34 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		outputTokens: z.number().int().nonnegative(),
 		cacheReadTokens: z.number().int().nonnegative().optional(),
 		cacheWriteTokens: z.number().int().nonnegative().optional(),
+		finishReason: z
+			.enum([
+				"stop",
+				"length",
+				"content-filter",
+				"tool-calls",
+				"error",
+				"other",
+			])
+			.optional(),
+		rawFinishReason: z.string().min(1).optional(),
+		// AI SDK timings derive from performance.now(), so fractional
+		// milliseconds are valid and should not make event recording fail.
+		stepTimeMs: z.number().finite().nonnegative().optional(),
+		responseTimeMs: z.number().finite().nonnegative().optional(),
+	}),
+	/* Design-tool-outcome annotation — payload-free observability for private
+	 * contract/revision/plan staging. Candidate content and validation prose
+	 * remain in the private workspace, never this supplemental event log. */
+	z.strictObject({
+		type: z.literal("design-tool-outcome"),
+		toolName: z.string().min(1),
+		inputChars: z.number().int().nonnegative(),
+		durationMs: z.number().int().nonnegative(),
+		outcome: z.enum(["accepted", "rejected", "wire-invalid", "incomplete"]),
+		code: z.string().min(1),
+		finishReason: z.string().min(1).optional(),
+		rawFinishReason: z.string().min(1).optional(),
 	}),
 	/* Executor-tool-outcome annotation — the payload-free audit trail for the
 	 * private slice compiler. Raw executor inputs, outputs, and rejection prose

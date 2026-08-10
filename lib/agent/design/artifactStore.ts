@@ -69,6 +69,44 @@ export interface DesignArtifactWriteAuthority {
 	readonly expectedProjectId: string;
 }
 
+export interface DesignArtifactWorkspaceFinalization {
+	readonly workspaceId: string;
+	readonly expectedRevision: number;
+	readonly artifactKind: "contract" | "revision" | "plan";
+}
+
+async function finalizeArtifactWorkspaceInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		artifactId: string;
+		runId: string;
+		workspace: DesignArtifactWorkspaceFinalization;
+	},
+): Promise<void> {
+	const now = new Date();
+	const result = await tx
+		.updateTable("design_artifact_workspaces")
+		.set({
+			status: "finalized",
+			finalized_artifact_id: args.artifactId,
+			updated_by_run_id: args.runId,
+			updated_at: now,
+			finalized_at: now,
+		})
+		.where("id", "=", args.workspace.workspaceId)
+		.where("design_session_id", "=", args.designSessionId)
+		.where("artifact_kind", "=", args.workspace.artifactKind)
+		.where("status", "=", "open")
+		.where("revision", "=", args.workspace.expectedRevision)
+		.executeTakeFirst();
+	if (result.numUpdatedRows !== BigInt(1)) {
+		throw new DesignArtifactStoreError(
+			"The design workspace changed or closed before its artifact finalized. Inspect the current workspace and retry from its latest revision.",
+		);
+	}
+}
+
 async function authorizeArtifactWrite(
 	tx: Transaction<AppDatabase>,
 	designSessionId: string,
@@ -300,6 +338,9 @@ export async function insertDesignRevision(args: {
 		reviewId: string;
 		disposition: FindingDisposition;
 	}>;
+	/** When present, artifact insertion and the exact open-workspace terminal
+	 * transition are one transaction. */
+	workspaceFinalization?: DesignArtifactWorkspaceFinalization;
 }): Promise<DesignRevisionRecord> {
 	const { envelope, lifecycle, authority } = args;
 	const parsed = contractEnvelopeSchema.parse(envelope);
@@ -425,6 +466,20 @@ export async function insertDesignRevision(args: {
 					payload: JSON.stringify(disposition),
 				})
 				.execute();
+		}
+
+		if (args.workspaceFinalization !== undefined) {
+			if (args.workspaceFinalization.artifactKind === "plan") {
+				throw new DesignArtifactStoreError(
+					"A Design Contract revision cannot finalize a plan workspace.",
+				);
+			}
+			await finalizeArtifactWorkspaceInTransaction(tx, {
+				designSessionId: parsed.designSessionId,
+				artifactId: parsed.artifactId,
+				runId: authority.runId,
+				workspace: args.workspaceFinalization,
+			});
 		}
 
 		const record = await readRevisionRecordInTx(tx, parsed.artifactId);
@@ -761,6 +816,7 @@ export async function readDispositions(
 export async function insertDesignBuildPlan(args: {
 	envelope: DesignArtifactEnvelope<BuildPlan>;
 	authority: DesignArtifactWriteAuthority;
+	workspaceFinalization?: DesignArtifactWorkspaceFinalization;
 }): Promise<DesignBuildPlanRecord> {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
@@ -810,6 +866,20 @@ export async function insertDesignBuildPlan(args: {
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
+
+		if (args.workspaceFinalization !== undefined) {
+			if (args.workspaceFinalization.artifactKind !== "plan") {
+				throw new DesignArtifactStoreError(
+					"A build plan can finalize only a plan workspace.",
+				);
+			}
+			await finalizeArtifactWorkspaceInTransaction(tx, {
+				designSessionId: parsed.designSessionId,
+				artifactId: plan.id,
+				runId: args.authority.runId,
+				workspace: args.workspaceFinalization,
+			});
+		}
 
 		const record = await readBuildPlanRecordInTx(tx, plan.id);
 		if (!record) {
