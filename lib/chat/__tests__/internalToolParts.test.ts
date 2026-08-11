@@ -5,12 +5,10 @@ describe("internal design tool presentation", () => {
 	it.each([
 		"tool-stageContract",
 		"tool-stageRevision",
-		"tool-stagePlan",
 		"tool-inspectDesignWorkspace",
 		"tool-submitContract",
 		"tool-requestReview",
 		"tool-submitRevision",
-		"tool-submitPlan",
 	])("hides %s", (type) => {
 		expect(isInternalDesignToolPartType(type)).toBe(true);
 	});

@@ -47,37 +47,40 @@ export function computeDesignComplexity(
 		(record) => record.parentRecordId !== undefined,
 	);
 	const actorCount = contract.actors.length;
-	const taskCount = contract.tasks.length;
-	const linkingTransitions = contract.transitions.filter(
-		(transition) =>
-			transition.transitionKind === "link" ||
-			transition.transitionKind === "reassign",
+	const workflowCount = contract.workflows.length;
+	const linkingEffects = contract.workflows.flatMap((workflow) =>
+		workflow.recordEffects.filter(
+			(effect) => effect.kind === "link" || effect.kind === "reassign",
+		),
 	).length;
-	const ruleCount = contract.rules.length;
-	const readModelCount = contract.readModels.length;
-	const accessPolicyCount = contract.accessPolicies.length;
-	const hasLocationScope = contract.accessPolicies.some(
-		(policy) => policy.locationScopeIntent !== undefined,
+	const decisionCount = contract.workflows.reduce(
+		(total, workflow) => total + workflow.decisions.length,
+		0,
 	);
-	const lookupFactCount = contract.facts.filter(
-		(fact) => fact.source.kind === "lookup",
+	const listCount = contract.lists.length;
+	const accessPolicyCount = contract.access.length;
+	const hasLocationScope = contract.access.some(
+		(policy) => policy.locationScope !== undefined,
+	);
+	const externalReferenceCount = contract.externalRequirements.filter(
+		(requirement) => requirement.kind === "existing-reference",
 	).length;
-	const sensitiveFactCount = contract.facts.filter(
-		(fact) => fact.sensitivity !== "ordinary",
-	).length;
+	const sensitivePropertyCount = contract.records
+		.flatMap((record) => record.properties)
+		.filter((property) => property.sensitivity !== "ordinary").length;
 
 	const components: Record<string, number | boolean> = {
 		recordCount,
 		hasRecordHierarchy,
 		actorCount,
-		taskCount,
-		linkingTransitions,
-		ruleCount,
-		readModelCount,
+		workflowCount,
+		linkingEffects,
+		decisionCount,
+		listCount,
 		accessPolicyCount,
 		hasLocationScope,
-		lookupFactCount,
-		sensitiveFactCount,
+		externalReferenceCount,
+		sensitivePropertyCount,
 	};
 
 	let score = 0;
@@ -85,15 +88,15 @@ export function computeDesignComplexity(
 	if (hasRecordHierarchy) score += 1;
 	if (actorCount >= 2) score += 1;
 	if (actorCount >= 3) score += 1;
-	if (taskCount >= 3) score += 1;
-	if (taskCount >= 6) score += 1;
-	if (linkingTransitions > 0) score += 1;
-	if (ruleCount >= 3) score += 1;
-	if (readModelCount >= 2) score += 1;
+	if (workflowCount >= 3) score += 1;
+	if (workflowCount >= 6) score += 1;
+	if (linkingEffects > 0) score += 1;
+	if (decisionCount >= 3) score += 1;
+	if (listCount >= 2) score += 1;
 	if (accessPolicyCount > 0) score += 1;
 	if (hasLocationScope) score += 1;
-	if (lookupFactCount > 0) score += 1;
-	if (sensitiveFactCount > 0) score += 1;
+	if (externalReferenceCount > 0) score += 1;
+	if (sensitivePropertyCount > 0) score += 1;
 
 	const depth: DesignDepth =
 		score <= 2 ? "compact" : score <= 6 ? "standard" : "extended";

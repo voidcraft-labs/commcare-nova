@@ -39,7 +39,6 @@ export const DESIGN_LOOP_TOOL_NAMES = [
 	"submitContract",
 	"requestReview",
 	"submitRevision",
-	"submitPlan",
 ] as const;
 export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
 
@@ -192,7 +191,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 				refusal:
 					blockingQuestions.length > 0
 						? "The accepted design carries blocking open questions and the user has not answered them yet. Ask them with askQuestions; the answers reopen design work."
-						: "The design is accepted and nothing from the user has arrived since. Submit the build plan with submitPlan.",
+						: "The design is accepted and its build plan is derived by the server; there is no model planning step.",
 			};
 		}
 		return { legal: true };
@@ -245,47 +244,10 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		return { legal: true };
 	})();
 
-	const submitPlan: GateVerdict = (() => {
-		if (head === null || head.lifecycle !== "accepted") {
-			return {
-				legal: false,
-				refusal:
-					head === null
-						? "No design exists to plan. Submit the Design Contract with submitContract first."
-						: headReviews.length === 0
-							? "The current draft is not reviewed yet. Request the independent review with requestReview."
-							: "The current draft's review findings are not dispositioned yet. Submit the revision with submitRevision.",
-			};
-		}
-		if (newerUserContent) {
-			return {
-				legal: false,
-				refusal:
-					"Newer user content has reopened design work, so the historical accepted revision cannot be planned for this source package. Submit a fresh Design Contract with submitContract.",
-			};
-		}
-		if (blockingQuestions.length > 0) {
-			return {
-				legal: false,
-				refusal:
-					"The accepted design carries blocking open questions, and an accepted revision is immutable, so it can never become plannable after the fact. Ask the user with askQuestions; their answers reopen design work as a fresh reviewed cycle.",
-			};
-		}
-		if (activePlan !== null) {
-			return {
-				legal: false,
-				refusal:
-					"A build plan already exists for the accepted design. The design phase is complete.",
-			};
-		}
-		return { legal: true };
-	})();
-
 	const verdicts = {
 		submitContract,
 		requestReview,
 		submitRevision,
-		submitPlan,
 	};
 	return {
 		currentPackageDigest: ancestry.currentPackageDigest,
@@ -314,7 +276,6 @@ function deriveExpectedNext(
 		return "Ask the user the accepted design's blocking open questions with askQuestions; the answers reopen design work.";
 	}
 	for (const name of [
-		"submitPlan",
 		"submitRevision",
 		"requestReview",
 		"submitContract",

@@ -1,35 +1,25 @@
-/**
- * Design-domain test fixtures — one COMPLETE, graph-valid contract plus the
- * build plan that covers it, built from deterministic ids so a failure names
- * a readable coordinate.
- *
- * The contract exercises every collection: two actors, a parent/child record
- * pair, answer/derived/lookup facts with coherent writer sets, a rule, two
- * tasks (one creating the parent, one creating the child through a
- * transition), a read model, a lookup table intent the lookup fact reads, an
- * access policy, navigation, a decision, an assumption, an open question, and
- * two scenarios. Tests clone-and-break it per rule.
- */
+/** Lean, graph-valid design fixtures shared by design/build tests. */
 
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
-import { buildPlanSchema } from "@/lib/agent/design/buildPlan";
+import { buildPlanSchema, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { SourceRef } from "@/lib/agent/design/evidence";
 import { asDesignId, type DesignId } from "@/lib/agent/design/ids";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 
-/** Deterministic design id: `did(5)` → `00000000-0000-4000-8000-000000000005`. */
 export function did(n: number): DesignId {
 	return asDesignId(
 		`00000000-0000-4000-8000-${n.toString(10).padStart(12, "0")}`,
 	);
 }
 
-export const FIXTURE_THREAD_ID = "00000000-0000-4000-8000-999999999999";
+export function fixtureValue<T>(value: T | undefined, label: string): T {
+	if (value === undefined) throw new Error(`Missing fixture ${label}.`);
+	return value;
+}
 
-/** The image the source-package fixtures project — asset id plus the digest
- *  of the exact bytes the model was shown. */
+export const FIXTURE_THREAD_ID = "00000000-0000-4000-8000-999999999999";
 export const FIXTURE_IMAGE_ASSET_ID = "00000000-0000-4000-8000-000000000880";
 export const FIXTURE_IMAGE_DIGEST = "c".repeat(64);
 
@@ -54,9 +44,7 @@ export function imageRef(
 }
 
 export const ids = {
-	contract: did(0),
-	claimVisits: did(1),
-	claimPlatform: did(2),
+	contract: did(1),
 	actorChw: did(10),
 	actorSupervisor: did(11),
 	recPatient: did(20),
@@ -65,93 +53,50 @@ export const ids = {
 	factAge: did(31),
 	factRisk: did(32),
 	factVisitSummary: did(33),
-	factClinic: did(34),
-	ruleRisk: did(40),
-	inputName: did(50),
-	inputAge: did(51),
-	inputSummary: did(52),
-	writeName: did(60),
-	writeAge: did(61),
-	writeRisk: did(62),
-	writeVisitSummary: did(63),
 	taskRegister: did(70),
 	taskVisit: did(71),
-	transCreatePatient: did(80),
-	transCreateVisit: did(81),
 	rmPatients: did(90),
 	accessSupervisor: did(100),
 	navMain: did(110),
 	decision: did(120),
-	decisionOptionA: did(121),
-	decisionOptionB: did(122),
 	assumption: did(130),
 	question: did(140),
-	scenarioRegister: did(150),
-	scenarioQueue: did(151),
-	lookupVillages: did(160),
-	lookupColVillageName: did(161),
-	lookupColClinic: did(162),
-	sliceRegister: did(200),
-	sliceVisit: did(201),
+	externalSetup: did(160),
 	planId: "00000000-0000-4000-8000-000000000900",
 	revisionId: "00000000-0000-4000-8000-000000000901",
 } as const;
 
 export function makeContract(): AppDesignContract {
-	return {
+	return appDesignContractSchema.parse({
 		schemaVersion: 1,
 		id: ids.contract,
-		title: "CHW patient visits",
-		objective:
-			"Let community health workers register patients and record visits, with supervisor oversight.",
-		inScope: ["Patient registration", "Visit recording"],
-		outOfScope: ["Billing"],
-		sourceClaims: [
-			{
-				id: ids.claimVisits,
-				statement:
-					"Community health workers register patients and record a summary for each visit.",
-				sourceRefs: [messageRef()],
-				status: "explicit",
-				confidence: 0.95,
-			},
-			{
-				id: ids.claimPlatform,
-				statement:
-					"Preview will not execute reminder automations; they need manual HQ setup.",
-				sourceRefs: [
-					{
-						kind: "platform-constraint",
-						code: "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
-						sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
-					},
-				],
-				status: "inferred",
-				confidence: 1,
-			},
-		],
+		charter: {
+			appName: "CHW patient visits",
+			objective:
+				"Help community health workers register patients and record visits with supervisor oversight.",
+			appCount: 1,
+			projectScope: "current-project",
+			includedWorkflowIds: [ids.taskRegister, ids.taskVisit],
+			excludedWorkflows: ["Billing"],
+			deliveryContext: "offline-first",
+			initialWorkflowId: ids.taskRegister,
+		},
 		actors: [
 			{
 				id: ids.actorChw,
 				name: "Community health worker",
 				goals: ["Register patients and record visits quickly"],
-				responsibilities: ["Home visits"],
-				workContext: ["Offline household visits"],
-				authority: ["Creates patients and visits"],
+				responsibilities: ["Conduct home visits"],
+				workContext: ["Often works offline"],
 				constraints: ["Short visit windows"],
-				failureRisks: ["Missed follow-ups"],
-				evidence: [ids.claimVisits],
 			},
 			{
 				id: ids.actorSupervisor,
 				name: "Supervisor",
 				goals: ["Monitor visit coverage"],
-				responsibilities: ["Review queues"],
+				responsibilities: ["Review the patient queue"],
 				workContext: ["Clinic office"],
-				authority: ["Views all patients"],
 				constraints: [],
-				failureRisks: [],
-				evidence: [],
 			},
 		],
 		records: [
@@ -160,7 +105,31 @@ export function makeContract(): AppDesignContract {
 				name: "Patient",
 				purpose: "A person receiving home visits.",
 				lifecycleStates: ["active"],
-				evidence: [ids.claimVisits],
+				properties: [
+					{
+						id: ids.factName,
+						name: "Patient name",
+						meaning: "The patient's full name.",
+						dataShape: "text",
+						sensitivity: "ordinary",
+						requiredWhen: "Always during registration",
+					},
+					{
+						id: ids.factAge,
+						name: "Age",
+						meaning: "The patient's age in years.",
+						dataShape: "integer",
+						sensitivity: "ordinary",
+					},
+					{
+						id: ids.factRisk,
+						name: "Risk level",
+						meaning: "The triage level used for follow-up.",
+						dataShape: "single-choice",
+						sensitivity: "sensitive",
+						choiceValues: ["routine", "priority"],
+					},
+				],
 			},
 			{
 				id: ids.recVisit,
@@ -169,615 +138,217 @@ export function makeContract(): AppDesignContract {
 				parentRecordId: ids.recPatient,
 				relationshipMeaning: "A visit belongs to the visited patient.",
 				lifecycleStates: ["recorded"],
-				evidence: [ids.claimVisits],
+				properties: [
+					{
+						id: ids.factVisitSummary,
+						name: "Visit summary",
+						meaning: "What happened during the visit.",
+						dataShape: "text",
+						sensitivity: "sensitive",
+					},
+				],
 			},
 		],
-		facts: [
-			{
-				id: ids.factName,
-				recordId: ids.recPatient,
-				name: "patient_name",
-				meaning: "The patient's full name.",
-				dataShape: "text",
-				source: { kind: "answer", taskInputId: ids.inputName },
-				sensitivity: "ordinary",
-				writerTaskIds: [ids.taskRegister],
-				readerIds: [ids.rmPatients],
-				evidence: [ids.claimVisits],
-			},
-			{
-				id: ids.factAge,
-				recordId: ids.recPatient,
-				name: "age",
-				meaning: "The patient's age in years.",
-				dataShape: "integer",
-				source: { kind: "answer", taskInputId: ids.inputAge },
-				sensitivity: "ordinary",
-				writerTaskIds: [ids.taskRegister],
-				readerIds: [ids.ruleRisk],
-				evidence: [ids.claimVisits],
-			},
-			{
-				id: ids.factRisk,
-				recordId: ids.recPatient,
-				name: "risk_level",
-				meaning: "Derived triage level.",
-				dataShape: "text",
-				source: { kind: "derived", ruleId: ids.ruleRisk },
-				sensitivity: "sensitive",
-				writerTaskIds: [ids.taskRegister],
-				readerIds: [ids.rmPatients],
-				evidence: [ids.claimVisits],
-			},
-			{
-				id: ids.factVisitSummary,
-				recordId: ids.recVisit,
-				name: "visit_summary",
-				meaning: "What happened during the visit.",
-				dataShape: "text",
-				source: { kind: "answer", taskInputId: ids.inputSummary },
-				sensitivity: "ordinary",
-				writerTaskIds: [ids.taskVisit],
-				readerIds: [],
-				evidence: [ids.claimVisits],
-			},
-			{
-				/* Reference data: read from the Project's village table, so no
-				 * task writes it. */
-				id: ids.factClinic,
-				recordId: ids.recPatient,
-				name: "catchment_clinic",
-				meaning: "The clinic that covers the patient's village.",
-				dataShape: "text",
-				source: {
-					kind: "lookup",
-					lookupIntentId: ids.lookupVillages,
-					columnIntentId: ids.lookupColClinic,
-				},
-				sensitivity: "ordinary",
-				writerTaskIds: [],
-				readerIds: [ids.rmPatients],
-				evidence: [ids.claimVisits],
-			},
-		],
-		rules: [
-			{
-				id: ids.ruleRisk,
-				name: "Risk from age",
-				statement: "Patients aged 60 or older are high risk.",
-				inputIds: [ids.factAge],
-				outputFactIds: [ids.factRisk],
-				evidence: [ids.claimVisits],
-			},
-		],
-		tasks: [
+		workflows: [
 			{
 				id: ids.taskRegister,
 				name: "Register patient",
-				actorId: ids.actorChw,
-				goal: "Create the patient record at first contact.",
-				trigger: "First household visit",
-				preconditions: [],
+				actorIds: [ids.actorChw],
+				goal: "Create a usable patient record.",
+				trigger: "A community health worker meets a new patient.",
+				prerequisiteWorkflowIds: [],
+				prerequisites: ["The worker knows the patient's name"],
 				inputs: [
 					{
-						id: ids.inputName,
-						name: "Name",
-						purpose: "Identify the patient.",
-						factId: ids.factName,
-						evidence: [ids.claimVisits],
+						handle: "patient_name",
+						name: "Patient name",
+						purpose: "Identify the patient",
+						propertyId: ids.factName,
 					},
 					{
-						id: ids.inputAge,
+						handle: "age",
 						name: "Age",
-						purpose: "Assess risk.",
-						factId: ids.factAge,
-						evidence: [ids.claimVisits],
+						purpose: "Support triage",
+						propertyId: ids.factAge,
 					},
 				],
-				decisionRuleIds: [ids.ruleRisk],
-				writes: [
+				decisions: [
 					{
-						id: ids.writeName,
-						targetFactId: ids.factName,
-						sourceDescription: "The name answer, verbatim.",
-					},
-					{
-						id: ids.writeAge,
-						targetFactId: ids.factAge,
-						sourceDescription: "The age answer, verbatim.",
-					},
-					{
-						id: ids.writeRisk,
-						targetFactId: ids.factRisk,
-						sourceDescription: "Derived from age.",
-						ruleId: ids.ruleRisk,
+						handle: "triage",
+						name: "Triage patient",
+						statement: "Patients under five are priority; others are routine.",
+						inputPropertyIds: [ids.factAge],
+						outcomes: ["priority", "routine"],
 					},
 				],
-				transitionIds: [ids.transCreatePatient],
-				readBackIds: [ids.rmPatients],
-				exceptionPaths: ["Patient declines registration"],
-				evidence: [ids.claimVisits],
+				recordEffects: [
+					{
+						handle: "create_patient",
+						recordId: ids.recPatient,
+						kind: "create",
+						writes: [
+							{
+								propertyId: ids.factName,
+								value: "Patient name answer",
+								unanswered: "preserve",
+							},
+							{
+								propertyId: ids.factAge,
+								value: "Age answer",
+								unanswered: "preserve",
+							},
+							{
+								propertyId: ids.factRisk,
+								value: "Triage outcome",
+								unanswered: "preserve",
+							},
+						],
+						outcome: "An active patient record is available for visits.",
+					},
+				],
+				readback: [
+					{
+						recordId: ids.recPatient,
+						purpose: "Confirm the saved patient",
+						propertyIds: [ids.factName, ids.factRisk],
+					},
+				],
+				exceptions: ["A missing name blocks submission"],
+				externalRequirementIds: [],
+				acceptanceExamples: [
+					{
+						name: "Register a priority patient",
+						given: ["The worker is signed in"],
+						when: ["The worker submits a name and an age under five"],
+						expectedResults: ["The patient is saved with priority risk"],
+					},
+				],
 			},
 			{
 				id: ids.taskVisit,
 				name: "Record visit",
-				actorId: ids.actorChw,
-				goal: "Capture what happened during a visit.",
-				trigger: "A completed home visit",
+				actorIds: [ids.actorChw],
+				goal: "Save a visit against an existing patient.",
+				trigger: "The worker completes a home visit.",
 				contextRecordId: ids.recPatient,
-				preconditions: ["Patient is registered"],
+				prerequisiteWorkflowIds: [ids.taskRegister],
+				prerequisites: ["The patient is registered"],
 				inputs: [
 					{
-						id: ids.inputSummary,
+						handle: "visit_summary",
 						name: "Visit summary",
-						purpose: "Record the visit outcome.",
-						factId: ids.factVisitSummary,
-						evidence: [ids.claimVisits],
+						purpose: "Record what happened",
+						propertyId: ids.factVisitSummary,
 					},
 				],
-				decisionRuleIds: [],
-				writes: [],
-				transitionIds: [ids.transCreateVisit],
-				readBackIds: [],
-				exceptionPaths: [],
-				evidence: [ids.claimVisits],
-			},
-		],
-		transitions: [
-			{
-				id: ids.transCreatePatient,
-				name: "Patient registered",
-				targetRecordId: ids.recPatient,
-				transitionKind: "create",
-				writes: [],
-				outcomeDescription: "A new patient record exists.",
-				evidence: [ids.claimVisits],
-			},
-			{
-				id: ids.transCreateVisit,
-				name: "Visit recorded",
-				sourceRecordId: ids.recPatient,
-				targetRecordId: ids.recVisit,
-				transitionKind: "create",
-				writes: [
+				decisions: [],
+				recordEffects: [
 					{
-						id: ids.writeVisitSummary,
-						targetFactId: ids.factVisitSummary,
-						sourceDescription: "The visit summary answer.",
+						handle: "create_visit",
+						recordId: ids.recVisit,
+						kind: "create",
+						sourceRecordId: ids.recPatient,
+						writes: [
+							{
+								propertyId: ids.factVisitSummary,
+								value: "Visit summary answer",
+								unanswered: "preserve",
+							},
+						],
+						outcome: "A visit is linked to the selected patient.",
 					},
 				],
-				outcomeDescription: "A visit record exists under the patient.",
-				evidence: [ids.claimVisits],
+				readback: [
+					{
+						recordId: ids.recVisit,
+						purpose: "Confirm the recorded visit",
+						propertyIds: [ids.factVisitSummary],
+					},
+				],
+				exceptions: ["A missing patient prevents the visit"],
+				externalRequirementIds: [],
+				acceptanceExamples: [
+					{
+						name: "Record one visit",
+						given: ["A patient exists"],
+						when: ["The worker submits a visit summary"],
+						expectedResults: ["A linked visit is saved"],
+					},
+				],
 			},
 		],
-		readModels: [
+		lists: [
 			{
 				id: ids.rmPatients,
-				name: "My patients",
+				name: "Patients",
 				actorIds: [ids.actorChw, ids.actorSupervisor],
 				recordId: ids.recPatient,
-				decisionSupported: "Which patient needs a visit next.",
-				filters: ["Active patients only"],
-				sortIntent: ["Highest risk first"],
-				scanFactIds: [ids.factName, ids.factRisk],
-				detailFactIds: [
-					ids.factName,
-					ids.factAge,
-					ids.factRisk,
-					ids.factClinic,
-				],
-				searchFactIds: [ids.factName],
-				selectionTaskId: ids.taskVisit,
-				emptyStateMeaning: "No registered patients yet.",
-				evidence: [ids.claimVisits],
+				purpose: "Find a patient and start a visit.",
+				filters: ["Active patients"],
+				sort: ["Patient name ascending"],
+				scanPropertyIds: [ids.factName, ids.factRisk],
+				detailPropertyIds: [ids.factAge],
+				searchPropertyIds: [ids.factName],
+				selectionWorkflowId: ids.taskVisit,
+				emptyStateMeaning: "No patients are available yet.",
 			},
 		],
-		lookupIntents: [
-			{
-				id: ids.lookupVillages,
-				name: "Villages",
-				purpose:
-					"The catchment villages a CHW covers and the clinic each reports to.",
-				columns: [
-					{
-						id: ids.lookupColVillageName,
-						name: "village_name",
-						meaning: "The village's name as workers know it.",
-						evidence: [ids.claimVisits],
-					},
-					{
-						id: ids.lookupColClinic,
-						name: "clinic_name",
-						meaning: "The clinic covering that village.",
-						evidence: [ids.claimVisits],
-					},
-				],
-				evidence: [ids.claimVisits],
-			},
-		],
-		accessPolicies: [
+		access: [
 			{
 				id: ids.accessSupervisor,
 				actorId: ids.actorSupervisor,
-				targetIntentIds: [ids.rmPatients],
-				capability: "view",
-				evidence: [ids.claimVisits],
+				targets: [{ kind: "list", id: ids.rmPatients }],
+				capabilities: ["discover", "view"],
+				condition: "The worker has the supervisor role",
 			},
 		],
 		navigation: [
 			{
 				id: ids.navMain,
-				actorIds: [ids.actorChw],
-				name: "Patients",
-				purpose: "Everything a CHW does starts from the patient list.",
-				entryTaskIds: [ids.taskRegister],
-				readModelIds: [ids.rmPatients],
-				orderRationale: "Registration first; the queue drives daily work.",
+				name: "Patient care",
+				purpose: "Keep registration and patient work together.",
+				actorIds: [ids.actorChw, ids.actorSupervisor],
+				workflowIds: [ids.taskRegister, ids.taskVisit],
+				listIds: [ids.rmPatients],
+				orderRationale: "Registration comes before follow-up.",
 			},
 		],
+		externalRequirements: [],
 		decisions: [
 			{
 				id: ids.decision,
-				question: "Are visits their own record or fields on the patient?",
-				options: [
-					{
-						id: ids.decisionOptionA,
-						description: "Visits are child records of the patient.",
-						consequences: ["Visit history is queryable per patient."],
-					},
-					{
-						id: ids.decisionOptionB,
-						description: "The patient carries only the latest visit.",
-						consequences: ["History is lost on each new visit."],
-					},
-				],
-				selectedOptionId: ids.decisionOptionA,
-				rationale: "Visit history drives supervision.",
-				evidence: [ids.claimVisits],
+				question: "How should visits relate to patients?",
+				decision: "Each visit is a child record of one patient.",
+				rationale:
+					"This preserves visit history without overwriting the patient.",
 			},
 		],
 		assumptions: [
 			{
 				id: ids.assumption,
-				statement: "One CHW covers one patient at a time — no team handoffs.",
-				consequenceIfWrong: "Queues would need shared ownership.",
-				evidence: [ids.claimPlatform],
+				statement:
+					"Workers can identify the correct patient before recording a visit.",
+				consequenceIfWrong: "The workflow needs stronger patient matching.",
 			},
 		],
-		openQuestions: [
-			{
-				id: ids.question,
-				question: "Should closed patients be archivable?",
-				structuralImpact: "local",
-				blocking: false,
-				relatedIntentIds: [ids.taskVisit],
-			},
-		],
-		acceptanceScenarios: [
-			{
-				id: ids.scenarioRegister,
-				name: "Register a new patient",
-				actorId: ids.actorChw,
-				given: ["The CHW is at a household"],
-				when: ["They register a patient with name and age"],
-				// biome-ignore lint/suspicious/noThenProperty: scenario vocabulary; array value
-				then: ["The patient appears in the queue with a risk level"],
-				relatedIntentIds: [ids.taskRegister, ids.rmPatients],
-				evidence: [ids.claimVisits],
-			},
-			{
-				id: ids.scenarioQueue,
-				name: "Supervisor reviews the queue",
-				actorId: ids.actorSupervisor,
-				given: ["Patients exist"],
-				when: ["The supervisor opens the patient queue"],
-				// biome-ignore lint/suspicious/noThenProperty: scenario vocabulary; array value
-				then: ["Patients are ordered by risk"],
-				relatedIntentIds: [ids.rmPatients],
-				evidence: [ids.claimVisits],
-			},
-		],
-		deferredRequirements: [],
-	};
+		openQuestions: [],
+	});
 }
 
-/** Parse the fixture through the real schema — the tests' way of asserting
- *  the fixture itself stays graph-valid. */
 export function parseContract(contract: AppDesignContract): AppDesignContract {
 	return appDesignContractSchema.parse(contract);
 }
 
-/** A scenario helper for clone-and-break tests. */
 export function cloneContract(contract: AppDesignContract): AppDesignContract {
 	return structuredClone(contract);
 }
 
 export function makeBuildPlan(): BuildPlan {
-	return {
-		schemaVersion: 1,
-		designRevisionId: ids.revisionId,
-		designRevisionDigest: "a".repeat(64),
-		id: ids.planId,
-		slices: [
-			{
-				id: ids.sliceRegister,
-				name: "Patient registration and queue",
-				goal: "A CHW can register a patient and see the risk-ordered queue.",
-				intentIds: [
-					ids.recPatient,
-					ids.factName,
-					ids.factAge,
-					ids.factRisk,
-					ids.factClinic,
-					ids.ruleRisk,
-					ids.taskRegister,
-					ids.transCreatePatient,
-					ids.rmPatients,
-					ids.navMain,
-					ids.accessSupervisor,
-				],
-				ownedIntentIds: [
-					ids.recPatient,
-					ids.factName,
-					ids.factAge,
-					ids.factRisk,
-					ids.factClinic,
-					ids.ruleRisk,
-					ids.taskRegister,
-					ids.transCreatePatient,
-					ids.rmPatients,
-					ids.navMain,
-					ids.accessSupervisor,
-				],
-				prerequisiteSliceIds: [],
-				acceptanceScenarioIds: [ids.scenarioRegister, ids.scenarioQueue],
-				risk: "ordinary",
-				role: "materialization-root",
-				constructionStrategy: {
-					semanticGroups: [
-						{
-							name: "Patient record and capture",
-							kind: "foundation",
-							intentIds: [
-								ids.recPatient,
-								ids.factName,
-								ids.factAge,
-								ids.factRisk,
-								ids.factClinic,
-								ids.ruleRisk,
-								ids.taskRegister,
-								ids.transCreatePatient,
-							],
-							blueprintAreas: [
-								"app",
-								"case-catalog",
-								"forms",
-								"case-operations",
-							],
-						},
-						{
-							name: "Queue, access, and navigation",
-							kind: "access-navigation",
-							intentIds: [ids.rmPatients, ids.navMain, ids.accessSupervisor],
-							blueprintAreas: ["case-list", "navigation"],
-						},
-					],
-					lowerings: [
-						{ intentId: ids.recPatient, target: "case-type" },
-						{ intentId: ids.factName, target: "case-property" },
-						{ intentId: ids.factAge, target: "case-property" },
-						{ intentId: ids.factRisk, target: "case-property" },
-						{ intentId: ids.factClinic, target: "case-property" },
-						{ intentId: ids.ruleRisk, target: "form-logic" },
-						{ intentId: ids.taskRegister, target: "task-form" },
-						{
-							intentId: ids.transCreatePatient,
-							target: "registration-create",
-						},
-						{ intentId: ids.rmPatients, target: "case-search" },
-						{ intentId: ids.navMain, target: "navigation" },
-						{ intentId: ids.accessSupervisor, target: "access-control" },
-					],
-					tasks: [
-						{
-							taskId: ids.taskRegister,
-							mode: "registration",
-							transitionIds: [ids.transCreatePatient],
-							primaryCreateTransitionId: ids.transCreatePatient,
-						},
-					],
-					facts: [
-						{
-							factId: ids.factName,
-							storage: "case-property",
-							writer: "task-input",
-							unanswered: "preserve",
-						},
-						{
-							factId: ids.factAge,
-							storage: "case-property",
-							writer: "task-input",
-							unanswered: "preserve",
-						},
-						{
-							factId: ids.factRisk,
-							storage: "case-property",
-							writer: "calculation",
-							unanswered: "preserve",
-						},
-						{
-							factId: ids.factClinic,
-							storage: "case-property",
-							writer: "lookup",
-							unanswered: "preserve",
-						},
-					],
-					readModels: [
-						{
-							readModelId: ids.rmPatients,
-							mode: "case-search",
-							rolePartition: "actor-gated",
-							searchFilterFactIds: [ids.factName],
-						},
-					],
-					access: [
-						{
-							accessPolicyId: ids.accessSupervisor,
-							layers: ["case-context"],
-						},
-					],
-					navigation: [{ navigationId: ids.navMain, mode: "module" }],
-					externalSetupActionIds: [],
-				},
-				externalActionIds: [],
-			},
-			{
-				id: ids.sliceVisit,
-				name: "Visit recording",
-				goal: "A CHW can record a visit under a selected patient.",
-				intentIds: [
-					ids.recVisit,
-					ids.factVisitSummary,
-					ids.taskVisit,
-					ids.transCreateVisit,
-					ids.rmPatients,
-				],
-				ownedIntentIds: [
-					ids.recVisit,
-					ids.factVisitSummary,
-					ids.taskVisit,
-					ids.transCreateVisit,
-				],
-				prerequisiteSliceIds: [ids.sliceRegister],
-				acceptanceScenarioIds: [],
-				risk: "cross-record",
-				role: "ordinary",
-				constructionStrategy: {
-					semanticGroups: [
-						{
-							name: "Visit child workflow",
-							kind: "workflow",
-							intentIds: [
-								ids.recVisit,
-								ids.factVisitSummary,
-								ids.taskVisit,
-								ids.transCreateVisit,
-							],
-							blueprintAreas: ["case-catalog", "forms", "case-operations"],
-						},
-					],
-					lowerings: [
-						{ intentId: ids.recVisit, target: "case-type" },
-						{ intentId: ids.factVisitSummary, target: "case-property" },
-						{ intentId: ids.taskVisit, target: "task-form" },
-						{
-							intentId: ids.transCreateVisit,
-							target: "case-operation",
-						},
-					],
-					tasks: [
-						{
-							taskId: ids.taskVisit,
-							mode: "case-action",
-							contextRecordId: ids.recPatient,
-							transitionIds: [ids.transCreateVisit],
-						},
-					],
-					facts: [
-						{
-							factId: ids.factVisitSummary,
-							storage: "case-property",
-							writer: "task-input",
-							unanswered: "preserve",
-						},
-					],
-					readModels: [],
-					access: [],
-					navigation: [],
-					externalSetupActionIds: [],
-				},
-				externalActionIds: [],
-			},
-		],
-		externalActions: [],
-		intentOwnership: [
-			{
-				intentId: ids.recPatient,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.factName,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.factAge,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.factRisk,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.factClinic,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.ruleRisk,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.taskRegister,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.transCreatePatient,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.rmPatients,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [ids.sliceVisit],
-			},
-			{
-				intentId: ids.navMain,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.accessSupervisor,
-				owningSliceId: ids.sliceRegister,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.recVisit,
-				owningSliceId: ids.sliceVisit,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.factVisitSummary,
-				owningSliceId: ids.sliceVisit,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.taskVisit,
-				owningSliceId: ids.sliceVisit,
-				contributingSliceIds: [],
-			},
-			{
-				intentId: ids.transCreateVisit,
-				owningSliceId: ids.sliceVisit,
-				contributingSliceIds: [],
-			},
-		],
-	};
+	return deriveBuildPlan({
+		contract: makeContract(),
+		revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		planId: ids.planId,
+	});
 }
 
 export function parsePlan(plan: BuildPlan): BuildPlan {

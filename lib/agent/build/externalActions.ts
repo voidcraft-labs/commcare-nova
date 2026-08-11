@@ -97,15 +97,11 @@ export async function assertRequiredExternalActionsSatisfied(args: {
 		);
 		const evidenceMatches =
 			receipt.outcome === "manual-confirmed"
-				? action.idempotencyOwner === "user" &&
+				? action.kind === "user-prerequisite" &&
 					evidence.kind === "user-confirmation"
 				: receipt.outcome === "completed" &&
-					((action.idempotencyOwner === "nova" &&
-						evidence.kind === "nova-operation") ||
-						(action.idempotencyOwner === "user" &&
-							evidence.kind === "user-confirmation") ||
-						(action.idempotencyOwner === "external-system" &&
-							evidence.kind === "external-system"));
+					(evidence.kind === "nova-operation" ||
+						evidence.kind === "external-system");
 		if (!evidenceMatches) {
 			throw new ExternalActionRequiredError(
 				`Required external action ${action.id} has no current durable completion receipt.`,

@@ -56,6 +56,7 @@ import {
 import {
 	createDesignLoopTools,
 	designWorkspaceLineageForGates,
+	ensureDerivedBuildPlan,
 } from "@/lib/agent/design/loop/tools";
 import {
 	DESIGN_AGENT_SYSTEM,
@@ -86,7 +87,6 @@ import {
 	createDesignPulseEmitter,
 	createSubmissionStepNarrator,
 	type DesignPulsePhase,
-	PLAN_STEP_LABELS,
 	type SubmissionStepNarrator,
 } from "./progress";
 
@@ -140,14 +140,12 @@ export function designToolPulsePhase(
 	if (toolName === "stageRevision" || toolName === "submitRevision") {
 		return "revise";
 	}
-	if (toolName === "stagePlan" || toolName === "submitPlan") return "plan";
 	return current;
 }
 
 function activeWorkspaceKind(
 	gates: DesignGateState,
 ): DesignArtifactKind | null {
-	if (gates.verdicts.submitPlan.legal) return "plan";
 	if (gates.verdicts.submitRevision.legal) return "revision";
 	if (gates.verdicts.submitContract.legal) return "contract";
 	return null;
@@ -218,15 +216,14 @@ export async function runDesignAgentLoop(
 	const contractPulsePhase = contractSubmissionPulsePhase(
 		initialGates.head !== null,
 	);
-	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitPlan.legal
-		? "plan"
-		: initialGates.verdicts.submitRevision.legal
-			? "revise"
-			: initialGates.verdicts.requestReview.legal
-				? "review"
-				: "design";
+	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitRevision
+		.legal
+		? "revise"
+		: initialGates.verdicts.requestReview.legal
+			? "review"
+			: "design";
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
-	const tools = createDesignLoopTools({
+	const toolDeps = {
 		designSessionId: args.designSessionId,
 		runId: args.runId,
 		authority,
@@ -236,7 +233,7 @@ export async function runDesignAgentLoop(
 		signal: args.signal,
 		repair,
 		loadAncestry,
-		rebuildPackageForDigest: (digest) =>
+		rebuildPackageForDigest: (digest: string) =>
 			rebuildPackageForDigest({
 				designSessionId: args.designSessionId,
 				projectId: args.projectId,
@@ -245,11 +242,20 @@ export async function runDesignAgentLoop(
 				messages: args.messages as BuildSourcePackageArgs["messages"],
 				deps: args.packageDeps,
 			}),
-		onReviewActivity: (deltaChars) => pulse("review", deltaChars),
+		onReviewActivity: (deltaChars: number) => pulse("review", deltaChars),
 		...(args.onReviewerReasoning !== undefined && {
 			onReviewerReasoning: args.onReviewerReasoning,
 		}),
-	});
+	};
+	const tools = createDesignLoopTools(toolDeps);
+	const recoveredPlan = await ensureDerivedBuildPlan(toolDeps, initialGates);
+	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
+		return {
+			kind: "planned",
+			revision: initialGates.newestAccepted,
+			plan: recoveredPlan,
+		};
+	}
 	const stateMessageFor = async (
 		gates: DesignGateState,
 	): Promise<ModelMessage> => {
@@ -289,61 +295,28 @@ export async function runDesignAgentLoop(
 									workspaceKind,
 									workspace.candidate,
 								),
+								candidate: workspace.candidate,
+								sourceContract: workspace.sourceContract,
 							},
 			}),
 		};
 	};
 
-	let completedModelSteps = 0;
-	let stepsBeforeStream = 0;
-	const agent = createDesignAgent({
-		model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
-		tools,
-		catalogText,
-		constraintsText: renderPlatformConstraintsSection(),
-		instructions: DESIGN_AGENT_SYSTEM,
-		promptCacheKey: `nova:design:${args.designSessionId}`,
-		fatalError: () => repair.fatalError(),
-		freshStateMessage: async () =>
-			stateMessageFor(evaluateDesignGates(await loadAncestry())),
-		stepsBeforeStream: () => stepsBeforeStream,
-		onStepEnd: (step) => {
-			completedModelSteps += 1;
-			args.onAgentStep?.(step);
-		},
-	});
-
-	/* History repair + source projection, exactly once per POST: drop tool
-	 * parts the design tool set can't validate (a resumed thread routinely
-	 * carries parts recorded under earlier deploys: the retired pipeline's
-	 * synthesized rounds included; their content survives as seeded claims),
-	 * drop historical reasoning per the wire contract, then replace each
-	 * user message's text with its delimited, citable source rendering. */
-	const sanitized = await sanitizeHistoricalToolParts(
-		[...args.messages],
-		agent.tools,
-	);
-	const repaired = sanitizeHistoricalReasoningParts(
-		sanitized,
-		DESIGN_AUTHOR_MODEL,
-	);
-	const compacted = projectCompatibleCompactedHistory(
-		repaired,
-		DESIGN_AUTHOR_MODEL,
-	);
-	const projected = applySourceProjection(
-		compacted,
-		projectPackageOntoMessages(args.pkg, compacted),
-	);
-	const validated = await validateUIMessages<InferAgentUIMessage<typeof agent>>(
-		{
-			messages: projected,
-			tools: agent.tools,
-		},
-	);
-	const baseModelMessages = markStablePrefixBoundary(
-		await convertToModelMessages(validated, { tools: agent.tools }),
-	);
+	type InternalPhase = "author" | "review" | "revision" | "awaiting-input";
+	const phaseFor = (gates: DesignGateState): InternalPhase =>
+		gates.verdicts.submitRevision.legal
+			? "revision"
+			: gates.verdicts.requestReview.legal
+				? "review"
+				: gates.verdicts.submitContract.legal
+					? "author"
+					: "awaiting-input";
+	const phaseSteps: Record<InternalPhase, number> = {
+		author: 0,
+		review: 0,
+		revision: 0,
+		"awaiting-input": 0,
+	};
 
 	let turnRetries = 0;
 	const openParts = createOpenPartTracker();
@@ -358,10 +331,54 @@ export async function runDesignAgentLoop(
 
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
-		if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) break;
+		const phase = phaseFor(gates);
+		if (phaseSteps[phase] >= DESIGN_LOOP_STEP_BUDGET) break;
+		const agent = createDesignAgent({
+			model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
+			tools,
+			phase,
+			catalogText,
+			constraintsText: renderPlatformConstraintsSection(),
+			instructions: DESIGN_AGENT_SYSTEM,
+			promptCacheKey: `nova:design:${args.designSessionId}:${phase}`,
+			fatalError: () => repair.fatalError(),
+			freshStateMessage: async () =>
+				stateMessageFor(evaluateDesignGates(await loadAncestry())),
+			stepsBeforeStream: () => phaseSteps[phase],
+			onStepEnd: (step) => {
+				phaseSteps[phase] += 1;
+				args.onAgentStep?.(step);
+			},
+		});
+		/* Each durable phase starts a fresh internal model context. Historical
+		 * private tool parts from other phases are removed; the exact regenerated
+		 * phase packet below is the authority. Visible conversation remains. */
+		const sanitized = await sanitizeHistoricalToolParts(
+			[...args.messages],
+			agent.tools,
+		);
+		const repaired = sanitizeHistoricalReasoningParts(
+			sanitized,
+			DESIGN_AUTHOR_MODEL,
+		);
+		const compacted = projectCompatibleCompactedHistory(
+			repaired,
+			DESIGN_AUTHOR_MODEL,
+		);
+		const projected = applySourceProjection(
+			compacted,
+			projectPackageOntoMessages(args.pkg, compacted),
+		);
+		const validated = await validateUIMessages<
+			InferAgentUIMessage<typeof agent>
+		>({
+			messages: projected,
+			tools: agent.tools,
+		});
+		const baseModelMessages = markStablePrefixBoundary(
+			await convertToModelMessages(validated, { tools: agent.tools }),
+		);
 		const prompt = [...baseModelMessages, await stateMessageFor(gates)];
-
-		stepsBeforeStream = completedModelSteps;
 		const result = await agent.stream({ prompt });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
@@ -426,18 +443,12 @@ export async function runDesignAgentLoop(
 					} else if (chunk.toolName === "stageRevision") {
 						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 						narratorPhase = "revise";
-					} else if (chunk.toolName === "stagePlan") {
-						narrator = createSubmissionStepNarrator(PLAN_STEP_LABELS);
-						narratorPhase = "plan";
 					} else if (chunk.toolName === "requestReview") {
 						narrator = null;
 						pulse("review", 0);
 					} else if (chunk.toolName === "submitRevision") {
 						narrator = null;
 						pulse("revise", 0);
-					} else if (chunk.toolName === "submitPlan") {
-						narrator = null;
-						pulse("plan", 0);
 					} else if (chunk.toolName === "submitContract") {
 						narrator = null;
 						pulse(contractPulsePhase, 0);
@@ -496,16 +507,14 @@ export async function runDesignAgentLoop(
 						livePulsePhase = failed
 							? "review"
 							: output?.accepted === true
-								? "plan"
+								? "review"
 								: "revise";
 					} else if (toolName === "submitRevision") {
 						livePulsePhase = failed
 							? "revise"
 							: output?.accepted === false
 								? "review"
-								: "plan";
-					} else if (toolName === "submitPlan") {
-						livePulsePhase = "plan";
+								: "revise";
 					}
 					pulse(livePulsePhase, 0);
 					return;
@@ -598,7 +607,18 @@ export async function runDesignAgentLoop(
 			break;
 		}
 
-		if (!sawFatalError || pausedOnQuestions) break;
+		if (pausedOnQuestions) break;
+		if (!sawFatalError) {
+			const afterPhase = evaluateDesignGates(await loadAncestry());
+			await ensureDerivedBuildPlan(toolDeps, afterPhase);
+			const settled = evaluateDesignGates(await loadAncestry());
+			if (settled.plan !== null) break;
+			/* A legal terminal tool advances the durable phase. Continue with a
+			 * fresh, phase-specific model context; a clean stream that did not
+			 * advance is incomplete and is mapped below instead of spinning. */
+			if (phaseFor(settled) !== phase) continue;
+			break;
+		}
 		const classified = classifyError(
 			pendingError ?? new Error("The design stream ended in an error."),
 		);
@@ -636,7 +656,11 @@ export async function runDesignAgentLoop(
 			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
-	if (fatal !== undefined || completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
+	const finalPhase = phaseFor(finalGates);
+	if (
+		fatal !== undefined ||
+		phaseSteps[finalPhase] >= DESIGN_LOOP_STEP_BUDGET
+	) {
 		return {
 			kind: "failed",
 			errorType: "design-loop-budget",

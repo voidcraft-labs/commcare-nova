@@ -39,7 +39,7 @@ const BASE_BUDGET: SliceExecutionBudget = {
 };
 
 const MODEL_STEPS_PER_GROUP = 3;
-const STAGED_REQUESTS_PER_INTENT = 2;
+const STAGED_REQUESTS_PER_GROUP = 3;
 const WALL_CLOCK_MS_PER_GROUP = 75_000;
 
 const RISK_ALLOWANCE: Readonly<
@@ -67,7 +67,7 @@ const CEILINGS = {
 
 /** Deterministic budget for one slice — pure, and pinned by test. */
 export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
-	const groupCount = slice.constructionStrategy.semanticGroups.length;
+	const groupCount = slice.constructionGroups.length;
 	const risk = RISK_ALLOWANCE[slice.risk];
 	return {
 		maxModelSteps: Math.min(
@@ -79,7 +79,7 @@ export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
 		maxStagedRequests: Math.min(
 			CEILINGS.maxStagedRequests,
 			BASE_BUDGET.maxStagedRequests +
-				slice.ownedIntentIds.length * STAGED_REQUESTS_PER_INTENT +
+				groupCount * STAGED_REQUESTS_PER_GROUP +
 				risk.stagedRequests,
 		),
 		maxCommitAttempts: BASE_BUDGET.maxCommitAttempts,

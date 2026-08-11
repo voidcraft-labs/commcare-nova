@@ -342,7 +342,7 @@ describe("contract revisions", () => {
 		});
 		const read = await readDesignRevision(draft.id);
 		expect(read?.lifecycle).toBe("draft");
-		expect(read?.envelope.payload.title).toBe("CHW patient visits");
+		expect(read?.envelope.payload.charter.appName).toBe("CHW patient visits");
 		expect(read?.artifactDigest).toBe(draft.artifactDigest);
 	});
 
@@ -421,17 +421,17 @@ describe("contract revisions", () => {
 			envelope: reviewEnvelope(draft, {
 				schemaVersion: 1,
 				id: did(400),
-				summary: "One advisory nit.",
+				summary: "One important usability correction.",
 				findings: [
 					{
 						id: did(401),
 						category: "usability",
-						severity: "advisory",
-						basis: "heuristic",
+						severity: "important",
+						basis: "source-supported",
+						dispositionClass: "design-correction",
 						claim: "Queue names could be shorter.",
 						evidenceRefs: [messageRef()],
-						affectedIntentIds: [ids.rmPatients],
-						confidence: 0.5,
+						affectedElementIds: [ids.rmPatients],
 					},
 				],
 			}),
@@ -449,7 +449,6 @@ describe("contract revisions", () => {
 						findingId: did(401),
 						status: "rejected-with-rationale",
 						rationale: "The queue name mirrors the workers' own vocabulary.",
-						resultingIntentIds: [],
 					},
 				},
 			],

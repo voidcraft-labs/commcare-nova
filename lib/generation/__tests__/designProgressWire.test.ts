@@ -134,7 +134,7 @@ describe("design progress wire", () => {
 			actors: [],
 			tasks: [],
 			records: [],
-			readModels: [],
+			lists: [],
 			assumptions: [],
 			blockingQuestions: [],
 			outOfScope: [],

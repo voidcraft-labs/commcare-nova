@@ -83,12 +83,10 @@ function delimiterCount(text: string): { open: number; close: number } {
 }
 
 describe("renderSourcePackage containment", () => {
-	it("plans named worker-data declarations into the first slice that needs them", () => {
+	it("records named worker-data declarations without claiming provisioning", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain("depends on a named worker-data key");
 		expect(DESIGN_AGENT_SYSTEM).toContain(
-			"A named worker-data key used by access or navigation is Blueprint structure",
-		);
-		expect(DESIGN_AGENT_SYSTEM).toContain(
-			'not worker provisioning. Put "users" in the earliest relevant semantic',
+			"That declaration is app structure, not worker provisioning",
 		);
 	});
 
@@ -98,10 +96,10 @@ describe("renderSourcePackage containment", () => {
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain("before extended reasoning");
 		expect(DESIGN_AGENT_SYSTEM).toContain(
-			"including an answer returned from\naskQuestions",
+			"including an answer returned from askQuestions",
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain(
-			"Do not acknowledge the generated session-state message",
+			"Do not acknowledge a generated session-state message",
 		);
 	});
 

@@ -84,7 +84,7 @@ export interface DesignOutlineProjection {
 	readonly actors: readonly string[];
 	readonly tasks: readonly string[];
 	readonly records: readonly string[];
-	readonly readModels: readonly string[];
+	readonly lists: readonly string[];
 	readonly assumptions: readonly string[];
 	readonly blockingQuestions: readonly string[];
 	readonly outOfScope: readonly string[];
@@ -220,7 +220,7 @@ const designOutlineSchema = z.object({
 	actors: z.array(z.string()),
 	tasks: z.array(z.string()),
 	records: z.array(z.string()),
-	readModels: z.array(z.string()),
+	lists: z.array(z.string()),
 	assumptions: z.array(z.string()),
 	blockingQuestions: z.array(z.string()),
 	outOfScope: z.array(z.string()),

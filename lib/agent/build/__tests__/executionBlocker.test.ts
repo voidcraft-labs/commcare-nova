@@ -1,88 +1,53 @@
 import { describe, expect, it } from "vitest";
-import {
-	makeBuildPlan,
-	makeContract,
-} from "@/lib/agent/design/__tests__/fixtures";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { did } from "@/lib/agent/design/__tests__/fixtures";
 import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
 import {
-	architectBlockerDecisionSchemaFor,
+	architectBlockerDecisionSchema,
 	architectBlockerDecisionWireSchemaFor,
+	executionBlockerSchema,
 } from "../executionBlocker";
 
-function repairContext(planRepairAllowed: boolean) {
-	return {
-		acceptedContract: appDesignContractSchema.parse(makeContract()),
-		currentPlan: makeBuildPlan(),
-		planRepairAllowed,
-	};
-}
-
-function planDraft() {
-	const plan = makeBuildPlan();
-	return {
-		slices: plan.slices,
-		externalActions: plan.externalActions,
-		intentOwnership: plan.intentOwnership,
-	};
-}
-
 describe("architect blocker decisions", () => {
-	it("wraps the decision union in an object for provider strict mode", () => {
-		const wire = strictWireJsonSchema(
-			architectBlockerDecisionWireSchemaFor(repairContext(true)),
-		);
+	it("wraps the decision union for provider strict mode", () => {
+		const wire = strictWireJsonSchema(architectBlockerDecisionWireSchemaFor());
 		expect(wire.type).toBe("object");
 		expect(wire.properties).toHaveProperty("decision");
 	});
 
-	it("accepts exact compiler guidance without reopening design authority", () => {
-		const parsed = architectBlockerDecisionSchemaFor(
-			repairContext(false),
-		).safeParse({ kind: "continue", guidance: "Use the selected-case form." });
-		expect(parsed.success).toBe(true);
-	});
-
-	it("forbids plan replacement after materialization", () => {
-		const parsed = architectBlockerDecisionSchemaFor(
-			repairContext(false),
-		).safeParse({
-			kind: "plan-repair",
-			reason: "The root boundary is wrong.",
-			repairedPlan: planDraft(),
-		});
-		expect(parsed.success).toBe(false);
+	it("accepts compiler guidance and semantic escalation", () => {
 		expect(
-			parsed.error?.issues.map((issue) => issue.message).join("\n"),
-		).toContain("only available before the materialization root commits");
-	});
-
-	it("accepts a construction-valid replacement before materialization", () => {
-		const parsed = architectBlockerDecisionSchemaFor(
-			repairContext(true),
-		).safeParse({
-			kind: "plan-repair",
-			reason: "The root boundary is wrong.",
-			repairedPlan: planDraft(),
-		});
-		expect(parsed.success).toBe(true);
-	});
-
-	it("rejects a replacement that contradicts the accepted contract", () => {
-		const draft = planDraft();
-		const task = draft.slices[1]?.constructionStrategy.tasks[0];
-		if (!task) throw new Error("fixture has a visit task strategy");
-		task.mode = "survey";
-		const parsed = architectBlockerDecisionSchemaFor(
-			repairContext(true),
-		).safeParse({
-			kind: "plan-repair",
-			reason: "The root boundary is wrong.",
-			repairedPlan: draft,
-		});
-		expect(parsed.success).toBe(false);
+			architectBlockerDecisionSchema.safeParse({
+				kind: "continue",
+				guidance: "Use the selected patient as the parent of the visit.",
+			}).success,
+		).toBe(true);
 		expect(
-			parsed.error?.issues.map((issue) => issue.message).join("\n"),
-		).toContain("requires case-action mode");
+			architectBlockerDecisionSchema.safeParse({
+				kind: "contract-revision",
+				reason: "The accepted relationship is ambiguous.",
+				question: "Should one visit belong to exactly one patient?",
+				options: ["Yes", "No"],
+			}).success,
+		).toBe(true);
+	});
+
+	it("has no model-authored plan-repair branch", () => {
+		expect(
+			architectBlockerDecisionSchema.safeParse({
+				kind: "plan-repair",
+				reason: "Try different slices.",
+			}).success,
+		).toBe(false);
+	});
+
+	it("reports affected construction groups rather than intent graphs", () => {
+		expect(
+			executionBlockerSchema.safeParse({
+				schemaVersion: 1,
+				affectedConstructionGroupIds: [did(1)],
+				observations: ["The current form cannot express the accepted effect."],
+				requestedDecision: "Clarify the safe lowering.",
+			}).success,
+		).toBe(true);
 	});
 });

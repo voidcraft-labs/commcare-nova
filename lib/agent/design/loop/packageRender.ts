@@ -36,11 +36,15 @@ export const DESIGN_STATE_MESSAGE_HEADING =
 	"# Design session state (server-derived)";
 
 export interface DesignWorkspaceStateSummary {
-	readonly artifactKind: "contract" | "revision" | "plan";
+	readonly artifactKind: "contract" | "revision";
 	readonly revision: number;
 	readonly stepCount: number;
 	readonly counts: Readonly<Record<string, number>>;
 	readonly missingRootFields: readonly string[];
+	/** Exact private candidate. This is regenerated after compaction so the
+	 * model never has to reconstruct it through many inspection turns. */
+	readonly candidate: Readonly<Record<string, unknown>>;
+	readonly sourceContract: Readonly<Record<string, unknown>> | null;
 }
 
 export interface MessageSourceProjection {
@@ -181,7 +185,7 @@ export function renderDesignStateMessage(args: {
 			lines.push(`- ${question}`);
 		}
 	}
-	lines.push("", "## Seeded claims (reuse these ids exactly)");
+	lines.push("", "## Resolved answers and source outline");
 	lines.push(
 		args.claims.length > 0 ? JSON.stringify(args.claims, null, 1) : "None yet.",
 	);
@@ -199,7 +203,12 @@ export function renderDesignStateMessage(args: {
 		);
 	}
 	if (args.workspace) {
-		lines.push("", "## Durable authoring workspace");
+		lines.push(
+			"",
+			args.workspace.artifactKind === "revision"
+				? "## Revision phase packet"
+				: "## Authoring phase packet",
+		);
 		lines.push(
 			JSON.stringify(
 				{
@@ -208,8 +217,12 @@ export function renderDesignStateMessage(args: {
 					stepCount: args.workspace.stepCount,
 					counts: args.workspace.counts,
 					missingRootFields: args.workspace.missingRootFields,
+					...(args.workspace.sourceContract !== null && {
+						reviewedParent: args.workspace.sourceContract,
+					}),
+					currentCandidate: args.workspace.candidate,
 					instruction:
-						"Continue from this workspace revision. Use inspectDesignWorkspace for exact root or collection items; revision and plan workspaces also expose their immutable source contract. Do not recreate saved stages.",
+						"Continue from this exact candidate and workspace revision. Do not recreate saved stages. Inspect only when a narrow exceptional lookup is genuinely needed.",
 				},
 				null,
 				1,

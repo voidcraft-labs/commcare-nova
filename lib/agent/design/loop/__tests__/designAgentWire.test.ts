@@ -103,6 +103,7 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 	const agent = createDesignAgent({
 		model: openai(DESIGN_MODEL),
 		tools,
+		phase: "author",
 		catalogText: "CATALOG",
 		constraintsText: "CONSTRAINTS",
 		instructions: "You are Nova's designer.",
@@ -146,13 +147,8 @@ describe("design agent Responses wire body", () => {
 		const byName = new Map((body.tools ?? []).map((t) => [t.name, t]));
 		for (const name of [
 			"stageContract",
-			"stageRevision",
-			"stagePlan",
 			"inspectDesignWorkspace",
 			"submitContract",
-			"requestReview",
-			"submitRevision",
-			"submitPlan",
 		]) {
 			const tool = byName.get(name);
 			expect(tool, name).toBeDefined();
@@ -165,5 +161,11 @@ describe("design agent Responses wire body", () => {
 			);
 		}
 		expect(byName.get("askQuestions")?.strict).toBe(false);
+		expect([...byName.keys()].sort()).toEqual([
+			"askQuestions",
+			"inspectDesignWorkspace",
+			"stageContract",
+			"submitContract",
+		]);
 	});
 });

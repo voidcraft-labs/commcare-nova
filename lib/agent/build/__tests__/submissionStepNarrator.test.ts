@@ -9,19 +9,18 @@ import { describe, expect, it } from "vitest";
 import {
 	CONTRACT_STEP_LABELS,
 	createSubmissionStepNarrator,
-	PLAN_STEP_LABELS,
 } from "@/lib/agent/build/progress";
 
 describe("createSubmissionStepNarrator", () => {
 	it("names each step as its key streams, in order", () => {
 		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"objective":"x","sourceClaims":[')).toBe(
-			"Grounding the requirements",
+		expect(narrator.feed('{"schemaVersion":1,"charter":{')).toBe(
+			"Setting the app direction",
 		);
-		expect(narrator.feed('...],"records":[{"name"')).toBe(
+		expect(narrator.feed('},"actors":[],"records":[{"name"')).toBe(
 			"Working out the records",
 		);
-		expect(narrator.feed('}],"tasks":[')).toBe("Shaping the tasks");
+		expect(narrator.feed('}],"workflows":[')).toBe("Shaping the workflows");
 	});
 
 	it("survives a key split across two deltas", () => {
@@ -32,15 +31,17 @@ describe("createSubmissionStepNarrator", () => {
 
 	it("reports the latest key when several land in one delta", () => {
 		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"actors":[],"records":[],"facts":[')).toBe(
-			"Detailing what gets tracked",
+		expect(narrator.feed('{"actors":[],"records":[],"workflows":[')).toBe(
+			"Shaping the workflows",
 		);
 	});
 
 	it("degrades to the last known step on unknown keys", () => {
-		const narrator = createSubmissionStepNarrator(PLAN_STEP_LABELS);
+		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
 		expect(narrator.feed('{"unknownKey":1')).toBeUndefined();
-		expect(narrator.feed(',"slices":[')).toBe("Slicing the build");
-		expect(narrator.feed(',"anotherUnknown":2')).toBe("Slicing the build");
+		expect(narrator.feed(',"charter":{')).toBe("Setting the app direction");
+		expect(narrator.feed(',"anotherUnknown":2')).toBe(
+			"Setting the app direction",
+		);
 	});
 });

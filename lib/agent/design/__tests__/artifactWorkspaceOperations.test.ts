@@ -4,128 +4,125 @@ import {
 	designWorkspaceCandidateSummary,
 	inspectDesignWorkspaceCandidate,
 	replayDesignWorkspace,
+	stageContractInputSchema,
+	stageRevisionInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
-import { did, makeContract } from "./fixtures";
+import { did, fixtureValue, makeContract } from "./fixtures";
 
-describe("design artifact workspace replay", () => {
-	it("applies ordered identity upserts and removals deterministically", () => {
+describe("design artifact workspaces", () => {
+	it("stages a lean contract root and coherent collections", () => {
 		const contract = makeContract();
-		const actor = contract.actors[0];
-		if (actor === undefined) throw new Error("fixture actor is missing");
-		const replacement = { ...actor, name: "Updated worker" };
+		const root = stageContractInputSchema.parse({
+			expectedRevision: 0,
+			root: { id: contract.id, charter: contract.charter },
+			collections: [],
+		});
+		const actors = stageContractInputSchema.parse({
+			expectedRevision: 1,
+			collections: [
+				{ collection: "actors", upserts: contract.actors, removeIds: [] },
+			],
+		});
 		const candidate = replayDesignWorkspace({
 			kind: "contract",
 			operations: [
-				{
-					kind: "contract",
-					root: {
-						id: contract.id,
-						title: contract.title,
-						objective: contract.objective,
-						inScope: contract.inScope,
-						outOfScope: contract.outOfScope,
-					},
-					collections: [
-						{
-							collection: "actors",
-							upserts: contract.actors,
-							removeIds: [],
-						},
-					],
-				},
-				{
-					kind: "contract",
-					collections: [
-						{
-							collection: "actors",
-							upserts: [replacement],
-							removeIds: [
-								contract.actors.find((item) => item.id !== actor.id)?.id ??
-									did(999),
-							],
-						},
-					],
-				},
+				{ kind: "contract", root: root.root, collections: root.collections },
+				{ kind: "contract", collections: actors.collections },
 			],
 		});
-		expect(candidate.actors).toEqual([replacement]);
-		expect(
-			designWorkspaceCandidateSummary("contract", candidate),
-		).toMatchObject({
-			counts: { actors: 1 },
-			missingRootFields: [],
-		});
+		expect(candidate.charter).toEqual(contract.charter);
+		expect(candidate.actors).toEqual(contract.actors);
 	});
 
-	it("starts revisions from the immutable parent and keeps unchanged collections", () => {
+	it("updates by identity without resending unchanged collections", () => {
 		const contract = makeContract();
-		const question = contract.openQuestions[0];
-		if (question === undefined) throw new Error("fixture question is missing");
+		const changed = {
+			...fixtureValue(contract.actors[0], "first actor"),
+			name: "Field worker",
+		};
 		const candidate = replayDesignWorkspace({
 			kind: "revision",
-			baseContract: contract as unknown as Record<string, unknown>,
+			baseContract: contract,
 			operations: [
 				{
 					kind: "revision",
 					collections: [
-						{
-							collection: "openQuestions",
-							upserts: [{ ...question, blocking: false }],
-							removeIds: [],
-						},
+						{ collection: "actors", upserts: [changed], removeIds: [] },
 					],
 				},
 			],
 		});
-		expect(candidate.facts).toEqual(contract.facts);
-		expect(candidate.openQuestions).toEqual([{ ...question, blocking: false }]);
-		expect(candidate.dispositions).toEqual([]);
+		expect((candidate.actors as typeof contract.actors)[0]?.name).toBe(
+			"Field worker",
+		);
+		expect(candidate.records).toEqual(contract.records);
 	});
 
-	it("returns bounded exact collection inspection", () => {
-		const contract = makeContract();
-		const candidate = {
-			...contract,
-			actors: Array.from({ length: 25 }, (_, index) => ({
-				...contract.actors[0],
-				id: did(800 + index),
-				name: `Actor ${index}`,
-			})),
-		};
-		const inspected = inspectDesignWorkspaceCandidate({
-			kind: "contract",
-			candidate,
-			selection: {
-				kind: "collection",
-				collection: "actors",
-				ids: [],
-				offset: 10,
-				limit: 5,
+	it("keeps blocking dispositions separate from contract collections", () => {
+		const parsed = stageRevisionInputSchema.parse({
+			expectedRevision: 0,
+			collections: [],
+			dispositions: {
+				collection: "dispositions",
+				upserts: [
+					{
+						findingId: did(500),
+						status: "accepted",
+						rationale: "Corrected the workflow readback.",
+					},
+				],
+				removeIds: [],
 			},
 		});
-		expect(inspected).toMatchObject({
-			collection: "actors",
-			total: 25,
-			offset: 10,
-		});
-		expect((inspected as { items: unknown[] }).items).toHaveLength(5);
+		expect(parsed.dispositions?.upserts).toHaveLength(1);
 	});
-});
 
-describe("design artifact workspace bounds", () => {
-	it("rejects more than 32 item changes before persistence", () => {
+	it("rejects empty stages and bounds oversized stages", () => {
+		expect(
+			stageContractInputSchema.safeParse({
+				expectedRevision: 0,
+				collections: [],
+			}).success,
+		).toBe(false);
+		const contract = makeContract();
 		const operation = {
 			kind: "contract" as const,
 			collections: [
 				{
 					collection: "actors" as const,
-					upserts: [],
-					removeIds: Array.from({ length: 33 }, (_, index) => did(900 + index)),
+					upserts: Array.from({ length: 33 }, (_, index) => ({
+						...fixtureValue(contract.actors[0], "first actor"),
+						id: did(1000 + index),
+					})),
+					removeIds: [],
 				},
 			],
 		};
 		expect(
 			designWorkspaceBoundError({ input: operation, operation }),
 		).toContain("at most 32");
+	});
+
+	it("summarizes and inspects exact candidate state", () => {
+		const contract = makeContract() as unknown as Record<string, unknown>;
+		expect(
+			designWorkspaceCandidateSummary("contract", contract).counts,
+		).toMatchObject({
+			actors: 2,
+			records: 2,
+			workflows: 2,
+		});
+		const view = inspectDesignWorkspaceCandidate({
+			kind: "contract",
+			candidate: contract,
+			selection: {
+				kind: "collection",
+				collection: "workflows",
+				ids: [],
+				offset: 0,
+				limit: 1,
+			},
+		});
+		expect(view).toMatchObject({ total: 2, truncated: true });
 	});
 });

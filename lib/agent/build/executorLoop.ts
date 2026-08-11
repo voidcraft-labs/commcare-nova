@@ -224,15 +224,15 @@ function mutatingInputSchema(name: string): JSONSchema7 {
 		additionalHandleFamilies: BATCH_LOCAL_HANDLE_FAMILIES,
 	});
 	inputSchema.properties ??= {};
-	inputSchema.properties.implementedIntentIds = {
+	inputSchema.properties.constructionGroupIds = {
 		type: "array",
 		items: { type: "string", format: "uuid" },
 		minItems: 1,
 		uniqueItems: true,
-		description: "The exact owned design intent ids this operation implements.",
+		description: "The exact construction groups this operation implements.",
 	};
 	inputSchema.required = [
-		...new Set([...(inputSchema.required ?? []), "implementedIntentIds"]),
+		...new Set([...(inputSchema.required ?? []), "constructionGroupIds"]),
 	];
 	addItemHandleDeclarations(name, inputSchema);
 	return inputSchema;
@@ -694,11 +694,11 @@ function resultHasError(result: unknown): boolean {
 }
 
 const CONTINUE_NUDGE =
-	"Continue with exactly one tool call. Stage every remaining owned intent before inspecting; once none remain, inspect once and commit if it reports no findings.";
+	"Continue with exactly one tool call. Stage every remaining construction group before inspecting; once none remain, inspect once and commit if it reports no findings.";
 
 /* One-call read discipline sometimes needs several current structures together
  * (for example a module, a form, and its operations). Keep only this small
- * volatile working set; durable mutations, handles, and intent coverage still
+ * volatile working set; durable mutations, handles, and group coverage still
  * come exclusively from the freshly rendered workspace checkpoint. */
 const RECENT_READ_TURN_LIMIT = 4;
 
@@ -734,8 +734,8 @@ export function renderExecutorWorkspaceSummary(
 			: "Build on what is already staged; never re-create it.",
 		`App: ${JSON.stringify(doc.appName)} (${doc.appId})`,
 		execution.intentCoverage.length === 0
-			? "Durable intent coverage: none yet."
-			: `Durable intent coverage: ${execution.intentCoverage
+			? "Durable construction groups: none yet."
+			: `Durable construction groups: ${execution.intentCoverage
 					.map(
 						(coverage) =>
 							`${coverage.intentId} (${coverage.stepCount} step${coverage.stepCount === 1 ? "" : "s"})`,
@@ -1448,7 +1448,10 @@ export async function runSliceExecutor(args: {
 				}
 				if (Date.now() >= deadlineAt || deadline.signal.aborted)
 					return exhausted();
-				const remainingIntents = remainingOwnedIntentIds(diagnostics, brief);
+				const remainingIntents = remainingConstructionGroupIds(
+					diagnostics,
+					brief,
+				);
 				if (!diagnostics.canCommit || remainingIntents.length > 0) {
 					/* A blocked request is not an attempt — nothing was tried. */
 					toolOutcome(
@@ -1464,7 +1467,7 @@ export async function runSliceExecutor(args: {
 							diagnostics,
 							remainingIntents,
 						)}`,
-						remainingOwnedIntentIds: remainingIntents,
+						remainingConstructionGroupIds: remainingIntents,
 					});
 					continue;
 				}
@@ -1607,10 +1610,10 @@ function extractStagingInput(
 	if (input === null || typeof input !== "object" || Array.isArray(input)) {
 		throw new ChangeSetStagingRejectedError(
 			"STAGING_FORBIDDEN",
-			"A staged mutation call must be an object with implementedIntentIds.",
+			"A staged mutation call must be an object with constructionGroupIds.",
 		);
 	}
-	const { implementedIntentIds, ...toolInput } = input as Record<
+	const { constructionGroupIds, ...toolInput } = input as Record<
 		string,
 		unknown
 	>;
@@ -1618,19 +1621,19 @@ function extractStagingInput(
 		.array(designIdSchema)
 		.min(1)
 		.refine((ids) => new Set(ids).size === ids.length)
-		.safeParse(implementedIntentIds);
+		.safeParse(constructionGroupIds);
 	if (!parsed.success) {
 		throw new ChangeSetStagingRejectedError(
 			"STAGING_FORBIDDEN",
-			"A staged mutation call must name at least one valid implemented intent id.",
+			"A staged mutation call must name at least one valid construction group id.",
 		);
 	}
-	const owned = new Set<string>(brief.owningIntentIds);
-	const foreignIntentIds = parsed.data.filter((id) => !owned.has(id));
-	if (foreignIntentIds.length > 0) {
+	const owned = new Set<string>(brief.constructionGroupIds);
+	const foreignGroupIds = parsed.data.filter((id) => !owned.has(id));
+	if (foreignGroupIds.length > 0) {
 		throw new ChangeSetStagingRejectedError(
 			"STAGING_FORBIDDEN",
-			`A staged mutation call may name only intents owned by this slice. These ids are dependencies owned elsewhere: ${foreignIntentIds.join(", ")}. Name the owned intent or intents this correction actually implements; an owned intent may appear on more than one corrective step.`,
+			`A staged mutation call may name only construction groups in this workflow slice. These ids are outside the slice: ${foreignGroupIds.join(", ")}. Name the group or groups this operation actually implements; a group may appear on more than one corrective step.`,
 		);
 	}
 	return { input: toolInput, intentIds: parsed.data };
@@ -1653,7 +1656,7 @@ function projectDiagnostics(
 	brief: SliceExecutionBrief,
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
-	const remainingIntents = remainingOwnedIntentIds(diagnostics, brief);
+	const remainingIntents = remainingConstructionGroupIds(diagnostics, brief);
 	return {
 		revision: diagnostics.snapshotRevision,
 		findingCount: diagnostics.allFindings.length,
@@ -1681,7 +1684,7 @@ function projectDiagnostics(
 			kind: status.dependency.kind,
 			state: status.state,
 		})),
-		remainingOwnedIntentIds: remainingIntents,
+		remainingConstructionGroupIds: remainingIntents,
 		canCommit: diagnostics.canCommit && remainingIntents.length === 0,
 	};
 }
@@ -1709,12 +1712,12 @@ function describeBlockers(
 /** The exact coverage gap the canonical commit will independently re-prove.
  * Diagnostics derives coverage from durable mutation-bearing steps; the
  * accepted brief is the authority for what this slice owns. */
-function remainingOwnedIntentIds(
+function remainingConstructionGroupIds(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,
 ): string[] {
 	const covered = new Set(
 		diagnostics.sliceIntentCoverage.map((coverage) => coverage.intentId),
 	);
-	return brief.owningIntentIds.filter((intentId) => !covered.has(intentId));
+	return brief.constructionGroupIds.filter((groupId) => !covered.has(groupId));
 }

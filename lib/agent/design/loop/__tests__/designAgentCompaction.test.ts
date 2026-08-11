@@ -39,7 +39,7 @@ describe("design agent compaction checkpoint", () => {
 		expect(fresh).toHaveBeenCalledOnce();
 	});
 
-	it("does not append another state checkpoint on later steps", async () => {
+	it("replaces a retained state checkpoint with current server state", async () => {
 		const fresh = vi.fn(
 			async (): Promise<ModelMessage> => ({
 				role: "user",
@@ -54,7 +54,11 @@ describe("design agent compaction checkpoint", () => {
 			[checkpoint, existingState, { role: "assistant", content: "next" }],
 			fresh,
 		);
-		expect(projected).toContainEqual(existingState);
-		expect(fresh).not.toHaveBeenCalled();
+		expect(projected).not.toContainEqual(existingState);
+		expect(projected).toContainEqual({
+			role: "user",
+			content: DESIGN_STATE_MESSAGE_HEADING,
+		});
+		expect(fresh).toHaveBeenCalledOnce();
 	});
 });

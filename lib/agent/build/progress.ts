@@ -114,7 +114,7 @@ export interface DesignOutlineProjection {
 	readonly actors: readonly string[];
 	readonly tasks: readonly string[];
 	readonly records: readonly string[];
-	readonly readModels: readonly string[];
+	readonly lists: readonly string[];
 	readonly assumptions: readonly string[];
 	readonly blockingQuestions: readonly string[];
 	readonly outOfScope: readonly string[];
@@ -126,16 +126,16 @@ export function deriveDesignOutline(
 	reviews: readonly DesignReview[],
 ): DesignOutlineProjection {
 	return {
-		objective: contract.objective,
+		objective: contract.charter.objective,
 		actors: contract.actors.map((actor) => actor.name),
-		tasks: contract.tasks.map((task) => task.name),
+		tasks: contract.workflows.map((workflow) => workflow.name),
 		records: contract.records.map((record) => record.name),
-		readModels: contract.readModels.map((readModel) => readModel.name),
+		lists: contract.lists.map((list) => list.name),
 		assumptions: contract.assumptions.map((assumption) => assumption.statement),
 		blockingQuestions: contract.openQuestions
 			.filter((question) => question.blocking)
 			.map((question) => question.question),
-		outOfScope: contract.outOfScope,
+		outOfScope: contract.charter.excludedWorkflows,
 		reviewed: reviews.length > 0,
 	};
 }
@@ -233,33 +233,24 @@ export function createDesignPulseEmitter(
 /**
  * Sub-step labels for a streaming submission's top-level keys. Strict-mode
  * constrained decoding pins property order to schema order, so the keys of
- * a contract or plan appear in a known sequence as the tool call's input
+ * a contract appear in a known sequence as the tool call's input
  * streams, so watching the accumulated text for them yields honest sub-steps.
  * Schema field order is a narration lever the repo already treats as
  * load-bearing (`documentExtraction.ts`). Labels follow the design system's
  * activity voice: sentence case, present tense, no punctuation.
  */
 export const CONTRACT_STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
-	["sourceClaims", "Grounding the requirements"],
+	["charter", "Setting the app direction"],
 	["actors", "Understanding who does what"],
 	["records", "Working out the records"],
-	["facts", "Detailing what gets tracked"],
-	["rules", "Writing the rules"],
-	["tasks", "Shaping the tasks"],
-	["transitions", "Mapping how records move"],
-	["readModels", "Designing the worklists"],
-	["accessPolicies", "Setting who sees what"],
+	["workflows", "Shaping the workflows"],
+	["lists", "Designing the worklists"],
+	["access", "Setting who sees what"],
 	["navigation", "Laying out navigation"],
+	["externalRequirements", "Checking what needs setup"],
 	["decisions", "Weighing the choices"],
 	["assumptions", "Recording assumptions"],
 	["openQuestions", "Noting open questions"],
-	["acceptanceScenarios", "Writing acceptance scenarios"],
-] as const;
-
-export const PLAN_STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
-	["slices", "Slicing the build"],
-	["externalActions", "Listing setup steps"],
-	["intentOwnership", "Assigning ownership"],
 ] as const;
 
 export interface SubmissionStepNarrator {

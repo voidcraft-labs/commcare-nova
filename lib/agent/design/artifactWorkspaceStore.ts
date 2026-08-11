@@ -128,13 +128,6 @@ async function validateLineageInTransaction(
 			"A revision workspace must descend from the reviewed draft.",
 		);
 	}
-	if (lineage.artifactKind === "plan" && baseLifecycle !== "accepted") {
-		throw new DesignArtifactWorkspaceError(
-			"lineage-invalid",
-			"A plan workspace must descend from the accepted revision.",
-		);
-	}
-
 	const reviewIds = new Set<string>();
 	for (const review of lineage.reviewArtifacts) {
 		if (reviewIds.has(review.id)) {

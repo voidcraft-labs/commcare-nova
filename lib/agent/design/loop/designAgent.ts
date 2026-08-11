@@ -41,6 +41,7 @@ export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
 	readonly tools: ReturnType<typeof createDesignLoopTools>;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 	/** Static instruction suffix: the capability catalog plus the citable
 	 *  platform constraints, byte-identical across a deploy's sessions. */
 	readonly catalogText: string;
@@ -103,12 +104,44 @@ export async function projectDesignStepMessages(
 ): Promise<ModelMessage[]> {
 	const containedCompaction = modelMessagesContainCompaction(messages);
 	const projected = projectModelHistoryFromNewestCompaction(messages);
-	return containedCompaction && !projected.some(isDesignStateMessage)
-		? [...projected, await freshStateMessage()]
-		: projected;
+	if (!containedCompaction) return projected;
+	/* The provider may retain a recent but stale state packet beside its opaque
+	 * checkpoint. Remove every old copy and install one exact server packet. */
+	return [
+		...projected.filter((message) => !isDesignStateMessage(message)),
+		await freshStateMessage(),
+	];
 }
 
 export function createDesignAgent(args: DesignAgentArgs) {
+	const phaseTools = {
+		askQuestions: {
+			description: DESIGN_ASK_QUESTIONS_DESCRIPTION,
+			inputSchema: askQuestionsTool.inputSchema,
+			strict: false,
+		},
+		...(args.phase === "author" && {
+			stageContract: args.tools.stageContract,
+			inspectDesignWorkspace: args.tools.inspectDesignWorkspace,
+			submitContract: args.tools.submitContract,
+		}),
+		...(args.phase === "review" && {
+			requestReview: args.tools.requestReview,
+		}),
+		...(args.phase === "revision" && {
+			stageRevision: args.tools.stageRevision,
+			inspectDesignWorkspace: args.tools.inspectDesignWorkspace,
+			submitRevision: args.tools.submitRevision,
+		}),
+	};
+	const phaseTerminal =
+		args.phase === "author"
+			? "submitContract"
+			: args.phase === "review"
+				? "requestReview"
+				: args.phase === "revision"
+					? "submitRevision"
+					: null;
 	return new ToolLoopAgent({
 		model: args.model,
 		instructions: [
@@ -119,7 +152,11 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			args.constraintsText,
 		].join("\n"),
 		stopWhen: ({ steps }) =>
-			designStepBudgetReached(args.stepsBeforeStream(), steps.length),
+			designStepBudgetReached(args.stepsBeforeStream(), steps.length) ||
+			(phaseTerminal !== null &&
+				steps.some((step) =>
+					step.toolCalls.some((call) => call?.toolName === phaseTerminal),
+				)),
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,
@@ -146,12 +183,19 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				usage: step.usage,
 				text: step.text,
 				reasoningText: step.reasoningText,
-				toolCalls: step.toolCalls?.map((tc) => ({
-					toolCallId: tc.toolCallId,
-					toolName: tc.toolName,
-					input: tc.input,
-				})),
-				toolResults: step.toolResults,
+				toolCalls: step.toolCalls
+					.filter((tc) => tc !== undefined)
+					.map((tc) => ({
+						toolCallId: tc.toolCallId,
+						toolName: tc.toolName,
+						input: tc.input,
+					})),
+				toolResults: step.toolResults
+					.filter((result) => result !== undefined)
+					.map((result) => ({
+						toolCallId: result.toolCallId,
+						output: result.output,
+					})),
 				toolErrors: step.content.flatMap((part) =>
 					part.type === "tool-error"
 						? [{ toolCallId: part.toolCallId, error: part.error }]
@@ -164,13 +208,6 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				toolEventMode: "metadata-only",
 			});
 		},
-		tools: {
-			askQuestions: {
-				description: DESIGN_ASK_QUESTIONS_DESCRIPTION,
-				inputSchema: askQuestionsTool.inputSchema,
-				strict: false,
-			},
-			...args.tools,
-		},
+		tools: phaseTools,
 	});
 }

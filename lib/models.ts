@@ -138,7 +138,7 @@ export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
  * accepted, server-gated brief into a complete canonical change set. */
 export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
 
-/** Construction is bounded by an accepted brief, exact intent coverage, and
+/** Construction is bounded by an accepted brief, exact group coverage, and
  * the canonical validator. Xhigh gives Sol the reasoning room to produce
  * complete semantic batches within those fixed architectural boundaries. */
 export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {

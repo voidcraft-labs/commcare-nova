@@ -4,12 +4,10 @@
 const INTERNAL_DESIGN_TOOL_PART_TYPES = new Set([
 	"tool-stageContract",
 	"tool-stageRevision",
-	"tool-stagePlan",
 	"tool-inspectDesignWorkspace",
 	"tool-submitContract",
 	"tool-requestReview",
 	"tool-submitRevision",
-	"tool-submitPlan",
 ]);
 
 export function isInternalDesignToolPartType(type: string): boolean {

@@ -330,12 +330,20 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ### Reviewed design and atomic construction
 
-Chat builds begin as Project-scoped design sessions, not app rows. Their source
-packages, Design Contracts, independent reviews, dispositions, and build plans
+Chat builds begin as Project-scoped design sessions, not app rows. One session
+builds one app in the current Project. Its source packages, lean Design
+Contracts, independent reviews, dispositions, and server-derived build plans
 are immutable, strict-parsed, digest-bound artifacts. They are non-executable:
 Preview, export, deployment, collaboration, and ordinary app reads consume only
 canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
 canonical edits and never require design metadata.
+
+The Design Contract records purpose, actors, records and properties,
+end-to-end workflows, lists, access, navigation, external requirements,
+decisions, assumptions, and unresolved questions once. It does not maintain a
+parallel claim/fact/rule/transition/scenario/ownership graph. Important or
+critical independent-review findings cite their affected sources or design
+elements; advisory observations do not create traceability work.
 
 Every holder-owned design-artifact, orchestration, or slice-attempt write
 authorizes the exact live `(run_id, holder_nonce)` carrier, holder actor, and
@@ -351,15 +359,19 @@ head and its source-package digest matches the current turn. Later user content
 reopens reviewed design work; the historical plan stays immutable but cannot
 drive execution.
 
-A persisted build plan has exactly one materialization root, and that root has
-no prerequisite slices: it directly owns the complete first export-ready app.
+A persisted build plan is derived deterministically from the accepted
+workflows. It has one workflow-complete slice per workflow, stable construction
+groups, exactly one materialization root, and no model-authored ownership
+choices. The root has no prerequisite slices and directly owns the complete
+first export-ready app.
 External actions are separate from Blueprint effects. Current plan admission
 allows `manual-setup` and `after-slice`; new-plan insertion rejects blocking
 `before-*` timings until a typed durable receipt producer is registered, while
 the persisted schema remains able to read the full timing vocabulary. The
 orchestrator retains the fail-closed exact receipt verifier at the consumer
-boundary. Every mutation-bearing staged step names the slice-owned intents it
-implements. Canonical commit proves complete intent coverage from those steps,
+boundary. Every mutation-bearing staged step names the slice-owned construction
+groups it implements. Canonical commit proves complete group coverage from
+those steps,
 derives implementation coordinates from the admitted mutations, and writes the
 exact `running -> committed` slice-attempt transition, committed-slice receipt,
 and provenance beside the Blueprint revision in one transaction.

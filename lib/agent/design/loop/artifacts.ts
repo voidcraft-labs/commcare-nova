@@ -8,7 +8,7 @@ import type {
 	DesignReviewRecord,
 	DesignRevisionRecord,
 } from "@/lib/agent/design/artifactStore";
-import type { BuildPlan, BuildPlanDraft } from "@/lib/agent/design/buildPlan";
+import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import { computeDesignComplexity } from "@/lib/agent/design/complexity";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import {
@@ -81,21 +81,6 @@ export function reviewEnvelope(args: {
 	});
 }
 
-export function composePlan(
-	accepted: DesignRevisionRecord,
-	draft: BuildPlanDraft,
-): BuildPlan {
-	return {
-		schemaVersion: 1,
-		designRevisionId: accepted.id,
-		designRevisionDigest: accepted.artifactDigest,
-		id: crypto.randomUUID(),
-		slices: draft.slices,
-		externalActions: draft.externalActions,
-		intentOwnership: draft.intentOwnership,
-	};
-}
-
 export function planEnvelope(args: {
 	accepted: DesignRevisionRecord;
 	packageDigest: string;
@@ -111,8 +96,12 @@ export function planEnvelope(args: {
 		parentArtifactId: args.accepted.id,
 		sourcePackageDigest: args.packageDigest,
 		inputArtifactDigests: [args.accepted.artifactDigest],
-		promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-		producer: producer(DESIGN_AUTHOR_MODEL, args.finishReason),
+		promptVersion: DESIGN_PROMPT_VERSIONS.planner,
+		producer: {
+			provider: "nova",
+			modelId: "deterministic-build-planner-v1",
+			finishReason: null,
+		},
 		createdAt: new Date().toISOString(),
 		payload: args.plan,
 	});
@@ -157,23 +146,32 @@ export function criticalFindingCount(reviews: readonly DesignReview[]): number {
 	);
 }
 
-/** "…or changes architecture": the revision added/removed a decision or
- *  selected a different option. */
+/** Whether critical corrections changed the app boundary, record model,
+ * workflow effects, or access semantics enough to warrant another review. */
 export function changesArchitecture(
 	before: AppDesignContract,
 	after: AppDesignContract,
 ): boolean {
-	const selectionsBefore = new Map(
-		before.decisions.map((decision) => [
-			decision.id,
-			decision.selectedOptionId,
-		]),
-	);
-	if (after.decisions.length !== before.decisions.length) return true;
-	return after.decisions.some(
-		(decision) =>
-			selectionsBefore.get(decision.id) !== decision.selectedOptionId,
-	);
+	const project = (contract: AppDesignContract) => ({
+		charter: contract.charter,
+		records: contract.records.map((record) => ({
+			id: record.id,
+			parentRecordId: record.parentRecordId,
+			properties: record.properties.map((property) => ({
+				id: property.id,
+				dataShape: property.dataShape,
+				sensitivity: property.sensitivity,
+			})),
+		})),
+		workflows: contract.workflows.map((workflow) => ({
+			id: workflow.id,
+			contextRecordId: workflow.contextRecordId,
+			prerequisiteWorkflowIds: workflow.prerequisiteWorkflowIds,
+			recordEffects: workflow.recordEffects,
+		})),
+		access: contract.access,
+	});
+	return JSON.stringify(project(before)) !== JSON.stringify(project(after));
 }
 
 /** Map each disposition to the review row whose finding it closes. Closure

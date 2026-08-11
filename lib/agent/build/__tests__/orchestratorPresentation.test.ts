@@ -19,7 +19,7 @@ describe("reviewed-build presentation", () => {
 			"an empty property catalog is not by itself a stale external dependency",
 		);
 		expect(EXECUTOR_SYSTEM).toContain(
-			"A registration task's `primaryCreateTransitionId` lowers as `registration-create`",
+			"When the accepted workflow creates the module's primary record",
 		);
 	});
 

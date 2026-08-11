@@ -296,7 +296,7 @@ function OutlineCard({
 					title="What it keeps track of"
 					items={outline.records}
 				/>
-				<OutlineSection title="Work queues" items={outline.readModels} />
+				<OutlineSection title="Work queues" items={outline.lists} />
 				<OutlineSection title="Assumptions" items={outline.assumptions} />
 				<OutlineSection title="Not included" items={outline.outOfScope} />
 			</div>

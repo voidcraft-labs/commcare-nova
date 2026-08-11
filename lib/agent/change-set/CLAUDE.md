@@ -51,13 +51,15 @@ gate, and integrity services every other write uses.
   receipt, and a canonical batch without that receipt is corruption, not a
   commit. Genesis sets refuse this path — their commit is
   `materializeGenesis.ts`.
-- `intentCoverage.ts` — the commit-time proof that every mutation-bearing
-  durable step names only intents owned by the slice and that their union
-  covers every owned intent. Executor calls supply `implementedIntentIds`;
-  the runtime strips that executor-only field before canonical tool parsing,
-  persists the IDs on the step, and derives implementation coordinates from
-  the admitted mutations. A plan's ownership list is never copied into a
-  receipt as proof of implementation.
+- `intentCoverage.ts` — the commit-time proof for construction groups. Every
+  mutation-bearing durable step names only groups assigned to the slice and
+  their union covers every assigned group. Executor calls expose
+  `constructionGroupIds`; the runtime strips that executor-only field before
+  canonical tool parsing, persists the IDs on the step, and derives
+  implementation coordinates from the admitted mutations. A plan's group list
+  is never copied into a receipt as proof of implementation. Existing database
+  columns retain their `intent_*` names, but the values are deterministic
+  construction-group IDs; those storage names are not a second semantic model.
 - `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
   birth: pre-read → committed-replay short-circuit (rebuilds the exact
   receipt from `design_committed_slices` + the sequence-1 canonical fold) →
@@ -67,7 +69,7 @@ gate, and integrity services every other write uses.
   `prepareGenesisCandidate` → reservation check →
   `writePreparedGenesisInTransaction` with the holder+reservation transfer
   → commit sidecars (the exact attempt `running → committed`, change-set flip,
-  committed-slice receipt, and intent provenance at seq 1) → the session's atomic
+  committed-slice receipt, and construction-group provenance at seq 1) → the session's atomic
   `authority-cleared + materialized + app_id` flip (table CHECKs make a
   partial transfer unrepresentable). Gate rejection rolls the whole
   transaction back; pending case-index work drains post-commit.
@@ -153,7 +155,7 @@ gate, and integrity services every other write uses.
    set and permanently closes that exact plan/slice. Recovery reuses a bound
    open set only when its actor/run owner matches the current holder.
 9. Executor recovery reconstructs its bounded checkpoint from the current
-   candidate plus durable intent coverage and handle bindings. Conversation or
+   candidate plus durable construction-group coverage and handle bindings. Conversation or
    tool-call transcripts are never needed to decide what already staged.
 
 ## Tests
@@ -169,7 +171,7 @@ rebase + provenance), and the pure suites (`digest`, `handles`,
 
 The tool-facing contract lives in `lib/agent/workspace/` (this package's
 host implements it; the extensions — nullable `appId`,
-`externalContextDigest`, `intentIds`/`readSet` — are change-set-only, and
+`externalContextDigest`, persisted construction-group IDs/read sets — are change-set-only, and
 the canonical workspace rejects them). The kernel sidecar vocabulary lives
 in `lib/db/canonicalCommitSidecars.ts` (server-owned, closed). The
 executor loop, model-facing tool wrappers, and materialization consume this

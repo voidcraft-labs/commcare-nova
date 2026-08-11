@@ -908,7 +908,7 @@ describe("commitDesignChangeSet", () => {
 		expect(await canonicalTableCounts(app.appId)).toEqual(after);
 	});
 
-	it("refuses copied plan ownership unless durable mutation steps prove exact coverage", async () => {
+	it("refuses copied plan groups unless durable mutation steps prove exact coverage", async () => {
 		const app = await createTestApp();
 		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 		const missingIntent = asDesignId(crypto.randomUUID());
@@ -923,15 +923,13 @@ describe("commitDesignChangeSet", () => {
 		});
 		expect(outcome).toMatchObject({
 			kind: "gate-rejected",
-			message: expect.stringMatching(
-				/does not cover every intent owned by this slice/,
-			),
+			message: expect.stringMatching(/does not cover every construction group/),
 		});
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
 		expect((await loadChangeSet(changeSet.id))?.status).toBe("open");
 	});
 
-	it("refuses a durable step that claims an intent outside the slice", async () => {
+	it("refuses a durable step that claims a group outside the slice", async () => {
 		const app = await createTestApp();
 		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
 		const outcome = await commitDesignChangeSet({
@@ -944,7 +942,7 @@ describe("commitDesignChangeSet", () => {
 		});
 		expect(outcome).toMatchObject({
 			kind: "gate-rejected",
-			message: expect.stringMatching(/which this slice does not own/),
+			message: expect.stringMatching(/not assigned to this slice/),
 		});
 		expect((await loadChangeSet(changeSet.id))?.status).toBe("open");
 	});

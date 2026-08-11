@@ -5,10 +5,12 @@ description: How Nova turns a conversation into a reviewed, working app and how 
 
 ## From a description to an app
 
-When you describe a new app in chat, Nova first works out the people, records,
-tasks, rules, and screens the workflow needs. It checks that design before it
-starts building. Nova may ask questions when an answer changes the workflow or
-when it needs information that is not safe to assume.
+When you describe a new app in chat, Nova first works out its purpose, who uses
+it, what it records, and how each workflow behaves from start to finish. It
+also covers the lists people need, access, navigation, and setup outside the
+app. An independent review checks that design before construction starts. Nova
+asks questions only when an answer materially changes the app or isn't safe to
+assume.
 
 The live status immediately above the chat box names the current phase. Nova
 also gives a conservative rough estimate based on the design's assigned effort
@@ -31,9 +33,10 @@ conversation and continue from its saved stage. Choose **Discard** when you no
 longer want Nova to take that design further.
 
 Nova saves completed parts of a large design as it works. If the connection,
-server process, or model context is interrupted, it resumes from that saved
-design work instead of rewriting the whole contract, revision, or build plan.
-Only a complete, checked design artifact advances to review or construction.
+server process, or model context is interrupted, it resumes from that exact
+saved work instead of rewriting completed sections. Only a complete, checked
+design advances to review or construction. Nova derives construction work from
+the accepted workflows, so it can't silently omit part of the design.
 
 The design also has its own recovery address as soon as the first chat turn
 starts. Refreshing the page returns to that design. If the app was created while
@@ -59,7 +62,9 @@ starter immediately, without the reviewed conversational design flow.
 
 ## External setup
 
-Some workflows depend on work outside the app, such as loading Project data or
-configuring an automation in CommCare HQ. Nova names those prerequisites and
-does not save a dependent part of the app until the required setup has durable
-completion evidence. Preview does not pretend to run external automations.
+Some workflows depend on work outside the app, such as loading Project data,
+providing an existing media asset, or configuring an automation in CommCare
+HQ. Nova names those prerequisites and never claims that it completed them.
+Preview does not pretend to run external automations. One design session builds
+one app in your current Project; if a request describes several apps, Nova asks
+which one to build first.

@@ -10,7 +10,8 @@ export interface ProvenIntentCoverage {
 	readonly provenance: readonly IntentProvenanceRow[];
 }
 
-/** Prove exact owned-intent coverage from durable mutation-bearing steps. */
+/** Prove exact construction-group coverage from durable mutation-bearing steps.
+ * `intentIds` is the retained private-storage field name. */
 export function proveIntentCoverage(args: {
 	readonly changeSet: DesignChangeSet;
 	readonly steps: readonly ChangeSetStep[];
@@ -25,14 +26,14 @@ export function proveIntentCoverage(args: {
 	for (const step of args.steps) {
 		if (step.mutations.length === 0 || step.intentIds.length === 0) {
 			throw new Error(
-				`Staged step ${step.ordinal} must bind its implementation mutations to at least one owned design intent.`,
+				`Staged step ${step.ordinal} must bind its implementation mutations to at least one assigned construction group.`,
 			);
 		}
 		const coordinates = coordinatesForMutations(step.mutations, args.appId);
 		for (const intentId of step.intentIds) {
 			if (!expected.has(intentId)) {
 				throw new Error(
-					`Staged step ${step.ordinal} names intent ${intentId}, which this slice does not own.`,
+					`Staged step ${step.ordinal} names construction group ${intentId}, which is not assigned to this slice.`,
 				);
 			}
 			covered.add(intentId);
@@ -55,7 +56,7 @@ export function proveIntentCoverage(args: {
 	const missing = args.expectedOwningIntentIds.filter((id) => !covered.has(id));
 	if (missing.length > 0) {
 		throw new Error(
-			`The staged implementation does not cover every intent owned by this slice: ${missing.join(", ")}.`,
+			`The staged implementation does not cover every construction group assigned to this slice: ${missing.join(", ")}.`,
 		);
 	}
 	return { owningIntentIds: [...args.expectedOwningIntentIds], provenance };

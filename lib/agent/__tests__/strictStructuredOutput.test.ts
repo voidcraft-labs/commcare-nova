@@ -19,7 +19,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { makeContract } from "@/lib/agent/design/__tests__/fixtures";
-import { buildPlanDraftSchema } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
 	designReviewSchemaFor,
@@ -79,7 +78,6 @@ const PIPELINE_SCHEMAS: ReadonlyArray<[string, z.ZodType]> = [
 		designReviewSchemaFor(CONTRACT, fixturePackage()),
 	],
 	["revise (designRevisionResultSchemaFor)", designRevisionResultSchemaFor([])],
-	["plan (buildPlanDraftSchema)", buildPlanDraftSchema],
 ];
 
 /** Walk one projected schema and collect every strict-subset violation. */
@@ -128,17 +126,22 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 	}
 
 	it("rewrites a discriminated union's oneOf to anyOf and keeps the arms", () => {
-		const projected = strictWireJsonSchema(appDesignContractSchema);
+		const { z } = require("zod") as typeof import("zod");
+		const projected = strictWireJsonSchema(
+			z.object({
+				effect: z.discriminatedUnion("kind", [
+					z.object({ kind: z.literal("create"), name: z.string() }),
+					z.object({ kind: z.literal("update"), name: z.string() }),
+					z.object({ kind: z.literal("close"), name: z.string() }),
+					z.object({ kind: z.literal("link"), name: z.string() }),
+				]),
+			}),
+		);
 		const text = JSON.stringify(projected);
 		expect(text).not.toContain('"oneOf"');
 		expect(text).toContain('"anyOf"');
-		// The union arms survive: the four source-ref kinds are all present.
-		for (const kind of [
-			"message",
-			"attachment-extract",
-			"platform-constraint",
-			"image",
-		]) {
+		// The workflow effect union survives projection.
+		for (const kind of ["create", "update", "close", "link"]) {
 			expect(text).toContain(`"${kind}"`);
 		}
 	});
@@ -171,22 +174,13 @@ describe("the validation bridge", () => {
 	});
 
 	it("maps the strict null spelling back to absence", async () => {
-		const schema = strictStructuredSchema(appDesignContractSchema);
-		const withNulls = JSON.parse(JSON.stringify(CONTRACT)) as Record<
-			string,
-			unknown
-		>;
-		// The wire forces every optional slot to be present; the model says
-		// null. Simulate that on a task's optional slots.
-		const tasks = withNulls.tasks as Array<Record<string, unknown>>;
-		for (const task of tasks) {
-			for (const key of Object.keys(task)) {
-				if (task[key] === undefined) task[key] = null;
-			}
-			task.description ??= null;
-		}
-		const result = await schema.validate?.(withNulls);
+		const { z } = require("zod") as typeof import("zod");
+		const schema = strictStructuredSchema(
+			z.object({ name: z.string(), note: z.string().optional() }),
+		);
+		const result = await schema.validate?.({ name: "Referral", note: null });
 		expect(result?.success).toBe(true);
+		if (result?.success) expect(result.value).toEqual({ name: "Referral" });
 	});
 
 	it("returns the ZodError itself on a failed parse (the diagnostics carrier)", async () => {

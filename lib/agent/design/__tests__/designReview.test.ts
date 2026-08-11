@@ -1,407 +1,198 @@
-/**
- * Review grounding, disposition closure, and the sensitivity pair rule —
- * the epistemic fences that make "reviewed" mean something.
- */
-
 import { describe, expect, it } from "vitest";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { DesignFinding, DesignReview } from "@/lib/agent/design/review";
 import {
 	designFindingSchema,
 	designReviewSchemaFor,
 	designRevisionResultSchemaFor,
-	findingDispositionSchema,
+	findingBlocksAcceptance,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { asMediaAssetId } from "@/lib/domain/multimedia";
-import {
-	cloneContract,
-	did,
-	FIXTURE_IMAGE_ASSET_ID,
-	FIXTURE_IMAGE_DIGEST,
-	ids,
-	imageRef,
-	makeContract,
-	messageRef,
-} from "./fixtures";
+import { cloneContract, did, ids, makeContract, messageRef } from "./fixtures";
 
-const SESSION_ID = "00000000-0000-4000-8000-000000000700";
-
-function makeSourcePackage(): DesignSourcePackage {
+function pkg(): DesignSourcePackage {
 	return {
 		schemaVersion: 1,
-		designSessionId: SESSION_ID,
-		projectId: "proj-1",
-		packageDigest: "b".repeat(64),
+		designSessionId: "00000000-0000-4000-8000-000000000700",
+		projectId: "project-1",
+		packageDigest: "a".repeat(64),
 		request: {
-			blocks: [
-				{ ref: messageRef(), text: "Track CHW visits.", truncated: false },
-			],
+			blocks: [{ ref: messageRef(), text: "Track visits.", truncated: false }],
 		},
 		claims: [],
 		attachments: [],
-		images: [
-			{
-				assetId: asMediaAssetId(FIXTURE_IMAGE_ASSET_ID),
-				mediaType: "image/png",
-				filename: "queue-mockup.png",
-				bytesDigest: FIXTURE_IMAGE_DIGEST,
-				dataUrl: "data:image/png;base64,AAAA",
-			},
-		],
+		images: [],
 		platformConstraints: [],
-		sources: [{ ref: messageRef() }, { ref: imageRef() }],
+		sources: [{ ref: messageRef() }],
 	};
 }
 
-function makeFinding(overrides: Partial<DesignFinding> = {}): DesignFinding {
+function finding(overrides: Partial<DesignFinding> = {}): DesignFinding {
 	return designFindingSchema.parse({
 		id: did(300),
-		category: "requirement-coverage",
+		category: "workflow-gap",
 		severity: "important",
 		basis: "source-supported",
-		claim: "The visit summary is captured but nothing reads it back.",
+		dispositionClass: "design-correction",
+		claim: "The visit result is not shown after submission.",
 		evidenceRefs: [messageRef()],
-		affectedIntentIds: [ids.factVisitSummary],
-		confidence: 0.8,
+		affectedElementIds: [ids.taskVisit],
+		proposedResolution: "Show the saved visit summary.",
 		...overrides,
 	});
 }
 
-function makeReview(findings: DesignFinding[]): DesignReview {
+function review(findings: DesignFinding[]): DesignReview {
 	return {
 		schemaVersion: 1,
 		id: did(400),
-		summary: "One coverage gap; otherwise coherent.",
+		summary: "Focused review",
 		findings,
 	};
 }
 
-describe("finding grounding (validateFindingEvidence)", () => {
-	it("accepts a grounded important source-supported finding", () => {
-		expect(() => makeFinding()).not.toThrow();
+describe("review findings", () => {
+	it("requires citations for important and critical findings", () => {
+		expect(
+			designFindingSchema.safeParse({ ...finding(), evidenceRefs: [] }).success,
+		).toBe(false);
 	});
 
-	it("rejects a critical heuristic finding", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			severity: "critical",
+	it("keeps advisory findings citation-free and non-blocking", () => {
+		const advisory = finding({
+			severity: "advisory",
 			basis: "heuristic",
+			dispositionClass: "advisory",
+			evidenceRefs: [],
 		});
-		expect(result.success).toBe(false);
-	});
-
-	it("accepts an advisory heuristic finding", () => {
+		expect(findingBlocksAcceptance(advisory)).toBe(false);
 		expect(
 			designFindingSchema.safeParse({
-				...makeFinding(),
-				severity: "advisory",
-				basis: "heuristic",
+				...advisory,
+				evidenceRefs: [messageRef()],
+			}).success,
+		).toBe(false);
+	});
+
+	it("blocks only design corrections and user decisions", () => {
+		expect(findingBlocksAcceptance(finding())).toBe(true);
+		expect(
+			findingBlocksAcceptance(
+				finding({ dispositionClass: "runtime-readiness" }),
+			),
+		).toBe(false);
+		expect(
+			findingBlocksAcceptance(
+				finding({ dispositionClass: "user-decision", severity: "important" }),
+			),
+		).toBe(true);
+	});
+
+	it("binds element ids and citations to the reviewed artifacts", () => {
+		const schema = designReviewSchemaFor(makeContract(), pkg());
+		expect(schema.safeParse(review([finding()])).success).toBe(true);
+		expect(
+			schema.safeParse(review([finding({ affectedElementIds: [did(9999)] })]))
+				.success,
+		).toBe(false);
+		expect(
+			schema.safeParse(
+				review([
+					finding({
+						evidenceRefs: [{ ...messageRef(), messageId: "not-in-package" }],
+					}),
+				]),
+			).success,
+		).toBe(false);
+	});
+});
+
+describe("blocking dispositions", () => {
+	it("requires exactly one disposition for each blocking finding", () => {
+		const schema = designRevisionResultSchemaFor([review([finding()])]);
+		expect(
+			schema.safeParse({ contract: makeContract(), dispositions: [] }).success,
+		).toBe(false);
+		expect(
+			schema.safeParse({
+				contract: makeContract(),
+				dispositions: [
+					{
+						findingId: did(300),
+						status: "accepted",
+						rationale: "The readback now confirms the saved visit.",
+					},
+				],
 			}).success,
 		).toBe(true);
 	});
 
-	it("rejects a source-supported critical finding without source evidence", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			severity: "critical",
-			evidenceRefs: [],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("accepts an important source-supported finding grounded in an image", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			evidenceRefs: [imageRef()],
-		});
-		expect(
-			result.success,
-			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
-		).toBe(true);
-	});
-
-	it("rejects a platform-constraint finding without a catalogued code", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			basis: "platform-constraint",
-			evidenceRefs: [messageRef()],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects a contract-internal critical finding naming no intents", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			basis: "contract-internal",
-			severity: "critical",
-			affectedIntentIds: [],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects a missing-intent flag with no evidence at all", () => {
-		const result = designFindingSchema.safeParse({
-			...makeFinding(),
-			basis: "heuristic",
+	it("does not require dispositions for readiness or advisory findings", () => {
+		const readiness = finding({ dispositionClass: "deployment-readiness" });
+		const advisory = finding({
+			id: did(301),
 			severity: "advisory",
-			affectedIntentIds: [],
+			basis: "heuristic",
+			dispositionClass: "advisory",
 			evidenceRefs: [],
 		});
-		expect(result.success).toBe(false);
-	});
-});
-
-describe("designReviewSchemaFor — cross-artifact binding", () => {
-	const contract = appDesignContractSchema.parse(makeContract());
-	const pkg = makeSourcePackage();
-
-	it("accepts a review citing real intents and package sources", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		expect(schema.safeParse(makeReview([makeFinding()])).success).toBe(true);
-	});
-
-	it("rejects a finding citing an intent absent from the reviewed revision", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const finding = makeFinding({ affectedIntentIds: [did(9999)] });
-		const result = schema.safeParse(makeReview([finding]));
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects evidence outside the reviewed source package", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const foreign = makeFinding({
-			evidenceRefs: [
-				{
-					kind: "message",
-					threadId: "00000000-0000-4000-8000-111111111111",
-					messageId: "other",
-					partIndex: 0,
-				},
-			],
-		});
-		const result = schema.safeParse(makeReview([foreign]));
-		expect(result.success).toBe(false);
-	});
-
-	it("accepts a finding citing an image the package projected", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const finding = makeFinding({ evidenceRefs: [imageRef()] });
-		const result = schema.safeParse(makeReview([finding]));
 		expect(
-			result.success,
-			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
+			designRevisionResultSchemaFor([review([readiness, advisory])]).safeParse({
+				contract: makeContract(),
+				dispositions: [],
+			}).success,
 		).toBe(true);
 	});
 
-	it("rejects an image citation whose digest is not the projected content", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const finding = makeFinding({
-			evidenceRefs: [imageRef(FIXTURE_IMAGE_ASSET_ID, "d".repeat(64))],
-		});
-		expect(schema.safeParse(makeReview([finding])).success).toBe(false);
-	});
-
-	it("rejects an image citation for an asset the package never projected", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const finding = makeFinding({
-			evidenceRefs: [
-				imageRef("00000000-0000-4000-8000-000000000889", FIXTURE_IMAGE_DIGEST),
-			],
-		});
-		expect(schema.safeParse(makeReview([finding])).success).toBe(false);
-	});
-
-	it("accepts a finding citing a lookup intent of the reviewed revision", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const finding = makeFinding({
-			claim: "The villages table carries no column for the assigned CHW.",
-			affectedIntentIds: [ids.lookupVillages, ids.lookupColClinic],
-		});
-		const result = schema.safeParse(makeReview([finding]));
+	it("requires a visible consequence for an unresolved user decision", () => {
+		const userDecision = finding({ dispositionClass: "user-decision" });
+		const schema = designRevisionResultSchemaFor([review([userDecision])]);
 		expect(
-			result.success,
-			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
-		).toBe(true);
-	});
-
-	it("always allows catalogued platform references", () => {
-		const schema = designReviewSchemaFor(contract, pkg);
-		const platform = makeFinding({
-			basis: "platform-constraint",
-			evidenceRefs: [
-				{
-					kind: "platform-constraint",
-					code: "AUTOMATION_HQ_MANUAL_SETUP",
-					sourceAnchor: "lib/agent/tools/automations.ts",
-				},
-			],
-		});
-		expect(schema.safeParse(makeReview([platform])).success).toBe(true);
+			schema.safeParse({
+				contract: makeContract(),
+				dispositions: [
+					{
+						findingId: userDecision.id,
+						status: "deferred-with-user-visible-consequence",
+						rationale: "The person must choose.",
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 });
 
-describe("dispositions", () => {
-	it("rejects a deferred disposition without its user-visible consequence", () => {
-		const result = findingDispositionSchema.safeParse({
-			findingId: did(300),
-			status: "deferred-with-user-visible-consequence",
-			rationale: "Later release.",
-			resultingIntentIds: [],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects an accepted disposition with no resulting intents", () => {
-		const result = findingDispositionSchema.safeParse({
-			findingId: did(300),
-			status: "accepted",
-			rationale: "Fixed.",
-			resultingIntentIds: [],
-		});
-		expect(result.success).toBe(false);
-	});
-});
-
-describe("validateDispositionClosure (designRevisionResultSchemaFor)", () => {
-	const finding = makeFinding();
-	const review = makeReview([finding]);
-
-	function acceptedResult() {
-		const revised = cloneContract(makeContract());
-		// Resolve the finding: the supervisor queue now reads the summary.
-		revised.facts
-			.find((fact) => fact.id === ids.factVisitSummary)
-			?.readerIds.push(ids.rmPatients);
-		return {
-			contract: revised,
-			dispositions: [
-				{
-					findingId: finding.id,
-					status: "accepted" as const,
-					rationale: "The queue detail now shows the visit summary.",
-					resultingIntentIds: [ids.factVisitSummary],
-				},
-			],
-		};
-	}
-
-	it("accepts a closed revision result", () => {
-		const schema = designRevisionResultSchemaFor([review]);
-		const result = schema.safeParse(acceptedResult());
-		expect(
-			result.success,
-			result.success ? "" : JSON.stringify(result.error.issues, null, 2),
-		).toBe(true);
-	});
-
-	it("rejects a missing disposition for an important finding", () => {
-		const schema = designRevisionResultSchemaFor([review]);
-		const result = schema.safeParse({
-			contract: makeContract(),
-			dispositions: [],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects a disposition for a finding no review raised", () => {
-		const schema = designRevisionResultSchemaFor([review]);
-		const base = acceptedResult();
-		base.dispositions.push({
-			findingId: did(9998),
-			status: "accepted",
-			rationale: "Phantom.",
-			resultingIntentIds: [ids.factVisitSummary],
-		});
-		expect(schema.safeParse(base).success).toBe(false);
-	});
-
-	it("rejects a duplicate disposition", () => {
-		const schema = designRevisionResultSchemaFor([review]);
-		const base = acceptedResult();
-		base.dispositions.push({ ...base.dispositions[0] });
-		expect(schema.safeParse(base).success).toBe(false);
-	});
-
-	it("rejects accepted resolutions pointing outside the revised contract", () => {
-		const schema = designRevisionResultSchemaFor([review]);
-		const base = acceptedResult();
-		const first = base.dispositions[0];
-		if (!first) throw new Error("has a disposition");
-		first.resultingIntentIds = [did(9997)];
-		expect(schema.safeParse(base).success).toBe(false);
-	});
-
-	it("rejects a deferred CRITICAL finding with no visible trace, and accepts one surfaced as a blocking question", () => {
-		const critical = makeFinding({ id: did(301), severity: "critical" });
-		const schema = designRevisionResultSchemaFor([makeReview([critical])]);
-
-		const hidden = {
-			contract: makeContract(),
-			dispositions: [
-				{
-					findingId: critical.id,
-					status: "deferred-with-user-visible-consequence" as const,
-					rationale: "Deferring.",
-					resultingIntentIds: [ids.taskVisit],
-					userVisibleConsequence: "Summaries stay invisible to supervisors.",
-				},
-			],
-		};
-		expect(schema.safeParse(hidden).success).toBe(false);
-
-		const surfaced = cloneContract(makeContract());
-		surfaced.openQuestions.push({
-			id: did(302),
-			question: "Must supervisors see visit summaries in the first release?",
-			structuralImpact: "local",
-			blocking: true,
-			relatedIntentIds: [ids.factVisitSummary],
-		});
-		const ok = {
-			contract: surfaced,
-			dispositions: [
-				{
-					...hidden.dispositions[0],
-					resultingIntentIds: [did(302)],
-				},
-			],
-		};
-		const parsed = schema.safeParse(ok);
-		expect(
-			parsed.success,
-			parsed.success ? "" : JSON.stringify(parsed.error.issues, null, 2),
-		).toBe(true);
-	});
-});
-
-describe("validateSensitivityNotSilentlyLowered", () => {
-	it("flags a quiet downgrade and accepts a dispositioned one", () => {
+describe("sensitivity preservation", () => {
+	it("rejects a quiet downgrade and allows only a correction naming that property", () => {
 		const parent = makeContract();
 		const revised = cloneContract(parent);
-		const fact = revised.facts.find((f) => f.id === ids.factRisk);
-		if (!fact) throw new Error("fixture has factRisk");
-		fact.sensitivity = "ordinary";
-
-		const silent = validateSensitivityNotSilentlyLowered(parent, {
-			contract: revised,
-			dispositions: [],
-		});
-		expect(silent).toHaveLength(1);
-		expect(silent[0]).toContain("risk_level");
-
-		const justified = validateSensitivityNotSilentlyLowered(parent, {
+		const property = revised.records[0]?.properties.find(
+			(entry) => entry.id === ids.factRisk,
+		);
+		if (!property) throw new Error("risk property missing");
+		property.sensitivity = "ordinary";
+		const result = {
 			contract: revised,
 			dispositions: [
 				{
-					findingId: did(300),
-					status: "accepted",
-					rationale: "Risk level is displayed on every queue row by design.",
-					resultingIntentIds: [ids.factRisk],
+					findingId: did(302),
+					status: "accepted" as const,
+					rationale: "The source explicitly classifies this as ordinary.",
 				},
 			],
+		};
+		expect(validateSensitivityNotSilentlyLowered(parent, result)).toHaveLength(
+			1,
+		);
+		const sensitivityFinding = finding({
+			id: did(302),
+			category: "privacy-and-sensitivity",
+			affectedElementIds: [ids.factRisk],
 		});
-		expect(justified).toHaveLength(0);
+		expect(
+			validateSensitivityNotSilentlyLowered(parent, result, [
+				review([sensitivityFinding]),
+			]),
+		).toEqual([]);
 	});
 });

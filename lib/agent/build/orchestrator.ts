@@ -41,20 +41,12 @@ import {
 import {
 	type DesignBuildPlanRecord,
 	type DesignRevisionRecord,
-	insertDesignBuildPlan,
 	readDesignReviews,
 } from "@/lib/agent/design/artifactStore";
-import {
-	type BuildPlan,
-	type BuildPlanDraft,
-	type BuildSlice,
-	buildPlanSchemaFor,
-	newPlanAdmissionMessages,
-} from "@/lib/agent/design/buildPlan";
+import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { asDesignId } from "@/lib/agent/design/ids";
-import { composePlan, planEnvelope } from "@/lib/agent/design/loop/artifacts";
 import { seedClaimsFromAnsweredRounds } from "@/lib/agent/design/loop/claimSeeding";
 import type { DesignAgentStep } from "@/lib/agent/design/loop/designAgent";
 import type {
@@ -123,7 +115,6 @@ import {
 	progressEnvelope,
 } from "./progress";
 import {
-	activateReplacementPlan,
 	beginOrRecoverSliceAttempt,
 	bindSliceAttemptChangeSet,
 	markSliceAttempt,
@@ -466,7 +457,7 @@ export async function runBuildOrchestration(
 		}
 
 		const { revision } = loopOutcome;
-		let { plan } = loopOutcome;
+		const { plan } = loopOutcome;
 		await setDesignSessionActiveArtifacts({
 			designSessionId: args.designSessionId,
 			actorUserId: args.actorUserId,
@@ -498,8 +489,7 @@ export async function runBuildOrchestration(
 
 		/* ── Execute slices ─────────────────────────────────────────── */
 		const contract = revision.envelope.payload;
-		let planRepairCount = 0;
-		executionPlanLoop: for (;;) {
+		for (;;) {
 			const ordered = orderSlicesForExecution(plan.envelope.payload);
 			const committedSlices = await committedSliceIds(plan.id);
 			let lastSeq = 1;
@@ -606,7 +596,6 @@ export async function runBuildOrchestration(
 						slice,
 						contract,
 						plan: plan.envelope.payload,
-						planRepairAllowed: isGenesis && planRepairCount < 1,
 						isGenesis,
 						appId,
 						budget,
@@ -693,100 +682,6 @@ export async function runBuildOrchestration(
 						};
 					}
 					if (outcome.kind === "architect-decision") {
-						if (outcome.decision.kind === "plan-repair") {
-							if (!isGenesis || appId !== null || planRepairCount >= 1) {
-								await markSliceAttempt({
-									designSessionId: args.designSessionId,
-									attemptId: attempt.id,
-									to: "failed",
-									failureCode: "architect-plan-repair-out-of-scope",
-									actorUserId: args.actorUserId,
-									runId: args.runId,
-									holderNonce: args.holderNonce,
-									expectedProjectId: args.projectId,
-								});
-								head = await appendFailure(args, head, {
-									errorType: "architect-plan-repair-out-of-scope",
-									recoverable: false,
-								});
-								return {
-									kind: "failed",
-									appId,
-									errorType: "architect-plan-repair-out-of-scope",
-									message:
-										"Nova could not complete this workflow safely from the accepted design.",
-									recoverable: false,
-								};
-							}
-							let repairedPlan: DesignBuildPlanRecord;
-							try {
-								repairedPlan = await persistPlanRepair({
-									runArgs: args,
-									revision,
-									packageDigest: pkg.packageDigest,
-									draft: outcome.decision.repairedPlan,
-								});
-							} catch (error) {
-								await markSliceAttempt({
-									designSessionId: args.designSessionId,
-									attemptId: attempt.id,
-									to: "failed",
-									failureCode: "architect-plan-repair-invalid",
-									actorUserId: args.actorUserId,
-									runId: args.runId,
-									holderNonce: args.holderNonce,
-									expectedProjectId: args.projectId,
-								});
-								log.error(
-									"[buildOrchestrator] rejected architect plan repair",
-									{
-										designSessionId: args.designSessionId,
-										planId: plan.id,
-										errorClass: error instanceof Error ? error.name : "unknown",
-									},
-								);
-								head = await appendFailure(args, head, {
-									errorType: "architect-plan-repair-invalid",
-									recoverable: false,
-								});
-								return {
-									kind: "failed",
-									appId,
-									errorType: "architect-plan-repair-invalid",
-									message:
-										"Nova could not complete this workflow safely from the accepted design.",
-									recoverable: false,
-								};
-							}
-							await activateReplacementPlan({
-								designSessionId: args.designSessionId,
-								attemptId: attempt.id,
-								failureCode: "architect-plan-repair",
-								activeDesignRevisionId: revision.id,
-								activeBuildPlanId: repairedPlan.id,
-								actorUserId: args.actorUserId,
-								runId: args.runId,
-								holderNonce: args.holderNonce,
-								expectedProjectId: args.projectId,
-							});
-							plan = repairedPlan;
-							planRepairCount += 1;
-							head = await appendOrchestrationEvent({
-								designSessionId: args.designSessionId,
-								runId: args.runId,
-								holderNonce: args.holderNonce,
-								actorUserId: args.actorUserId,
-								expectedProjectId: args.projectId,
-								state: {
-									kind: "planning",
-									designRevisionId: revision.id,
-									designRevisionDigest: revision.artifactDigest,
-								},
-								expectedHead: head,
-							});
-							await emitDesignSummaries(args, head, revision, plan);
-							continue executionPlanLoop;
-						}
 						await markSliceAttempt({
 							designSessionId: args.designSessionId,
 							attemptId: attempt.id,
@@ -898,41 +793,6 @@ export async function runBuildOrchestration(
 }
 
 // ── Internals ──────────────────────────────────────────────────────
-
-async function persistPlanRepair(args: {
-	readonly runArgs: RunBuildOrchestrationArgs;
-	readonly revision: DesignRevisionRecord;
-	readonly packageDigest: string;
-	readonly draft: BuildPlanDraft;
-}): Promise<DesignBuildPlanRecord> {
-	const composed = composePlan(args.revision, args.draft);
-	const admissionMessages = newPlanAdmissionMessages(composed);
-	const parsed = buildPlanSchemaFor(args.revision.envelope.payload).safeParse(
-		composed,
-	);
-	if (!parsed.success || admissionMessages.length > 0) {
-		const schemaMessages = parsed.success
-			? []
-			: parsed.error.issues.map(
-					(issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-				);
-		throw new Error([...schemaMessages, ...admissionMessages].join("\n"));
-	}
-	return insertDesignBuildPlan({
-		envelope: planEnvelope({
-			accepted: args.revision,
-			packageDigest: args.packageDigest,
-			plan: parsed.data,
-			finishReason: null,
-		}),
-		authority: {
-			actorUserId: args.runArgs.actorUserId,
-			runId: args.runArgs.runId,
-			holderNonce: args.runArgs.holderNonce,
-			expectedProjectId: args.runArgs.projectId,
-		},
-	});
-}
 
 function productionDeps(
 	args: RunBuildOrchestrationArgs,
@@ -1268,7 +1128,6 @@ async function executeOneSlice(
 		slice: BuildSlice;
 		contract: AppDesignContract;
 		plan: BuildPlan;
-		planRepairAllowed: boolean;
 		isGenesis: boolean;
 		appId: string | null;
 		budget: ReturnType<typeof budgetForSlice>;
@@ -1318,7 +1177,9 @@ async function executeOneSlice(
 				holderNonce: args.holderNonce,
 				expectedProjectId: args.projectId,
 				expectedRevision: fresh.revision,
-				owningIntentIds: slice.slice.ownedIntentIds,
+				owningIntentIds: slice.slice.constructionGroups.map(
+					(group) => group.id,
+				),
 				deadlineAt,
 			});
 			if (outcome.kind === "materialized") {
@@ -1338,7 +1199,7 @@ async function executeOneSlice(
 			},
 			kind: "chat",
 			expectedRevision: fresh.revision,
-			owningIntentIds: slice.slice.ownedIntentIds,
+			owningIntentIds: slice.slice.constructionGroups.map((group) => group.id),
 			deadlineAt,
 		});
 		return outcome;
@@ -1353,7 +1214,6 @@ async function executeOneSlice(
 				...blockerArgs,
 				acceptedContract: slice.contract,
 				currentPlan: slice.plan,
-				planRepairAllowed: slice.planRepairAllowed,
 			}),
 		commit,
 		signal: args.signal,

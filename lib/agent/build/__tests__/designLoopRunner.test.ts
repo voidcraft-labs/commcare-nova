@@ -27,11 +27,10 @@ describe("designToolPulsePhase", () => {
 		);
 	});
 
-	it("returns to revision and plan phases for their bounded stages", () => {
+	it("returns to revision for its bounded stages", () => {
 		expect(designToolPulsePhase("stageRevision", "review", "design")).toBe(
 			"revise",
 		);
-		expect(designToolPulsePhase("stagePlan", "review", "design")).toBe("plan");
 	});
 });
 

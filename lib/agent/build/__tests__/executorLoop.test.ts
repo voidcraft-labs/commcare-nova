@@ -30,6 +30,7 @@ import {
 } from "@/lib/agent/change-set/errors";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import {
+	fixtureValue,
 	ids,
 	makeBuildPlan,
 	makeContract,
@@ -41,13 +42,19 @@ import { conversationPayloadSchema } from "@/lib/log/types";
 // ── Fixtures ─────────────────────────────────────────────────────────
 
 function brief(): SliceExecutionBrief {
+	const plan = makeBuildPlan();
 	return deriveSliceExecutionBrief({
 		contract: makeContract(),
 		revision: { id: ids.revisionId, digest: "b".repeat(64) },
-		plan: makeBuildPlan(),
-		sliceId: ids.sliceRegister,
+		plan,
+		sliceId: fixtureValue(plan.slices[0], "first slice").id,
 	});
 }
+
+const TEST_CONSTRUCTION_GROUP_ID = fixtureValue(
+	brief().constructionGroupIds[0],
+	"first construction group",
+);
 
 const EMPTY_DOC = {
 	modules: {},
@@ -80,7 +87,7 @@ function diagnostics(
 		introducedSincePreviousStep: [],
 		resolvedSincePreviousStep: [],
 		readSetStatus: [],
-		sliceIntentCoverage: brief().owningIntentIds.map((intentId) => ({
+		sliceIntentCoverage: brief().constructionGroupIds.map((intentId) => ({
 			intentId,
 			stepCount: 1,
 		})),
@@ -197,7 +204,7 @@ it("checkpoints the identities needed to continue after compaction", () => {
 	doc.userPropertyOrder = [userPropertyUuid];
 	const workspace = fakeWorkspace({
 		executionCheckpoint: {
-			intentCoverage: [{ intentId: ids.taskRegister, stepCount: 2 }],
+			intentCoverage: [{ intentId: TEST_CONSTRUCTION_GROUP_ID, stepCount: 2 }],
 			handles: [
 				{
 					handle: "@registration",
@@ -224,7 +231,7 @@ it("checkpoints the identities needed to continue after compaction", () => {
 	expect(summary).toContain(`Module ${moduleUuid}`);
 	expect(summary).toContain(`Form ${formUuid}`);
 	expect(summary).toContain(`notes:text (${fieldUuid})`);
-	expect(summary).toContain(ids.taskRegister);
+	expect(summary).toContain(brief().constructionGroupIds[0]);
 	expect(summary).toContain("@registration=form:");
 });
 
@@ -234,7 +241,7 @@ type ScriptedStep =
 
 const VALID_BLOCKER = {
 	schemaVersion: 1 as const,
-	affectedIntentIds: [ids.taskRegister],
+	affectedConstructionGroupIds: [brief().constructionGroupIds[0]],
 	observations: ["The current operation cannot satisfy the accepted slice."],
 	requestedDecision: "Clarify the safe construction that preserves the design.",
 };
@@ -246,7 +253,7 @@ function batchInput(toolName: string, input: unknown = {}) {
 				toolName,
 				input: {
 					...(input as Record<string, unknown>),
-					implementedIntentIds: [brief().owningIntentIds[0]],
+					constructionGroupIds: [brief().constructionGroupIds[0]],
 				},
 			},
 		],
@@ -262,7 +269,7 @@ function scriptedInput(call: { toolName: string; input?: unknown }): unknown {
 	if (entry?.policy.effect !== "mutate-blueprint") return input;
 	return {
 		...(input as Record<string, unknown>),
-		implementedIntentIds: [brief().owningIntentIds[0]],
+		constructionGroupIds: [brief().constructionGroupIds[0]],
 	};
 }
 
@@ -705,7 +712,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 		const inputFor = (toolName: string) => ({
 			toolName,
 			input: {
-				implementedIntentIds: [brief().owningIntentIds[0]],
+				constructionGroupIds: [brief().constructionGroupIds[0]],
 			},
 		});
 		const { step, seen } = scriptedStep([
@@ -770,7 +777,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 												label: "Role",
 											},
 										],
-										implementedIntentIds: [ids.accessSupervisor],
+										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 									},
 								},
 								{
@@ -790,7 +797,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 												],
 											},
 										],
-										implementedIntentIds: [ids.accessSupervisor],
+										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 									},
 								},
 							],
@@ -838,7 +845,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 									toolName: "addUserProperties",
 									input: {
 										properties: [{ slug: "role", label: "Role" }],
-										implementedIntentIds: [ids.accessSupervisor],
+										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 									},
 									outputHandles: ["@role_property"],
 								},
@@ -885,7 +892,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 							{ handle: "@identity", slug: "role", label: "Role" },
 							{ handle: "@identity", slug: "region", label: "Region" },
 						],
-						implementedIntentIds: [ids.accessSupervisor],
+						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 					},
 				},
 			],
@@ -905,7 +912,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 								],
 							},
 						],
-						implementedIntentIds: [ids.accessSupervisor],
+						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 					},
 				},
 				{
@@ -918,7 +925,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 								label: "Role",
 							},
 						],
-						implementedIntentIds: [ids.accessSupervisor],
+						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 					},
 				},
 			],
@@ -927,14 +934,14 @@ describe("runSliceExecutor — staged dispatch", () => {
 					toolName: "stageModule",
 					input: {
 						moduleUuid: { handle: "@identity" },
-						implementedIntentIds: [ids.accessSupervisor],
+						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 					},
 				},
 				{
 					toolName: "addUserProperties",
 					input: {
 						properties: [{ handle: "@identity", slug: "role", label: "Role" }],
-						implementedIntentIds: [ids.accessSupervisor],
+						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 					},
 				},
 			],
@@ -977,7 +984,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 									toolName: "addUserProperties",
 									input: {
 										properties: [property],
-										implementedIntentIds: [ids.accessSupervisor],
+										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 									},
 								},
 							],
@@ -1023,7 +1030,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 												label: "Role",
 											},
 										],
-										implementedIntentIds: [ids.accessSupervisor],
+										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
 									},
 								},
 							],
@@ -1142,13 +1149,13 @@ describe("runSliceExecutor — commit is a request", () => {
 	});
 
 	it("projects bounded diagnostics for inspectChangeSet", async () => {
-		const uncovered = brief().owningIntentIds[0];
+		const uncovered = brief().constructionGroupIds[0];
 		const workspace = fakeWorkspace({
 			inspect: async () =>
 				diagnostics({
 					canCommit: false,
 					sliceIntentCoverage: brief()
-						.owningIntentIds.slice(1)
+						.constructionGroupIds.slice(1)
 						.map((intentId) => ({
 							intentId,
 							stepCount: 1,
@@ -1183,7 +1190,7 @@ describe("runSliceExecutor — commit is a request", () => {
 			truncated: { shown: number; total: number };
 			canCommit: boolean;
 			introducedSincePreviousStep: string[];
-			remainingOwnedIntentIds: string[];
+			remainingConstructionGroupIds: string[];
 		};
 		expect(value.findingCount).toBe(25);
 		expect(value.findings).toHaveLength(20);
@@ -1200,17 +1207,17 @@ describe("runSliceExecutor — commit is a request", () => {
 		expect(value.truncated).toEqual({ shown: 20, total: 25 });
 		expect(value.canCommit).toBe(false);
 		expect(value.introducedSincePreviousStep).toEqual(["aaaa"]);
-		expect(value.remainingOwnedIntentIds).toEqual([uncovered]);
+		expect(value.remainingConstructionGroupIds).toEqual([uncovered]);
 	});
 
-	it("refuses a commit request until durable steps cover every owned intent", async () => {
-		const uncovered = brief().owningIntentIds[0];
+	it("refuses a commit request until durable steps cover every construction group", async () => {
+		const uncovered = brief().constructionGroupIds[0];
 		const workspace = fakeWorkspace({
 			inspect: async () =>
 				diagnostics({
 					canCommit: true,
 					sliceIntentCoverage: brief()
-						.owningIntentIds.slice(1)
+						.constructionGroupIds.slice(1)
 						.map((intentId) => ({
 							intentId,
 							stepCount: 1,
@@ -1227,7 +1234,7 @@ describe("runSliceExecutor — commit is a request", () => {
 
 		expect(commit).not.toHaveBeenCalled();
 		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
-			remainingOwnedIntentIds: [uncovered],
+			remainingConstructionGroupIds: [uncovered],
 		});
 	});
 });
@@ -1274,7 +1281,7 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 					{
 						toolCallId: "a",
 						toolName: "reportExecutionBlocker",
-						input: { ...VALID_BLOCKER, affectedIntentIds: [] },
+						input: { ...VALID_BLOCKER, affectedConstructionGroupIds: [] },
 					},
 				],
 			},
@@ -1293,7 +1300,7 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 
 		const value = toolResults(seen[1] ?? [])[0]?.value as { error: string };
 		expect(value.error).toContain("blocker report is invalid");
-		expect(value.error).toContain("affectedIntentIds");
+		expect(value.error).toContain("affectedConstructionGroupIds");
 		expect(outcome.kind).toBe("architect-decision");
 	});
 });
@@ -1465,9 +1472,7 @@ describe("runSliceExecutor — plumbing", () => {
 
 		const opening = seen[0];
 		expect(opening).toHaveLength(2);
-		expect(JSON.stringify(opening?.[0])).toContain(
-			"Patient registration and queue",
-		);
+		expect(JSON.stringify(opening?.[0])).toContain("Register patient");
 		const checkpoint = JSON.stringify(opening?.[1]);
 		expect(checkpoint).toContain("Current change set");
 		expect(checkpoint).toContain("Nothing has been staged yet");

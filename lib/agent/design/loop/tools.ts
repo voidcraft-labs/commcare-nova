@@ -21,7 +21,6 @@ import {
 	inspectDesignWorkspaceCandidate,
 	inspectDesignWorkspaceInputSchema,
 	stageContractInputSchema,
-	stagePlanInputSchema,
 	stageRevisionInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import {
@@ -29,16 +28,12 @@ import {
 	inspectDesignArtifactWorkspace,
 	stageDesignArtifactWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceStore";
-import {
-	buildPlanDraftSchema,
-	buildPlanSchemaFor,
-	newPlanAdmissionMessages,
-} from "@/lib/agent/design/buildPlan";
+import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { designIdSchema } from "@/lib/agent/design/ids";
 import {
 	changesArchitecture,
-	composePlan,
 	contractEnvelope,
 	criticalFindingCount,
 	leavesCriticalFinding,
@@ -46,6 +41,7 @@ import {
 	planEnvelope,
 	reviewEnvelope,
 } from "@/lib/agent/design/loop/artifacts";
+import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import {
 	type DesignAncestry,
 	type DesignGateState,
@@ -56,6 +52,7 @@ import {
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
 	designRevisionResultSchemaFor,
+	findingBlocksAcceptance,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
 import { runDesignReviewer } from "@/lib/agent/design/reviewer";
@@ -83,8 +80,116 @@ export interface DesignLoopToolDeps {
 	readonly onReviewerReasoning?: (text: string) => void;
 }
 
+async function persistDerivedPlan(
+	deps: DesignLoopToolDeps,
+	accepted: NonNullable<DesignGateState["head"]>,
+) {
+	const plan = deriveBuildPlan({
+		contract: accepted.envelope.payload,
+		revision: { id: accepted.id, digest: accepted.artifactDigest },
+	});
+	return insertDesignBuildPlan({
+		envelope: planEnvelope({
+			accepted,
+			packageDigest: accepted.sourcePackageDigest,
+			plan,
+			finishReason: null,
+		}),
+		authority: deps.authority,
+	});
+}
+
+/** Crash recovery for the tiny accepted-revision -> derived-plan boundary. */
+export async function ensureDerivedBuildPlan(
+	deps: DesignLoopToolDeps,
+	gates: DesignGateState,
+) {
+	if (
+		gates.plan !== null ||
+		gates.head === null ||
+		gates.head.lifecycle !== "accepted" ||
+		gates.blockingQuestions.length > 0 ||
+		gates.head.sourcePackageDigest !== gates.currentPackageDigest
+	) {
+		return gates.plan;
+	}
+	return persistDerivedPlan(deps, gates.head);
+}
+
 function strictWireOnly(schema: z.ZodType) {
 	return jsonSchema<unknown>(strictWireJsonSchema(schema) as never);
+}
+
+const DESIGN_HANDLE_PATTERN = /^@[a-z][a-z0-9_-]{0,62}$/;
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The model names semantic design elements; the server mints their stable
+ * UUIDs. This projection leaves persisted schemas UUID-only. */
+function widenDesignIdsToHandles(node: unknown): unknown {
+	if (Array.isArray(node)) return node.map(widenDesignIdsToHandles);
+	if (!isJsonObject(node)) return node;
+	if (node.type === "string" && node.format === "uuid") {
+		return {
+			anyOf: [
+				node,
+				{
+					type: "object",
+					properties: {
+						handle: {
+							type: "string",
+							pattern: DESIGN_HANDLE_PATTERN.source,
+						},
+					},
+					required: ["handle"],
+					additionalProperties: false,
+				},
+			],
+		};
+	}
+	return Object.fromEntries(
+		Object.entries(node).map(([key, value]) => [
+			key,
+			widenDesignIdsToHandles(value),
+		]),
+	);
+}
+
+function strictWireWithHandles(schema: z.ZodType) {
+	return jsonSchema<unknown>(
+		widenDesignIdsToHandles(strictWireJsonSchema(schema)) as never,
+	);
+}
+
+export function resolveDesignWorkspaceHandles(
+	value: unknown,
+	designSessionId: string,
+): unknown {
+	if (Array.isArray(value)) {
+		return value.map((entry) =>
+			resolveDesignWorkspaceHandles(entry, designSessionId),
+		);
+	}
+	if (!isJsonObject(value)) return value;
+	if (
+		Object.keys(value).length === 1 &&
+		typeof value.handle === "string" &&
+		DESIGN_HANDLE_PATTERN.test(value.handle)
+	) {
+		return designIdSchema.parse(
+			deterministicDesignId(
+				`design-workspace-v1:${designSessionId}:${value.handle}`,
+			),
+		);
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) => [
+			key,
+			resolveDesignWorkspaceHandles(entry, designSessionId),
+		]),
+	);
 }
 
 export function renderDesignValidationIssues(error: ZodError): string {
@@ -123,11 +228,7 @@ function refuse(
 }
 
 function gateNameForKind(kind: DesignArtifactKind): DesignLoopToolName {
-	return kind === "contract"
-		? "submitContract"
-		: kind === "revision"
-			? "submitRevision"
-			: "submitPlan";
+	return kind === "contract" ? "submitContract" : "submitRevision";
 }
 
 export function designWorkspaceLineageForGates(
@@ -168,11 +269,22 @@ function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
 			} as const);
 }
 
+function parseHandledStage<T>(
+	schema: z.ZodType<T>,
+	input: unknown,
+	designSessionId: string,
+) {
+	return parseStage(
+		schema,
+		resolveDesignWorkspaceHandles(input, designSessionId),
+	);
+}
+
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	const stageContract = {
 		description:
-			"Stage a bounded part of the Design Contract. Set root fields and/or upsert or remove complete identity-addressed collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
-		inputSchema: strictWireOnly(stageContractInputSchema),
+			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
+		inputSchema: strictWireWithHandles(stageContractInputSchema),
 		strict: true,
 		execute: async (
 			input: unknown,
@@ -181,7 +293,11 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitContract");
 			if (refusal) return refusal;
-			const parsed = parseStage(stageContractInputSchema, input);
+			const parsed = parseHandledStage(
+				stageContractInputSchema,
+				input,
+				deps.designSessionId,
+			);
 			if (!parsed.ok) return { error: parsed.error };
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "contract" as const, ...body };
@@ -216,8 +332,8 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const stageRevision = {
 		description:
-			"Stage a bounded part of the reviewed revision. Upsert or remove complete contract items and finding dispositions by identity; unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
-		inputSchema: strictWireOnly(stageRevisionInputSchema),
+			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Upsert or remove complete items and blocking finding dispositions; unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
+		inputSchema: strictWireWithHandles(stageRevisionInputSchema),
 		strict: true,
 		execute: async (
 			input: unknown,
@@ -226,7 +342,11 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitRevision");
 			if (refusal) return refusal;
-			const parsed = parseStage(stageRevisionInputSchema, input);
+			const parsed = parseHandledStage(
+				stageRevisionInputSchema,
+				input,
+				deps.designSessionId,
+			);
 			if (!parsed.ok) return { error: parsed.error };
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "revision" as const, ...body };
@@ -250,51 +370,6 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					deduplicated: result.deduplicated,
 					message:
 						"This part of the revision is saved. Continue with the remaining corrections and dispositions, then submitRevision to validate the complete result.",
-				};
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return handled;
-				throw error;
-			}
-		},
-	};
-
-	const stagePlan = {
-		description:
-			"Stage bounded build-plan rows. Upsert or remove complete slices, external actions, or intent-ownership rows by identity. Use the returned workspace revision for the next stage.",
-		inputSchema: strictWireOnly(stagePlanInputSchema),
-		strict: true,
-		execute: async (
-			input: unknown,
-			options: { readonly toolCallId: string },
-		) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitPlan");
-			if (refusal) return refusal;
-			const parsed = parseStage(stagePlanInputSchema, input);
-			if (!parsed.ok) return { error: parsed.error };
-			const { expectedRevision, ...body } = parsed.data;
-			const operation = { kind: "plan" as const, ...body };
-			const bound = designWorkspaceBoundError({
-				input: parsed.data,
-				operation,
-			});
-			if (bound !== null) return { error: bound };
-			try {
-				const result = await stageDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("plan", gates),
-					authority: deps.authority,
-					toolCallId: options.toolCallId,
-					expectedRevision,
-					operation,
-				});
-				return {
-					ok: true,
-					workspaceRevision: result.state.workspace.revision,
-					deduplicated: result.deduplicated,
-					message:
-						"These plan rows are saved. Continue until ownership and slice coverage are complete, then submitPlan to validate the whole plan.",
 				};
 			} catch (error) {
 				const handled = workspaceError(error);
@@ -469,10 +544,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			});
 			deps.repair.noteAccepted("requestReview");
 			const findings = review.envelope.payload.findings;
-			const gated = findings.filter(
-				(finding) =>
-					finding.severity === "critical" || finding.severity === "important",
-			);
+			const gated = findings.filter(findingBlocksAcceptance);
 			if (gated.length === 0) {
 				const accepted = await insertDesignRevision({
 					envelope: contractEnvelope({
@@ -492,6 +564,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				const blocking = accepted.envelope.payload.openQuestions.filter(
 					(question) => question.blocking,
 				);
+				const plan =
+					blocking.length === 0
+						? await persistDerivedPlan(deps, accepted)
+						: null;
 				return {
 					ok: true,
 					reviewId: review.id,
@@ -499,10 +575,11 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					findings,
 					accepted: true,
 					acceptedRevisionId: accepted.id,
+					planId: plan?.id,
 					message:
 						blocking.length > 0
 							? "The review raised no gated findings, so the server accepted the design. Ask the user its blocking open questions."
-							: "The review raised no gated findings, so the server accepted the design. Stage the build plan with stagePlan.",
+							: "The review raised no blocking findings, so the server accepted the design and derived its build plan. Tell the user briefly that the build is starting, then stop.",
 				};
 			}
 			return {
@@ -512,7 +589,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				findings,
 				accepted: false,
 				message:
-					"The review has findings that need dispositions. Stage only the required contract corrections and complete dispositions with stageRevision, then finalize with submitRevision.",
+					"The review has blocking design corrections or user decisions. Stage only those corrections and their dispositions with stageRevision, then finalize with submitRevision.",
 			};
 		},
 	};
@@ -561,6 +638,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 				head.envelope.payload,
 				parsed.data,
+				reviewPayloads,
 			);
 			if (sensitivityViolations.length > 0) {
 				deps.repair.noteSchemaRejection(
@@ -622,91 +700,17 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const blocking = revision.envelope.payload.openQuestions.filter(
 				(question) => question.blocking,
 			);
+			const plan =
+				blocking.length === 0 ? await persistDerivedPlan(deps, revision) : null;
 			return {
 				ok: true,
 				revisionId: revision.id,
 				accepted: true,
+				planId: plan?.id,
 				message:
 					blocking.length > 0
 						? "The accepted design carries blocking open questions. Ask the user before planning."
-						: "The revision persisted as the accepted design. Stage its build plan with stagePlan.",
-			};
-		},
-	};
-
-	const submitPlan = {
-		description:
-			"Finalize the staged build plan at the exact workspace revision. The server stamps artifact identity, composes every saved row, and validates complete ownership, dependencies, construction strategy, and accepted-design coverage atomically.",
-		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
-		strict: true,
-		execute: async (input: unknown) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitPlan");
-			if (refusal) return refusal;
-			const accepted = gates.head;
-			if (accepted === null) return { error: "No accepted design exists." };
-			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
-			if (!parsedInput.ok) return { error: parsedInput.error };
-			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
-			try {
-				state = await inspectDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("plan", gates),
-					authority: deps.authority,
-					expectedRevision: parsedInput.data.expectedRevision,
-				});
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return handled;
-				throw error;
-			}
-			const draftParsed = buildPlanDraftSchema.safeParse(state.candidate);
-			if (!draftParsed.success) {
-				deps.repair.noteSchemaRejection(
-					"submitPlan",
-					draftParsed.error.issues.length,
-				);
-				return { error: renderDesignValidationIssues(draftParsed.error) };
-			}
-			const composed = composePlan(accepted, draftParsed.data);
-			const admissionMessages = newPlanAdmissionMessages(composed);
-			const planParsed = buildPlanSchemaFor(
-				accepted.envelope.payload,
-			).safeParse(composed);
-			if (!planParsed.success || admissionMessages.length > 0) {
-				const issueCount =
-					(planParsed.success ? 0 : planParsed.error.issues.length) +
-					admissionMessages.length;
-				deps.repair.noteSchemaRejection("submitPlan", issueCount);
-				return {
-					error: [
-						...(planParsed.success
-							? []
-							: [renderDesignValidationIssues(planParsed.error)]),
-						...admissionMessages,
-					].join("\n"),
-				};
-			}
-			const plan = await insertDesignBuildPlan({
-				envelope: planEnvelope({
-					accepted,
-					packageDigest: state.workspace.lineage.sourcePackageDigest,
-					plan: planParsed.data,
-					finishReason: null,
-				}),
-				authority: deps.authority,
-				workspaceFinalization: {
-					workspaceId: state.workspace.id,
-					expectedRevision: state.workspace.revision,
-					artifactKind: "plan",
-				},
-			});
-			deps.repair.noteAccepted("submitPlan");
-			return {
-				ok: true,
-				planId: plan.id,
-				message:
-					"The build plan persisted; the design phase is complete. Tell the user briefly that the build is starting, then stop.",
+						: "The revision persisted as the accepted design and the server derived its build plan. Tell the user briefly that the build is starting, then stop.",
 			};
 		},
 	};
@@ -714,11 +718,9 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	return {
 		stageContract,
 		stageRevision,
-		stagePlan,
 		inspectDesignWorkspace,
 		submitContract,
 		requestReview,
 		submitRevision,
-		submitPlan,
 	};
 }

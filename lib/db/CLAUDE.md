@@ -825,8 +825,10 @@ The two variants are the Atomic Change Set runtime's: `commit-design-change-
 set` (lock the `design_change_sets` row AFTER the app lock — canonical order
 — verify status/revision/lineage, flip `open → committed`, insert the
 immutable `design_committed_slices` receipt) and `write-intent-provenance`
-(`app_change_intents` rows, coordinate payloads strict-parsed through the
-closed implementation-coordinate union). A dedup hit skips sidecars entirely:
+(`app_change_intents` rows carrying deterministic construction-group IDs,
+with coordinate payloads strict-parsed through the closed implementation-
+coordinate union). The existing SQL names are storage compatibility, not a
+second intent/traceability model. A dedup hit skips sidecars entirely:
 the original commit ran them, and a canonical batch without its receipt is
 corruption for the caller to detect, never a new commit.
 
@@ -836,7 +838,8 @@ to serialize its ledgers); `design_change_set_requests` / `_steps` /
 `_step_stages` / `_handles`, `design_committed_slices`, and
 `app_change_intents` are append-only runtime DML — never row-locked, never
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
-poke realtime). Step mutations, receipts, read sets, and intent ids are
+poke realtime). Step mutations, receipts, read sets, and persisted construction
+group ids are
 authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
 strict schemas only. `design_session_id`, design revision, build plan, and
 attempt identities are foreign-key-bound to the durable design/orchestration

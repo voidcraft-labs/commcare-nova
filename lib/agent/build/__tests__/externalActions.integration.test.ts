@@ -28,11 +28,11 @@ describe("assertRequiredExternalActionsSatisfied", () => {
 		if (slice === undefined) throw new Error("fixture has a later slice");
 		const action: ExternalAction = {
 			id: did(900),
-			kind: "lookup-write",
+			requirementId: did(901),
+			kind: "existing-reference",
 			timing: "before-slice",
 			requiredFor: "construction",
 			description: "Load the approved facility catalog.",
-			idempotencyOwner: "nova",
 			completionEvidence: "The exact catalog import receipt.",
 		};
 		plan.externalActions = [action];

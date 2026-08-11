@@ -33,7 +33,7 @@ const OUTLINE = {
 	actors: ["Community health worker", "Supervisor"],
 	tasks: ["Register a household", "Record a visit"],
 	records: ["Household", "Visit"],
-	readModels: ["Households due this week"],
+	lists: ["Households due this week"],
 	assumptions: ["Every worker has one assigned area"],
 	blockingQuestions: [],
 	outOfScope: ["Stock management"],
