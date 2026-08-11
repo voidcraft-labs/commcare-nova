@@ -533,7 +533,25 @@ describe("design-session build turns", () => {
 	}, 30_000);
 
 	it("an explicit re-drive preserves an assistant-ending transcript and freshly reclaims a failed pre-app session", async () => {
+		let attempt = 0;
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			attempt += 1;
+			if (attempt === 1) {
+				await appendOrchestrationEvent({
+					designSessionId: args.designSessionId,
+					runId: args.runId,
+					holderNonce: args.holderNonce,
+					actorUserId: USER,
+					expectedProjectId: PROJECT,
+					state: {
+						kind: "failed",
+						failureId: "447ac27e-0d00-4f5a-b4ae-c7b23d3e093f",
+						recoverable: true,
+						errorType: "internal",
+					},
+					expectedHead: null,
+				});
+			}
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
 			args.writer.write({ type: "finish" });
 			return {
@@ -574,7 +592,66 @@ describe("design-session build turns", () => {
 		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
 			designSessionId: failedSession.id,
 			redrive: true,
+			messages: [
+				{
+					id: "u1",
+					role: "user",
+					parts: [{ type: "text", text: "build me a case tracking app" }],
+				},
+			],
 		});
+	}, 30_000);
+
+	it("refuses an assistant-ending re-drive after a non-recoverable orchestration failure", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			await appendOrchestrationEvent({
+				designSessionId: args.designSessionId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				actorUserId: USER,
+				expectedProjectId: PROJECT,
+				state: {
+					kind: "failed",
+					failureId: "b6daa3d0-6aa1-4382-9864-d3b344b210b7",
+					recoverable: false,
+					errorType: "candidate-publish-rejected",
+				},
+				expectedHead: null,
+			});
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "finish" });
+			return {
+				kind: "failed",
+				errorType: "candidate-publish-rejected",
+				message: "The saved candidate cannot be published.",
+				recoverable: false,
+				appId: null,
+			};
+		});
+
+		const first = await POST(buildRequest());
+		await first.text();
+		const failedSession = await sessionRow();
+		const redrive = await POST(
+			buildRequest({
+				designSessionId: failedSession.id,
+				redrive: true,
+				messages: [
+					{
+						id: "u1",
+						role: "user",
+						parts: [{ type: "text", text: "build me a case tracking app" }],
+					},
+					{
+						id: "failed-assistant",
+						role: "assistant",
+						parts: [{ type: "text", text: "This failed permanently." }],
+					},
+				],
+			}),
+		);
+		expect(redrive.status).toBe(409);
+		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
 	}, 30_000);
 
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {

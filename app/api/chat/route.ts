@@ -88,6 +88,7 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
 	clawBackThreadResponse,
+	loadThread,
 	mergeThreadTurnMessages,
 	persistResponseSnapshot,
 	resolveThreadStream,
@@ -200,6 +201,10 @@ export async function POST(req: Request) {
 		);
 	}
 	const messages = messagesResult.messages;
+	/* Most turns use the admitted client history directly. Explicit recovery
+	 * replaces it below with the server's clawed-back transcript before any
+	 * fold, persistence, source-package, or model consumer can observe it. */
+	let runMessages = messages;
 
 	// Validate our fields (apiKey, blueprint, etc.)
 	const parsed = chatRequestSchema.safeParse(body);
@@ -403,23 +408,73 @@ export async function POST(req: Request) {
 	/* `redrive` is a client control, not authority. A user-ending automatic
 	 * re-drive is already an ordinary chargeable turn. The assistant-ending
 	 * form belongs only to Continue build, after a recoverable pre-app failure
-	 * has released its holder. Prove that state before letting the flag bypass
-	 * the in-progress instruction gate or claim a paused session as fresh work. */
-	if (
-		explicitRecoveryRedrive &&
-		(presentedDesignSession === undefined ||
+	 * has released its holder. Prove the durable recoverable verdict before the
+	 * flag can bypass the in-progress instruction gate. A reaped run does not
+	 * need this assistant-ending form: its ordinary user-ending auto-redrive
+	 * remains admitted independently even when no failed head was appended.
+	 *
+	 * The failed-turn protocol clawed the durable transcript back to completed
+	 * units. Reload that exact history as the run input so same-tab suffix parts
+	 * cannot be re-authored through the fold, source package, or model prompt. */
+	if (explicitRecoveryRedrive) {
+		const recoveryHead =
+			presentedDesignSession === undefined
+				? null
+				: await readOrchestrationHead(presentedDesignSession.id);
+		if (
+			presentedDesignSession === undefined ||
 			presentedDesignSession.state !== "active" ||
 			presentedDesignSession.app_id !== null ||
-			presentedDesignSession.last_error_type === null)
-	) {
-		return Response.json(
-			{
-				error:
-					"This saved build is not waiting for recovery. Refresh to continue from its current state.",
-				type: "generation_in_progress",
-			},
-			{ status: 409 },
-		);
+			presentedDesignSession.last_error_type === null ||
+			recoveryHead?.state.kind !== "failed" ||
+			recoveryHead.state.recoverable !== true
+		) {
+			return Response.json(
+				{
+					error:
+						"This saved build is not waiting for recovery. Refresh to continue from its current state.",
+					type: "generation_in_progress",
+				},
+				{ status: 409 },
+			);
+		}
+		try {
+			const storedThread = await loadThread(
+				{ kind: "design-session", designSessionId: presentedDesignSession.id },
+				threadId,
+				userId,
+			);
+			if (storedThread === null) {
+				return Response.json(
+					{
+						error:
+							"This saved conversation is no longer available. Refresh to continue from its current state.",
+						type: "invalid_request",
+					},
+					{ status: 409 },
+				);
+			}
+			const storedMessages = validateChatMessages(storedThread.messages);
+			if (!storedMessages.ok) {
+				throw new Error(
+					`Stored recovery transcript failed admission: ${storedMessages.error}`,
+				);
+			}
+			runMessages = storedMessages.messages;
+		} catch (err) {
+			log.error("[chat] recovery transcript read failed", err, {
+				designSessionId: presentedDesignSession.id,
+				threadId,
+			});
+			return Response.json(
+				{
+					error:
+						"Couldn't load this saved conversation. Refresh and try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
 	}
 	/* Once reviewed construction has begun, the durable candidate owns the
 	 * conversation. A normal new instruction cannot redirect it mid-build or
@@ -1261,7 +1316,7 @@ export async function POST(req: Request) {
 			 * it. Raw, not the sanitized `validated` copy: the sanitizers strip
 			 * load-bearing reasoning `providerMetadata` that must survive in
 			 * the stored transcript. */
-			const trailingIncoming = messages.at(-1);
+			const trailingIncoming = runMessages.at(-1);
 			const foldSeed =
 				trailingIncoming?.role === "assistant" ? trailingIncoming : undefined;
 			/* The turn's response message id, minted HERE for a fresh turn (a
@@ -1292,7 +1347,7 @@ export async function POST(req: Request) {
 				 * message (the SDK ignores a trailing user message), so a
 				 * continuation's snapshots grow the SAME message id the client
 				 * grows. */
-				originalMessages: messages,
+				originalMessages: runMessages,
 				/* The fold's producer is the tee in `DurableStreamWriter`; this
 				 * execute only parks the writer and holds the stream open until
 				 * finalize resolves `foldClosed`. */
@@ -1782,7 +1837,7 @@ export async function POST(req: Request) {
 						await mergeThreadTurnMessages({
 							target,
 							threadId,
-							messages,
+							messages: runMessages,
 							expectedProjectId: projectId,
 						});
 					} catch (err) {
@@ -2235,7 +2290,7 @@ export async function POST(req: Request) {
 						streamId,
 						holderNonce,
 						threadType: appReady ? "edit" : "build",
-						messages,
+						messages: runMessages,
 						expectedProjectId: projectId,
 						/* A re-drive claim removes its dead predecessor's trailing
 						 * partial assistant message — the death-case claw-back (the
@@ -2300,7 +2355,7 @@ export async function POST(req: Request) {
 							runId: effectiveRunId,
 							holderNonce,
 							threadId,
-							messages,
+							messages: runMessages,
 							responseMessageId,
 							writer,
 							apiKey: keyResult.apiKey,
@@ -2541,7 +2596,7 @@ export async function POST(req: Request) {
 				 * message (pre-resolve): the resolved extract bodies are large and live
 				 * durably on the asset, so re-inlining them in the log adds bloat, not
 				 * value. */
-				const lastMessage = messages.at(-1);
+				const lastMessage = runMessages.at(-1);
 				if (lastMessage?.role === "user") {
 					const text = lastMessage.parts
 						.filter(isTextUIPart)
@@ -2663,7 +2718,7 @@ export async function POST(req: Request) {
 					 * days now, and a resumed conversation the SA can't see isn't a
 					 * conversation. A cold-cache turn pays one cache re-write: the
 					 * price of the chat behaving like a chat. */
-					const messagesToSend = messages;
+					const messagesToSend = runMessages;
 
 					/* Resolve attachment references into model-ready content BEFORE the SA.
 					 * The composer sends asset-id refs in message metadata; this appends,
