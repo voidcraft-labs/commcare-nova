@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DesignProgressView } from "@/lib/session/designProgressStore";
 import { DesignProgressStatus } from "./DesignProgressPanel";
@@ -49,6 +49,27 @@ describe("DesignProgressStatus", () => {
 			/>,
 		);
 
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+	});
+
+	it("offers one explicit continuation for a saved pre-app candidate", () => {
+		const onContinue = vi.fn();
+		render(
+			<DesignProgressStatus
+				view={{
+					...view,
+					stage: "incomplete",
+					stageLabel: "Stopped before it finished",
+					working: false,
+					failure: "Your saved design can continue.",
+				}}
+				canRecover
+				onContinue={onContinue}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Continue build" }));
+		expect(onContinue).toHaveBeenCalledOnce();
 		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 	});
 

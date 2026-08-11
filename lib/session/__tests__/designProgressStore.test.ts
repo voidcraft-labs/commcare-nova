@@ -166,6 +166,13 @@ describe("design progress stage fold", () => {
 		expect(view(store).stage).toBe("planning");
 		expect(view(store).pulseStep).toBe("Assigning ownership");
 
+		applyProgressFrame(
+			"data-design-pulse",
+			envelope(SESSION, { phase: "build", chars: 0 }, 1),
+		);
+		expect(view(store).stage).toBe("building");
+		expect(view(store).pulseStep).toBeNull();
+
 		/* Progress outranks the pulse: a started slice means the design span
 		 * is over, whatever pulse arrived last. */
 		applyProgressFrame(

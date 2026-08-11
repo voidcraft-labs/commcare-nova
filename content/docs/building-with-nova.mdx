@@ -5,12 +5,12 @@ description: How Nova turns a conversation into a reviewed, working app and how 
 
 ## From a description to an app
 
-When you describe a new app in chat, Nova first works out its purpose, who uses
-it, what it records, and how each workflow behaves from start to finish. It
-also covers the lists people need, access, navigation, and setup outside the
-app. An independent review checks that design before construction starts. Nova
-asks questions only when an answer materially changes the app or isn't safe to
-assume.
+When you describe a new app in chat, Nova builds a complete private version of
+the app: its records, workflows, forms, fields, lists, access, navigation, and
+outside setup. It uses the same app-building operations available in Nova after
+the app exists, while keeping this work private. An independent review checks
+the exact working app before anything becomes visible. Nova asks questions only
+when an answer materially changes the app or isn't safe to assume.
 
 The live status immediately above the chat box names the current phase. Nova
 also gives a conservative rough estimate based on the design's assigned effort
@@ -18,41 +18,39 @@ level: about 30 minutes for compact designs, an hour for standard designs,
 and 90 minutes for extended designs. Internal design submissions and technical
 review details stay out of the conversation.
 
-No placeholder app appears while that design is still being worked out. The
-first app you see contains a coherent, valid workflow that you can open in the
-builder. Its tree stays read-only around the build progress while Nova adds the
-remaining parts as valid updates, so you never edit underneath the initial
-build. Direct editing and Preview become available when the whole build is
-finished; unfinished private work never appears in the app.
+No placeholder or partial app appears while that work is underway. The first
+app you see is the complete reviewed version, created in one step. The builder
+stays read-only around the build progress until then, so you never edit
+underneath the initial build. Unfinished private work never appears in Preview
+or the app tree.
 
 ## Resume an unfinished design
 
-An app design that has not produced its first workflow appears under **Designs
-in progress** on the app list. Choose **Resume** to return to the same
-conversation and continue from its saved stage. Choose **Discard** when you no
-longer want Nova to take that design further.
+An unfinished app design appears under **Designs in progress** on the app list.
+Choose **Resume** to return to the same conversation and continue from its
+saved stage. Choose **Discard** when you no longer want Nova to take that
+design further.
 
-Nova saves completed parts of a large design as it works. If the connection,
-server process, or model context is interrupted, it resumes from that exact
-saved work instead of rewriting completed sections. Only a complete, checked
-design advances to review or construction. Nova derives construction work from
-the accepted workflows, so it can't silently omit part of the design.
+Nova saves each accepted app-building operation as it works. If the connection,
+server process, or model context is interrupted, it reconstructs the exact
+private app from those operations instead of relying on chat memory or
+rewriting completed sections. Review and publication are bound to that exact
+version, so neither can silently omit part of the candidate.
 
 The design also has its own recovery address as soon as the first chat turn
 starts. Refreshing the page returns to that design. If the app was created while
 an update was lost in transit, Nova opens the authoritative app instead of
 starting a second copy.
 
-## If a later step stops
+## If review still finds a problem
 
-The app remains available when its first workflow was saved and a later part of
-the build stops. Open its app card to review what was completed. A failed later
-step does not invalidate or hide the working revision that already exists.
-Choose **Use what’s built** to finish with the workflows already added and
-unlock the builder; Nova keeps the unbuilt items in the design record rather
-than claiming they were completed. Temporary provider, connection, and database
-interruptions recover automatically. Nova does not ask you to retry a build
-step that has already reached a deterministic failure.
+Nova corrects blocking review findings against the saved private app and asks
+the reviewer to verify those exact changes. If verification still finds a
+blocking problem, the design pauses instead of repeatedly guessing. Choose
+**Continue** to let Nova make another focused correction from that same saved
+app. Other messages cannot redirect a build while construction is active.
+Temporary provider, connection, and database interruptions recover
+automatically.
 
 ## Start with a blank app
 

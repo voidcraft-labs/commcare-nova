@@ -25,6 +25,7 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
+import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
@@ -392,6 +393,31 @@ export async function POST(req: Request) {
 				);
 			}
 			throw err;
+		}
+	}
+	/* Once reviewed construction has begun, the durable candidate owns the
+	 * conversation. A normal new instruction cannot redirect it mid-build or
+	 * turn a failure into an implicit redesign. The only continuations are an
+	 * askQuestions tool result (non-chargeable) or the explicit durable
+	 * re-drive control. This gate runs before claim/reservation writes. */
+	if (
+		presentedDesignSession !== undefined &&
+		presentedDesignSession.state === "active" &&
+		chargeable &&
+		parsed.data.redrive !== true
+	) {
+		const orchestrationHead = await readOrchestrationHead(
+			presentedDesignSession.id,
+		);
+		if (orchestrationHead !== null) {
+			return Response.json(
+				{
+					error:
+						"This app is still being prepared. Continue the saved build, or answer the question Nova asked.",
+					type: "generation_in_progress",
+				},
+				{ status: 409 },
+			);
 		}
 	}
 
@@ -2220,9 +2246,9 @@ export async function POST(req: Request) {
 				/* ── The design-build turn ─────────────────────────────────────
 				 *
 				 * A design-session run never mounts the SA: the server-owned
-				 * BUILD ORCHESTRATOR is the whole method — source package →
-				 * bounded design pipeline → slice executor → materialization →
-				 * later slices — and this branch owns its terminal mapping onto
+				 * BUILD ORCHESTRATOR is the whole method: one private executable
+				 * Blueprint candidate → independent review/correction → atomic
+				 * materialization. This branch owns its terminal mapping onto
 				 * the run/credit machinery. It returns before the SA seed below;
 				 * edit-shaped turns continue on the SA path unchanged — including
 				 * a serialize-wait that admitted as BUILD but won its claim as an
@@ -2235,7 +2261,7 @@ export async function POST(req: Request) {
 					 * ignores browser disconnects (it drains server-side), so
 					 * nothing fires this mid-run; aborting when the branch settles
 					 * cancels any model call a throw left in flight, and the
-					 * orchestrator's own step/slice budgets remain the primary
+					 * orchestrator's own model/deadline bounds remain the primary
 					 * runaway bound. */
 					const orchestrationAbort = new AbortController();
 					try {
@@ -2255,19 +2281,8 @@ export async function POST(req: Request) {
 							meter: usage,
 							signal: orchestrationAbort.signal,
 							materializedAppId: design.materialized ? appId : null,
+							redrive: parsed.data.redrive === true,
 							deps: {
-								logCommittedStages: (receipt, envelopes) => {
-									for (const envelope of envelopes) {
-										try {
-											ctx.emitConversation({
-												type: "assistant-text",
-												text: `Committed ${envelope.toolName}${envelope.stageName ? ` (${envelope.stageName})` : ""} at sequence ${receipt.seq}.`,
-											});
-										} catch {
-											/* Event logging never fails the run. */
-										}
-									}
-								},
 								/* The design agent's step fan-out: per-step usage on the
 								 * accumulator (steps count as steps), tool-call/result and
 								 * reasoning-summary conversation events, all through the
@@ -2279,8 +2294,7 @@ export async function POST(req: Request) {
 										DESIGN_AUTHOR_MODEL,
 										"design-author",
 									),
-								/* Reasoning summaries from the calls that never touch a
-								 * thread (the independent reviewer, executor steps) land
+								/* Reasoning summaries from the independent reviewer land
 								 * beside the run's other events, joined to artifacts by
 								 * run id. Never fatal. */
 								onReasoningSummary: (text) => {
@@ -2303,36 +2317,12 @@ export async function POST(req: Request) {
 										/* Event logging never fails the run. */
 									}
 								},
-								onExecutorToolOutcome: (event) => {
-									try {
-										ctx.emitConversation({
-											type: "executor-tool-outcome",
-											...event,
-										});
-									} catch {
-										/* Event logging never fails the run. */
-									}
-								},
-								/* A transient design-turn fault being redriven renders as
-								 * a RECOVERABLE warning with the real classified type, the
-								 * same admin-inspect breadcrumb as an SA turn retry. */
-								onRecoverableRetry: (classified) => {
-									ctx.emitError(
-										{
-											...classified,
-											message: TURN_RETRY_MESSAGE,
-											recoverable: true,
-										},
-										"route:design-turn-retry",
-										{ runContinues: true },
-									);
-								},
 							},
 						});
 						if (outcome.kind === "completed") {
 							/* The finishing moves, in the build arm's exact order:
-							 * converge case-store schemas for anything later slices
-							 * added, flip `generating → complete` while settling the
+							 * converge case-store schemas for the accepted candidate,
+							 * flip `generating → complete` while settling the
 							 * kept charge, then emit `data-done` so the client's
 							 * reconciler adopts the final canonical snapshot. */
 							const finalApp = await loadApp(outcome.appId);
@@ -2431,8 +2421,8 @@ export async function POST(req: Request) {
 					} catch (error) {
 						/* An orchestration throw: infrastructure or lost scope. The
 						 * settle must target whichever row holds the run NOW — a throw
-						 * AFTER this run materialized (a later-slice fault on a fresh
-						 * build) has already transferred the holder + reservation to
+						 * AFTER this run materialized has already transferred the
+						 * holder + reservation to
 						 * the APP row, so the admission-time `design.materialized`
 						 * binding is stale; settling the session there is a no-op that
 						 * strands the app `generating` with an unsettled charge until

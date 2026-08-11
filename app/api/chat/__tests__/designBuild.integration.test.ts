@@ -20,6 +20,7 @@
 
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendOrchestrationEvent } from "@/lib/agent/build/orchestratorState";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
@@ -274,6 +275,45 @@ afterEach(async () => {
 });
 
 describe("design-session build turns", () => {
+	it("refuses an unrelated message after durable candidate work has begun", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "finish" });
+			return { kind: "awaiting-input", pauseOwned: true };
+		});
+		const first = await POST(buildRequest());
+		await first.text();
+		const session = await sessionRow();
+		if (session.run_id === null || session.run_holder_nonce === null) {
+			throw new Error("paused build did not retain its holder");
+		}
+		await appendOrchestrationEvent({
+			designSessionId: session.id,
+			runId: session.run_id,
+			holderNonce: session.run_holder_nonce,
+			actorUserId: USER,
+			expectedProjectId: PROJECT,
+			state: {
+				kind: "awaiting-user-questions",
+				designSessionId: session.id,
+				designRevisionId: null,
+			},
+			expectedHead: null,
+		});
+
+		const redirected = await POST(
+			buildRequest({ designSessionId: session.id }),
+		);
+		expect(redirected.status).toBe(409);
+		expect(await redirected.json()).toEqual({
+			error:
+				"This app is still being prepared. Continue the saved build, or answer the question Nova asked.",
+			type: "generation_in_progress",
+		});
+		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
+	}, 30_000);
+
 	it("hides an unmaterialized session from Project co-members before touching its thread", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.meter?.track({ inputTokens: 10, outputTokens: 5 });

@@ -198,11 +198,35 @@ const SHARED_HANDLE_DECLARERS: Readonly<Record<string, HandleDeclarer>> = {
 			"case_operation",
 		);
 	},
+	addUserProperties(input) {
+		return itemDeclarations(
+			object(input)?.properties,
+			"userPropertyUuid",
+			"worker_property",
+		);
+	},
+	addUserTypes(input) {
+		return itemDeclarations(
+			object(input)?.userTypes,
+			"userTypeUuid",
+			"user_type",
+		);
+	},
+	addPersonas(input) {
+		return itemDeclarations(object(input)?.personas, "personaUuid", "persona");
+	},
 	addOrganizationLevels(input) {
 		return itemDeclarations(
 			object(input)?.levels,
 			"uuid",
 			"organization_level",
+		);
+	},
+	addLocationProperties(input) {
+		return itemDeclarations(
+			object(input)?.properties,
+			"locationPropertyUuid",
+			"location_property",
 		);
 	},
 	addAutomations(input) {

@@ -6,8 +6,8 @@
  *     Survey/Form/Question app, created immediately for "Start with a blank
  *     app" and MCP `create_app`. Its receipt keeps the starter UUIDs because
  *     the blank-builder UX selects/names them.
- *   - `design-slice`: a chat build's meaningful first workflow, materialized
- *     from a genesis Atomic Change Set by
+ *   - `reviewed-candidate`: a chat build's complete accepted Blueprint,
+ *     materialized from a genesis Atomic Change Set by
  *     `lib/agent/change-set/materializeGenesis.ts`, which composes the
  *     transaction-scoped writer here (the replay lives beside the change-set
  *     runtime; the write tail lives beside the canonical commit kernel so
@@ -72,7 +72,7 @@ import { type AppDatabase, withAppTx } from "./pg";
  * The genesis candidate failed the absolute gate or export readiness — a
  * deterministic content rejection, never an infrastructure fault. For the
  * explicit-blank starter this is a compiler bug (the canonical starter is
- * valid by construction); for a design-slice candidate it is the executor's
+ * valid by construction); for a reviewed candidate it is the author's
  * structured signal to amend the change set.
  */
 export class GenesisGateRejectedError extends Error {
@@ -122,7 +122,7 @@ export function prepareGenesisCandidate(args: {
 
 // ── The shared write tail ──────────────────────────────────────────
 
-/** The holder + reservation column groups a design-slice genesis transfers
+/** The holder + reservation column groups a reviewed-candidate genesis transfers
  *  onto the app row (the exact columns the design session held; §11.5 —
  *  never an interval with two holders or an ownerless reservation). Absent
  *  for a creation that holds no run. */
@@ -143,7 +143,7 @@ export interface WritePreparedGenesisArgs {
 	readonly runId: string;
 	readonly status: "generating" | "complete";
 	readonly runHolderNonce?: string;
-	/** Present exactly when a design-slice materialization transfers the
+	/** Present exactly when a reviewed-candidate materialization transfers the
 	 *  session's live hold onto the new app row. */
 	readonly holderTransfer?: GenesisHolderTransfer;
 }
@@ -151,7 +151,7 @@ export interface WritePreparedGenesisArgs {
 /**
  * Write one prepared genesis candidate as a complete sequence-1 app, inside
  * the caller's transaction. The caller owns its authority locks (a
- * design-slice materialization holds the actor gate, session row, and
+ * reviewed-candidate materialization holds the actor gate, session row, and
  * change-set row; explicit-blank creation is the shared-gate-first
  * exception); this tail owns everything from membership reauthorization to
  * the immutable baseline. Every verdict here re-runs against the
@@ -407,7 +407,7 @@ export async function createExplicitBlankApp(
  * The strict activation receipt every genesis emits (§12.6): the complete
  * server-derived access tuple plus the exact sequence-1 snapshot. The
  * explicit-blank variant carries the starter UUIDs (the blank-builder UX
- * selects/names them); a design-slice receipt has no starter.
+ * selects/names them); a reviewed-candidate receipt has no starter.
  */
 export interface AppMaterializationReceipt {
 	readonly eventVersion: 1;

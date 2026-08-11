@@ -325,6 +325,7 @@ describe("slice attempts", () => {
 			projectId: PROJECT,
 			baseSnapshotDigest: args.baseTarget.digest,
 			lineage: {
+				purpose: "slice",
 				designSessionId: args.designSessionId,
 				designRevisionId: args.designRevisionId,
 				designRevisionDigest: args.designRevisionDigest,

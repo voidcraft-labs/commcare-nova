@@ -276,7 +276,7 @@ async function lockBoundChangeSet(
 			`Slice attempt ${attempt.id} is bound to a change set from different lineage.`,
 		);
 	}
-	return row;
+	return { ...row, attempt_id: row.attempt_id };
 }
 
 async function supersedeRunningAttempt(

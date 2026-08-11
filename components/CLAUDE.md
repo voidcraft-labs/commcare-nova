@@ -100,9 +100,9 @@ Pages are Server Components; the server layout is the auth gate (`requireAuth` /
 Build recovery is URL-backed. The first `data-design-session` scope on
 `/build/new` immediately replaces the URL with `/build/new?design=<id>`; a
 scope that already names a materialized app reloads `/build/<appId>` when the
-activation receipt was missed. Failed app cards remain links; the authorized
-build page admits interrupted builds and apps with materialized design lineage,
-because a later-slice failure does not invalidate the sequence-one app.
+activation receipt was missed. The private reviewed candidate does not appear
+as an app or unlock the builder. The complete accepted candidate appears as
+sequence one only after atomic materialization.
 
 A client leaf that branches its render on `useAuth().isPending` will hydration-mismatch: the auth client resolves the session synchronously client-side (`isPending` false on first paint) while SSR has none (`isPending` true), so server and client first-render differ. Gate the first render on a `mounted` flag (see `AccountMenu`).
 
@@ -152,12 +152,13 @@ Dark "Twilight and first light": a four-step warm plum surface stack (`#171221` 
 
 **Voice.** Sentence case everywhere except the product name, which is always lowercase `commcare nova`. No em dashes, in UI copy or docs or code comments; a comma, a colon, or a new sentence carries the aside. No ellipsis in buttons, menu items, or placeholders, including in-progress labels ("Creating blank app", not "Creating blank app…"). Skip the period on single-line labels, tooltips, placeholders, and one-sentence dialog bodies. Use contractions, spell out Latin abbreviations, write "and" not "&", and use `·` as the metadata separator. Errors take responsibility and offer the next step. No emoji.
 
-**Reviewed-build chat.** The design protocol's contract/review/revision tool
-parts remain in durable message history for replay but never render in the
-conversation. Nova's model-authored prose explains the work in the voice above;
-technical tool errors and model-only success instructions stay internal. The
-reviewed outline names review status without finding counts or severity
-language. Its cards scroll with the transcript, while the one live design stage
-line is the final status directly above the composer. A terminal design-build
-error replaces any stale working stage; automatic recovery never invents a
-user-authored retry message in the transcript.
+**Reviewed-build chat.** Candidate-authoring and review tool parts stay private
+and never render in or become authority through the conversation. Nova's
+model-authored prose explains the work in the voice above; technical tool errors
+and model-only success instructions stay internal. The one live stage line is
+the final status directly above the composer. Once construction starts, the
+composer and New Chat are locked unless Nova asks a question. A blocking
+verification exposes one explicit **Continue build** action; an ordinary
+message cannot redirect or retry the candidate. A terminal design-build error
+replaces any stale working stage, and automatic infrastructure recovery never
+invents a user-authored message in the transcript.

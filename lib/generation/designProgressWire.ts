@@ -107,6 +107,7 @@ export const DESIGN_PULSE_PHASES = [
 	"review",
 	"revise",
 	"plan",
+	"build",
 ] as const;
 export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
 
@@ -132,6 +133,8 @@ export function designPulseStage(phase: DesignPulsePhase): DesignBuildStage {
 			return "revising-design";
 		case "plan":
 			return "planning";
+		case "build":
+			return "building";
 	}
 }
 

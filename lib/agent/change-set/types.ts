@@ -27,6 +27,7 @@ export type ChangeSetExclusiveKind = "renameCaseProperties" | "retireCaseType";
  * the digests are proven equal at stage and commit time regardless.
  */
 export interface ChangeSetLineage {
+	readonly purpose: "slice";
 	readonly designSessionId: string;
 	readonly designRevisionId: string;
 	readonly designRevisionDigest: string;
@@ -36,8 +37,22 @@ export interface ChangeSetLineage {
 	readonly attemptId: string;
 }
 
+/** A reviewed-app candidate is the design: it has no parallel contract,
+ * build-plan, slice, or executor-attempt identity. The exact private
+ * workspace revision/digest is checkpointed separately when review begins. */
+export interface DesignCandidateLineage {
+	readonly purpose: "design-candidate";
+	readonly designSessionId: string;
+	readonly designRevisionId: null;
+	readonly designRevisionDigest: null;
+	readonly buildPlanId: null;
+	readonly buildPlanDigest: null;
+	readonly sliceId: null;
+	readonly attemptId: null;
+}
+
 /** The parsed authority row. */
-export interface DesignChangeSet extends ChangeSetLineage {
+export type DesignChangeSet = (ChangeSetLineage | DesignCandidateLineage) & {
 	readonly id: string;
 	readonly kind: ChangeSetKind;
 	/** Present exactly on app-edit sets. */
@@ -59,7 +74,12 @@ export interface DesignChangeSet extends ChangeSetLineage {
 	readonly committedSnapshotDigest: string | null;
 	readonly createdAt: Date;
 	readonly updatedAt: Date;
-}
+};
+
+export type SliceDesignChangeSet = Extract<
+	DesignChangeSet,
+	{ readonly purpose: "slice" }
+>;
 
 /** One admitted staged step, parsed. */
 export interface ChangeSetStep {

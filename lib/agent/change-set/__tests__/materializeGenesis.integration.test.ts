@@ -1,5 +1,5 @@
 /**
- * Design-slice materialization against a REAL Postgres — the §20.13 gate:
+ * Reviewed-candidate and dormant slice materialization against a real Postgres:
  * one complete sequence-1 app or no app at every failure point, the holder
  * and reservation transferring exactly once, and lost-response replay
  * converging on the stored receipt.
@@ -12,11 +12,18 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import {
+	checkpointCandidate,
+	insertCandidateReview,
+	resumeBlockedCandidateRevision,
+} from "@/lib/agent/design/candidateStore";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	createAndClaimDesignSessionRun,
@@ -38,11 +45,13 @@ import { canonicalJsonDigest, stagingInputDigest } from "../digest";
 import { ChangeSetScopeLostError } from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
 import {
+	beginDesignCandidateChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
 	stageChangeSetRequest,
 } from "../store";
+import type { DesignChangeSet } from "../types";
 
 /* Route `withSchemaContext` to a store bound to the per-test database —
  * production parity, just bypassing the singleton's Cloud SQL connector
@@ -103,6 +112,7 @@ async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 		projectId: PROJECT,
 		baseSnapshotDigest: emptyGenesisBase(claimed.proposedAppId).digest,
 		lineage: {
+			purpose: "slice",
 			designSessionId: claimed.designSessionId,
 			designRevisionId: lineage.designRevisionId,
 			designRevisionDigest: lineage.designRevisionDigest,
@@ -184,7 +194,338 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 	};
 }
 
+const CANDIDATE_SOURCE_DIGEST = "a".repeat(64);
+const CANDIDATE_BRIEF = {
+	schemaVersion: 1 as const,
+	appName: "Reviewed app",
+	objective: "Record one complete frontline workflow.",
+	decisions: ["Use one case-backed workflow."],
+	externalRequirements: [],
+	unsupportedRequests: [],
+	openQuestions: [],
+};
+const FINAL_CANDIDATE_BRIEF = {
+	...CANDIDATE_BRIEF,
+	appName: "Reviewed app final",
+};
+
+function checkpointWorkspace(
+	changeSet: DesignChangeSet,
+	candidateDigest: string,
+): ChangeSetMutationWorkspace {
+	return {
+		inspect: async () => ({
+			canCommit: true,
+			allFindings: [],
+			candidateDigest,
+		}),
+		current: () => changeSet,
+	} as unknown as ChangeSetMutationWorkspace;
+}
+
+async function stagedCandidateFixture() {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	const claimed = await createAndClaimDesignSessionRun({
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		runId: RUN,
+		cost: 100,
+	});
+	const changeSet = await beginDesignCandidateChangeSet({
+		designSessionId: claimed.designSessionId,
+		proposedAppId: claimed.proposedAppId,
+		projectId: PROJECT,
+		baseSnapshotDigest: emptyGenesisBase(claimed.proposedAppId).digest,
+		ownerUserId: ACTOR,
+		ownerRunId: RUN,
+		holderNonce: claimed.holderNonce,
+	});
+	const genesisMutations = exportReadyBatch(claimed.proposedAppId);
+	const mutations = admitMutationBatch(genesisMutations);
+	const candidate = prepareGenesisCandidate({
+		appId: claimed.proposedAppId,
+		projectId: PROJECT,
+		mutations,
+	});
+	await stageChangeSetRequest({
+		changeSetId: changeSet.id,
+		requestId: "candidate-stage-1",
+		toolName: "createModule",
+		inputDigest: stagingInputDigest({
+			toolName: "createModule",
+			expectedWorkspaceRevision: 0,
+			projectedInput: { complete: true },
+		}),
+		expectedRevision: 0,
+		actorUserId: ACTOR,
+		runId: RUN,
+		chatRunHolder: {
+			mode: "build",
+			runId: RUN,
+			nonce: claimed.holderNonce,
+			source: "chat",
+		},
+		outcome: {
+			kind: "stage",
+			mutations,
+			stageSlices: [],
+			handles: [],
+			intentIds: [],
+			readSet: [],
+			exclusiveKind: null,
+			diagnostics: {
+				candidateDigest: candidate.candidateDigest,
+				findingCount: 0,
+				findingFingerprints: [],
+				canCommit: true,
+			},
+		},
+	});
+	const staged = await loadChangeSet(changeSet.id);
+	if (staged === undefined) throw new Error("candidate change set vanished");
+	return {
+		claimed,
+		changeSet: staged,
+		candidateDigest: candidate.candidateDigest,
+		genesisMutations,
+		workspace: checkpointWorkspace(staged, candidate.candidateDigest),
+	};
+}
+
 describe("materializeAppFromGenesis", () => {
+	it("publishes only the exact independently reviewed candidate digest", async () => {
+		const fixture = await stagedCandidateFixture();
+		const unreviewedArgs = {
+			changeSetId: fixture.changeSet.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			holderNonce: fixture.claimed.holderNonce,
+			expectedProjectId: PROJECT,
+			expectedRevision: 1,
+		};
+
+		await expect(
+			materializeAppFromGenesis(unreviewedArgs),
+		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+
+		const authority = {
+			actorUserId: ACTOR,
+			runId: RUN,
+			holderNonce: fixture.claimed.holderNonce,
+			expectedProjectId: PROJECT,
+		};
+		const draft = await checkpointCandidate({
+			workspace: fixture.workspace,
+			designSessionId: fixture.claimed.designSessionId,
+			sourcePackageDigest: CANDIDATE_SOURCE_DIGEST,
+			brief: CANDIDATE_BRIEF,
+			lifecycle: "draft",
+			authority,
+		});
+		await insertCandidateReview({
+			checkpoint: draft,
+			kind: "full",
+			review: {
+				schemaVersion: 1,
+				summary: "Correct the app name.",
+				findings: [
+					{
+						id: "app-name",
+						severity: "important",
+						category: "usability",
+						claim: "The name is not clear enough.",
+						proposedResolution: "Use Reviewed app.",
+						affected: [{ kind: "app", ref: "app" }],
+					},
+				],
+			},
+			producerModel: "review-test",
+			promptVersion: "v1",
+			authority,
+		});
+
+		const correctionMutations: Mutation[] = [
+			{ kind: "setAppName", name: "Reviewed app" },
+		];
+		const correction = admitMutationBatch(correctionMutations);
+		const correctedCandidate = prepareGenesisCandidate({
+			appId: fixture.claimed.proposedAppId,
+			projectId: PROJECT,
+			mutations: admitMutationBatch([
+				...fixture.genesisMutations,
+				...correctionMutations,
+			]),
+		});
+		await stageChangeSetRequest({
+			changeSetId: fixture.changeSet.id,
+			requestId: "candidate-correction-1",
+			toolName: "updateApp",
+			inputDigest: stagingInputDigest({
+				toolName: "updateApp",
+				expectedWorkspaceRevision: 1,
+				projectedInput: { name: "Reviewed app" },
+			}),
+			expectedRevision: 1,
+			actorUserId: ACTOR,
+			runId: RUN,
+			chatRunHolder: {
+				mode: "build",
+				runId: RUN,
+				nonce: fixture.claimed.holderNonce,
+				source: "chat",
+			},
+			outcome: {
+				kind: "stage",
+				mutations: correction,
+				stageSlices: [],
+				handles: [],
+				intentIds: [],
+				readSet: [],
+				exclusiveKind: null,
+				diagnostics: {
+					candidateDigest: correctedCandidate.candidateDigest,
+					findingCount: 0,
+					findingFingerprints: [],
+					canCommit: true,
+				},
+			},
+		});
+		const correctedSet = await loadChangeSet(fixture.changeSet.id);
+		if (correctedSet === undefined) throw new Error("candidate vanished");
+		const correctedWorkspace = checkpointWorkspace(
+			correctedSet,
+			correctedCandidate.candidateDigest,
+		);
+		const revised = await checkpointCandidate({
+			workspace: correctedWorkspace,
+			designSessionId: fixture.claimed.designSessionId,
+			sourcePackageDigest: CANDIDATE_SOURCE_DIGEST,
+			brief: CANDIDATE_BRIEF,
+			lifecycle: "draft",
+			parentCheckpointId: draft.id,
+			authority,
+		});
+		const blockedVerification = await insertCandidateReview({
+			checkpoint: revised,
+			kind: "verification",
+			review: {
+				schemaVersion: 1,
+				summary: "One material issue remains.",
+				findings: [
+					{
+						id: "name-still-ambiguous",
+						severity: "important",
+						category: "usability",
+						claim: "The corrected name remains ambiguous.",
+						proposedResolution: "Use Reviewed app final.",
+						affected: [{ kind: "app", ref: "app" }],
+					},
+				],
+			},
+			producerModel: "review-test",
+			promptVersion: "v1",
+			authority,
+		});
+		await resumeBlockedCandidateRevision({
+			checkpoint: revised,
+			review: blockedVerification,
+			authority,
+		});
+		const finalCorrectionMutations: Mutation[] = [
+			{ kind: "setAppName", name: "Reviewed app final" },
+		];
+		const finalCorrection = admitMutationBatch(finalCorrectionMutations);
+		const finalCandidate = prepareGenesisCandidate({
+			appId: fixture.claimed.proposedAppId,
+			projectId: PROJECT,
+			mutations: admitMutationBatch([
+				...fixture.genesisMutations,
+				...correctionMutations,
+				...finalCorrectionMutations,
+			]),
+		});
+		await stageChangeSetRequest({
+			changeSetId: fixture.changeSet.id,
+			requestId: "candidate-correction-2",
+			toolName: "updateApp",
+			inputDigest: stagingInputDigest({
+				toolName: "updateApp",
+				expectedWorkspaceRevision: 2,
+				projectedInput: { name: "Reviewed app final" },
+			}),
+			expectedRevision: 2,
+			actorUserId: ACTOR,
+			runId: RUN,
+			chatRunHolder: {
+				mode: "build",
+				runId: RUN,
+				nonce: fixture.claimed.holderNonce,
+				source: "chat",
+			},
+			outcome: {
+				kind: "stage",
+				mutations: finalCorrection,
+				stageSlices: [],
+				handles: [],
+				intentIds: [],
+				readSet: [],
+				exclusiveKind: null,
+				diagnostics: {
+					candidateDigest: finalCandidate.candidateDigest,
+					findingCount: 0,
+					findingFingerprints: [],
+					canCommit: true,
+				},
+			},
+		});
+		const finalSet = await loadChangeSet(fixture.changeSet.id);
+		if (finalSet === undefined) throw new Error("candidate vanished");
+		const finalWorkspace = checkpointWorkspace(
+			finalSet,
+			finalCandidate.candidateDigest,
+		);
+		const finalDraft = await checkpointCandidate({
+			workspace: finalWorkspace,
+			designSessionId: fixture.claimed.designSessionId,
+			sourcePackageDigest: CANDIDATE_SOURCE_DIGEST,
+			brief: FINAL_CANDIDATE_BRIEF,
+			lifecycle: "draft",
+			parentCheckpointId: revised.id,
+			authority,
+		});
+		await insertCandidateReview({
+			checkpoint: finalDraft,
+			kind: "verification",
+			review: { schemaVersion: 1, summary: "Resolved", findings: [] },
+			producerModel: "review-test",
+			promptVersion: "v1",
+			authority,
+		});
+		await checkpointCandidate({
+			workspace: finalWorkspace,
+			designSessionId: fixture.claimed.designSessionId,
+			sourcePackageDigest: CANDIDATE_SOURCE_DIGEST,
+			brief: FINAL_CANDIDATE_BRIEF,
+			lifecycle: "accepted",
+			parentCheckpointId: finalDraft.id,
+			authority,
+		});
+
+		const args = { ...unreviewedArgs, expectedRevision: 3 };
+		const outcome = await materializeAppFromGenesis(args);
+		expect(outcome).toMatchObject({
+			kind: "materialized",
+			replayed: false,
+			receipt: {
+				appId: fixture.claimed.proposedAppId,
+				seq: 1,
+				snapshotDigest: finalCandidate.candidateDigest,
+			},
+		});
+		const replay = await materializeAppFromGenesis(args);
+		expect(replay).toMatchObject({ kind: "materialized", replayed: true });
+	});
+
 	it("materializes one complete sequence-1 app with the transferred holder and reservation", async () => {
 		const fixture = await claimedGenesisFixture();
 		await stageBatch(

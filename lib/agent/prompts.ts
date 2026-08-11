@@ -609,6 +609,14 @@ export function buildMcpAgentBuildPrompt(): string {
 	return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
 }
 
+/** The reviewed chat-build author shares Nova's domain and interaction rules,
+ * but starts from the canonical empty private candidate rather than MCP's
+ * already-persisted survey starter. Candidate-specific identity and finishing
+ * instructions are appended by `design/candidatePrompt.ts`. */
+export function buildReviewedCandidateAuthorPrompt(): string {
+	return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
+}
+
 export function buildSolutionsArchitectPrompt(): string {
 	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
 }

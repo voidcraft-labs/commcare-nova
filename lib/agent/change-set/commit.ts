@@ -71,6 +71,7 @@ import {
 	type CommittedSliceReceipt,
 	type DesignChangeSet,
 	designChangeSetBatchId,
+	type SliceDesignChangeSet,
 } from "./types";
 
 // ── Rebase reports ─────────────────────────────────────────────────
@@ -144,6 +145,11 @@ export async function commitDesignChangeSet(
 	if (changeSet.kind !== "app-edit" || changeSet.appId === null) {
 		throw new ChangeSetScopeLostError(
 			"A genesis change set materializes through the prepared genesis kernel, not the app-edit commit.",
+		);
+	}
+	if (changeSet.purpose !== "slice") {
+		throw new ChangeSetScopeLostError(
+			"A reviewed design candidate publishes only through the genesis kernel.",
 		);
 	}
 	if (changeSet.status === "committed") {
@@ -315,6 +321,11 @@ export async function commitDesignChangeSet(
 				throw new ChangeSetScopeLostError("This change set no longer exists.");
 			}
 			if (fresh.status === "committed") {
+				if (fresh.purpose !== "slice") {
+					throw new ChangeSetIntegrityError(
+						"An app-edit commit resolved to a reviewed genesis candidate.",
+					);
+				}
 				return {
 					kind: "committed",
 					receipt: await requireStoredReceipt(fresh),
@@ -379,12 +390,17 @@ function deadlineRejection(currentSeq: number): CommitDesignChangeSetOutcome {
  *  committed (another attempt of this run won), the stored receipt is the
  *  outcome — never a conflict report against its own committed work. */
 async function committedReplayIfWon(
-	changeSet: DesignChangeSet,
+	changeSet: SliceDesignChangeSet,
 ): Promise<
 	Extract<CommitDesignChangeSetOutcome, { kind: "committed" }> | undefined
 > {
 	const fresh = await loadChangeSet(changeSet.id);
 	if (fresh === undefined || fresh.status !== "committed") return undefined;
+	if (fresh.purpose !== "slice") {
+		throw new ChangeSetIntegrityError(
+			"A slice change set replay resolved to a reviewed genesis candidate.",
+		);
+	}
 	return {
 		kind: "committed",
 		receipt: await requireStoredReceipt(fresh),
@@ -443,7 +459,7 @@ export function committedStageEnvelopes(
 // ── Internals ──────────────────────────────────────────────────────
 
 async function requireStoredReceipt(
-	changeSet: DesignChangeSet,
+	changeSet: SliceDesignChangeSet,
 ): Promise<CommittedSliceReceipt> {
 	const db = await getAppDb();
 	const row = await db
@@ -478,6 +494,7 @@ async function requireStoredReceipt(
 		);
 	}
 	return {
+		purpose: "slice",
 		id: row.id,
 		designSessionId: row.design_session_id,
 		designRevisionId: row.design_revision_id,

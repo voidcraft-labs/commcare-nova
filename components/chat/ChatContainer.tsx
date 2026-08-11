@@ -2170,6 +2170,8 @@ export function ChatContainer({
 		designProgress,
 		status,
 	);
+	const designBuildLocked =
+		designProgress.active && designProgress.stage !== "ready";
 
 	return (
 		<ChatSidebar
@@ -2186,6 +2188,7 @@ export function ChatContainer({
 			}
 			composerBusy={creatingStarterApp || threadScopeReloading}
 			interactionBlocked={threadScopeReloading}
+			designBuildLocked={designBuildLocked}
 			interactionBlockedRecovery={
 				threadScopeHydrationFailed
 					? {
@@ -2220,7 +2223,11 @@ export function ChatContainer({
 			}
 			designProgressStatus={
 				designProgressOwnsStatus ? (
-					<DesignProgressStatus view={designProgress} canRecover={!readOnly} />
+					<DesignProgressStatus
+						view={designProgress}
+						canRecover={!readOnly}
+						onContinue={() => void regenerate()}
+					/>
 				) : undefined
 			}
 			generationPaused={

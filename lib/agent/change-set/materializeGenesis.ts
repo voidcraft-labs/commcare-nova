@@ -1,10 +1,10 @@
 /**
- * Design-slice materialization — the one transaction that turns a complete
- * genesis Atomic Change Set into a real app (§12.4): the app row plus its
+ * Reviewed-candidate materialization is the one transaction that turns a
+ * complete accepted genesis Atomic Change Set into a real app: the app row plus its
  * entities, edges, runtime schema rows, and immutable sequence-1 baseline are
- * born in the same commit that flips the change set `committed`, writes the
- * slice receipt and intent provenance, and transfers the design session's
- * holder and reservation onto the new app row. Nothing exists if any
+ * born in the same commit that flips the change set `committed`, records the
+ * accepted checkpoint, and transfers the design session's holder and
+ * reservation onto the new app row. Nothing exists if any
  * pre-commit step fails, and there is never an interval with two holders or
  * an ownerless unsettled reservation (§11.5).
  *
@@ -24,8 +24,8 @@
  *
  * Retry idempotency: a lost response replays through the durable state — a
  * session already `materialized` onto this change set's proposed app returns
- * the stored receipt, rebuilt from the committed slice receipt and the exact
- * sequence-1 baseline fold.
+ * the stored receipt, rebuilt from the exact sequence-1 baseline fold and the
+ * purpose-specific durable receipt.
  */
 
 import type { DesignId } from "@/lib/agent/design/ids";
@@ -79,13 +79,13 @@ export type MaterializeGenesisOutcome =
 	  }
 	| {
 			/** The fresh whole-document gate or export readiness rejected the
-			 * candidate. Steps are retained; the executor amends and retries. */
+			 * candidate. Staged work is retained for a corrected checkpoint. */
 			readonly kind: "gate-rejected";
 			readonly message: string;
 	  }
 	| {
-			/** A captured external read set is no longer current. The change set
-			 * stays open; the orchestrator refreshes or supersedes. */
+			/** A captured external read set is no longer current. The dormant slice
+			 * change set stays open for refresh or supersession. */
 			readonly kind: "read-set-stale";
 			readonly stale: readonly ReadSetStatus[];
 	  };
@@ -97,7 +97,9 @@ export interface MaterializeGenesisArgs {
 	readonly holderNonce: string;
 	readonly expectedProjectId: string;
 	readonly expectedRevision: number;
-	readonly owningIntentIds: readonly DesignId[];
+	/** Dormant slice-purpose provenance. A reviewed Blueprint candidate has no parallel
+	 * intent/slice model and therefore supplies no intent ids. */
+	readonly owningIntentIds?: readonly DesignId[];
 	/** Absolute executor wall-clock deadline; direct callers omit it. */
 	readonly deadlineAt?: number;
 }
@@ -129,11 +131,13 @@ export async function materializeAppFromGenesis(
 	const replayed = await replayIfMaterialized(preRead, args);
 	if (replayed !== undefined) return replayed;
 
-	/* Preflight read-set classification against fresh (unlocked) state — the
-	 * structured report the orchestrator acts on. The locked verdicts inside
-	 * the transaction (lookup context, media admission) remain the
-	 * authority; a race between this read and the transaction surfaces as a
-	 * gate rejection there. */
+	/* Dormant slice-purpose execution retains its revision-fenced read-set
+	 * preflight. A reviewed candidate instead resolves stable external
+	 * identities against the current locked organization/lookup/media state in
+	 * the shared genesis write tail. That exact verdict is both safer and
+	 * resumable: a harmless Project-data revision cannot strand an already
+	 * accepted candidate, while a removed or invalid target still rejects the
+	 * transaction. */
 	const steps = await loadChangeSetSteps(args.changeSetId);
 	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
 	if (steps.length === 0) {
@@ -143,29 +147,33 @@ export async function materializeAppFromGenesis(
 				"This change set has no staged steps, so there is nothing to materialize.",
 		};
 	}
-	let intentCoverage: ProvenIntentCoverage;
-	try {
-		intentCoverage = proveIntentCoverage({
-			changeSet: preRead,
-			steps,
-			expectedOwningIntentIds: args.owningIntentIds,
-			appId: proposedAppId,
-		});
-	} catch (error) {
-		return {
-			kind: "gate-rejected",
-			message: error instanceof Error ? error.message : String(error),
-		};
+	let intentCoverage: ProvenIntentCoverage | null = null;
+	if (preRead.purpose === "slice") {
+		try {
+			intentCoverage = proveIntentCoverage({
+				changeSet: preRead,
+				steps,
+				expectedOwningIntentIds: args.owningIntentIds ?? [],
+				appId: proposedAppId,
+			});
+		} catch (error) {
+			return {
+				kind: "gate-rejected",
+				message: error instanceof Error ? error.message : String(error),
+			};
+		}
 	}
-	const readSet = normalizeReadSet(steps.flatMap((step) => step.readSet));
-	const readSetStatus = await evaluateReadSetCurrency({
-		appId: null,
-		dependencies: readSet,
-	});
-	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
-	const stale = readSetStatus.filter((status) => status.state !== "current");
-	if (stale.length > 0) {
-		return { kind: "read-set-stale", stale };
+	if (preRead.purpose === "slice") {
+		const readSet = normalizeReadSet(steps.flatMap((step) => step.readSet));
+		const readSetStatus = await evaluateReadSetCurrency({
+			appId: null,
+			dependencies: readSet,
+		});
+		if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
+		const stale = readSetStatus.filter((status) => status.state !== "current");
+		if (stale.length > 0) {
+			return { kind: "read-set-stale", stale };
+		}
 	}
 
 	/* The receipt-row identity is minted OUTSIDE the retryable transaction so
@@ -224,6 +232,36 @@ export async function materializeAppFromGenesis(
 					projectId: changeSet.baseProjectId,
 					mutations: batch,
 				});
+				if (changeSet.purpose === "design-candidate") {
+					const accepted = await tx
+						.selectFrom("design_candidate_checkpoints")
+						.innerJoin(
+							"design_sessions",
+							"design_sessions.active_candidate_checkpoint_id",
+							"design_candidate_checkpoints.id",
+						)
+						.select([
+							"design_candidate_checkpoints.change_set_id",
+							"design_candidate_checkpoints.workspace_revision",
+							"design_candidate_checkpoints.candidate_digest",
+							"design_candidate_checkpoints.lifecycle",
+							"design_sessions.candidate_phase",
+						])
+						.where("design_sessions.id", "=", changeSet.designSessionId)
+						.where("design_candidate_checkpoints.lifecycle", "=", "accepted")
+						.executeTakeFirst();
+					if (
+						accepted === undefined ||
+						accepted.candidate_phase !== "accepted" ||
+						accepted.change_set_id !== changeSet.id ||
+						Number(accepted.workspace_revision) !== changeSet.revision ||
+						accepted.candidate_digest !== candidate.candidateDigest
+					) {
+						throw new ChangeSetScopeLostError(
+							"Only the exact independently reviewed app candidate can publish.",
+						);
+					}
+				}
 
 				/* A value COPY for the transfer, not a liveness decision — the exact
 				 * session holder was already proved through the one lease reader in
@@ -265,33 +303,60 @@ export async function materializeAppFromGenesis(
 				 * provenance ride the same closed sidecar vocabulary every canonical
 				 * commit uses — one implementation, kernel-authoritative identities. */
 				const batchId = genesisBatchId(proposedAppId);
-				await executeCanonicalCommitSidecars(tx, {
-					appId: proposedAppId,
-					seq: 1,
-					batchId,
-					committedSnapshot: candidate.persistable,
-					sidecars: [
-						{
-							kind: "commit-design-change-set",
-							changeSetId: changeSet.id,
-							expectedRevision: changeSet.revision,
-							receiptId,
-							sliceAttemptId: changeSet.attemptId,
-							designSessionId: changeSet.designSessionId,
-							designRevisionId: changeSet.designRevisionId,
-							designRevisionDigest: changeSet.designRevisionDigest,
-							buildPlanId: changeSet.buildPlanId,
-							buildPlanDigest: changeSet.buildPlanDigest,
-							sliceId: changeSet.sliceId,
-							owningIntentIds: [...intentCoverage.owningIntentIds],
-							mutationCount: batch.length,
-						},
-						{
-							kind: "write-intent-provenance" as const,
-							rows: intentCoverage.provenance,
-						},
-					],
-				});
+				if (changeSet.purpose === "slice") {
+					if (intentCoverage === null) {
+						throw new ChangeSetIntegrityError(
+							"A legacy slice reached materialization without proven intent coverage.",
+						);
+					}
+					await executeCanonicalCommitSidecars(tx, {
+						appId: proposedAppId,
+						seq: 1,
+						batchId,
+						committedSnapshot: candidate.persistable,
+						sidecars: [
+							{
+								kind: "commit-design-change-set",
+								changeSetId: changeSet.id,
+								expectedRevision: changeSet.revision,
+								receiptId,
+								sliceAttemptId: changeSet.attemptId,
+								designSessionId: changeSet.designSessionId,
+								designRevisionId: changeSet.designRevisionId,
+								designRevisionDigest: changeSet.designRevisionDigest,
+								buildPlanId: changeSet.buildPlanId,
+								buildPlanDigest: changeSet.buildPlanDigest,
+								sliceId: changeSet.sliceId,
+								owningIntentIds: [...intentCoverage.owningIntentIds],
+								mutationCount: batch.length,
+							},
+							{
+								kind: "write-intent-provenance" as const,
+								rows: intentCoverage.provenance,
+							},
+						],
+					});
+				} else {
+					const committed = await tx
+						.updateTable("design_change_sets")
+						.set({
+							status: "committed",
+							committed_seq: 1,
+							committed_batch_id: batchId,
+							committed_snapshot_digest: candidate.candidateDigest,
+							updated_at: new Date(),
+						})
+						.where("id", "=", changeSet.id)
+						.where("purpose", "=", "design-candidate")
+						.where("status", "=", "open")
+						.where("revision", "=", changeSet.revision)
+						.executeTakeFirst();
+					if (!updatedExactlyOne(committed)) {
+						throw new ChangeSetScopeLostError(
+							"The reviewed app candidate changed before it could publish.",
+						);
+					}
+				}
 
 				/* The holder transfer's session half: ONE atomic update — the table
 				 * CHECKs force `materialized` to carry the bound app and a complete
@@ -380,14 +445,14 @@ function deadlineExpired(deadlineAt: number | undefined): boolean {
 function deadlineRejection(): MaterializeGenesisOutcome {
 	return {
 		kind: "gate-rejected",
-		message: "The slice execution deadline expired before materialization.",
+		message: "The reviewed build deadline expired before materialization.",
 	};
 }
 
 /** The lost-response replay arm: a session already `materialized` onto this
- *  change set's proposed app returns the stored receipt rebuilt from durable
- *  state — the committed-slice receipt row plus the exact sequence-1
- *  baseline fold. */
+ * change set's proposed app returns the stored receipt rebuilt from durable
+ * state: the purpose-specific receipt plus the exact sequence-1 baseline
+ * fold. */
 async function replayIfMaterialized(
 	changeSet: DesignChangeSet,
 	args: MaterializeGenesisArgs,
@@ -398,6 +463,44 @@ async function replayIfMaterialized(
 		return undefined;
 	}
 	const db = await getAppDb();
+	if (changeSet.purpose === "design-candidate") {
+		if (
+			changeSet.committedSeq !== 1 ||
+			changeSet.committedBatchId === null ||
+			changeSet.committedSnapshotDigest === null
+		) {
+			throw new ChangeSetIntegrityError(
+				`Reviewed candidate ${changeSet.id} is committed without its canonical sequence-1 identity.`,
+			);
+		}
+		const folded = await loadCanonicalBlueprintAtSequence(db, {
+			appId: changeSet.proposedAppId,
+			seq: 1,
+			expectedDigest: changeSet.committedSnapshotDigest,
+		});
+		const role = await withAppTx((tx) =>
+			projectRoleForInTransaction(tx, args.actorUserId, folded.projectId),
+		);
+		if (role === null) {
+			throw new ChangeSetScopeLostError(
+				"This materialized app is no longer available in your Project scope.",
+			);
+		}
+		return {
+			kind: "materialized",
+			replayed: true,
+			receipt: buildReceipt({
+				designSessionId: changeSet.designSessionId,
+				appId: changeSet.proposedAppId,
+				projectId: folded.projectId,
+				role,
+				batchId: changeSet.committedBatchId,
+				changeSetId: changeSet.id,
+				snapshotDigest: changeSet.committedSnapshotDigest,
+				blueprint: folded.snapshot,
+			}),
+		};
+	}
 	const stored = await db
 		.selectFrom("design_committed_slices")
 		.select(["id", "app_id", "batch_id", "committed_snapshot_digest"])
@@ -503,8 +606,10 @@ function verifyOpenGenesisSet(
 	}
 	if (
 		changeSet.designSessionId !== preRead.designSessionId ||
-		changeSet.designRevisionDigest !== preRead.designRevisionDigest ||
-		changeSet.buildPlanDigest !== preRead.buildPlanDigest
+		changeSet.purpose !== preRead.purpose ||
+		(changeSet.purpose === "slice" &&
+			(changeSet.designRevisionDigest !== preRead.designRevisionDigest ||
+				changeSet.buildPlanDigest !== preRead.buildPlanDigest))
 	) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${changeSet.id} no longer matches the lineage it resolved with before its lock.`,

@@ -380,9 +380,9 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 
 /*
  * App CREATION lives in `lib/db/appGenesis.ts` — the closed
- * `explicit-blank | design-slice` genesis owner. No generic `createApp`
+ * `explicit-blank | reviewed-candidate` genesis owner. No generic `createApp`
  * remains: every persisted app is born through `createExplicitBlankApp` or
- * the design-slice materialization, and no caller inserts an app row and
+ * the reviewed-candidate materialization, and no caller inserts an app row and
  * seeds it later.
  */
 

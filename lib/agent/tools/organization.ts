@@ -224,7 +224,20 @@ export const removeOrganizationLevelInputSchema = z
 	.object({ uuid: uuidSchema })
 	.strict();
 export const addLocationPropertiesInputSchema = z
-	.object({ properties: z.array(propertyCreateSchema).min(1).max(100) })
+	.object({
+		properties: z
+			.array(
+				propertyCreateSchema.extend({
+					locationPropertyUuid: uuidSchema
+						.optional()
+						.describe(
+							"Optional stable identity for this new place-information field. Omit it to let Nova mint one.",
+						),
+				}),
+			)
+			.min(1)
+			.max(100),
+	})
 	.strict();
 export const updateLocationPropertyInputSchema = z
 	.object({
@@ -586,7 +599,10 @@ export const addLocationPropertiesTool = {
 	): Promise<MutatingToolResult<AddResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			const uuids = input.properties.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.properties.map(
+				(property) =>
+					property.locationPropertyUuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, property] of input.properties.entries()) {
