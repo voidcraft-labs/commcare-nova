@@ -18,6 +18,7 @@ import {
 } from "@/lib/agent/build/executionBrief";
 import {
 	type ExecutorStepFn,
+	type ExecutorToolOutcomeEvent,
 	type ExecutorWorkspace,
 	renderExecutorWorkspaceSummary,
 	runSliceExecutor,
@@ -1352,6 +1353,160 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 });
 
 describe("runSliceExecutor — budgets", () => {
+	it("commits a clean fully accepted repair at the model-step boundary", async () => {
+		const workspace = fakeWorkspace({
+			inspect: vi
+				.fn<() => Promise<ChangeSetDiagnostics>>()
+				.mockResolvedValueOnce(BLOCKING_DIAGNOSTICS)
+				.mockResolvedValueOnce(diagnostics()),
+		});
+		const receipt = { id: "boundary-receipt" } as never;
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({ kind: "committed", receipt }),
+		);
+		const outcomes: ExecutorToolOutcomeEvent[] = [];
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "inspect", toolName: "inspectChangeSet" }] },
+			{
+				calls: [
+					{
+						toolCallId: "repair",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
+		]);
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+
+		const outcome = await runSliceExecutor({
+			workspace,
+			brief: brief(),
+			budget: { ...budgetForSlice(slice), maxModelSteps: 2 },
+			step,
+			commit,
+			signal: new AbortController().signal,
+			onToolOutcome: (event) => outcomes.push(event),
+		});
+
+		expect(outcome).toEqual({ kind: "committed", receipt });
+		expect(commit).toHaveBeenCalledTimes(1);
+		expect(workspace.inspectCalls).toBe(2);
+		expect(outcomes.at(-1)).toMatchObject({
+			modelStep: 2,
+			toolName: "commitChangeSet",
+			outcome: "committed",
+			code: "CHANGE_SET_COMMITTED_AT_STEP_BOUNDARY",
+		});
+	});
+
+	it("does not finalize a clean prefix from a stopped repair batch", async () => {
+		let staged = 0;
+		const workspace = fakeWorkspace({
+			inspect: async () => diagnostics(),
+			stage: async () => {
+				staged += 1;
+				return staged === 1
+					? {
+							kind: "mutate",
+							mutations: [],
+							result: { message: "Staged the prefix." },
+						}
+					: {
+							kind: "mutate",
+							mutations: [],
+							result: { error: "The dependent repair did not stage." },
+						};
+			},
+		});
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({
+				kind: "committed",
+				receipt: {} as never,
+			}),
+		);
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "inspect", toolName: "inspectChangeSet" }] },
+			{
+				calls: [
+					{
+						toolCallId: "repair",
+						toolName: "stageBatch",
+						input: {
+							operations: [
+								batchInput("stageModule").operations[0],
+								batchInput("stageForm").operations[0],
+							],
+						},
+					},
+				],
+			},
+		]);
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+
+		expect(
+			await runSliceExecutor({
+				workspace,
+				brief: brief(),
+				budget: { ...budgetForSlice(slice), maxModelSteps: 2 },
+				step,
+				commit,
+				signal: new AbortController().signal,
+			}),
+		).toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 2, stagedRequests: 2 },
+		});
+		expect(commit).not.toHaveBeenCalled();
+	});
+
+	it("does not carry boundary-finalization eligibility across a step that executes nothing", async () => {
+		const finalSteps = [
+			{ text: "The work is done." },
+			{
+				calls: [
+					{ toolCallId: "first", toolName: "inspectChangeSet" },
+					{ toolCallId: "second", toolName: "commitChangeSet" },
+				],
+			},
+		] satisfies ScriptedStep[];
+
+		for (const finalStep of finalSteps) {
+			const workspace = fakeWorkspace({ inspect: async () => diagnostics() });
+			const commit = vi.fn(
+				async (): Promise<SliceCommitResult> => ({
+					kind: "committed",
+					receipt: {} as never,
+				}),
+			);
+			const { step } = scriptedStep([
+				{
+					calls: [{ toolCallId: "inspect", toolName: "inspectChangeSet" }],
+				},
+				finalStep,
+			]);
+			const plan = makeBuildPlan();
+			const slice = fixtureValue(plan.slices[0], "first slice");
+
+			expect(
+				await runSliceExecutor({
+					workspace,
+					brief: brief(),
+					budget: { ...budgetForSlice(slice), maxModelSteps: 2 },
+					step,
+					commit,
+					signal: new AbortController().signal,
+				}),
+			).toEqual({
+				kind: "budget-exhausted",
+				spent: { modelSteps: 2, stagedRequests: 0 },
+			});
+			expect(commit).not.toHaveBeenCalled();
+		}
+	});
+
 	it("bounds a provider step even when the provider ignores abort", async () => {
 		const plan = makeBuildPlan();
 		const slice = plan.slices[0];

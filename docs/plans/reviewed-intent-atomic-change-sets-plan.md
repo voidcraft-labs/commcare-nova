@@ -554,6 +554,14 @@ the same mapping manually.
 holder, Project membership, artifact lineage, workspace revision, read sets,
 coverage, validator state, and canonical replay.
 
+After the executor has requested validation, a fully accepted correction may
+consume its final model step. At that exact step boundary the server re-runs
+the same current-read, coverage, and validator proofs and may commit the clean
+candidate directly. It never infers completion before the executor enters
+validation, after a stopped batch, or from a partial accepted prefix. The model
+step budget therefore bounds reasoning without discarding already complete,
+fully proved work merely for lack of a final mechanical commit call.
+
 The sequence-one materialization transaction creates the first useful,
 export-ready app and transfers the exact holder and unsettled reservation from
 the design session to the app. Later slices use the normal app-locked canonical

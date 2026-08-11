@@ -165,6 +165,32 @@ beforeEach(() => {
 });
 
 describe("private staging isolation", () => {
+	it("keeps built-in menu icons out of the uploaded-media read set", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const staged = await workspace.stageDispatch({
+			toolName: "setMenuMedia",
+			requestId: "built-in-menu-icon",
+			input: {
+				items: [
+					{
+						target: "module",
+						moduleUuid: app.starter.moduleUuid,
+						icon: "nutrition",
+						audioLabel: null,
+					},
+				],
+			},
+			intentIds: [asDesignId(crypto.randomUUID())],
+		});
+
+		expect(staged.receipt?.disposition).toBe("staged");
+		expect(
+			workspace.currentSnapshot().doc.modules[app.starter.moduleUuid]?.icon,
+		).toBe("nova-icon:nutrition");
+		expect((await loadChangeSetSteps(changeSet.id))[0]?.readSet).toEqual([]);
+	});
+
 	it("returns resolved shared-tool schema misses as ordinary staging rejections", async () => {
 		const app = await createTestApp();
 		const { workspace } = await openWorkspace(app.appId);

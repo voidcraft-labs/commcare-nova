@@ -912,6 +912,13 @@ export async function runSliceExecutor(args: {
 	let blockerReports = 0;
 	let consecutiveEmptySteps = 0;
 	let recentReadTurns: ModelMessage[][] = [];
+	/* Once the model asks for validation it has declared construction complete.
+	 * A later fully accepted repair batch may consume the final model step while
+	 * leaving an already clean candidate. The server may finish that exact
+	 * candidate at the step boundary; it may never infer readiness before the
+	 * model entered validation, or after a stopped/partial batch. */
+	let validationRequested = false;
+	let lastActionCanFinalizeAtStepBoundary = false;
 
 	const withCheckpoint = (...tail: ModelMessage[]): ModelMessage[] => [
 		...executorCheckpoint(brief, workspace),
@@ -932,6 +939,79 @@ export async function runSliceExecutor(args: {
 		kind: "budget-exhausted",
 		spent: spent(),
 	});
+	const emitBoundaryOutcome = (
+		outcome: ExecutorToolOutcomeKind,
+		code: string,
+	): void => {
+		args.onToolOutcome?.({
+			modelStep: modelSteps,
+			toolName: COMMIT_TOOL,
+			workspaceRevision: workspace.currentSnapshot().revision,
+			outcome,
+			code,
+		});
+	};
+	const finalizeCleanCandidateAtStepBoundary = async (): Promise<
+		SliceExecutionOutcome | undefined
+	> => {
+		if (
+			!validationRequested ||
+			!lastActionCanFinalizeAtStepBoundary ||
+			signal.aborted ||
+			deadlineExceeded()
+		) {
+			return undefined;
+		}
+		args.onProgress?.("validating");
+		let diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>;
+		try {
+			diagnostics = await awaitWithAbort(workspace.inspect(), boundedSignal);
+		} catch (error) {
+			if (deadlineExceeded()) return exhausted();
+			throw error;
+		}
+		const stale = staleExternalReads(diagnostics);
+		if (stale.length > 0) {
+			emitBoundaryOutcome("stage-rejected", "READ_SET_STALE");
+			return { kind: "read-set-stale", stale };
+		}
+		if (
+			!diagnostics.canCommit ||
+			remainingConstructionGroupIds(diagnostics, brief).length > 0
+		) {
+			return undefined;
+		}
+		commitAttempts += 1;
+		if (commitAttempts > budget.maxCommitAttempts) return exhausted();
+		args.onProgress?.("committing");
+		let result: SliceCommitResult;
+		try {
+			result = await awaitWithAbort(
+				args.commit(boundedSignal, deadlineAt),
+				boundedSignal,
+			);
+		} catch (error) {
+			if (deadlineExceeded()) return exhausted();
+			throw error;
+		}
+		if (result.kind === "committed") {
+			emitBoundaryOutcome("committed", "CHANGE_SET_COMMITTED_AT_STEP_BOUNDARY");
+			return { kind: "committed", receipt: result.receipt };
+		}
+		if (result.kind === "rebase-conflict") {
+			emitBoundaryOutcome("stage-rejected", "REBASE_CONFLICT");
+			return { kind: "rebase-conflict", report: result.report };
+		}
+		if (result.kind === "read-set-stale") {
+			emitBoundaryOutcome("stage-rejected", "READ_SET_STALE");
+			return { kind: "read-set-stale", stale: result.stale };
+		}
+		/* A fresh canonical gate rejection means the candidate is no longer
+		 * finalizable without another model correction. The model budget is
+		 * already spent, so preserve the ordinary bounded failure. */
+		emitBoundaryOutcome("stage-rejected", "CANONICAL_GATE_REJECTED");
+		return undefined;
+	};
 
 	let messages: ModelMessage[] = executorCheckpoint(brief, workspace);
 
@@ -946,7 +1026,10 @@ export async function runSliceExecutor(args: {
 					message: "This slice attempt was cancelled before it finished.",
 				};
 			}
-			if (modelSteps >= budget.maxModelSteps) return exhausted();
+			if (modelSteps >= budget.maxModelSteps) {
+				const finalized = await finalizeCleanCandidateAtStepBoundary();
+				return finalized ?? exhausted();
+			}
 			if (Date.now() >= deadlineAt || deadline.signal.aborted)
 				return exhausted();
 
@@ -975,6 +1058,10 @@ export async function runSliceExecutor(args: {
 			if (Date.now() >= deadlineAt || deadline.signal.aborted)
 				return exhausted();
 			modelSteps += 1;
+			/* Eligibility belongs only to an action accepted in THIS model step.
+			 * A prose-only or multi-call response executes nothing and must not carry
+			 * forward a prior clean inspection into boundary finalization. */
+			lastActionCanFinalizeAtStepBoundary = false;
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
 
 			if (step.toolCalls.length === 0) {
@@ -1346,6 +1433,8 @@ export async function runSliceExecutor(args: {
 									parsed.data.operations.length - failed.index - 1,
 							}),
 				});
+				lastActionCanFinalizeAtStepBoundary =
+					validationRequested && failed === null;
 				continue;
 			}
 
@@ -1409,6 +1498,7 @@ export async function runSliceExecutor(args: {
 			}
 
 			if (call.toolName === INSPECT_TOOL) {
+				validationRequested = true;
 				if (Date.now() >= deadlineAt || deadline.signal.aborted)
 					return exhausted();
 				args.onProgress?.("validating");
@@ -1433,6 +1523,7 @@ export async function runSliceExecutor(args: {
 					answer(projectDiagnostics(diagnostics, brief), {
 						rememberRead: true,
 					});
+					lastActionCanFinalizeAtStepBoundary = true;
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					throw error;
@@ -1441,6 +1532,7 @@ export async function runSliceExecutor(args: {
 			}
 
 			if (call.toolName === COMMIT_TOOL) {
+				validationRequested = true;
 				if (Date.now() >= deadlineAt || deadline.signal.aborted)
 					return exhausted();
 				let diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>;

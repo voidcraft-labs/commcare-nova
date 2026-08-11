@@ -56,7 +56,7 @@ import {
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asWalkableDoc, walkAuthoredAssetRefs } from "@/lib/domain/mediaRefs";
+import { collectRealAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type ChangeSetDiagnostics,
 	computeChangeSetDiagnostics,
@@ -830,16 +830,16 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				revision: args.policyOrganizationRevision,
 			});
 		}
-		const prevAssets = new Set(
-			[...walkAuthoredAssetRefs(asWalkableDoc(this.overlayDoc))].map(
-				(ref) => ref.assetId,
-			),
-		);
+		/* Built-in menu icons are Project-independent shipped bytes, not media
+		 * rows. Only real uploaded assets belong in the external read set. Using
+		 * the authored reference walk directly would feed `nova-icon:*` through
+		 * the MediaAssetId parser and reject a perfectly valid built-in icon. */
+		const prevAssets = new Set(collectRealAssetRefs(this.overlayDoc));
 		const newAssets = [
 			...new Set(
-				[...walkAuthoredAssetRefs(asWalkableDoc(prepared.nextDoc))]
-					.map((ref) => ref.assetId)
-					.filter((assetId) => !prevAssets.has(assetId)),
+				collectRealAssetRefs(prepared.nextDoc).filter(
+					(assetId) => !prevAssets.has(assetId),
+				),
 			),
 		];
 		captured.push(
