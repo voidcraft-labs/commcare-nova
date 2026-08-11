@@ -87,8 +87,9 @@ export type ExecutorStepFn = (args: {
 	responseMessages: ModelMessage[];
 }>;
 
-/** What the server-owned commit answered. `committed` and `rebase-conflict`
- *  end this private attempt; the other reports can be corrected in place. */
+/** What the server-owned commit answered. Semantic rebase conflicts and stale
+ * external reads end this append-only attempt; gate rejections can be
+ * corrected in place. */
 export type SliceCommitResult =
 	| {
 			kind: "committed";
@@ -104,6 +105,7 @@ export type SliceExecutionOutcome =
 			receipt: CommittedSliceReceipt | AppMaterializationReceipt;
 	  }
 	| { kind: "rebase-conflict"; report: unknown }
+	| { kind: "read-set-stale"; stale: unknown }
 	| { kind: "architect-decision"; decision: ArchitectBlockerDecision }
 	| {
 			kind: "budget-exhausted";
@@ -1415,6 +1417,11 @@ export async function runSliceExecutor(args: {
 						workspace.inspect(),
 						boundedSignal,
 					);
+					const stale = staleExternalReads(diagnostics);
+					if (stale.length > 0) {
+						toolOutcome("stage-rejected", "READ_SET_STALE");
+						return { kind: "read-set-stale", stale };
+					}
 					toolOutcome(
 						diagnostics.allFindings.length > 0
 							? "validator-repair"
@@ -1448,6 +1455,11 @@ export async function runSliceExecutor(args: {
 				}
 				if (Date.now() >= deadlineAt || deadline.signal.aborted)
 					return exhausted();
+				const stale = staleExternalReads(diagnostics);
+				if (stale.length > 0) {
+					toolOutcome("stage-rejected", "READ_SET_STALE");
+					return { kind: "read-set-stale", stale };
+				}
 				const remainingIntents = remainingConstructionGroupIds(
 					diagnostics,
 					brief,
@@ -1502,12 +1514,10 @@ export async function runSliceExecutor(args: {
 					return { kind: "rebase-conflict", report: result.report };
 				}
 				toolOutcome("stage-rejected", "READ_SET_STALE");
-				answer({
-					error:
-						"External data this change set read has changed since it was staged. Re-read what changed, correct the affected steps, and request the commit again.",
-					stale: result.stale,
-				});
-				continue;
+				/* External dependencies are part of immutable staged steps. Appending a
+				 * new read cannot erase the stale dependency, so the orchestrator must
+				 * supersede this attempt and reconstruct from a fresh snapshot. */
+				return { kind: "read-set-stale", stale: result.stale };
 			}
 
 			if (call.toolName === REPORT_BLOCKER_TOOL) {
@@ -1707,6 +1717,14 @@ function describeBlockers(
 		return `${remainingIntents.length} owned design intent${remainingIntents.length === 1 ? " has" : "s have"} no staged implementation`;
 	}
 	return "it holds no staged steps yet";
+}
+
+function staleExternalReads(
+	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
+) {
+	return diagnostics.readSetStatus.filter(
+		(status) => status.state !== "current",
+	);
 }
 
 /** The exact coverage gap the canonical commit will independently re-prove.

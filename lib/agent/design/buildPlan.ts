@@ -11,7 +11,10 @@
  */
 
 import { z } from "zod";
-import type { AppDesignContract } from "@/lib/agent/design/contract";
+import {
+	type AppDesignContract,
+	designConstructionIssues,
+} from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 
@@ -65,6 +68,17 @@ export const constructionGroupSchema = z
 	})
 	.strict();
 export type ConstructionGroup = z.infer<typeof constructionGroupSchema>;
+
+/** External requirements are plan actions, not Blueprint mutations. Persisted
+ * v1 plans may still carry an all-external legacy group; readers accept it but
+ * the executor and commit gate do not treat it as construction coverage. */
+export function isExecutableConstructionGroup(
+	group: ConstructionGroup,
+): boolean {
+	return group.elements.some(
+		(element) => element.kind !== "external-requirement",
+	);
+}
 
 export const externalActionSchema = z
 	.object({
@@ -225,7 +239,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 		const workflowIds = new Set(
 			contract.workflows.map((workflow) => workflow.id),
 		);
-		const elementIds = new Set<string>([
+		const constructibleElementIds = new Set<string>([
 			...contract.actors.map((value) => value.id),
 			...contract.records.flatMap((record) => [
 				record.id,
@@ -235,6 +249,9 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 			...contract.lists.map((value) => value.id),
 			...contract.access.map((value) => value.id),
 			...contract.navigation.map((value) => value.id),
+		]);
+		const knownElementIds = new Set<string>([
+			...constructibleElementIds,
 			...contract.externalRequirements.map((value) => value.id),
 		]);
 		const assigned = new Map<string, string>();
@@ -247,7 +264,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 				});
 			slice.constructionGroups.forEach((group, groupIndex) => {
 				group.elements.forEach((element, elementIndex) => {
-					if (!elementIds.has(element.id))
+					if (!knownElementIds.has(element.id))
 						ctx.addIssue({
 							code: "custom",
 							path: [
@@ -282,7 +299,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 				});
 			});
 		});
-		for (const id of elementIds) {
+		for (const id of constructibleElementIds) {
 			if (!assigned.has(id))
 				ctx.addIssue({
 					code: "custom",
@@ -335,6 +352,14 @@ export function deriveBuildPlan(args: {
 	readonly planId?: string;
 }): BuildPlan {
 	const { contract, revision } = args;
+	const constructionIssues = designConstructionIssues(contract);
+	if (constructionIssues.length > 0) {
+		throw new Error(
+			`Accepted design is not constructible: ${constructionIssues
+				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+				.join("; ")}`,
+		);
+	}
 	const orderedWorkflowIds = workflowOrder(contract);
 	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
 	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
@@ -433,12 +458,6 @@ export function deriveBuildPlan(args: {
 				),
 			),
 		);
-	for (const requirement of contract.externalRequirements)
-		ownerByElement.set(
-			requirement.id,
-			earliest(requirement.relatedWorkflowIds),
-		);
-
 	const refsFor = (
 		workflowId: string,
 		kinds: DesignElementRef["kind"][],
@@ -468,9 +487,6 @@ export function deriveBuildPlan(args: {
 		});
 		contract.navigation.forEach((value) => {
 			push("navigation", value.id);
-		});
-		contract.externalRequirements.forEach((value) => {
-			push("external-requirement", value.id);
 		});
 		return refs;
 	};
@@ -509,13 +525,6 @@ export function deriveBuildPlan(args: {
 				kind: "access-navigation",
 				kinds: ["access", "navigation"],
 				areas: ["navigation", "users", "organization-shape"],
-			},
-			{
-				key: "external",
-				name: "External readiness",
-				kind: "foundation",
-				kinds: ["external-requirement"],
-				areas: ["media-references", "automations"],
 			},
 		];
 		return specs.flatMap((spec) => {

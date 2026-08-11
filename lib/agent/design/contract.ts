@@ -65,6 +65,21 @@ export const designActorSchema = z
 	.strict();
 export type DesignActor = z.infer<typeof designActorSchema>;
 
+/** Semantic intent to use a lookup table that already exists in the current
+ * Project. Names stay human-readable in the Design Contract; the executor
+ * resolves the current stable table/column identities before authoring. */
+export const existingLookupChoiceSourceSchema = z
+	.object({
+		kind: z.literal("existing-project-lookup"),
+		table: z.string().min(1),
+		valueColumn: z.string().min(1),
+		labelColumn: z.string().min(1),
+	})
+	.strict();
+export type ExistingLookupChoiceSource = z.infer<
+	typeof existingLookupChoiceSourceSchema
+>;
+
 /** Implementation provenance, never part of the Design Contract payload. */
 export const actorRuntimeBindingSchema = z
 	.object({
@@ -86,24 +101,46 @@ export const recordPropertySchema = z
 			.default("ordinary"),
 		requiredWhen: z.string().min(1).optional(),
 		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceSource: existingLookupChoiceSourceSchema.optional(),
 	})
 	.strict()
 	.superRefine((value, ctx) => {
 		const choice =
 			value.dataShape === "single-choice" ||
 			value.dataShape === "multiple-choice";
-		if (choice && (value.choiceValues?.length ?? 0) === 0) {
+		if (
+			choice &&
+			(value.choiceValues?.length ?? 0) === 0 &&
+			value.choiceSource === undefined
+		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["choiceValues"],
-				message: "A choice property must name its allowed values.",
+				message:
+					"A choice property must name its allowed values or an existing Project lookup source.",
 			});
 		}
-		if (!choice && value.choiceValues !== undefined) {
+		if (
+			choice &&
+			value.choiceValues !== undefined &&
+			value.choiceSource !== undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceSource"],
+				message:
+					"A choice property must use either inline values or an existing Project lookup source, not both.",
+			});
+		}
+		if (
+			!choice &&
+			(value.choiceValues !== undefined || value.choiceSource !== undefined)
+		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["choiceValues"],
-				message: "Only a choice property may declare choice values.",
+				message:
+					"Only a choice property may declare choice values or a lookup source.",
 			});
 		}
 	});
@@ -131,6 +168,7 @@ export const workflowInputSchema = z
 		dataShape: factDataShapeSchema.optional(),
 		requiredWhen: z.string().min(1).optional(),
 		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceSource: existingLookupChoiceSourceSchema.optional(),
 	})
 	.strict()
 	.superRefine((value, ctx) => {
@@ -138,18 +176,39 @@ export const workflowInputSchema = z
 		const choice =
 			value.dataShape === "single-choice" ||
 			value.dataShape === "multiple-choice";
-		if (choice && (value.choiceValues?.length ?? 0) === 0) {
+		if (
+			choice &&
+			(value.choiceValues?.length ?? 0) === 0 &&
+			value.choiceSource === undefined
+		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["choiceValues"],
-				message: "A form-only choice input must name its allowed values.",
+				message:
+					"A form-only choice input must name its allowed values or an existing Project lookup source.",
 			});
 		}
-		if (!choice && value.choiceValues !== undefined) {
+		if (
+			choice &&
+			value.choiceValues !== undefined &&
+			value.choiceSource !== undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceSource"],
+				message:
+					"A form-only choice input must use either inline values or an existing Project lookup source, not both.",
+			});
+		}
+		if (
+			!choice &&
+			(value.choiceValues !== undefined || value.choiceSource !== undefined)
+		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["choiceValues"],
-				message: "Only a form-only choice input may declare choice values.",
+				message:
+					"Only a form-only choice input may declare choice values or a lookup source.",
 			});
 		}
 	});
@@ -378,6 +437,73 @@ export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
 
 export const appDesignContractSchema =
 	appDesignContractBaseSchema.superRefine(validateDesignGraph);
+
+export interface DesignConstructionIssue {
+	readonly path: readonly (string | number)[];
+	readonly message: string;
+}
+
+function distinctRealChoices(values: readonly string[] | undefined): number {
+	return new Set(
+		(values ?? []).map((value) => value.trim()).filter((value) => value !== ""),
+	).size;
+}
+
+/** New-artifact admission for semantics that the Blueprint field grammar must
+ * be able to construct. The base v1 parser remains compatible with already-
+ * persisted artifacts; finalization and deterministic plan derivation apply
+ * this stricter buildability proof to every newly accepted design. */
+export function designConstructionIssues(
+	contract: AppDesignContract,
+): DesignConstructionIssue[] {
+	const issues: DesignConstructionIssue[] = [];
+	contract.records.forEach((record, recordIndex) => {
+		record.properties.forEach((property, propertyIndex) => {
+			if (
+				(property.dataShape === "single-choice" ||
+					property.dataShape === "multiple-choice") &&
+				property.choiceSource === undefined &&
+				distinctRealChoices(property.choiceValues) < 2
+			) {
+				issues.push({
+					path: [
+						"records",
+						recordIndex,
+						"properties",
+						propertyIndex,
+						"choiceValues",
+					],
+					message:
+						"A controlled-choice property needs at least two distinct real values before it can be built.",
+				});
+			}
+		});
+	});
+	contract.workflows.forEach((workflow, workflowIndex) => {
+		workflow.inputs.forEach((input, inputIndex) => {
+			if (
+				input.propertyId === undefined &&
+				(input.dataShape === "single-choice" ||
+					input.dataShape === "multiple-choice") &&
+				input.choiceSource === undefined &&
+				distinctRealChoices(input.choiceValues) < 2
+			) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"inputs",
+						inputIndex,
+						"choiceValues",
+					],
+					message:
+						"A controlled-choice form input needs at least two distinct real values before it can be built.",
+				});
+			}
+		});
+	});
+	return issues;
+}
 
 /** Every stable semantic identity carried by a contract. */
 export function collectContractIds(

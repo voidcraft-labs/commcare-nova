@@ -51,7 +51,7 @@ import {
 import {
 	assembleFieldMutations,
 	type CreatedFieldIdentity,
-	describeRejectedFieldIds,
+	describeRejectedFields,
 } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
@@ -92,7 +92,7 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 /**
  * Success carries a verbose human-readable `message` the SA reads back
  * without re-querying the doc — field count delta, added ids, and any
- * skipped-during-assembly entries — plus a UI-only `summary` for the chat
+ * complete created identities — plus a UI-only `summary` for the chat
  * transcript; failure is an error record.
  */
 export type AddFieldsResult =
@@ -151,7 +151,8 @@ export const addFieldsTool = {
 				},
 			});
 
-			// Any identifier rejection fails the WHOLE call before anything
+			// Any field-assembly or identifier rejection fails the WHOLE call
+			// before anything
 			// persists — partial batches would leave the SA guessing which
 			// fields landed. The error names every failing item so one
 			// corrected re-issue suffices.
@@ -160,7 +161,7 @@ export const addFieldsTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: describeRejectedFieldIds(
+						error: describeRejectedFields(
 							form.name,
 							fields.length,
 							assembly.rejected,
@@ -168,7 +169,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { mutations, skipped, created } = assembly;
+			const { mutations, created } = assembly;
 
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
@@ -196,22 +197,15 @@ export const addFieldsTool = {
 				)
 				.map((m) => m.field.id)
 				.join(", ");
-			const skippedNote =
-				skipped.length > 0
-					? ` Skipped ${skipped.length} field(s): ${skipped
-							.map((s) => `${s.id} (${s.reason})`)
-							.join("; ")}.`
-					: "";
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.`,
 					fields: created,
 					// Bulk add — no single subject; the count drives the action
 					// ("Added 3 fields") and the form breadcrumb names the container.
-					// `mutations.length` is the count actually added (skipped items
-					// aren't in it), matching the message's own count.
+					// The successful assembly contains every requested field.
 					summary: {
 						location: form.name,
 						count: created.length,

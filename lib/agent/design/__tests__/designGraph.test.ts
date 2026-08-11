@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	appDesignContractSchema,
+	designConstructionIssues,
+} from "@/lib/agent/design/contract";
 import {
 	cloneContract,
 	did,
@@ -134,6 +137,26 @@ describe("lean Design Contract graph", () => {
 		expect(messages(strayChoices)).toContain("Only a form-only choice input");
 	});
 
+	it("carries an existing Project lookup as the alternative to inline choices", () => {
+		const contract = cloneContract(makeContract());
+		const risk = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factRisk,
+		);
+		if (!risk) throw new Error("fixture risk property missing");
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			table: "Referral urgency",
+			valueColumn: "code",
+			labelColumn: "name",
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(designConstructionIssues(contract)).toEqual([]);
+
+		risk.choiceValues = ["routine", "urgent"];
+		expect(messages(contract)).toContain("either inline values");
+	});
+
 	it("keeps writes, readback, and list properties on the named record", () => {
 		const write = cloneContract(makeContract());
 		write.workflows[0]?.recordEffects[0]?.writes.push({
@@ -160,6 +183,21 @@ describe("lean Design Contract graph", () => {
 		if (!risk) throw new Error("fixture risk property missing");
 		delete risk.choiceValues;
 		expect(messages(contract)).toContain("must name its allowed values");
+	});
+
+	it("keeps persisted v1 single choices readable but refuses them for new construction", () => {
+		const contract = cloneContract(makeContract());
+		const risk = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factRisk,
+		);
+		if (!risk) throw new Error("fixture risk property missing");
+		risk.choiceValues = ["priority"];
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(designConstructionIssues(contract)).toEqual([
+			expect.objectContaining({
+				message: expect.stringContaining("at least two distinct real values"),
+			}),
+		]);
 	});
 
 	it("rejects unresolved references and unsupported promises", () => {

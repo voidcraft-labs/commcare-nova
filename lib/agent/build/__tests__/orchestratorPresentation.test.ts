@@ -21,6 +21,27 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain(
 			"When the accepted workflow creates the module's primary record",
 		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"needs at least two distinct real inline choices or the specific existing Project lookup source",
+		);
+		expect(EXECUTOR_SYSTEM).toContain("make a form always hidden/disabled");
+		expect(EXECUTOR_SYSTEM).toContain(
+			"optional media slot that is already absent",
+		);
+	});
+
+	it("wires Project lookup reads into pre-app change sets", () => {
+		const source = readFileSync(
+			join(__dirname, "..", "orchestrator.ts"),
+			"utf8",
+		);
+		expect(source).toContain(
+			"readToolLookupDefinitions(lookupScope, tableIds)",
+		);
+		expect(source).toContain("readToolLookupCatalog(lookupScope)");
+		expect(source).toContain("role: args.projectRole");
+		expect(source).toContain('outcome.kind === "read-set-stale"');
+		expect(source).toContain("failureCode: outcome.kind");
 	});
 
 	it("does not synthesize canned assistant prose between model work", () => {

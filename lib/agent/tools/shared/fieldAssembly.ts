@@ -78,15 +78,12 @@ export type FieldAssemblyResult =
 	| {
 			ok: true;
 			mutations: Mutation[];
-			/** Items that didn't assemble into a valid Field for their kind —
-			 *  reported, never silently dropped. */
-			skipped: Array<{ id: string; reason: string }>;
 			/** Every created identity, in input order. */
 			created: CreatedFieldIdentity[];
 	  }
 	| {
 			ok: false;
-			/** Every item the identifier verdict refused, with its reason. */
+			/** Every item field assembly or identifier admission refused. */
 			rejected: Array<{ id: string; reason: string }>;
 	  };
 
@@ -219,7 +216,6 @@ export function assembleFieldMutations(
 	}
 
 	const mutations: Mutation[] = [];
-	const skipped: Array<{ id: string; reason: string }> = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
 	const pendingByParent = new Map<Uuid, Set<string>>();
 	const earlierFields = new Map<Uuid, Field>();
@@ -259,10 +255,11 @@ export function assembleFieldMutations(
 
 		const assembled = flatFieldToField(processed, fieldUuid);
 		if (!assembled.ok) {
-			// The payload didn't assemble into a valid Field for its kind.
-			// Carry the specific reason so the caller reports WHY each field
-			// was skipped, not just that it was.
-			skipped.push({ id: raw.id, reason: assembled.reason });
+			// Structural creation is all-or-nothing. A field that cannot become
+			// its requested domain kind rejects the complete assembly just like an
+			// identifier failure; silently omitting it would make returned identities
+			// and the supposedly complete form disagree with persisted reality.
+			rejected.push({ id: raw.id, reason: assembled.reason });
 			continue;
 		}
 		const field = assembled.field;
@@ -344,7 +341,6 @@ export function assembleFieldMutations(
 	return {
 		ok: true,
 		mutations: [...declarations, ...mutations],
-		skipped,
 		created: mutations
 			.filter(
 				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
@@ -371,11 +367,11 @@ export function assembleFieldMutations(
  * re-issue). Shared by the field-landing tools so the agent reads one
  * message shape wherever ids bounce.
  */
-export function describeRejectedFieldIds(
+export function describeRejectedFields(
 	formName: string,
 	totalCount: number,
 	rejected: ReadonlyArray<{ id: string; reason: string }>,
 ): string {
 	const lines = rejected.map((r) => `- "${r.id}": ${r.reason}`).join("\n");
-	return `No fields were added to "${formName}" — ${rejected.length} of ${totalCount} field id(s) can't be used:\n${lines}\nFix the listed id(s) and re-issue the call.`;
+	return `No fields were added to "${formName}" — ${rejected.length} of ${totalCount} field(s) could not be assembled:\n${lines}\nFix the listed field(s) and re-issue the call.`;
 }

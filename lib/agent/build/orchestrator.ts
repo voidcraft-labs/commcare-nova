@@ -58,6 +58,10 @@ import { productionSourcePackageDeps } from "@/lib/agent/design/sourcePackageDep
 import { createExtractionCondenser } from "@/lib/agent/documentExtraction";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "@/lib/agent/lookupContext";
+import {
 	meterSubGenerationUsage,
 	type SubGenerationUsageMeter,
 } from "@/lib/agent/modelRunContext";
@@ -194,6 +198,7 @@ export interface RunBuildOrchestrationArgs {
 	readonly designSessionId: string;
 	readonly proposedAppId: string;
 	readonly projectId: string;
+	readonly projectRole: string;
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly holderNonce: string;
@@ -644,13 +649,16 @@ export async function runBuildOrchestration(
 						}
 						break;
 					}
-					if (outcome.kind === "rebase-conflict") {
+					if (
+						outcome.kind === "rebase-conflict" ||
+						outcome.kind === "read-set-stale"
+					) {
 						rebaseAttempts += 1;
 						if (rebaseAttempts <= budget.maxRebaseAttempts) {
 							await supersedeSliceAttempt({
 								designSessionId: args.designSessionId,
 								attemptId: attempt.id,
-								failureCode: "rebase-conflict",
+								failureCode: outcome.kind,
 								actorUserId: args.actorUserId,
 								runId: args.runId,
 								holderNonce: args.holderNonce,
@@ -662,22 +670,31 @@ export async function runBuildOrchestration(
 							designSessionId: args.designSessionId,
 							attemptId: attempt.id,
 							to: "failed",
-							failureCode: "rebase-budget-exhausted",
+							failureCode:
+								outcome.kind === "read-set-stale"
+									? "external-read-change-budget-exhausted"
+									: "rebase-budget-exhausted",
 							actorUserId: args.actorUserId,
 							runId: args.runId,
 							holderNonce: args.holderNonce,
 							expectedProjectId: args.projectId,
 						});
 						head = await appendFailure(args, head, {
-							errorType: "rebase-budget-exhausted",
+							errorType:
+								outcome.kind === "read-set-stale"
+									? "external-read-change-budget-exhausted"
+									: "rebase-budget-exhausted",
 							recoverable: false,
 						});
 						return {
 							kind: "failed",
 							appId,
-							errorType: "rebase-budget-exhausted",
+							errorType:
+								outcome.kind === "read-set-stale"
+									? "external-read-change-budget-exhausted"
+									: "rebase-budget-exhausted",
 							message:
-								"This workflow kept conflicting with newer app changes, so Nova stopped before saving an unsafe revision. Everything already added is intact.",
+								"This workflow's underlying app or Project data kept changing, so Nova stopped before saving an unsafe revision. Everything already added is intact.",
 							recoverable: false,
 						};
 					}
@@ -1133,6 +1150,11 @@ async function executeOneSlice(
 		budget: ReturnType<typeof budgetForSlice>;
 	},
 ): Promise<SliceExecutionOutcome> {
+	const lookupScope = {
+		projectId: args.projectId,
+		actorId: args.actorUserId,
+		role: args.projectRole,
+	};
 	const host: ChangeSetWorkspaceHost = {
 		actorUserId: args.actorUserId,
 		runId: args.runId,
@@ -1147,6 +1169,9 @@ async function executeOneSlice(
 				"A conversion-impact preview needs saved case rows, and a build slice runs before any exist for its new structure.",
 			);
 		},
+		lookupDefinitions: (tableIds) =>
+			readToolLookupDefinitions(lookupScope, tableIds),
+		lookupCatalog: () => readToolLookupCatalog(lookupScope),
 	};
 	const workspace = await ChangeSetMutationWorkspace.open(
 		host,
@@ -1177,9 +1202,7 @@ async function executeOneSlice(
 				holderNonce: args.holderNonce,
 				expectedProjectId: args.projectId,
 				expectedRevision: fresh.revision,
-				owningIntentIds: slice.slice.constructionGroups.map(
-					(group) => group.id,
-				),
+				owningIntentIds: [...slice.brief.constructionGroupIds],
 				deadlineAt,
 			});
 			if (outcome.kind === "materialized") {
@@ -1199,7 +1222,7 @@ async function executeOneSlice(
 			},
 			kind: "chat",
 			expectedRevision: fresh.revision,
-			owningIntentIds: slice.slice.constructionGroups.map((group) => group.id),
+			owningIntentIds: [...slice.brief.constructionGroupIds],
 			deadlineAt,
 		});
 		return outcome;

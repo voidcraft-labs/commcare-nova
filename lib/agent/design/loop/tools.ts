@@ -30,7 +30,10 @@ import {
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	appDesignContractSchema,
+	designConstructionIssues,
+} from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import {
 	changesArchitecture,
@@ -202,6 +205,15 @@ export function renderDesignValidationIssues(error: ZodError): string {
 		"The submission failed Nova's design validation. Correct these exact items, then finalize again:",
 		...lines,
 		...(more > 0 ? [`(and ${more} more issues of the same kinds)`] : []),
+	].join("\n");
+}
+
+function renderDesignConstructionIssues(
+	issues: ReturnType<typeof designConstructionIssues>,
+): string {
+	return [
+		"The submission cannot yet be built. Correct these exact items, then finalize again:",
+		...issues.map((issue) => `- ${issue.path.join(".")}: ${issue.message}`),
 	].join("\n");
 }
 
@@ -457,6 +469,16 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				);
 				return { error: renderDesignValidationIssues(parsed.error) };
 			}
+			const constructionIssues = designConstructionIssues(parsed.data);
+			if (constructionIssues.length > 0) {
+				deps.repair.noteSchemaRejection(
+					"submitContract",
+					constructionIssues.length,
+				);
+				return {
+					error: renderDesignConstructionIssues(constructionIssues),
+				};
+			}
 			const head = gates.head;
 			const draft = await insertDesignRevision({
 				envelope: contractEnvelope({
@@ -634,6 +656,16 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					parsed.error.issues.length,
 				);
 				return { error: renderDesignValidationIssues(parsed.error) };
+			}
+			const constructionIssues = designConstructionIssues(parsed.data.contract);
+			if (constructionIssues.length > 0) {
+				deps.repair.noteSchemaRejection(
+					"submitRevision",
+					constructionIssues.length,
+				);
+				return {
+					error: renderDesignConstructionIssues(constructionIssues),
+				};
 			}
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 				head.envelope.payload,

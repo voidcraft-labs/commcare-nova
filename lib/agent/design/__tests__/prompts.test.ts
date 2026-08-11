@@ -112,6 +112,15 @@ describe("renderSourcePackage containment", () => {
 		}
 	});
 
+	it("treats missing authoring values as blockers rather than readiness", () => {
+		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(prompt).toContain("Every controlled-choice field");
+			expect(prompt).toContain("two distinct real values");
+			expect(prompt).toContain("always-hidden or disabled form");
+		}
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("not a readiness finding");
+	});
+
 	it("keeps case-property clearing out of accepted designs", () => {
 		const constraints = renderPlatformConstraintsSection();
 		expect(constraints).toContain(

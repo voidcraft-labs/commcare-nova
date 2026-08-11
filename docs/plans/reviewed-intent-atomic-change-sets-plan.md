@@ -227,7 +227,18 @@ is acyclic.
 
 An external requirement names what is outside Blueprint construction, which
 workflows depend on it, when it is needed, and whether construction truly has
-to wait.
+to wait. Runtime or deployment setup is non-blocking only when every included
+workflow can still be authored as a valid, reachable, useful app. Every
+controlled choice has either at least two distinct real inline values or the
+semantic name of a lookup table and value/label columns that already exist in
+the current Project; the executor resolves their current identities. Missing
+values, an unevidenced lookup claim, or another absent reference remains
+construction-blocking when it would require empty, one-value, duplicate, or
+invented placeholder choices, or an always-hidden workflow. The design instead
+obtains the real values, names the existing lookup, chooses a supported
+alternative, or defers that workflow. The persisted v1 reader stays compatible
+with earlier artifacts, while contract finalization and deterministic plan
+derivation enforce this construction proof for new work.
 
 A decision stores the selected decision and its rationale. It does not preserve
 an option matrix when the discarded alternatives have no ongoing product
@@ -414,8 +425,7 @@ group kinds are:
 - data and people;
 - workflow;
 - lists and search;
-- access and navigation;
-- external readiness.
+- access and navigation.
 
 Every constructible top-level design element belongs to exactly one group:
 
@@ -424,8 +434,12 @@ Every constructible top-level design element belongs to exactly one group:
 - workflows;
 - lists;
 - access policies;
-- navigation;
-- external requirements.
+- navigation.
+
+External requirements remain related external actions and execution context.
+They are not construction groups because they do not require Blueprint
+mutations. Persisted v1 plans that contain an all-external group remain
+readable, but that group is not executable work or commit coverage.
 
 Ownership is assigned deterministically to the earliest workflow that creates,
 writes, exposes, or protects the element. This is enough to prove that each
@@ -508,7 +522,10 @@ batch corrects only the failed operation and its dependent suffix.
 Complete `createModule` and `createForm` operations are preferred when the
 accepted workflow already specifies the complete structure. `stageModule` and
 `stageForm` exist only for a genuine dependency or call-size boundary. There is
-no one-field-at-a-time fallback strategy.
+no one-field-at-a-time fallback strategy. Field assembly is atomic across
+`addFields`, `createForm`, and `createModule`: if any requested field cannot be
+assembled or admitted, the entire call is rejected and no returned identity
+can name an omitted field.
 
 ### 6.4 Coverage and provenance
 

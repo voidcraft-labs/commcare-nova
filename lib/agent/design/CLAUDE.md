@@ -22,7 +22,12 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   ownership, property/record coherence, navigation closure, charter coverage,
   a dependency-free initial workflow, acyclic workflow and record hierarchies,
   and a blocking user question for every unresolved construction dependency.
-  A structurally incoherent contract is never persisted.
+  A structurally incoherent contract is never persisted. New-artifact
+  construction admission additionally requires every controlled choice to
+  carry either at least two distinct real inline values or the semantic name
+  of an existing Project lookup table plus its value/label columns; the
+  executor resolves current UUIDs. The base reader remains compatible with
+  already-persisted v1 artifacts.
 - `review.ts` defines independent findings, dispositions, and revisions.
   Critical and important findings cite the exact source or contract elements
   they concern; advisory observations do not create traceability work. Only
@@ -31,10 +36,12 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   allowed only when the reviewed finding explicitly required it.
 - `buildPlan.ts` deterministically derives one workflow-complete construction
   slice per workflow from an accepted revision. It also derives stable
-  construction groups and external actions. The model cannot choose ownership,
-  omit accepted work, or author a separate lowering graph. Plan validation
-  proves exact workflow/group coverage, one materialization root, an acyclic
-  dependency graph, and supported external-action timing.
+  construction groups for Blueprint work and separate external actions. The
+  model cannot choose ownership, omit accepted work, or author a separate
+  lowering graph. Plan validation proves exact workflow/group coverage, one
+  materialization root, an acyclic dependency graph, and supported external-
+  action timing. All-external groups from earlier persisted v1 plans remain
+  readable but are not executor work or commit coverage.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
   executor. It names the workflow, its directly related design elements, and
   the construction groups the executor must prove through admitted steps.
@@ -63,7 +70,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   instructions. Keep version keys stable for schema version 1. The prompts
   activate CommCare/Nova domain knowledge, treat source blocks as untrusted
   data, keep technical protocol details out of user prose, and make unsupported
-  capabilities explicit.
+  capabilities explicit. Readiness may remain external only when every included
+  workflow can still be authored as a valid, reachable, useful app.
 
 ## Phase protocol
 

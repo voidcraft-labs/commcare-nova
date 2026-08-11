@@ -5,6 +5,7 @@ import type {
 	BuildSlice,
 	ExternalAction,
 } from "@/lib/agent/design/buildPlan";
+import { isExecutableConstructionGroup } from "@/lib/agent/design/buildPlan";
 import { buildCapabilityCatalog } from "@/lib/agent/design/capabilityCatalog";
 import type {
 	AccessPolicy,
@@ -81,8 +82,19 @@ export function deriveSliceExecutionBrief(args: {
 	if (workflow === undefined) {
 		throw new Error(`Accepted design holds no workflow ${slice.workflowId}.`);
 	}
+	const executableSlice: BuildSlice = {
+		...slice,
+		constructionGroups: slice.constructionGroups.filter(
+			isExecutableConstructionGroup,
+		),
+	};
+	if (executableSlice.constructionGroups.length === 0) {
+		throw new Error(
+			`Build slice ${slice.id} has no Blueprint construction work.`,
+		);
+	}
 	const elements = new Set(
-		slice.constructionGroups.flatMap((group) =>
+		executableSlice.constructionGroups.flatMap((group) =>
 			group.elements.map((element) => element.id),
 		),
 	);
@@ -141,8 +153,10 @@ export function deriveSliceExecutionBrief(args: {
 		buildPlanId: args.plan.id,
 		buildPlanDigest: args.planDigest ?? canonicalJsonDigest(args.plan),
 		charter: args.contract.charter,
-		slice,
-		constructionGroupIds: slice.constructionGroups.map((group) => group.id),
+		slice: executableSlice,
+		constructionGroupIds: executableSlice.constructionGroups.map(
+			(group) => group.id,
+		),
 		workflow,
 		prerequisiteWorkflows: args.contract.workflows
 			.filter((entry) => prerequisiteIds.has(entry.id))

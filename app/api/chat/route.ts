@@ -2243,6 +2243,7 @@ export async function POST(req: Request) {
 							designSessionId: design.designSessionId,
 							proposedAppId: design.proposedAppId,
 							projectId,
+							projectRole,
 							actorUserId: userId,
 							runId: effectiveRunId,
 							holderNonce,

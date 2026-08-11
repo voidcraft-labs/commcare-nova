@@ -1148,6 +1148,52 @@ describe("runSliceExecutor — commit is a request", () => {
 		expect(commit).toHaveBeenCalledTimes(1);
 	});
 
+	it("ends an append-only attempt when inspection finds a stale external read", async () => {
+		const stale = [
+			{
+				dependency: {
+					kind: "lookup-definition" as const,
+					projectId: "project-1",
+					tableId: testUuid("stale-table") as never,
+					definitionRevision: "1",
+				},
+				state: "stale" as const,
+			},
+		];
+		const workspace = fakeWorkspace({
+			inspect: async () =>
+				diagnostics({ canCommit: false, readSetStatus: stale }),
+		});
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "a", toolName: "inspectChangeSet" }] },
+		]);
+
+		expect(await run({ workspace, step })).toEqual({
+			kind: "read-set-stale",
+			stale,
+		});
+	});
+
+	it("returns a commit-time stale read so the orchestrator can restart", async () => {
+		const stale = [{ kind: "lookup-definition", state: "stale" }];
+		const workspace = fakeWorkspace({ inspect: async () => diagnostics() });
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({
+				kind: "read-set-stale",
+				stale,
+			}),
+		);
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
+		]);
+
+		expect(await run({ workspace, step, commit })).toEqual({
+			kind: "read-set-stale",
+			stale,
+		});
+		expect(commit).toHaveBeenCalledTimes(1);
+	});
+
 	it("projects bounded diagnostics for inspectChangeSet", async () => {
 		const uncovered = brief().constructionGroupIds[0];
 		const workspace = fakeWorkspace({

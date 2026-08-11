@@ -57,7 +57,7 @@ import {
 import {
 	assembleFieldMutations,
 	type CreatedFieldIdentity,
-	describeRejectedFieldIds,
+	describeRejectedFields,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
@@ -177,7 +177,7 @@ export const createFormTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: describeRejectedFieldIds(
+						error: describeRejectedFields(
 							name,
 							fields.length,
 							assembly.rejected,
@@ -185,23 +185,6 @@ export const createFormTool = {
 					},
 				};
 			}
-			if (assembly.mutations.length === 0) {
-				// Every supplied field failed assembly — landing the form would
-				// land it EMPTY, which is exactly the dead shape atomic creation
-				// exists to prevent. Name each skip so the corrected re-issue
-				// carries usable fields.
-				const reasons = assembly.skipped
-					.map((s) => `- "${s.id}": ${s.reason}`)
-					.join("\n");
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: `"${name}" wasn't created — none of its ${fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
-					},
-				};
-			}
-
 			if (
 				close_condition &&
 				!assembly.created.some(
@@ -254,17 +237,11 @@ export const createFormTool = {
 			const fieldCount = assembly.mutations.filter(
 				(m) => m.kind === "addField",
 			).length;
-			const skippedNote =
-				assembly.skipped.length > 0
-					? ` Skipped ${assembly.skipped.length} field(s): ${assembly.skipped
-							.map((s) => `${s.id} (${s.reason})`)
-							.join("; ")}.`
-					: "";
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`,
 					formUuid,
 					fields: assembly.created,
 					summary: {

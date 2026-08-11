@@ -5,11 +5,13 @@ import {
 	renderBriefMessage,
 } from "@/lib/agent/build/executionBrief";
 import {
+	cloneContract,
 	did,
 	ids,
 	makeBuildPlan,
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
+import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { PLATFORM_CONSTRAINT_CODES } from "@/lib/agent/design/platformConstraints";
 
 const REVISION = { id: ids.revisionId, digest: "b".repeat(64) };
@@ -58,6 +60,53 @@ describe("deriveSliceExecutionBrief", () => {
 			ids.decision,
 		]);
 		expect(briefAt(1).decisions).toEqual([]);
+	});
+
+	it("keeps legacy all-external plan groups as context, not executable coverage", () => {
+		const contract = cloneContract(makeContract());
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Worker setup",
+			kind: "runtime-readiness",
+			description: "Configure workers before runtime.",
+			relatedWorkflowIds: [ids.taskRegister],
+			timing: "before-workflow",
+			blocksConstruction: false,
+		});
+		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		plan.slices[0]?.constructionGroups.push({
+			id: did(5000),
+			workflowId: ids.taskRegister,
+			name: "External readiness",
+			kind: "foundation",
+			elements: [{ kind: "external-requirement", id: ids.externalSetup }],
+			blueprintAreas: ["media-references"],
+		});
+		const sliceId = plan.slices[0]?.id;
+		if (!sliceId) throw new Error("fixture slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId,
+		});
+
+		expect(brief.externalRequirements.map((item) => item.id)).toEqual([
+			ids.externalSetup,
+		]);
+		expect(brief.constructionGroupIds).not.toContain(did(5000));
+		expect(
+			brief.slice.constructionGroups.some((group) =>
+				group.elements.some(
+					(element) => element.kind === "external-requirement",
+				),
+			),
+		).toBe(false);
 	});
 
 	it("binds exact revision, plan, constraints, and capability boundary", () => {
