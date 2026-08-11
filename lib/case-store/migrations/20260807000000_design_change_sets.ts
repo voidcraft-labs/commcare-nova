@@ -59,7 +59,10 @@ const CHANGE_SET_STATUSES = "'open', 'committed', 'abandoned', 'superseded'";
 const EXCLUSIVE_KINDS = "'renameCaseProperties', 'retireCaseType'";
 const REQUEST_STATUSES = "'staged', 'rejected'";
 const HANDLE_ENTITY_KINDS =
-	"'module', 'form', 'field', 'option', 'case_list_column', 'search_input', 'case_operation'";
+	"'module', 'form', 'field', 'option', 'case_list_column', 'search_input', 'case_operation', " +
+	"'worker_property', 'user_type', 'persona', 'organization_level', 'location_property', " +
+	"'automation', 'automation_criterion', 'automation_setup_criterion', 'automation_update', " +
+	"'automation_recipient', 'automation_event', 'automation_user_data_filter'";
 const COORDINATE_KINDS =
 	"'app', 'module', 'form', 'field', 'case-list-column', 'case-operation', " +
 	"'user-type', 'persona', 'organization-level', 'location-property', " +

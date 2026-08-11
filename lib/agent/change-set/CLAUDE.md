@@ -112,10 +112,11 @@ gate, and integrity services every other write uses.
   `retireCaseType`) fence at admission: such a batch owns its change set
   alone (`exclusive_kind` closes the set). Shared structural creation tools
   bind handles from their explicit identity slots before canonical parsing,
-  including nested forms, fields, inline options, columns, search inputs, and
-  case operations. Inline-option replacement slots preserve an existing bound
-  option or bind a newly created one; target, parent, and anchor slots remain
-  reference-only.
+  including nested forms, fields, inline options, columns, search inputs, case
+  operations, worker properties, roles, personas, organization levels,
+  location properties, and automation entities. Inline-option replacement
+  slots preserve an existing bound option or bind a newly created one; target,
+  parent, and anchor slots remain reference-only.
 
 ## Invariants
 

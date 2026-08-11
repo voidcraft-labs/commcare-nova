@@ -108,6 +108,24 @@ describe("organization authoring tools", () => {
 		).toMatchObject({ slug: "phone", levelUuids: [levelUuid] });
 	});
 
+	it("honors a predeclared place-information identity", async () => {
+		const h = makeHarness(makeCanonicalGenesisDoc("Organization", APP_ID));
+		const locationPropertyUuid = testUuid("declared-location-property");
+		const property = await h.runTool(addLocationPropertiesTool, {
+			properties: [
+				{
+					locationPropertyUuid,
+					slug: "facility_code",
+					label: "Facility code",
+				},
+			],
+		});
+		expect(property.result).toMatchObject({ uuids: [locationPropertyUuid] });
+		expect(
+			h.currentDoc().locationProperties?.[locationPropertyUuid],
+		).toMatchObject({ slug: "facility_code" });
+	});
+
 	it("does not expose the create-once level code on updates", () => {
 		const json = z.toJSONSchema(updateOrganizationLevelInputSchema, {
 			target: "draft-7",

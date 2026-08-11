@@ -132,6 +132,11 @@ const acceptedValuesSchema = z
 
 const userPropertyCreateSchema = z
 	.object({
+		userPropertyUuid: uuidSchema
+			.optional()
+			.describe(
+				"Optional stable identity for this new worker-information property. Omit it to let Nova mint one.",
+			),
 		slug: z
 			.string()
 			.min(1)
@@ -152,6 +157,11 @@ const userPropertyCreateSchema = z
 
 const userTypeCreateSchema = z
 	.object({
+		userTypeUuid: uuidSchema
+			.optional()
+			.describe(
+				"Optional stable identity for this new role. Omit it to let Nova mint one.",
+			),
 		name: z.string().min(1),
 		description: z.string().min(1).nullable().optional(),
 		values: valuesInputSchema.nullable().optional(),
@@ -173,6 +183,11 @@ const personaLocationUuidsSchema = z
 
 const personaCreateSchema = z
 	.object({
+		personaUuid: uuidSchema
+			.optional()
+			.describe(
+				"Optional stable identity for this new Preview persona. Omit it to let Nova mint one.",
+			),
 		name: z.string().min(1),
 		description: z.string().min(1).nullable().optional(),
 		userTypeUuid: uuidSchema.nullable().optional(),
@@ -289,7 +304,9 @@ export const addUserPropertiesTool = {
 	): Promise<MutatingToolResult<AddMutationResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			const uuids = input.properties.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.properties.map(
+				(property) => property.userPropertyUuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, property] of input.properties.entries()) {
@@ -417,7 +434,9 @@ export const addUserTypesTool = {
 	): Promise<MutatingToolResult<AddMutationResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			const uuids = input.userTypes.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.userTypes.map(
+				(userType) => userType.userTypeUuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, userType] of input.userTypes.entries()) {
@@ -560,7 +579,9 @@ export const addPersonasTool = {
 	): Promise<MutatingToolResult<AddMutationResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			const uuids = input.personas.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.personas.map(
+				(persona) => persona.personaUuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, persona] of input.personas.entries()) {
