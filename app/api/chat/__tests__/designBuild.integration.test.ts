@@ -651,7 +651,54 @@ describe("design-session build turns", () => {
 			}),
 		);
 		expect(redrive.status).toBe(409);
+		const userEndingRedrive = await POST(
+			buildRequest({
+				designSessionId: failedSession.id,
+				redrive: true,
+			}),
+		);
+		expect(userEndingRedrive.status).toBe(409);
 		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
+	}, 30_000);
+
+	it("admits a user-ending auto-redrive when the durable thread proves interruption before a failed head", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "finish" });
+			return {
+				kind: "failed",
+				errorType: "internal",
+				message: "The process stopped before recording its failure.",
+				recoverable: false,
+				appId: null,
+			};
+		});
+
+		const first = await POST(buildRequest());
+		await first.text();
+		const failedSession = await sessionRow();
+		await appDb
+			.updateTable("threads")
+			.set({
+				active_stream_id: "23f8eefa-985d-4af8-9592-f0b6d03ac127",
+				updated_at: new Date().toISOString(),
+			})
+			.where("thread_id", "=", THREAD)
+			.execute();
+
+		const redrive = await POST(
+			buildRequest({
+				designSessionId: failedSession.id,
+				redrive: true,
+			}),
+		);
+		expect(redrive.status).toBe(200);
+		await redrive.text();
+		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
+		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
+			designSessionId: failedSession.id,
+			redrive: true,
+		});
 	}, 30_000);
 
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {

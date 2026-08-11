@@ -227,9 +227,6 @@ export async function POST(req: Request) {
 			{ status: 400 },
 		);
 	}
-	const explicitRecoveryRedrive =
-		parsed.data.redrive === true && messages.at(-1)?.role !== "user";
-
 	// Reject an over-length typed message: defense in depth behind the
 	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
 	// disagree). Only the new turn's typed text counts; attachments ride as
@@ -405,62 +402,29 @@ export async function POST(req: Request) {
 			throw err;
 		}
 	}
-	/* `redrive` is a client control, not authority. A user-ending automatic
-	 * re-drive is already an ordinary chargeable turn. The assistant-ending
-	 * form belongs only to Continue build, after a recoverable pre-app failure
-	 * has released its holder. Prove the durable recoverable verdict before the
-	 * flag can bypass the in-progress instruction gate. A reaped run does not
-	 * need this assistant-ending form: its ordinary user-ending auto-redrive
-	 * remains admitted independently even when no failed head was appended.
+	/* `redrive` is a client control, not authority. Every pre-app design-session
+	 * re-drive, whether the client ends on a user message after reload or keeps
+	 * an assistant message in the same tab, must prove one of two durable states:
+	 * a recoverable failed orchestration head, or a genuinely interrupted thread
+	 * whose process died before it could append a failed head. A durable
+	 * non-recoverable head always wins over an old interruption marker.
 	 *
 	 * The failed-turn protocol clawed the durable transcript back to completed
 	 * units. Reload that exact history as the run input so same-tab suffix parts
 	 * cannot be re-authored through the fold, source package, or model prompt. */
-	if (explicitRecoveryRedrive) {
-		const recoveryHead =
-			presentedDesignSession === undefined
-				? null
-				: await readOrchestrationHead(presentedDesignSession.id);
-		if (
-			presentedDesignSession === undefined ||
-			presentedDesignSession.state !== "active" ||
-			presentedDesignSession.app_id !== null ||
-			presentedDesignSession.last_error_type === null ||
-			recoveryHead?.state.kind !== "failed" ||
-			recoveryHead.state.recoverable !== true
-		) {
-			return Response.json(
-				{
-					error:
-						"This saved build is not waiting for recovery. Refresh to continue from its current state.",
-					type: "generation_in_progress",
-				},
-				{ status: 409 },
-			);
-		}
+	if (
+		parsed.data.redrive === true &&
+		presentedDesignSession !== undefined &&
+		presentedDesignSession.app_id === null
+	) {
+		const recoveryHead = await readOrchestrationHead(presentedDesignSession.id);
+		let storedThread: Awaited<ReturnType<typeof loadThread>>;
 		try {
-			const storedThread = await loadThread(
+			storedThread = await loadThread(
 				{ kind: "design-session", designSessionId: presentedDesignSession.id },
 				threadId,
 				userId,
 			);
-			if (storedThread === null) {
-				return Response.json(
-					{
-						error:
-							"This saved conversation is no longer available. Refresh to continue from its current state.",
-						type: "invalid_request",
-					},
-					{ status: 409 },
-				);
-			}
-			const storedMessages = validateChatMessages(storedThread.messages);
-			if (!storedMessages.ok) {
-				throw new Error(
-					`Stored recovery transcript failed admission: ${storedMessages.error}`,
-				);
-			}
-			runMessages = storedMessages.messages;
 		} catch (err) {
 			log.error("[chat] recovery transcript read failed", err, {
 				designSessionId: presentedDesignSession.id,
@@ -475,6 +439,48 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+		const recoverableFailure =
+			recoveryHead?.state.kind === "failed" &&
+			recoveryHead.state.recoverable === true &&
+			presentedDesignSession.last_error_type !== null;
+		const interruptedBeforeFailure =
+			recoveryHead?.state.kind !== "failed" &&
+			storedThread?.resume_interrupted === true;
+		if (
+			presentedDesignSession.state !== "active" ||
+			storedThread === null ||
+			(!recoverableFailure && !interruptedBeforeFailure)
+		) {
+			return Response.json(
+				{
+					error:
+						"This saved build is not waiting for recovery. Refresh to continue from its current state.",
+					type: "generation_in_progress",
+				},
+				{ status: 409 },
+			);
+		}
+		const storedMessages = validateChatMessages(storedThread.messages);
+		if (!storedMessages.ok) {
+			log.error(
+				"[chat] stored recovery transcript failed admission",
+				undefined,
+				{
+					designSessionId: presentedDesignSession.id,
+					threadId,
+					error: storedMessages.error,
+				},
+			);
+			return Response.json(
+				{
+					error:
+						"Couldn't load this saved conversation. Refresh and try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+		runMessages = storedMessages.messages;
 	}
 	/* Once reviewed construction has begun, the durable candidate owns the
 	 * conversation. A normal new instruction cannot redirect it mid-build or
