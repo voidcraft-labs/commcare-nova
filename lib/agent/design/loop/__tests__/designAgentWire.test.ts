@@ -113,7 +113,7 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 			role: "user",
 			content: "# Design session state (server-derived)",
 		}),
-		stepsBeforeStream: () => 0,
+		stepsBeforeStream: 0,
 	});
 	/* `generate`, not `stream`: the capturing fetch fails every request, and
 	 * a failed stream strands the SDK's internal tee/result promises as

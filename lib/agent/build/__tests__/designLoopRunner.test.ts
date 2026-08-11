@@ -4,7 +4,10 @@ import {
 	DESIGN_LOOP_STOP_MESSAGE,
 	designToolPulsePhase,
 } from "@/lib/agent/build/designLoopRunner";
-import { designStepBudgetReached } from "@/lib/agent/design/loop/designAgent";
+import {
+	designPhaseTerminalSucceeded,
+	designStepBudgetReached,
+} from "@/lib/agent/design/loop/designAgent";
 
 describe("contractSubmissionPulsePhase", () => {
 	it("distinguishes a first design from an immutable replacement revision", () => {
@@ -39,5 +42,35 @@ describe("design POST step budget", () => {
 		expect(designStepBudgetReached(62, 1)).toBe(false);
 		expect(designStepBudgetReached(63, 1)).toBe(true);
 		expect(designStepBudgetReached(64, 1)).toBe(true);
+	});
+
+	it("ends a phase only after the finalizer succeeds", () => {
+		const call = { toolCallId: "submit-1", toolName: "submitContract" };
+		expect(
+			designPhaseTerminalSucceeded(
+				[
+					{
+						toolCalls: [call],
+						toolResults: [
+							{ toolCallId: call.toolCallId, output: { error: "Fix this." } },
+						],
+					},
+				],
+				"submitContract",
+			),
+		).toBe(false);
+		expect(
+			designPhaseTerminalSucceeded(
+				[
+					{
+						toolCalls: [call],
+						toolResults: [
+							{ toolCallId: call.toolCallId, output: { ok: true } },
+						],
+					},
+				],
+				"submitContract",
+			),
+		).toBe(true);
 	});
 });

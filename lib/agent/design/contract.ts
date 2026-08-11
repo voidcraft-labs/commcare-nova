@@ -132,7 +132,27 @@ export const workflowInputSchema = z
 		requiredWhen: z.string().min(1).optional(),
 		choiceValues: z.array(z.string().min(1)).optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.propertyId !== undefined) return;
+		const choice =
+			value.dataShape === "single-choice" ||
+			value.dataShape === "multiple-choice";
+		if (choice && (value.choiceValues?.length ?? 0) === 0) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message: "A form-only choice input must name its allowed values.",
+			});
+		}
+		if (!choice && value.choiceValues !== undefined) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message: "Only a form-only choice input may declare choice values.",
+			});
+		}
+	});
 export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 export const workflowDecisionSchema = z

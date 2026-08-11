@@ -77,6 +77,32 @@ describe("lean Design Contract graph", () => {
 		expect(messages(handles)).toContain("handles must be unique");
 	});
 
+	it("accepts convergent workflow dependencies and requires a root first workflow", () => {
+		const diamond = cloneContract(makeContract());
+		const visit = fixtureValue(diamond.workflows[1], "visit workflow");
+		const parallel = {
+			...structuredClone(visit),
+			id: did(801),
+			name: "Parallel visit preparation",
+			prerequisiteWorkflowIds: [ids.taskRegister],
+		};
+		const convergent = {
+			...structuredClone(visit),
+			id: did(802),
+			name: "Convergent follow-up",
+			prerequisiteWorkflowIds: [ids.taskVisit, parallel.id],
+		};
+		diamond.workflows.push(parallel, convergent);
+		diamond.charter.includedWorkflowIds.push(parallel.id, convergent.id);
+		expect(appDesignContractSchema.safeParse(diamond).success).toBe(true);
+
+		const dependentRoot = cloneContract(makeContract());
+		dependentRoot.charter.initialWorkflowId = ids.taskVisit;
+		expect(messages(dependentRoot)).toContain(
+			"initial workflow must not depend",
+		);
+	});
+
 	it("requires form-only inputs to declare a data shape", () => {
 		const contract = cloneContract(makeContract());
 		contract.workflows[0]?.inputs.push({
@@ -85,6 +111,27 @@ describe("lean Design Contract graph", () => {
 			purpose: "Do not save this answer",
 		});
 		expect(messages(contract)).toContain("declare its data shape");
+	});
+
+	it("requires choices only for form-only choice inputs", () => {
+		const missingChoices = cloneContract(makeContract());
+		missingChoices.workflows[0]?.inputs.push({
+			handle: "temporary_choice",
+			name: "Temporary choice",
+			purpose: "Choose without saving",
+			dataShape: "single-choice",
+		});
+		expect(messages(missingChoices)).toContain("must name its allowed values");
+
+		const strayChoices = cloneContract(makeContract());
+		strayChoices.workflows[0]?.inputs.push({
+			handle: "temporary_note",
+			name: "Temporary note",
+			purpose: "Capture without saving",
+			dataShape: "text",
+			choiceValues: ["not applicable"],
+		});
+		expect(messages(strayChoices)).toContain("Only a form-only choice input");
 	});
 
 	it("keeps writes, readback, and list properties on the named record", () => {
@@ -131,5 +178,29 @@ describe("lean Design Contract graph", () => {
 			blocksConstruction: false,
 		});
 		expect(messages(unsupported)).toContain("must block");
+	});
+
+	it("keeps construction-blocking dependencies tied to a user question", () => {
+		const blocked = cloneContract(makeContract());
+		blocked.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Existing audio prompt",
+			kind: "existing-reference",
+			description: "Choose an already-uploaded audio prompt.",
+			relatedWorkflowIds: [ids.taskRegister],
+			timing: "before-construction",
+			blocksConstruction: true,
+		});
+		blocked.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		expect(messages(blocked)).toContain("blocking user question");
+
+		blocked.openQuestions.push({
+			id: ids.question,
+			question: "Which existing audio prompt should this app use?",
+			structuralImpact: "local",
+			blocking: true,
+			relatedElementIds: [ids.externalSetup],
+		});
+		expect(appDesignContractSchema.safeParse(blocked).success).toBe(true);
 	});
 });

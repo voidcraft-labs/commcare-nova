@@ -3,6 +3,7 @@ import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
 	deriveBuildPlan,
+	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
 import {
 	cloneContract,
@@ -110,5 +111,35 @@ describe("deterministic build planning", () => {
 			planId: ids.planId,
 		});
 		expect(changed.slices[0]?.id).not.toBe(makeBuildPlan().slices[0]?.id);
+	});
+
+	it("refuses blocking external actions until a receipt producer exists", () => {
+		const contract = cloneContract(makeContract());
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Existing media",
+			kind: "existing-reference",
+			description: "Select an existing Project media asset.",
+			relatedWorkflowIds: [ids.taskRegister],
+			timing: "before-construction",
+			blocksConstruction: true,
+		});
+		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		contract.openQuestions.push({
+			id: ids.question,
+			question: "Which existing media asset should be attached?",
+			structuralImpact: "local",
+			blocking: true,
+			relatedElementIds: [ids.externalSetup],
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "d".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(newPlanAdmissionMessages(plan)).toHaveLength(1);
+		expect(newPlanAdmissionMessages(plan)[0]).toContain(
+			"no registered completion producer",
+		);
 	});
 });

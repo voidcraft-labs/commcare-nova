@@ -490,7 +490,7 @@ async function main(): Promise<void> {
 				role: "user",
 				content: `# Design session state (server-derived)\n\nCurrent phase: ${phase}.`,
 			}),
-			stepsBeforeStream: () => 0,
+			stepsBeforeStream: 0,
 			onStepEnd: (step) => {
 				if (step.text) console.log(`\nNova: ${step.text}`);
 			},

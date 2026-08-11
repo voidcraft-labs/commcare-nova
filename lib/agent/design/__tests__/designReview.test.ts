@@ -160,6 +160,35 @@ describe("blocking dispositions", () => {
 			}).success,
 		).toBe(false);
 	});
+
+	it("keeps a deferred user decision linked to a blocking question", () => {
+		const userDecision = finding({ dispositionClass: "user-decision" });
+		const schema = designRevisionResultSchemaFor([review([userDecision])]);
+		const disposition = {
+			findingId: userDecision.id,
+			status: "deferred-with-user-visible-consequence" as const,
+			rationale: "The person must choose before construction.",
+			userVisibleConsequence: "The build waits for this choice.",
+		};
+		expect(
+			schema.safeParse({
+				contract: makeContract(),
+				dispositions: [disposition],
+			}).success,
+		).toBe(false);
+
+		const contract = cloneContract(makeContract());
+		contract.openQuestions.push({
+			id: ids.question,
+			question: "Should the saved visit be shown after submission?",
+			structuralImpact: "local",
+			blocking: true,
+			relatedElementIds: [ids.taskVisit],
+		});
+		expect(
+			schema.safeParse({ contract, dispositions: [disposition] }).success,
+		).toBe(true);
+	});
 });
 
 describe("sensitivity preservation", () => {

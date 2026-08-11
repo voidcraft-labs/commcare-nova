@@ -255,16 +255,36 @@ export function validateDispositionClosure(
 			});
 		}
 		seen.add(disposition.findingId);
+		const relatedBlockingQuestions = result.contract.openQuestions.filter(
+			(question) =>
+				question.blocking &&
+				(finding.affectedElementIds.length === 0 ||
+					question.relatedElementIds.some((id) =>
+						finding.affectedElementIds.includes(id),
+					)),
+		);
 		if (
 			finding.dispositionClass === "user-decision" &&
 			disposition.status === "accepted" &&
-			result.contract.openQuestions.some((question) => question.blocking)
+			relatedBlockingQuestions.length > 0
 		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions", index, "status"],
 				message:
 					"A user decision is not resolved while the revised contract still carries a blocking question.",
+			});
+		}
+		if (
+			finding.dispositionClass === "user-decision" &&
+			disposition.status === "deferred-with-user-visible-consequence" &&
+			relatedBlockingQuestions.length === 0
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["dispositions", index, "status"],
+				message:
+					"A deferred user decision must remain represented by a related blocking question.",
 			});
 		}
 	});

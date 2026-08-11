@@ -161,7 +161,8 @@ The charter fixes the session boundary and overall product:
 - the initial useful workflow.
 
 The initial workflow becomes the materialization root. The graph validator
-proves that it exists and belongs to the included workflow set.
+proves that it exists, belongs to the included workflow set, and has no
+workflow prerequisite.
 
 ### 3.3 Actors and records
 
@@ -398,6 +399,12 @@ Each slice records:
 The charter's initial workflow is the only `materialization-root`. Other
 workflows are ordinary unless a future deterministic rule identifies a truly
 exclusive operation.
+
+External actions remain separate from Blueprint effects. New-plan admission
+allows manual setup and after-slice readiness, but rejects blocking before-root
+or before-slice actions until a typed durable receipt producer exists. An
+unresolved construction dependency stays linked to a blocking user question,
+so an accepted design cannot be mistaken for a plan the executor can start.
 
 ### 5.2 Construction groups
 

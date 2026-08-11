@@ -20,8 +20,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
 - `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
-  and acyclic record hierarchies. A structurally incoherent contract is never
-  persisted.
+  a dependency-free initial workflow, acyclic workflow and record hierarchies,
+  and a blocking user question for every unresolved construction dependency.
+  A structurally incoherent contract is never persisted.
 - `review.ts` defines independent findings, dispositions, and revisions.
   Critical and important findings cite the exact source or contract elements
   they concern; advisory observations do not create traceability work. Only

@@ -138,6 +138,19 @@ export function validateDesignGraph(
 			"The initial useful workflow must be included in this app.",
 		);
 	}
+	const initialWorkflow = contract.workflows.find(
+		(workflow) => workflow.id === contract.charter.initialWorkflowId,
+	);
+	if (
+		initialWorkflow !== undefined &&
+		initialWorkflow.prerequisiteWorkflowIds.length > 0
+	) {
+		issue(
+			ctx,
+			["charter", "initialWorkflowId"],
+			"The initial workflow must not depend on another workflow.",
+		);
+	}
 	if (
 		new Set(contract.charter.includedWorkflowIds).size !==
 		contract.workflows.length
@@ -346,18 +359,25 @@ export function validateDesignGraph(
 		});
 	}
 
-	/* Workflow dependencies must be acyclic. */
+	/* Workflow dependencies must be acyclic. Shared prerequisite closures are
+	 * valid, so only a back edge to the active recursion stack is a cycle. */
 	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
 		contract.workflows.map((value) => [value.id, value]),
 	);
+	const workflowState = new Map<string, "active" | "complete">();
+	const visitWorkflow = (id: string): boolean => {
+		const state = workflowState.get(id);
+		if (state === "active") return true;
+		if (state === "complete") return false;
+		workflowState.set(id, "active");
+		const cyclic = (workflowById.get(id)?.prerequisiteWorkflowIds ?? []).some(
+			visitWorkflow,
+		);
+		workflowState.set(id, "complete");
+		return cyclic;
+	};
 	for (const [index, workflow] of contract.workflows.entries()) {
-		const seenWorkflow = new Set<string>();
-		const visit = (id: string): boolean => {
-			if (seenWorkflow.has(id)) return true;
-			seenWorkflow.add(id);
-			return (workflowById.get(id)?.prerequisiteWorkflowIds ?? []).some(visit);
-		};
-		if (workflow.prerequisiteWorkflowIds.some(visit))
+		if (visitWorkflow(workflow.id))
 			issue(
 				ctx,
 				["workflows", index, "prerequisiteWorkflowIds"],
@@ -443,6 +463,20 @@ export function validateDesignGraph(
 				["externalRequirements", requirementIndex, "blocksConstruction"],
 				"An unsupported promise must block the affected construction until the design changes.",
 			);
+		if (
+			requirement.blocksConstruction &&
+			!contract.openQuestions.some(
+				(question) =>
+					question.blocking &&
+					question.relatedElementIds.includes(requirement.id),
+			)
+		) {
+			issue(
+				ctx,
+				["externalRequirements", requirementIndex, "blocksConstruction"],
+				"A construction-blocking external requirement must remain tied to a blocking user question until it is resolved.",
+			);
+		}
 	});
 	const allIds = new Set(identities.map((value) => value.id));
 	contract.openQuestions.forEach((question, questionIndex) => {

@@ -57,9 +57,10 @@ export interface DesignAgentArgs {
 	 * provider compaction item. Durable workspace state, not the summarized
 	 * model history, remains authoritative across the boundary. */
 	readonly freshStateMessage: () => Promise<ModelMessage>;
-	/** Completed model steps before the current stream attempt. The runner
-	 * updates this at each transient redrive, keeping one budget per POST. */
-	readonly stepsBeforeStream: () => number;
+	/** Fixed count of completed model steps before this stream began. The
+	 * runner snapshots one POST-wide counter so SDK stop evaluation cannot
+	 * double-count the steps that `onStepEnd` just recorded. */
+	readonly stepsBeforeStream: number;
 	readonly onStepEnd?: (step: DesignAgentStep) => void;
 }
 
@@ -84,6 +85,56 @@ export function designStepBudgetReached(
 	stepsInCurrentStream: number,
 ): boolean {
 	return stepsBeforeStream + stepsInCurrentStream >= DESIGN_LOOP_STEP_BUDGET;
+}
+
+interface DesignStopStep {
+	readonly toolCalls: readonly (
+		| {
+				readonly toolCallId: string;
+				readonly toolName: string;
+		  }
+		| undefined
+	)[];
+	readonly toolResults: readonly (
+		| {
+				readonly toolCallId: string;
+				readonly output: unknown;
+		  }
+		| undefined
+	)[];
+}
+
+function isSuccessfulToolOutput(output: unknown): boolean {
+	return (
+		typeof output === "object" &&
+		output !== null &&
+		"ok" in output &&
+		(output as { readonly ok?: unknown }).ok === true
+	);
+}
+
+/** A finalizer ends a phase only after its tool result confirms that the
+ * durable phase advanced. A rejected finalizer stays in the same SDK loop so
+ * the model receives and repairs the exact diagnostics without a user retry. */
+export function designPhaseTerminalSucceeded(
+	steps: readonly DesignStopStep[],
+	terminalToolName: string,
+): boolean {
+	const terminalCallIds = new Set(
+		steps.flatMap((step) =>
+			step.toolCalls.flatMap((call) =>
+				call?.toolName === terminalToolName ? [call.toolCallId] : [],
+			),
+		),
+	);
+	return steps.some((step) =>
+		step.toolResults.some(
+			(result) =>
+				result !== undefined &&
+				terminalCallIds.has(result.toolCallId) &&
+				isSuccessfulToolOutput(result.output),
+		),
+	);
 }
 
 function isDesignStateMessage(message: ModelMessage): boolean {
@@ -152,11 +203,9 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			args.constraintsText,
 		].join("\n"),
 		stopWhen: ({ steps }) =>
-			designStepBudgetReached(args.stepsBeforeStream(), steps.length) ||
+			designStepBudgetReached(args.stepsBeforeStream, steps.length) ||
 			(phaseTerminal !== null &&
-				steps.some((step) =>
-					step.toolCalls.some((call) => call?.toolName === phaseTerminal),
-				)),
+				designPhaseTerminalSucceeded(steps, phaseTerminal)),
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,

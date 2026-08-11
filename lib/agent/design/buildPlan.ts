@@ -608,7 +608,18 @@ export function deriveBuildPlan(args: {
 	});
 }
 
-/** Compatibility helper for callers that only need structural diagnostics. */
-export function newPlanAdmissionMessages(_plan: BuildPlan): string[] {
-	return [];
+/** Environment-dependent admission policy. The v1 schema retains producer-
+ * bound blocking-action timings, but this deployment may not persist one
+ * until its durable receipt producer is registered. */
+export function newPlanAdmissionMessages(
+	plan: Pick<BuildPlan, "externalActions">,
+): string[] {
+	return plan.externalActions.flatMap((action) =>
+		action.timing === "before-materialization" ||
+		action.timing === "before-slice"
+			? [
+					`External action ${action.id} uses ${action.timing}, but no registered completion producer can issue its durable receipt. Use manual-setup or after-slice for a newly admitted plan.`,
+				]
+			: [],
+	);
 }

@@ -311,12 +311,7 @@ export async function runDesignAgentLoop(
 				: gates.verdicts.submitContract.legal
 					? "author"
 					: "awaiting-input";
-	const phaseSteps: Record<InternalPhase, number> = {
-		author: 0,
-		review: 0,
-		revision: 0,
-		"awaiting-input": 0,
-	};
+	let completedModelSteps = 0;
 
 	let turnRetries = 0;
 	const openParts = createOpenPartTracker();
@@ -332,7 +327,8 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
-		if (phaseSteps[phase] >= DESIGN_LOOP_STEP_BUDGET) break;
+		if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) break;
+		const stepsBeforeStream = completedModelSteps;
 		const agent = createDesignAgent({
 			model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 			tools,
@@ -344,9 +340,9 @@ export async function runDesignAgentLoop(
 			fatalError: () => repair.fatalError(),
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
-			stepsBeforeStream: () => phaseSteps[phase],
+			stepsBeforeStream,
 			onStepEnd: (step) => {
-				phaseSteps[phase] += 1;
+				completedModelSteps += 1;
 				args.onAgentStep?.(step);
 			},
 		});
@@ -656,11 +652,7 @@ export async function runDesignAgentLoop(
 			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
-	const finalPhase = phaseFor(finalGates);
-	if (
-		fatal !== undefined ||
-		phaseSteps[finalPhase] >= DESIGN_LOOP_STEP_BUDGET
-	) {
+	if (fatal !== undefined || completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
 		return {
 			kind: "failed",
 			errorType: "design-loop-budget",
