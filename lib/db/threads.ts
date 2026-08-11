@@ -645,6 +645,7 @@ export async function upsertThreadTurn(args: {
 							incoming,
 						) as StoredMessage,
 					];
+					clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
 				}
 			}
 		}

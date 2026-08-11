@@ -35,6 +35,7 @@ import {
 } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
+import { trimInterruptedRecoveryHistory } from "@/lib/chat/interruptedRecovery";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
@@ -118,38 +119,6 @@ import { isFatalStreamErrorChunk } from "./streamFailure";
  * Vercel-platform hint the runtime does not enforce. Kept so the value isn't
  * misread as a 5-minute cap that does not exist here. */
 export const maxDuration = 300;
-
-/** Reconstruct the completed input boundary of a run whose process died.
- * A fresh turn's partial assistant message disappears whole. An answered
- * question continuation keeps the same assistant message id across runs, so
- * preserve its parts through the last durable answer and discard only the
- * later partial work. `upsertThreadTurn` recognizes this exact-prefix rewind
- * under the dead stream marker and installs it as the durable baseline. */
-export function trimInterruptedRecoveryHistory<T extends UIMessage>(
-	messages: readonly T[],
-): T[] {
-	const trailing = messages.at(-1);
-	if (trailing?.role !== "assistant") return [...messages];
-	let lastAnsweredQuestion = -1;
-	for (const [index, part] of trailing.parts.entries()) {
-		if (
-			part.type === "tool-askQuestions" &&
-			"state" in part &&
-			part.state === "output-available"
-		) {
-			lastAnsweredQuestion = index;
-		}
-	}
-	if (lastAnsweredQuestion < 0) return messages.slice(0, -1);
-	if (lastAnsweredQuestion === trailing.parts.length - 1) return [...messages];
-	return [
-		...messages.slice(0, -1),
-		{
-			...trailing,
-			parts: trailing.parts.slice(0, lastAnsweredQuestion + 1),
-		} as T,
-	];
-}
 
 /* Serialize-with-wait poll cadence + ceiling. A conflicting SA request opens
  * its SSE stream and polls `claimRun` every `CLAIM_WAIT_POLL_MS` until the

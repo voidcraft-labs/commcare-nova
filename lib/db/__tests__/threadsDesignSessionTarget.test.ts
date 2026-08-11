@@ -513,7 +513,32 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		]);
 		expect(messages[1]).toEqual(completed);
 		expect(row.active_stream_id).toBe("stream-redrive-prefix");
-		expect(row.clawed_back_ids).toEqual([]);
+		expect(row.clawed_back_ids).toEqual(["a-continued"]);
+
+		await mergeThreadTurnMessages({
+			target,
+			threadId,
+			messages: [
+				userMsg("m1", "question"),
+				{
+					...completed,
+					parts: [
+						...completed.parts,
+						{ type: "step-start" },
+						{ type: "text", text: "stale unfinished continuation" },
+					],
+				},
+			],
+			expectedProjectId: PROJECT,
+		});
+		const afterStaleMerge = await h
+			.db()
+			.selectFrom("threads")
+			.select(["messages", "clawed_back_ids"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		expect((afterStaleMerge.messages as UIMessage[])[1]).toEqual(completed);
+		expect(afterStaleMerge.clawed_back_ids).toEqual(["a-continued"]);
 	});
 
 	it("bailed-history merge lands real state without touching identity or marker", async () => {

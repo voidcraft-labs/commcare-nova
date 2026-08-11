@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendOrchestrationEvent } from "@/lib/agent/build/orchestratorState";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { trimInterruptedRecoveryHistory } from "@/lib/chat/interruptedRecovery";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	createPerTestAppDb,
@@ -83,7 +84,7 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: vi.fn(async () => undefined),
 }));
 
-const { POST, trimInterruptedRecoveryHistory } = await import("../route");
+const { POST } = await import("../route");
 
 const USER = "user-design-1";
 const PROJECT = "project-design-1";
